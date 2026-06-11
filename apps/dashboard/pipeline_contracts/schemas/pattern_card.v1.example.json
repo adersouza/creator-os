@@ -1,0 +1,25 @@
+{
+  "schema": "reference_factory.pattern_card.v1",
+  "id": "pattern_mirror_001",
+  "platform": "instagram",
+  "source": {
+    "referenceId": "ref_001",
+    "creator": "example_creator",
+    "path": "/tmp/reference.mp4"
+  },
+  "formatType": "mirror_selfie",
+  "hookType": "pov",
+  "visualPattern": "Phone-native mirror selfie with short high-contrast overlay.",
+  "shotSequence": ["medium mirror selfie", "small pose shift"],
+  "cameraStyle": { "framing": "vertical 9:16", "movement": "handheld still" },
+  "subjectAction": "confident mirror pose",
+  "textOverlayStyle": { "placement": "lower third", "fontStyle": "white with dark stroke" },
+  "pacing": { "energy": "medium", "cutRhythm": "single shot" },
+  "audioVibe": { "energy": "medium", "moodTags": ["glam", "relationship"] },
+  "ctaPattern": "soft curiosity",
+  "reuseRisk": "medium",
+  "copyRiskNotes": ["Do not copy creator identity or exact overlay."],
+  "transformationInstructions": ["Change outfit, room details, caption, and audio."],
+  "viralityMetrics": { "views": 120000 },
+  "qualityWarnings": []
+}

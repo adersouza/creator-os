@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Campaign Factory</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="stylesheet" href="/static/styles.css?v=15" />
+  </head>
+  <body>
+    <nav class="creator-switcher" aria-label="Creator OS apps">
+      <div>
+        <span class="creator-eyebrow">Creator OS</span>
+        <strong>Operator Suite</strong>
+      </div>
+      <div class="creator-tabs">
+        <a id="campaignFactoryTab" class="active" href="http://localhost:8877/">Campaign Factory</a>
+        <a id="reelFactoryTab" href="http://localhost:8765/">Reel Factory</a>
+      </div>
+    </nav>
+    <main class="operator-shell">
+      <aside class="command-rail" aria-label="Command center">
+        <div class="rail-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Campaign Factory</h1>
+            <p>Operator control room</p>
+          </div>
+        </div>
+
+        <nav class="rail-nav" aria-label="Primary">
+          <span>Command Center</span>
+          <a class="active" href="#overview">Overview</a>
+          <a href="#creative">Creative Plan</a>
+          <a href="#newBatch">New Batch</a>
+          <a href="#audioGate">Audio Gate</a>
+          <a href="#pipelineControls">Pipeline Controls</a>
+          <span>Operations</span>
+          <a href="#reviewQueue">Review Queue</a>
+          <a href="#recommendationsPanel">Recommendations</a>
+          <a href="#variantPacks">Variant Packs</a>
+          <a href="#distributionPlan">Schedule / Export</a>
+          <a href="#activityLog">Activity Log</a>
+          <span>Data & Insights</span>
+          <a href="#trustLayer">Trust Layer</a>
+          <a href="#audioMemory">Audio Memory</a>
+          <a href="#logPanel">Performance</a>
+        </nav>
+
+        <div class="rail-footer">
+          <span>Campaign</span>
+          <b id="railCampaign">-</b>
+          <button id="railRefresh" type="button">Change Campaign</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar" id="overview">
+          <div class="campaign-controls">
+            <label>Campaign <input id="campaign" autocomplete="off" placeholder="may_launch" /></label>
+            <label>Model <input id="model" autocomplete="off" placeholder="model_a" /></label>
+            <label>Accounts <input id="accounts" autocomplete="off" placeholder="@ig_one,@ig_two" /></label>
+          </div>
+          <div class="topbar-actions">
+            <span id="lastUpdated">Last updated -</span>
+            <button id="refresh" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <div id="summary" class="status-strip"></div>
+
+        <section class="workflow-grid" aria-label="Operational workflow">
+          <section id="creative" class="operation-card">
+            <div class="card-title">
+              <span class="card-icon">CP</span>
+              <div>
+                <h2>Creative Plan</h2>
+                <p>Daily batch goal, source lanes, and prompt progress.</p>
+              </div>
+            </div>
+            <div id="creativePlanSummary" class="card-kpi"></div>
+            <details class="card-config">
+              <summary>Configure creative plan</summary>
+              <div class="compact-grid">
+                <label>Plan name <input id="creativePlanName" placeholder="stacey_daily_001" /></label>
+                <label>Target account <input id="creativePlanAccount" placeholder="staceybennetx" /></label>
+                <label>Daily target <input id="creativePlanTarget" type="number" min="1" max="100" value="10" /></label>
+                <label>Style lanes <input id="creativePlanLanes" value="amateur_native,polished_glam,slideshow_story,pov_relationship,lifestyle_scene" /></label>
+                <label>Model profile <input id="creativePlanModel" placeholder="stacey" /></label>
+                <label>Source accounts <input id="creativePlanSources" placeholder="staceybennetx,competitor_refs" /></label>
+                <label class="wide">Prompt export <input id="creativePlanPromptExport" placeholder="/path/to/generated_video_prompts.json" /></label>
+              </div>
+            </details>
+            <div class="action-row">
+              <button id="createCreativePlanBtn" type="button">Create / Update Plan</button>
+              <button id="syncCreativePlanBtn" type="button">Sync Prompt Progress</button>
+            </div>
+          </section>
+
+          <section id="newBatch" class="operation-card">
+            <div class="card-title">
+              <span class="card-icon">NB</span>
+              <div>
+                <h2>New Batch</h2>
+                <p>Import, render, audit, and write a dry-run draft manifest.</p>
+              </div>
+            </div>
+            <div id="newBatchSummary" class="card-kpi"></div>
+            <details class="card-config">
+              <summary>Configure batch inputs</summary>
+              <div class="compact-grid">
+                <label>Source folder <input id="folder" placeholder="/path/to/higgsfield/outputs" /></label>
+                <label>Finished video <input id="finishedVideo" placeholder="/path/to/kling/output.mp4" /></label>
+                <label>Format
+                  <select id="batchFormat">
+                    <option value="auto">Auto</option>
+                    <option value="reel">Reel pack</option>
+                    <option value="slideshow">Slideshow pack</option>
+                  </select>
+                </label>
+                <label>Variant count <input id="batchVariantCount" type="number" min="1" max="100" value="8" /></label>
+                <label>Reference pattern <input id="batchReferencePattern" placeholder="auto" /></label>
+                <label>ContentForge URL <input id="contentforgeUrl" placeholder="http://127.0.0.1:3100" /></label>
+                <label class="wide">Supabase user ID <input id="userId" placeholder="Supabase auth user id" /></label>
+              </div>
+            </details>
+            <div class="action-row">
+              <label class="check"><input id="batchAutoApprove" type="checkbox" checked /> Mark ready/warning-only assets for review</label>
+              <button id="makeBatchBtn" type="button">Run Batch</button>
+              <button id="finishedVideoBtn" type="button">Intake Finished Video</button>
+            </div>
+          </section>
+
+          <section id="audioGate" class="operation-card compact-card">
+            <div class="card-title">
+              <span class="card-icon">AG</span>
+              <div>
+                <h2>Audio Gate</h2>
+                <p>Native audio stays manual and proof-gated.</p>
+              </div>
+            </div>
+            <div id="audioGateSummary" class="mini-summary"></div>
+            <button id="openThreadsDashboardBtn" type="button">Open in ThreadsDashboard</button>
+          </section>
+
+          <section id="distributionPlan" class="operation-card compact-card">
+            <div class="card-title">
+              <span class="card-icon">SE</span>
+              <div>
+                <h2>Schedule / Export</h2>
+                <p>Preview schedule and draft export controls.</p>
+              </div>
+            </div>
+            <div id="distributionSummary" class="card-kpi two"></div>
+            <details class="card-config">
+              <summary>Configure schedule</summary>
+              <div class="compact-grid single">
+                <label>Plan mode
+                  <select id="distributionMode">
+                    <option value="preview">Preview-only schedule</option>
+                    <option value="live">Live schedule metadata</option>
+                  </select>
+                </label>
+                <label>Strategy
+                  <select id="distributionStrategy">
+                    <option value="trial-heavy">Trial-heavy</option>
+                  </select>
+                </label>
+                <label>Schedule export
+                  <select id="scheduleMode">
+                    <option value="draft">Unscheduled drafts</option>
+                    <option value="preview">Preview-only scheduled rows (advanced)</option>
+                    <option value="live">Publishable scheduled rows</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+            <div class="action-row vertical">
+              <button id="planDistributionBtn" type="button">Plan Distribution</button>
+              <button id="exportPreviewScheduleBtn" type="button" disabled title="Disabled until native audio is selected or verified in ThreadsDashboard">Export Preview</button>
+              <button id="promotePreviewBtn" type="button" disabled title="Disabled until native audio workflow is complete">Promote Live</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="review-workspace">
+          <div class="section-header">
+            <div>
+              <h2 id="variantPacksHeading">Variant Packs</h2>
+              <p>Compare siblings from the same source before approving or rejecting.</p>
+            </div>
+            <a href="#reviewQueue">View review queue</a>
+          </div>
+          <div id="variantPacks"></div>
+        </section>
+
+        <section class="review-workspace" id="reviewQueue">
+          <div class="section-header">
+            <div>
+              <h2>Rendered Review Queue</h2>
+              <p>Ranked rendered assets with audit, readiness, and operator actions.</p>
+            </div>
+            <div class="queue-tabs" aria-label="Queue filters">
+              <span>All</span>
+              <span>Ready</span>
+              <span>Needs Review</span>
+              <span>Blocked</span>
+            </div>
+          </div>
+          <div id="rendered"></div>
+        </section>
+
+        <details id="pipelineControls" class="pipeline-drawer">
+          <summary>Pipeline Controls</summary>
+          <section class="manual-grid">
+            <div class="manual-card">
+              <h2>Manual Import</h2>
+              <p>Use the normal New Batch panel first. These controls are for debugging individual stages.</p>
+              <label>Notes <textarea id="notes" rows="3"></textarea></label>
+              <button id="importBtn" type="button">Import Folder</button>
+            </div>
+
+            <div class="manual-card">
+              <h2>Reel Inputs</h2>
+              <label>Hooks <textarea id="hooks" rows="7" placeholder="one hook per line"></textarea></label>
+              <label>Recipes <input id="recipes" placeholder="v01_original,v05_hflip" /></label>
+              <button id="prepareBtn" type="button">Prepare Inputs</button>
+              <button id="runBtn" type="button">Run reel_factory</button>
+              <button id="syncBtn" type="button">Sync Rendered</button>
+            </div>
+
+            <form class="manual-card" autocomplete="off" onsubmit="return false;">
+              <h2>Audit & Export</h2>
+              <button id="auditBtn" type="button">Run ContentForge Audit</button>
+              <label>Supabase URL <input id="supabaseUrl" placeholder="env fallback" /></label>
+              <label>Service role key <input id="supabaseKey" type="password" autocomplete="off" placeholder="env fallback" /></label>
+              <label>Storage bucket <input id="supabaseBucket" placeholder="media" /></label>
+              <label>Content pillar <input id="contentPillar" placeholder="fit check, lifestyle, promo" /></label>
+              <label>CTA type <input id="ctaType" placeholder="none, profile_visit, subscribe" /></label>
+              <label>Language <input id="language" placeholder="en" /></label>
+              <label class="check"><input id="realExport" type="checkbox" /> Write real Supabase draft rows</label>
+              <button id="preflightBtn" type="button">Supabase Preflight</button>
+              <button id="usageBtn" type="button">Check Usage</button>
+              <button id="performanceBtn" type="button">Sync Performance</button>
+              <button id="readinessBtn" type="button">Check Export Readiness</button>
+              <button id="campaignReadinessBtn" type="button">Campaign Readiness</button>
+              <button id="accountPlanBtn" type="button">Account Plan</button>
+              <button id="rankingBtn" type="button">Ranking</button>
+              <button id="safeSmokeBtn" type="button">Safe Live Smoke</button>
+              <button id="exportBtn" type="button">Export Draft Manifest</button>
+            </form>
+          </section>
+        </details>
+
+        <section class="review-workspace" id="activityLog">
+          <div class="section-header">
+            <div>
+              <h2>Activity Log</h2>
+              <p>Recent events and jobs for the selected campaign.</p>
+            </div>
+          </div>
+          <div class="activity-grid">
+            <div>
+              <h3>Recent Activity</h3>
+              <div id="activity"></div>
+            </div>
+            <div>
+              <h3>Recent Jobs</h3>
+              <div id="jobs"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="review-workspace" id="logPanel">
+          <div class="section-header">
+            <div>
+              <h2>Log</h2>
+              <p>Last command response or detail payload.</p>
+            </div>
+          </div>
+          <pre id="log"></pre>
+        </section>
+      </section>
+
+      <aside class="proof-rail">
+        <section id="trustLayer" class="proof-card">
+          <div id="accountMemory"></div>
+        </section>
+        <section class="proof-card">
+          <div id="recommendationProof"></div>
+        </section>
+        <section id="audioMemory" class="proof-card">
+          <div id="audioTrust"></div>
+        </section>
+        <section class="proof-card">
+          <div id="exceptions"></div>
+        </section>
+        <section id="recommendationsPanel" class="proof-card">
+          <div class="proof-card-header">
+            <h2>Recommendations</h2>
+            <span id="recommendationCount" class="count-pill">0</span>
+          </div>
+          <div class="recommendation-controls">
+            <select id="autonomyLevel" title="Autonomy level">
+              <option value="level_1">Level 1</option>
+              <option value="level_2">Level 2</option>
+              <option value="level_3">Level 3</option>
+            </select>
+            <button id="saveAutonomyBtn" type="button">Save</button>
+            <button id="rebuildAccountMemoryBtn" type="button">Rebuild Memory</button>
+            <button id="loadExceptionsBtn" type="button">Load Exceptions</button>
+            <button id="runRecommendationsBtn" type="button">Run</button>
+          </div>
+          <div id="recommendations"></div>
+        </section>
+      </aside>
+    </main>
+    <script src="/static/app.js?v=15"></script>
+  </body>
+</html>

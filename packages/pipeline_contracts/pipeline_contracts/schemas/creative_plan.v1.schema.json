@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.creative_plan.v1",
+  "title": "Campaign Factory Creative Plan",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "platform",
+    "goal",
+    "target_account",
+    "daily_base_video_target",
+    "style_lanes",
+    "model_profile",
+    "source_accounts",
+    "status",
+    "counts",
+    "next_actions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "campaign_factory.creative_plan.v1"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "target_account": {
+      "type": "string"
+    },
+    "daily_base_video_target": {
+      "type": "integer"
+    },
+    "style_lanes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "model_profile": {
+      "type": "string"
+    },
+    "source_accounts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "references_selected",
+        "prompts_ready",
+        "generated",
+        "ingested",
+        "rendered",
+        "audited",
+        "reviewed",
+        "exported",
+        "posted",
+        "measured"
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "references",
+        "analyses",
+        "image_prompts",
+        "video_prompts",
+        "generated_videos",
+        "ingested_videos",
+        "rendered_outputs",
+        "reviewed_outputs",
+        "exported_drafts",
+        "posted_items",
+        "measured_items"
+      ],
+      "properties": {
+        "references": {
+          "type": "integer"
+        },
+        "analyses": {
+          "type": "integer"
+        },
+        "image_prompts": {
+          "type": "integer"
+        },
+        "video_prompts": {
+          "type": "integer"
+        },
+        "generated_videos": {
+          "type": "integer"
+        },
+        "ingested_videos": {
+          "type": "integer"
+        },
+        "rendered_outputs": {
+          "type": "integer"
+        },
+        "reviewed_outputs": {
+          "type": "integer"
+        },
+        "exported_drafts": {
+          "type": "integer"
+        },
+        "posted_items": {
+          "type": "integer"
+        },
+        "measured_items": {
+          "type": "integer"
+        }
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "linked_campaign": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pipelineTraceId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+    }
+  }
+}

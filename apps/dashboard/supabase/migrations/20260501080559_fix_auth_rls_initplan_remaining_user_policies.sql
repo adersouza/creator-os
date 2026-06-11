@@ -1,0 +1,3 @@
+-- Historical production migration marker.
+-- Remaining user-policy initplan fixes are preserved in later idempotent RLS
+-- hardening migrations.

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.generated_asset_lineage.v1",
+  "title": "Campaign Factory Generated Asset Lineage",
+  "type": "object",
+  "required": ["schema", "source", "generation", "review"],
+  "properties": {
+    "schema": { "const": "campaign_factory.generated_asset_lineage.v1" },
+    "source": { "type": "object" },
+    "generation": { "type": "object" },
+    "review": { "type": "object" },
+    "quality": { "type": "object" },
+    "asset_state": {
+      "type": "string",
+      "enum": [
+        "approved_but_not_publishable",
+        "publishable_candidate",
+        "exportable",
+        "invalid_retired_draft"
+      ]
+    },
+    "publishability_failure_reasons": { "type": "array" },
+    "blockingReason": { "type": ["string", "null"] },
+    "rootCause": { "type": ["string", "null"] },
+    "captionOutcomeContext": { "$ref": "caption_outcome_context.v1.schema.json" }
+  }
+}

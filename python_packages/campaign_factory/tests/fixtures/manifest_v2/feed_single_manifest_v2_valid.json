@@ -1,0 +1,33 @@
+{
+  "fixture": "feed_single_manifest_v2_valid",
+  "manifest_version": 2,
+  "asset_id": "asset_feed_single_manifest_v2_valid",
+  "rendered_asset_id": "asset_feed_single_manifest_v2_valid",
+  "source_asset_id": "source_feed_single_manifest_v2_valid",
+  "content_surface": "feed_single",
+  "contentSurface": "feed_single",
+  "ig_media_type": "IMAGE",
+  "igMediaType": "IMAGE",
+  "content_hash": "hash_feed_single_manifest_v2_valid",
+  "content_fingerprint": "hash_feed_single_manifest_v2_valid",
+  "caption_hash": "",
+  "instagram_post_caption": "Which one should I wear?",
+  "instagramPostCaption": "Which one should I wear?",
+  "instagram_post_caption_hash": "ig_caption_hash_feed_single",
+  "caption_family_id": "cfam_feed_single_valid",
+  "caption_version_id": "cver_feed_single_valid",
+  "mediaItems": [
+    {
+      "componentIndex": 0,
+      "mediaPath": "/tmp/creator-os-fixtures/feed_single_valid.jpg",
+      "mediaHash": "hash_feed_single_manifest_v2_valid",
+      "mediaType": "image"
+    }
+  ],
+  "surfaceReadiness": {
+    "canHandoff": true,
+    "blockingReasons": [],
+    "warnings": []
+  },
+  "wouldWrite": false
+}

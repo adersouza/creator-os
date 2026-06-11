@@ -1,0 +1,56 @@
+[
+  {
+    "name": "v00_passthrough",
+    "burn_caption": false,
+    "camera_variation": false
+  },
+  {
+    "name": "v01_original",
+    "trim_tail": 0.5
+  },
+  {
+    "name": "v05_hflip",
+    "hflip": true,
+    "trim_head": 0.5
+  },
+  {
+    "name": "v06_zoom",
+    "zoom": 1.06,
+    "trim_head": 0.3,
+    "trim_tail": 0.3
+  },
+  {
+    "name": "v07_tilt",
+    "tilt_deg": 0.65,
+    "zoom": 1.04,
+    "trim_tail": 0.3
+  },
+  {
+    "name": "v08_colorgrade_bright",
+    "color_preset": "bright_pop",
+    "trim_head": 0.2
+  },
+  {
+    "name": "v09_caption_bg",
+    "caption_style": "bubble",
+    "caption_band": "center",
+    "trim_tail": 0.4,
+    "camera_variation": false
+  },
+  {
+    "name": "v10_colorgrade_warm",
+    "color_preset": "warm",
+    "trim_head": 0.2
+  },
+  {
+    "name": "v11_colorgrade_cool",
+    "color_preset": "cool",
+    "trim_tail": 0.2
+  },
+  {
+    "name": "v12_feed_4x5",
+    "color_preset": "bright_pop",
+    "trim_tail": 0.2,
+    "target_ratios": ["4:5"]
+  }
+]

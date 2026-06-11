@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- Primary meta -->
+    <title>Juno33 — Social publishing for operators</title>
+    <meta name="description" content="Manage, publish, and analyze multi-account social campaigns across Threads and Instagram from one editorial console." />
+    <meta name="application-name" content="Juno33" />
+    <meta name="generator" content="Juno33" />
+    <meta name="author" content="Juno33" />
+    <link rel="canonical" href="https://juno33.com/" />
+
+    <!-- Theme color (light + dark) -->
+    <meta name="theme-color" content="#F4F1E8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0A0A0B" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Favicons / icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#0A0A0B" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Juno33" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Juno33" />
+    <meta property="og:title" content="Juno33 — Social publishing for operators" />
+    <meta property="og:description" content="Manage, publish, and analyze multi-account social campaigns across Threads and Instagram from one editorial console." />
+    <meta property="og:url" content="https://juno33.com/" />
+    <meta property="og:image" content="https://juno33.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Juno33 operator console — editorial dashboard for multi-account social publishing" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@juno33app" />
+    <meta name="twitter:creator" content="@juno33app" />
+    <meta name="twitter:title" content="Juno33 — Social publishing for operators" />
+    <meta name="twitter:description" content="Manage, publish, and analyze multi-account social campaigns across Threads and Instagram from one editorial console." />
+    <meta name="twitter:image" content="https://juno33.com/og-image.png" />
+
+    <!-- Perf hints -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://supabase.co" />
+
+    <!-- Self-hosted Satoshi — core UI weights preloaded so widget labels,
+         headings, and metrics render in the intended family on first paint. -->
+    <link rel="preload" href="/fonts/Satoshi-Regular.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/Satoshi-Medium.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/Satoshi-Bold.woff2" as="font" type="font/woff2" crossorigin />
+
+    <!-- JetBrains Mono from Google (separate concern, different cadence) -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- JSON-LD: Organization + SoftwareApplication -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://juno33.com/#org",
+            "name": "Juno33",
+            "url": "https://juno33.com/",
+            "logo": "https://juno33.com/icon-512.png",
+            "sameAs": [
+              "https://www.threads.net/@juno33",
+              "https://www.instagram.com/juno33"
+            ]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Juno33",
+            "operatingSystem": "Web, iOS, Android",
+            "applicationCategory": "BusinessApplication",
+            "description": "Manage, publish, and analyze multi-account social campaigns across Threads and Instagram from one editorial console.",
+            "url": "https://juno33.com/",
+            "publisher": { "@id": "https://juno33.com/#org" },
+            "offers": {
+              "@type": "Offer",
+              "price": "19",
+              "priceCurrency": "USD",
+              "url": "https://juno33.com/pricing"
+            }
+          }
+        ]
+      }
+    </script>
+
+    <script src="/sw-version-check.js"></script>
+    <script src="/theme-init.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="padding: 24px; font-family: system-ui; text-align: center;">
+        Juno33 requires JavaScript. Please enable it to continue.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

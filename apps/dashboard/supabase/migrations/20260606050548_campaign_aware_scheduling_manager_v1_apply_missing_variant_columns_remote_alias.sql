@@ -1,0 +1,4 @@
+-- Remote history alias.
+-- The equivalent replayable DDL is kept in:
+-- 20260605061213_campaign_aware_scheduling_manager_v1.sql
+-- This no-op file keeps local migration inventory aligned with production.

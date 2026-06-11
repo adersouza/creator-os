@@ -1,0 +1,18 @@
+{
+  "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+  "tool": "higgsfield_soul_image",
+  "status": "prompt_ready",
+  "sourceReferenceId": "ref_001",
+  "sourcePatternId": "pattern_mirror_001",
+  "modelProfile": "soul_id_primary",
+  "mainPrompt": "Create a vertical mirror selfie first frame using the selected Soul ID model.",
+  "negativePrompt": "copied identity, watermark, username, low quality",
+  "closenessControls": {
+    "format_closeness": "high",
+    "identity_copy_risk": "blocked",
+    "scene_variation_required": true
+  },
+  "formatCard": {},
+  "aspectRatio": "9:16",
+  "reviewNotes": []
+}

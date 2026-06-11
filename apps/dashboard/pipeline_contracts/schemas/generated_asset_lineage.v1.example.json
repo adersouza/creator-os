@@ -1,0 +1,46 @@
+{
+  "schema": "campaign_factory.generated_asset_lineage.v1",
+  "source": {
+    "referenceId": "ref_001",
+    "patternCardId": "pattern_mirror_001",
+    "promptId": "prompt_001",
+    "formatType": "mirror_selfie"
+  },
+  "generation": {
+    "tool": "higgsfield_kling_manual",
+    "modelProfile": "soul_id_primary",
+    "assetPath": "/tmp/generated.mp4"
+  },
+  "review": {
+    "humanReviewRequired": true,
+    "status": "approved",
+    "approved": true
+  },
+  "quality": {
+    "copyRisk": "medium",
+    "captioned_render_present": true,
+    "visible_caption_verification": "pass",
+    "expected_visual_verification": "pass",
+    "content_fingerprint": "content_fp_generated_001",
+    "readiness_checks_pass": true
+  },
+  "asset_state": "publishable_candidate",
+  "captionOutcomeContext": {
+    "schema": "campaign_factory.caption_outcome_context.v1",
+    "caption_hash": "caption_hash_rendered",
+    "caption_text": "Hard launch energy.",
+    "caption_bank": "launch_hooks",
+    "caption_banks": ["launch_hooks"],
+    "creator_mix": "Lola",
+    "creator_model": "lola_v1",
+    "frame_type": "mirror_selfie",
+    "length_class": "short",
+    "format_class": "reel",
+    "caption_fit_version": "v1",
+    "suitability_decision": "allowed",
+    "suitability_reason": "frame_match",
+    "render_recipe": "reel_factory.preview.v1",
+    "source_clip": "/tmp/source.mp4",
+    "rendered_output": "/tmp/rendered.mp4"
+  }
+}

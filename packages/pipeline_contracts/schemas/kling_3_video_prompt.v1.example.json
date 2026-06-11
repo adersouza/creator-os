@@ -1,0 +1,21 @@
+{
+  "schema": "reference_factory.kling_3_video_prompt.v1",
+  "tool": "kling_3_video",
+  "status": "prompt_ready",
+  "sourceReferenceId": "ref_001",
+  "sourcePatternId": "pattern_mirror_001",
+  "modelProfile": "soul_id_primary",
+  "firstFrameInstruction": "Use the generated Soul ID image as the first/reference frame.",
+  "mainPrompt": "Create a 5 second vertical video with subtle pose movement and phone-native camera feel.",
+  "negativePrompt": "copied identity, watermark, username, bad hands, low quality",
+  "closenessControls": {
+    "format_closeness": "high",
+    "identity_copy_risk": "blocked",
+    "scene_variation_required": true
+  },
+  "scenes": [
+    { "durationSeconds": 5, "action": "subtle pose shift", "camera": "handheld still" }
+  ],
+  "aspectRatio": "9:16",
+  "reviewNotes": []
+}

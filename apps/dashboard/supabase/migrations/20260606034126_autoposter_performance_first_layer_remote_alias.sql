@@ -1,0 +1,4 @@
+-- Remote history alias.
+-- The equivalent replayable DDL is kept in:
+-- 20260606032848_autoposter_performance_first_layer.sql
+-- This no-op file keeps local migration inventory aligned with production.

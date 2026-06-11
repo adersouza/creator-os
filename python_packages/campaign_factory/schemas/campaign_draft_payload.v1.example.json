@@ -1,0 +1,49 @@
+{
+  "schema": "campaign_factory.threadsdash_drafts.v1",
+  "campaign": "audio_smoke",
+  "drafts": [
+    {
+      "platform": "instagram",
+      "status": "draft",
+      "distributionSurface": "regular_reel",
+      "metadata": {
+        "campaign_factory": {
+          "graph_id": "cg_rendered_asset_assetsmoke01",
+          "campaign_graph_id": "cg_campaign_campsmoke001",
+          "source_asset_graph_id": "cg_source_asset_sourcesmoke1",
+          "rendered_asset_graph_id": "cg_rendered_asset_assetsmoke01",
+          "audit_graph_id": "cg_audit_report_auditsmoke01",
+          "campaign_id": "camp_smoke",
+          "rendered_asset_id": "asset_smoke",
+          "audio_intent": {
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "native_platform_audio",
+            "required": true,
+            "status": "recommended",
+            "platform": "instagram",
+            "surface": "regular_reel",
+            "recommendations": [
+              {
+                "audio_title": "Runway Pop",
+                "artist_name": "DJ A",
+                "platform_audio_id": "ig_runway_pop",
+                "platform_url": "https://instagram.com/audio/runway_pop",
+                "freshness": "rising",
+                "confidence": 0.9,
+                "vibe_tags": ["glam", "fit_check"],
+                "rationale": "trend:rising, tag_match:fit_check",
+                "instruction": "Attach native instagram audio: Runway Pop"
+              }
+            ],
+            "gates": {
+              "allow_draft_export": true,
+              "allow_preview_schedule": false,
+              "allow_live_schedule": false,
+              "allow_publish": false
+            }
+          }
+        }
+      }
+    }
+  ]
+}

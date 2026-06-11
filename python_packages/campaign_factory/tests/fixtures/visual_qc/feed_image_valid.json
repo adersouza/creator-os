@@ -1,0 +1,12 @@
+{
+  "fixture": "feed_image_valid",
+  "surface": "feed_single",
+  "mediaType": "image",
+  "width": 1080,
+  "height": 1350,
+  "aspectRatio": "4:5",
+  "contentHashPresent": true,
+  "instagramPostCaptionPresent": true,
+  "expectedPass": true,
+  "expectedFailureReasons": []
+}

@@ -1,0 +1,32 @@
+[project]
+name = "reel-factory"
+version = "0.1.0"
+description = "Local deterministic short-form reel rendering and review workflow"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "python-multipart",
+  "Pillow",
+  "imagehash",
+  "pipeline-contracts",
+  "rapidfuzz",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "playwright", "mypy"]
+vision = ["opencv-python", "mediapipe"]
+ai = ["sentence-transformers", "mlx-whisper"]
+pango = ["pycairo", "PyGObject"]
+queue = ["redis", "rq"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+[tool.uv.sources]
+pipeline-contracts = { workspace = true }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

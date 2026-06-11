@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.performance_sync.v1",
+  "title": "Campaign Factory Performance Sync",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "campaign", "userId", "summary"],
+  "properties": {
+    "schema": { "const": "campaign_factory.performance_sync.v1" },
+    "campaign": { "type": "string" },
+    "userId": { "type": "string" },
+    "checkedAt": { "type": "string" },
+    "postsScanned": { "type": "integer" },
+    "campaignFactoryPostsScanned": { "type": "integer" },
+    "inserted": { "type": "integer" },
+    "skipped": { "type": "integer" },
+    "summary": { "type": "object" }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.threadsdash_drafts.v1",
+  "title": "Campaign Factory ThreadsDashboard Draft Payload",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "campaign", "drafts"],
+  "properties": {
+    "schema": { "const": "campaign_factory.threadsdash_drafts.v1" },
+    "campaign": { "type": "string" },
+    "userId": { "type": "string" },
+    "drafts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["platform", "status", "metadata"],
+        "properties": {
+          "platform": { "type": "string" },
+          "status": { "type": "string" },
+          "distributionSurface": { "type": ["string", "null"] },
+          "metadata": {
+            "type": "object",
+            "required": ["campaign_factory"],
+            "properties": {
+              "campaign_factory": {
+                "type": "object",
+                "required": ["audio_intent"],
+                "properties": {
+                  "graph_id": { "type": ["string", "null"] },
+                  "campaign_graph_id": { "type": ["string", "null"] },
+                  "source_asset_graph_id": { "type": ["string", "null"] },
+                  "rendered_asset_graph_id": { "type": ["string", "null"] },
+                  "audit_graph_id": { "type": ["string", "null"] },
+                  "audio_intent": { "$ref": "audio_intent.v1.schema.json" }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

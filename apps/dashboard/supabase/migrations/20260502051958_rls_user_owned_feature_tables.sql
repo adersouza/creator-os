@@ -1,0 +1,3 @@
+-- Historical production migration marker.
+-- The idempotent RLS hardening SQL is represented in
+-- 20260502123000_rls_user_owned_feature_tables.sql.

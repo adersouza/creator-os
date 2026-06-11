@@ -1,0 +1,241 @@
+/* =========================================================================
+   APOLLO THEME — sun · golden warmth
+   -------------------------------------------------------------------------
+   Brand: #8C5A1A deep amber · Tide: #D89A2C bright gold.
+   Mirrors the Juno token shape exactly. Drop in alongside Juno + Neptune
+   and switch via [data-theme="apollo"] on <html>.
+
+   Status colors stay shared; networks + substrate shift warm-gold.
+   ========================================================================= */
+
+:root[data-theme="apollo"] {
+  color-scheme: light;
+
+  --color-background: #F5F1E8;
+  --color-foreground: #1F1610;
+
+  --color-card: rgba(255, 255, 255, 0.55);
+  --color-card-elevated: #FFFFFF;
+  --color-card-foreground: #1F1610;
+
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1F1610;
+
+  --color-primary: #2A1F10;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #FFFFFF;
+  --color-secondary-foreground: #1F1610;
+
+  --color-muted: rgba(31, 22, 16, 0.04);
+  --color-muted-foreground: rgba(31, 22, 16, 0.55);
+
+  --color-accent: #8C5A1A;
+  --color-accent-foreground: #FFFFFF;
+
+  --color-border: rgba(31, 22, 16, 0.12);
+  --color-input: rgba(31, 22, 16, 0.12);
+  --color-ring: #2A1F10;
+
+  --color-success: #3F6B52;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #943A2A;
+  --color-error-foreground: #FFFFFF;
+  --color-info: #4F6B7A;
+  --color-info-foreground: #FFFFFF;
+
+  --color-ink: #2A1F10;
+  --color-chart-ink: #2A1F10;
+  --color-tide: #D89A2C;
+  --color-tide-bar: #D89A2C;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-ring-oxblood: rgba(216, 154, 44, 0.22);
+  --color-ring-oxblood-strong: rgba(216, 154, 44, 0.35);
+  --color-ring-tide: rgba(216, 154, 44, 0.22);
+  --color-ring-tide-strong: rgba(216, 154, 44, 0.35);
+
+  --color-gold: #8E6F2E;
+  --color-negative: #943A2A;
+
+  --color-health-good: #3F6B52;
+  --color-health-idle: #7A6B58;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(31, 22, 16, 0.35);
+
+  --color-photo-gradient-start: #F0D7CC;
+  --color-photo-gradient-end:   #C89B86;
+  --color-video-gradient-start: #D4C8E8;
+  --color-video-gradient-end:   #6B5C8E;
+  --color-upload-gradient-start: #E8D4C4;
+  --color-upload-gradient-end:   #C2A080;
+
+  --color-label: #1F1610;
+  --color-label-secondary: rgba(31, 22, 16, 0.72);
+  --color-label-tertiary: rgba(31, 22, 16, 0.60);
+  --color-label-quaternary: rgba(31, 22, 16, 0.32);
+
+  --color-aurora: #8C5A1A;
+  --color-meridian: #D89A2C;
+  --color-harbor: #7A6B58;
+  --color-vale: #B0742A;
+}
+
+:root[data-theme="apollo"].dark,
+:root[data-theme="apollo"] .dark {
+  color-scheme: dark;
+
+  --color-background: #0E0904;
+  --color-foreground: #F0E8D0;
+
+  --color-card: rgba(240, 232, 208, 0.06);
+  --color-card-elevated: #1F1808;
+  --color-card-foreground: #F0E8D0;
+
+  --color-popover: rgba(31, 24, 8, 0.85);
+  --color-popover-foreground: #F0E8D0;
+
+  --color-primary: #F0E8D0;
+  --color-primary-foreground: #0E0904;
+
+  --color-secondary: rgba(240, 232, 208, 0.04);
+  --color-secondary-foreground: #F0E8D0;
+
+  --color-muted: rgba(240, 232, 208, 0.04);
+  --color-muted-foreground: rgba(240, 232, 208, 0.55);
+
+  --color-accent: #E8B856;
+  --color-accent-foreground: #1A1004;
+
+  --color-border: rgba(240, 232, 208, 0.10);
+  --color-input: rgba(240, 232, 208, 0.10);
+  --color-ring: #F0E8D0;
+
+  --color-success: #5A9B72;
+  --color-success-foreground: #0A0A0B;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #D08080;
+  --color-error-foreground: #0A0A0B;
+  --color-info: #9DB9CC;
+  --color-info-foreground: #0A0A0B;
+
+  --color-ink: #F0E8D0;
+  --color-chart-ink: #E8DCB8;
+  --color-tide: #E8B856;
+  --color-tide-bar: #F0C870;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-tide-pill-bg: rgba(232, 184, 86, 0.10);
+  --color-oxblood-pill-bg: var(--color-tide-pill-bg);
+
+  --color-ring-oxblood: rgba(232, 184, 86, 0.28);
+  --color-ring-oxblood-strong: rgba(232, 184, 86, 0.38);
+  --color-ring-tide: rgba(232, 184, 86, 0.28);
+  --color-ring-tide-strong: rgba(232, 184, 86, 0.38);
+
+  --color-gold: #B48A3A;
+  --color-negative: #D08080;
+
+  --color-health-good: #5A9B72;
+  --color-health-idle: #A89878;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(240, 232, 208, 0.30);
+
+  --color-label: #F0E8D0;
+  --color-label-secondary: rgba(240, 232, 208, 0.72);
+  --color-label-tertiary: rgba(240, 232, 208, 0.55);
+  --color-label-quaternary: rgba(240, 232, 208, 0.35);
+
+  --color-aurora: #E8B856;
+  --color-meridian: #F0C870;
+  --color-harbor: #B0A088;
+  --color-vale: #D8A858;
+}
+
+:root[data-theme="apollo"] body::before {
+  content: '';
+  position: fixed; inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(12px);
+  background-image:
+    radial-gradient(ellipse 38% 32% at clamp(18%, calc(220px + 6vw), 32%) 20%, rgba(232, 168, 88, 0.42) 0%, transparent 70%),
+    radial-gradient(ellipse 42% 38% at clamp(68%, calc(100% - 320px), 82%) 62%, rgba(216, 138, 90, 0.32) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 110%, rgba(252, 244, 220, 0.50) 0%, transparent 70%);
+  animation: substrate-drift 80s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+:root[data-theme="apollo"].dark body::before,
+:root[data-theme="apollo"] .dark body::before {
+  filter: none;
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(140, 90, 26, 0.20) 0%, transparent 52%),
+    radial-gradient(circle at 82% 68%, rgba(58, 40, 10, 0.50) 0%, transparent 46%),
+    radial-gradient(circle at 50% 105%, rgba(232, 184, 86, 0.08) 0%, transparent 40%);
+}
+
+:root[data-theme="apollo"] {
+  --vib-primary: rgba(31, 22, 16, 1);
+  --vib-secondary: rgba(31, 22, 16, 0.68);
+  --vib-tertiary: rgba(31, 22, 16, 0.42);
+  --vib-quaternary: rgba(31, 22, 16, 0.22);
+}
+:root[data-theme="apollo"].dark,
+:root[data-theme="apollo"] .dark {
+  --vib-primary: rgba(240, 232, 208, 1);
+  --vib-secondary: rgba(240, 232, 208, 0.70);
+  --vib-tertiary: rgba(240, 232, 208, 0.42);
+  --vib-quaternary: rgba(240, 232, 208, 0.24);
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme="apollo"] {
+    --color-border: rgba(31, 22, 16, 0.25);
+    --color-label-secondary: rgba(31, 22, 16, 0.82);
+    --color-label-tertiary: rgba(31, 22, 16, 0.70);
+    --color-label-quaternary: rgba(31, 22, 16, 0.55);
+    --color-accent: #5A3A0E;
+    --color-tide: #A8721C;
+    --color-muted-foreground: rgba(31, 22, 16, 0.82);
+    --color-health-good: #1F5236;
+    --color-health-idle: #4A3F2E;
+    --color-health-warn: #8A6320;
+  }
+  :root[data-theme="apollo"].dark,
+  :root[data-theme="apollo"] .dark {
+    --color-border: rgba(240, 232, 208, 0.20);
+    --color-label-secondary: rgba(240, 232, 208, 0.78);
+    --color-label-tertiary: rgba(240, 232, 208, 0.65);
+    --color-label-quaternary: rgba(240, 232, 208, 0.50);
+    --color-accent: #F4D080;
+    --color-tide: #F4D080;
+    --color-muted-foreground: rgba(240, 232, 208, 0.78);
+    --color-health-good: #7FBE95;
+    --color-health-idle: #C0B098;
+    --color-health-warn: #D0A060;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="apollo"].dark,
+  :root[data-theme="apollo"] .dark {
+    --color-card: #1A1408;
+    --color-card-elevated: #1F1808;
+    --color-popover: #1F1808;
+  }
+  :root[data-theme="apollo"] .card { background: #FFFFFF; }
+  :root[data-theme="apollo"].dark .card,
+  :root[data-theme="apollo"] .dark .card { background: #1A1408; }
+}

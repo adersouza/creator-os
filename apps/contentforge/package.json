@@ -1,0 +1,39 @@
+{
+  "name": "contentforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "next start",
+    "test": "node --test",
+    "test:e2e": "node scripts/e2e-smoke.mjs",
+    "fixtures:campaign-factory": "node scripts/generate-campaign-fixtures.mjs",
+    "fixtures:campaign-factory:real": "node scripts/import-campaign-real-samples.mjs",
+    "fixtures:campaign-factory:discover": "node scripts/campaign-corpus-discover.mjs",
+    "fixtures:campaign-factory:feedback": "node scripts/campaign-sample-feedback.mjs",
+    "audit:campaign-factory:calibrate": "node scripts/campaign-audit-report.mjs --json --fail-on-mismatch",
+    "audit:campaign-factory:report": "node scripts/campaign-audit-report.mjs --markdown",
+    "audit:campaign-factory:html": "node scripts/campaign-audit-report.mjs --html",
+    "audit:campaign-factory:record": "node scripts/campaign-audit-report.mjs --markdown --write-history",
+    "audit:campaign-factory:ocr-benchmark": "node scripts/campaign-ocr-benchmark.mjs",
+    "cleanup:local-media": "node scripts/cleanup-local-media.mjs",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "next": "^16.2.6",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.6",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.1"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}

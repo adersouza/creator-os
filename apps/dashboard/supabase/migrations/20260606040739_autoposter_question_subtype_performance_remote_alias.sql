@@ -1,0 +1,4 @@
+-- Remote history alias.
+-- The equivalent replayable DDL is kept in:
+-- 20260606043000_autoposter_question_subtype_performance.sql
+-- This no-op file keeps local migration inventory aligned with production.

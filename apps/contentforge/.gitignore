@@ -1,0 +1,52 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.venv/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+__pycache__/
+*.py[cod]
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# contentforge
+/uploads/
+/output/
+/public/thumbnails/
+/models/*.pt
+/models/*.onnx
+/test/fixtures/campaign-factory/**/*.mp4
+/test/fixtures/campaign-factory/.generated/
+/test/fixtures/campaign-factory/real/
+/test/fixtures/campaign-factory/reports/
+/test/fixtures/campaign-factory/feedback/
+!/test/fixtures/campaign-factory/manifests/*.json
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,6 @@
+{
+  "name": "pipeline-contracts-ts",
+  "version": "1.0.0",
+  "main": "typescript/index.ts",
+  "types": "typescript/index.ts"
+}

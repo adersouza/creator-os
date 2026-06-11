@@ -1,0 +1,14 @@
+{
+  "fixture": "story_valid_1080x1920",
+  "surface": "story",
+  "mediaType": "image",
+  "width": 1080,
+  "height": 1920,
+  "aspectRatio": "9:16",
+  "blackBars": [],
+  "safeZoneViolation": false,
+  "focalCutoff": false,
+  "textHidden": false,
+  "expectedPass": true,
+  "expectedFailureReasons": []
+}

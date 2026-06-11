@@ -1,0 +1,67 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"suspicious": {
+				"noExplicitAny": "error",
+				"noConsole": "warn",
+				"noArrayIndexKey": "off",
+				"useIterableCallbackReturn": "warn",
+				"noShadowRestrictedNames": "warn",
+				"noRedeclare": "warn"
+			},
+			"style": {
+				"noNonNullAssertion": "error",
+				"useTemplate": "warn"
+			},
+			"complexity": {
+				"useOptionalChain": "warn"
+			},
+			"correctness": {
+				"noUnusedImports": "warn",
+				"noUnusedVariables": "warn",
+				"noUnusedFunctionParameters": "warn",
+				"useExhaustiveDependencies": "warn",
+				"noInnerDeclarations": "warn"
+			},
+			"security": {
+				"noDangerouslySetInnerHtml": "warn"
+			},
+			"a11y": {
+				"useButtonType": "warn",
+				"useSemanticElements": "off",
+				"noStaticElementInteractions": "off",
+				"noNoninteractiveTabindex": "off",
+				"useKeyWithClickEvents": "off",
+				"noNoninteractiveElementToInteractiveRole": "off",
+				"useAriaPropsSupportedByRole": "warn",
+				"noLabelWithoutControl": "warn",
+				"noSvgWithoutTitle": "warn",
+				"useFocusableInteractive": "warn",
+				"useAltText": "warn",
+				"noAutofocus": "warn"
+			}
+		}
+	},
+	"css": {
+		"linter": {
+			"enabled": false
+		},
+		"formatter": {
+			"enabled": false
+		}
+	},
+	"files": {
+		"includes": [
+			"api/**",
+			"src/**/*.{ts,tsx,js,json}",
+			"services/**/*.{ts,js}"
+		],
+		"experimentalScannerIgnores": [
+			".continue",
+			".goose"
+		],
+		"maxSize": 5242880
+	}
+}

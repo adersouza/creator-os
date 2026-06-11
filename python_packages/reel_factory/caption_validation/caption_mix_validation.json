@@ -1,0 +1,695 @@
+{
+  "schema": "reel_factory.caption_validation.v1",
+  "sets": {
+    "Larissa": "clip_009",
+    "Stacey": "clip_010",
+    "Lola": "clip_011"
+  },
+  "summary": {
+    "Larissa": {
+      "render_count": 10,
+      "lineage_count": 10,
+      "selected_bank_counts": {
+        "bedroom_mirror": 2,
+        "body_attention": 1,
+        "comment_bait": 1,
+        "dm_follow_bait": 2,
+        "shared_girl_next_door": 4
+      },
+      "source_bank_counts": {
+        "bedroom_mirror": 4,
+        "body_attention": 2,
+        "boyfriend_bait": 2,
+        "coded_fill_ins": 2,
+        "comment_bait": 3,
+        "dm_follow_bait": 4,
+        "goth_dark_alt": 1,
+        "shared_girl_next_door": 8
+      },
+      "default_goth_alt_selected_count": 0,
+      "gym_or_body_selected_count": 1
+    },
+    "Stacey": {
+      "render_count": 10,
+      "lineage_count": 10,
+      "selected_bank_counts": {
+        "bedroom_mirror": 2,
+        "boyfriend_bait": 1,
+        "comment_bait": 2,
+        "dm_follow_bait": 1,
+        "shared_girl_next_door": 4
+      },
+      "source_bank_counts": {
+        "bedroom_mirror": 3,
+        "body_attention": 2,
+        "boyfriend_bait": 3,
+        "choice_poll": 1,
+        "comment_bait": 4,
+        "dm_follow_bait": 2,
+        "shared_girl_next_door": 10
+      },
+      "default_goth_alt_selected_count": 0,
+      "gym_or_body_selected_count": 0
+    },
+    "Lola": {
+      "render_count": 10,
+      "lineage_count": 10,
+      "selected_bank_counts": {
+        "bedroom_mirror": 2,
+        "body_attention": 3,
+        "dm_follow_bait": 1,
+        "shared_girl_next_door": 4
+      },
+      "source_bank_counts": {
+        "bedroom_mirror": 3,
+        "body_attention": 4,
+        "boyfriend_bait": 3,
+        "coded_fill_ins": 1,
+        "comment_bait": 2,
+        "dm_follow_bait": 3,
+        "gym_body": 1,
+        "shared_girl_next_door": 8
+      },
+      "default_goth_alt_selected_count": 0,
+      "gym_or_body_selected_count": 3
+    }
+  },
+  "rows": [
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h00_v01_original_dark_062ca86c.mp4",
+      "filename": "clip_009_h00_v01_original_dark_062ca86c.mp4",
+      "caption_hash": "b99ee427d9608efdf7cf874e14e12b9554f2ddfadf5ca558081d2664c4442106",
+      "caption": "2 mins in a room with me.\nwyd??",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h00_v01_original_dark_062ca86c.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h01_v01_original_dark_3d89be1f.mp4",
+      "filename": "clip_009_h01_v01_original_dark_3d89be1f.mp4",
+      "caption_hash": "fa6a0f2ccb235d4daa32dc1e62b1dab5fe725b9319b07c61aa6b0febe1fd28f1",
+      "caption": "fill in the blanks for\nthe secret message\n\n_emon 🍋\n_agle 🦅\n_ree 🥦\n_ong 🎵\n\n_eart ❤️\n_irplane ✈️\n_olin 🎻\n_lephand 🐘",
+      "selected_banks": [
+        "dm_follow_bait"
+      ],
+      "source_banks": [
+        "dm_follow_bait",
+        "coded_fill_ins",
+        "goth_dark_alt"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_009/clip_009_h01_v01_original_dark_3d89be1f.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h02_v01_original_dark_fb79d8a9.mp4",
+      "filename": "clip_009_h02_v01_original_dark_fb79d8a9.mp4",
+      "caption_hash": "4a92999f29a58eb0c530e89e00264a016bcca195ed29f86bae288f209ebdd665",
+      "caption": "wife or girlfriend",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h02_v01_original_dark_fb79d8a9.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h03_v01_original_dark_deedef7d.mp4",
+      "filename": "clip_009_h03_v01_original_dark_deedef7d.mp4",
+      "caption_hash": "606f6c3a91a4aea0bbe5a4a5dc5aebdd000b6523c8911d7dad5988a27db795e7",
+      "caption": "I'm so single I literally text\neveryone who follows me...\nI get excited thinking we might be friends.\nSend me this post and I'll say hi",
+      "selected_banks": [
+        "comment_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_009/clip_009_h03_v01_original_dark_deedef7d.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h04_v01_original_dark_6e97da52.mp4",
+      "filename": "clip_009_h04_v01_original_dark_6e97da52.mp4",
+      "caption_hash": "9c18f80be4c4e3e92f861d57f8122661b827208759bc1651a269e7b0ff8bac84",
+      "caption": "Skip if you dont like me...\n\n(pause if you love hidden surprises)",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h04_v01_original_dark_6e97da52.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h05_v01_original_dark_553e77b6.mp4",
+      "filename": "clip_009_h05_v01_original_dark_553e77b6.mp4",
+      "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
+      "caption": "pov: I slide into YOUR dms first",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h05_v01_original_dark_553e77b6.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h06_v01_original_dark_1e8b0173.mp4",
+      "filename": "clip_009_h06_v01_original_dark_1e8b0173.mp4",
+      "caption_hash": "e47a978f0efe6339998c9912ebf46d0ae7513b45556d23dee22d27f0f1a18119",
+      "caption": "PSA: I sleep with no panties on\nso that when you want a midnight snack\nyou don't have to get out of bed.",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_009/clip_009_h06_v01_original_dark_1e8b0173.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h07_v01_original_dark_6e86f7c3.mp4",
+      "filename": "clip_009_h07_v01_original_dark_6e86f7c3.mp4",
+      "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
+      "caption": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
+      "selected_banks": [
+        "dm_follow_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_009/clip_009_h07_v01_original_dark_6e86f7c3.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h08_v01_original_dark_6a6142fb.mp4",
+      "filename": "clip_009_h08_v01_original_dark_6a6142fb.mp4",
+      "caption_hash": "f5c333eb0662f41d2a1d39305f51c70ce7aee9ceb14ab5b84294ac536d44689e",
+      "caption": "POV: I'm your step sis\nand I come into your room\nto annoy you all day\n\nnow swap C and H",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "coded_fill_ins",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h08_v01_original_dark_6a6142fb.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Larissa",
+      "clip": "clip_009",
+      "file": "02_processed/clip_009/clip_009_h09_v01_original_dark_ed5a9d5e.mp4",
+      "filename": "clip_009_h09_v01_original_dark_ed5a9d5e.mp4",
+      "caption_hash": "8895b892335fa56753996fdfa385b1d0c54ea2fad708773181bc1df6edb21668",
+      "caption": "My massive 🥛s",
+      "selected_banks": [
+        "body_attention"
+      ],
+      "source_banks": [
+        "body_attention"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_009/clip_009_h09_v01_original_dark_ed5a9d5e.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h00_v01_original_light_e0610f44.mp4",
+      "filename": "clip_010_h00_v01_original_light_e0610f44.mp4",
+      "caption_hash": "b99ee427d9608efdf7cf874e14e12b9554f2ddfadf5ca558081d2664c4442106",
+      "caption": "2 mins in a room with me.\nwyd??",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h00_v01_original_light_e0610f44.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h01_v01_original_light_20cd7090.mp4",
+      "filename": "clip_010_h01_v01_original_light_20cd7090.mp4",
+      "caption_hash": "2abfd17a466b25c939a32dd468788131f5f285111c4d1c761f227ace920e4d6c",
+      "caption": "if u are a straight guy\nthat likes girls with abs\nstop scrolling and leave a ❤️",
+      "selected_banks": [
+        "comment_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h01_v01_original_light_20cd7090.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h02_v01_original_light_bcec0b41.mp4",
+      "filename": "clip_010_h02_v01_original_light_bcec0b41.mp4",
+      "caption_hash": "4a92999f29a58eb0c530e89e00264a016bcca195ed29f86bae288f209ebdd665",
+      "caption": "wife or girlfriend",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h02_v01_original_light_bcec0b41.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h03_v01_original_light_a291f619.mp4",
+      "filename": "clip_010_h03_v01_original_light_a291f619.mp4",
+      "caption_hash": "af3f2d874339cbbc600ed1a1dae899ce1fc9a38a6458c388295d0987bd0060fd",
+      "caption": "I'm so single I end up\ntexting anyone who follows me...\nlowkey hoping we become something.\n\nsend me this post & I'll message you",
+      "selected_banks": [
+        "dm_follow_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_010/clip_010_h03_v01_original_light_a291f619.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h04_v01_original_light_bb564927.mp4",
+      "filename": "clip_010_h04_v01_original_light_bb564927.mp4",
+      "caption_hash": "9c18f80be4c4e3e92f861d57f8122661b827208759bc1651a269e7b0ff8bac84",
+      "caption": "Skip if you dont like me...\n\n(pause if you love hidden surprises)",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h04_v01_original_light_bb564927.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h05_v01_original_light_6fa88dab.mp4",
+      "filename": "clip_010_h05_v01_original_light_6fa88dab.mp4",
+      "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
+      "caption": "pov: I slide into YOUR dms first",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h05_v01_original_light_6fa88dab.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h06_v01_original_light_d3176624.mp4",
+      "filename": "clip_010_h06_v01_original_light_d3176624.mp4",
+      "caption_hash": "e47a978f0efe6339998c9912ebf46d0ae7513b45556d23dee22d27f0f1a18119",
+      "caption": "PSA: I sleep with no panties on\nso that when you want a midnight snack\nyou don't have to get out of bed.",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_010/clip_010_h06_v01_original_light_d3176624.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h07_v01_original_light_5510b7f8.mp4",
+      "filename": "clip_010_h07_v01_original_light_5510b7f8.mp4",
+      "caption_hash": "979a991a1884cb2a5f0c69f4db2d12d00bdd9a9d765492fa820bdd64a3f6fe3b",
+      "caption": "you look like trouble\nand I look like fun",
+      "selected_banks": [
+        "comment_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_010/clip_010_h07_v01_original_light_5510b7f8.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h08_v01_original_light_e00eabd8.mp4",
+      "filename": "clip_010_h08_v01_original_light_e00eabd8.mp4",
+      "caption_hash": "15eee8668a8701435eab60a8de0e118d742e6ff9fe68a370adb235c1f871a60f",
+      "caption": "single\nno boyfriend\nwant kids\n\nleave a heart if i'm your type",
+      "selected_banks": [
+        "boyfriend_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_010/clip_010_h08_v01_original_light_e00eabd8.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Stacey",
+      "clip": "clip_010",
+      "file": "02_processed/clip_010/clip_010_h09_v01_original_light_96394324.mp4",
+      "filename": "clip_010_h09_v01_original_light_96394324.mp4",
+      "caption_hash": "0a1871f85f8e31df3ce9bbd02a9361e968aa7bba774bd8962025f81e46b12345",
+      "caption": "you can only pick two:\n\n1. soft kiss\n2. late night drive\n3. my room",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "choice_poll",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_010.json",
+      "source_clip": "clip_010",
+      "lineage_file": "02_processed/clip_010/clip_010_h09_v01_original_light_96394324.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h00_v01_original_dark_e9570fdc.mp4",
+      "filename": "clip_011_h00_v01_original_dark_e9570fdc.mp4",
+      "caption_hash": "69c591ac424c495010c565c41862655540e13f7d34fbbd301adfcb6c7502d402",
+      "caption": "3 things I would do\non the first date\ninvite you to my house\nso I can cook for you\ngive you a head massage\nshow you my\n\"gym outfit\" collection",
+      "selected_banks": [
+        "body_attention"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait",
+        "body_attention",
+        "gym_body"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h00_v01_original_dark_e9570fdc.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h01_v01_original_dark_6a6142fb.mp4",
+      "filename": "clip_011_h01_v01_original_dark_6a6142fb.mp4",
+      "caption_hash": "f5c333eb0662f41d2a1d39305f51c70ce7aee9ceb14ab5b84294ac536d44689e",
+      "caption": "POV: I'm your step sis\nand I come into your room\nto annoy you all day\n\nnow swap C and H",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "coded_fill_ins",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h01_v01_original_dark_6a6142fb.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h02_v01_original_dark_fb79d8a9.mp4",
+      "filename": "clip_011_h02_v01_original_dark_fb79d8a9.mp4",
+      "caption_hash": "4a92999f29a58eb0c530e89e00264a016bcca195ed29f86bae288f209ebdd665",
+      "caption": "wife or girlfriend",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h02_v01_original_dark_fb79d8a9.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h03_v01_original_dark_5b54ff6f.mp4",
+      "filename": "clip_011_h03_v01_original_dark_5b54ff6f.mp4",
+      "caption_hash": "af3f2d874339cbbc600ed1a1dae899ce1fc9a38a6458c388295d0987bd0060fd",
+      "caption": "I'm so single I end up\ntexting anyone who follows me...\nlowkey hoping we become something.\n\nsend me this post & I'll message you",
+      "selected_banks": [
+        "dm_follow_bait"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "boyfriend_bait"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_011/clip_011_h03_v01_original_dark_5b54ff6f.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h04_v01_original_dark_7b3d28f2.mp4",
+      "filename": "clip_011_h04_v01_original_dark_7b3d28f2.mp4",
+      "caption_hash": "ace48270d41f6086af149ce6fbe66863b0a1e81847c15507133da30719e4a6dd",
+      "caption": "3 things that most guys\nHATE about me\n1. im only 5'3\n2. i weigh 120lbs\n3. i never kissed a guy",
+      "selected_banks": [
+        "body_attention"
+      ],
+      "source_banks": [
+        "body_attention"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h04_v01_original_dark_7b3d28f2.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h05_v01_original_dark_6e97da52.mp4",
+      "filename": "clip_011_h05_v01_original_dark_6e97da52.mp4",
+      "caption_hash": "9c18f80be4c4e3e92f861d57f8122661b827208759bc1651a269e7b0ff8bac84",
+      "caption": "Skip if you dont like me...\n\n(pause if you love hidden surprises)",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h05_v01_original_dark_6e97da52.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h06_v01_original_dark_553e77b6.mp4",
+      "filename": "clip_011_h06_v01_original_dark_553e77b6.mp4",
+      "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
+      "caption": "pov: I slide into YOUR dms first",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h06_v01_original_dark_553e77b6.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h07_v01_original_dark_1e8b0173.mp4",
+      "filename": "clip_011_h07_v01_original_dark_1e8b0173.mp4",
+      "caption_hash": "e47a978f0efe6339998c9912ebf46d0ae7513b45556d23dee22d27f0f1a18119",
+      "caption": "PSA: I sleep with no panties on\nso that when you want a midnight snack\nyou don't have to get out of bed.",
+      "selected_banks": [
+        "shared_girl_next_door"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_011/clip_011_h07_v01_original_dark_1e8b0173.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h08_v01_original_dark_6e86f7c3.mp4",
+      "filename": "clip_011_h08_v01_original_dark_6e86f7c3.mp4",
+      "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
+      "caption": "would you like to\nwake up next to me?\n\n(if yes follow & send this reel to me)",
+      "selected_banks": [
+        "bedroom_mirror"
+      ],
+      "source_banks": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "bedroom_mirror"
+      ],
+      "source_file": "01_captions/clip_009.json",
+      "source_clip": "clip_009",
+      "lineage_file": "02_processed/clip_011/clip_011_h08_v01_original_dark_6e86f7c3.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    },
+    {
+      "mix": "Lola",
+      "clip": "clip_011",
+      "file": "02_processed/clip_011/clip_011_h09_v01_original_dark_f7e996c5.mp4",
+      "filename": "clip_011_h09_v01_original_dark_f7e996c5.mp4",
+      "caption_hash": "b59c2081a222b7dcbe7c64ba81eb3e0745959d098694eeffb84471d14cfcfb90",
+      "caption": "Im so tired I need\nsome shoulder to put my legs on",
+      "selected_banks": [
+        "body_attention"
+      ],
+      "source_banks": [
+        "body_attention"
+      ],
+      "source_file": "01_captions/clip_001.json",
+      "source_clip": "clip_001",
+      "lineage_file": "02_processed/clip_011/clip_011_h09_v01_original_dark_f7e996c5.mp4.caption_lineage.json",
+      "lineage_ok": true,
+      "render_success": true
+    }
+  ]
+}

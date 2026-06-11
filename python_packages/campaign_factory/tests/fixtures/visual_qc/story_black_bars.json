@@ -1,0 +1,14 @@
+{
+  "fixture": "story_black_bars",
+  "surface": "story",
+  "mediaType": "image",
+  "width": 1080,
+  "height": 1920,
+  "aspectRatio": "9:16",
+  "blackBars": ["top", "bottom"],
+  "safeZoneViolation": false,
+  "focalCutoff": false,
+  "textHidden": false,
+  "expectedPass": false,
+  "expectedFailureReasons": ["black_bars"]
+}

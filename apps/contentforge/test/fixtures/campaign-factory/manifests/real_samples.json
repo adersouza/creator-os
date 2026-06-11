@@ -1,0 +1,23 @@
+{
+  "schema": "contentforge.campaign_factory_real_samples.v1",
+  "samples": [
+    {
+      "file": "real_sample_01.mp4",
+      "sourceType": "third_party_editor",
+      "expectedUploadReady": false,
+      "expectedWarningCodes": [],
+      "expectedBlockingCodes": ["forensics_bad_dimensions"],
+      "operatorNotes": "Local Downloads sample; H.264 MP4 but not 9:16 short-form dimensions.",
+      "acceptedByPlatform": "unknown"
+    },
+    {
+      "file": "real_sample_02.mp4",
+      "sourceType": "third_party_editor",
+      "expectedUploadReady": true,
+      "expectedWarningCodes": [],
+      "expectedBlockingCodes": [],
+      "operatorNotes": "Local Downloads social export sample; H.264/AAC 720x1280.",
+      "acceptedByPlatform": "unknown"
+    }
+  ]
+}

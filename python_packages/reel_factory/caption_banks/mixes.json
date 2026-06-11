@@ -1,0 +1,31 @@
+{
+  "schema": "reel_factory.caption_mixes.v1",
+  "version": "caption_banks_v1",
+  "source_hash": "86a481360a1161a87e998bcf4dbcbe6399fc101a5b8b5c7e2e6f218009974166",
+  "mixes": {
+    "Larissa": {
+      "shared_girl_next_door": 30,
+      "body_attention": 20,
+      "bedroom_mirror": 20,
+      "dm_follow_bait": 15,
+      "comment_bait": 10,
+      "choice_poll": 5
+    },
+    "Stacey": {
+      "shared_girl_next_door": 30,
+      "boyfriend_bait": 20,
+      "bedroom_mirror": 20,
+      "comment_bait": 15,
+      "dm_follow_bait": 10,
+      "choice_poll": 5
+    },
+    "Lola": {
+      "shared_girl_next_door": 25,
+      "gym_body": 25,
+      "body_attention": 20,
+      "bedroom_mirror": 15,
+      "dm_follow_bait": 10,
+      "comment_bait": 5
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "_comment": "21 hooks for clip_004 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "pov the only thing playing\nin my mind after literally one drink",
+    "Guess what im wearing",
+    "If I can still walk we're not done yet,\ngo take a water break old man",
+    "do i look my age?",
+    "can you bench a white girl?",
+    "sending you another version\nif you say 'pls'",
+    "if youre going to stare,\ndo it properly.",
+    "pov: your type just followed you back",
+    "only men will understand\nwhat i want when i say\n\"round and sideways\"",
+    "what i hear when people say\nyou can't fall in love with an older guy",
+    "If you manage to read\nthis sentence backwards\nit means that:\n\nyssup ym tae nac uoy os\necalp ruoy ot emoc ot\nevah I",
+    "Skip if you dont like me...\n\n(pause if you love hidden surprises)",
+    "Pretty privilege is saying the meanest things\nto men because u don't want them\nand they like u even more",
+    "if you didn't know my name/age\nwhat would you think it was?",
+    "the ones who scroll past\nalways come back",
+    "I googled \"how to be less attractive\"\nand got zero results",
+    "would you take me on a proper date\nor just invite me over?",
+    "comment your height.\nI'll start: I'm 5'4 and I love tall men",
+    "my ex called me T.M.I.\n— Too Much Irresistible",
+    {
+      "_note": "2-segment: i might be a 6 but",
+      "segments": [
+        {
+          "text": "i might be a 6 but...",
+          "end": 3.0
+        },
+        {
+          "text": "i give good head messages",
+          "start": 3.0
+        }
+      ]
+    },
+    {
+      "_note": "4-segment: 3 ways a guy asks me out",
+      "segments": [
+        {
+          "text": "3 different ways a guy\nwould ask me out",
+          "end": 2.5
+        },
+        {
+          "text": "Smooth:\n\"Let me take you out this week.\"",
+          "start": 2.5,
+          "end": 5.0
+        },
+        {
+          "text": "Nervous:\n\"hh... wanna hang out...\n... yeah... nevermind...\"",
+          "start": 5.0,
+          "end": 7.5
+        },
+        {
+          "text": "Playful:\n\"So... when are we going on our date?\"",
+          "start": 7.5
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "21 hooks × 8 recipes = 168 silent captioned outputs"
+}

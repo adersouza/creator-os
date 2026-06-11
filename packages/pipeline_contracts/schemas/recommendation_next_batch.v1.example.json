@@ -1,0 +1,92 @@
+{
+  "schema": "campaign_factory.recommendations.next_batch.v1",
+  "campaign": "may",
+  "campaignGraphId": "cg_campaign_a1b2c3d4e5f6",
+  "runId": "recrun_0123456789abcdef",
+  "runGraphId": "cg_recommendation_run_a1b2c3d4e5f6",
+  "persisted": true,
+  "scoringVersion": "recommendation_score.v1",
+  "generatedAt": "2026-05-29T00:00:00+00:00",
+  "count": 1,
+  "requestedCount": 20,
+  "account": "ig_1",
+  "inputHash": "0123456789abcdef",
+  "warnings": [],
+  "items": [
+    {
+      "recommendationId": "recitem_a1b2c3d4e5f6",
+      "recommendationGraphId": "cg_recommendation_item_a1b2c3d4e5f6",
+      "status": "proposed",
+      "campaignGraphId": "cg_campaign_a1b2c3d4e5f6",
+      "referencePatternGraphId": "cg_reference_pattern_a1b2c3d4e5f6",
+      "sourceAssetGraphId": "cg_source_asset_a1b2c3d4e5f6",
+      "renderedAssetGraphId": "cg_rendered_asset_a1b2c3d4e5f6",
+      "rank": 1,
+      "score": 82,
+      "confidence": "medium",
+      "confidenceReason": "3 matched performance samples with partial context",
+      "targetAccount": "ig_1",
+      "renderedAssetId": "asset_1",
+      "filename": "asset_1.mp4",
+      "referencePatternId": "refpat_1",
+      "referencePattern": {
+        "id": "refpat_1",
+        "clusterKey": "bathroom_mirror_curiosity",
+        "rank": 1,
+        "label": "Bathroom Mirror Curiosity",
+        "visualFormat": "mirror",
+        "hookType": "curiosity",
+        "captionArchetype": "short_direct"
+      },
+      "suggestedRecipe": "v01_original",
+      "hookGuidance": "Use a curiosity hook from Bathroom Mirror Curiosity.",
+      "captionGuidance": "short direct caption",
+      "reasons": [
+        "performance history is positive"
+      ],
+      "risks": [],
+      "evidence": {
+        "graph": {
+          "campaignGraphId": "cg_campaign_a1b2c3d4e5f6",
+          "renderedAssetGraphId": "cg_rendered_asset_a1b2c3d4e5f6"
+        },
+        "reasons": [
+          "performance history is positive"
+        ],
+        "risks": []
+      },
+      "dataQuality": {
+        "level": "medium",
+        "sampleSize": 3,
+        "missing": []
+      },
+      "decision": {},
+      "outcome": {},
+      "baseline": {},
+      "measurementVersion": null,
+      "acceptedAt": null,
+      "rejectedAt": null,
+      "executedAt": null,
+      "postedAt": null,
+      "measuredAt": null,
+      "scoreBreakdown": {
+        "performance": 80,
+        "referencePattern": 91,
+        "auditReadiness": 90,
+        "accountFitFatigue": 62,
+        "novelty": 100,
+        "operationalReadiness": 100
+      },
+      "graphEvidence": {
+        "campaignGraphId": "cg_campaign_a1b2c3d4e5f6",
+        "runGraphId": "cg_recommendation_run_a1b2c3d4e5f6",
+        "referencePatternGraphId": "cg_reference_pattern_a1b2c3d4e5f6",
+        "sourceAssetGraphId": "cg_source_asset_a1b2c3d4e5f6",
+        "renderedAssetGraphId": "cg_rendered_asset_a1b2c3d4e5f6",
+        "performanceSnapshotGraphId": "cg_performance_snapshot_a1b2c3d4e5f6",
+        "recommendationInputGraphId": "cg_recommendation_input_a1b2c3d4e5f6"
+      }
+    }
+  ],
+  "pipelineTraceId": null
+}

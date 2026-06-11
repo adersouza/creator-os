@@ -1,0 +1,25 @@
+[project]
+name = "campaign-factory"
+version = "0.1.0"
+description = "Local campaign control layer for Higgsfield/Juno33 sources, reel_factory renders, ContentForge audits, and ThreadsDash drafts"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pipeline-contracts",
+  "uvicorn[standard]>=0.30,<1",
+  "python-multipart>=0.0.9,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+campaign-factory = "campaign_factory.cli:main"
+creator-os = "campaign_factory.creator_os_cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv.sources]
+pipeline-contracts = { workspace = true }

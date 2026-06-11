@@ -1,0 +1,75 @@
+name: RLS Cross-Tenant Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/rls-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rls-cross-tenant:
+    name: Cross-tenant RLS regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: latest
+
+      - name: Start local Postgres
+        run: |
+          # This repository's migration folder is incremental and does not include
+          # the original production baseline for core tables like accounts/posts.
+          # Keep this regression focused on RLS behavior by starting Supabase with
+          # an empty migration folder, then loading a narrow fixture schema that
+          # mirrors the high-risk tables and policies under test.
+          mv supabase/migrations supabase/migrations.disabled
+          mkdir supabase/migrations
+          supabase db start
+
+      - name: Load RLS test schema
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 \
+            -f supabase/tests/rls_cross_tenant.schema.sql
+
+      - name: Run cross-tenant RLS test suite
+        id: run-tests
+        run: |
+          set +e
+          OUTPUT=$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=0 \
+            -f supabase/tests/rls_cross_tenant.test.sql 2>&1)
+          EXIT=$?
+          echo "--- psql output ---"
+          echo "$OUTPUT"
+          echo "--- end output ---"
+
+          if echo "$OUTPUT" | grep -q 'ALL_TESTS_PASSED'; then
+            echo "✅ All cross-tenant RLS assertions passed."
+            exit 0
+          fi
+
+          if echo "$OUTPUT" | grep -qE 'FAIL [a-z_]+\.'; then
+            echo "❌ Cross-tenant RLS leak detected — see output above."
+            exit 1
+          fi
+
+          echo "❌ Test suite did not complete (no sentinel, no explicit FAIL)."
+          echo "   Possible seed/config issue. Exit code from psql: $EXIT"
+          exit 1
+
+      - name: Shutdown Supabase
+        if: always()
+        run: supabase stop --no-backup

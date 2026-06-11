@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    },
+    "threadsdashboard": {
+      "command": "node",
+      "args": [
+        "./mcp-server/dist/index.js"
+      ],
+      "env": {
+        "TD_API_BASE": "https://juno33.com/api",
+        "TD_API_KEY": "${JUNO33_MCP_API_KEY}"
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "fixture": "reel_manifest_v2_valid",
+  "manifest_version": 2,
+  "asset_id": "asset_reel_manifest_v2_valid",
+  "rendered_asset_id": "asset_reel_manifest_v2_valid",
+  "source_asset_id": "source_reel_manifest_v2_valid",
+  "content_surface": "reel",
+  "contentSurface": "reel",
+  "ig_media_type": "REELS",
+  "igMediaType": "REELS",
+  "content_hash": "hash_reel_manifest_v2_valid",
+  "content_fingerprint": "hash_reel_manifest_v2_valid",
+  "caption_hash": "burned_caption_hash_reel",
+  "instagram_post_caption": "New reel is up.",
+  "instagramPostCaption": "New reel is up.",
+  "instagram_post_caption_hash": "ig_caption_hash_reel",
+  "caption_family_id": "cfam_reel_valid",
+  "caption_version_id": "cver_reel_valid",
+  "variant_family_id": "vfam_reel_valid",
+  "variant_id": "var_reel_valid",
+  "mediaItems": [
+    {
+      "componentIndex": 0,
+      "mediaPath": "/tmp/creator-os-fixtures/reel_valid.mp4",
+      "mediaHash": "hash_reel_manifest_v2_valid",
+      "mediaType": "video"
+    }
+  ],
+  "surfaceReadiness": {
+    "canHandoff": true,
+    "blockingReasons": [],
+    "warnings": []
+  },
+  "wouldWrite": false
+}

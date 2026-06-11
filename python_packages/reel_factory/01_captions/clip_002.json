@@ -1,0 +1,85 @@
+{
+  "_comment": "21 hooks for clip_002 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "The solutions to my problem isn't\ndating an older guy.. but let me check",
+    "Most guys talk big until it gets real.\nthink you'd actually be able to handle me?",
+    "Any electricians out there\nthat can answer a quick question for me?",
+    "When we've been arguing\nand he's asking wth I even want..",
+    "giving you yet another reason\nto stop and stare",
+    "if you f my p i will s your D till you C\nif you understand say hi\nso i know you're my type 😈",
+    "would your gf let you\nbe friends with me?",
+    {
+      "_note": "timed two-caption hook — first line holds 3s, punchline drops after",
+      "segments": [
+        {
+          "text": "\"but I'm too old for you\"",
+          "end": 3.0
+        },
+        {
+          "text": "Never",
+          "start": 3.0
+        }
+      ]
+    },
+    "some things i only show in dms",
+    "if you can read this ill give you a chance:\nlihe dna emina hctaw ew elihw\nsuttit gib eseh t kous ot\nnam a rof gnikool mi im 2007",
+    "What I really want:\nPizza (without zza)\nBurger (without ger)\nSushi (without shi)\nCake (without ke)\n\n(Now read it from the middle)",
+    "\"men used to hunt for food\"\n\nok?? now they play fort,\ndrink energy drinks &\nscreenshot my stories\n\ngod bless america 🦅🇺🇸",
+    "Santa PLEASE\n\nperFume\nhaircare\niphoNe\nheaDband\nJewelry\ncUrler\nLipgloss\nskIncare\nmAscara\nBikini\nFacemask",
+    "question for the men: is it really true\nthat some bend one way\nand some bend the other?",
+    "you look like trouble\nand I look like fun",
+    "I respond to DMs.\nI just don't respond to basic ones",
+    "pov: you finally get my attention\nand freeze",
+    "type \"hi\" if you've been staring\nfor more than 5 seconds",
+    "highlight the hidden word: tHOTtie",
+    {
+      "_note": "4-segment: 3 things most guys HATE about me (ironic)",
+      "segments": [
+        {
+          "text": "3 things that most guys\nHATE about me",
+          "end": 2.0
+        },
+        {
+          "text": "1. im only 5'3",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. i weigh 120lbs",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. i never kissed a guy",
+          "start": 7.0
+        }
+      ]
+    },
+    {
+      "_note": "4-segment: 2 truths 1 lie",
+      "segments": [
+        {
+          "text": "2 truths 1 lie",
+          "end": 2.0
+        },
+        {
+          "text": "Im 5,3",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "I drive a pick up truck",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "I only have 4 toes\non one foot",
+          "start": 7.0
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "21 hooks × 8 recipes = 168 silent captioned outputs"
+}

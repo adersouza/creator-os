@@ -1,0 +1,14 @@
+{
+  "fixture": "story_safe_zone_violation",
+  "surface": "story",
+  "mediaType": "image",
+  "width": 1080,
+  "height": 1920,
+  "aspectRatio": "9:16",
+  "blackBars": [],
+  "safeZoneViolation": true,
+  "focalCutoff": false,
+  "textHidden": false,
+  "expectedPass": false,
+  "expectedFailureReasons": ["safe_zone_violation"]
+}

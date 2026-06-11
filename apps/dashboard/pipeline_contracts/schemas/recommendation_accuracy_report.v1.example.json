@@ -1,0 +1,43 @@
+{
+  "schema": "campaign_factory.recommendation_accuracy_report.v1",
+  "campaign": "may",
+  "campaignGraphId": "cg_campaign_111111111111",
+  "account": "ig_1",
+  "windowDays": 30,
+  "generatedAt": "2026-05-31T00:00:00+00:00",
+  "reportId": "recacc_report_111111111111",
+  "reportGraphId": "cg_recommendation_accuracy_report_111111111111",
+  "recommendationTrustScore": 74,
+  "trustConfidence": "usable",
+  "overall": {
+    "measuredCount": 12,
+    "provedCount": 7,
+    "disprovedCount": 3,
+    "inconclusiveCount": 2,
+    "accuracyDenominator": 10,
+    "accuracyRate": 0.7,
+    "averageLift": 12.4
+  },
+  "calibration": [
+    {
+      "key": "strong",
+      "measuredCount": 5,
+      "provedCount": 4,
+      "disprovedCount": 1,
+      "inconclusiveCount": 0,
+      "accuracyDenominator": 5,
+      "accuracyRate": 0.8,
+      "averageLift": 18.2
+    }
+  ],
+  "segments": {
+    "accounts": [],
+    "dataQuality": [],
+    "referencePatterns": [],
+    "selectedAudio": [],
+    "audioMatchStatus": []
+  },
+  "drift": [],
+  "observations": [],
+  "warnings": []
+}

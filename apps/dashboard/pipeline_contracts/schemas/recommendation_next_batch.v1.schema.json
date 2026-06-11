@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.recommendations.next_batch.v1",
+  "title": "Campaign Factory Next Batch Recommendations",
+  "type": "object",
+  "required": [
+    "schema",
+    "campaign",
+    "campaignGraphId",
+    "persisted",
+    "scoringVersion",
+    "generatedAt",
+    "count",
+    "requestedCount",
+    "inputHash",
+    "items"
+  ],
+  "properties": {
+    "schema": { "const": "campaign_factory.recommendations.next_batch.v1" },
+    "campaign": { "type": "string" },
+    "campaignGraphId": { "type": ["string", "null"] },
+    "runId": { "type": ["string", "null"] },
+    "runGraphId": { "type": ["string", "null"] },
+    "persisted": { "type": "boolean" },
+    "scoringVersion": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "count": { "type": "integer" },
+    "requestedCount": { "type": "integer" },
+    "account": { "type": ["string", "null"] },
+    "inputHash": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "recommendationId",
+          "recommendationGraphId",
+          "status",
+          "campaignGraphId",
+          "rank",
+          "score",
+          "confidence",
+          "reasons",
+          "risks",
+          "scoreBreakdown",
+          "graphEvidence"
+        ],
+        "properties": {
+          "recommendationId": { "type": "string" },
+          "recommendationGraphId": { "type": ["string", "null"] },
+          "status": {
+            "type": "string",
+            "enum": ["proposed", "accepted", "rejected", "executed", "posted", "measured", "proved", "disproved"]
+          },
+          "campaignGraphId": { "type": ["string", "null"] },
+          "referencePatternGraphId": { "type": ["string", "null"] },
+          "sourceAssetGraphId": { "type": ["string", "null"] },
+          "renderedAssetGraphId": { "type": ["string", "null"] },
+          "rank": { "type": "integer" },
+          "score": { "type": "integer" },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "confidenceReason": { "type": "string" },
+          "targetAccount": { "type": ["string", "null"] },
+          "renderedAssetId": { "type": ["string", "null"] },
+          "filename": { "type": ["string", "null"] },
+          "referencePatternId": { "type": ["string", "null"] },
+          "referencePattern": { "type": ["object", "null"] },
+          "suggestedRecipe": { "type": ["string", "null"] },
+          "hookGuidance": { "type": "string" },
+          "captionGuidance": { "type": "string" },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "risks": { "type": "array", "items": { "type": "string" } },
+          "scoreBreakdown": { "type": "object" },
+          "evidence": { "type": "object" },
+          "dataQuality": { "type": "object" },
+          "decision": { "type": "object" },
+          "outcome": { "type": "object" },
+          "baseline": { "type": "object" },
+          "measurementVersion": { "type": ["string", "null"] },
+          "acceptedAt": { "type": ["string", "null"] },
+          "rejectedAt": { "type": ["string", "null"] },
+          "executedAt": { "type": ["string", "null"] },
+          "postedAt": { "type": ["string", "null"] },
+          "measuredAt": { "type": ["string", "null"] },
+          "graphEvidence": { "type": "object" }
+        }
+      }
+    }
+  }
+}

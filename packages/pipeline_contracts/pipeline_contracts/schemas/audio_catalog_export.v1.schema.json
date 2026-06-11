@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reference_factory.audio_catalog_export.v1",
+  "title": "Reference Factory Audio Catalog Export",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "items"],
+  "properties": {
+    "schema": { "const": "reference_factory.audio_catalog_export.v1" },
+    "exportedAt": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["title", "platform"],
+        "properties": {
+          "title": { "type": "string" },
+          "artistName": { "type": ["string", "null"] },
+          "platform": { "type": "string" },
+          "nativeAudioId": { "type": ["string", "null"] },
+          "nativeAudioUrl": { "type": ["string", "null"] },
+          "moodTags": { "type": "array", "items": { "type": "string" } },
+          "bestContentTypes": { "type": "array", "items": { "type": "string" } },
+          "accountFit": { "type": "array", "items": { "type": "string" } },
+          "trendStatus": { "type": ["string", "null"] },
+          "usageCount": { "type": ["integer", "null"] },
+          "trendScore": { "type": ["number", "null"] },
+          "velocityScore": { "type": ["number", "null"] },
+          "fatigueScore": { "type": ["number", "null"] },
+          "accountFitScore": { "type": ["number", "null"] },
+          "creatorFitScore": { "type": ["number", "null"] },
+          "recommendationConfidence": { "type": ["string", "null"] },
+          "trendSources": { "type": "array", "items": { "type": "string" } },
+          "trendSnapshots": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "exampleReels": { "type": "array", "items": { "type": ["string", "object"] } },
+          "performanceSummary": { "type": "object", "additionalProperties": true },
+          "fatigue": { "type": "object", "additionalProperties": true },
+          "resolved": { "type": "boolean" },
+          "reviewReasons": { "type": "array", "items": { "type": "string" } },
+          "sourceConfidence": { "type": ["number", "null"] }
+        }
+      }
+    }
+  }
+}

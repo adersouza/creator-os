@@ -1,0 +1,79 @@
+{
+  "_comment": "21 hooks for clip_005 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "My massive 🥛s",
+    "One question. What part of me\nwould ruin your focus first?",
+    "Im so tired I need\nsome shoulder to put my legs on",
+    "don't just stare\nsay hi then",
+    "like this if its big...",
+    "would you walk up to me\nor just look?",
+    "i don't argue\ni just use my other lips",
+    "if you saw me irl\nwould you say something or freeze",
+    "you can't be older than 25\nif you don't understand this reference:",
+    "i hate waterlemons 🍉\nyou read that wrong.\nyou read that wrong too.\nsend this to someone you have a crush on",
+    "\"Fill in the blanks:\"\n_arden 🏠\n_ggs 🍑\n_ent ⛺\n_izza 🍕\n_ar 👂\n_uitar 🎸\n_host 👻\n_yes 👀\n_og 🍞",
+    "Imagine I invite you to my room\nwhile everyone's distracted\nat Christmas dinner...\nwhat do you do?",
+    "I want you to yuwef me\nbut replace:\nu with o\nw with u\ny with p\ne with n\nf with d",
+    {
+      "segments": [
+        {
+          "text": "I don't do situationships",
+          "end": 3.0
+        },
+        {
+          "text": "...define situationship",
+          "start": 3.0
+        }
+      ]
+    },
+    "I'm not everyone's type.\njust the dangerous ones",
+    "pov: it's 2am and I just texted you\n\"you up?\"",
+    "hold my hand in public\nor pretend you don't know me?",
+    "my face says innocent.\nmy thoughts disagree.",
+    "the letters A, S, S are hiding\nin mASSage.\nyou're welcome.",
+    {
+      "_note": "3-segment: worst guy names bait-and-switch",
+      "segments": [
+        {
+          "text": "here's a list of the top 5\nworst guy names 🤮...",
+          "end": 3.0
+        },
+        {
+          "text": "no 1...",
+          "start": 3.0,
+          "end": 5.5
+        },
+        {
+          "text": "jk im not that shallow",
+          "start": 5.5
+        }
+      ]
+    },
+    {
+      "_note": "4-segment rumours reveal — each drops ~2.5s apart",
+      "segments": [
+        {
+          "text": "Lets address the rumours",
+          "end": 2.5
+        },
+        {
+          "text": "Arthur TV is actually my twin",
+          "start": 2.5,
+          "end": 5.0
+        },
+        {
+          "text": "i am actually 5ft4",
+          "start": 5.0,
+          "end": 7.5
+        },
+        {
+          "text": "I'm not AI",
+          "start": 7.5
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "21 hooks × 8 recipes = 168 silent captioned outputs"
+}

@@ -1,0 +1,241 @@
+/* =========================================================================
+   VULCAN THEME — forge · ember + charcoal
+   -------------------------------------------------------------------------
+   Brand: #2A1810 ember-black · Tide: #D8552A forge orange.
+   Mirrors the Juno token shape exactly. Switch via [data-theme="vulcan"].
+
+   Status colors stay shared; networks + substrate shift industrial-warm.
+   Dark mode is where Vulcan reads most distinct (per spec).
+   ========================================================================= */
+
+:root[data-theme="vulcan"] {
+  color-scheme: light;
+
+  --color-background: #EDE8E2;
+  --color-foreground: #1A0E08;
+
+  --color-card: rgba(255, 255, 255, 0.55);
+  --color-card-elevated: #FFFFFF;
+  --color-card-foreground: #1A0E08;
+
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1A0E08;
+
+  --color-primary: #2A1810;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #FFFFFF;
+  --color-secondary-foreground: #1A0E08;
+
+  --color-muted: rgba(26, 14, 8, 0.04);
+  --color-muted-foreground: rgba(26, 14, 8, 0.55);
+
+  --color-accent: #2A1810;
+  --color-accent-foreground: #FFFFFF;
+
+  --color-border: rgba(26, 14, 8, 0.12);
+  --color-input: rgba(26, 14, 8, 0.12);
+  --color-ring: #2A1810;
+
+  --color-success: #3F6B52;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #943A2A;
+  --color-error-foreground: #FFFFFF;
+  --color-info: #4F6B7A;
+  --color-info-foreground: #FFFFFF;
+
+  --color-ink: #2A1810;
+  --color-chart-ink: #2A1810;
+  --color-tide: #D8552A;
+  --color-tide-bar: #D8552A;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-ring-oxblood: rgba(216, 85, 42, 0.22);
+  --color-ring-oxblood-strong: rgba(216, 85, 42, 0.35);
+  --color-ring-tide: rgba(216, 85, 42, 0.22);
+  --color-ring-tide-strong: rgba(216, 85, 42, 0.35);
+
+  --color-gold: #8E6F2E;
+  --color-negative: #943A2A;
+
+  --color-health-good: #3F6B52;
+  --color-health-idle: #6E5E54;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(26, 14, 8, 0.35);
+
+  --color-photo-gradient-start: #F0D7CC;
+  --color-photo-gradient-end:   #C89B86;
+  --color-video-gradient-start: #D4C8E8;
+  --color-video-gradient-end:   #6B5C8E;
+  --color-upload-gradient-start: #E8D4C4;
+  --color-upload-gradient-end:   #C2A080;
+
+  --color-label: #1A0E08;
+  --color-label-secondary: rgba(26, 14, 8, 0.72);
+  --color-label-tertiary: rgba(26, 14, 8, 0.60);
+  --color-label-quaternary: rgba(26, 14, 8, 0.32);
+
+  --color-aurora: #2A1810;
+  --color-meridian: #D8552A;
+  --color-harbor: #6E5E54;
+  --color-vale: #4A4248;
+}
+
+:root[data-theme="vulcan"].dark,
+:root[data-theme="vulcan"] .dark {
+  color-scheme: dark;
+
+  --color-background: #04020A;
+  --color-foreground: #E8D8C8;
+
+  --color-card: rgba(232, 216, 200, 0.06);
+  --color-card-elevated: #14100A;
+  --color-card-foreground: #E8D8C8;
+
+  --color-popover: rgba(20, 16, 10, 0.85);
+  --color-popover-foreground: #E8D8C8;
+
+  --color-primary: #E8D8C8;
+  --color-primary-foreground: #04020A;
+
+  --color-secondary: rgba(232, 216, 200, 0.04);
+  --color-secondary-foreground: #E8D8C8;
+
+  --color-muted: rgba(232, 216, 200, 0.04);
+  --color-muted-foreground: rgba(232, 216, 200, 0.55);
+
+  --color-accent: #E0A878;
+  --color-accent-foreground: #1A0A04;
+
+  --color-border: rgba(232, 216, 200, 0.10);
+  --color-input: rgba(232, 216, 200, 0.10);
+  --color-ring: #E8D8C8;
+
+  --color-success: #5A9B72;
+  --color-success-foreground: #0A0A0B;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #D08080;
+  --color-error-foreground: #0A0A0B;
+  --color-info: #9DB9CC;
+  --color-info-foreground: #0A0A0B;
+
+  --color-ink: #E8D8C8;
+  --color-chart-ink: #DCC8B8;
+  --color-tide: #E0A878;
+  --color-tide-bar: #F08858;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-tide-pill-bg: rgba(224, 168, 120, 0.10);
+  --color-oxblood-pill-bg: var(--color-tide-pill-bg);
+
+  --color-ring-oxblood: rgba(240, 136, 88, 0.28);
+  --color-ring-oxblood-strong: rgba(240, 136, 88, 0.38);
+  --color-ring-tide: rgba(240, 136, 88, 0.28);
+  --color-ring-tide-strong: rgba(240, 136, 88, 0.38);
+
+  --color-gold: #B48A3A;
+  --color-negative: #D08080;
+
+  --color-health-good: #5A9B72;
+  --color-health-idle: #B0989A;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(232, 216, 200, 0.30);
+
+  --color-label: #E8D8C8;
+  --color-label-secondary: rgba(232, 216, 200, 0.72);
+  --color-label-tertiary: rgba(232, 216, 200, 0.55);
+  --color-label-quaternary: rgba(232, 216, 200, 0.35);
+
+  --color-aurora: #E0A878;
+  --color-meridian: #F08858;
+  --color-harbor: #B0989A;
+  --color-vale: #B89098;
+}
+
+:root[data-theme="vulcan"] body::before {
+  content: '';
+  position: fixed; inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(12px);
+  background-image:
+    radial-gradient(ellipse 38% 32% at clamp(18%, calc(220px + 6vw), 32%) 20%, rgba(216, 168, 132, 0.40) 0%, transparent 70%),
+    radial-gradient(ellipse 42% 38% at clamp(68%, calc(100% - 320px), 82%) 62%, rgba(168, 152, 132, 0.34) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 110%, rgba(232, 220, 208, 0.36) 0%, transparent 70%);
+  animation: substrate-drift 80s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+:root[data-theme="vulcan"].dark body::before,
+:root[data-theme="vulcan"] .dark body::before {
+  filter: none;
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(216, 85, 42, 0.18) 0%, transparent 52%),
+    radial-gradient(circle at 82% 68%, rgba(30, 20, 30, 0.50) 0%, transparent 46%),
+    radial-gradient(circle at 50% 105%, rgba(240, 136, 88, 0.07) 0%, transparent 40%);
+}
+
+:root[data-theme="vulcan"] {
+  --vib-primary: rgba(26, 14, 8, 1);
+  --vib-secondary: rgba(26, 14, 8, 0.68);
+  --vib-tertiary: rgba(26, 14, 8, 0.42);
+  --vib-quaternary: rgba(26, 14, 8, 0.22);
+}
+:root[data-theme="vulcan"].dark,
+:root[data-theme="vulcan"] .dark {
+  --vib-primary: rgba(232, 216, 200, 1);
+  --vib-secondary: rgba(232, 216, 200, 0.70);
+  --vib-tertiary: rgba(232, 216, 200, 0.42);
+  --vib-quaternary: rgba(232, 216, 200, 0.24);
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme="vulcan"] {
+    --color-border: rgba(26, 14, 8, 0.25);
+    --color-label-secondary: rgba(26, 14, 8, 0.82);
+    --color-label-tertiary: rgba(26, 14, 8, 0.70);
+    --color-label-quaternary: rgba(26, 14, 8, 0.55);
+    --color-accent: #170A06;
+    --color-tide: #A03E1C;
+    --color-muted-foreground: rgba(26, 14, 8, 0.82);
+    --color-health-good: #1F5236;
+    --color-health-idle: #4F4138;
+    --color-health-warn: #8A6320;
+  }
+  :root[data-theme="vulcan"].dark,
+  :root[data-theme="vulcan"] .dark {
+    --color-border: rgba(232, 216, 200, 0.20);
+    --color-label-secondary: rgba(232, 216, 200, 0.78);
+    --color-label-tertiary: rgba(232, 216, 200, 0.65);
+    --color-label-quaternary: rgba(232, 216, 200, 0.50);
+    --color-accent: #F0C098;
+    --color-tide: #F0C098;
+    --color-muted-foreground: rgba(232, 216, 200, 0.78);
+    --color-health-good: #7FBE95;
+    --color-health-idle: #C8B4B0;
+    --color-health-warn: #D0A060;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="vulcan"].dark,
+  :root[data-theme="vulcan"] .dark {
+    --color-card: #100A06;
+    --color-card-elevated: #14100A;
+    --color-popover: #14100A;
+  }
+  :root[data-theme="vulcan"] .card { background: #FFFFFF; }
+  :root[data-theme="vulcan"].dark .card,
+  :root[data-theme="vulcan"] .dark .card { background: #100A06; }
+}

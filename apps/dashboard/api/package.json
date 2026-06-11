@@ -1,0 +1,7 @@
+{
+	"type": "module",
+	"dependencies": {
+		"@supabase/supabase-js": "^2.89.0",
+		"@vercel/node": "^3.0.0"
+	}
+}

@@ -1,0 +1,10 @@
+/**
+ * Discover API Route.
+ * Public route stays stable; discover handlers load lazily per request.
+ */
+
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+	return (await import("./_lib/handlers/discover/index.js")).default(req, res);
+}

@@ -1,0 +1,26 @@
+{
+  "_comment": "Multi-hook sidecar. Drop next to a clip in 00_source_videos/ as <stem>.json. The pipeline produces hooks × recipes outputs per source.",
+
+  "hooks": [
+    "POV you wear oversized clothes\nand he still notices everything",
+    "the way he locks in even\nwhen i'm in three hoodies",
+    "no because why does he clock me\nthrough the baggy fit",
+    "oversized everything.\nhe still notices.",
+    "tell me why he can see me\nunder all these layers",
+    "me when i dress like a marshmallow\nand he's still staring",
+    "imagine wearing a tent\nand he's still hooked",
+    "the fact that i'm in his hoodie\nand he can't look away",
+    "wearing his clothes hits different\nngl",
+    "nothing like dressing baggy\nand watching him stare"
+  ],
+
+  "_hook_strategy": "10 genuinely different hooks → 10 different post angles. Combined with 8 default visual recipes = 80 outputs/source. Use --recipes flag at runtime to render fewer.",
+
+  "recipes": null,
+  "_recipes_options": "null = use all 8 default recipes. Or list a subset.",
+
+  "caption_color": "auto",
+  "_caption_color_options": "light = white text + black stroke (dark/mixed bg) | dark = black text + white stroke (bright bg) | auto = sample frame at 30% mark and pick (default)",
+
+  "notes": "10 hooks × 8 recipes = 80 silent captioned outputs per source clip"
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "campaign_factory.creative_plan.v1",
+  "id": "creative_plan_stacey_daily_001",
+  "name": "stacey_daily_001",
+  "platform": "instagram",
+  "goal": "views_reach",
+  "target_account": "staceybennetx",
+  "daily_base_video_target": 10,
+  "style_lanes": [
+    "amateur_native",
+    "polished_glam",
+    "slideshow_story"
+  ],
+  "model_profile": "stacey",
+  "source_accounts": [
+    "staceybennetx",
+    "competitor_refs"
+  ],
+  "status": "prompts_ready",
+  "counts": {
+    "references": 10,
+    "analyses": 2,
+    "image_prompts": 10,
+    "video_prompts": 10,
+    "generated_videos": 1,
+    "ingested_videos": 1,
+    "rendered_outputs": 8,
+    "reviewed_outputs": 2,
+    "exported_drafts": 1,
+    "posted_items": 0,
+    "measured_items": 0
+  },
+  "next_actions": [
+    "Generate 9 more Higgsfield images",
+    "Intake 1 finished Kling video",
+    "Import reach/views for posted drafts"
+  ],
+  "linked_campaign": "stacey_daily_001",
+  "created_at": "2026-05-26T12:00:00+00:00",
+  "updated_at": "2026-05-26T12:30:00+00:00"
+}

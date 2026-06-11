@@ -1,0 +1,14 @@
+# ContentForge Python audit dependencies.
+#
+# Install with:
+#   python3 -m pip install -r requirements.txt
+
+numpy>=1.26
+Pillow>=10.0
+pytesseract>=0.3.13
+opencv-python-headless>=4.9
+pdqhash>=0.2.8
+jpegio>=0.2.8
+torch>=2.0
+torchvision>=0.15
+faiss-cpu>=1.7

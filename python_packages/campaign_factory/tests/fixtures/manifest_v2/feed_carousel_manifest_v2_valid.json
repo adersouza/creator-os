@@ -1,0 +1,45 @@
+{
+  "fixture": "feed_carousel_manifest_v2_valid",
+  "manifest_version": 2,
+  "asset_id": "asset_feed_carousel_manifest_v2_valid",
+  "rendered_asset_id": "asset_feed_carousel_manifest_v2_valid",
+  "source_asset_id": "source_feed_carousel_manifest_v2_valid",
+  "content_surface": "feed_carousel",
+  "contentSurface": "feed_carousel",
+  "ig_media_type": "CAROUSEL",
+  "igMediaType": "CAROUSEL",
+  "content_hash": "hash_feed_carousel_manifest_v2_valid",
+  "content_fingerprint": "hash_feed_carousel_manifest_v2_valid",
+  "caption_hash": "",
+  "instagram_post_caption": "Pick your favorite.",
+  "instagramPostCaption": "Pick your favorite.",
+  "instagram_post_caption_hash": "ig_caption_hash_feed_carousel",
+  "caption_family_id": "cfam_feed_carousel_valid",
+  "caption_version_id": "cver_feed_carousel_valid",
+  "mediaItems": [
+    {
+      "componentIndex": 0,
+      "mediaPath": "/tmp/creator-os-fixtures/carousel_0.jpg",
+      "mediaHash": "hash_carousel_slide_0",
+      "mediaType": "image"
+    },
+    {
+      "componentIndex": 1,
+      "mediaPath": "/tmp/creator-os-fixtures/carousel_1.jpg",
+      "mediaHash": "hash_carousel_slide_1",
+      "mediaType": "image"
+    },
+    {
+      "componentIndex": 2,
+      "mediaPath": "/tmp/creator-os-fixtures/carousel_2.jpg",
+      "mediaHash": "hash_carousel_slide_2",
+      "mediaType": "image"
+    }
+  ],
+  "surfaceReadiness": {
+    "canHandoff": true,
+    "blockingReasons": [],
+    "warnings": []
+  },
+  "wouldWrite": false
+}

@@ -1,0 +1,75 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mcp-server/package-lock.json
+      - run: npm ci
+      - run: cd mcp-server && npm ci && npm run build
+      - run: npm run check:migrations
+      - run: npm run lint:migrations
+      - run: npm run audit:supabase
+      - run: npm run compat:check
+      - run: npm run typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+      - run: npm run audit:select-columns
+      - run: npm run check:types-fresh
+      - run: npm run lint
+      - run: npx vitest run --reporter=verbose
+      - run: npm run test:coverage
+
+  e2e-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mcp-server/package-lock.json
+      - run: npm ci
+      - run: cd mcp-server && npm ci
+      - run: npx playwright install chromium --with-deps
+      - run: npm run build
+      - name: Start preview server and run smoke tests
+        run: |
+          # The build renames dist/index.html → dist/_app.html so Vercel's
+          # production SPA rewrite serves the landing page at /. vite preview
+          # in CI doesn't have that rewrite, so it can't find index.html and
+          # /, /privacy, /terms all 404. Copy _app.html → index.html for the
+          # CI preview run; production stays untouched.
+          cp dist/_app.html dist/index.html
+          npx vite preview --port 3000 --host 0.0.0.0 &
+          # Active readiness check — a flat sleep was racing vite startup
+          # in CI and Playwright's webServer probe gave up at 60s.
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000 >/dev/null && break
+            sleep 1
+          done
+          npx playwright test --project=smoke
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000

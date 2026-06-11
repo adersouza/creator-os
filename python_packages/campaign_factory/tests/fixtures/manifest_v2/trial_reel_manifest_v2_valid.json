@@ -1,0 +1,38 @@
+{
+  "fixture": "trial_reel_manifest_v2_valid",
+  "manifest_version": 2,
+  "asset_id": "asset_trial_reel_manifest_v2_valid",
+  "rendered_asset_id": "asset_trial_reel_manifest_v2_valid",
+  "source_asset_id": "source_trial_reel_manifest_v2_valid",
+  "content_surface": "reel",
+  "contentSurface": "reel",
+  "distribution_surface": "trial_reel",
+  "ig_media_type": "REELS",
+  "igMediaType": "REELS",
+  "instagram_trial_reels": true,
+  "trial_graduation_strategy": "MANUAL",
+  "content_hash": "hash_trial_reel_manifest_v2_valid",
+  "content_fingerprint": "hash_trial_reel_manifest_v2_valid",
+  "caption_hash": "burned_caption_hash_trial_reel",
+  "instagram_post_caption": "Trying this one today.",
+  "instagramPostCaption": "Trying this one today.",
+  "instagram_post_caption_hash": "ig_caption_hash_trial_reel",
+  "caption_family_id": "cfam_trial_reel_valid",
+  "caption_version_id": "cver_trial_reel_valid",
+  "variant_family_id": "vfam_trial_reel_valid",
+  "variant_id": "var_trial_reel_valid",
+  "mediaItems": [
+    {
+      "componentIndex": 0,
+      "mediaPath": "/tmp/creator-os-fixtures/trial_reel_valid.mp4",
+      "mediaHash": "hash_trial_reel_manifest_v2_valid",
+      "mediaType": "video"
+    }
+  ],
+  "surfaceReadiness": {
+    "canHandoff": true,
+    "blockingReasons": [],
+    "warnings": []
+  },
+  "wouldWrite": false
+}

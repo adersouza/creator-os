@@ -1,0 +1,83 @@
+{
+  "_comment": "20 hooks for clip_007 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "Be honest. Would you kiss me slow\nor grab me close?",
+    "Can you hold this for me",
+    "Everything is fine but deep down\nI want to strip for one night\njust to see how much money I would make",
+    "one word\nbe honest",
+    "any men out here still find\nan all natural woman attractive?",
+    "do older guys find me attractive?",
+    "smart men only\nim 36-18(3*6) how old i am",
+    "i talk too much with my eyes",
+    "only guys will understand\nwhat changed in this video",
+    "what i really want:\nDoor (without oor)\nJune (without jun)\nBook (without ook)\nYacht (without acht)\nDream (without drea)\n\nRead it bottom to top",
+    "rate\nme\nhonestly\nbut\ndon't\nfall\nin\nlove\nNow read: 4,5,6,7,8,1,2,3",
+    "Resisting the random urge\nonce a month to download hinge\nand set the age range from 29-37",
+    "POV: I'm your step sis\nand I come into your room\nto annoy you all day\n\nnow swap C and H",
+    {
+      "segments": [
+        {
+          "text": "I could never date a younger guy",
+          "end": 3.0
+        },
+        {
+          "text": "...how old are you again?",
+          "start": 3.0
+        }
+      ]
+    },
+    "I give everyone one chance.\nyou just used yours",
+    "pov: we match on hinge\nand you can't think of an opener",
+    "drop your age\nand I'll tell you your score",
+    "doctors say I have the face of an angel.\nthey haven't met me.",
+    {
+      "_note": "4-segment: 3 things most guys don't notice about me",
+      "segments": [
+        {
+          "text": "3 things most guys\ndon't notice about me",
+          "end": 2.0
+        },
+        {
+          "text": "1. im really shy",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. im missing a fingernail",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. i have a scar on my stomach\nfrom surgery",
+          "start": 7.0
+        }
+      ]
+    },
+    {
+      "_note": "4-segment: 3 gross things i do as a gym girl",
+      "segments": [
+        {
+          "text": "3 gross things i do\nas a gym girl",
+          "end": 2.0
+        },
+        {
+          "text": "1. sit in my sweaty clothes\nafter the gym",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. don't wipe the seat\nafter leg press",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. don't put on deodorant\nbefore going to the gym",
+          "start": 7.0
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "20 hooks × 8 recipes = 160 silent captioned outputs"
+}

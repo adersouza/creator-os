@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>About Juno33 — Threads & Instagram Management Platform</title>
+    <meta name="description" content="Juno33 is an all-in-one Threads and Instagram management platform for creators, agencies, and brands. AI content generation, smart scheduling, multi-account management, and deep analytics.">
+
+    <!-- Favicons (match existing site) -->
+    <link href="/favicon.svg" rel="icon" media="(prefers-color-scheme: light)">
+    <link href="/favicon.svg" rel="icon" media="(prefers-color-scheme: dark)">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="About Juno33 — Threads & Instagram Management Platform">
+    <meta property="og:description" content="Juno33 is an all-in-one Threads and Instagram management platform for creators, agencies, and brands.">
+    <meta property="og:image" content="https://juno33.com/og-image.png">
+    <meta property="og:url" content="https://juno33.com/about">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="About Juno33 — Threads & Instagram Management Platform">
+    <meta name="twitter:description" content="Juno33 is an all-in-one Threads and Instagram management platform for creators, agencies, and brands.">
+    <meta name="twitter:image" content="https://juno33.com/og-image.png">
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://juno33.com/about">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Organization JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Juno33",
+      "url": "https://juno33.com",
+      "logo": "https://juno33.com/icon-512.png",
+      "description": "All-in-one Threads and Instagram management platform for creators, agencies, and brands. AI content generation, smart scheduling, multi-account management, and deep analytics.",
+      "foundingDate": "2025",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "email": "support@juno33.com",
+        "contactType": "customer support"
+      },
+      "sameAs": [
+        "https://www.threads.net/@juno33app"
+      ]
+    }
+    </script>
+
+    <!-- WebSite JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Juno33",
+      "url": "https://juno33.com",
+      "description": "Threads and Instagram management platform"
+    }
+    </script>
+
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            background-color: #09090b;
+            color: #d5dbe6;
+            font-family: 'Inter', sans-serif;
+            font-size: 16px;
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+
+        a {
+            color: #d5dbe6;
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        a:hover {
+            color: #ffffff;
+        }
+
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        .nav {
+            padding: 24px 0;
+            border-bottom: 1px solid rgba(216, 231, 242, 0.07);
+        }
+
+        .nav .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-logo {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+
+        .nav-back {
+            font-size: 14px;
+            color: rgba(213, 219, 230, 0.5);
+            font-weight: 500;
+        }
+
+        .nav-back:hover {
+            color: #ffffff;
+        }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0 48px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 48px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin-bottom: 20px;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: rgba(213, 219, 230, 0.7);
+            max-width: 520px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* Sections */
+        .section {
+            padding: 48px 0;
+            border-top: 1px solid rgba(216, 231, 242, 0.07);
+        }
+
+        .section h2 {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 24px;
+            font-weight: 600;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+        }
+
+        .section p {
+            color: rgba(213, 219, 230, 0.7);
+            margin-bottom: 16px;
+        }
+
+        .section p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Features list */
+        .features {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px 32px;
+            margin-top: 20px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            color: rgba(213, 219, 230, 0.7);
+        }
+
+        .feature-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(213, 219, 230, 0.3);
+            flex-shrink: 0;
+        }
+
+        /* Contact */
+        .contact-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .contact-card {
+            background: rgba(16, 19, 28, 0.6);
+            border: 1px solid rgba(216, 231, 242, 0.07);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .contact-card .label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(213, 219, 230, 0.4);
+            margin-bottom: 8px;
+        }
+
+        .contact-card a {
+            font-size: 15px;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        /* Footer links */
+        .footer-links {
+            padding: 48px 0;
+            border-top: 1px solid rgba(216, 231, 242, 0.07);
+        }
+
+        .footer-links-inner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            font-size: 14px;
+            color: rgba(213, 219, 230, 0.5);
+            font-weight: 500;
+        }
+
+        .footer-links a:hover {
+            color: #ffffff;
+        }
+
+        .footer-copyright {
+            text-align: center;
+            padding: 0 0 48px;
+            font-size: 13px;
+            color: rgba(213, 219, 230, 0.3);
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 640px) {
+            .hero {
+                padding: 56px 0 40px;
+            }
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            .section h2 {
+                font-size: 20px;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .contact-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer-links-inner {
+                gap: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="container">
+            <a href="/" class="nav-logo">Juno33</a>
+            <a href="/" class="nav-back">Back to Juno33</a>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <h1>About Juno33</h1>
+            <p>The all-in-one platform for managing your presence on Threads and Instagram. Built for creators, agencies, and brands who want to grow smarter.</p>
+        </div>
+    </section>
+
+    <!-- What is Juno33? -->
+    <section class="section">
+        <div class="container">
+            <h2>What is Juno33?</h2>
+            <p>Juno33 is an all-in-one social media management platform for Threads and Instagram. Built for creators, agencies, and brands who want to grow their presence across Meta's platforms.</p>
+            <div class="features">
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>AI content generation</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>Smart scheduling</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>Multi-account management</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>Deep analytics</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>Team collaboration</span>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-dot"></div>
+                    <span>Link-in-bio pages</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Company -->
+    <section class="section">
+        <div class="container">
+            <h2>Company</h2>
+            <p>Juno33 is developed by Vulcan Tech, a technology company focused on building tools for the creator economy.</p>
+            <p>We are an official Meta API partner with verified access to the Threads API and Instagram Graph API.</p>
+        </div>
+    </section>
+
+    <!-- Contact -->
+    <section class="section">
+        <div class="container">
+            <h2>Contact</h2>
+            <p>We'd love to hear from you.</p>
+            <div class="contact-grid">
+                <div class="contact-card">
+                    <div class="label">Support</div>
+                    <a href="mailto:support@juno33.com">support@juno33.com</a>
+                </div>
+                <div class="contact-card">
+                    <div class="label">Business</div>
+                    <a href="mailto:hello@juno33.com">hello@juno33.com</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer Links -->
+    <div class="footer-links">
+        <div class="container">
+            <div class="footer-links-inner">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/">Back to Juno33</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-copyright">
+        <div class="container">
+            &copy; 2026 Juno33. All rights reserved.
+        </div>
+    </div>
+
+</body>
+</html>

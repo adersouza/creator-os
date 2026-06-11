@@ -1,0 +1,757 @@
+"""Account Posting Ledger for campaign/account scheduling.
+
+The ledger is the bridge between Reel Factory generated outputs and the
+operator-controlled scheduling workflow. It intentionally does not publish to
+social platforms.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sqlite3
+import time
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from audio_intent import read_audio_intent
+from intelligence_store import winner_score
+
+
+SLOT_TYPES = ("main", "trial_1", "trial_2")
+POST_STATUSES = ("planned", "ready_for_review", "approved", "scheduled", "posted", "metrics_imported", "skipped", "failed")
+TERMINAL_STATUSES = {"metrics_imported", "skipped", "failed"}
+DEFAULT_SLOT_TIMES = {"main": "10:00", "trial_1": "15:00", "trial_2": "20:00"}
+SCHEMA = "campaign_factory.account_posting_ledger.v1"
+
+
+def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS posting_slots (
+        posting_slot_id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        account_handle TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT 'ig',
+        campaign_id TEXT,
+        creator TEXT,
+        soul_name TEXT,
+        date TEXT NOT NULL,
+        slot_type TEXT NOT NULL CHECK(slot_type IN ('main', 'trial_1', 'trial_2')),
+        planned_slot_time TEXT NOT NULL,
+        source_reference_id TEXT,
+        source_reference_path TEXT,
+        reel_factory_asset_id TEXT,
+        source_kling_video_path TEXT,
+        rendered_output_path TEXT,
+        content_fingerprint TEXT,
+        caption TEXT,
+        caption_variant_id TEXT,
+        audio_track_id TEXT,
+        audio_source TEXT,
+        audio_selected_reason TEXT,
+        manual_audio_needed INTEGER NOT NULL DEFAULT 0,
+        prompt_mode TEXT,
+        higgsfield_job_id TEXT,
+        kling_job_id TEXT,
+        crop_panel_id TEXT,
+        lineage_path TEXT,
+        lineage_json TEXT NOT NULL DEFAULT '{}',
+        review_status TEXT NOT NULL DEFAULT 'pending',
+        approved_by TEXT,
+        scheduled_at TEXT,
+        posted_at TEXT,
+        post_url TEXT,
+        post_status TEXT NOT NULL DEFAULT 'planned'
+            CHECK(post_status IN ('planned', 'ready_for_review', 'approved', 'scheduled', 'posted', 'metrics_imported', 'skipped', 'failed')),
+        metrics_imported INTEGER NOT NULL DEFAULT 0,
+        views INTEGER,
+        likes INTEGER,
+        comments INTEGER,
+        shares INTEGER,
+        saves INTEGER,
+        retention REAL,
+        winner_score REAL,
+        notes TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(account_id, date, slot_type)
+    );
+    CREATE TABLE IF NOT EXISTS posting_slot_events (
+        event_id TEXT PRIMARY KEY,
+        posting_slot_id TEXT NOT NULL,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        actor TEXT,
+        notes TEXT,
+        changes_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(posting_slot_id) REFERENCES posting_slots(posting_slot_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_campaign ON posting_slots(campaign_id, date, account_id);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_status ON posting_slots(post_status, review_status);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_fingerprint ON posting_slots(account_id, content_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_source ON posting_slots(account_id, source_reference_id, date);
+    CREATE INDEX IF NOT EXISTS idx_posting_events_slot ON posting_slot_events(posting_slot_id, created_at);
+    """)
+    conn.commit()
+
+
+def connect(root: Path) -> sqlite3.Connection:
+    root = Path(root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(root / "manifest.sqlite", timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    ensure_posting_ledger_schema(conn)
+    return conn
+
+
+def content_fingerprint(path: Path) -> str:
+    path = Path(path).resolve()
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def account_id_for(handle: str) -> str:
+    return _slug(handle)
+
+
+def create_posting_plan(
+    root: Path,
+    *,
+    creator: str,
+    campaign_id: str,
+    accounts: list[str | dict[str, Any]],
+    start_date: str,
+    days: int = 7,
+    platform: str = "ig",
+    slot_times: dict[str, str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    slot_times = {**DEFAULT_SLOT_TIMES, **(slot_times or {})}
+    start = date.fromisoformat(start_date)
+    planned: list[dict[str, Any]] = []
+    conn = connect(root)
+    created = 0
+    existing = 0
+    now = int(time.time())
+    for account in accounts:
+        handle = str(account.get("handle") if isinstance(account, dict) else account).lstrip("@")
+        account_id = str(account.get("account_id") if isinstance(account, dict) and account.get("account_id") else account_id_for(handle))
+        for day_offset in range(days):
+            slot_date = (start + timedelta(days=day_offset)).isoformat()
+            for slot_type in SLOT_TYPES:
+                slot_id = _slot_id(account_id, slot_date, slot_type)
+                row = {
+                    "posting_slot_id": slot_id,
+                    "account_id": account_id,
+                    "account_handle": handle,
+                    "platform": platform,
+                    "campaign_id": campaign_id,
+                    "creator": creator,
+                    "soul_name": creator,
+                    "date": slot_date,
+                    "slot_type": slot_type,
+                    "planned_slot_time": slot_times[slot_type],
+                    "post_status": "planned",
+                    "review_status": "pending",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                planned.append(row)
+                if dry_run:
+                    continue
+                cur = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO posting_slots (
+                        posting_slot_id, account_id, account_handle, platform, campaign_id,
+                        creator, soul_name, date, slot_type, planned_slot_time, post_status,
+                        review_status, created_at, updated_at
+                    ) VALUES (
+                        :posting_slot_id, :account_id, :account_handle, :platform, :campaign_id,
+                        :creator, :soul_name, :date, :slot_type, :planned_slot_time, :post_status,
+                        :review_status, :created_at, :updated_at
+                    )
+                    """,
+                    row,
+                )
+                if cur.rowcount:
+                    created += 1
+                    _record_event(conn, slot_id, None, "planned", actor="ledger", notes="slot planned")
+                else:
+                    existing += 1
+    if not dry_run:
+        conn.commit()
+    return {
+        "ok": True,
+        "schema": SCHEMA,
+        "created": created,
+        "existing": existing,
+        "slot_count": len(planned),
+        "slots": planned,
+    }
+
+
+def assign_approved_reels(
+    root: Path,
+    *,
+    campaign_id: str,
+    approved_export: Path,
+    dry_run: bool = False,
+    source_reuse_window_days: int = 7,
+) -> dict[str, Any]:
+    conn = connect(root)
+    payload = json.loads(Path(approved_export).read_text(encoding="utf-8"))
+    items = payload.get("items") or []
+    slots = [
+        dict(row) for row in conn.execute(
+            """
+            SELECT * FROM posting_slots
+            WHERE campaign_id=? AND post_status='planned'
+            ORDER BY date, planned_slot_time, account_id, slot_type
+            """,
+            (campaign_id,),
+        ).fetchall()
+    ]
+    assigned: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    slot_idx = 0
+    now = int(time.time())
+    for item in items:
+        output_path = Path(str(item.get("output_path") or item.get("rendered_output_path") or "")).expanduser()
+        if not output_path.exists():
+            conflicts.append({"output_path": str(output_path), "reasons": ["rendered_output_missing"]})
+            continue
+        item_lineage = item.get("generated_asset_lineage") if isinstance(item.get("generated_asset_lineage"), dict) else {}
+        lineage_path = _find_lineage_path(output_path)
+        if not lineage_path and not item_lineage:
+            conflicts.append({"output_path": str(output_path), "reasons": ["missing_lineage"]})
+            continue
+        fp = content_fingerprint(output_path)
+        slot_result: tuple[dict[str, Any], list[str]] | None = None
+        conflict_accounts_seen: set[str] = set()
+        terminal_conflict = False
+        while slot_idx < len(slots):
+            slot = slots[slot_idx]
+            slot_idx += 1
+            reasons = _assignment_conflicts(
+                conn,
+                slot=slot,
+                output_path=str(output_path.resolve()),
+                fingerprint=fp,
+                lineage=item_lineage,
+                source_reuse_window_days=source_reuse_window_days,
+            )
+            if not reasons:
+                slot_result = (slot, reasons)
+                break
+            if "duplicate_content_fingerprint_for_campaign" in reasons:
+                conflicts.append({
+                    "posting_slot_id": slot["posting_slot_id"],
+                    "account_handle": slot["account_handle"],
+                    "output_path": str(output_path.resolve()),
+                    "content_fingerprint": fp,
+                    "reasons": reasons,
+                })
+                terminal_conflict = True
+                break
+            if slot["account_id"] not in conflict_accounts_seen:
+                conflicts.append({
+                    "posting_slot_id": slot["posting_slot_id"],
+                    "account_handle": slot["account_handle"],
+                    "output_path": str(output_path.resolve()),
+                    "content_fingerprint": fp,
+                    "reasons": reasons,
+                })
+                conflict_accounts_seen.add(slot["account_id"])
+        if not slot_result:
+            if slot_idx >= len(slots) and not conflict_accounts_seen and not terminal_conflict:
+                conflicts.append({"output_path": str(output_path.resolve()), "reasons": ["no_available_planned_slot"]})
+            continue
+        slot, _ = slot_result
+        values = _assignment_values(item, output_path=output_path, lineage=item_lineage, lineage_path=lineage_path, fingerprint=fp)
+        values.update({
+            "posting_slot_id": slot["posting_slot_id"],
+            "post_status": "ready_for_review",
+            "review_status": "pending",
+            "updated_at": now,
+        })
+        assigned.append({"posting_slot_id": slot["posting_slot_id"], **values})
+        if dry_run:
+            continue
+        conn.execute(
+            """
+            UPDATE posting_slots SET
+                source_reference_id=:source_reference_id,
+                source_reference_path=:source_reference_path,
+                reel_factory_asset_id=:reel_factory_asset_id,
+                source_kling_video_path=:source_kling_video_path,
+                rendered_output_path=:rendered_output_path,
+                content_fingerprint=:content_fingerprint,
+                caption=:caption,
+                caption_variant_id=:caption_variant_id,
+                audio_track_id=:audio_track_id,
+                audio_source=:audio_source,
+                audio_selected_reason=:audio_selected_reason,
+                manual_audio_needed=:manual_audio_needed,
+                prompt_mode=:prompt_mode,
+                higgsfield_job_id=:higgsfield_job_id,
+                kling_job_id=:kling_job_id,
+                crop_panel_id=:crop_panel_id,
+                lineage_path=:lineage_path,
+                lineage_json=:lineage_json,
+                post_status=:post_status,
+                review_status=:review_status,
+                updated_at=:updated_at
+            WHERE posting_slot_id=:posting_slot_id
+            """,
+            values,
+        )
+        _record_event(conn, slot["posting_slot_id"], slot["post_status"], "ready_for_review", actor="ledger", notes="approved reel assigned", changes=values)
+    if not dry_run:
+        conn.commit()
+    return {"ok": True, "assigned": len(assigned), "assignments": assigned, "conflicts": conflicts}
+
+
+def transition_slot(
+    root: Path,
+    posting_slot_id: str,
+    to_status: str,
+    *,
+    actor: str = "",
+    notes: str = "",
+    approved_by: str | None = None,
+    scheduled_at: str | None = None,
+    posted_at: str | None = None,
+    post_url: str | None = None,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if to_status not in POST_STATUSES:
+        raise ValueError(f"post_status must be one of {POST_STATUSES}")
+    conn = connect(root)
+    row = conn.execute("SELECT * FROM posting_slots WHERE posting_slot_id=?", (posting_slot_id,)).fetchone()
+    if not row:
+        raise ValueError(f"unknown posting slot: {posting_slot_id}")
+    current = row["post_status"]
+    if current in TERMINAL_STATUSES and to_status != current:
+        raise ValueError(f"slot is terminal: {current}")
+    _validate_transition(dict(row), to_status)
+    updates: dict[str, Any] = {"post_status": to_status, "updated_at": int(time.time())}
+    if to_status == "approved":
+        updates["review_status"] = "approved"
+        updates["approved_by"] = approved_by or actor or row["approved_by"]
+    elif to_status == "skipped":
+        updates["review_status"] = "skipped"
+    elif to_status == "failed":
+        updates["review_status"] = "failed"
+    if scheduled_at:
+        updates["scheduled_at"] = scheduled_at
+    if posted_at:
+        updates["posted_at"] = posted_at
+    if post_url:
+        updates["post_url"] = post_url
+    if to_status == "metrics_imported":
+        updates["metrics_imported"] = 1
+        metric_values = metrics or {}
+        for key in ("views", "likes", "comments", "shares", "saves", "retention"):
+            if key in metric_values:
+                updates[key] = metric_values[key]
+        updates["winner_score"] = winner_score(metric_values)
+    assignments = ", ".join(f"{key}=?" for key in updates)
+    conn.execute(f"UPDATE posting_slots SET {assignments} WHERE posting_slot_id=?", [*updates.values(), posting_slot_id])
+    _record_event(conn, posting_slot_id, current, to_status, actor=actor, notes=notes, changes=updates)
+    conn.commit()
+    return {"ok": True, "posting_slot_id": posting_slot_id, "from_status": current, "to_status": to_status}
+
+
+def review_queue(root: Path, *, campaign_id: str | None = None) -> dict[str, Any]:
+    conn = connect(root)
+    where = "WHERE post_status IN ('ready_for_review', 'approved')"
+    params: list[Any] = []
+    if campaign_id:
+        where += " AND campaign_id=?"
+        params.append(campaign_id)
+    rows = conn.execute(
+        f"""
+        SELECT posting_slot_id, account_id, account_handle, campaign_id, creator, date,
+            slot_type, planned_slot_time, rendered_output_path, content_fingerprint,
+            caption, audio_track_id, audio_source, audio_selected_reason, manual_audio_needed,
+            lineage_path, review_status, post_status
+        FROM posting_slots
+        {where}
+        ORDER BY date, planned_slot_time, account_handle
+        """,
+        params,
+    ).fetchall()
+    items = []
+    for row in rows:
+        data = dict(row)
+        data["audio_intent"] = _audio_state(data)
+        data["actions"] = ["approve", "reject", "skip"]
+        items.append(data)
+    return {"ok": True, "schema": SCHEMA, "count": len(items), "items": items}
+
+
+def ledger_conflicts(root: Path, *, campaign_id: str | None = None, source_reuse_window_days: int = 7) -> dict[str, Any]:
+    conn = connect(root)
+    params: list[Any] = []
+    where = ""
+    if campaign_id:
+        where = "WHERE campaign_id=?"
+        params.append(campaign_id)
+    rows = [dict(row) for row in conn.execute(f"SELECT * FROM posting_slots {where}", params).fetchall()]
+    conflicts: list[dict[str, Any]] = []
+    seen_rendered: set[tuple[str, str]] = set()
+    seen_fp: set[tuple[str, str]] = set()
+    seen_campaign_fp: set[tuple[str, str]] = set()
+    for row in rows:
+        if row.get("rendered_output_path"):
+            key = (row["account_id"], row["rendered_output_path"])
+            if key in seen_rendered:
+                conflicts.append({"posting_slot_id": row["posting_slot_id"], "reason": "duplicate_rendered_output_for_account"})
+            seen_rendered.add(key)
+        if row.get("content_fingerprint"):
+            key = (row["account_id"], row["content_fingerprint"])
+            if key in seen_fp:
+                conflicts.append({"posting_slot_id": row["posting_slot_id"], "reason": "duplicate_content_fingerprint_for_account"})
+            seen_fp.add(key)
+            campaign_key = (row.get("campaign_id") or "", row["content_fingerprint"])
+            if campaign_key in seen_campaign_fp:
+                conflicts.append({"posting_slot_id": row["posting_slot_id"], "reason": "duplicate_content_fingerprint_for_campaign"})
+            seen_campaign_fp.add(campaign_key)
+        if row.get("source_reference_id"):
+            nearby = _nearby_source_rows(conn, row, source_reuse_window_days)
+            if nearby:
+                conflicts.append({"posting_slot_id": row["posting_slot_id"], "reason": "nearby_source_reuse", "nearby": nearby})
+    return {"ok": True, "count": len(conflicts), "conflicts": conflicts}
+
+
+def export_schedule_package(
+    root: Path,
+    *,
+    campaign_id: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    conn = connect(root)
+    where = ["post_status IN ('approved', 'scheduled')"]
+    params: list[Any] = []
+    if campaign_id:
+        where.append("campaign_id=?")
+        params.append(campaign_id)
+    if date_from:
+        where.append("date>=?")
+        params.append(date_from)
+    if date_to:
+        where.append("date<=?")
+        params.append(date_to)
+    rows = [dict(row) for row in conn.execute(
+        f"SELECT * FROM posting_slots WHERE {' AND '.join(where)} ORDER BY date, planned_slot_time, account_handle",
+        params,
+    ).fetchall()]
+    items = []
+    blocked = []
+    for row in rows:
+        audio = _audio_state(row)
+        if not audio["schedule_ready"]:
+            blocked.append({"posting_slot_id": row["posting_slot_id"], "reason": "unresolved_audio"})
+            continue
+        items.append(_schedule_item(row, audio))
+    payload = {
+        "schema": "campaign_factory.schedule_package.v1",
+        "exported_at": int(time.time()),
+        "campaign_id": campaign_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "count": len(items),
+        "items": items,
+        "blocked": blocked,
+        "auto_posting": False,
+    }
+    if not dry_run:
+        out_dir = Path(root).resolve() / "04_exports" / "posting_ledger"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"schedule_{campaign_id or 'all'}_{date_from or 'start'}_{date_to or 'end'}_{int(time.time())}.json"
+        out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        payload["path"] = str(out_path)
+    return payload
+
+
+def cli_main() -> int:
+    parser = argparse.ArgumentParser(description="Account Posting Ledger utilities.")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    plan = sub.add_parser("create-plan")
+    plan.add_argument("--root", default=".")
+    plan.add_argument("--creator", default="Stacey")
+    plan.add_argument("--campaign-id", required=True)
+    plan.add_argument("--accounts", required=True, help="Comma-separated handles or path to JSON list.")
+    plan.add_argument("--start-date", default=datetime.now(timezone.utc).date().isoformat())
+    plan.add_argument("--days", type=int, default=7)
+    plan.add_argument("--platform", default="ig")
+    plan.add_argument("--dry-run", action="store_true")
+    assign = sub.add_parser("assign-approved-reels")
+    assign.add_argument("--root", default=".")
+    assign.add_argument("--campaign-id", required=True)
+    assign.add_argument("--approved-export", required=True)
+    assign.add_argument("--dry-run", action="store_true")
+    conflicts = sub.add_parser("print-conflicts")
+    conflicts.add_argument("--root", default=".")
+    conflicts.add_argument("--campaign-id")
+    export = sub.add_parser("export-schedule-package")
+    export.add_argument("--root", default=".")
+    export.add_argument("--campaign-id")
+    export.add_argument("--date-from")
+    export.add_argument("--date-to")
+    export.add_argument("--dry-run", action="store_true")
+    queue = sub.add_parser("review-queue")
+    queue.add_argument("--root", default=".")
+    queue.add_argument("--campaign-id")
+    args = parser.parse_args()
+    root = Path(getattr(args, "root", "."))
+    if args.cmd == "create-plan":
+        result = create_posting_plan(
+            root,
+            creator=args.creator,
+            campaign_id=args.campaign_id,
+            accounts=_parse_accounts(args.accounts),
+            start_date=args.start_date,
+            days=args.days,
+            platform=args.platform,
+            dry_run=args.dry_run,
+        )
+    elif args.cmd == "assign-approved-reels":
+        result = assign_approved_reels(root, campaign_id=args.campaign_id, approved_export=Path(args.approved_export), dry_run=args.dry_run)
+    elif args.cmd == "print-conflicts":
+        result = ledger_conflicts(root, campaign_id=args.campaign_id)
+    elif args.cmd == "review-queue":
+        result = review_queue(root, campaign_id=args.campaign_id)
+    else:
+        result = export_schedule_package(root, campaign_id=args.campaign_id, date_from=args.date_from, date_to=args.date_to, dry_run=args.dry_run)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _assignment_values(item: dict[str, Any], *, output_path: Path, lineage: dict[str, Any],
+                       lineage_path: Path | None, fingerprint: str) -> dict[str, Any]:
+    audio_intent = item.get("audio_intent") if isinstance(item.get("audio_intent"), dict) else read_audio_intent(output_path)
+    audio_selection = (audio_intent or {}).get("audio_selection") or {}
+    return {
+        "source_reference_id": _lineage_value(lineage, "sourceReferenceId", "reference_id", "source_reference_id"),
+        "source_reference_path": _lineage_value(lineage, "sourceReferencePath", "source_path", "source_reference_path"),
+        "reel_factory_asset_id": _lineage_value(lineage, "assetGenerationId", "asset_generation_id") or ((item.get("campaign") or {}).get("asset_generation_id") if isinstance(item.get("campaign"), dict) else None),
+        "source_kling_video_path": _lineage_value(lineage, "klingVideoPath", "video", "local_video_path"),
+        "rendered_output_path": str(output_path.resolve()),
+        "content_fingerprint": fingerprint,
+        "caption": item.get("hook_text") or item.get("caption") or item.get("caption_text"),
+        "caption_variant_id": item.get("caption_variant_id"),
+        "audio_track_id": audio_selection.get("track_id") or item.get("audio_track_id"),
+        "audio_source": (audio_intent or {}).get("mode") or item.get("audio_source"),
+        "audio_selected_reason": audio_selection.get("selected_reason") or item.get("audio_selected_reason"),
+        "manual_audio_needed": 1 if item.get("manual_audio_needed") else 0,
+        "prompt_mode": _lineage_value(lineage, "promptMode", "prompt_mode"),
+        "higgsfield_job_id": _lineage_value(lineage, "imageJobId", "higgsfield_job_id", "image_job_id"),
+        "kling_job_id": _lineage_value(lineage, "klingJobId", "kling_job_id", "video_job_id"),
+        "crop_panel_id": _lineage_value(lineage, "cropPanelId", "selected_panel", "panel_id"),
+        "lineage_path": str(lineage_path.resolve()) if lineage_path else None,
+        "lineage_json": json.dumps(lineage, ensure_ascii=False, sort_keys=True),
+    }
+
+
+def _assignment_conflicts(conn: sqlite3.Connection, *, slot: dict[str, Any], output_path: str,
+                          fingerprint: str, lineage: dict[str, Any], source_reuse_window_days: int) -> list[str]:
+    reasons = []
+    existing_output = conn.execute(
+        """
+        SELECT posting_slot_id FROM posting_slots
+        WHERE account_id=? AND rendered_output_path=? AND post_status NOT IN ('skipped', 'failed')
+        """,
+        (slot["account_id"], output_path),
+    ).fetchone()
+    if existing_output:
+        reasons.append("duplicate_rendered_output_for_account")
+    existing_fp = conn.execute(
+        """
+        SELECT posting_slot_id FROM posting_slots
+        WHERE account_id=? AND content_fingerprint=? AND post_status NOT IN ('skipped', 'failed')
+        """,
+        (slot["account_id"], fingerprint),
+    ).fetchone()
+    if existing_fp:
+        reasons.append("duplicate_content_fingerprint_for_account")
+    existing_campaign_fp = conn.execute(
+        """
+        SELECT posting_slot_id FROM posting_slots
+        WHERE campaign_id=? AND content_fingerprint=? AND post_status NOT IN ('planned', 'skipped', 'failed')
+        """,
+        (slot["campaign_id"], fingerprint),
+    ).fetchone()
+    if existing_campaign_fp:
+        reasons.append("duplicate_content_fingerprint_for_campaign")
+    source_reference_id = _lineage_value(lineage, "sourceReferenceId", "reference_id", "source_reference_id")
+    if source_reference_id:
+        probe = dict(slot)
+        probe["source_reference_id"] = source_reference_id
+        if _nearby_source_rows(conn, probe, source_reuse_window_days):
+            reasons.append("nearby_source_reuse_for_account")
+    return reasons
+
+
+def _nearby_source_rows(conn: sqlite3.Connection, row: dict[str, Any], window_days: int) -> list[str]:
+    if not row.get("source_reference_id"):
+        return []
+    slot_date = date.fromisoformat(row["date"])
+    start = (slot_date - timedelta(days=window_days)).isoformat()
+    end = (slot_date + timedelta(days=window_days)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT posting_slot_id FROM posting_slots
+        WHERE account_id=? AND source_reference_id=? AND date BETWEEN ? AND ?
+          AND posting_slot_id<>? AND post_status NOT IN ('planned', 'skipped', 'failed')
+        """,
+        (row["account_id"], row["source_reference_id"], start, end, row["posting_slot_id"]),
+    ).fetchall()
+    return [r["posting_slot_id"] for r in rows]
+
+
+def _validate_transition(row: dict[str, Any], to_status: str) -> None:
+    order = {
+        "planned": {"ready_for_review", "skipped", "failed"},
+        "ready_for_review": {"approved", "skipped", "failed"},
+        "approved": {"scheduled", "skipped", "failed"},
+        "scheduled": {"posted", "skipped", "failed"},
+        "posted": {"metrics_imported", "failed"},
+        "metrics_imported": {"metrics_imported"},
+        "skipped": {"skipped"},
+        "failed": {"failed"},
+    }
+    current = row["post_status"]
+    if to_status == current:
+        return
+    if to_status not in order[current]:
+        raise ValueError(f"invalid transition: {current} -> {to_status}")
+    if to_status in {"ready_for_review", "approved", "scheduled"}:
+        if not row.get("rendered_output_path") or not row.get("lineage_path"):
+            raise ValueError("lineage and rendered output are required before review/scheduling")
+    if to_status == "scheduled" and not _audio_state(row)["schedule_ready"]:
+        raise ValueError("resolved audio intent or manual_audio_needed is required before scheduling")
+
+
+def _audio_state(row: dict[str, Any]) -> dict[str, Any]:
+    output = row.get("rendered_output_path")
+    sidecar = read_audio_intent(Path(output)) if output else None
+    manual = bool(row.get("manual_audio_needed"))
+    sidecar_mode = (sidecar or {}).get("mode") if sidecar else None
+    sidecar_status = str((sidecar or {}).get("status") or "").lower()
+    sidecar_selection = (sidecar or {}).get("audio_selection") if isinstance((sidecar or {}).get("audio_selection"), dict) else {}
+    sidecar_has_selection = bool(sidecar_selection.get("track_id") or sidecar_selection.get("title") or sidecar_selection.get("url"))
+    if sidecar_mode == "native_trending_audio":
+        sidecar_resolved = sidecar_status in {"resolved", "selected", "approved", "ready"} or sidecar_has_selection
+    else:
+        sidecar_resolved = bool(sidecar)
+    row_audio_source = row.get("audio_source")
+    row_audio_resolved = bool(row.get("audio_track_id") or (row_audio_source and row_audio_source != "native_trending_audio"))
+    resolved = manual or row_audio_resolved or sidecar_resolved
+    return {
+        "manual_audio_needed": manual,
+        "audio_track_id": row.get("audio_track_id"),
+        "audio_source": row.get("audio_source") or sidecar_mode,
+        "audio_selected_reason": row.get("audio_selected_reason"),
+        "sidecar": sidecar,
+        "schedule_ready": resolved,
+    }
+
+
+def _schedule_item(row: dict[str, Any], audio: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "posting_slot_id": row["posting_slot_id"],
+        "account_id": row["account_id"],
+        "account_handle": row["account_handle"],
+        "platform": row["platform"],
+        "campaign_id": row["campaign_id"],
+        "creator": row["creator"],
+        "soul_name": row["soul_name"],
+        "date": row["date"],
+        "slot_type": row["slot_type"],
+        "planned_slot_time": row["planned_slot_time"],
+        "scheduled_at": row["scheduled_at"],
+        "rendered_output_path": row["rendered_output_path"],
+        "content_fingerprint": row["content_fingerprint"],
+        "caption": row["caption"],
+        "caption_variant_id": row["caption_variant_id"],
+        "audio": audio,
+        "lineage_path": row["lineage_path"],
+        "source_reference_id": row["source_reference_id"],
+        "source_reference_path": row["source_reference_path"],
+        "reel_factory_asset_id": row["reel_factory_asset_id"],
+        "source_kling_video_path": row["source_kling_video_path"],
+        "higgsfield_job_id": row["higgsfield_job_id"],
+        "kling_job_id": row["kling_job_id"],
+        "crop_panel_id": row["crop_panel_id"],
+        "post_status": row["post_status"],
+    }
+
+
+def _record_event(conn: sqlite3.Connection, posting_slot_id: str, from_status: str | None, to_status: str,
+                  *, actor: str = "", notes: str = "", changes: dict[str, Any] | None = None) -> None:
+    event_id = "evt_" + hashlib.sha256(f"{posting_slot_id}:{from_status}:{to_status}:{time.time_ns()}".encode()).hexdigest()[:20]
+    conn.execute(
+        """
+        INSERT INTO posting_slot_events (
+            event_id, posting_slot_id, from_status, to_status, actor, notes, changes_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (event_id, posting_slot_id, from_status, to_status, actor, notes, json.dumps(changes or {}, ensure_ascii=False, sort_keys=True), int(time.time())),
+    )
+
+
+def _find_lineage_path(output_path: Path) -> Path | None:
+    candidates = [
+        output_path.with_suffix(output_path.suffix + ".generated_asset_lineage.json"),
+        output_path.with_suffix(".generated_asset_lineage.json"),
+        output_path.parent / f"{output_path.stem}.generated_asset_lineage.json",
+    ]
+    return next((path for path in candidates if path.exists()), None)
+
+
+def _lineage_value(lineage: dict[str, Any], *keys: str) -> Any:
+    stack = [lineage]
+    while stack:
+        obj = stack.pop()
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            if key in obj and obj[key] not in (None, ""):
+                return obj[key]
+        stack.extend(v for v in obj.values() if isinstance(v, dict))
+    return None
+
+
+def _parse_accounts(value: str) -> list[str | dict[str, Any]]:
+    path = Path(value).expanduser()
+    if path.exists():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise ValueError("accounts JSON must be a list")
+        return data
+    return [part.strip().lstrip("@") for part in value.split(",") if part.strip()]
+
+
+def _slot_id(account_id: str, slot_date: str, slot_type: str) -> str:
+    digest = hashlib.sha256(f"{account_id}:{slot_date}:{slot_type}".encode()).hexdigest()[:16]
+    return f"slot_{digest}"
+
+
+def _slug(value: str) -> str:
+    clean = "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+    while "__" in clean:
+        clean = clean.replace("__", "_")
+    return clean or "account"
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli_main())

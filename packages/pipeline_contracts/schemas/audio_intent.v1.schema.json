@@ -1,0 +1,419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline.audio_intent.v1",
+  "title": "Pipeline Audio Intent",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "mode",
+    "required",
+    "status",
+    "platform",
+    "recommendations",
+    "gates"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pipeline.audio_intent.v1"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "not_required",
+        "recommended",
+        "needs_operator_selection",
+        "selected",
+        "attached",
+        "verified",
+        "skipped",
+        "blocked",
+        "needs_review",
+        "burned"
+      ]
+    },
+    "platform": {
+      "type": "string"
+    },
+    "surface": {
+      "type": "string"
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "audio_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_audio_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vibe_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "freshness": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rationale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instruction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audioMemoryGraphId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trendScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fatigueScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "accountFitScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "performanceLift": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "exampleReels": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "object"
+              ]
+            }
+          },
+          "selectionRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "primaryAudio": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "backupAudios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "doNotUseAudios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "decisionConfidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decisionReasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "riskFlags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "whenToUse": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "whenNotToUse": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operatorInstruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "operator_selection": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "audio_title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artist_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform_audio_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attached_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attached_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verified_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verified_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_captured_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "task": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema": {
+          "const": "pipeline.audio_task.v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "selected",
+            "proof_missing",
+            "needs_review",
+            "blocked",
+            "completed",
+            "not_required"
+          ]
+        },
+        "assignee": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "due_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_required": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "allow_draft_export",
+        "allow_publish"
+      ],
+      "properties": {
+        "allow_draft_export": {
+          "type": "boolean"
+        },
+        "allow_preview_schedule": {
+          "type": "boolean"
+        },
+        "allow_live_schedule": {
+          "type": "boolean"
+        },
+        "allow_publish": {
+          "type": "boolean"
+        }
+      }
+    },
+    "pipelineTraceId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+    }
+  }
+}

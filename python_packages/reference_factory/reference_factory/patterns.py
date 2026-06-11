@@ -1,0 +1,788 @@
+from __future__ import annotations
+
+import json
+import math
+import re
+import urllib.error
+import urllib.request
+from collections import Counter, defaultdict
+from pathlib import Path
+from sqlite3 import Connection
+from typing import Any
+
+from .db import json_dump, json_load
+from .identity import stable_id, text_hash
+from .public_metrics import top_public_posts
+from .timeutil import now_iso
+
+
+ANALYZER_VERSION = "reference_factory.patterns.v1"
+
+TAG_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("mirror", ("mirror", "selfie", "fit check", "fitcheck", "reflection")),
+    ("fit_check", ("fit check", "fitcheck", "outfit", "fit ", "dress", "wearing")),
+    ("bedroom", ("bedroom", "bed ", "room", "pillow", "asmr")),
+    ("walking", ("walking", "walk", "street", "sidewalk")),
+    ("pose", ("pose", "posing", "look at", "camera caught")),
+    ("slideshow", ("slideshow", "carousel", "photo dump", "swipe", "tiktok_slideshow")),
+    ("caption_style", ("pov", "when ", "how it feels", "pick one", "congrats", "if u got", "99.9")),
+    ("hook_good", ("pov", "when ", "how it feels", "pick one", "can’t", "can't", "rare", "if u got")),
+    ("no_caption", ()),
+]
+
+
+def analyze_patterns(
+    conn: Connection,
+    limit: int = 300,
+    provider: str = "auto",
+    ollama_model: str | None = None,
+    output_dir: Path | None = None,
+) -> dict[str, object]:
+    provider_used = _resolve_provider(provider)
+    items = _pattern_source_rows(conn, limit)
+    timestamp = now_iso()
+    patterns: list[dict[str, Any]] = []
+    llm_attempted = False
+    llm_used = 0
+    for item in items:
+        heuristic = _heuristic_pattern(item)
+        pattern = heuristic
+        if provider_used == "ollama":
+            llm_attempted = True
+            llm_pattern = _ollama_pattern(item, heuristic, ollama_model)
+            if llm_pattern:
+                pattern = _merge_llm_pattern(heuristic, llm_pattern)
+                llm_used += 1
+        pattern_id = stable_id(
+            "reference_pattern",
+            str(item.get("referenceId") or ""),
+            str(item.get("publicPostId") or ""),
+            ANALYZER_VERSION,
+        )
+        conn.execute(
+            """
+            INSERT INTO reference_patterns (
+              id, reference_id, public_post_id, rank, provider, model,
+              analyzer_version, suggested_label, visual_format, hook_type,
+              caption_archetype, quality_score, pattern_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              reference_id = excluded.reference_id,
+              public_post_id = excluded.public_post_id,
+              rank = excluded.rank,
+              provider = excluded.provider,
+              model = excluded.model,
+              analyzer_version = excluded.analyzer_version,
+              suggested_label = excluded.suggested_label,
+              visual_format = excluded.visual_format,
+              hook_type = excluded.hook_type,
+              caption_archetype = excluded.caption_archetype,
+              quality_score = excluded.quality_score,
+              pattern_json = excluded.pattern_json,
+              updated_at = excluded.updated_at
+            """,
+            (
+                pattern_id,
+                item.get("referenceId"),
+                item.get("publicPostId"),
+                item.get("rank"),
+                pattern["provider"],
+                pattern.get("model"),
+                ANALYZER_VERSION,
+                pattern["suggestedLabel"],
+                pattern["visualFormat"],
+                pattern["hookType"],
+                pattern["captionArchetype"],
+                pattern["qualityScore"],
+                json_dump(pattern),
+                timestamp,
+                timestamp,
+            ),
+        )
+        patterns.append(pattern)
+    conn.commit()
+    summary = pattern_summary(conn, limit=limit)
+    paths: dict[str, str] = {}
+    if output_dir:
+        paths = export_patterns(conn, limit=limit, output_dir=output_dir, include_items=False)
+    return {
+        "schema": "reference_factory.analyze_patterns.v1",
+        "limit": limit,
+        "analyzed": len(patterns),
+        "providerRequested": provider,
+        "providerUsed": provider_used,
+        "ollamaAttempted": llm_attempted,
+        "ollamaUsed": llm_used,
+        "summary": summary["summary"],
+        **paths,
+        "items": patterns[:10],
+    }
+
+
+def export_patterns(
+    conn: Connection,
+    limit: int = 300,
+    output_dir: Path | None = None,
+    include_items: bool = True,
+) -> dict[str, object]:
+    output_dir = output_dir or Path("learning")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = _pattern_rows(conn, limit)
+    cards = [_pattern_row_to_card(row) for row in rows]
+    summary = _summary_from_cards(cards)
+    jsonl_path = output_dir / f"pattern_cards_top{limit}.jsonl"
+    manifest_path = output_dir / f"pattern_cards_top{limit}.json"
+    summary_path = output_dir / f"pattern_summary_top{limit}.json"
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for card in cards:
+            f.write(json.dumps(card, ensure_ascii=False, sort_keys=True) + "\n")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema": "reference_factory.pattern_cards.v1",
+                "limit": limit,
+                "count": len(cards),
+                "cards": cards,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
+    payload: dict[str, object] = {
+        "schema": "reference_factory.export_patterns.v1",
+        "limit": limit,
+        "count": len(cards),
+        "jsonlPath": str(jsonl_path),
+        "manifestPath": str(manifest_path),
+        "summaryPath": str(summary_path),
+        "summary": summary["summary"],
+    }
+    if include_items:
+        payload["items"] = cards[:10]
+    return payload
+
+
+def pattern_summary(conn: Connection, limit: int = 300) -> dict[str, object]:
+    cards = [_pattern_row_to_card(row) for row in _pattern_rows(conn, limit)]
+    return _summary_from_cards(cards)
+
+
+def apply_pattern_labels(
+    conn: Connection,
+    limit: int = 300,
+    overwrite: bool = False,
+) -> dict[str, object]:
+    rows = _pattern_rows(conn, limit)
+    applied = 0
+    skipped = 0
+    timestamp = now_iso()
+    for row in rows:
+        reference_id = row["reference_id"]
+        pattern = json_load(row["pattern_json"], {})
+        suggested = pattern.get("suggestedLabel")
+        if not reference_id:
+            skipped += 1
+            continue
+        if suggested not in {"gold", "maybe", "ignore"}:
+            skipped += 1
+            continue
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM review_labels WHERE reference_id = ?",
+            (reference_id,),
+        ).fetchone()[0]
+        if existing and not overwrite:
+            skipped += 1
+            continue
+        if overwrite:
+            conn.execute("DELETE FROM review_labels WHERE reference_id = ?", (reference_id,))
+        tags = sorted(set(pattern.get("reviewTags") or []))
+        label_id = stable_id("label", reference_id, suggested, "pattern")
+        conn.execute(
+            """
+            INSERT INTO review_labels (id, reference_id, label, tags_json, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(reference_id, label) DO UPDATE SET
+              tags_json = excluded.tags_json,
+              notes = excluded.notes,
+              updated_at = excluded.updated_at
+            """,
+            (
+                label_id,
+                reference_id,
+                suggested,
+                json_dump(tags),
+                "machine label from reference pattern analyzer",
+                timestamp,
+                timestamp,
+            ),
+        )
+        applied += 1
+    conn.commit()
+    return {
+        "schema": "reference_factory.apply_pattern_labels.v1",
+        "limit": limit,
+        "applied": applied,
+        "skipped": skipped,
+        "overwrite": overwrite,
+    }
+
+
+def _pattern_source_rows(conn: Connection, limit: int) -> list[dict[str, Any]]:
+    top = top_public_posts(conn, limit)
+    rows = []
+    for item in top["items"]:
+        reference_id = item.get("referenceId")
+        source = probe = caption = label = None
+        if reference_id:
+            source = conn.execute(
+                "SELECT * FROM source_files WHERE reference_id = ?",
+                (reference_id,),
+            ).fetchone()
+            probe = conn.execute(
+                "SELECT * FROM video_probes WHERE reference_id = ?",
+                (reference_id,),
+            ).fetchone()
+            caption = conn.execute(
+                """
+                SELECT *
+                FROM caption_patterns
+                WHERE reference_id = ?
+                ORDER BY COALESCE(avg_confidence, 0) DESC, char_count DESC
+                LIMIT 1
+                """,
+                (reference_id,),
+            ).fetchone()
+            label = conn.execute(
+                """
+                SELECT *
+                FROM review_labels
+                WHERE reference_id = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (reference_id,),
+            ).fetchone()
+        rows.append(
+            {
+                **item,
+                "publicPostId": item["id"],
+                "sourceFile": dict(source) if source else None,
+                "probe": dict(probe) if probe else None,
+                "captionPattern": dict(caption) if caption else None,
+                "reviewLabel": dict(label) if label else None,
+            }
+        )
+    return rows
+
+
+def _pattern_rows(conn: Connection, limit: int) -> list[Any]:
+    return conn.execute(
+        """
+        SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
+               pp.video_play_count, pp.video_view_count, pp.likes_count, pp.comments_count,
+               pp.match_type, sf.path AS local_path, sf.account, sf.file_name
+        FROM reference_patterns rp
+        LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
+        LEFT JOIN source_files sf ON sf.reference_id = rp.reference_id
+        ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+
+def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
+    public_caption = str(item.get("caption") or "").strip()
+    caption_pattern = item.get("captionPattern") or {}
+    ocr_caption = str(caption_pattern.get("normalized_text") or "").strip()
+    caption_text = public_caption or ocr_caption
+    raw_json = item.get("rawJson") or {}
+    source_platform = raw_json.get("sourcePlatform")
+    source_format = raw_json.get("sourceFormat")
+    text_blob = " ".join(
+        [
+            caption_text,
+            str(item.get("productType") or ""),
+            str(item.get("type") or ""),
+            str(source_platform or ""),
+            str(source_format or ""),
+            str(item.get("ownerUsername") or ""),
+            str((item.get("sourceFile") or {}).get("file_name") or ""),
+            str((item.get("sourceFile") or {}).get("path") or ""),
+        ]
+    ).lower()
+    caption_archetype = _caption_archetype(caption_text)
+    hook_type = _hook_type(caption_text, caption_archetype)
+    visual_format = _visual_format(text_blob, caption_archetype, item)
+    review_tags = _review_tags(text_blob, caption_archetype, visual_format, caption_text)
+    quality_score = _quality_score(item, caption_archetype, visual_format, review_tags)
+    performance_tier = _performance_tier(int(item.get("rank") or 999999))
+    suggested_label = _suggested_label(item, quality_score)
+    first_line = _first_line(caption_text)
+    return {
+        "schema": "reference_factory.reference_pattern.v1",
+        "analyzerVersion": ANALYZER_VERSION,
+        "provider": "heuristic",
+        "model": None,
+        "source": {
+            "publicPostId": item.get("publicPostId"),
+            "rank": item.get("rank"),
+            "account": item.get("ownerUsername"),
+            "shortCode": item.get("shortCode"),
+            "url": item.get("url"),
+            "referenceId": item.get("referenceId"),
+            "localPath": item.get("localPath"),
+            "matchType": item.get("matchType"),
+            "sourcePlatform": source_platform,
+            "sourceFormat": source_format,
+        },
+        "metrics": {
+            "plays": item.get("videoPlayCount"),
+            "views": item.get("videoViewCount"),
+            "likes": item.get("likesCount"),
+            "comments": item.get("commentsCount"),
+            "performanceTier": performance_tier,
+        },
+        "caption": {
+            "source": "public_caption" if public_caption else "ocr_caption" if ocr_caption else "none",
+            "text": caption_text,
+            "firstLine": first_line,
+            "captionHash": text_hash(caption_text) if caption_text else None,
+            "lineCount": len([line for line in re.split(r"\n+", caption_text) if line.strip()]) if caption_text else 0,
+            "charCount": len(caption_text),
+            "usesQuestion": "?" in caption_text,
+            "usesEmoji": bool(re.search(r"[^\w\s#.,!?'\"]", caption_text)),
+            "hasHashtags": "#" in caption_text,
+        },
+        "visualFormat": visual_format,
+        "hookType": hook_type,
+        "captionArchetype": caption_archetype,
+        "reviewTags": review_tags,
+        "promptPattern": _prompt_pattern(visual_format, hook_type, caption_archetype),
+        "referenceUse": {
+            "recommendedUse": _recommended_use(quality_score, item.get("matchType")),
+            "matchGoal": "close_format" if quality_score >= 72 else "loose_inspiration",
+            "whatToLearn": _what_to_learn(visual_format, hook_type, caption_archetype),
+        },
+        "qualityScore": quality_score,
+        "suggestedLabel": suggested_label,
+        "reasons": _pattern_reasons(item, quality_score, caption_archetype, visual_format, review_tags),
+    }
+
+
+def _resolve_provider(provider: str) -> str:
+    if provider not in {"auto", "heuristic", "ollama"}:
+        raise ValueError(f"Unsupported pattern provider: {provider}")
+    if provider == "heuristic":
+        return "heuristic"
+    if provider == "ollama":
+        return "ollama"
+    return "ollama" if _ollama_has_models() else "heuristic"
+
+
+def _ollama_has_models() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return bool(data.get("models"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return False
+
+
+def _ollama_pattern(item: dict[str, Any], heuristic: dict[str, Any], model: str | None) -> dict[str, Any] | None:
+    model_name = model or _default_ollama_model()
+    if not model_name:
+        return None
+    prompt = (
+        "Return only JSON. Analyze this high-performing Instagram Reel reference as reusable pattern data. "
+        "Do not copy captions; classify structure, hook, visual format, and tags.\n\n"
+        f"Input JSON:\n{json.dumps({'item': _llm_item(item), 'heuristic': heuristic}, ensure_ascii=False)}\n\n"
+        "Required JSON keys: visualFormat, hookType, captionArchetype, reviewTags, promptPattern, "
+        "referenceUse, qualityScore, suggestedLabel, reasons."
+    )
+    payload = json.dumps(
+        {
+            "model": model_name,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1},
+        }
+    ).encode("utf-8")
+    try:
+        request = urllib.request.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        raw = data.get("response") or "{}"
+        parsed = json.loads(raw)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+        return None
+    parsed["provider"] = "ollama"
+    parsed["model"] = model_name
+    return parsed
+
+
+def _default_ollama_model() -> str | None:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        models = data.get("models") or []
+        if not models:
+            return None
+        return str(models[0].get("name") or "")
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+
+
+def _merge_llm_pattern(heuristic: dict[str, Any], llm: dict[str, Any]) -> dict[str, Any]:
+    merged = {**heuristic}
+    for key in [
+        "visualFormat",
+        "hookType",
+        "captionArchetype",
+        "reviewTags",
+        "promptPattern",
+        "referenceUse",
+        "qualityScore",
+        "suggestedLabel",
+        "reasons",
+    ]:
+        if key in llm and llm[key] not in (None, "", []):
+            merged[key] = llm[key]
+    merged["provider"] = "ollama"
+    merged["model"] = llm.get("model")
+    merged["qualityScore"] = float(_clamp_number(merged.get("qualityScore"), 0, 100, heuristic["qualityScore"]))
+    if merged.get("suggestedLabel") not in {"gold", "maybe", "ignore"}:
+        merged["suggestedLabel"] = heuristic["suggestedLabel"]
+    merged["reviewTags"] = sorted(set(str(tag) for tag in merged.get("reviewTags") or []))
+    return merged
+
+
+def _caption_archetype(caption: str) -> str:
+    lowered = caption.lower().strip()
+    if not lowered:
+        return "captionless_visual"
+    if re.search(r"\b(99\.9|find all|spot the|can.t find)\b", lowered):
+        return "challenge_or_puzzle"
+    if lowered.startswith("pov") or " pov " in f" {lowered} ":
+        return "pov_scenario"
+    if lowered.startswith(("when ", "me when", "how it feels")):
+        return "relatable_scenario"
+    if lowered.startswith(("pick one", "choose one")):
+        return "choice_bait"
+    if "?" in caption:
+        return "question_hook"
+    if len(lowered) <= 12:
+        return "minimal_bait"
+    if "#" in lowered:
+        return "hashtag_context"
+    if re.search(r"\bfollow\b|\bclaim\b|\bsend\b|\btag\b", lowered):
+        return "cta_bait"
+    return "short_meme_caption"
+
+
+def _hook_type(caption: str, archetype: str) -> str:
+    lowered = caption.lower()
+    if archetype == "captionless_visual":
+        return "visual_first"
+    if archetype == "challenge_or_puzzle":
+        return "completion_challenge"
+    if archetype == "question_hook":
+        return "direct_response"
+    if archetype == "choice_bait":
+        return "forced_choice"
+    if lowered.startswith("pov") or archetype == "pov_scenario":
+        return "viewer_insert"
+    if lowered.startswith(("when ", "me when", "how it feels")):
+        return "relatable_setup"
+    if re.search(r"\bfollow\b|\bclaim\b|\bsend\b|\btag\b", lowered):
+        return "action_prompt"
+    return "curiosity_gap"
+
+
+def _visual_format(text_blob: str, caption_archetype: str, item: dict[str, Any]) -> str:
+    probe = item.get("probe") or {}
+    raw_json = item.get("rawJson") or {}
+    if (
+        raw_json.get("sourceFormat") == "slideshow"
+        or "tiktok_slideshow" in str(item.get("productType") or "").lower()
+        or "slideshow" in text_blob
+        or "carousel" in text_blob
+    ):
+        return "tiktok_slideshow"
+    if "mirror" in text_blob or "selfie" in text_blob:
+        return "mirror_selfie"
+    if "fit check" in text_blob or "fitcheck" in text_blob or "outfit" in text_blob:
+        return "fit_check"
+    if "bedroom" in text_blob or "bed " in text_blob or "pillow" in text_blob:
+        return "bedroom_static"
+    if "walk" in text_blob:
+        return "walking_clip"
+    if caption_archetype != "captionless_visual":
+        return "caption_led_visual"
+    width = probe.get("width") or 0
+    height = probe.get("height") or 0
+    duration = probe.get("duration_seconds") or 0
+    if height and width and height / max(width, 1) > 1.6 and duration <= 9:
+        return "short_vertical_visual_hook"
+    return "visual_reference"
+
+
+def _review_tags(text_blob: str, caption_archetype: str, visual_format: str, caption: str) -> list[str]:
+    tags = set()
+    for tag, needles in TAG_RULES:
+        if tag == "no_caption":
+            continue
+        if any(needle in text_blob for needle in needles):
+            tags.add(tag)
+    if not caption:
+        tags.add("no_caption")
+    if caption_archetype != "captionless_visual":
+        tags.add("caption_style")
+    if visual_format != "caption_led_visual":
+        tags.add("visual_style")
+    if visual_format == "tiktok_slideshow":
+        tags.update({"slideshow", "caption_style", "visual_style"})
+        if caption:
+            tags.add("hook_good")
+    if caption_archetype in {"pov_scenario", "challenge_or_puzzle", "question_hook", "choice_bait"}:
+        tags.add("hook_good")
+    if "mirror" in visual_format:
+        tags.add("mirror")
+    if "fit" in visual_format:
+        tags.add("fit_check")
+    if "bedroom" in visual_format:
+        tags.add("bedroom")
+    if "walking" in visual_format:
+        tags.add("walking")
+    return sorted(tags)
+
+
+def _quality_score(item: dict[str, Any], caption_archetype: str, visual_format: str, tags: list[str]) -> float:
+    rank = int(item.get("rank") or 999999)
+    plays = int(item.get("videoPlayCount") or item.get("videoViewCount") or 0)
+    likes = int(item.get("likesCount") or 0)
+    comments = int(item.get("commentsCount") or 0)
+    match_type = item.get("matchType")
+    probe = item.get("probe") or {}
+    duration = float(probe.get("duration_seconds") or 0)
+    width = int(probe.get("width") or 0)
+    height = int(probe.get("height") or 0)
+    score = 48.0
+    score += max(0.0, 28.0 - (rank - 1) * 0.07)
+    if plays:
+        score += min(12.0, math.log10(max(plays, 1)) * 2.2)
+    if likes:
+        score += min(5.0, math.log10(max(likes, 1)) * 1.2)
+    if comments:
+        score += min(3.0, math.log10(max(comments, 1)))
+    if match_type == "exact_media_id":
+        score += 6
+    if height > width and width >= 540:
+        score += 5
+    if 3 <= duration <= 18:
+        score += 4
+    if caption_archetype != "captionless_visual":
+        score += 3
+    if "hook_good" in tags:
+        score += 3
+    if visual_format in {"mirror_selfie", "fit_check", "bedroom_static", "short_vertical_visual_hook"}:
+        score += 2
+    if visual_format == "tiktok_slideshow":
+        score += 5
+    if str(item.get("productType") or "").startswith("tiktok"):
+        score += 3
+    return round(max(0.0, min(100.0, score)), 2)
+
+
+def _suggested_label(item: dict[str, Any], quality_score: float) -> str:
+    if item.get("matchType") != "exact_media_id":
+        return "maybe"
+    if quality_score >= 74:
+        return "gold"
+    if quality_score >= 58:
+        return "maybe"
+    return "ignore"
+
+
+def _prompt_pattern(visual_format: str, hook_type: str, caption_archetype: str) -> dict[str, str]:
+    return {
+        "visualBrief": {
+            "mirror_selfie": "vertical mirror-shot reel, phone visible or implied, immediate body/outfit framing",
+            "fit_check": "vertical outfit or body-frame check, simple background, one clear reveal",
+            "bedroom_static": "vertical bedroom setup, close framing, casual creator posture, one visual beat",
+            "walking_clip": "vertical walking movement, handheld natural pacing, subject enters frame quickly",
+            "caption_led_visual": "simple vertical shot designed around readable meme caption overlay",
+            "short_vertical_visual_hook": "short vertical visual hook with a strong first-frame pose or movement",
+            "tiktok_slideshow": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        }.get(visual_format, "vertical creator reel with one clear visual hook"),
+        "hookBrief": {
+            "visual_first": "visual must communicate the hook without caption dependency",
+            "completion_challenge": "caption creates an impossible or playful viewer challenge",
+            "direct_response": "caption asks a short question viewers can answer instantly",
+            "forced_choice": "caption forces an A/B choice",
+            "viewer_insert": "caption frames viewer inside the scenario",
+            "relatable_setup": "caption sets up a familiar situation before the visual payoff",
+            "action_prompt": "caption gives a light viewer action",
+        }.get(hook_type, "caption creates a curiosity gap"),
+        "captionBrief": {
+            "captionless_visual": "no overlay or very minimal overlay",
+            "challenge_or_puzzle": "short challenge caption with simple line breaks",
+            "pov_scenario": "POV-style original scenario",
+            "relatable_scenario": "short relatable setup",
+            "choice_bait": "two-choice caption with clean spacing",
+            "question_hook": "short direct question",
+            "minimal_bait": "one-line minimal bait",
+            "cta_bait": "light CTA or send/share prompt",
+        }.get(caption_archetype, "short meme-style caption"),
+    }
+
+
+def _recommended_use(quality_score: float, match_type: object) -> str:
+    if match_type != "exact_media_id":
+        return "external_metric_reference_only"
+    if quality_score >= 74:
+        return "gold_candidate_for_close_format_pattern"
+    if quality_score >= 58:
+        return "maybe_candidate_for_pattern_bank"
+    return "low_priority_reference"
+
+
+def _what_to_learn(visual_format: str, hook_type: str, caption_archetype: str) -> list[str]:
+    learn = [
+        f"visual_format:{visual_format}",
+        f"hook_type:{hook_type}",
+        f"caption_archetype:{caption_archetype}",
+        "first_second_hook",
+        "line_break_structure",
+    ]
+    if visual_format == "tiktok_slideshow":
+        learn.extend(["slide_order", "first_slide_headline", "carousel_caption_formula"])
+    return learn
+
+
+def _pattern_reasons(
+    item: dict[str, Any],
+    quality_score: float,
+    caption_archetype: str,
+    visual_format: str,
+    tags: list[str],
+) -> list[str]:
+    reasons = [
+        f"rank {item.get('rank')} in public metric winners",
+        f"quality score {quality_score}",
+        f"caption archetype {caption_archetype}",
+        f"visual format {visual_format}",
+    ]
+    if item.get("matchType") == "exact_media_id":
+        reasons.append("matched to local source video")
+    if tags:
+        reasons.append("tags: " + ", ".join(tags[:6]))
+    return reasons
+
+
+def _performance_tier(rank: int) -> str:
+    if rank <= 50:
+        return "top_50"
+    if rank <= 150:
+        return "top_150"
+    if rank <= 300:
+        return "top_300"
+    return "long_tail"
+
+
+def _first_line(caption: str) -> str:
+    for line in re.split(r"[\r\n]+", caption.strip()):
+        if line.strip():
+            return line.strip()
+    return caption.strip()[:80]
+
+
+def _llm_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rank": item.get("rank"),
+        "account": item.get("ownerUsername"),
+        "caption": item.get("caption"),
+        "bestOcrCaption": (item.get("captionPattern") or {}).get("normalized_text"),
+        "plays": item.get("videoPlayCount"),
+        "views": item.get("videoViewCount"),
+        "likes": item.get("likesCount"),
+        "comments": item.get("commentsCount"),
+        "matchType": item.get("matchType"),
+        "fileName": (item.get("sourceFile") or {}).get("file_name"),
+        "duration": (item.get("probe") or {}).get("duration_seconds"),
+        "width": (item.get("probe") or {}).get("width"),
+        "height": (item.get("probe") or {}).get("height"),
+        "sourcePlatform": (item.get("rawJson") or {}).get("sourcePlatform"),
+        "sourceFormat": (item.get("rawJson") or {}).get("sourceFormat"),
+    }
+
+
+def _pattern_row_to_card(row: Any) -> dict[str, Any]:
+    pattern = json_load(row["pattern_json"], {})
+    return {
+        "schema": "reference_factory.pattern_card.v1",
+        "id": row["id"],
+        "rank": row["rank"],
+        "referenceId": row["reference_id"],
+        "publicPostId": row["public_post_id"],
+        "account": row["owner_username"] or row["account"],
+        "shortCode": row["short_code"],
+        "url": row["url"],
+        "localPath": row["local_path"],
+        "fileName": row["file_name"],
+        "matchType": row["match_type"],
+        "metrics": {
+            "plays": row["video_play_count"],
+            "views": row["video_view_count"],
+            "likes": row["likes_count"],
+            "comments": row["comments_count"],
+        },
+        "suggestedLabel": row["suggested_label"],
+        "visualFormat": row["visual_format"],
+        "hookType": row["hook_type"],
+        "captionArchetype": row["caption_archetype"],
+        "qualityScore": row["quality_score"],
+        "pattern": pattern,
+    }
+
+
+def _summary_from_cards(cards: list[dict[str, Any]]) -> dict[str, object]:
+    labels = Counter(card.get("suggestedLabel") for card in cards)
+    visual = Counter(card.get("visualFormat") for card in cards)
+    hooks = Counter(card.get("hookType") for card in cards)
+    captions = Counter(card.get("captionArchetype") for card in cards)
+    accounts = Counter(card.get("account") for card in cards)
+    tags: Counter[str] = Counter()
+    for card in cards:
+        for tag in ((card.get("pattern") or {}).get("reviewTags") or []):
+            tags[tag] += 1
+    return {
+        "schema": "reference_factory.pattern_summary.v1",
+        "summary": {
+            "count": len(cards),
+            "suggestedLabels": dict(labels.most_common()),
+            "visualFormats": dict(visual.most_common(20)),
+            "hookTypes": dict(hooks.most_common(20)),
+            "captionArchetypes": dict(captions.most_common(20)),
+            "topAccounts": dict(accounts.most_common(20)),
+            "tags": dict(tags.most_common(30)),
+            "avgQualityScore": round(sum(float(card.get("qualityScore") or 0) for card in cards) / max(1, len(cards)), 2),
+        },
+    }
+
+
+def _clamp_number(value: object, low: float, high: float, fallback: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, numeric))

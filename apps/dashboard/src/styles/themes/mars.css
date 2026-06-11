@@ -1,0 +1,241 @@
+/* =========================================================================
+   MARS THEME — war · iron + crimson
+   -------------------------------------------------------------------------
+   Brand: #8C2A2A iron crimson · Tide: #C84040 blood red.
+   Mirrors the Juno token shape exactly. Switch via [data-theme="mars"].
+
+   Status colors stay shared; networks + substrate shift cool-iron.
+   Note: spec flagged this as low-distinctness from Juno's red family.
+   ========================================================================= */
+
+:root[data-theme="mars"] {
+  color-scheme: light;
+
+  --color-background: #ECE8E5;
+  --color-foreground: #1A0E0E;
+
+  --color-card: rgba(255, 255, 255, 0.55);
+  --color-card-elevated: #FFFFFF;
+  --color-card-foreground: #1A0E0E;
+
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1A0E0E;
+
+  --color-primary: #2A1414;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #FFFFFF;
+  --color-secondary-foreground: #1A0E0E;
+
+  --color-muted: rgba(26, 14, 14, 0.04);
+  --color-muted-foreground: rgba(26, 14, 14, 0.55);
+
+  --color-accent: #8C2A2A;
+  --color-accent-foreground: #FFFFFF;
+
+  --color-border: rgba(26, 14, 14, 0.12);
+  --color-input: rgba(26, 14, 14, 0.12);
+  --color-ring: #2A1414;
+
+  --color-success: #3F6B52;
+  --color-success-foreground: #FFFFFF;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #943A2A;
+  --color-error-foreground: #FFFFFF;
+  --color-info: #4F6B7A;
+  --color-info-foreground: #FFFFFF;
+
+  --color-ink: #2A1414;
+  --color-chart-ink: #2A1414;
+  --color-tide: #C84040;
+  --color-tide-bar: #C84040;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-ring-oxblood: rgba(200, 64, 64, 0.22);
+  --color-ring-oxblood-strong: rgba(200, 64, 64, 0.35);
+  --color-ring-tide: rgba(200, 64, 64, 0.22);
+  --color-ring-tide-strong: rgba(200, 64, 64, 0.35);
+
+  --color-gold: #8E6F2E;
+  --color-negative: #943A2A;
+
+  --color-health-good: #3F6B52;
+  --color-health-idle: #6E6E72;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(26, 14, 14, 0.35);
+
+  --color-photo-gradient-start: #F0D7CC;
+  --color-photo-gradient-end:   #C89B86;
+  --color-video-gradient-start: #D4C8E8;
+  --color-video-gradient-end:   #6B5C8E;
+  --color-upload-gradient-start: #E8D4C4;
+  --color-upload-gradient-end:   #C2A080;
+
+  --color-label: #1A0E0E;
+  --color-label-secondary: rgba(26, 14, 14, 0.72);
+  --color-label-tertiary: rgba(26, 14, 14, 0.60);
+  --color-label-quaternary: rgba(26, 14, 14, 0.32);
+
+  --color-aurora: #8C2A2A;
+  --color-meridian: #C84040;
+  --color-harbor: #6E6E72;
+  --color-vale: #6E3838;
+}
+
+:root[data-theme="mars"].dark,
+:root[data-theme="mars"] .dark {
+  color-scheme: dark;
+
+  --color-background: #08070A;
+  --color-foreground: #E8DCDC;
+
+  --color-card: rgba(232, 220, 220, 0.06);
+  --color-card-elevated: #1A1014;
+  --color-card-foreground: #E8DCDC;
+
+  --color-popover: rgba(26, 16, 20, 0.85);
+  --color-popover-foreground: #E8DCDC;
+
+  --color-primary: #E8DCDC;
+  --color-primary-foreground: #08070A;
+
+  --color-secondary: rgba(232, 220, 220, 0.04);
+  --color-secondary-foreground: #E8DCDC;
+
+  --color-muted: rgba(232, 220, 220, 0.04);
+  --color-muted-foreground: rgba(232, 220, 220, 0.55);
+
+  --color-accent: #E06060;
+  --color-accent-foreground: #1A0606;
+
+  --color-border: rgba(232, 220, 220, 0.10);
+  --color-input: rgba(232, 220, 220, 0.10);
+  --color-ring: #E8DCDC;
+
+  --color-success: #5A9B72;
+  --color-success-foreground: #0A0A0B;
+  --color-warning: #B48A3A;
+  --color-warning-foreground: #0A0A0B;
+  --color-error: #D08080;
+  --color-error-foreground: #0A0A0B;
+  --color-info: #9DB9CC;
+  --color-info-foreground: #0A0A0B;
+
+  --color-ink: #E8DCDC;
+  --color-chart-ink: #DCC8C8;
+  --color-tide: #E06060;
+  --color-tide-bar: #F87878;
+
+  --color-oxblood: var(--color-tide);
+  --color-oxblood-bar: var(--color-tide-bar);
+  --color-critical: var(--color-tide);
+  --color-health-critical: var(--color-tide);
+
+  --color-tide-pill-bg: rgba(224, 96, 96, 0.10);
+  --color-oxblood-pill-bg: var(--color-tide-pill-bg);
+
+  --color-ring-oxblood: rgba(248, 120, 120, 0.28);
+  --color-ring-oxblood-strong: rgba(248, 120, 120, 0.38);
+  --color-ring-tide: rgba(248, 120, 120, 0.28);
+  --color-ring-tide-strong: rgba(248, 120, 120, 0.38);
+
+  --color-gold: #B48A3A;
+  --color-negative: #D08080;
+
+  --color-health-good: #5A9B72;
+  --color-health-idle: #B0B0B4;
+  --color-health-warn: var(--color-gold);
+  --color-health-ghost: rgba(232, 220, 220, 0.30);
+
+  --color-label: #E8DCDC;
+  --color-label-secondary: rgba(232, 220, 220, 0.72);
+  --color-label-tertiary: rgba(232, 220, 220, 0.55);
+  --color-label-quaternary: rgba(232, 220, 220, 0.35);
+
+  --color-aurora: #E06060;
+  --color-meridian: #F87878;
+  --color-harbor: #B0B0B4;
+  --color-vale: #D89898;
+}
+
+:root[data-theme="mars"] body::before {
+  content: '';
+  position: fixed; inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(12px);
+  background-image:
+    radial-gradient(ellipse 38% 32% at clamp(18%, calc(220px + 6vw), 32%) 20%, rgba(232, 184, 184, 0.40) 0%, transparent 70%),
+    radial-gradient(ellipse 42% 38% at clamp(68%, calc(100% - 320px), 82%) 62%, rgba(168, 168, 168, 0.30) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 110%, rgba(220, 215, 210, 0.36) 0%, transparent 70%);
+  animation: substrate-drift 80s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+:root[data-theme="mars"].dark body::before,
+:root[data-theme="mars"] .dark body::before {
+  filter: none;
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(140, 42, 42, 0.18) 0%, transparent 52%),
+    radial-gradient(circle at 82% 68%, rgba(40, 30, 30, 0.40) 0%, transparent 46%),
+    radial-gradient(circle at 50% 105%, rgba(224, 96, 96, 0.06) 0%, transparent 40%);
+}
+
+:root[data-theme="mars"] {
+  --vib-primary: rgba(26, 14, 14, 1);
+  --vib-secondary: rgba(26, 14, 14, 0.68);
+  --vib-tertiary: rgba(26, 14, 14, 0.42);
+  --vib-quaternary: rgba(26, 14, 14, 0.22);
+}
+:root[data-theme="mars"].dark,
+:root[data-theme="mars"] .dark {
+  --vib-primary: rgba(232, 220, 220, 1);
+  --vib-secondary: rgba(232, 220, 220, 0.70);
+  --vib-tertiary: rgba(232, 220, 220, 0.42);
+  --vib-quaternary: rgba(232, 220, 220, 0.24);
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme="mars"] {
+    --color-border: rgba(26, 14, 14, 0.25);
+    --color-label-secondary: rgba(26, 14, 14, 0.82);
+    --color-label-tertiary: rgba(26, 14, 14, 0.70);
+    --color-label-quaternary: rgba(26, 14, 14, 0.55);
+    --color-accent: #5A1818;
+    --color-tide: #9C2828;
+    --color-muted-foreground: rgba(26, 14, 14, 0.82);
+    --color-health-good: #1F5236;
+    --color-health-idle: #4F4F54;
+    --color-health-warn: #8A6320;
+  }
+  :root[data-theme="mars"].dark,
+  :root[data-theme="mars"] .dark {
+    --color-border: rgba(232, 220, 220, 0.20);
+    --color-label-secondary: rgba(232, 220, 220, 0.78);
+    --color-label-tertiary: rgba(232, 220, 220, 0.65);
+    --color-label-quaternary: rgba(232, 220, 220, 0.50);
+    --color-accent: #F89898;
+    --color-tide: #F89898;
+    --color-muted-foreground: rgba(232, 220, 220, 0.78);
+    --color-health-good: #7FBE95;
+    --color-health-idle: #C8C8CC;
+    --color-health-warn: #D0A060;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="mars"].dark,
+  :root[data-theme="mars"] .dark {
+    --color-card: #14080A;
+    --color-card-elevated: #1A1014;
+    --color-popover: #1A1014;
+  }
+  :root[data-theme="mars"] .card { background: #FFFFFF; }
+  :root[data-theme="mars"].dark .card,
+  :root[data-theme="mars"] .dark .card { background: #14080A; }
+}

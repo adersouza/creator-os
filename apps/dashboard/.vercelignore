@@ -1,0 +1,9 @@
+tests/
+docs/
+*.test.ts
+*.spec.ts
+.storybook/
+e2e/
+promptfoo/
+scripts/
+.claude/

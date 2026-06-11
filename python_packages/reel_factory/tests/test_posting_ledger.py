@@ -1,0 +1,188 @@
+import json
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+from audio_intent import write_audio_intent
+from manifest import Manifest
+from posting_ledger import (
+    assign_approved_reels,
+    create_posting_plan,
+    export_schedule_package,
+    ledger_conflicts,
+    review_queue,
+    transition_slot,
+)
+
+
+class PostingLedgerTests(unittest.TestCase):
+    def test_pilot_plan_creates_105_slots_and_enforces_quota(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            accounts = [f"stacey_{idx}" for idx in range(5)]
+
+            result = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=accounts,
+                start_date="2026-06-03",
+                days=7,
+            )
+            self.assertEqual(result["created"], 105)
+            self.assertEqual(result["slot_count"], 105)
+
+            second = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=accounts,
+                start_date="2026-06-03",
+                days=7,
+            )
+            self.assertEqual(second["created"], 0)
+            self.assertEqual(second["existing"], 105)
+
+    def test_assignment_blocks_same_content_even_when_filename_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            video_a = root / "a.mp4"
+            video_b = root / "renamed" / "b.mp4"
+            video_b.parent.mkdir()
+            video_a.write_bytes(b"same rendered reel bytes")
+            video_b.write_bytes(b"same rendered reel bytes")
+            lineage_a = video_a.with_suffix(video_a.suffix + ".generated_asset_lineage.json")
+            lineage_b = video_b.with_suffix(video_b.suffix + ".generated_asset_lineage.json")
+            lineage = {"source": {"sourceReferenceId": "ref_a"}, "generation": {"klingJobId": "kling_1"}}
+            lineage_a.write_text(json.dumps(lineage), encoding="utf-8")
+            lineage_b.write_text(json.dumps(lineage), encoding="utf-8")
+
+            approved = {
+                "schema": "reel_factory.approved_export.v1",
+                "items": [
+                    {
+                        "output_path": str(video_a),
+                        "hook_text": "caption a",
+                        "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_a"},
+                        "generated_asset_lineage": lineage,
+                    },
+                    {
+                        "output_path": str(video_b),
+                        "hook_text": "caption b",
+                        "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_b"},
+                        "generated_asset_lineage": lineage,
+                    },
+                ],
+            }
+            approved_path = root / "approved.json"
+            approved_path.write_text(json.dumps(approved), encoding="utf-8")
+
+            assigned = assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+            self.assertEqual(assigned["assigned"], 1)
+            self.assertEqual(len(assigned["conflicts"]), 1)
+            self.assertIn("duplicate_content_fingerprint_for_account", assigned["conflicts"][0]["reasons"])
+            self.assertIn("duplicate_content_fingerprint_for_campaign", assigned["conflicts"][0]["reasons"])
+
+    def test_state_transitions_lineage_audio_gate_and_schedule_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            plan = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            slot_id = plan["slots"][0]["posting_slot_id"]
+
+            with self.assertRaisesRegex(ValueError, "lineage"):
+                transition_slot(root, slot_id, "ready_for_review")
+
+            video = root / "out.mp4"
+            video.write_bytes(b"ready reel")
+            lineage_path = video.with_suffix(video.suffix + ".generated_asset_lineage.json")
+            lineage_path.write_text(json.dumps({"source": {"sourceReferenceId": "ref_a"}}), encoding="utf-8")
+            approved = {
+                "items": [{
+                    "output_path": str(video),
+                    "hook_text": "caption",
+                    "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_a"},
+                    "generated_asset_lineage": {"source": {"sourceReferenceId": "ref_a"}},
+                }]
+            }
+            approved_path = root / "approved.json"
+            approved_path.write_text(json.dumps(approved), encoding="utf-8")
+            assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+            transition_slot(root, slot_id, "approved", actor="tester")
+
+            blocked = export_schedule_package(
+                root,
+                campaign_id="camp_stacey",
+                date_from="2026-06-03",
+                date_to="2026-06-03",
+                dry_run=True,
+            )
+            self.assertEqual(blocked["count"], 0)
+
+            write_audio_intent(video, mode="native_trending_audio", platform="ig")
+            still_blocked = export_schedule_package(
+                root,
+                campaign_id="camp_stacey",
+                date_from="2026-06-03",
+                date_to="2026-06-03",
+                dry_run=True,
+            )
+            self.assertEqual(still_blocked["count"], 0)
+
+            audio_path = video.with_suffix(video.suffix + ".audio_intent.json")
+            audio_payload = json.loads(audio_path.read_text(encoding="utf-8"))
+            audio_payload["status"] = "selected"
+            audio_payload["audio_selection"] = {"track_id": "native_track_1", "title": "manual trend"}
+            audio_path.write_text(json.dumps(audio_payload), encoding="utf-8")
+            ready = export_schedule_package(
+                root,
+                campaign_id="camp_stacey",
+                date_from="2026-06-03",
+                date_to="2026-06-03",
+                dry_run=True,
+            )
+            self.assertEqual(ready["count"], 1)
+            self.assertIn("content_fingerprint", ready["items"][0])
+
+            queue = review_queue(root, campaign_id="camp_stacey")
+            self.assertEqual(queue["count"], 1)
+            conflicts = ledger_conflicts(root, campaign_id="camp_stacey")
+            self.assertEqual(conflicts["count"], 0)
+
+            transition_slot(root, slot_id, "scheduled", actor="tester")
+            transition_slot(root, slot_id, "posted", actor="tester", posted_at="2026-06-03T10:00:00")
+            transition_slot(root, slot_id, "metrics_imported", actor="tester", metrics={
+                "views": 1000,
+                "likes": 100,
+                "comments": 10,
+                "shares": 5,
+                "saves": 6,
+                "retention": 0.42,
+            })
+            events = Manifest(root / "manifest.json").conn.execute(
+                "SELECT COUNT(*) AS c FROM posting_slot_events WHERE posting_slot_id=?",
+                (slot_id,),
+            ).fetchone()["c"]
+            self.assertGreaterEqual(events, 4)
+
+
+if __name__ == "__main__":
+    unittest.main()

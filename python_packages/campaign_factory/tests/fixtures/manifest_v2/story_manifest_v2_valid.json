@@ -1,0 +1,34 @@
+{
+  "fixture": "story_manifest_v2_valid",
+  "manifest_version": 2,
+  "asset_id": "asset_story_manifest_v2_valid",
+  "rendered_asset_id": "asset_story_manifest_v2_valid",
+  "source_asset_id": "source_story_manifest_v2_valid",
+  "content_surface": "story",
+  "contentSurface": "story",
+  "ig_media_type": "STORIES",
+  "igMediaType": "STORIES",
+  "content_hash": "hash_story_manifest_v2_valid",
+  "content_fingerprint": "hash_story_manifest_v2_valid",
+  "caption_hash": "",
+  "instagram_post_caption": "",
+  "instagramPostCaption": "",
+  "instagram_post_caption_hash": "",
+  "story_intent": "snapchat_promo",
+  "story_style": "casual_selfie",
+  "story_goal": "traffic",
+  "mediaItems": [
+    {
+      "componentIndex": 0,
+      "mediaPath": "/tmp/creator-os-fixtures/story_valid.jpg",
+      "mediaHash": "hash_story_manifest_v2_valid",
+      "mediaType": "image"
+    }
+  ],
+  "surfaceReadiness": {
+    "canHandoff": true,
+    "blockingReasons": [],
+    "warnings": []
+  },
+  "wouldWrite": false
+}

@@ -1,0 +1,3 @@
+-- Historical production migration marker.
+-- Service-role policy canonicalization is preserved in
+-- 20260505221534_canonicalize_service_role_rls.sql.

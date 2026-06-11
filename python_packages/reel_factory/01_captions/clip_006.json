@@ -1,0 +1,83 @@
+{
+  "_comment": "20 hooks for clip_006 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "Remember if we run out of topics\nto talk about we can always make out",
+    "3 reasons why\nyou should date me",
+    "apologizing to the ppl\nI've g00n3d to",
+    "be honest..\nam i your type",
+    "2 mins in a room with me.\nwyd??",
+    "should i post more like this?",
+    "am i short?\nbut without the \"R\" and \"S\"",
+    "i only disappoint people\nwho expected less",
+    "the devil couldn't reach me\nso he gave me a baby face instead",
+    "let's just skip the small talk,\nare you gonna let me \"syduycimt\"",
+    "read this backwards:\nsselesnes em kcuf neht dna\nstit eltli yttrep eseh t keus\not man a rof gnikod m'l",
+    "Id rather get cheated on for 25 years\n\nThan get 25 on for cheated years\n\nNow replace \"years\"\nWith get money.",
+    "What I really want...\n\nTrouble (without Tble)",
+    {
+      "segments": [
+        {
+          "text": "I have a boyfriend",
+          "end": 2.5
+        },
+        {
+          "text": "I have a pool too,\nwanna come over?",
+          "start": 2.5
+        }
+      ]
+    },
+    "the last person who said\n\"you're not my type\"\nis still texting me",
+    "pov: I'm the girl\nyou rejected in high school",
+    "approach me first\nor wait for me to come to you?",
+    "the baby face is a trap.\na very effective one.",
+    {
+      "_note": "4-segment: 3 things that make guys more attractive",
+      "segments": [
+        {
+          "text": "3 things that make guys\nmore attractive",
+          "end": 2.0
+        },
+        {
+          "text": "1. getting a tan",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. grey hair",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. huge veins\non their biceps",
+          "start": 7.0
+        }
+      ]
+    },
+    {
+      "_note": "4-segment: 3 reasons why i would date an older guy",
+      "segments": [
+        {
+          "text": "3 reasons why i would\ndate an older guy",
+          "end": 2.0
+        },
+        {
+          "text": "1. good taste in music",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. good manners",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. way more experienced\nthan younger guys",
+          "start": 7.0
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "20 hooks × 8 recipes = 160 silent captioned outputs"
+}

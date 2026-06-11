@@ -1,0 +1,3 @@
+-- Historical production migration marker.
+-- The idempotent analytics RPC hardening SQL is represented in
+-- 20260502124000_harden_analytics_rpc_security.sql.

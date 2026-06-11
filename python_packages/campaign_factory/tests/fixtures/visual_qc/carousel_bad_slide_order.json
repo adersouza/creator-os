@@ -1,0 +1,10 @@
+{
+  "fixture": "carousel_bad_slide_order",
+  "surface": "feed_carousel",
+  "slideCount": 3,
+  "componentIndexes": [0, 2, 1],
+  "componentHashes": ["hash_carousel_slide_0", "hash_carousel_slide_2", "hash_carousel_slide_1"],
+  "instagramPostCaptionPresent": true,
+  "expectedPass": false,
+  "expectedFailureReasons": ["carousel_components_not_ordered"]
+}

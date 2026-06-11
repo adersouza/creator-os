@@ -1,0 +1,53 @@
+export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
+  schema: "contentforge.campaign_factory_thresholds.v1",
+  profile: "campaign_factory_v1",
+  thresholds: {
+    // Calibrated against generated vertical reel fixtures; tighten only after labeled real-corpus evidence.
+    minSocialWidth: 720,
+    minSocialHeight: 1280,
+    verticalAspectRatio: 9 / 16,
+    verticalAspectTolerance: 0.12,
+
+    // Reels safe-zone heuristics: keep captions away from edges, bottom UI, and right-side controls.
+    captionEdgeMarginRatio: 0.06,
+    rightUiStartRatio: 0.78,
+    rightUiMinYRatio: 0.22,
+    bottomUiStartRatio: 0.82,
+    topUiEndRatio: 0.06,
+
+    // OCR/readability defaults from synthetic caption fixtures; advisory until real corpus says otherwise.
+    ocrLowConfidence: 55,
+    captionLowContrast: 55,
+    heuristicLowContrast: 70,
+
+    // Hook/cover signals are ranking aids, not hard upload-readiness gates.
+    staticOpeningDelta: 6,
+    weakOpeningDelta: 10,
+    coverCandidateSimilarityDelta: 8,
+    coverDarkBrightness: 35,
+    coverBlurEdgeScore: 8,
+
+    // Local workstation soft target for generated fixtures; report-only.
+    advisoryLatencySoftLimitMs: 5000,
+
+    // Multi-account originality checks are advisory. They compare requested references only by default.
+    originalityMaxReferenceFiles: 12,
+    originalityOpeningHighSimilarity: 82,
+    originalityOpeningMediumSimilarity: 62,
+    originalityCoverHighSimilarity: 84,
+    originalityCoverMediumSimilarity: 64,
+    originalityHookHighSimilarity: 0.72,
+    originalityHookMediumSimilarity: 0.48,
+    originalityOverallHighRisk: 78,
+    originalityOverallMediumRisk: 55,
+  },
+  sampling: {
+    maxVideos: 5,
+    ocrFrameTimesSec: [0.4, 1.4, 2.6],
+    coverCandidateFractions: [0.25, 0.55],
+  },
+};
+
+export function campaignFactoryThresholds() {
+  return CAMPAIGN_FACTORY_AUDIT_CONFIG.thresholds;
+}

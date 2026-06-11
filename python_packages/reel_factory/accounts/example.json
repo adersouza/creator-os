@@ -1,0 +1,31 @@
+{
+  "_comment": "Per-account preference profile. Drop a copy of this file as accounts/<handle>.json for each posting account, edit the values to match the account's voice, then run the pipeline with --account <handle> to bias auto-pick toward this account's preferences. Accounts that look distinct from each other → less coordinated-inauthentic-behavior risk.",
+
+  "id": "example",
+  "handle": "@example_handle",
+  "platform": "instagram",
+  "_platform_options": "instagram | tiktok | both",
+
+  "voice": "playful",
+  "_voice_options": "soft (cinematic, premium) | playful (casual, slangy) | direct (raunchy, blunt) | mixed",
+
+  "preferred_fonts": ["Instagram Sans Condensed"],
+  "_preferred_fonts_options": "Subset of [Instagram Sans Condensed, Instagram Sans Condensed Bold, Sofia Sans Condensed Medium]. Empty list = no preference.",
+
+  "preferred_styles": ["soft", "classic"],
+  "_preferred_styles_options": "Subset of [classic, soft, bubble]. Empty list = no preference.",
+
+  "emoji_frequency": "low",
+  "_emoji_frequency_options": "off (strip emoji) | low (keep what's written) | medium (random emoji insert) | high (emoji on every hook)",
+
+  "preferred_hook_patterns": ["pov", "when_you", "me_when", "the_way", "no_because"],
+  "_preferred_hook_patterns_options": "Filter spun hooks to these opener patterns. Empty list = no filter. Patterns: pov, pov_colon, when_you, me_when, the_way, tell_me_why, imagine, no_because, the_fact_that, nothing_like, that_thing_where, direct, question, ngl_suffix, fr_suffix",
+
+  "force_lowercase": false,
+  "_force_lowercase": "If true, lowercase all captions for this account regardless of slang spinner output.",
+
+  "color_scheme": "auto",
+  "_color_scheme_options": "auto | light | dark — overrides per-clip auto-pick if set",
+
+  "notes": "Aliases: 'mid', 'playful tone', 'no aggressive slang'"
+}

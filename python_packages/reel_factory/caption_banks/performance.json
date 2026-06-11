@@ -1,0 +1,6 @@
+{
+  "schema": "reel_factory.caption_performance.v1",
+  "updated_at": null,
+  "notes": "Manual-ready caption performance metadata keyed by caption_hash. No automatic learning is implemented.",
+  "captions": {}
+}

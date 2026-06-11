@@ -1,0 +1,37 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Check schema sync (root vs package)
+        run: diff <(cd schemas && md5sum *.json | sort) <(cd pipeline_contracts/schemas && md5sum *.json | sort) || (echo "FAIL: schemas/ and pipeline_contracts/schemas/ are out of sync. Copy root → package." && exit 1)
+
+      - name: Install Python deps
+        run: pip install pytest
+
+      - name: Run Python schema validation
+        run: python -m pytest -q tests/
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit typescript/index.ts --esModuleInterop --moduleResolution node --target es2020 || true

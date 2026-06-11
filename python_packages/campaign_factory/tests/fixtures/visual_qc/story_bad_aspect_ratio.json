@@ -1,0 +1,14 @@
+{
+  "fixture": "story_bad_aspect_ratio",
+  "surface": "story",
+  "mediaType": "image",
+  "width": 1080,
+  "height": 1080,
+  "aspectRatio": "1:1",
+  "blackBars": [],
+  "safeZoneViolation": false,
+  "focalCutoff": false,
+  "textHidden": false,
+  "expectedPass": false,
+  "expectedFailureReasons": ["story_aspect_ratio_not_safe"]
+}

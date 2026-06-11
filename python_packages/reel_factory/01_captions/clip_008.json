@@ -1,0 +1,83 @@
+{
+  "_comment": "20 hooks for clip_008 — round-robin slice of the 144-hook library from clip_001.",
+  "hooks": [
+    "\"I like your fit\"\nbet, take it off then",
+    "If I whispered what I wanted,\nhow fast would you fold?",
+    "Im in my bed ur in your bed\none of us is in the wrong place",
+    "pov: you don't know how to flirt\ncause youre hot",
+    "do older men eat\nforbidden white 🎂?",
+    "can i wear this on our first date?",
+    "wife or girlfriend",
+    "what question are you scared to ask",
+    "you are chronically online\nif you understand this:",
+    "read this backwards and\nlmk if he was right to leave me:\n\ni yekwol ekil ot tae ssa\ndna i dlot mih no ruo tsrif\netad",
+    "im so shy..\ntry backward:?\nssik a rof and uoy dluow\npu teem ew",
+    "When i tell the older guy my age\nand he says \"you're just a babyyy\"\ninstead of blocking me",
+    "using only one word\nwhat do you want right now?",
+    {
+      "segments": [
+        {
+          "text": "I respect myself too much",
+          "end": 2.5
+        },
+        {
+          "text": "okay anyway hi",
+          "start": 2.5
+        }
+      ]
+    },
+    "be the type of man\nthat makes me put my phone down",
+    "pov: your older brother\nwon't stop talking about me",
+    "type your nationality\nand I'll tell you if you have a chance",
+    "I come with a warning label\nnobody reads",
+    {
+      "_note": "4-segment: 3 crazy facts about most women",
+      "segments": [
+        {
+          "text": "3 crazy facts about\nmost women",
+          "end": 2.0
+        },
+        {
+          "text": "1. most women don't go\nfor the average guy",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. emotions often drive\ndecisions first",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. attention is\na form of currency",
+          "start": 7.0
+        }
+      ]
+    },
+    {
+      "_note": "4-segment: 101 to pull any girl",
+      "segments": [
+        {
+          "text": "101 to pull any girl...",
+          "end": 2.0
+        },
+        {
+          "text": "1. ask if you can have a hug",
+          "start": 2.0,
+          "end": 4.5
+        },
+        {
+          "text": "2. compliment her 5x a day",
+          "start": 4.5,
+          "end": 7.0
+        },
+        {
+          "text": "3. say you're ugly\nshe deserves better",
+          "start": 7.0
+        }
+      ]
+    }
+  ],
+  "recipes": null,
+  "caption_color": "auto",
+  "notes": "20 hooks × 8 recipes = 160 silent captioned outputs"
+}
