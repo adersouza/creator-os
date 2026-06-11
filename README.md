@@ -53,7 +53,7 @@ Reference Media (reels, images, TikTok archives)
 | [reference_factory](https://github.com/adersouza/reference_factory) | Python | Intelligence — analyze reference media, build learning systems, audio catalog | 69 |
 | [reel_factory](https://github.com/adersouza/reel_factory) | Python | Creation — prompt generation, image/video generation, grid crop, caption render | 247 |
 | [campaign_factory](https://github.com/adersouza/campaign_factory) | Python | Orchestration — control brain, batch management, audit coordination, draft export | 359 |
-| [contentforge](https://github.com/adersouza/contentforge) | JavaScript | Quality — FFmpeg variants, similarity/readiness/forensics/compression audits | 79 |
+| [contentforge](https://github.com/adersouza/contentforge) | JavaScript (Next.js) | Quality — FFmpeg variants, similarity/readiness/forensics/compression audits | 79 |
 | [ThreadsDashboard](https://github.com/adersouza/ThreadsDashboard) | TypeScript | Product — dashboard, scheduling, auto-posting, analytics, multi-account management | 4,557 |
 | [pipeline_contracts](https://github.com/adersouza/pipeline_contracts) | Python + TS | Schemas — shared JSON schemas and validators for cross-repo payloads | ✓ |
 
@@ -83,7 +83,7 @@ Reference Media (reels, images, TikTok archives)
 - Imports finished videos with full lineage
 - Sends them to **ContentForge** for multi-layer audits (similarity, forensics, compression, provenance, readiness)
 - Only `overallVerdict: pass` maps to `approved_candidate`; warnings require human review
-- Maintains local SQLite campaign database, activity logs, and durable job records
+- Maintains local SQLite campaign database (48 tables), activity logs, and durable job records
 
 ### 4. Export → Dashboard → Publishing
 Approved assets are exported as draft payloads (validated against `pipeline_contracts` schemas) to **ThreadsDashboard** (Juno33):
@@ -146,7 +146,7 @@ Each repo has strict boundaries documented in [PIPELINE_BOUNDARIES.md](https://g
 | **Video Generation** | Kling 3.0 |
 | **Video Processing** | FFmpeg, FFprobe |
 | **QC / Similarity** | PDQ, SSCD, SSIM, Chromaprint, Apple Vision OCR |
-| **Backend** | Python 3.11, Node.js 20, Next.js |
+| **Backend** | Python ≥3.11, Next.js 16 (ContentForge), Vercel Serverless (Juno33) |
 | **Database** | Supabase (PostgreSQL), SQLite (local Campaign Factory) |
 | **Frontend** | React 19, TypeScript, Vite, Tailwind CSS |
 | **Deployment** | Vercel (serverless + cron) |

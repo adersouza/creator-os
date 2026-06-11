@@ -48,7 +48,7 @@ graph TB
     end
 
     subgraph Quality["Quality Layer"]
-        CFG["ContentForge<br/>(Node.js)"]
+        CFG["ContentForge<br/>(Next.js)"]
         FFM["FFmpeg Pipeline"]
         SIM["Similarity Engine<br/>PDQ / SSCD / SSIM"]
         FORENSICS["Forensics /<br/>Compression"]
@@ -202,7 +202,7 @@ sequenceDiagram
 ## Database Architecture
 
 ### ThreadsDashboard (Supabase / PostgreSQL)
-The production database with 20+ tables managing:
+The production database with 472 migrations managing:
 - User accounts and team membership
 - Connected social accounts (Threads, Instagram, Facebook)
 - Posts, drafts, and media storage
@@ -213,8 +213,8 @@ The production database with 20+ tables managing:
 - Stripe billing state
 - Webhook event processing
 
-### Campaign Factory (Local SQLite)
-A local campaign database tracking:
+### Campaign Factory (Local SQLite — 48 tables)
+A local campaign database with 48 tables tracking:
 - Campaign state and metadata
 - Source assets and import lineage
 - Rendered assets and variant families
@@ -223,6 +223,10 @@ A local campaign database tracking:
 - Activity logs and durable job records
 - Performance sync history
 - Caption families and outcome tracking
+- Content graph (nodes, edges, sync state)
+- Recommendation runs, items, and accuracy
+- Trust settings, exceptions, and quarantine
+- Audio trend snapshots, selections, and performance rollups
 
 ---
 
