@@ -1114,6 +1114,7 @@ def generate_prompt(
     dry_run: bool = False,
     reference_frame_mode: str = "first-visible",
     prompt_mode: str = GROK_DIRECT_COMPAT_MODE,
+    provider: str = "grok",
     grid_layout: str = "3x2",
     image_aspect_ratio: str = DEFAULT_PROMPT_IMAGE_ASPECT_RATIO,
 ) -> dict[str, Any]:
@@ -1200,38 +1201,55 @@ def generate_prompt(
                 "policy": f"{reported_prompt_mode}_no_cleanup_needed",
             }
             if direct_prompt_mode:
-                api_key = load_xai_api_key(root)
-                if not api_key:
-                    raise RuntimeError("XAI_API_KEY or project_data/secrets.toml xai_api_key is required for grok-direct prompt mode")
-                response = None
-                compiled = None
-                raw_higgsfield_prompt = ""
-                last_error = ""
-                for attempt in range(2):
-                    attempt_instruction = instruction
-                    if last_error:
-                        attempt_instruction += (
-                            "\nPrevious prompt was rejected by the v1 validator: "
-                            f"{last_error}. Rewrite with the same visual intent while satisfying the hard rules.\n"
-                        )
-                    attempt_payload = build_xai_payload(model=model, frames=frames, instruction=attempt_instruction)
-                    response = call_grok(attempt_payload, api_key=api_key)
-                    raw_text = response_text(response)
-                    try:
-                        raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_text)
-                        cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
-                        compiled = parse_asset_prompt_response(json.dumps({
-                            "higgsfieldGridPrompt": cleanup["cleaned"],
-                            "klingMotionPrompt": motion_seed.klingMotionPrompt,
-                            "notes": operator_notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
-                        }, ensure_ascii=False))
-                        payload = attempt_payload
-                        instruction = attempt_instruction
-                        break
-                    except ValueError as exc:
-                        last_error = str(exc)
-                if compiled is None:
-                    raise ValueError(f"direct Grok prompt rejected after retry: {last_error}")
+                if provider == "local":
+                    import vlm_florence
+                    import vlm_ollama
+                    # For local VLM, we pass the first reference image
+                    ref_image = frames[0] if frames else None
+                    if not ref_image:
+                        raise ValueError("No reference image found for local VLM")
+                    florence_caption = vlm_florence.generate_florence_caption(str(ref_image))
+                    raw_higgsfield_prompt = vlm_ollama.generate_ollama_prompt(str(ref_image), florence_caption, instruction)
+                    cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
+                    compiled = parse_asset_prompt_response(json.dumps({
+                        "higgsfieldGridPrompt": cleanup["cleaned"],
+                        "klingMotionPrompt": motion_seed.klingMotionPrompt,
+                        "notes": "Live Local VLM (Florence-2 + Ollama) direct Higgsfield prompt.",
+                    }, ensure_ascii=False))
+                    payload = {"local": True}
+                else:
+                    api_key = load_xai_api_key(root)
+                    if not api_key:
+                        raise RuntimeError("XAI_API_KEY or project_data/secrets.toml xai_api_key is required for grok-direct prompt mode")
+                    response = None
+                    compiled = None
+                    raw_higgsfield_prompt = ""
+                    last_error = ""
+                    for attempt in range(2):
+                        attempt_instruction = instruction
+                        if last_error:
+                            attempt_instruction += (
+                                "\nPrevious prompt was rejected by the v1 validator: "
+                                f"{last_error}. Rewrite with the same visual intent while satisfying the hard rules.\n"
+                            )
+                        attempt_payload = build_xai_payload(model=model, frames=frames, instruction=attempt_instruction)
+                        response = call_grok(attempt_payload, api_key=api_key)
+                        raw_text = response_text(response)
+                        try:
+                            raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_text)
+                            cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
+                            compiled = parse_asset_prompt_response(json.dumps({
+                                "higgsfieldGridPrompt": cleanup["cleaned"],
+                                "klingMotionPrompt": motion_seed.klingMotionPrompt,
+                                "notes": operator_notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
+                            }, ensure_ascii=False))
+                            payload = attempt_payload
+                            instruction = attempt_instruction
+                            break
+                        except ValueError as exc:
+                            last_error = str(exc)
+                    if compiled is None:
+                        raise ValueError(f"direct Grok prompt rejected after retry: {last_error}")
             else:
                 response = None
                 compiled = motion_seed
@@ -1327,6 +1345,7 @@ def main() -> int:
     ap.add_argument("--retry-helper", choices=["fix_pose", "fix_hands", "less_smile", "more_reference_fidelity", "more_body_emphasis", "more_cleavage"])
     ap.add_argument("--reference-frame-mode", choices=["first-visible", "sampled"], default="first-visible")
     ap.add_argument("--prompt-mode", choices=[GROK_DIRECT_COMPAT_MODE, "compiled"], default=GROK_DIRECT_COMPAT_MODE)
+    ap.add_argument("--provider", choices=["grok", "local"], default="grok", help="Use grok or local (Florence-2 + Ollama Qwen-VL)")
     ap.add_argument("--grid-layout", default="3x2", help="Prompt layout goal: single, 3x2, 2x3, 4x2, 2x4, 3x3, etc.")
     ap.add_argument("--image-aspect-ratio", default=DEFAULT_PROMPT_IMAGE_ASPECT_RATIO)
     ap.add_argument("--operator-notes", default="")
@@ -1347,6 +1366,7 @@ def main() -> int:
         dry_run=args.dry_run,
         reference_frame_mode=args.reference_frame_mode,
         prompt_mode=args.prompt_mode,
+        provider=args.provider,
         grid_layout=args.grid_layout,
         image_aspect_ratio=args.image_aspect_ratio,
     )

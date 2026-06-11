@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "playwright", "mypy"]
 vision = ["opencv-python", "mediapipe"]
-ai = ["sentence-transformers", "mlx-whisper"]
+ai = ["sentence-transformers", "mlx-whisper", "einops", "timm", "torchvision"]
 pango = ["pycairo", "PyGObject"]
 queue = ["redis", "rq"]
 
