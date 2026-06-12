@@ -6,3 +6,18 @@ dependencies = []
 
 [tool.uv.workspace]
 members = ["python_packages/*", "packages/pipeline_contracts"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = [
+  "packages/pipeline_contracts/tests",
+  "python_packages/campaign_factory/tests",
+  "python_packages/reel_factory/tests",
+  "python_packages/reference_factory/tests",
+]
+pythonpath = [
+  "packages/pipeline_contracts",
+  "python_packages/campaign_factory",
+  "python_packages/reel_factory",
+  "python_packages/reference_factory",
+]

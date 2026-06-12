@@ -28,6 +28,9 @@ from ai_visual_qc import record_from_scores
 from ai_visual_qc import sample_positions
 from audio_intent import write_audio_intent
 from embedding_index import duplicate_risk, similar as similar_media, upsert_embedding
+
+
+REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 from generate_assets import (
     AssetGenerationPlan,
     build_source_lineage,
@@ -1061,26 +1064,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("tighter waist cinch", image_prompt)
         self.assertNotIn("higher hip emphasis", image_prompt)
 
-    def test_direct_higgsfield_instruction_uses_reference_factory_compiler_voice(self):
+    def test_direct_higgsfield_instruction_requests_structured_visual_json(self):
         instruction = build_direct_higgsfield_prompt_instruction("make it sexier")
 
         self.assertIn("Reference image/reel attached.", instruction)
-        self.assertIn("Create a high-quality image prompt for Higgsfield Soul V2.", instruction)
-        self.assertIn("old structured prompts", instruction)
-        self.assertIn("Create one high-quality native six-panel grid", instruction)
-        self.assertIn("exactly three columns and two rows", instruction)
-        self.assertIn("deep plunging cleavage", instruction)
-        self.assertIn("extreme hourglass", instruction)
-        self.assertIn("massive round plump juicy ass", instruction)
-        self.assertIn("tiny cinched waist", instruction)
-        self.assertIn("wide hips", instruction)
-        self.assertIn("thick thighs", instruction)
-        self.assertIn("vary only outfit color and material", instruction)
-        self.assertIn("keep the same garment style/cut", instruction)
-        self.assertIn("detailed and descriptive like the old structured prompts", instruction)
-        self.assertIn("strong arched back", instruction)
+        self.assertIn("Analyze the image and return a JSON object", instruction)
+        self.assertIn('"pose": "..."', instruction)
+        self.assertIn('"outfit": "..."', instruction)
+        self.assertIn('"scene": "..."', instruction)
         self.assertIn("make it sexier", instruction)
-        self.assertIn("Create one high-quality Soul ID image", instruction)
+        self.assertIn("Do NOT mention hair", instruction)
+        self.assertNotIn("six-panel grid", instruction)
+        self.assertNotIn("2x3 grid", instruction)
 
     def test_direct_higgsfield_parser_accepts_old_reference_factory_key_and_strips_face_polish(self):
         raw = json.dumps({
@@ -1632,6 +1627,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         import sys
         result = subprocess.run(
             [sys.executable, "reel_pipeline.py", "--help"],
+            cwd=REEL_FACTORY_ROOT,
             capture_output=True,
             text=True,
             check=True,
@@ -2517,7 +2513,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             render_caption_png(
                 "hello world",
                 font_family="Onest",
-                fonts_dir=Path("fonts"),
+                fonts_dir=REEL_FACTORY_ROOT / "fonts",
                 color_scheme="light",
                 band="top",
                 style="classic",

@@ -24,3 +24,14 @@ node_modules/
 dist/
 .next/
 .turbo/
+
+# Local prompt/model experiments
+/*.grok_lineage.json
+/test_*.json
+/test_*.jpg
+/test_*.png
+/dummy_*.mp4
+/hard_pose_*.json
+/orange_top_*.json
+/original_*_mirror_selfie.json
+/style_*_template.json

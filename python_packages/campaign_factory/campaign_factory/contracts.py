@@ -5,7 +5,15 @@ from pathlib import Path
 
 
 _PROJECTS_ROOT = Path(__file__).resolve().parents[2]
-_SHARED_CONTRACTS_ROOT = _PROJECTS_ROOT / "pipeline_contracts"
+_MONOREPO_ROOT = Path(__file__).resolve().parents[3]
+_CONTRACT_ROOT_CANDIDATES = [
+    _PROJECTS_ROOT / "pipeline_contracts",
+    _MONOREPO_ROOT / "packages" / "pipeline_contracts",
+]
+_SHARED_CONTRACTS_ROOT = next(
+    (candidate for candidate in _CONTRACT_ROOT_CANDIDATES if candidate.exists()),
+    _CONTRACT_ROOT_CANDIDATES[0],
+)
 if _SHARED_CONTRACTS_ROOT.exists() and str(_SHARED_CONTRACTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SHARED_CONTRACTS_ROOT))
 

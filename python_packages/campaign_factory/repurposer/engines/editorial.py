@@ -1,5 +1,6 @@
 from pathlib import Path
-import subprocess
+
+from .common import ensure_input_file, run_ffmpeg
 
 class EditorialEngine:
     """Layer 1: Structural changes. Handles re-ordering and hooking."""
@@ -15,7 +16,7 @@ class EditorialEngine:
     @staticmethod
     def apply(master_path: Path, output_path: Path, new_hook: bool = True, reorder: bool = True) -> Path:
         """Apply structural changes."""
-        # Mock logic: just copies for now, but in reality would concat scenes
+        ensure_input_file(master_path, label="master")
+        # V1 preserves the original scene order until a real scene splitter is wired.
         cmd = ["ffmpeg", "-i", str(master_path), "-c", "copy", "-y", str(output_path)]
-        subprocess.run(cmd, capture_output=True)
-        return output_path
+        return run_ffmpeg(cmd, output_path=output_path)
