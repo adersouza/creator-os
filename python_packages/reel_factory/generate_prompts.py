@@ -538,35 +538,20 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
         "and amateur iPhone capture realism"
     )
     
-    example_prompt = (
-        "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
-        "extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor "
-        "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
-        "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
-        "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
-        "skin-tight fabric clinging tightly to her curves. Outfit: wearing [DESCRIBE THE COLOR AND STYLE OF HER TOP AND BOTTOMS FROM THE IMAGE HERE]. Natural daylight, realistic fabric cling, consistent body "
-        "proportions and pose, vertical smartphone aesthetic."
-    )
     return (
         "Reference image/reel attached.\n\n"
-        "Create a high-quality image prompt for Higgsfield Soul V2.\n\n"
+        "Analyze the image and return a JSON object with visual descriptions.\n\n"
         "Requirements:\n"
-        "- Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference.\n"
-        "- Strongly amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve.\n"
-        "- You MUST explicitly describe the specific color, cut, and style of clothing she is wearing based on the reference image. Do not generate naked or nude descriptions.\n"
-        "- DO NOT just copy the placeholder outfit from the example! You MUST look at the image and describe the actual clothing.\n"
+        "- For 'pose', extract comma-separated keywords describing her physical mechanics (e.g., standing sideways, arched back, seated, twisting torso).\n"
+        "- For 'outfit', extract comma-separated keywords describing the exact colors and styles.\n"
+        "- For 'scene', extract comma-separated keywords describing the setting and lighting (e.g., outdoors, natural sunlight, bathroom counter).\n"
         "- Do NOT mention hair, hairstyle, hair color, or tattoos at all.\n"
-        "- For the final image: create one standalone image in the same old structured prompt style.\n"
-        "- Make the language detailed and descriptive like the old structured prompts.\n"
-        "- If the reference pose has a hand touching hair, describe it as hand near head or hand behind head.\n"
-        "- Do not mention captions, usernames, UI, watermarks, negative prompts, or that the reference image will be passed to Higgsfield.\n\n"
         f"Extra user instructions: {direction}\n\n"
-        "Example prompt style to imitate:\n"
-        f"{example_prompt}\n\n"
-        "Return only this JSON:\n"
+        "You MUST output exactly this JSON structure:\n"
         "{\n"
-        '  "image_prompt": "...",\n'
-        '  "notes": "..."\n'
+        '  "pose": "...",\n'
+        '  "outfit": "...",\n'
+        '  "scene": "..."\n'
         "}"
     )
 
@@ -578,6 +563,22 @@ def _direct_prompt_from_response_text(raw_text: str) -> str:
         raise ValueError("direct Grok prompt response must be strict JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("direct Grok prompt response must be a JSON object")
+
+    # If the VLM output simple keys, we assemble the prompt manually to guarantee formatting.
+    if "pose" in data and "outfit" in data and "scene" in data:
+        scene = data["scene"].strip()
+        pose = data["pose"].strip()
+        outfit = data["outfit"].strip()
+        
+        prompt = (
+            f"Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
+            f"extreme hourglass figure from the reference image. {scene}. Exact reference pose: {pose}. "
+            f"Strong sexual body emphasis: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, "
+            f"wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. "
+            f"Outfit: wearing {outfit}. Natural daylight, realistic fabric cling, consistent body proportions and pose, vertical smartphone aesthetic."
+        )
+        return prompt
+
     prompt = str(
         data.get("higgsfieldGridPrompt")
         or data.get("image_prompt")
@@ -1191,7 +1192,8 @@ def generate_prompt(
                     if not ref_image:
                         raise ValueError("No reference image found for local VLM")
                     florence_caption = vlm_florence.generate_florence_caption(str(ref_image))
-                    raw_higgsfield_prompt = vlm_ollama.generate_ollama_prompt(str(ref_image), florence_caption, instruction, model=model)
+                    raw_ollama_response = vlm_ollama.generate_ollama_prompt(str(ref_image), florence_caption, instruction, model=model)
+                    raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_ollama_response)
                     cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
                     try:
                         compiled = parse_asset_prompt_response(json.dumps({
