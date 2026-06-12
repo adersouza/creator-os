@@ -540,7 +540,8 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
     
     example_prompt = (
         "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
-        "extreme hourglass figure from the reference image. [DESCRIBE HER EXACT PHYSICAL POSE HERE. e.g. She is standing sideways, twisting her torso towards the mirror, strong arched back pushing out her backside]. "
+        "extreme hourglass figure from the reference image. "
+        "Exact reference pose: [DESCRIBE THE PHYSICAL POSE WITH COMMA-SEPARATED KEYWORDS. e.g. standing sideways, twisting torso towards mirror, strong arched back pushing out backside, seductive over-the-shoulder gaze]. "
         "Strong sexual body emphasis: massive round plump juicy ass "
         "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
         "skin-tight fabric clinging tightly to her curves. Outfit: wearing [DESCRIBE THE COLOR AND STYLE OF HER TOP AND BOTTOMS FROM THE IMAGE HERE]. "
