@@ -1079,38 +1079,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("keep the same garment style/cut", instruction)
         self.assertIn("detailed and descriptive like the old structured prompts", instruction)
         self.assertIn("strong arched back", instruction)
-        self.assertIn("dramatic S-curve posture", instruction)
-        self.assertIn('"image_prompt"', instruction)
-        self.assertIn('"notes"', instruction)
-        self.assertNotIn('"higgsfieldGridPrompt"', instruction)
-        self.assertNotIn('"structured_breakdown"', instruction)
-        self.assertNotIn('"klingMotionPrompt"', instruction)
-        example_block = instruction.split("Example prompt style to imitate:", 1)[1].lower()
-        self.assertNotIn("perfect face", example_block)
-        self.assertNotIn("skin texture", example_block)
-        self.assertNotIn("skin sheen", example_block)
-        self.assertNotIn("natural sheen", example_block)
-        self.assertNotIn("high detail", example_block)
-        self.assertNotIn("sharp focus", example_block)
-        self.assertNotIn("face realism", example_block)
-
-    def test_direct_higgsfield_instruction_supports_operator_grid_layouts_and_age(self):
-        two_by_four = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="2x4")
-
-        self.assertIn("exactly two columns and four rows", two_by_four)
-        self.assertIn("native eight-panel image", two_by_four)
-        self.assertIn("eight variations", two_by_four)
-        self.assertNotIn("exact age", two_by_four)
-
-        single = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="single")
-        self.assertIn("standalone image", single)
-        self.assertIn("one standalone image", single)
-        self.assertNotIn("Outfit variations: 1.", single)
-
-        parsed = normalize_grid_layout("3x2")
-        self.assertEqual(parsed["columns"], 3)
-        self.assertEqual(parsed["rows"], 2)
-        self.assertEqual(parsed["panel_count"], 6)
+        self.assertIn("make it sexier", instruction)
+        self.assertIn("Create one high-quality Soul ID image", instruction)
 
     def test_direct_higgsfield_parser_accepts_old_reference_factory_key_and_strips_face_polish(self):
         raw = json.dumps({

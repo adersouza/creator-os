@@ -531,42 +531,22 @@ def _numbered_variation_text(variations: list[str]) -> str:
     return " ".join(f"{idx}. {value}." for idx, value in enumerate(variations, start=1))
 
 
-def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", *,
-                                              grid_layout: str = "3x2") -> str:
+def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **kwargs) -> str:
     direction = creative_direction.strip() or (
         "make the visual formula sexier with stronger curves, larger cleavage, "
         "rounder ass emphasis, tighter garment cling, confident pose geometry, "
         "and amateur iPhone capture realism"
     )
-    layout = normalize_grid_layout(grid_layout)
-    panel_count = int(layout["panel_count"])
-    variations = _example_outfit_variations(panel_count)
-    if layout["kind"] == "single":
-        grid_requirement = "For the final image: create one standalone image in the same old structured prompt style."
-        example_prompt = (
-            "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
-            "extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor "
-            "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
-            "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
-            "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
-            "skin-tight fabric clinging tightly to her curves. Natural daylight, realistic fabric cling, consistent body "
-            "proportions and pose, vertical smartphone aesthetic."
-        )
-    else:
-        grid_requirement = (
-            f"For the {layout['panel_count_word']}-panel grid: vary only outfit color and material, keep the same garment "
-            f"style/cut, and request one native {layout['panel_label']} image, {layout['layout_phrase']}."
-        )
-        example_prompt = (
-            f"Create one high-quality native {layout['panel_label']} grid featuring {layout['variation_phrase']} of the "
-            "exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated "
-            "looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, "
-            "turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. "
-            "Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, "
-            "tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. "
-            f"Outfit variations (same garment style/cut as reference): {_numbered_variation_text(variations)} Natural daylight, "
-            "realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic."
-        )
+    
+    example_prompt = (
+        "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
+        "extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor "
+        "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
+        "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
+        "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
+        "skin-tight fabric clinging tightly to her curves. Natural daylight, realistic fabric cling, consistent body "
+        "proportions and pose, vertical smartphone aesthetic."
+    )
     return (
         "Reference image/reel attached.\n\n"
         "Create a high-quality image prompt for Higgsfield Soul V2.\n\n"
@@ -574,7 +554,7 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", *,
         "- Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference.\n"
         "- Strongly amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve.\n"
         "- Do NOT mention hair, hairstyle, hair color, or tattoos at all.\n"
-        f"- {grid_requirement}\n"
+        "- For the final image: create one standalone image in the same old structured prompt style.\n"
         "- Make the language detailed and descriptive like the old structured prompts.\n"
         "- If the reference pose has a hand touching hair, describe it as hand near head or hand behind head.\n"
         "- Do not mention captions, usernames, UI, watermarks, negative prompts, or that the reference image will be passed to Higgsfield.\n\n"
@@ -1179,7 +1159,7 @@ def generate_prompt(
         reported_prompt_mode = REFERENCE_FACTORY_SEXY_REALISTIC_MODE if direct_prompt_mode else prompt_mode
         normalized_layout = normalize_grid_layout(grid_layout)
         if direct_prompt_mode:
-            instruction = build_direct_higgsfield_prompt_instruction(merged_direction, grid_layout=grid_layout)
+            instruction = build_direct_higgsfield_prompt_instruction(merged_direction)
         else:
             instruction = build_user_instruction(reference_context, merged_direction)
         payload = build_xai_payload(model=model, frames=frames, instruction=instruction)
