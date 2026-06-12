@@ -1,0 +1,10 @@
+{
+  "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+  "tool": "higgsfield_soul_id",
+  "status": "ready",
+  "sourceReferenceId": "test_ref",
+  "sourcePatternId": "test_pattern",
+  "modelProfile": "stacey",
+  "higgsfieldGridPrompt": "Stacey taking a selfie in a coffee shop, high quality, 4k",
+  "aspectRatio": "9:16"
+}

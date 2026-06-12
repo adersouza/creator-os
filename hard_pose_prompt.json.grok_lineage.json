@@ -1,0 +1,87 @@
+{
+  "schema": "reel_factory.grok_prompt_lineage.v1",
+  "createdAt": 1781231078,
+  "tool": "xai_grok_responses_api",
+  "model": "llava",
+  "prompt_mode": "reference_factory_sexy_realistic",
+  "raw_grok_prompt": "{\n  \"image_prompt\": \"Create a high-quality native six-panel grid featuring six variations of the exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. Outfit variations (same garment style/cut as reference): 1. Bright turquoise blue strapless bodycon dress. 2. Deep black strapless bodycon dress. 3. Crisp white strapless bodycon dress. 4. Soft lavender strapless bodycon dress. 5. Mint green strapless bodycon dress. 6. Deep burgundy strapless bodycon dress. Natural daylight, realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic.\",\n  \"notes\": \"Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference image. Amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve. Do NOT mention hair, hairstyle, hair color, or tattoos at all. For the six-panel grid: vary only outfit color and material, keep the same garment style/cut, and request one native six-panel image, exactly three columns and two rows.\"\n}",
+  "cleaned_prompt": "Bypass: { \"image_prompt\": \"Create a high-quality native six-panel grid featuring six variations of the exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. Outfit variations (same garment style/cut as reference): 1. Bright turquoise blue strapless bodycon dress. 2. Deep black strapless bodycon dress. 3. Crisp white strapless bodycon dress. 4. Soft lavender strapless bodycon dress. 5. Mint green strapless bodycon dress. 6. Deep burgundy strapless bodycon dress. Natural daylight, realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic.\", \"notes\": \"Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference image. Amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve. Omit mention, color, or at all. For the six-panel grid: vary only outfit color and material, keep the same garment style/cut, and request one native six-panel image, exactly three columns and two rows.\"\n}",
+  "cleanup_diff": [
+    {
+      "action": "remove",
+      "label": "hair_word",
+      "text": "hair",
+      "replacement": " "
+    },
+    {
+      "action": "remove",
+      "label": "hair_word",
+      "text": "hairstyle",
+      "replacement": " "
+    },
+    {
+      "action": "remove",
+      "label": "hair_word",
+      "text": "hair",
+      "replacement": " "
+    },
+    {
+      "action": "remove",
+      "label": "tattoo",
+      "text": "tattoos",
+      "replacement": " "
+    },
+    {
+      "action": "repair_punctuation",
+      "label": "spacing_punctuation",
+      "text": "{\n  \"image_prompt\": \"Create a high-quality native six-panel grid featuring six variations of the exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. Outfit variations (same garment style/cut as reference): 1. Bright turquoise blue strapless bodycon dress. 2. Deep black strapless bodycon dress. 3. Crisp white strapless bodycon dress. 4. Soft lavender strapless bodycon dress. 5. Mint green strapless bodycon dress. 6. Deep burgundy strapless bodycon dress. Natural daylight, realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic.\",\n  \"notes\": \"Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference image. Amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve. Do NOT mention  ,  ,   color, or   at all. For the six-panel grid: vary only outfit color and material, keep the same garment style/cut, and request one native six-panel image, exactly three columns and two rows.\"\n}",
+      "replacement": "{ \"image_prompt\": \"Create a high-quality native six-panel grid featuring six variations of the exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. Outfit variations (same garment style/cut as reference): 1. Bright turquoise blue strapless bodycon dress. 2. Deep black strapless bodycon dress. 3. Crisp white strapless bodycon dress. 4. Soft lavender strapless bodycon dress. 5. Mint green strapless bodycon dress. 6. Deep burgundy strapless bodycon dress. Natural daylight, realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic.\", \"notes\": \"Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference image. Amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve. Do NOT mention, color, or at all. For the six-panel grid: vary only outfit color and material, keep the same garment style/cut, and request one native six-panel image, exactly three columns and two rows.\"\n}"
+    }
+  ],
+  "aspect_ratio": "4:3",
+  "grid_layout": {
+    "kind": "grid",
+    "value": "3x2",
+    "columns": 3,
+    "rows": 2,
+    "panel_count": 6,
+    "panel_label": "six-panel",
+    "panel_count_word": "six",
+    "columns_word": "three",
+    "rows_word": "two",
+    "layout_phrase": "exactly three columns and two rows",
+    "prompt_opening": "Create one high-quality six-panel grid image, exactly three columns and two rows",
+    "variation_phrase": "six variations",
+    "key_constraint": "one native 6-panel grid"
+  },
+  "prompt_enhancement": false,
+  "reference_image_passed_to_higgsfield": false,
+  "promptPath": "/Users/adercialonedesouza/Projects/creator-os/hard_pose_prompt.json",
+  "referenceReel": null,
+  "referenceImages": [
+    "/Users/adercialonedesouza/Projects/creator-os/test_hard_pose.jpg"
+  ],
+  "responseId": null,
+  "responseModel": null,
+  "usage": null,
+  "promptFields": {
+    "higgsfieldGridPrompt": "Bypass: { \"image_prompt\": \"Create a high-quality native six-panel grid featuring six variations of the exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. Outfit variations (same garment style/cut as reference): 1. Bright turquoise blue strapless bodycon dress. 2. Deep black strapless bodycon dress. 3. Crisp white strapless bodycon dress. 4. Soft lavender strapless bodycon dress. 5. Mint green strapless bodycon dress. 6. Deep burgundy strapless bodycon dress. Natural daylight, realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic.\", \"notes\": \"Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference image. Amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve. Omit mention, color, or at all. For the six-panel grid: vary only outfit color and material, keep the same garment style/cut, and request one native six-panel image, exactly three columns and two rows.\"\n}",
+    "klingMotionPrompt": "Animate each cropped panel as its own short vertical motion clip. Keep the selected panel framing, room, outfit feel, camera angle, lighting, and supplied start-image composition stable. Apply this motion pattern: reference-matched simple steady movement with full-frame composition.",
+    "notes": "Bypassed validation error."
+  },
+  "referenceAnalysis": {
+    "analysis_id": null,
+    "reference_path": "/Users/adercialonedesouza/Projects/creator-os/test_hard_pose.jpg",
+    "analysis": {
+      "scene_type": "unknown_scene",
+      "shot_type": "reference_image",
+      "camera_motion": "unknown",
+      "subject_motion": "unknown",
+      "pose_type": "unknown",
+      "background_elements": [],
+      "outfit_type": "unknown",
+      "motion_prompt_hint": "reference-matched simple steady movement with full-frame composition"
+    }
+  },
+  "humanReviewRequired": true
+}
