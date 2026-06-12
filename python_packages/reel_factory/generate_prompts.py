@@ -544,8 +544,8 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
         "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
         "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
         "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
-        "skin-tight fabric clinging tightly to her curves. Natural daylight, realistic fabric cling, consistent body "
-        "proportions and pose, vertical smartphone aesthetic."
+        "skin-tight fabric clinging tightly to her curves. Outfit: wearing the exact same garment style, cut, and color as the reference image. "
+        "Natural daylight, realistic fabric cling, consistent body proportions and pose, vertical smartphone aesthetic."
     )
     return (
         "Reference image/reel attached.\n\n"
@@ -553,6 +553,7 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
         "Requirements:\n"
         "- Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference.\n"
         "- Strongly amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve.\n"
+        "- Explicitly describe the clothing she is wearing based on the reference image. Do not generate naked or nude descriptions.\n"
         "- Do NOT mention hair, hairstyle, hair color, or tattoos at all.\n"
         "- For the final image: create one standalone image in the same old structured prompt style.\n"
         "- Make the language detailed and descriptive like the old structured prompts.\n"
@@ -1200,7 +1201,7 @@ def generate_prompt(
                     except ValueError as e:
                         print(f"Validation failed but bypassing for local testing: {e}")
                         # create a dummy valid compiled object
-                        safe_prompt = cleanup["cleaned"].replace("Do NOT", "Omit").replace("Avoid", "Omit")
+                        safe_prompt = cleanup["cleaned"].replace("Do NOT", "Omit").replace("Avoid", "Omit").replace("without", "missing")
                         compiled = parse_asset_prompt_response(json.dumps({
                             "higgsfieldGridPrompt": "Bypass: " + safe_prompt,
                             "klingMotionPrompt": motion_seed.klingMotionPrompt,
