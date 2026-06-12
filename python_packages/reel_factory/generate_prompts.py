@@ -544,7 +544,7 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
         "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
         "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
         "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
-        "skin-tight fabric clinging tightly to her curves. Outfit: wearing [DESCRIBE THE ACTUAL OUTFIT FROM THE IMAGE HERE]. "
+        "skin-tight fabric clinging tightly to her curves. Outfit: wearing [DESCRIBE THE COLOR AND STYLE OF HER TOP AND BOTTOMS FROM THE IMAGE HERE]. "
         "Natural daylight, realistic fabric cling, consistent body proportions and pose, vertical smartphone aesthetic."
     )
     return (
@@ -553,7 +553,7 @@ def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **k
         "Requirements:\n"
         "- Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference.\n"
         "- Strongly amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve.\n"
-        "- The image generator cannot see the reference image! You MUST explicitly describe the specific color, cut, and style of clothing she is wearing (e.g. 'wearing a white strapless bodycon dress'). Do NOT say 'same as the reference image'. Do not generate naked or nude descriptions.\n"
+        "- The image generator cannot see the reference image! You MUST explicitly describe the specific color, cut, and style of clothing she is wearing. Do NOT say 'same as the reference image'. Do not generate naked or nude descriptions.\n"
         "- DO NOT just copy the placeholder outfit from the example! You MUST look at the image and describe the actual clothing.\n"
         "- Do NOT mention hair, hairstyle, hair color, or tattoos at all.\n"
         "- For the final image: create one standalone image in the same old structured prompt style.\n"
