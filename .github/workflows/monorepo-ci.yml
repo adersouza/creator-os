@@ -33,6 +33,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Install media tooling
+        run: brew install ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter contentforge test
       - run: pnpm --filter juno33 test
@@ -43,6 +45,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: Install media tooling
+        run: brew install ffmpeg tesseract
       - run: uv sync --all-extras --all-packages
       - run: uv run pytest packages/pipeline_contracts/tests
       - run: uv run pytest python_packages/campaign_factory/tests
