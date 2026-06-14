@@ -16,7 +16,7 @@ remain the trusted runtime baseline until promotion is explicit.
   "integrationDryRunPasses": true,
   "runtimeArtifactsIgnored": true,
   "splitRepoParityVerified": true,
-  "splitRepoBranchesMerged": false,
+  "splitRepoBranchesMerged": true,
   "productionRuntimePromoted": false
 }
 ```
@@ -75,8 +75,6 @@ The staged proof must show:
 
 ## Promotion Blockers Remaining
 
-- Split repo cleanup branches are clean and pushed, but most are not merged to
-  their runtime `main` branches yet.
 - Deployment configuration still points at split repos.
 - No live/staged operational run has been approved from the monorepo runtime.
 
