@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 
 from caption_render import render_caption_png
 from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
@@ -730,7 +731,7 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertIn("encoder busy", row["error_message"])
 
     def test_default_recipe_config_loads_and_validates(self):
-        recipes = load_recipes(Path("recipes/default.json"), Recipe)
+        recipes = load_recipes(REEL_FACTORY_ROOT / "recipes" / "default.json", Recipe)
         by_name = {recipe.name: recipe for recipe in recipes}
         names = [recipe.name for recipe in recipes]
         self.assertIn("v00_passthrough", names)
@@ -838,7 +839,7 @@ class ReelPipelineTests(unittest.TestCase):
             render_caption_png(
                 "hello world",
                 font_family="Instagram Sans Condensed",
-                fonts_dir=Path("fonts"),
+                fonts_dir=REEL_FACTORY_ROOT / "fonts",
                 color_scheme="light",
                 band="center",
                 style="ig",

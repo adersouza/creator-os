@@ -27,12 +27,19 @@ from pathlib import Path
 
 CREATOR_OS_ROOT = Path(__file__).parent
 PROJECTS_ROOT = CREATOR_OS_ROOT.parent
-REPOS = {
+MONOREPO_REPOS = {
+    "pipeline_contracts": CREATOR_OS_ROOT / "packages" / "pipeline_contracts",
+    "campaign_factory": CREATOR_OS_ROOT / "python_packages" / "campaign_factory",
+    "reference_factory": CREATOR_OS_ROOT / "python_packages" / "reference_factory",
+    "reel_factory": CREATOR_OS_ROOT / "python_packages" / "reel_factory",
+}
+SPLIT_REPOS = {
     "pipeline_contracts": PROJECTS_ROOT / "pipeline_contracts",
     "campaign_factory": PROJECTS_ROOT / "campaign_factory",
     "reference_factory": PROJECTS_ROOT / "reference_factory",
     "reel_factory": PROJECTS_ROOT / "reel_factory",
 }
+REPOS = MONOREPO_REPOS if MONOREPO_REPOS["pipeline_contracts"].exists() else SPLIT_REPOS
 
 passed = 0
 failed = 0
@@ -74,9 +81,9 @@ try:
 
     check("pipeline_contracts importable", True)
 
-    # Verify all 13 schemas load
+    # Verify all schemas load
     schema_names = example_names()
-    check(f"13 schemas registered ({len(schema_names)})", len(schema_names) == 13)
+    check(f"14 schemas registered ({len(schema_names)})", len(schema_names) == 14)
 
     # Verify all examples validate
     try:
@@ -254,9 +261,8 @@ except Exception as e:
 section("5. Reel Factory — Prompt Cleanup & Grid Layout")
 
 reel_root = REPOS["reel_factory"]
-reel_venv_python = reel_root / ".venv" / "bin" / "python"
 
-if reel_venv_python.exists():
+try:
     import subprocess
 
     reel_test_code = '''
@@ -275,25 +281,22 @@ results["has_keys"] = {"raw", "cleaned", "diff", "removed", "valid", "policy"}.i
 results["removal_only"] = "removal_only" in result["policy"]
 print(json.dumps(results))
 '''
-    try:
-        proc = subprocess.run(
-            [str(reel_venv_python), "-c", reel_test_code],
-            capture_output=True, text=True, cwd=str(reel_root), timeout=10,
-        )
-        if proc.returncode == 0:
-            results = json.loads(proc.stdout.strip())
-            check("reel_factory importable (via venv)", True)
-            check("Default grid is 3x2", results["grid_3x2"])
-            check("Single image layout works", results["single"])
-            check("Clean prompt passes through", results["clean_valid"])
-            check("Cleanup returns required keys", results["has_keys"])
-            check("Policy is removal-only", results["removal_only"])
-        else:
-            check("reel_factory importable (via venv)", False, proc.stderr.strip()[:200])
-    except Exception as e:
-        check("reel_factory importable (via venv)", False, str(e))
-else:
-    check("reel_factory importable (via venv)", False, f"venv not found at {reel_venv_python}")
+    proc = subprocess.run(
+        [sys.executable, "-c", reel_test_code],
+        capture_output=True, text=True, cwd=str(reel_root), timeout=10,
+    )
+    if proc.returncode == 0:
+        results = json.loads(proc.stdout.strip())
+        check("reel_factory importable", True)
+        check("Default grid is 3x2", results["grid_3x2"])
+        check("Single image layout works", results["single"])
+        check("Clean prompt passes through", results["clean_valid"])
+        check("Cleanup returns required keys", results["has_keys"])
+        check("Policy is removal-only", results["removal_only"])
+    else:
+        check("reel_factory importable", False, proc.stderr.strip()[:200])
+except Exception as e:
+    check("reel_factory importable", False, str(e))
 
 
 # ── 6. Cross-Repo Schema Handoff ────────────────────────────────────

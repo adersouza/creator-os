@@ -6,23 +6,29 @@ This file documents what each system may do and what it must not do.
 
 Allowed:
 
-- Build Grok prompt requests from local reference images/reels.
-- Use Grok to write the final Higgsfield image prompt.
-- Clean Grok prompt output with removal-only forbidden-term cleanup.
-- Generate Higgsfield Soul ID image grids.
-- Crop image grids into panel start images.
-- Generate Kling video only when explicitly requested.
-- Write prompt, generation, crop, audio, QC, and export lineage.
+- Use local single-person reference images to create one direct Higgsfield Soul ID still.
+- Pass the reference image to Higgsfield still generation through the active direct-reference path.
+- Use Stacey Soul ID for Stacey identity.
+- Default active stills to `9:16`.
+- Capture Higgsfield raw JSON, generated prompt, local output path, and lineage.
+- Append optional body emphasis only when requested.
+- Compile deterministic Kling motion prompts for accepted stills.
+- Run Kling only when explicitly requested.
+- Write local prompt, generation, motion, QC, and export lineage.
 - Select audio metadata from local CML/winner/watch-list caches.
 
 Not allowed:
 
-- Do not pass the reference image to Higgsfield image generation.
-- Do not enable Higgsfield prompt enhancement.
-- Do not make Gemini write image prompts.
-- Do not use image-prompt forbidden-term cleanup on Gemini/Kling motion text.
+- Do not use Grok, Qwen, Ollama, Florence, or visual-schema extraction as the normal operator path.
+- Do not make prompt-json or grid/fanout workflows the default production path.
+- Do not use stale `2x3`, six-panel, cropped-panel, or `_grok.json` language in active operator surfaces.
 - Do not automate Instagram/TikTok/Threads logins, private APIs, or publishing.
-- Do not scrape TikTok logged-in Creative Center pages for audio.
+- Do not scrape logged-in Creative Center pages for audio.
+- Do not register Campaign Factory assets, schedule, publish, export drafts, sync metrics, or mutate account health from this still-image flow.
+
+Legacy:
+
+- Old Grok/grid/fanout modules may remain for explicit research or regression tests only.
 
 ## Campaign Factory Boundary
 
@@ -43,13 +49,6 @@ Not allowed:
 - Do not publish to social platforms directly.
 - Do not replace ThreadsDashboard's app/data ownership.
 
-Key files:
-
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/core.py`
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/control.py`
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/adapters/contentforge.py`
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/adapters/threadsdash.py`
-
 ## ContentForge Boundary
 
 Allowed:
@@ -64,14 +63,6 @@ Not allowed:
 - Do not own campaign strategy.
 - Do not decide final posting.
 - Do not mutate Reel Factory prompt or Higgsfield lineage.
-
-Key files:
-
-- `/Users/adercialonedesouza/Projects/contentforge/lib/pipeline.js`
-- `/Users/adercialonedesouza/Projects/contentforge/lib/variant-engine.js`
-- `/Users/adercialonedesouza/Projects/contentforge/lib/variant-pack.js`
-- `/Users/adercialonedesouza/Projects/contentforge/app/api/similarity/route.js`
-- `/Users/adercialonedesouza/Projects/contentforge/app/api/variant-pack/route.js`
 
 ## ThreadsDashboard Boundary
 
@@ -88,14 +79,7 @@ Not allowed for Creator OS/Reel Factory work:
 - Do not add private Instagram API automation.
 - Do not add login automation.
 - Do not bypass approval/idempotency/kill-switch publishing guardrails.
-- Do not move Reel Factory prompt generation into ThreadsDashboard.
-
-Key areas:
-
-- `/Users/adercialonedesouza/Projects/ThreadsDashboard/src/lib/campaignFactory.ts`
-- `/Users/adercialonedesouza/Projects/ThreadsDashboard/api/_lib/handlers/posts/`
-- `/Users/adercialonedesouza/Projects/ThreadsDashboard/api/_lib/handlers/auto-post/`
-- `/Users/adercialonedesouza/Projects/ThreadsDashboard/src/services/autoPost/`
+- Do not move Reel Factory generation behavior into ThreadsDashboard.
 
 ## Pipeline Contracts Boundary
 
@@ -109,34 +93,14 @@ Not allowed:
 
 - Do not put business logic in schemas.
 - Do not silently change schema IDs for breaking changes.
-- Do not treat stale vendored copies as authoritative over `/Users/adercialonedesouza/Projects/pipeline_contracts`.
-
-Key paths:
-
-- `/Users/adercialonedesouza/Projects/pipeline_contracts/pipeline_contracts/schemas/`
-- `/Users/adercialonedesouza/Projects/pipeline_contracts/pipeline_contracts/validator.py`
-- `/Users/adercialonedesouza/Projects/pipeline_contracts/typescript/index.ts`
-
-## ig-pipeline Boundary
-
-Current observed repo content is minimal and non-production:
-
-```text
-/Users/adercialonedesouza/Projects/ig-pipeline/.planning/
-/Users/adercialonedesouza/Projects/ig-pipeline/data/profiles/.gitkeep
-/Users/adercialonedesouza/Projects/ig-pipeline/docs/.gitkeep
-/Users/adercialonedesouza/Projects/ig-pipeline/scripts/check_root.sh
-```
-
-Treat this repo as non-authoritative for Creator OS production. Do not use planning notes here as a reason to build private Instagram automation.
+- Do not treat stale vendored copies as authoritative over `$CREATOR_OS_ROOT/pipeline_contracts`.
 
 ## Things Future Codex Sessions Must Not Break
 
-- Prompt enhancement off.
-- No reference image sent to Higgsfield.
+- Active still generation is direct reference-image Higgsfield generation.
+- Active still aspect ratio is `9:16`.
 - Soul ID owns identity.
-- Grok writes image prompts.
-- Gemini motion only.
-- GridCropperV2 seam detection.
-- Campaign Factory control brain.
+- Do not make Grok/Qwen/Ollama/Florence the default path again.
+- Do not reintroduce grid/cropped-panel language into active operator surfaces.
+- Campaign Factory remains the control brain.
 - No Instagram private API automation.

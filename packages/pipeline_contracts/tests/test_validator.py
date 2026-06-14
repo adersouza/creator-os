@@ -17,6 +17,7 @@ from pipeline_contracts import (
     validate_kling_3_video_prompt,
     validate_pattern_card,
     validate_performance_sync,
+    validate_repurposing_plan,
     validate_recommendation_next_batch,
     validate_schema_examples,
     validate_video_analysis,
@@ -35,6 +36,7 @@ def test_named_validators_accept_examples():
     validate_caption_outcome_context(load_example("caption_outcome_context"))
     validate_audio_catalog_export(load_example("audio_catalog_export"))
     validate_performance_sync(load_example("performance_sync"))
+    validate_repurposing_plan(load_example("repurposing_plan"))
     validate_recommendation_next_batch(load_example("recommendation_next_batch"))
     validate_pattern_card(load_example("pattern_card"))
     validate_video_analysis(load_example("video_analysis"))
@@ -108,3 +110,11 @@ def test_campaign_draft_payload_strict_allows_explicit_legacy_compat():
     meta["legacy_compat"] = True
 
     validate_campaign_draft_payload_strict(payload)
+
+
+def test_repurposing_plan_contract_requires_known_preset():
+    payload = load_example("repurposing_plan")
+    payload["preset_name"] = "unknown"
+
+    with pytest.raises(ContractValidationError, match="preset_name"):
+        validate_repurposing_plan(payload)

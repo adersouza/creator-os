@@ -12,7 +12,10 @@
       "artist_name": "DJ A",
       "platform_audio_id": "ig_runway_pop",
       "platform_url": "https://instagram.com/audio/runway_pop",
-      "vibe_tags": ["glam", "fit_check"],
+      "vibe_tags": [
+        "glam",
+        "fit_check"
+      ],
       "freshness": "rising",
       "confidence": 0.9,
       "rationale": "trend:rising, tag_match:fit_check, native_locator",
@@ -47,5 +50,6 @@
     "allow_preview_schedule": false,
     "allow_live_schedule": false,
     "allow_publish": false
-  }
+  },
+  "pipelineTraceId": null
 }

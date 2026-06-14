@@ -47,7 +47,9 @@
             "caption_hash": "caption_hash_rendered",
             "caption_text": "Hard launch energy.",
             "caption_bank": "launch_hooks",
-            "caption_banks": ["launch_hooks"],
+            "caption_banks": [
+              "launch_hooks"
+            ],
             "creator_mix": "Lola",
             "creator_model": "lola_v1",
             "frame_type": "mirror_selfie",
@@ -65,7 +67,9 @@
             "caption_hash": "caption_hash_rendered",
             "caption_text": "Hard launch energy.",
             "caption_bank": "launch_hooks",
-            "caption_banks": ["launch_hooks"],
+            "caption_banks": [
+              "launch_hooks"
+            ],
             "creator_mix": "Lola",
             "creator_model": "lola_v1",
             "frame_type": "mirror_selfie",
@@ -93,7 +97,10 @@
                 "platform_url": "https://instagram.com/audio/runway_pop",
                 "freshness": "rising",
                 "confidence": 0.9,
-                "vibe_tags": ["glam", "fit_check"],
+                "vibe_tags": [
+                  "glam",
+                  "fit_check"
+                ],
                 "rationale": "trend:rising, tag_match:fit_check",
                 "instruction": "Attach native instagram audio: Runway Pop"
               }
@@ -116,5 +123,6 @@
         }
       }
     }
-  ]
+  ],
+  "pipelineTraceId": null
 }

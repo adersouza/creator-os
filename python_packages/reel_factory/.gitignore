@@ -19,6 +19,7 @@ __pycache__/
 !01_captions/clip_010.json
 02_processed/
 02_processed_fit/
+models/
 03_audio_library/
 project_data/
 prompts/

@@ -1,5 +1,6 @@
 from pathlib import Path
-import subprocess
+
+from .common import ensure_input_file, run_ffmpeg
 
 class PolishEngine:
     """Layer 4: Light technical polish (zoom, crop, color grade)."""
@@ -7,6 +8,7 @@ class PolishEngine:
     @staticmethod
     def apply(video_path: Path, output_path: Path, zoom_factor: float = 1.05, color_shift: bool = True) -> Path:
         """Applies a subtle zoom and color grade using FFmpeg."""
+        ensure_input_file(video_path, label="video")
         vf_filters = []
         
         if zoom_factor > 1.0:
@@ -25,5 +27,4 @@ class PolishEngine:
             "-c:a", "copy", "-y", str(output_path)
         ]
         
-        subprocess.run(cmd, capture_output=True)
-        return output_path
+        return run_ffmpeg(cmd, output_path=output_path)

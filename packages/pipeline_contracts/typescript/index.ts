@@ -21,6 +21,8 @@ export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =
 	"campaign_factory.recommendation_accuracy_report.v1" as const;
 export const RECOMMENDATION_NEXT_BATCH_SCHEMA_ID =
 	"campaign_factory.recommendations.next_batch.v1" as const;
+export const REPURPOSING_PLAN_SCHEMA_ID =
+	"campaign_factory.repurposing_plan.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -138,6 +140,20 @@ export const campaignDraftPayloadSchema = {
 		schema: { const: CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID },
 		campaign: { type: "string" },
 		drafts: { type: "array" },
+	},
+} as const;
+
+export const repurposingPlanSchema = {
+	$id: REPURPOSING_PLAN_SCHEMA_ID,
+	type: "object",
+	required: ["schema", "master_asset_id", "preset_name", "target_count", "platform"],
+	properties: {
+		schema: { const: REPURPOSING_PLAN_SCHEMA_ID },
+		master_asset_id: { type: "string" },
+		preset_name: { type: "string", enum: ["tiktok_aggressive", "ig_subtle", "custom"] },
+		target_count: { type: "integer" },
+		platform: { type: "string" },
+		custom_config: { type: "object" },
 	},
 } as const;
 
@@ -899,6 +915,27 @@ export function validateAudioCatalogExport(value: unknown): string[] {
 		if (typeof item.platform !== "string") {
 			errors.push(`items[${index}].platform must be string`);
 		}
+	}
+	return errors;
+}
+
+export function validateRepurposingPlan(value: unknown): string[] {
+	const errors: string[] = [];
+	if (!isRecord(value)) return ["repurposing plan must be an object"];
+	if (value.schema !== REPURPOSING_PLAN_SCHEMA_ID) {
+		errors.push("repurposing plan schema mismatch");
+	}
+	if (typeof value.master_asset_id !== "string") {
+		errors.push("repurposing plan master_asset_id must be string");
+	}
+	if (!["tiktok_aggressive", "ig_subtle", "custom"].includes(String(value.preset_name))) {
+		errors.push("repurposing plan preset_name must be a known preset");
+	}
+	if (typeof value.target_count !== "number" || !Number.isInteger(value.target_count)) {
+		errors.push("repurposing plan target_count must be integer");
+	}
+	if (typeof value.platform !== "string") {
+		errors.push("repurposing plan platform must be string");
 	}
 	return errors;
 }

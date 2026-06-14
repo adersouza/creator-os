@@ -2,10 +2,13 @@
   "name": "creator-os",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@11.6.0",
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "check:contracts": "node scripts/check-pipeline-contracts-sync.mjs",
+    "check:integration": "uv run pytest tests/integration",
     "lint": "turbo run lint"
   },
   "devDependencies": {

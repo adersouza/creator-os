@@ -26,14 +26,12 @@ graph TB
 
     subgraph Creation["Creation Layer"]
         REEL["Reel Factory<br/>(Python)"]
-        GROK["Grok / xAI<br/>Image Prompts"]
-        GEMINI_M["Gemini<br/>Motion Analysis"]
+        DIRECT["Direct Reference Image<br/>9:16 Still Path"]
+        MOTION["Deterministic<br/>Motion Prompt"]
         HF["Higgsfield Soul ID<br/>Image Generation"]
-        GRID["GridCropperV2<br/>Seam Detection"]
         KLING["Kling 3.0<br/>Video Animation"]
         CAP["Caption Renderer<br/>IG Fonts"]
-        REEL --> GROK --> HF --> GRID --> KLING
-        REEL --> GEMINI_M
+        REEL --> DIRECT --> HF --> MOTION --> KLING
         REEL --> CAP
     end
 
@@ -70,7 +68,7 @@ graph TB
     end
 
     subgraph Contracts["Contract Layer"]
-        PC["pipeline_contracts<br/>JSON Schemas"]
+        PC["packages/pipeline_contracts<br/>JSON Schemas"]
     end
 
     IG --> RF
@@ -125,19 +123,15 @@ sequenceDiagram
 sequenceDiagram
     participant CF as Campaign Factory
     participant RF as Reel Factory
-    participant Grok as Grok / xAI
     participant HF as Higgsfield
     participant Kling as Kling 3.0
 
     CF->>RF: prepare-reel (hooks, recipes)
-    RF->>Grok: Reference frames + prompt instruction
-    Grok-->>RF: Raw image prompt
-    RF->>RF: clean_direct_higgsfield_prompt() (removal-only)
-    RF->>RF: write_prompt_lineage()
-    RF->>HF: text2image_soul_v2 (Soul ID, NO reference image, enhancement OFF)
-    HF-->>RF: 3×2 image grid
-    RF->>RF: GridCropperV2 seam-aware crop
-    RF->>Kling: Cropped panel as start image + motion prompt
+    RF->>HF: text2image_soul_v2 (Soul ID + reference image, 9:16)
+    HF-->>RF: One 9:16 still + captured prompt
+    RF->>RF: Human/QC accepts still
+    RF->>RF: reel_motion_prompt.py compiles motion prompt
+    RF->>Kling: Accepted still as start image + deterministic motion prompt
     Kling-->>RF: Animated short-form video
     RF->>RF: Caption render (IG fonts, timed placement)
     RF->>RF: Audio intent sidecar (native-audio-first)

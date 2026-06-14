@@ -1,199 +1,106 @@
 # Current Production Flow
 
-This is the current approved Reel Factory production path. Treat it as the default unless the user explicitly asks for an experiment.
+This is the active Reel Factory operator path as of 2026-06-13. Treat this as the default unless the user explicitly asks for a legacy experiment.
 
-## 1. Reference Intake
-
-Inputs are reference images or reels from local files, commonly under `/Users/aderdesouza/Downloads/examples/` or generated project data.
-
-Reel Factory samples reference frames in `/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py`.
-
-- `extract_first_visible_frame()` avoids black intro frames.
-- `extract_reference_frames()` samples additional frames.
-- Reference frames are sent to Grok for prompt creation.
-- Reference reels can be sent to Gemini for motion analysis.
-- Reference frames are not sent to Higgsfield image generation.
-
-## 2. Grok Image Prompt Architecture
-
-Production image prompt mode is compatibility mode `grok-direct`, reported in lineage as:
+## Active Path
 
 ```text
-reference_factory_sexy_realistic
+single-person reference image
+→ Higgsfield direct reference-image generation
+→ Stacey Soul ID
+→ one 9:16 still image
+→ captured Higgsfield prompt + lineage
+→ optional append-only body emphasis
+→ human/QC accepted still
+→ deterministic Kling motion prompt
+→ Kling image-to-video
+→ stop before Campaign Factory registration
 ```
 
-The hardcoded production instruction lives in:
+The active still-image command is:
 
-```text
-/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py
-build_direct_higgsfield_prompt_instruction()
+```bash
+python3 generate_assets.py reference-image \
+  --reference <reference-image> \
+  --creator Stacey \
+  --stem <clip_stem> \
+  --body-emphasis none|bust|bust_hips \
+  --wait
 ```
 
-Current behavior:
+Dry-run first with:
 
-- Grok receives the reference image/reel frames.
-- Grok writes the final Higgsfield image prompt directly.
-- The system does not restructure, summarize, or optimize Grok's prompt.
-- Cleanup is removal-only for forbidden identity/face-polish terms.
-- Hair-contact pose phrases may be replaced only with `hand near head` or `hand behind head`.
-- Body/pose/garment intensity is preserved.
-
-Cleanup lives in:
-
-```text
-/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py
-clean_direct_higgsfield_prompt()
+```bash
+python3 generate_assets.py reference-image-dry-run \
+  --reference <reference-image> \
+  --creator Stacey \
+  --stem <clip_stem> \
+  --body-emphasis none|bust|bust_hips \
+  --wait
 ```
 
-Lineage is written by:
+## Active Defaults
 
-```text
-/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py
-write_prompt_lineage()
-```
-
-Lineage records:
-
-- `prompt_mode`
-- raw Grok prompt
-- cleaned prompt
-- cleanup diff
-- aspect ratio
-- grid layout
-- prompt enhancement flag
-- whether a reference image was passed to Higgsfield
-- prompt fields
-- reference analysis
-- Grok response metadata and usage
-
-## 3. Current Prompt Defaults
-
-Current image-prompt defaults:
-
-- Grok model: `grok-4.3`
-- Prompt mode: `grok-direct`, reported as `reference_factory_sexy_realistic`
-- Grid layout default: `3x2`
-- Image aspect ratio default: `4:3`
-- Prompt enhancement: `False`
-- Reference image passed to Higgsfield: `False`
-
-The current winning prompt direction is the hot Reference Factory style:
-
-- strong pose lock
-- scene/camera/framing/lighting fidelity
-- arched back
-- S-curve
-- hip projection
-- torso twist
-- waist-to-hip contrast
-- cleavage emphasis
-- garment cling/stretch
-- outfit color/material variation while keeping the same garment style/cut
-- amateur iPhone/selfie realism when the reference supports it
-
-Do not re-brief Grok from scratch unless the user asks to change the prompt strategy.
-
-## 4. Higgsfield Soul Image Generation
-
-Higgsfield orchestration lives in:
-
-```text
-/Users/adercialonedesouza/Projects/reel_factory/generate_assets.py
-```
-
-Current defaults:
-
+- Creator: `Stacey`
+- Stacey Soul ID: `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`
 - Image model: `text2image_soul_v2`
-- Video model: `kling3_0`
-- Image aspect ratio: `4:3`
+- Image aspect ratio: `9:16`
 - Image quality: `2k`
-- Video aspect ratio: `9:16`
-- Video duration: `5`
-- Video sound: `off`
+- Higgsfield input: direct `--image <reference-image>`
+- Identity: Soul ID via `--custom_reference_id`
+- Prompt strategy: use Higgsfield's reference-image understanding; only append body emphasis when requested.
 
-Critical invariant:
+Do not use Grok, Qwen, Ollama, Florence, visual-schema extraction, grids, panel crops, or prompt-json generation for the normal operator still-image path.
 
-```text
-build_image_cmd(..., reference=None, soul_id=<Soul ID>, ...)
-```
+## Body Emphasis
 
-Soul ID is passed by `--custom_reference_id` or the resolved image identity flag. The reference image is intentionally not passed as `--image`.
+Body emphasis is append-only. It must not rewrite Higgsfield's captured/reference prompt.
 
-For Stacey, the current documented Soul ID is:
+Allowed values:
 
-```text
-5828d958-91dd-4d6d-8909-934503f47644
-```
+- `none`
+- `bust`
+- `bust_hips`
 
-## 5. Grid CropperV2 Fanout
+The emphasis text must preserve the same pose, outfit, setting, lighting, and 9:16 composition.
 
-After a Soul grid returns, Reel Factory crops panels before Kling.
+## Video Prompt Path
 
-Core file:
+After a still is accepted, use `reel_motion_prompt.py` to create the deterministic Kling prompt for the scene type.
 
-```text
-/Users/adercialonedesouza/Projects/reel_factory/grid_crop.py
-```
+Supported scene types:
 
-GUI fanout API:
+- `mirror_selfie`
+- `boat_bikini`
+- `back_dress`
+- `outdoor_standing`
+- `outdoor_kneel`
+- `room_selfie`
 
-```text
-/Users/adercialonedesouza/Projects/reel_factory/reel_gui.py
-/api/assets/fanout-panels
-```
+Every Kling prompt must preserve:
 
-GridCropperV2 behavior:
+- 9:16
+- 5 seconds
+- same identity
+- same outfit
+- same setting
+- full head and face visible
+- no new text, logos, UI, captions, or overlays
 
-- Detect visible content box.
-- Infer likely grid layout if not forced.
-- Detect seams using projection-profile seam detection.
-- Snap crop lines to detected seams when confidence is high.
-- Apply adaptive inset.
-- Emit manifest with `seamDetection`, `cropInset`, `confidence`, `reviewRequired`, and `panelCrops`.
+## Legacy Experiments
 
-Manifest schema:
+The following systems are historical or experimental only:
 
-```text
-reel_factory.image_grid_fanout.v1
-```
+- `grok-direct`
+- `json-structured`
+- `visual-schema`
+- Qwen/Ollama/Florence extraction
+- grid/fanout/cropped-panel workflows
+- `_grok.json` prompt files
+- `grok_ab_experiment.py`
 
-Always inspect cropped panels before paid Kling generation.
+They may remain in the repo for old tests and research, but they are not the active production guidance.
 
-## 6. Kling Motion Path
+## Boundaries
 
-Kling is off unless explicitly requested.
-
-Motion rules:
-
-- Gemini can analyze reference reel/video motion.
-- Gemini/Kling cleanup is not the same as image-prompt cleanup.
-- Kling gets one shared motion prompt for cropped panels.
-- Do not create panel-specific Kling prompts by default.
-- The cropped panel image is the Kling start image.
-
-Relevant files:
-
-- `/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/generate_assets.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/reel_gui.py`
-
-## 7. Render, QC, Export, And Ledger
-
-Reel render and export files:
-
-- `/Users/adercialonedesouza/Projects/reel_factory/reel_pipeline.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/qc_check.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/export_approved.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/posting_ledger.py`
-
-Approved export includes:
-
-- rendered output path
-- hook/caption metadata
-- campaign metadata
-- generated asset lineage sidecar
-- audio intent sidecar
-- content fingerprint
-
-The local posting ledger is an operator-control layer. It does not post to Instagram, TikTok, Threads, or private platform APIs.
-
+This flow stops before Campaign Factory registration. It must not schedule, publish, export drafts, sync metrics, mutate account health, or mutate production inventory.

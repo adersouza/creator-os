@@ -2,6 +2,32 @@
 
 Local silent-reel rendering pipeline for Mac Studio / Apple Silicon.
 
+## Current Creator OS Generation Path
+
+As of 2026-06-13, the active operator path for new AI stills is:
+
+```text
+single-person reference image
+→ Higgsfield direct reference-image generation
+→ Stacey Soul ID
+→ one 9:16 still
+→ captured Higgsfield prompt + lineage
+→ optional append-only body emphasis
+→ accepted still
+→ deterministic Kling motion prompt
+```
+
+Use:
+
+```bash
+python3 generate_assets.py reference-image-dry-run --reference <image> --creator Stacey --stem <clip_stem> --body-emphasis none --wait
+python3 generate_assets.py reference-image --reference <image> --creator Stacey --stem <clip_stem> --body-emphasis none --wait
+```
+
+Stacey Soul ID: `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+
+Do not use Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, or `_grok.json` prompt files as the default production path. Those are legacy/experimental only.
+
 Drop a vertical source video plus matching caption hooks into the project, then
 render silent captioned MP4 variations for posting workflows where audio is
 attached later in-app or by a downstream muxer.
@@ -134,120 +160,40 @@ JSON sidecar:
 For a concise handoff to the next chat, start with
 [`docs/next_chat_reel_factory_handoff.md`](docs/next_chat_reel_factory_handoff.md).
 
-The production image prompt path is Grok-direct. Reel Factory sends the
-reference image/reel to Grok so Grok can write the final Higgsfield Soul image
-prompt in the old Reference Factory style: scene first, exact pose lock, strong
-body and garment mechanics, outfit variations, and same room/camera/framing/
-lighting lock.
+The active image path no longer asks Grok/Qwen/Ollama/Florence to write the
+production prompt. Higgsfield receives the reference image directly, Soul ID
+owns identity, and Reel Factory records the returned prompt/lineage.
 
-The saved prompt contract still has two runtime strings:
-
-```json
-{
-  "higgsfieldGridPrompt": "One Grok-written prompt for the Higgsfield Soul ID grid...",
-  "klingMotionPrompt": "One shared Kling motion prompt for every cropped panel...",
-  "notes": "Short operator note."
-}
-```
-
-Print the fallback Prompt Builder contract with:
+Dry-run a direct reference still with:
 
 ```bash
-python3 asset_prompt_contract.py --print-system-prompt
+python3 generate_assets.py reference-image-dry-run \
+  --reference /path/to/reference.jpg \
+  --creator Stacey \
+  --stem clip_001 \
+  --body-emphasis none \
+  --wait
 ```
 
-The required runtime contract is:
-
-- one Higgsfield/Soul ID grid prompt for a native grid or standalone image
-- one shared Kling motion prompt derived from the reference motion timeline
-- no `negative_prompt` field
-- no identity description; Soul ID handles identity externally
-- no panel-specific Kling prompt generation in this version
-
-Grok should write the final `higgsfieldGridPrompt` directly. The system then
-performs removal-only cleanup for forbidden identity/face-polish terms and
-records lineage:
-
-- raw Grok prompt
-- cleaned prompt
-- cleanup diff
-- prompt mode
-- aspect ratio
-- grid layout
-- prompt enhancement flag
-- whether the reference image was passed to Higgsfield
-
-Reference images are only for Grok prompt creation. Soul ID owns identity, and
-Higgsfield image generation does not receive the reference image.
-
-Generate prompt JSON from a reference reel/image with:
+Create the still with:
 
 ```bash
-export XAI_API_KEY="your_xai_key"
-python3 generate_prompts.py \
-  --reference-reel /path/to/reference.mp4 \
-  --grid-layout 3x2 \
-  --image-aspect-ratio 4:3 \
-  --out prompts/clip_001_grok.json \
-  --dry-run
+python3 generate_assets.py reference-image \
+  --reference /path/to/reference.jpg \
+  --creator Stacey \
+  --stem clip_001 \
+  --body-emphasis bust_hips \
+  --wait
 ```
 
-For quality-first tests, prefer `single`, `2x2`, or `3x2`. Avoid using `4x2`,
-`2x4`, or `3x3` as the normal path: high-panel-count prompts often lower
-per-panel detail and can cause Higgsfield to return 8-10 small panels.
-
-You can also store the key locally in ignored `project_data/secrets.toml` as
-`xai_api_key = "..."`. The prompt script samples reference frames, calls Grok in
-`grok-direct` mode, writes the prompt contract, and saves
-`prompts/clip_001_grok.json.grok_lineage.json`.
-
-Create a blank prompt file manually when needed:
+After a still is accepted, compile a Kling prompt with:
 
 ```bash
-python3 asset_prompt_contract.py --new prompts/clip_001_grok.json
+python3 reel_motion_prompt.py --scene-type mirror_selfie --start-image /path/to/accepted_still.png
 ```
 
-Validate a returned JSON string before storing or using it:
-
-```bash
-python3 asset_prompt_contract.py --validate-response '{"higgsfieldGridPrompt":"...","klingMotionPrompt":"...","notes":"..."}'
-```
-
-Use the operator-controlled Higgsfield wrapper when you want the local project
-to create jobs and preserve real upload/job IDs:
-
-```bash
-python3 generate_assets.py dry-run --prompt-json prompts/clip_001_grok.json --stem clip_001 --soul-name Stacey --image-aspect-ratio 4:3
-python3 generate_assets.py create --prompt-json prompts/clip_001_grok.json --stem clip_001 --soul-name Stacey --image-aspect-ratio 4:3 --wait
-python3 generate_assets.py status --lineage 00_source_videos/clip_001.generated_asset_lineage.json
-python3 generate_assets.py wait --lineage 00_source_videos/clip_001.generated_asset_lineage.json
-```
-
-The wrapper uses `higgsfield generate create text2image_soul_v2`,
-`higgsfield generate create kling3_0`, `higgsfield generate wait`, and
-`higgsfield generate get`. It writes one source-level lineage file beside the
-eventual source video: `00_source_videos/clip_001.generated_asset_lineage.json`.
-Soul V2 renders must include `--soul-id <uuid>` or `--soul-name <name>` so
-Higgsfield receives `--custom_reference_id` for the trained creator identity.
-Reference frames are for Grok prompt creation only; Soul image generation does
-not pass the reference image to Higgsfield.
-
-When rendering a generated Kling clip, pass that prompt JSON to preserve
-prompt lineage. If source-level lineage already exists beside the source clip,
-per-output sidecars reference it instead of duplicating prompts:
-
-```bash
-python3 reel_pipeline.py --root . --asset-prompt-json prompts/clip_001_grok.json
-python3 reel_pipeline.py --root . --asset-prompt-json prompts/clip_001_grok.json --ai-qc
-```
-
-Recommended file convention:
-
-```text
-prompts/clip_001_grok.json
-00_source_videos/clip_001.mp4
-01_captions/clip_001.json
-```
+Legacy prompt-json commands still exist for old experiments and tests, but they
+are not the normal operator path.
 
 ## Account Posting Ledger
 
@@ -304,33 +250,16 @@ resolved audio metadata or an explicit manual-audio-needed marker.
 The GUI Generate panel is the normal operator path for new AI clips:
 
 ```text
-campaign → reference reel/image → Grok final image prompt + Gemini motion → Soul ID grid → crop panels → shared Kling motion fanout → compare/select → source clip → render pack
+reference image → direct Higgsfield reference still → accepted 9:16 still → deterministic Kling prompt → optional Kling video → render pack
 ```
 
-Pick a campaign, select the reference clip, then use Generate. Paid Higgsfield
-steps stay behind explicit buttons: `create Stacey Soul image` and
-`create Kling video`. Stacey is the default creator and maps to Soul ID
-`5828d958-91dd-4d6d-8909-934503f47644`.
+Paid Higgsfield/Kling steps stay behind explicit buttons. Stacey is the default
+creator and maps to Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
 
 To recreate from a social URL, paste the Reels/TikTok URL into `import
-reference reel` in the GUI and click `Import + recreate`. The app downloads the
-URL with `yt-dlp`, saves it as the next `00_source_videos/clip_NNN.mp4`, writes
-`00_source_videos/clip_NNN.reel_url_import.json`, creates a caption stub,
-attaches it to the selected campaign, and builds the Grok prompt preview when
-the prompt option is checked. Paid Soul/Kling generation still requires the
-explicit cockpit buttons.
-
-The reference sampler extracts frames from the reference reel for Grok prompt
-creation. The saved first visible frame
-(`prompts/_references/<prompt_stem>/reference_00_first_visible.jpg`) is not
-passed to Higgsfield image generation. If the reel starts on black or a
-transition, the extractor scans forward to the first non-blank frame. Soul ID is
-the identity lock.
-
-After the Soul image returns, the normal path crops the native grid into
-individual panel start images. Each cropped panel is sent to Kling as a
-separate run using the same shared `klingMotionPrompt`. Panel-specific Kling
-prompts are not generated unless that feature is explicitly added later.
+reference reel` in the GUI and click `Import + recreate`. URL import can still
+save the source video and caption stub, but direct reference-image still
+creation is now the active image path.
 
 After Kling returns, the GUI stores `videoResultUrl`, so `download video` uses
 the saved URL automatically. The manual URL prompt is only a fallback when no
@@ -339,20 +268,18 @@ stored result URL exists.
 Old compiler-style fields such as `soul_id_2x3_prompt`,
 `kling_video_prompt`, `kling_negative_prompt`, `structured_breakdown`, and
 `confidence_score` are rejected by the runtime prompt contract. The saved/usable
-contract stays focused on the two real artifacts: one image-grid prompt and one
-motion prompt.
+contract stays focused on real generation artifacts and lineage.
 
 The local Higgsfield CLI is available as `higgsfield`/`higgs`/`hf`. The current
 workflow remains manual, but the relevant CLI shape is:
 
 ```bash
 python3 generate_assets.py capabilities --root .
-python3 generate_prompts.py --reference-reel reference.mp4 --reference-frame-mode first-visible --grid-layout 3x2 --out prompts/clip_001_grok.json --dry-run
-python3 generate_assets.py dry-run --prompt-json prompts/clip_001_grok.json --stem clip_001 --creator Stacey --image-aspect-ratio 4:3
+python3 generate_assets.py reference-image-dry-run --reference reference.jpg --creator Stacey --stem clip_001 --body-emphasis none --wait
+python3 generate_assets.py reference-image --reference reference.jpg --creator Stacey --stem clip_001 --body-emphasis bust_hips --wait
 higgsfield model list --image --json
 higgsfield model list --video --json
-higgsfield generate create text2image_soul_v2 --prompt "$(jq -r .higgsfieldGridPrompt prompts/clip_001_grok.json)" --wait
-higgsfield generate create kling3_0 --prompt "$(jq -r .klingMotionPrompt prompts/clip_001_grok.json)" --start-image <cropped_panel_upload_or_path> --wait
+higgsfield generate create kling3_0 --prompt "<motion prompt>" --start-image <accepted_still> --aspect_ratio 9:16 --duration 5 --wait
 ```
 
 Use `higgsfield generate create --help` for the current accepted media flags.

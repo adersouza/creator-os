@@ -209,6 +209,7 @@ def test_contract_schema_examples_validate():
         "pattern_card.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
+        "repurposing_plan.v1.example.json",
         "video_analysis.v1.example.json",
     }
 

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Coins, Sparkles, RefreshCw, BarChart2 } from "lucide-react";
+import { Sparkles, RefreshCw, BarChart2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { NovaCard, NovaListRow } from "@/components/ui/NovaPrimitives";
@@ -65,33 +65,33 @@ export function AICostMetricsTile({ days = 30 }: { days?: number }) {
 						{Object.entries(providers).map(([provider, ops]) => {
 							const providerTotal = ops.reduce((acc, op) => acc + op.cost_usd, 0);
 							return (
-								<NovaListRow key={provider} className="bg-background">
-									<div className="flex items-center justify-between w-full">
-										<div className="flex items-center gap-2">
-											<div className="capitalize font-medium text-sm">
-												{provider}
-											</div>
-										</div>
-										<div className="text-sm font-semibold">
+								<NovaListRow
+									key={provider}
+									className="bg-background"
+									title={<span className="capitalize">{provider}</span>}
+									meta={
+										<span className="text-sm font-semibold">
 											${providerTotal.toFixed(2)}
+										</span>
+									}
+									description={
+										<div className="mt-1 flex flex-col gap-1">
+											{ops.map((op, idx) => (
+												<div
+													key={`${op.operation}-${idx}`}
+													className="flex justify-between items-center text-xs text-muted-foreground"
+												>
+													<span className="truncate mr-2">
+														{op.operation} ({op.calls} calls)
+													</span>
+													<span className="shrink-0 text-[10px]">
+														${op.cost_usd.toFixed(2)}
+													</span>
+												</div>
+											))}
 										</div>
-									</div>
-									<div className="mt-1 flex flex-col gap-1 w-full pl-0">
-										{ops.map((op, idx) => (
-											<div
-												key={`${op.operation}-${idx}`}
-												className="flex justify-between items-center text-xs text-muted-foreground w-full"
-											>
-												<span className="truncate mr-2">
-													{op.operation} ({op.calls} calls)
-												</span>
-												<span className="shrink-0 text-[10px]">
-													${op.cost_usd.toFixed(2)}
-												</span>
-											</div>
-										))}
-									</div>
-								</NovaListRow>
+									}
+								/>
 							);
 						})}
 					</div>

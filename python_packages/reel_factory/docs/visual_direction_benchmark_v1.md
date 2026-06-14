@@ -1,5 +1,7 @@
 # Visual Direction Benchmark V1
 
+Legacy experiment note: this benchmark documents the old Grok/grid prompt comparison workflow. The active operator path is now direct Higgsfield reference-image generation to one `9:16` still with optional append-only body emphasis. Use this file only as historical context unless the user explicitly asks to revisit the experiment.
+
 Goal: compare neutral reconstruction prompts against Grok enhanced visual
 direction prompts on real reference reels, using the same shared Kling motion
 prompt for both conditions.

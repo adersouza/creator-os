@@ -1,0 +1,70 @@
+name: Creator OS Monorepo CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+jobs:
+  contracts:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:contracts
+
+  javascript:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install media tooling
+        run: brew install ffmpeg tesseract
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter contentforge test
+      - run: pnpm --filter juno33 test
+      - run: pnpm --filter juno33 typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  python:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install media tooling
+        run: brew install ffmpeg tesseract
+      - run: uv sync --all-extras --all-packages
+      - run: uv run pytest packages/pipeline_contracts/tests
+      - run: uv run pytest python_packages/campaign_factory/tests
+      - run: uv run pytest python_packages/reel_factory/tests
+      - run: uv run pytest python_packages/reference_factory/tests
+      - run: uv run pytest tests/integration
+      - run: uv run python -m compileall packages/pipeline_contracts python_packages/campaign_factory python_packages/reel_factory python_packages/reference_factory
+
+  hygiene:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git diff --check
+      - name: Reject runtime artifacts in git
+        run: |
+          if git ls-files | grep -E '(^|/)(node_modules|\.venv|\.next|dist|build|coverage|output|uploads|campaigns|models|graphify-out)/|\.(mp4|mov|sqlite|sqlite-shm|sqlite-wal|db)$'; then
+            echo "Runtime artifacts must not be tracked."
+            exit 1
+          fi

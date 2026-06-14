@@ -13,6 +13,8 @@ class QualityGate:
         ]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                return {}
             return json.loads(result.stdout)
         except Exception:
             return {}

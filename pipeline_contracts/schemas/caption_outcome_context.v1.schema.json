@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.caption_outcome_context.v1",
+  "title": "Campaign Factory Caption Outcome Context",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema"],
+  "properties": {
+    "schema": { "const": "campaign_factory.caption_outcome_context.v1" },
+    "caption_hash": { "type": ["string", "null"] },
+    "caption_text": { "type": ["string", "null"] },
+    "caption_bank": { "type": ["string", "null"] },
+    "caption_banks": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "creator_mix": { "type": ["string", "null"] },
+    "creator_model": { "type": ["string", "null"] },
+    "frame_type": { "type": ["string", "null"] },
+    "length_class": { "type": ["string", "null"] },
+    "format_class": { "type": ["string", "null"] },
+    "caption_fit_version": { "type": ["string", "null"] },
+    "suitability_decision": { "type": ["string", "null"] },
+    "suitability_reason": { "type": ["string", "null"] },
+    "captionSceneTags": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "reelSceneTags": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "sceneCompatibilityDecision": { "type": ["string", "null"] },
+    "sceneCompatibilityReason": { "type": ["string", "null"] },
+    "captionSceneFitVersion": { "type": ["string", "null"] },
+    "render_recipe": { "type": ["string", "null"] },
+    "source_clip": { "type": ["string", "null"] },
+    "rendered_output": { "type": ["string", "null"] }
+  }
+}

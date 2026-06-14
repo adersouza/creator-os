@@ -1,0 +1,7 @@
+{
+  "schema": "campaign_factory.repurposing_plan.v1",
+  "master_asset_id": "asset_master_001",
+  "preset_name": "ig_subtle",
+  "target_count": 3,
+  "platform": "reels"
+}

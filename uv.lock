@@ -107,7 +107,7 @@ wheels = [
 [[package]]
 name = "campaign-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/campaign_factory" }
+source = { editable = "python_packages/campaign_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },
@@ -405,6 +405,20 @@ wheels = [
 name = "creator-os-workspace"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "campaign-factory" },
+    { name = "pipeline-contracts" },
+    { name = "reel-factory" },
+    { name = "reference-factory" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "campaign-factory", editable = "python_packages/campaign_factory" },
+    { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
+    { name = "reel-factory", editable = "python_packages/reel_factory" },
+    { name = "reference-factory", editable = "python_packages/reference_factory" },
+]
 
 [[package]]
 name = "croniter"
@@ -502,6 +516,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/2c/77/850bef8d72ffb9219f0b1aac23fbc1bf7d038ee6ea666f331fa273031aa2/einops-0.8.2.tar.gz", hash = "sha256:609da665570e5e265e27283aab09e7f279ade90c4f01bcfca111f3d3e13f2827", size = 56261, upload-time = "2026-01-26T04:13:17.638Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/09/f8d8f8f31e4483c10a906437b4ce31bdf3d6d417b73fe33f1a8b59e34228/einops-0.8.2-py3-none-any.whl", hash = "sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193", size = 65638, upload-time = "2026-01-26T04:13:18.546Z" },
+]
+
+[[package]]
+name = "emoji"
+version = "2.15.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/78/0d2db9382c92a163d7095fc08efff7800880f830a152cfced40161e7638d/emoji-2.15.0.tar.gz", hash = "sha256:eae4ab7d86456a70a00a985125a03263a5eac54cd55e51d7e184b1ed3b6757e4", size = 615483, upload-time = "2025-09-21T12:13:02.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/5e/4b5aaaabddfacfe36ba7768817bd1f71a7a810a43705e531f3ae4c690767/emoji-2.15.0-py3-none-any.whl", hash = "sha256:205296793d66a89d88af4688fa57fd6496732eb48917a87175a023c8138995eb", size = 608433, upload-time = "2025-09-21T12:13:01.197Z" },
 ]
 
 [[package]]
@@ -1805,6 +1828,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pilmoji"
+version = "2.0.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "emoji" },
+    { name = "pillow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/05/75/e5430da7a99ea66c9b93cdbd66372a010022398887eb3f8fcccb866010ee/pilmoji-2.0.5.tar.gz", hash = "sha256:e038532c97b79b3d55c29f5a6c2b6b627105b8cd1db0c1d2271402b3e4e9be18", size = 11889, upload-time = "2026-01-06T01:33:20.637Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/09/2dcc3fa1e0627f95143b61cc2c8a13042f5dcd7e11d1e12b0ba5e205aeca/pilmoji-2.0.5-py3-none-any.whl", hash = "sha256:856ddf827d42d8c8d2a1f879fdc1ae318ffb72435c4adc934be6d3e48376173d", size = 11740, upload-time = "2026-01-29T17:25:35.378Z" },
+]
+
+[[package]]
 name = "pipeline-contracts"
 version = "0.1.0"
 source = { editable = "packages/pipeline_contracts" }
@@ -2287,11 +2323,12 @@ wheels = [
 [[package]]
 name = "reel-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/reel_factory" }
+source = { editable = "python_packages/reel_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "imagehash" },
     { name = "pillow" },
+    { name = "pilmoji" },
     { name = "pipeline-contracts" },
     { name = "python-multipart" },
     { name = "rapidfuzz" },
@@ -2334,6 +2371,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "opencv-python", marker = "extra == 'vision'" },
     { name = "pillow" },
+    { name = "pilmoji" },
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "playwright", marker = "extra == 'dev'" },
     { name = "pycairo", marker = "extra == 'pango'" },
@@ -2353,7 +2391,7 @@ provides-extras = ["dev", "vision", "ai", "pango", "queue"]
 [[package]]
 name = "reference-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/reference_factory" }
+source = { editable = "python_packages/reference_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },

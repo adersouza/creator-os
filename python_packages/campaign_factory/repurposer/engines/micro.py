@@ -1,5 +1,6 @@
 from pathlib import Path
-import subprocess
+
+from .common import ensure_input_file, run_ffmpeg
 
 class MicroEngine:
     """Layer 5: Micro technical spoofing (metadata stripping, pixel noise)."""
@@ -7,6 +8,7 @@ class MicroEngine:
     @staticmethod
     def apply(video_path: Path, output_path: Path, strip_metadata: bool = True, inject_noise: bool = True) -> Path:
         """Strips metadata and injects invisible pixel noise to spoof hashes."""
+        ensure_input_file(video_path, label="video")
         cmd = ["ffmpeg", "-i", str(video_path)]
         
         if inject_noise:
@@ -22,5 +24,4 @@ class MicroEngine:
             
         cmd.extend(["-y", str(output_path)])
         
-        subprocess.run(cmd, capture_output=True)
-        return output_path
+        return run_ffmpeg(cmd, output_path=output_path)

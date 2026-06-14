@@ -2,13 +2,27 @@
 
 This is the decision log for the current approved architecture.
 
-## Prompt Architecture
+## Superseding Production Decision - 2026-06-13
 
-Decision: Grok writes final image prompts directly.
+The current active Reel Factory operator path is direct Higgsfield reference-image generation:
+
+```text
+single-person reference image
+→ Higgsfield direct reference-image still
+→ Stacey Soul ID
+→ one 9:16 still
+→ deterministic Kling motion prompt after human/QC acceptance
+```
+
+Grok, Qwen/Ollama/Florence visual-schema extraction, grids, panel crops, and `_grok.json` prompt files are now legacy experiments unless explicitly requested. Older decisions below are preserved as history, not current production guidance.
+
+## Historical Prompt Architecture - Superseded 2026-06-13
+
+Historical decision: Grok wrote final image prompts directly.
 
 Evidence:
 
-- `/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py`
+- `$CREATOR_OS_ROOT/reel_factory/generate_prompts.py`
 - production compatibility mode `grok-direct`
 - reported lineage mode `reference_factory_sexy_realistic`
 
@@ -24,7 +38,7 @@ Rejected:
 - Conservative prompt language as production default.
 - Summarizing or optimizing Grok output after the API response.
 
-## Prompt Cleanup
+## Historical Prompt Cleanup - Superseded 2026-06-13
 
 Decision: cleanup is removal-only.
 
@@ -41,13 +55,13 @@ Rejected:
 - Removing pose/body/garment mechanics.
 - Applying image cleanup rules to Gemini/Kling motion prompts.
 
-## Image Generation
+## Historical Image Generation - Superseded 2026-06-13
 
-Decision: Soul ID owns identity and Higgsfield does not receive the reference image.
+Historical decision: Soul ID owned identity and Higgsfield did not receive the reference image.
 
 Evidence:
 
-- `/Users/adercialonedesouza/Projects/reel_factory/generate_assets.py`
+- `$CREATOR_OS_ROOT/reel_factory/generate_assets.py`
 - `build_image_cmd()` supports `reference`, but production `create_assets()` and dry-runs pass `reference=None`.
 
 Reason:
@@ -56,7 +70,7 @@ Reason:
 - Soul ID is the trained identity mechanism.
 - The reference is only for Grok/Gemini analysis.
 
-Current defaults:
+Historical defaults:
 
 - image model: `text2image_soul_v2`
 - image aspect ratio: `4:3`
@@ -71,14 +85,14 @@ Rejected or deprioritized:
 - Always using `16:9`/`4x2`: useful for some experiments, but higher panel counts hurt per-panel quality.
 - Kling before grid crops are visually acceptable.
 
-## Cropper Architecture
+## Historical Cropper Architecture - Legacy Only
 
-Decision: use GridCropperV2 seam detection before Kling.
+Historical decision: use GridCropperV2 seam detection before Kling.
 
 Evidence:
 
-- `/Users/adercialonedesouza/Projects/reel_factory/grid_crop.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/reel_gui.py`
+- `$CREATOR_OS_ROOT/reel_factory/grid_crop.py`
+- `$CREATOR_OS_ROOT/reel_factory/reel_gui.py`
 
 Reason:
 
@@ -111,9 +125,9 @@ Decision: keep audio metadata selection simple with `AudioProviderV1`.
 
 Evidence:
 
-- `/Users/adercialonedesouza/Projects/reel_factory/audio_provider.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/audio_refresh.py`
-- `/Users/adercialonedesouza/Projects/reel_factory/docs/audio_provider_v1.md`
+- `$CREATOR_OS_ROOT/reel_factory/audio_provider.py`
+- `$CREATOR_OS_ROOT/reel_factory/audio_refresh.py`
+- `$CREATOR_OS_ROOT/reel_factory/docs/audio_provider_v1.md`
 
 Current split:
 
@@ -145,9 +159,9 @@ Decision: Campaign Factory coordinates the ecosystem; it does not replace specia
 
 Evidence:
 
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/control.py`
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/core.py`
-- `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/db.py`
+- `$CREATOR_OS_ROOT/campaign_factory/campaign_factory/control.py`
+- `$CREATOR_OS_ROOT/campaign_factory/campaign_factory/core.py`
+- `$CREATOR_OS_ROOT/campaign_factory/campaign_factory/db.py`
 
 Responsibilities:
 
@@ -187,12 +201,12 @@ Not allowed:
 
 ## Things Future Codex Sessions Must Not Break
 
-- prompt enhancement off
-- no reference image sent to Higgsfield
+- active still generation uses direct Higgsfield reference-image generation
+- active still aspect ratio is `9:16`
+- Stacey Soul ID is `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`
 - Soul ID owns identity
-- Grok writes image prompts
-- Gemini motion only
-- GridCropperV2 seam detection
+- optional body emphasis is append-only
+- accepted stills use `reel_motion_prompt.py` for Kling prompts
+- Grok/Qwen/Ollama/Florence and grid/cropped-panel workflows remain legacy unless explicitly requested
 - Campaign Factory control brain
 - no Instagram private API automation
-

@@ -2,7 +2,7 @@
 
 **A contract-driven content pipeline for Instagram/Threads creators.**
 
-Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content through six coordinated local repositories. Each repo owns one concern. Data flows between them via shared JSON schemas defined in `pipeline_contracts`.
+Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content through six coordinated local repositories. Each repo owns one concern. Data flows between them via shared JSON schemas defined in `packages/pipeline_contracts`.
 
 🔗 **Live Product:** [juno33.com](https://juno33.com)
 
@@ -21,8 +21,8 @@ Reference Media (reels, images, TikTok archives)
          │  prompt packs, pattern cards, campaign reference bank
          ▼
 ┌──────────────────┐
-│   Reel Factory    │  Grok image prompts → Higgsfield Soul ID
-│     (Python)      │  → GridCropperV2 → Kling motion → captions
+│   Reel Factory    │  Direct reference image → Higgsfield Soul ID
+│     (Python)      │  → 9:16 still → Kling motion → captions
 └────────┬─────────┘
          │  rendered assets + lineage sidecars + audio intent
          ▼
@@ -70,13 +70,17 @@ Reference Media (reels, images, TikTok archives)
 - Audio trend snapshots and recommendations
 - A `campaign_reference_bank.json` for Campaign Factory
 
-### 2. Prompt Generation → Asset Creation
-**Reel Factory** takes reference frames and sends them to Grok for image prompt creation. The prompt goes through removal-only cleanup (no rewriting), then:
-- **Higgsfield Soul ID** generates image grids (prompt enhancement OFF, no reference image passed)
-- **GridCropperV2** crops panels with seam-aware detection
-- **Kling** animates selected panels into short-form video (on request)
+### 2. Reference Image → Asset Creation
+**Reel Factory** now uses the direct reference-image path for active still generation:
+- Single-person reference image goes directly to **Higgsfield Soul ID** with `--image`
+- Stacey identity is controlled by Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`
+- Active stills are `9:16`
+- Optional body emphasis is append-only (`none`, `bust`, `bust_hips`)
+- **Kling** animates accepted stills into short-form video only when explicitly requested
 - Caption variants are rendered with Instagram-style fonts
 - Audio intent sidecars are attached (native-audio-first, never burned)
+
+Grok/Qwen/Ollama/Florence visual-schema extraction, grids, cropped panels, and `_grok.json` prompt files are legacy/experimental only.
 
 ### 3. Orchestration → Quality Audit
 **Campaign Factory** acts as the control brain:
@@ -102,7 +106,15 @@ Campaign Factory ingests posted performance data to influence:
 
 ## Pipeline Contracts
 
-The **single source of truth** for data moving between repos. All cross-repo payloads are validated against these schemas:
+The **single source of truth** for data moving between packages is `packages/pipeline_contracts`. Dashboard, Campaign Factory, and legacy root contract folders may keep compatibility mirrors during migration, but those mirrors must be byte-for-byte synchronized with the package source.
+
+Run the monorepo contract drift check before merging contract or payload work:
+
+```bash
+pnpm check:contracts
+```
+
+All cross-repo payloads are validated against these schemas:
 
 | Schema | Purpose |
 |--------|---------|
@@ -119,6 +131,7 @@ The **single source of truth** for data moving between repos. All cross-repo pay
 | `video_analysis.v1` | Gemini/Grok video analysis output |
 | `recommendation_accuracy_report.v1` | Recommendation quality tracking |
 | `recommendation_next_batch.v1` | Next batch recommendation payloads |
+| `repurposing_plan.v1` | Repurposer plan contract for bounded variant modules |
 
 ---
 
@@ -127,8 +140,8 @@ The **single source of truth** for data moving between repos. All cross-repo pay
 Each repo has strict boundaries documented in [PIPELINE_BOUNDARIES.md](https://github.com/adersouza/reel_factory/blob/main/PIPELINE_BOUNDARIES.md). The critical invariants:
 
 - **Prompt enhancement stays OFF** — Higgsfield does not rewrite prompts
-- **No reference image passed to generation** — Soul ID owns identity
-- **Grok writes image prompts** — Gemini is motion-only
+- **Direct reference-image generation is active** — Grok/grid prompt systems are legacy experiments
+- **Soul ID owns identity** — reference images guide scene/pose only; do not add identity descriptors into prompts
 - **GridCropperV2 seam detection** stays in the crop path
 - **Campaign Factory is the control brain** — no other repo makes campaign decisions
 - **Native audio first** — trending audio is never burned into generated files
@@ -141,7 +154,7 @@ Each repo has strict boundaries documented in [PIPELINE_BOUNDARIES.md](https://g
 
 | Layer | Technology |
 |-------|------------|
-| **AI / Prompt** | Grok (xAI), Google Gemini |
+| **AI / Generation** | Higgsfield Soul ID, Kling; Grok/Qwen/Ollama/Florence are legacy/experimental unless explicitly requested |
 | **Image Generation** | Higgsfield Soul ID (`text2image_soul_v2`) |
 | **Video Generation** | Kling 3.0 |
 | **Video Processing** | FFmpeg, FFprobe |
@@ -195,6 +208,12 @@ cd pipeline_contracts && python -m pytest -q
 ```
 
 Use `campaign-factory doctor` for a full cross-repo health check including HTTP service availability.
+
+## Monorepo Migration
+
+`creator-os` is moving toward becoming the unified source-code monorepo for the pipeline, while large runtime media, model weights, uploads, local databases, and generated artifacts stay outside git.
+
+See [MONOREPO_MIGRATION_MASTER_PLAN.md](./MONOREPO_MIGRATION_MASTER_PLAN.md) for the full phased plan, ownership model, test gates, and promotion criteria.
 
 ---
 

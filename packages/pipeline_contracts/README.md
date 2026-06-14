@@ -2,16 +2,28 @@
 
 Shared JSON schemas and lightweight validators for Campaign Factory, Reference Factory, and ThreadsDashboard.
 
-This package is the canonical shared contract source for the content pipeline.
-The GitHub remote is:
+In the `creator-os` monorepo, this package is the canonical shared contract
+source for the content pipeline:
 
 ```text
-https://github.com/adersouza/pipeline_contracts
+packages/pipeline_contracts
 ```
 
-Consumers can import it from the local sibling checkout during development.
-Repositories that vendor a snapshot, such as ThreadsDashboard, should keep that
-snapshot synchronized with this repo and enforce drift checks in CI.
+Compatibility mirrors may exist for consumers that still import local snapshots:
+
+```text
+packages/pipeline_contracts/pipeline_contracts/schemas
+pipeline_contracts/schemas
+apps/dashboard/pipeline_contracts
+python_packages/campaign_factory/schemas
+```
+
+Those mirrors are not authoritative. Keep them byte-for-byte synchronized with
+`packages/pipeline_contracts` and run the root drift check before merging:
+
+```bash
+pnpm check:contracts
+```
 
 ## Python
 
@@ -26,7 +38,7 @@ Named validators raise `ContractValidationError` on invalid payloads and return 
 ## TypeScript
 
 ```ts
-import { validateCampaignFactoryDraftPayload } from "../pipeline_contracts/typescript";
+import { validateCampaignFactoryDraftPayload } from "./pipeline_contracts/typescript";
 
 const errors = validateCampaignFactoryDraftPayload(payload);
 ```
@@ -36,8 +48,9 @@ TypeScript validators return an array of error strings. An empty array means the
 ## Local Development
 
 ```bash
-cd /Users/adercialonedesouza/Projects/pipeline_contracts
-/Users/adercialonedesouza/Projects/campaign_factory/.venv/bin/python -m pytest -q
+cd /Users/aderdesouza/Developer/creator-os
+uv run pytest packages/pipeline_contracts/tests
+pnpm check:contracts
 ```
 
 ## Versioning Policy

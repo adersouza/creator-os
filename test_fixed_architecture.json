@@ -1,5 +1,0 @@
-{
-  "higgsfieldGridPrompt": "{ \"pose\": \"standing sideways, arms outstretched\", \"outfit\": \"pink sports bra, pink leggings\", \"scene\": \"outdoors, natural sunlight\"\n}",
-  "klingMotionPrompt": "Animate each cropped panel as its own short vertical motion clip. Keep the selected panel framing, room, outfit feel, camera angle, lighting, and supplied start-image composition stable. Apply this motion pattern: reference-matched simple steady movement with full-frame composition.",
-  "notes": "Live Local VLM (Florence-2 + Ollama) direct Higgsfield prompt."
-}
