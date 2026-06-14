@@ -18,12 +18,31 @@ Thumbs.db
 .venv
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+*.sqlite
+*.sqlite-*
+campaign_factory.db
+campaign_factory.sqlite
+campaign_factory.sqlite-*
+campaigns/
+tmp/
+models/
+00_source_videos/
+02_processed/
 
 # Node
 node_modules/
 dist/
 .next/
 .turbo/
+build/
+coverage/
+uploads/
+output/
+graphify-out/
 
 # Local prompt/model experiments
 /*.grok_lineage.json

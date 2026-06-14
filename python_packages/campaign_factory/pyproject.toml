@@ -23,3 +23,14 @@ pythonpath = ["."]
 
 [tool.uv.sources]
 pipeline-contracts = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["campaign_factory*", "repurposer*"]
+exclude = ["campaigns*", "docs*", "schemas*", "scripts*", "tests*"]
+
+[tool.setuptools.package-data]
+campaign_factory = ["static/*", "static/**/*"]

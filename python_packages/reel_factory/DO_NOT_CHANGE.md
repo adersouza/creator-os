@@ -1,75 +1,38 @@
 # Do Not Change
 
-These are approved architecture decisions and failure-avoidance rules.
+These are the current hard rules for Reel Factory and Creator OS handoffs.
 
-## Hard Invariants
+## Active Generation Invariants
+
+- Active still-image generation uses `generate_assets.py reference-image` / `reference-image-dry-run`.
+- The active path passes a single-person reference image to Higgsfield with `--image <reference>`.
+- Stacey generations use Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Active stills are `9:16`.
+- Soul ID owns identity.
+- Optional body emphasis is append-only: `none`, `bust`, or `bust_hips`.
+- Do not rewrite Higgsfield's own reference-image prompt; only append approved body emphasis when requested.
+- Kling video generation is off unless explicitly requested.
+- Accepted stills use `reel_motion_prompt.py` for deterministic motion prompts.
+
+## Legacy Paths
+
+Do not make these the default operator path again:
+
+- Grok final prompt writing.
+- Qwen/Ollama/Florence visual-schema extraction.
+- `visual-schema`, `grok-direct`, or `json-structured` prompt modes.
+- Grid generation, `2x3`/six-panel outputs, cropped-panel fanout, or `_grok.json` prompt files.
+
+Legacy files may stay for old tests and explicit experiments, but current docs and GUI defaults must point to direct reference-image generation.
+
+## Platform And State Boundaries
 
 - Do not automate Instagram/private APIs/logins/publishing.
-- Do not pass reference images into Higgsfield image generation.
-- Keep Higgsfield prompt enhancement disabled.
-- Soul ID owns identity.
-- Grok writes final image prompts.
-- Gemini is motion analysis only.
-- Kling is off unless the user explicitly requests video generation.
-- Crop and inspect Soul grid panels before Kling.
-- Keep GridCropperV2 seam detection in the panel crop path.
-- Keep Campaign Factory as the control brain for campaign decisions and exports.
-
-## Prompt Rules
-
-Do not make the system conservative by default. The approved prompt target is sexy, body-forward, viral reel-style imagery while preserving reference pose/scene/camera fidelity.
-
-Keep:
-
-- Grok-direct image prompting.
-- `reference_factory_sexy_realistic` as reported production mode.
-- scene/camera/framing/lighting fidelity.
-- exact pose mechanics.
-- arched back, S-curve, hip projection, torso twist, waist-to-hip contrast.
-- cleavage/body/garment emphasis when supported by the reference.
-- garment cling/stretch and outfit color/material variation.
-- old Reference Factory-style direct language.
-
-Do not add back:
-
-- identity/spec budget for hair, hairstyle, hair color, tattoos, ethnicity, eye color, freckles.
-- face-polish budget such as perfect face language.
-- skin texture/sheen cleanup targets in final prompts.
-- prompt enhancement.
-- broad prompt rewriting after Grok returns.
-
-Cleanup may only:
-
-- remove forbidden identity/face-polish terms or clauses.
-- repair punctuation/spacing caused by removals.
-- convert hair-contact pose phrases to `hand near head` or `hand behind head`.
-
-Cleanup must not:
-
-- rewrite, soften, summarize, normalize, optimize, compress, or improve Grok's wording.
-- remove intense body, garment, or pose language.
-
-## Image Generation Rules
-
-Current defaults:
-
-- Higgsfield image aspect ratio: `4:3`.
-- Prompt grid layout: `3x2` unless the user asks for another layout.
-- Quality: `2k`.
-- Prompt enhancement: off.
-- Reference image passed to Higgsfield: no.
-- Use Soul ID for identity.
-
-Rejected or risky paths:
-
-- `16:9` and `4x2` can be useful for experiments, but higher panel counts reduce panel quality and make crop/Kling work harder.
-- `3:2` was not worth favoring in prior comparisons.
-- Passing the reference image into Higgsfield can override prompt intent and defeats Soul ID ownership.
-- Paid Kling before crop inspection wastes runs.
+- Do not register Campaign Factory assets from the direct still-image flow unless explicitly requested.
+- Do not schedule, publish, export ThreadDash drafts, sync metrics, mutate account health, or mutate production inventory from Reel Factory generation work.
+- Keep Campaign Factory as the control brain for campaign decisions, readiness, draft export, and learning.
 
 ## Audio Rules
-
-Keep audio simple.
 
 Allowed:
 
@@ -77,7 +40,6 @@ Allowed:
 - Use official TikTok Commercial Music Library / Commercial Sounds exports or manually saved official lists.
 - Refresh local CML cache from JSON/CSV drop folder.
 - Track selected audio by stable `track_id`.
-- Let performance imports later learn what worked.
 
 Not allowed:
 
@@ -85,16 +47,3 @@ Not allowed:
 - Do not automate TikTok login.
 - Do not call private TikTok APIs.
 - Do not build audio matching AI, beat sync, or a recommendation engine until audio is proven to be a bottleneck.
-
-## Campaign And Posting Rules
-
-Campaign Factory may export drafts and readiness packages. It must not become a private-platform publisher.
-
-The Reel Factory posting ledger is an operator scheduling/control layer only:
-
-- It can create planned slots.
-- It can assign approved reels.
-- It can detect duplicate content by fingerprint.
-- It can require resolved audio metadata or manual-audio-needed markers.
-- It does not post to Instagram, TikTok, Threads, or private APIs.
-

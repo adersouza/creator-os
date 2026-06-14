@@ -19,6 +19,10 @@ export const CREATIVE_PLAN_SCHEMA_ID =
 	"campaign_factory.creative_plan.v1" as const;
 export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =
 	"campaign_factory.recommendation_accuracy_report.v1" as const;
+export const RECOMMENDATION_NEXT_BATCH_SCHEMA_ID =
+	"campaign_factory.recommendations.next_batch.v1" as const;
+export const REPURPOSING_PLAN_SCHEMA_ID =
+	"campaign_factory.repurposing_plan.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -139,6 +143,20 @@ export const campaignDraftPayloadSchema = {
 	},
 } as const;
 
+export const repurposingPlanSchema = {
+	$id: REPURPOSING_PLAN_SCHEMA_ID,
+	type: "object",
+	required: ["schema", "master_asset_id", "preset_name", "target_count", "platform"],
+	properties: {
+		schema: { const: REPURPOSING_PLAN_SCHEMA_ID },
+		master_asset_id: { type: "string" },
+		preset_name: { type: "string", enum: ["tiktok_aggressive", "ig_subtle", "custom"] },
+		target_count: { type: "integer" },
+		platform: { type: "string" },
+		custom_config: { type: "object" },
+	},
+} as const;
+
 export const audioCatalogExportSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$id: AUDIO_CATALOG_EXPORT_SCHEMA_ID,
@@ -202,15 +220,137 @@ export const pipelineContractSchemas = {
 	audioCatalogExport: audioCatalogExportSchema,
 	performanceSync: performanceSyncSchema,
 	captionOutcomeContext: captionOutcomeContextSchema,
-	patternCard: { $id: PATTERN_CARD_SCHEMA_ID, type: "object" },
-	videoAnalysis: { $id: VIDEO_ANALYSIS_SCHEMA_ID, type: "object" },
-	higgsfieldSoulImagePrompt: { $id: HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID, type: "object" },
-	kling3VideoPrompt: { $id: KLING_3_VIDEO_PROMPT_SCHEMA_ID, type: "object" },
-	generatedAssetLineage: { $id: GENERATED_ASSET_LINEAGE_SCHEMA_ID, type: "object" },
-	creativePlan: { $id: CREATIVE_PLAN_SCHEMA_ID, type: "object" },
+	patternCard: {
+		$id: PATTERN_CARD_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "referenceId", "source", "visualFormat", "hookType", "captionArchetype"],
+		properties: {
+			schema: { const: PATTERN_CARD_SCHEMA_ID },
+			referenceId: { type: "string" },
+			source: { type: "object" },
+			visualFormat: { type: "string" },
+			hookType: { type: "string" },
+			captionArchetype: { type: "string" },
+			reviewTags: { type: "array" },
+			promptPattern: { type: "object" },
+			referenceUse: { type: "object" },
+			qualityScore: { type: "number" },
+			suggestedLabel: { type: "string" },
+		},
+	},
+	videoAnalysis: {
+		$id: VIDEO_ANALYSIS_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "referenceId", "provider", "model", "analysis"],
+		properties: {
+			schema: { const: VIDEO_ANALYSIS_SCHEMA_ID },
+			referenceId: { type: "string" },
+			provider: { type: "string" },
+			model: { type: "string" },
+			analysis: { type: "object" },
+			raw: { type: ["string", "null"] },
+		},
+	},
+	higgsfieldSoulImagePrompt: {
+		$id: HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "tool", "status", "sourceReferenceId", "sourcePatternId", "modelProfile", "higgsfieldGridPrompt"],
+		properties: {
+			schema: { const: HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID },
+			tool: { const: "higgsfield_soul_id" },
+			status: { type: "string" },
+			sourceReferenceId: { type: "string" },
+			sourcePatternId: { type: "string" },
+			modelProfile: { type: ["string", "null"] },
+			higgsfieldGridPrompt: { type: "string" },
+			closenessControls: { type: "object" },
+			formatCard: { type: "object" },
+			aspectRatio: { type: "string" },
+			reviewNotes: { type: "array" },
+		},
+	},
+	kling3VideoPrompt: {
+		$id: KLING_3_VIDEO_PROMPT_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "tool", "status", "sourceReferenceId", "sourcePatternId", "modelProfile", "firstFrameInstruction", "mainPrompt", "negativePrompt", "closenessControls"],
+		properties: {
+			schema: { const: KLING_3_VIDEO_PROMPT_SCHEMA_ID },
+			tool: { const: "kling_3_video" },
+			status: { type: "string" },
+			sourceReferenceId: { type: "string" },
+			sourcePatternId: { type: "string" },
+			modelProfile: { type: ["string", "null"] },
+			firstFrameInstruction: { type: "string" },
+			mainPrompt: { type: "string" },
+			negativePrompt: { type: "string" },
+			closenessControls: { type: "object" },
+			scenes: { type: "array" },
+			aspectRatio: { type: "string" },
+			reviewNotes: { type: "array" },
+		},
+	},
+	generatedAssetLineage: {
+		$id: GENERATED_ASSET_LINEAGE_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "source", "generation", "review"],
+		properties: {
+			schema: { const: GENERATED_ASSET_LINEAGE_SCHEMA_ID },
+			source: { type: "object" },
+			generation: { type: "object" },
+			review: { type: "object" },
+			quality: { type: "object" },
+			asset_state: { type: "string", enum: ["approved_but_not_publishable", "publishable_candidate", "exportable", "invalid_retired_draft"] },
+			publishability_failure_reasons: { type: "array" },
+			blockingReason: { type: ["string", "null"] },
+			rootCause: { type: ["string", "null"] },
+		},
+	},
+	creativePlan: {
+		$id: CREATIVE_PLAN_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "id", "name", "platform", "goal", "target_account", "daily_base_video_target", "style_lanes", "model_profile", "source_accounts", "status", "counts", "next_actions"],
+		properties: {
+			schema: { const: CREATIVE_PLAN_SCHEMA_ID },
+			id: { type: "string" },
+			name: { type: "string" },
+			platform: { type: "string" },
+			goal: { type: "string" },
+			target_account: { type: "string" },
+			daily_base_video_target: { type: "integer" },
+			style_lanes: { type: "array", items: { type: "string" } },
+			model_profile: { type: "string" },
+			source_accounts: { type: "array", items: { type: "string" } },
+			status: { type: "string", enum: ["planned", "references_selected", "prompts_ready", "generated", "ingested", "rendered", "audited", "reviewed", "exported", "posted", "measured"] },
+			counts: { type: "object" },
+			next_actions: { type: "array", items: { type: "string" } },
+			linked_campaign: { type: ["string", "null"] },
+			created_at: { type: ["string", "null"] },
+			updated_at: { type: ["string", "null"] },
+		},
+	},
 	recommendationAccuracyReport: {
 		$id: RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID,
 		type: "object",
+	},
+	recommendationNextBatch: {
+		$id: RECOMMENDATION_NEXT_BATCH_SCHEMA_ID,
+		type: "object",
+		required: ["schema", "campaign", "campaignGraphId", "persisted", "scoringVersion", "generatedAt", "count", "requestedCount", "inputHash", "items"],
+		properties: {
+			schema: { const: RECOMMENDATION_NEXT_BATCH_SCHEMA_ID },
+			campaign: { type: "string" },
+			campaignGraphId: { type: ["string", "null"] },
+			runId: { type: ["string", "null"] },
+			persisted: { type: "boolean" },
+			scoringVersion: { type: "string" },
+			generatedAt: { type: "string" },
+			count: { type: "integer" },
+			requestedCount: { type: "integer" },
+			account: { type: ["string", "null"] },
+			inputHash: { type: "string" },
+			warnings: { type: "array", items: { type: "string" } },
+			items: { type: "array" },
+		},
 	},
 } as const;
 
@@ -775,6 +915,27 @@ export function validateAudioCatalogExport(value: unknown): string[] {
 		if (typeof item.platform !== "string") {
 			errors.push(`items[${index}].platform must be string`);
 		}
+	}
+	return errors;
+}
+
+export function validateRepurposingPlan(value: unknown): string[] {
+	const errors: string[] = [];
+	if (!isRecord(value)) return ["repurposing plan must be an object"];
+	if (value.schema !== REPURPOSING_PLAN_SCHEMA_ID) {
+		errors.push("repurposing plan schema mismatch");
+	}
+	if (typeof value.master_asset_id !== "string") {
+		errors.push("repurposing plan master_asset_id must be string");
+	}
+	if (!["tiktok_aggressive", "ig_subtle", "custom"].includes(String(value.preset_name))) {
+		errors.push("repurposing plan preset_name must be a known preset");
+	}
+	if (typeof value.target_count !== "number" || !Number.isInteger(value.target_count)) {
+		errors.push("repurposing plan target_count must be integer");
+	}
+	if (typeof value.platform !== "string") {
+		errors.push("repurposing plan platform must be string");
 	}
 	return errors;
 }

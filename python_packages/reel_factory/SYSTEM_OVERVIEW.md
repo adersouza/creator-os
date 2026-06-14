@@ -2,81 +2,81 @@
 
 Purpose: give a new Codex session the operational map of Creator OS / Reel Factory in under 5 minutes.
 
+## Current Truth As Of 2026-06-13
+
+Reel Factory's active operator path is now:
+
+```text
+single-person reference image
+→ Higgsfield direct reference-image still
+→ Stacey Soul ID
+→ one 9:16 still
+→ captured Higgsfield prompt + lineage
+→ optional append-only body emphasis
+→ human/QC accepted still
+→ deterministic Kling motion prompt
+→ Kling image-to-video only when explicitly requested
+→ stop before Campaign Factory registration
+```
+
+Grok, Qwen/Ollama/Florence, visual-schema, grid/fanout, cropped panels, and `_grok.json` are legacy/experimental for normal generation.
+
 ## Active Repo Paths
 
-The active checkouts on this machine are under `/Users/adercialonedesouza/Projects`.
+The active split repos on this machine are under `/Users/aderdesouza/Developer`.
 
-- `/Users/adercialonedesouza/Projects/reel_factory`: image prompt generation, Higgsfield/Soul ID image jobs, grid crop fanout, Kling handoff, render/QC/export sidecars, audio metadata selection, local posting ledger.
-- `/Users/adercialonedesouza/Projects/campaign_factory`: control brain for multi-repo campaign batches, local campaign database, ContentForge audit orchestration, draft export to ThreadsDashboard/Supabase, performance learning.
-- `/Users/adercialonedesouza/Projects/contentforge`: transform/variant engine, FFmpeg processing, similarity/originality/readiness audit APIs.
-- `/Users/adercialonedesouza/Projects/ThreadsDashboard`: product app, account/data UI, Supabase-backed drafts, analytics, approvals, scheduled/auto-posting infrastructure.
-- `/Users/adercialonedesouza/Projects/pipeline_contracts`: shared JSON schemas and validators for payloads that move between repos.
-- `/Users/adercialonedesouza/Projects/ig-pipeline`: currently a minimal planning/guard repo with `.planning/`, placeholder data/docs folders, and `/Users/adercialonedesouza/Projects/ig-pipeline/scripts/check_root.sh`; no production Creator OS implementation was found. Do not expand this into private Instagram automation.
-
-Older handoff paths under `/Users/adercialonedesouza/Projects` are not present in this environment.
+- `reel_factory`: direct reference-image still generation, Higgsfield/Soul ID image jobs, Kling prompt handoff, render/QC/export sidecars, audio metadata selection, local posting ledger.
+- `campaign_factory`: control brain for campaign batches, local campaign database, ContentForge audit orchestration, draft export to ThreadsDashboard/Supabase, performance learning.
+- `contentforge`: transform/variant engine, FFmpeg processing, similarity/originality/readiness audit APIs.
+- `ThreadsDashboard`: product app, account/data UI, Supabase-backed drafts, analytics, approvals, scheduled/auto-posting infrastructure.
+- `pipeline_contracts`: shared JSON schemas and validators for payloads that move between repos.
+- `reference_factory`: reference review, gold learning sets, pattern/audio learning exports.
+- `creator-os`: repaired monorepo import branch; useful for reconciliation, not the deployable runtime baseline yet.
 
 ## Responsibility Split
 
 Reel Factory owns creative asset creation:
 
-- Grok image prompt creation in `/Users/adercialonedesouza/Projects/reel_factory/generate_prompts.py`.
-- Higgsfield/Soul ID and Kling CLI orchestration in `/Users/adercialonedesouza/Projects/reel_factory/generate_assets.py`.
-- Grid crop fanout in `/Users/adercialonedesouza/Projects/reel_factory/grid_crop.py`.
-- GUI/API control surface in `/Users/adercialonedesouza/Projects/reel_factory/reel_gui.py`.
-- Audio metadata selection in `/Users/adercialonedesouza/Projects/reel_factory/audio_provider.py` and `/Users/adercialonedesouza/Projects/reel_factory/audio_refresh.py`.
-- Approved export and lineage sidecars in `/Users/adercialonedesouza/Projects/reel_factory/export_approved.py`, `/Users/adercialonedesouza/Projects/reel_factory/audio_intent.py`, and `/Users/adercialonedesouza/Projects/reel_factory/posting_ledger.py`.
+- `generate_assets.py`: active direct reference-image still generation plus legacy prompt-json image/video flows.
+- `reel_motion_prompt.py`: deterministic Kling prompt compiler for accepted stills.
+- `asset_prompt_contract.py`: prompt contract parser/shape for legacy prompt-json flows.
+- `generate_prompts.py`: legacy prompt generation and compatibility tests.
+- `reel_gui.py`: local FastAPI GUI and direct reference-image API.
+- `reel_pipeline.py`, `qc_check.py`, `export_approved.py`: render, QC, and approved export sidecars.
+- `audio_provider.py`, `audio_refresh.py`, `audio_intent.py`: audio metadata selection and sidecars.
 
 Campaign Factory owns campaign control and learning:
 
-- Settings and repo discovery in `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/config.py`.
-- Control-room checks in `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/control.py`.
-- Campaign state, recommendations, audio memory, performance learning, readiness, and exports in `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/core.py`.
-- HTTP control surface in `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/app.py`.
-- ContentForge and ThreadsDashboard adapters in `/Users/adercialonedesouza/Projects/campaign_factory/campaign_factory/adapters/`.
+- Settings and repo discovery in `campaign_factory/config.py`.
+- Control-room checks in `campaign_factory/control.py`.
+- Campaign state, recommendations, audio memory, performance learning, readiness, and exports in `campaign_factory/core.py`.
+- ContentForge and ThreadsDashboard adapters in `campaign_factory/adapters/`.
 
-ContentForge owns transform quality and originality audits:
+ContentForge owns transform quality and originality audits.
 
-- Variant presets and quality gates in `/Users/adercialonedesouza/Projects/contentforge/lib/variant-engine.js`.
-- FFmpeg processing and candidate reports in `/Users/adercialonedesouza/Projects/contentforge/lib/pipeline.js`.
-- Variant packs in `/Users/adercialonedesouza/Projects/contentforge/lib/variant-pack.js`.
-- Similarity/originality/readiness endpoints under `/Users/adercialonedesouza/Projects/contentforge/app/api/`.
+ThreadsDashboard owns the product/data layer, draft storage, approvals, schedules, publishing infrastructure, and analytics.
 
-ThreadsDashboard owns the product/data layer:
+Pipeline Contracts owns shared schemas and validators.
 
-- Campaign Factory payload mapping in `/Users/adercialonedesouza/Projects/ThreadsDashboard/src/lib/campaignFactory.ts`.
-- Campaign Factory audio tests in `/Users/adercialonedesouza/Projects/ThreadsDashboard/src/lib/campaignFactoryAudio.test.ts`.
-- Posts, schedule, publishing, and Campaign Factory audio handlers under `/Users/adercialonedesouza/Projects/ThreadsDashboard/api/_lib/handlers/posts/`.
-- Auto-post infrastructure under `/Users/adercialonedesouza/Projects/ThreadsDashboard/api/_lib/handlers/auto-post/` and `/Users/adercialonedesouza/Projects/ThreadsDashboard/src/services/autoPost/`.
-
-Pipeline Contracts owns shared schemas:
-
-- Canonical schemas in `/Users/adercialonedesouza/Projects/pipeline_contracts/pipeline_contracts/schemas/`.
-- Python validator in `/Users/adercialonedesouza/Projects/pipeline_contracts/pipeline_contracts/validator.py`.
-- TypeScript exports in `/Users/adercialonedesouza/Projects/pipeline_contracts/typescript/index.ts`.
-
-## Production Flow At A Glance
+## Current Production Flow At A Glance
 
 ```text
-reference image/reel
-  -> Reel Factory sends reference to Grok/Gemini analysis only
-  -> Grok writes final Higgsfield Soul image prompt
-  -> removal-only prompt cleanup
-  -> prompt JSON + Grok lineage sidecar
-  -> Higgsfield Soul ID image grid, prompt enhancement off, no reference image passed
-  -> GridCropperV2 seam-aware panel crops
-  -> selected cropped panel becomes Kling start image when video is requested
+reference image
+  -> Reel Factory direct Higgsfield reference-image still
+  -> Soul ID identity, 9:16, optional append-only body emphasis
+  -> human/QC accepted still
+  -> deterministic Kling prompt when video is requested
   -> Reel Factory render/QC/audio intent/approved export
-  -> Campaign Factory control brain imports/assigns/audits/exports draft payloads
+  -> Campaign Factory imports/assigns/audits/exports draft payloads
   -> ThreadsDashboard stores drafts, approvals, schedules, analytics, and performance
 ```
 
 ## Things Future Codex Sessions Must Not Break
 
-- Prompt enhancement stays off.
-- No reference image is sent to Higgsfield image generation.
-- Soul ID owns identity.
-- Grok writes image prompts.
-- Gemini is motion only.
-- GridCropperV2 seam detection stays in the crop path.
+- Active still generation is direct reference-image Higgsfield generation.
+- Active still aspect ratio is `9:16`.
+- Stacey Soul ID is `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Do not make Grok/Qwen/Ollama/Florence the default path again.
+- Do not reintroduce grid/cropped-panel language into active operator surfaces.
 - Campaign Factory remains the control brain.
-- No Instagram private API automation, no login automation, and no unauthorized publishing automation.
+- No Instagram private API automation, login automation, or unauthorized publishing automation.

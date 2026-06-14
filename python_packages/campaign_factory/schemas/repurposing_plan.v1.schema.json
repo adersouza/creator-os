@@ -1,0 +1,33 @@
+{
+  "$id": "campaign_factory.repurposing_plan.v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "master_asset_id",
+    "preset_name",
+    "target_count",
+    "platform"
+  ],
+  "properties": {
+    "schema": {
+      "const": "campaign_factory.repurposing_plan.v1"
+    },
+    "master_asset_id": {
+      "type": "string"
+    },
+    "preset_name": {
+      "type": "string",
+      "enum": ["tiktok_aggressive", "ig_subtle", "custom"]
+    },
+    "target_count": {
+      "type": "integer"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "custom_config": {
+      "type": "object",
+      "description": "Overrides for the RepurposeConfig if preset_name is custom"
+    }
+  }
+}

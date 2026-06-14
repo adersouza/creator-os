@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reference_factory.kling_3_video_prompt.v1",
+  "title": "Kling 3 Video Prompt",
+  "type": "object",
+  "required": [
+    "schema",
+    "tool",
+    "status",
+    "sourceReferenceId",
+    "sourcePatternId",
+    "modelProfile",
+    "firstFrameInstruction",
+    "mainPrompt",
+    "negativePrompt",
+    "closenessControls"
+  ],
+  "properties": {
+    "schema": { "const": "reference_factory.kling_3_video_prompt.v1" },
+    "tool": { "const": "kling_3_video" },
+    "status": { "type": "string" },
+    "sourceReferenceId": { "type": "string" },
+    "sourcePatternId": { "type": "string" },
+    "modelProfile": { "type": ["string", "null"] },
+    "firstFrameInstruction": { "type": "string" },
+    "mainPrompt": { "type": "string" },
+    "negativePrompt": { "type": "string" },
+    "closenessControls": { "type": "object" },
+    "scenes": { "type": "array" },
+    "aspectRatio": { "type": "string" },
+    "reviewNotes": { "type": "array" }
+  }
+}

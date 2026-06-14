@@ -2,10 +2,21 @@
 name = "creator-os-workspace"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "campaign-factory",
+  "pipeline-contracts",
+  "reference-factory",
+  "reel-factory",
+]
 
 [tool.uv.workspace]
 members = ["python_packages/*", "packages/pipeline_contracts"]
+
+[tool.uv.sources]
+campaign-factory = { workspace = true }
+pipeline-contracts = { workspace = true }
+reference-factory = { workspace = true }
+reel-factory = { workspace = true }
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"

@@ -18,3 +18,11 @@ pythonpath = ["."]
 
 [tool.uv.sources]
 pipeline-contracts = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["reference_factory*"]
+exclude = ["tests*"]

@@ -55,6 +55,7 @@ coverage/
 
 # Screenshots
 screenshots/
+output/
 
 # Supabase
 supabase/.temp/

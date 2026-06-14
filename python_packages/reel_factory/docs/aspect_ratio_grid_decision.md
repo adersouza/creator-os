@@ -1,5 +1,7 @@
 # Aspect Ratio + Grid Size Decision Guide
 
+Legacy experiment note: this guide documents the old Higgsfield grid/cropped-panel workflow. The active operator path is now direct reference-image generation to one `9:16` still. Use this file only for historical experiments unless the user explicitly asks for grid/fanout work.
+
 Use this guide when choosing Reel Factory Higgsfield Soul image settings.
 
 ## Core Principle

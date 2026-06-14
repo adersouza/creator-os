@@ -1,8 +1,6 @@
 # Reel Factory Agent Notes
 
-Before changing prompt generation, Higgsfield/Soul ID settings, Gemini/Kling
-motion handling, GUI generation controls, audio selection, or cross-repo
-Creator OS behavior, read the root Creator OS knowledge base first:
+Before changing generation, Higgsfield/Soul ID settings, Kling motion handling, GUI generation controls, audio selection, or cross-repo Creator OS behavior, read:
 
 ```text
 SYSTEM_OVERVIEW.md
@@ -11,25 +9,19 @@ PIPELINE_BOUNDARIES.md
 DO_NOT_CHANGE.md
 REPO_MAP.md
 DECISIONS.md
-```
-
-Then read the Reel Factory handoff:
-
-```text
 docs/next_chat_reel_factory_handoff.md
 ```
 
-That handoff contains the current production rules, recent mistakes to avoid,
-Stacey Soul ID settings, aspect-ratio guidance, Grok prompt behavior, and
-Gemini/Kling motion cleanup rules.
-
 High-priority reminders:
 
+- Active still-image path: `generate_assets.py reference-image` or `reference-image-dry-run`.
 - Use Stacey Soul ID for Stacey generations:
-  `5828d958-91dd-4d6d-8909-934503f47644`.
-- Do not pass reference images into Higgsfield image generation.
-- Keep Higgsfield prompt enhancement off.
-- Current default image grid aspect ratio is `4:3`.
-- Prefer `single`, `2x2`, or `3x2`/six-panel grids for quality tests.
-- Do not use image-prompt cleanup rules on Gemini/Kling motion text.
+  `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Active stills are direct Higgsfield reference-image generations with `--image <reference>`.
+- Active still aspect ratio is `9:16`.
+- Optional body emphasis is append-only: `none`, `bust`, or `bust_hips`.
+- Do not make Grok, Qwen, Ollama, Florence, visual-schema extraction, grids, or panel crops the default operator path.
+- Use `reel_motion_prompt.py` for accepted-still Kling prompts.
 - Do not automate Instagram/private APIs/logins/publishing.
+
+Legacy Grok/grid experiment files may remain for old tests, but they are not current production guidance.

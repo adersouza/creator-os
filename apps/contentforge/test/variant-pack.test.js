@@ -34,6 +34,14 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+async function waitFor(predicate, attempts = 20) {
+  for (var index = 0; index < attempts; index++) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return false;
+}
+
 test("normalizes variant pack request defaults", function () {
   var request = normalizeVariantPackRequest({
     source: "sample.mp4",
@@ -375,6 +383,7 @@ test("variant pack job start returns run id before long work and supports idempo
     assert.equal(["queued", "running"].includes(started.status), true);
     assert.equal(["queued", "running"].includes(duplicate.status), true);
     assert.equal(started.pollUrl, "/api/variant-pack/jobs/" + started.runId);
+    assert.equal(await waitFor(() => calls === 1), true);
     assert.equal(calls, 1);
 
     gate.resolve();

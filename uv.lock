@@ -107,7 +107,7 @@ wheels = [
 [[package]]
 name = "campaign-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/campaign_factory" }
+source = { editable = "python_packages/campaign_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },
@@ -405,6 +405,20 @@ wheels = [
 name = "creator-os-workspace"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "campaign-factory" },
+    { name = "pipeline-contracts" },
+    { name = "reel-factory" },
+    { name = "reference-factory" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "campaign-factory", editable = "python_packages/campaign_factory" },
+    { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
+    { name = "reel-factory", editable = "python_packages/reel_factory" },
+    { name = "reference-factory", editable = "python_packages/reference_factory" },
+]
 
 [[package]]
 name = "croniter"
@@ -2309,7 +2323,7 @@ wheels = [
 [[package]]
 name = "reel-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/reel_factory" }
+source = { editable = "python_packages/reel_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "imagehash" },
@@ -2377,7 +2391,7 @@ provides-extras = ["dev", "vision", "ai", "pango", "queue"]
 [[package]]
 name = "reference-factory"
 version = "0.1.0"
-source = { virtual = "python_packages/reference_factory" }
+source = { editable = "python_packages/reference_factory" }
 dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },

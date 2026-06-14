@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.recommendation_accuracy_report.v1",
+  "title": "Campaign Factory Recommendation Accuracy Report",
+  "type": "object",
+  "required": [
+    "schema",
+    "campaign",
+    "windowDays",
+    "generatedAt",
+    "recommendationTrustScore",
+    "trustConfidence",
+    "overall",
+    "calibration",
+    "segments",
+    "drift"
+  ],
+  "properties": {
+    "schema": { "const": "campaign_factory.recommendation_accuracy_report.v1" },
+    "campaign": { "type": "string" },
+    "campaignGraphId": { "type": ["string", "null"] },
+    "account": { "type": ["string", "null"] },
+    "windowDays": { "type": "integer" },
+    "generatedAt": { "type": "string" },
+    "reportId": { "type": "string" },
+    "reportGraphId": { "type": "string" },
+    "recommendationTrustScore": { "type": "integer" },
+    "trustConfidence": { "type": "string", "enum": ["insufficient", "directional", "usable", "strong"] },
+    "overall": {
+      "type": "object",
+      "required": [
+        "measuredCount",
+        "provedCount",
+        "disprovedCount",
+        "inconclusiveCount",
+        "accuracyDenominator",
+        "accuracyRate"
+      ],
+      "properties": {
+        "measuredCount": { "type": "integer" },
+        "provedCount": { "type": "integer" },
+        "disprovedCount": { "type": "integer" },
+        "inconclusiveCount": { "type": "integer" },
+        "accuracyDenominator": { "type": "integer" },
+        "accuracyRate": { "type": ["number", "null"] },
+        "averageLift": { "type": ["number", "null"] }
+      }
+    },
+    "calibration": { "type": "array", "items": { "type": "object" } },
+    "segments": { "type": "object" },
+    "drift": { "type": "array", "items": { "type": "object" } },
+    "observations": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

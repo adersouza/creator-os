@@ -4,35 +4,292 @@
   "title": "Campaign Factory ThreadsDashboard Draft Payload",
   "type": "object",
   "additionalProperties": true,
-  "required": ["schema", "campaign", "drafts"],
+  "required": [
+    "schema",
+    "campaign",
+    "drafts"
+  ],
   "properties": {
-    "schema": { "const": "campaign_factory.threadsdash_drafts.v1" },
-    "campaign": { "type": "string" },
-    "userId": { "type": "string" },
+    "schema": {
+      "const": "campaign_factory.threadsdash_drafts.v1"
+    },
+    "campaign": {
+      "type": "string"
+    },
+    "userId": {
+      "type": "string"
+    },
     "drafts": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["platform", "status", "metadata"],
+        "required": [
+          "platform",
+          "status",
+          "metadata"
+        ],
         "properties": {
-          "platform": { "type": "string" },
-          "status": { "type": "string" },
-          "distributionSurface": { "type": ["string", "null"] },
+          "platform": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "distributionSurface": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "metadata": {
             "type": "object",
-            "required": ["campaign_factory"],
+            "required": [
+              "campaign_factory"
+            ],
             "properties": {
               "campaign_factory": {
                 "type": "object",
-                "required": ["audio_intent"],
+                "required": [
+                  "asset_state",
+                  "approved",
+                  "captioned_render_present",
+                  "visible_caption_verification",
+                  "expected_visual_verification",
+                  "content_fingerprint",
+                  "captionOutcomeContext",
+                  "audio_intent",
+                  "handoff_manifest",
+                  "readiness_checks_pass"
+                ],
                 "properties": {
-                  "graph_id": { "type": ["string", "null"] },
-                  "campaign_graph_id": { "type": ["string", "null"] },
-                  "source_asset_graph_id": { "type": ["string", "null"] },
-                  "rendered_asset_graph_id": { "type": ["string", "null"] },
-                  "audit_graph_id": { "type": ["string", "null"] },
-                  "audio_intent": { "$ref": "audio_intent.v1.schema.json" }
+                  "asset_state": {
+                    "type": "string",
+                    "enum": [
+                      "approved_but_not_publishable",
+                      "publishable_candidate",
+                      "exportable"
+                    ]
+                  },
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "captioned_render_present": {
+                    "type": "boolean"
+                  },
+                  "visible_caption_verification": {
+                    "type": "string",
+                    "enum": [
+                      "pass",
+                      "fail"
+                    ]
+                  },
+                  "expected_visual_verification": {
+                    "type": "string",
+                    "enum": [
+                      "pass",
+                      "fail"
+                    ]
+                  },
+                  "content_fingerprint": {
+                    "type": "string"
+                  },
+                  "publishability_failure_reasons": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "missing_burned_captions",
+                        "wrong_visual",
+                        "missing_caption_hash",
+                        "missing_caption_outcome_context",
+                        "missing_content_fingerprint",
+                        "missing_audio",
+                        "readiness_failed",
+                        "not_approved",
+                        "caption_placement_qc_failed"
+                      ]
+                    }
+                  },
+                  "blockingReason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "rootCause": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "handoff_manifest": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "required": [
+                      "manifest_version",
+                      "asset_id",
+                      "render_file_id",
+                      "content_fingerprint",
+                      "caption_hash",
+                      "captionOutcomeContext",
+                      "visual_verification_id",
+                      "caption_verification_id",
+                      "audio_id",
+                      "distribution_plan_id",
+                      "exported_by_system",
+                      "exported_at"
+                    ],
+                    "properties": {
+                      "manifest_version": {
+                        "enum": [
+                          1,
+                          2
+                        ]
+                      },
+                      "asset_id": {
+                        "type": "string"
+                      },
+                      "render_file_id": {
+                        "type": "string"
+                      },
+                      "content_fingerprint": {
+                        "type": "string"
+                      },
+                      "caption_hash": {
+                        "type": "string"
+                      },
+                      "captionOutcomeContext": {
+                        "$ref": "caption_outcome_context.v1.schema.json"
+                      },
+                      "visual_verification_id": {
+                        "type": "string"
+                      },
+                      "caption_verification_id": {
+                        "type": "string"
+                      },
+                      "audio_id": {
+                        "type": "string"
+                      },
+                      "distribution_plan_id": {
+                        "type": "string"
+                      },
+                      "exported_by_system": {
+                        "const": "campaign_factory"
+                      },
+                      "exported_at": {
+                        "type": "string"
+                      },
+                      "concept_id": {
+                        "type": "string"
+                      },
+                      "parent_asset_id": {
+                        "type": "string"
+                      },
+                      "parent_reel_id": {
+                        "type": "string"
+                      },
+                      "variant_family_id": {
+                        "type": "string"
+                      },
+                      "variant_id": {
+                        "type": "string"
+                      },
+                      "variant_index": {
+                        "type": "integer"
+                      },
+                      "variant_operations": {
+                        "type": "array"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "concept_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parent_asset_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parent_reel_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "variant_family_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "variant_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "variant_index": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "variant_operations": {
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "readiness_checks_pass": {
+                    "type": "boolean"
+                  },
+                  "graph_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "campaign_graph_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_asset_graph_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "rendered_asset_graph_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "audit_graph_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "captionOutcomeContext": {
+                    "$ref": "caption_outcome_context.v1.schema.json"
+                  },
+                  "caption_outcome_context": {
+                    "$ref": "caption_outcome_context.v1.schema.json"
+                  },
+                  "audio_intent": {
+                    "$ref": "audio_intent.v1.schema.json"
+                  }
                 },
                 "additionalProperties": true
               }
@@ -41,6 +298,13 @@
           }
         }
       }
+    },
+    "pipelineTraceId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
     }
   }
 }
