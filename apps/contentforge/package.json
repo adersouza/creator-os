@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "fixtures:campaign-factory": "node scripts/generate-campaign-fixtures.mjs",
     "fixtures:campaign-factory:real": "node scripts/import-campaign-real-samples.mjs",
