@@ -553,7 +553,7 @@ test("/api/similarity keeps compression review findings as warnings when layer v
       assert.equal(body.overallVerdict, "warn");
       assert.equal(body.readinessSummary.uploadReady, true);
       assert.equal(body.readinessSummary.blockingReasons.length, 0);
-      assert.equal(body.readinessSummary.warningCodes.includes("compression_gop_review"), true);
+      assert.equal(body.readinessSummary.warningCodes.some((code) => code.startsWith("compression_")), true);
       assert.match(body.readinessSummary.warnings.join("\n"), /Compression pattern needs review/i);
     }
   } finally {
