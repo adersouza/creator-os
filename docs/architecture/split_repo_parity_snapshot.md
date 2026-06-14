@@ -10,7 +10,7 @@ the split-repo cleanup/merge pass.
 | `reference_factory` | `main` | `2cf59f2` | clean, merged docs/runbook boundary notes |
 | `campaign_factory` | `main` | `0f31681` | clean, merged repaired repurposer + docs |
 | `reel_factory` | `main` | `a4161d5` | clean, merged direct-reference simplification |
-| `ThreadsDashboard` | `main` | `9147ae897` | clean, merged UI/layout, interaction polish, analytics narrative, and composer/calendar polish |
+| `ThreadsDashboard` | `main` | `566f2b162` | clean, merged UI/layout, interaction polish, analytics narrative, composer/calendar polish, and Calendar metric responsiveness |
 
 ## Parity Assessment
 
