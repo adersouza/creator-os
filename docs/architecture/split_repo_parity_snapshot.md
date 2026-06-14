@@ -1,33 +1,40 @@
 # Split Repo Parity Snapshot
 
-Captured locally during the monorepo promotion-prep pass.
+Captured locally during the monorepo promotion-prep pass and refreshed after
+the split-repo cleanup/push pass.
 
 | Split repo | Branch | HEAD | Status |
 |---|---:|---:|---|
-| `pipeline_contracts` | `main` | `d6a5890` | dirty: untracked `AGENTS.md` |
-| `contentforge` | `main` | `f8c13d4` | dirty: untracked `AGENTS.md` |
-| `reference_factory` | `main` | `08be87f` | dirty: modified `RUNBOOK.md`, untracked `AGENTS.md` |
-| `campaign_factory` | `codex/promote-repurposer` | `5321b68` | dirty: modified `RUNBOOK.md`, untracked `AGENTS.md` |
-| `reel_factory` | `codex/local-vlm-prompting-pipeline` | `bba83dc` | dirty: active direct-reference simplification changes |
-| `ThreadsDashboard` | `codex/autoposter-aesthetic-filler-hotfix` | `9a635c4bc` | dirty: active UI/layout changes |
+| `pipeline_contracts` | `codex/pipeline-contracts-agent-notes` | `9522ebe` | clean, pushed docs-only agent notes |
+| `contentforge` | `codex/contentforge-agent-notes` | `031168f` | clean, pushed docs-only agent notes |
+| `reference_factory` | `codex/reference-factory-agent-notes` | `21c0d0f` | clean, pushed docs/runbook boundary notes |
+| `campaign_factory` | `codex/promote-repurposer` | `4073ead` | clean, pushed repaired repurposer + docs |
+| `reel_factory` | `codex/local-vlm-prompting-pipeline` | `5832fab` | clean, pushed direct-reference simplification |
+| `ThreadsDashboard` | `codex/autoposter-aesthetic-filler-hotfix` | `c2abe2bc1` | clean, pushed UI/layout branch |
 
 ## Parity Assessment
 
-The monorepo has passing package, app, contract, and integration gates, but final
-split-repo parity is not clean enough to declare the monorepo the production
-source of truth yet.
+The monorepo has passing package, app, contract, and integration gates on the
+latest `codex/creator-os-import-repair` commit. The split repos no longer have
+local dirty runtime work; intentional changes are committed and pushed to
+focused branches.
 
-The blockers are operational hygiene, not failing monorepo tests:
+This is branch-level parity, not production runtime promotion:
 
-- Split repos have local dirty changes that need separate commit/review decisions.
-- `ThreadsDashboard` is ahead of `origin/main` on a feature branch.
-- `reel_factory` has active direct-reference workflow changes that should be reconciled deliberately.
-- `campaign_factory` has the promoted `repurposer` branch active.
+- Most split repo work is still on `codex/*` branches, not merged to each
+  repo's `main`.
+- `creator-os` is still a promotion candidate until PR #1 lands and deployment
+  routing is explicitly moved.
+- Smart-link hardening remains intentionally separate on
+  `origin/codex/smart-link-hardening`; it was not mixed into the UI/layout
+  branch.
 
 ## Required Before Final Promotion
 
-1. Commit or intentionally discard dirty split-repo changes.
-2. Merge accepted split-repo repair branches.
-3. Re-import or verify those heads against the matching monorepo package/app folders.
-4. Rerun monorepo CI.
-5. Run staged operational dry-run proof from monorepo only after explicit approval.
+1. Merge or accept the split repo `codex/*` branches that should remain runtime
+   baselines.
+2. Keep generated media, DB files, local model weights, caches, and output
+   folders out of source.
+3. Merge `creator-os` PR #1 after the latest monorepo CI remains green.
+4. Run staged operational dry-run proof from monorepo only after explicit
+   approval.
