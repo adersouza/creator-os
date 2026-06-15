@@ -41,8 +41,14 @@ change.
 - Use `pnpm test:visual` for Dashboard Storybook visual regression checks.
 - Use `pnpm check:artifacts` before committing tooling or generated-output
   changes.
+- Use `pnpm check:arch` before merging changes that cross app/package
+  boundaries. It runs dependency-cruiser for TypeScript and import-linter for
+  Python.
 - See `docs/architecture/tooling_hardening.md` for dependency-update,
   visual-regression, Sentry, and Graphify operating rules.
+- See `docs/architecture/github_protection_settings.md` for GitHub rulesets,
+  merge queue, protected environments, and Secret Protection settings that must
+  be configured outside the repo.
 
 ## Graphify
 

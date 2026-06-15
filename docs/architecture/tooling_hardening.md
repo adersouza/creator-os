@@ -11,6 +11,14 @@ publishing, QStash, metrics sync, account health, or production inventory.
   or `trufflehog` is installed.
 - GitHub Actions runs CodeQL for JavaScript/TypeScript and Python.
 - GitHub Actions runs TruffleHog secret scanning on pull requests.
+- GitHub Actions runs Dependency Review on pull requests and fails high-risk
+  dependency additions.
+- GitHub Actions runs Trivy filesystem scans and uploads SARIF findings. Trivy
+  is currently report-only so the first baseline does not block unrelated
+  migration work.
+- GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
+  snapshots.
+- `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
 - `pnpm test:visual` builds Dashboard Storybook, serves it locally, and runs
   Playwright visual regression checks.
 - `pnpm graphify:update` refreshes the local architecture graph. The
@@ -27,6 +35,9 @@ Dependabot remains the default dependency updater for now:
 - minor and patch npm updates are grouped to reduce PR noise.
 - Renovate is deferred until a clean trial branch proves that its grouping works
   across pnpm, npm package-lock mirrors, uv workspaces, and GitHub Actions.
+- A Renovate trial config exists at `.github/renovate.json`. Automerge is
+  disabled. Enable Renovate only after reviewing its first dependency
+  dashboard and PR grouping behavior.
 
 Dependency PRs should be merged only after CI is green. If a dependency update
 changes test runtime behavior, fix the compatibility issue directly instead of
@@ -62,6 +73,29 @@ OpenTelemetry, verify:
   instrumentation overhead.
 
 OpenTelemetry is deferred until monorepo runtime promotion is complete.
+
+## Supply-Chain Policy
+
+Security workflows use audit/report mode before hard blocking new checks:
+
+- StepSecurity Harden-Runner runs in `egress-policy: audit` on security and
+  architecture jobs.
+- Trivy uploads SARIF but does not currently fail PRs.
+- Dependency Review is blocking for high-severity dependency changes.
+- SBOM artifacts are generated for review; they are not committed.
+
+Move Harden-Runner or Trivy into blocking mode only after the baseline findings
+and outbound hosts are reviewed.
+
+## Architecture Drift Policy
+
+Architecture checks are intentionally narrow:
+
+- dependency-cruiser guards TypeScript app/runtime boundaries.
+- import-linter guards Python package ownership boundaries.
+- Graphify remains the exploratory architecture map.
+
+Do not broaden these checks until the first narrow contracts are stable.
 
 ## Graphify Operating Rule
 

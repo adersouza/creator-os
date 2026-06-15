@@ -65,6 +65,7 @@ py-modules = [
   "hook_tools",
   "intelligence_store",
   "manifest",
+  "media_qc",
   "metrics_import",
   "metrics_store",
   "next_batch",

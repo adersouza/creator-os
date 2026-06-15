@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabled": true,
+  "automerge": false,
+  "dependencyDashboard": true,
+  "labels": [
+    "dependencies"
+  ],
+  "schedule": [
+    "before 8am on monday"
+  ],
+  "packageRules": [
+    {
+      "description": "Group low-risk development tooling updates.",
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "dev tooling minor and patch updates"
+    },
+    {
+      "description": "Keep runtime dependency updates separate for easier operational review.",
+      "matchDepTypes": [
+        "dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Never automerge GitHub Actions or runtime-impacting major updates.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "automerge": false
+    }
+  ],
+  "ignorePaths": [
+    "graphify-out/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/storybook-static/**",
+    "**/output/**",
+    "**/models/**"
+  ]
+}

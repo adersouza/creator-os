@@ -10,6 +10,10 @@
     "check:contracts": "node scripts/check-pipeline-contracts-sync.mjs",
     "check:integration": "uv run pytest tests/integration",
     "check:artifacts": "bash scripts/check-runtime-artifacts.sh",
+    "check:arch": "pnpm check:arch:ts && pnpm check:arch:py",
+    "check:arch:fixtures": "bash scripts/test-architecture-guards.sh",
+    "check:arch:py": "uv run lint-imports && python3 scripts/check-python-architecture-boundaries.py",
+    "check:arch:ts": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
     "graphify:update": "graphify update .",
     "lint": "turbo run lint",
     "security:codeql-note": "node scripts/security/codeql-note.mjs",
@@ -17,6 +21,7 @@
     "test:visual": "pnpm --filter juno33 test:visual"
   },
   "devDependencies": {
+    "dependency-cruiser": "^17.4.3",
     "turbo": "^2.3.0"
   }
 }

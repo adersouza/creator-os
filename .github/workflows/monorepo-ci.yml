@@ -25,6 +25,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:contracts
 
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --all-extras --all-packages --dev
+      - run: pnpm check:arch
+
   javascript:
     runs-on: macos-latest
     steps:
@@ -81,3 +100,34 @@ jobs:
       - uses: actions/checkout@v4
       - run: git diff --check
       - run: bash scripts/check-runtime-artifacts.sh
+
+  sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --all-extras --all-packages --dev
+      - name: Generate SBOMs
+        run: |
+          mkdir -p artifacts/sbom
+          pnpm dlx @cyclonedx/cyclonedx-npm --output-file artifacts/sbom/npm.cdx.json
+          uv export --format requirements-txt --all-packages --all-extras --dev --output-file artifacts/sbom/python-requirements.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: creator-os-sbom
+          path: artifacts/sbom

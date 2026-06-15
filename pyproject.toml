@@ -32,3 +32,41 @@ pythonpath = [
   "python_packages/reel_factory",
   "python_packages/reference_factory",
 ]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.11",
+]
+
+[tool.importlinter]
+root_packages = [
+  "campaign_factory",
+  "pipeline_contracts",
+  "reference_factory",
+  "repurposer",
+]
+
+[[tool.importlinter.contracts]]
+name = "pipeline_contracts remains foundational"
+type = "forbidden"
+source_modules = ["pipeline_contracts"]
+forbidden_modules = [
+  "campaign_factory",
+  "reference_factory",
+  "repurposer",
+]
+
+[[tool.importlinter.contracts]]
+name = "reference_factory does not import runtime campaign ownership"
+type = "forbidden"
+source_modules = ["reference_factory"]
+forbidden_modules = [
+  "campaign_factory",
+  "repurposer",
+]
+
+[[tool.importlinter.contracts]]
+name = "campaign_factory core does not import reference_factory directly"
+type = "forbidden"
+source_modules = ["campaign_factory"]
+forbidden_modules = ["reference_factory"]
