@@ -11,11 +11,13 @@ publishing, QStash, metrics sync, account health, or production inventory.
   or `trufflehog` is installed.
 - GitHub Actions runs CodeQL for JavaScript/TypeScript and Python.
 - GitHub Actions runs TruffleHog secret scanning on pull requests.
-- GitHub Actions runs Dependency Review on pull requests and fails high-risk
-  dependency additions.
+- GitHub Actions runs Dependency Review on pull requests with high-risk
+  dependency settings. GitHub Dependency Graph must be enabled before the
+  action can enforce results, so the workflow keeps the step non-blocking until
+  that repository setting is active.
 - GitHub Actions runs Trivy filesystem scans and uploads SARIF findings. Trivy
-  is currently report-only so the first baseline does not block unrelated
-  migration work.
+  is currently report-only (`--exit-code 0`) so the first baseline does not
+  block unrelated migration work.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
   snapshots.
 - `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
@@ -81,7 +83,8 @@ Security workflows use audit/report mode before hard blocking new checks:
 - StepSecurity Harden-Runner runs in `egress-policy: audit` on security and
   architecture jobs.
 - Trivy uploads SARIF but does not currently fail PRs.
-- Dependency Review is blocking for high-severity dependency changes.
+- Dependency Review is configured for high-severity dependency changes, but it
+  becomes enforceable only after GitHub Dependency Graph is enabled.
 - SBOM artifacts are generated for review; they are not committed.
 
 Move Harden-Runner or Trivy into blocking mode only after the baseline findings

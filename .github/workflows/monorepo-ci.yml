@@ -41,7 +41,7 @@ jobs:
           cache: pnpm
       - uses: astral-sh/setup-uv@v6
       - run: pnpm install --frozen-lockfile
-      - run: uv sync --all-extras --all-packages --dev
+      - run: uv sync --dev
       - run: pnpm check:arch
 
   javascript:
@@ -121,12 +121,11 @@ jobs:
           cache: pnpm
       - uses: astral-sh/setup-uv@v6
       - run: pnpm install --frozen-lockfile
-      - run: uv sync --all-extras --all-packages --dev
       - name: Generate SBOMs
         run: |
           mkdir -p artifacts/sbom
-          pnpm dlx @cyclonedx/cyclonedx-npm --output-file artifacts/sbom/npm.cdx.json
-          uv export --format requirements-txt --all-packages --all-extras --dev --output-file artifacts/sbom/python-requirements.txt
+          pnpm dlx @cyclonedx/cdxgen -t js --no-install-deps --no-babel --output artifacts/sbom/js.cdx.json .
+          uv export --format requirements.txt --all-packages --all-groups --frozen --output-file artifacts/sbom/python-requirements.txt
       - uses: actions/upload-artifact@v4
         with:
           name: creator-os-sbom

@@ -22,10 +22,11 @@ def test_security_workflow_contains_dependency_review_and_trivy() -> None:
 
     assert "trivy" in jobs
     trivy_steps = jobs["trivy"]["steps"]
-    trivy_step = next(step for step in trivy_steps if step.get("uses", "").startswith("aquasecurity/trivy-action@v"))
-    assert trivy_step["with"]["format"] == "sarif"
-    assert trivy_step["with"]["output"] == "trivy-results.sarif"
-    assert trivy_step["with"]["exit-code"] == "0"
+    trivy_step = next(step for step in trivy_steps if step.get("name") == "Trivy scan")
+    assert trivy_step["uses"] == "docker://aquasec/trivy:0.65.0"
+    assert "--format sarif" in trivy_step["with"]["args"]
+    assert "--output trivy-results.sarif" in trivy_step["with"]["args"]
+    assert "--exit-code 0" in trivy_step["with"]["args"]
     assert any(step.get("uses") == "github/codeql-action/upload-sarif@v4" for step in trivy_steps)
 
 
@@ -39,8 +40,10 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
 
     assert "sbom" in jobs
     sbom_runs = "\n".join(step.get("run", "") for step in jobs["sbom"]["steps"])
-    assert "@cyclonedx/cyclonedx-npm" in sbom_runs
+    assert "@cyclonedx/cdxgen" in sbom_runs
+    assert "-t js" in sbom_runs
     assert "uv export" in sbom_runs
+    assert "--all-extras" not in sbom_runs
     assert any(step.get("uses") == "actions/upload-artifact@v4" for step in jobs["sbom"]["steps"])
 
 

@@ -21,13 +21,17 @@ Require these checks before merge:
 - `Creator OS Monorepo CI / javascript`
 - `Creator OS Monorepo CI / python`
 - `Creator OS Monorepo CI / hygiene`
-- `Security / Dependency review`
+- `Security / Dependency review` after GitHub Dependency Graph is enabled for
+  the repository. Until that setting is active, GitHub returns an unsupported
+  repository error before it can evaluate dependency vulnerabilities.
 - `Security / CodeQL (javascript-typescript)`
 - `Security / CodeQL (python)`
 - `Security / Secret scan`
 
 The visual-regression, Trivy, and SBOM jobs should be required after their
-first baseline has been reviewed for runtime and CI cost.
+first baseline has been reviewed for runtime and CI cost. Trivy is intentionally
+report-only in the workflow for now (`--exit-code 0`) so SARIF findings can be
+reviewed before changing it into a blocking gate.
 
 ## Merge Queue
 
