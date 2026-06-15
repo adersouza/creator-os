@@ -22,7 +22,7 @@ def test_security_workflow_contains_dependency_review_and_trivy() -> None:
 
     assert "trivy" in jobs
     trivy_steps = jobs["trivy"]["steps"]
-    trivy_step = next(step for step in trivy_steps if step.get("uses", "").startswith("aquasecurity/trivy-action@"))
+    trivy_step = next(step for step in trivy_steps if step.get("uses", "").startswith("aquasecurity/trivy-action@v"))
     assert trivy_step["with"]["format"] == "sarif"
     assert trivy_step["with"]["output"] == "trivy-results.sarif"
     assert trivy_step["with"]["exit-code"] == "0"
