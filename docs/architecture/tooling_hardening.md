@@ -20,6 +20,13 @@ publishing, QStash, metrics sync, account health, or production inventory.
   block unrelated migration work.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
   snapshots.
+- GitHub Actions creates artifact attestations for SBOM artifacts and Dashboard
+  build artifacts. These attestations prove build provenance only; they do not
+  publish deploy artifacts or promote runtime.
+- OpenSSF Scorecard runs in report mode. Pull requests upload the SARIF as a
+  normal artifact; push/scheduled runs upload SARIF to code scanning after the
+  first baseline exists. It is intentionally non-blocking until the baseline is
+  reviewed.
 - `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
 - `pnpm test:visual` builds Dashboard Storybook, serves it locally, and runs
   Playwright visual regression checks.
@@ -86,6 +93,12 @@ Security workflows use audit/report mode before hard blocking new checks:
 - Dependency Review is configured for high-severity dependency changes, but it
   becomes enforceable only after GitHub Dependency Graph is enabled.
 - SBOM artifacts are generated for review; they are not committed.
+- Artifact attestations are generated for SBOMs and Dashboard build outputs;
+  they are provenance evidence, not deployment approval.
+- OpenSSF Scorecard findings are kept as PR artifacts and uploaded to code
+  scanning on non-PR runs. Expected follow-up work includes reviewing pinned
+  action versions, workflow token permissions, branch protections, and dangerous
+  workflow patterns before making Scorecard required.
 
 Move Harden-Runner or Trivy into blocking mode only after the baseline findings
 and outbound hosts are reviewed.

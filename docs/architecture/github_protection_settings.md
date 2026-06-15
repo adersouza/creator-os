@@ -8,9 +8,14 @@ GitHub before treating the monorepo as production runtime source.
 - Protect `main`.
 - Require pull requests before merge.
 - Require the latest successful CI run on the merge commit.
+- Require at least one approving review from a code owner or trusted maintainer.
+- Dismiss stale approvals when the head branch changes.
+- Require conversation resolution before merge.
 - Require signed commits if it does not block existing automation.
 - Require linear history or squash merges.
 - Block force pushes and branch deletion.
+- Restrict who can bypass branch protections. Bypass should be empty by default
+  and should never include normal automation tokens.
 
 ## Required Checks
 
@@ -21,22 +26,33 @@ Require these checks before merge:
 - `Creator OS Monorepo CI / javascript`
 - `Creator OS Monorepo CI / python`
 - `Creator OS Monorepo CI / hygiene`
+- `Creator OS Monorepo CI / dashboard-build-provenance`
 - `Security / Dependency review` after GitHub Dependency Graph is enabled for
   the repository. Until that setting is active, GitHub returns an unsupported
   repository error before it can evaluate dependency vulnerabilities.
 - `Security / CodeQL (javascript-typescript)`
 - `Security / CodeQL (python)`
 - `Security / Secret scan`
+- `OpenSSF Scorecard / Scorecard report` after the first SARIF baseline is
+  reviewed. Scorecard starts in report mode so baseline findings do not block
+  unrelated migration work.
 
-The visual-regression, Trivy, and SBOM jobs should be required after their
-first baseline has been reviewed for runtime and CI cost. Trivy is intentionally
-report-only in the workflow for now (`--exit-code 0`) so SARIF findings can be
-reviewed before changing it into a blocking gate.
+The visual-regression, Trivy, and SBOM provenance jobs should be required after
+their first baseline has been reviewed for runtime and CI cost. Trivy is
+intentionally report-only in the workflow for now (`--exit-code 0`) so SARIF
+findings can be reviewed before changing it into a blocking gate.
 
 ## Merge Queue
 
 Enable merge queue for `main` once PR volume makes stale-green checks likely.
 The merge queue must run the same required checks as normal pull requests.
+
+Verification:
+
+```bash
+gh api repos/adersouza/creator-os/rulesets --jq '.[] | {name,enforcement}'
+gh api repos/adersouza/creator-os/branches/main/protection
+```
 
 ## Protected Environments
 
@@ -50,6 +66,10 @@ Production must require a human reviewer and environment-scoped secrets. Test
 workflows should not receive production Supabase, QStash, Instagram, or publish
 credentials.
 
+Each environment should use the smallest credential set needed for that
+environment. Preview and staging secrets must not be accepted as proof that
+production deploy permissions are safe.
+
 ## Secret Protection
 
 Enable GitHub Secret Protection with push protection. Add custom patterns for:
@@ -62,3 +82,23 @@ Enable GitHub Secret Protection with push protection. Add custom patterns for:
 
 Custom patterns should start in alert mode and move to blocking after false
 positives are reviewed.
+
+## Dependency Graph And Supply Chain Settings
+
+Enable these repository settings before making dependency/security workflows
+blocking:
+
+- Dependency Graph
+- Dependabot alerts
+- Dependabot security updates
+- Code scanning alerts
+- Secret scanning
+- Secret scanning push protection
+- Artifact attestations
+
+Verification:
+
+```bash
+gh api repos/adersouza/creator-os --jq '.security_and_analysis'
+gh api repos/adersouza/creator-os/code-scanning/alerts --paginate --jq length
+```
