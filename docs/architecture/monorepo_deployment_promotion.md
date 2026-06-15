@@ -107,6 +107,45 @@ Do not switch all runtime surfaces at once.
 5. Promote Python package workflows after CLI parity is documented for each package.
 6. Keep split repos available as rollback mirrors until staged operations prove no drift.
 
+## Production Promotion Checklist
+
+Do not promote the monorepo runtime until every item below is checked against
+the current `creator-os/main` commit.
+
+### ContentForge
+
+- Run the monorepo ContentForge test suite.
+- Run a non-mutating variant-pack dry-run against fixtures.
+- Confirm no Campaign Factory commits occur on timeout or failed variant-pack
+  jobs.
+- Confirm the split `contentforge` repo is still available as rollback mirror.
+
+### Dashboard
+
+- Run contract sync, unit tests, typecheck, and visual regression.
+- Run publish preflight tests from monorepo Dashboard code.
+- Confirm cron entries in `apps/dashboard/vercel.json` are reviewed before any
+  Vercel production project points at the monorepo.
+- Confirm split `ThreadsDashboard` remains rollback mirror. The active split
+  ThreadsDashboard checkout is out of scope while another Codex instance is
+  working on frontend/autoposter changes.
+
+### Python CLIs
+
+- Prove Reel Factory direct-reference dry-run parity.
+- Prove Campaign Factory readiness and publishability dry-run parity.
+- Prove Reference Factory support command parity.
+- Run the non-mutating staged operational dry-run below from the monorepo path.
+
+### Rollback
+
+- Keep split repos read-only and deployable for at least one clean operating
+  cycle after promotion.
+- Document the deployed commit SHA for each promoted surface.
+- Keep environment variables and secrets unchanged during the first promotion.
+- Roll back by repointing deploy configuration to the prior split repo SHA; do
+  not patch production behavior during rollback.
+
 ## Required Staged Operational Proof
 
 Before production runtime promotion, run a staged dry-run using non-production

@@ -1,0 +1,47 @@
+name: OpenSSF Scorecard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+  id-token: write
+
+jobs:
+  scorecard:
+    name: Scorecard report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.3
+        continue-on-error: true
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: false
+      - name: Upload Scorecard report artifact
+        if: always() && hashFiles('scorecard-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-sarif
+          path: scorecard-results.sarif
+      - name: Upload Scorecard SARIF to code scanning
+        if: github.event_name != 'pull_request' && hashFiles('scorecard-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: scorecard-results.sarif
