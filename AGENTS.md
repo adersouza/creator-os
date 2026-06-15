@@ -2,6 +2,18 @@
 
 This monorepo is a repaired import/reconciliation workspace. The deployable runtime baseline is still the split repos under `/Users/aderdesouza/Developer` unless the user explicitly promotes the monorepo.
 
+## Promotion Status
+
+`creator-os/main` is the CI-green source integration baseline. It is not yet
+the production runtime source. A non-mutating staged acceptance run from the
+monorepo path against a copied Campaign Factory SQLite database certified the
+25-account gate and blocked the 50-account gate on inventory buffer only.
+
+Do not promote production deployments from this repo without an explicit
+deployment instruction. In particular, `apps/dashboard/vercel.json` includes
+scheduler and publishing cron entries, so Dashboard runtime promotion must be
+intentional and reviewed.
+
 ## Current Runtime Truth
 
 - `reel_factory`: active creative generation path is direct Higgsfield reference-image generation, not Grok/grid.

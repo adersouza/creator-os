@@ -31,5 +31,26 @@ This is source parity, not production runtime promotion:
 
 1. Keep generated media, DB files, local model weights, caches, and output
    folders out of source.
-2. Run staged operational dry-run proof from monorepo only after explicit
-   approval.
+2. Keep split repos as rollback mirrors until production deployment routing is
+   intentionally moved.
+3. Do not move the Dashboard production deployment blindly; the monorepo
+   Dashboard app contains scheduler and publishing cron configuration.
+4. Build the 50-account inventory buffer before attempting the next scale gate.
+
+## Latest Staged Acceptance Snapshot
+
+The monorepo Campaign Factory CLI reproduced the current 25-account readiness
+against a copied split-repo SQLite database on June 14, 2026. The source runtime
+database was not touched.
+
+```json
+{
+  "currentCertifiedStage": 25,
+  "nextStageTarget": 50,
+  "readyForNextStage": false,
+  "availableInventory": 273,
+  "eligibleAccounts": 70,
+  "blockingReasonFor50": "inventory_buffer_not_maintained",
+  "wouldWrite": false
+}
+```

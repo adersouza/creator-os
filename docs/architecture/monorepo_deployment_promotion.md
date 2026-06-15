@@ -18,7 +18,64 @@ repos remain the trusted runtime baseline until promotion is explicit.
   "splitRepoParityVerified": true,
   "splitRepoBranchesMerged": true,
   "creatorOsMainMerged": true,
+  "stagedAcceptanceAgainstCopiedRuntimeDb": true,
+  "currentCertifiedStage": 25,
+  "nextStageTarget": 50,
   "productionRuntimePromoted": false
+}
+```
+
+## Latest Non-Mutating Staged Acceptance
+
+On June 14, 2026, the monorepo Campaign Factory CLI was run against a copied
+Campaign Factory SQLite database:
+
+```text
+/Users/aderdesouza/Developer/campaign_factory/campaign_factory.sqlite
+→ /tmp/creator_os_campaign_factory_runtime_check.sqlite
+```
+
+This avoided mutating the split runtime database while proving the monorepo code
+path against current runtime-like state.
+
+```json
+{
+  "currentCertifiedStage": 25,
+  "nextStageTarget": 50,
+  "readyForNextStage": false,
+  "eligibleAccounts": 70,
+  "restrictedAccounts": 0,
+  "warmingAccounts": 0,
+  "availableInventory": 273,
+  "wouldWrite": false
+}
+```
+
+The focused 25-account Reel gate also passed from the copied database:
+
+```json
+{
+  "accountTarget": 25,
+  "contentSurface": "reel",
+  "requiredInventory": 225,
+  "availableInventory": 270,
+  "eligibleAccounts": 70,
+  "acceptancePassed": true,
+  "blockingReasons": [],
+  "wouldWrite": false
+}
+```
+
+The 50-account stage remains blocked only by inventory:
+
+```json
+{
+  "accountTarget": 50,
+  "requiredInventory": 450,
+  "availableInventory": 273,
+  "acceptancePassed": false,
+  "blockingReasons": ["inventory_buffer_not_maintained"],
+  "wouldWrite": false
 }
 ```
 
@@ -77,7 +134,12 @@ The staged proof must show:
 ## Promotion Blockers Remaining
 
 - Deployment configuration still points at split repos.
-- No live/staged operational run has been approved from the monorepo runtime.
+- Production runtime has not been switched to the monorepo.
+- Dashboard production deployment must not be moved blindly because
+  `apps/dashboard/vercel.json` includes cron entries for scheduler and publish
+  workers.
+- The next scale gate is 50 accounts, blocked by inventory buffer
+  (`273 available` vs `450 required` in the latest copied-DB check).
 
 Until those are resolved, `creator-os` is the integration candidate, not the
 production runtime source of truth.
