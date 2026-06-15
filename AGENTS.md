@@ -32,6 +32,36 @@ copies under `pipeline_contracts/`, `apps/dashboard/pipeline_contracts/`, and
 the package source. Run `pnpm check:contracts` after any contract or payload
 change.
 
+## Tooling And PR Safety
+
+- Use GitHub Actions logs/checks before guessing at PR failures.
+- CodeQL and TruffleHog run from `.github/workflows/security.yml`.
+- Use `pnpm security:secrets` for local secret scanning when `gitleaks` or
+  `trufflehog` is installed.
+- Use `pnpm test:visual` for Dashboard Storybook visual regression checks.
+- Use `pnpm check:artifacts` before committing tooling or generated-output
+  changes.
+- Use `pnpm check:arch` before merging changes that cross app/package
+  boundaries. It runs dependency-cruiser for TypeScript and import-linter for
+  Python.
+- See `docs/architecture/tooling_hardening.md` for dependency-update,
+  visual-regression, Sentry, and Graphify operating rules.
+- See `docs/architecture/github_protection_settings.md` for GitHub rulesets,
+  merge queue, protected environments, and Secret Protection settings that must
+  be configured outside the repo.
+
+## Graphify
+
+If `graphify-out/graph.json` exists and the task is an architecture or
+codebase-relationship question, query Graphify before broad source browsing:
+
+```bash
+graphify query "How does Campaign Factory hand off to ThreadsDashboard?"
+```
+
+Run `pnpm graphify:update` after code changes. `graphify-out/` is local
+architecture output and must not be committed unless explicitly approved.
+
 ## Reel Factory Active Path
 
 ```text

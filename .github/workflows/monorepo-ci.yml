@@ -25,6 +25,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:contracts
 
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --dev
+      - run: pnpm check:arch
+
   javascript:
     runs-on: macos-latest
     steps:
@@ -44,6 +63,21 @@ jobs:
       - run: pnpm --filter juno33 typecheck
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+  visual-regression:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/dashboard exec playwright install chromium
+      - run: pnpm test:visual
 
   python:
     runs-on: macos-latest
@@ -65,9 +99,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git diff --check
-      - name: Reject runtime artifacts in git
+      - run: bash scripts/check-runtime-artifacts.sh
+
+  sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - name: Generate SBOMs
         run: |
-          if git ls-files | grep -E '(^|/)(node_modules|\.venv|\.next|dist|build|coverage|output|uploads|campaigns|models|graphify-out)/|\.(mp4|mov|sqlite|sqlite-shm|sqlite-wal|db)$'; then
-            echo "Runtime artifacts must not be tracked."
-            exit 1
-          fi
+          mkdir -p artifacts/sbom
+          pnpm dlx @cyclonedx/cdxgen -t js --no-install-deps --no-babel --output artifacts/sbom/js.cdx.json .
+          uv export --format requirements.txt --all-packages --all-groups --frozen --output-file artifacts/sbom/python-requirements.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: creator-os-sbom
+          path: artifacts/sbom

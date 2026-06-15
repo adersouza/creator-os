@@ -1,0 +1,26 @@
+[allowlist]
+description = "Creator OS local false positives and generated review artifacts"
+paths = [
+  '''^apps/dashboard/\.claude/''',
+  '''^apps/dashboard/storybook-static/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)\.next/''',
+  '''(^|/)\.turbo/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''(^|/)graphify-out/''',
+  '''(^|/)playwright-report/''',
+  '''(^|/)test-results/''',
+]
+regexes = [
+  '''juno33-cmdk-recents''',
+  '''juno33:ask-history:v1''',
+  '''juno33-pending-plan''',
+  '''juno33\.pendingPublishJobs''',
+  '''juno_ak_abc123def456''',
+  '''my-cron-secret-123''',
+  '''test-vapid-key-123''',
+  '''TD_AUTH_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.\.\."''',
+]
