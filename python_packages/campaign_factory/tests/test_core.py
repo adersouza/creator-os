@@ -5467,6 +5467,118 @@ def test_schedule_safe_production_report_measures_fresh_waterfall_without_writin
         cf.close()
 
 
+def test_schedule_safe_production_report_uses_variant_parent_cohort_for_old_parent_lineage(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        cf.conn.execute("DELETE FROM rendered_assets")
+        cf.conn.commit()
+        old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+        parent = add_schedule_safe_production_asset(
+            cf,
+            tmp_path,
+            asset_id="parent_old",
+            source=source,
+            created_at=old_time,
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        cf.conn.execute(
+            """
+            INSERT INTO concepts
+            (id, campaign_id, creator, parent_reel_id, parent_asset_id, source_asset_id,
+             source_fingerprint, content_fingerprint, caption_hash, audio_id, status, metadata_json, created_at, updated_at)
+            VALUES ('concept_old_lineage', ?, 'Test', 'parent_reel_old', 'parent_old', ?,
+                    'source_hash_old', 'hash_parent_old', 'caption_hash_parent_old', 'audio_old', 'active', '{}', ?, ?)
+            """,
+            (parent["campaign_id"], source["id"], old_time, old_time),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO caption_families
+            (id, campaign_id, concept_id, parent_reel_id, parent_asset_id, creator, requested_count, style, status, metadata_json, created_at, updated_at)
+            VALUES ('cfam_old_lineage', ?, 'concept_old_lineage', 'parent_reel_old', 'parent_old', 'Test', 3, 'ig_short', 'active', '{}', ?, ?)
+            """,
+            (parent["campaign_id"], old_time, old_time),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO caption_versions
+            (id, caption_family_id, campaign_id, concept_id, parent_reel_id, parent_asset_id,
+             caption_family_index, burned_caption_text, burned_caption_hash, instagram_post_caption,
+             instagram_post_caption_hash, caption_angle, status, created_at, updated_at)
+            VALUES ('cver_old_lineage', 'cfam_old_lineage', ?, 'concept_old_lineage', 'parent_reel_old',
+                    'parent_old', 0, 'caption', 'caption_hash_old', 'new fit today', 'post_hash_old',
+                    'soft_cta', 'active', ?, ?)
+            """,
+            (parent["campaign_id"], old_time, old_time),
+        )
+        add_schedule_safe_production_asset(cf, tmp_path, asset_id="variant_fresh_from_old_parent", source=source, parent_asset_id="parent_old", created_at=now)
+        ensure_exportable_distribution_plan(cf, "variant_fresh_from_old_parent")
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        report = cf.schedule_safe_production_report(
+            creator="Test",
+            content_surface="reel",
+            lookback_days=1,
+            required_inventory=225,
+            current_inventory=11,
+        )
+
+        assert cf.conn.total_changes == before
+        assert report["waterfallSummary"]["rawParents"] == 1
+        assert report["waterfallSummary"]["captionFamilies"] == 1
+        assert report["metadataGapCounts"]["parentsMissingCaptionFamily"] == 0
+        assert report["measurementWarnings"] == []
+        assert report["largestProductionLoss"]["largestLossGate"] != "caption_families_created"
+        assert "productionLossesOnly" in report
+        assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_schedule_safe_production_report_classifies_missing_caption_family_as_lineage_gap(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        cf.conn.execute("DELETE FROM rendered_assets")
+        cf.conn.commit()
+        old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+        add_schedule_safe_production_asset(
+            cf,
+            tmp_path,
+            asset_id="parent_without_family",
+            source=source,
+            created_at=old_time,
+        )
+        add_schedule_safe_production_asset(
+            cf,
+            tmp_path,
+            asset_id="variant_fresh_without_family",
+            source=source,
+            parent_asset_id="parent_without_family",
+        )
+        ensure_exportable_distribution_plan(cf, "variant_fresh_without_family")
+        cf.conn.commit()
+
+        report = cf.schedule_safe_production_report(
+            creator="Test",
+            content_surface="reel",
+            lookback_days=1,
+            required_inventory=225,
+            current_inventory=11,
+        )
+
+        assert report["metadataGapCounts"]["parentsMissingCaptionFamily"] == 1
+        assert "lineage_metadata_gap:caption_families_missing_for_variant_parent_cohort" in report["measurementWarnings"]
+        assert report["largestProductionLoss"]["largestLossGate"] != "caption_families_created"
+        assert all(row["stage"] != "caption_families_created" for row in report["productionLossesOnly"])
+        assert report["lineageCompletenessPct"] < 100
+        assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
 def test_schedule_safe_production_capacity_zero_production_is_blocked(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -5901,6 +6013,92 @@ def test_fresh_schedule_safe_production_plan_calculates_reel_only_buffer_without
         ]
         assert report["largestProductionRisk"] == "variant_to_schedule_safe_yield_not_yet_proven"
         assert report["downstreamYieldEvidenceStatus"] == "insufficient_schedule_safe_variant_production_evidence"
+        assert report["yieldSource"] == "conservative_default"
+        assert report["sampleSize"] == 0
+        assert report["confidence"] == "low"
+        assert report["recommendedBatchCount"] == report["batchesRequired"]
+        assert report["stopAfterEachBatchForGateCheck"] is True
+        assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_fresh_schedule_safe_production_plan_uses_measured_recent_yield_when_sample_is_adequate(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        cf.conn.execute("DELETE FROM rendered_assets")
+        cf.conn.commit()
+        parent = add_schedule_safe_production_asset(cf, tmp_path, asset_id="parent_measured_recent", source=source)
+        now = datetime.now(timezone.utc).isoformat()
+        cf.conn.execute(
+            """
+            INSERT INTO concepts
+            (id, campaign_id, creator, parent_reel_id, parent_asset_id, source_asset_id,
+             source_fingerprint, content_fingerprint, caption_hash, audio_id, status, metadata_json, created_at, updated_at)
+            VALUES ('concept_measured_recent', ?, 'Stacey', 'parent_reel_measured_recent',
+                    'parent_measured_recent', ?, 'source_hash_measured_recent',
+                    'hash_parent_measured_recent', 'caption_hash_parent_measured_recent',
+                    'audio_measured_recent', 'active', '{}', ?, ?)
+            """,
+            (parent["campaign_id"], source["id"], now, now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO caption_families
+            (id, campaign_id, concept_id, parent_reel_id, parent_asset_id, creator, requested_count, style, status, metadata_json, created_at, updated_at)
+            VALUES ('cfam_measured_recent', ?, 'concept_measured_recent',
+                    'parent_reel_measured_recent', 'parent_measured_recent',
+                    'Stacey', 3, 'ig_short', 'active', '{}', ?, ?)
+            """,
+            (parent["campaign_id"], now, now),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO caption_versions
+            (id, caption_family_id, campaign_id, concept_id, parent_reel_id, parent_asset_id,
+             caption_family_index, burned_caption_text, burned_caption_hash, instagram_post_caption,
+             instagram_post_caption_hash, caption_angle, status, created_at, updated_at)
+            VALUES ('cver_measured_recent', 'cfam_measured_recent', ?,
+                    'concept_measured_recent', 'parent_reel_measured_recent',
+                    'parent_measured_recent', 0, 'caption', 'caption_hash_measured_recent',
+                    'new fit today', 'post_hash_measured_recent', 'soft_cta',
+                    'active', ?, ?)
+            """,
+            (parent["campaign_id"], now, now),
+        )
+        for index in range(30):
+            asset_id = f"variant_measured_recent_{index}"
+            add_schedule_safe_production_asset(
+                cf,
+                tmp_path,
+                asset_id=asset_id,
+                source=source,
+                parent_asset_id="parent_measured_recent",
+            )
+            if index < 15:
+                ensure_exportable_distribution_plan(cf, asset_id)
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        report = cf.fresh_schedule_safe_production_plan(
+            creator="Test",
+            target_schedule_safe_inventory=111,
+            current_inventory=11,
+        )
+
+        assert cf.conn.total_changes == before
+        assert report["yieldSource"] == "measured_recent"
+        assert report["sampleSize"] == 30
+        assert report["confidence"] == "medium"
+        assert report["expectedYield"] == 50.0
+        assert report["freshScheduleSafeAssetsNeeded"] == 100
+        assert report["variantsNeeded"] == 200
+        assert report["parentsNeeded"] == 14
+        assert report["recommendedBatchCount"] == report["batchesRequired"]
+        assert report["stopAfterEachBatchForGateCheck"] is True
+        assert report["measuredRecentYield"]["variantsCreated"] == 30
+        assert report["measuredRecentYield"]["scheduleSafeAssets"] == 15
         assert report["wouldWrite"] is False
     finally:
         cf.close()
@@ -5953,6 +6151,50 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
     assert payload["schema"] == "creator_os.fresh_schedule_safe_production_plan.v1"
     assert payload["freshScheduleSafeAssetsNeeded"] == 259
     assert payload["parentsNeeded"] == 26
+    assert payload["wouldWrite"] is False
+
+
+def test_creator_os_50_account_readiness_alias_is_read_only(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        before = cf.conn.total_changes
+
+        report = cf.creator_os_50_account_readiness(content_surface="reel")
+
+        assert cf.conn.total_changes == before
+        assert report["schema"] == "creator_os.50_account_readiness.v1"
+        assert report["targetStage"] == 50
+        assert report["contentSurface"] == "reel"
+        assert report["requiredInventory"] == 450
+        assert report["shortfall"] == max(0, report["requiredInventory"] - report["availableInventory"])
+        assert "inventory_buffer_not_maintained" in report["blockingReasons"]
+        assert report["recommendedNextAction"] == "produce_fresh_schedule_safe_reels"
+        assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_creator_os_50_account_readiness_cli_outputs_json(tmp_path: Path):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.creator_os_cli",
+            "50-account-readiness",
+            "--content-surface",
+            "reel",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "creator_os.50_account_readiness.v1"
+    assert payload["targetStage"] == 50
+    assert payload["contentSurface"] == "reel"
     assert payload["wouldWrite"] is False
 
 

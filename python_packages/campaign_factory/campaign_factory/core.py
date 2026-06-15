@@ -8165,9 +8165,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if current_inventory is not None
             else sum(1 for item in self._build_surface_readiness(all_surface_assets) if item.get("canHandoff"))
         )
-        waterfall = self._schedule_safe_production_waterfall_rows(assets, surface)
-        largest_loss = self._schedule_safe_production_largest_loss(waterfall)
-        raw = int(waterfall[0]["outputCount"]) if waterfall else 0
+        production_model = self._schedule_safe_production_model(assets, surface)
+        waterfall = production_model["waterfall"]
+        production_losses = production_model["productionLossesOnly"]
+        largest_loss = self._schedule_safe_production_largest_loss(
+            production_losses,
+            measurement_warnings=production_model["measurementWarnings"],
+        )
+        raw = int(production_model.get("variantCount") or (waterfall[0]["outputCount"] if waterfall else 0))
         schedule_safe = int(waterfall[-1]["outputCount"]) if waterfall else 0
         days = max(1, int(lookback_days or 1))
         produced_per_day = round(schedule_safe / days, 2)
@@ -8188,6 +8193,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "waterfallSummary": {self._schedule_safe_production_summary_key(row["stage"]): int(row["outputCount"]) for row in waterfall},
             "largestProductionLoss": largest_loss,
             "largestLossGate": largest_loss["largestLossGate"],
+            "lineageCompletenessPct": production_model["lineageCompletenessPct"],
+            "metadataGapCounts": production_model["metadataGapCounts"],
+            "measurementWarnings": production_model["measurementWarnings"],
+            "productionLossesOnly": production_losses,
             "scheduleSafeAssetsProducedPerDay": produced_per_day,
             "scheduleSafeYieldPct": round(self._ratio(schedule_safe, raw) * 100, 1),
             "parentsRequiredPerDay": self._schedule_safe_required_parents_per_day(produced_per_day, schedule_safe, len(assets)),
@@ -8220,6 +8229,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "lookbackDays": report.get("lookbackDays"),
             "waterfall": report.get("waterfall"),
             "waterfallSummary": report.get("waterfallSummary"),
+            "lineageCompletenessPct": report.get("lineageCompletenessPct"),
+            "metadataGapCounts": report.get("metadataGapCounts"),
+            "measurementWarnings": report.get("measurementWarnings"),
+            "productionLossesOnly": report.get("productionLossesOnly"),
             "wouldWrite": False,
         }
 
@@ -8243,6 +8256,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "contentSurface": report.get("contentSurface"),
             "largestProductionLoss": report.get("largestProductionLoss"),
             "rankedLosses": sorted(losses, key=lambda row: (-row["lossCount"], row["gate"])),
+            "lineageCompletenessPct": report.get("lineageCompletenessPct"),
+            "metadataGapCounts": report.get("metadataGapCounts"),
+            "measurementWarnings": report.get("measurementWarnings"),
+            "productionLossesOnly": report.get("productionLossesOnly"),
             "wouldWrite": False,
         }
 
@@ -8324,7 +8341,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         versions_per_parent = max(1, int(caption_versions_per_parent or 5))
         variants_per_version = max(1, int(variants_per_caption or 3))
         variants_per_parent = versions_per_parent * variants_per_version
-        downstream_yield = self._fresh_reel_downstream_schedule_safe_yield_pct()
+        recent_yield = self._fresh_reel_recent_schedule_safe_yield(creator=creator, campaign_slug=campaign_slug)
+        downstream_yield = float(recent_yield["yieldPct"])
         variants_needed = int(math.ceil(needed / max(0.01, downstream_yield / 100))) if needed else 0
         parents_needed = int(math.ceil(variants_needed / variants_per_parent)) if variants_needed else 0
         raw_parent_candidates_needed = int(math.ceil(parents_needed / 0.828)) if parents_needed else 0
@@ -8366,8 +8384,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "variantsNeeded": variants_needed,
             "expectedYield": downstream_yield,
             "expectedYieldEvidence": self.FRESH_REEL_PARENT_YIELD_EVIDENCE,
-            "downstreamYieldEvidenceStatus": "insufficient_schedule_safe_variant_production_evidence",
-            "largestProductionRisk": "variant_to_schedule_safe_yield_not_yet_proven",
+            "downstreamYieldEvidenceStatus": recent_yield["evidenceStatus"],
+            "yieldSource": recent_yield["yieldSource"],
+            "sampleSize": recent_yield["sampleSize"],
+            "confidence": recent_yield["confidence"],
+            "recommendedBatchCount": batch_count,
+            "stopAfterEachBatchForGateCheck": True,
+            "measuredRecentYield": recent_yield["measuredRecentYield"],
+            "largestProductionRisk": recent_yield["largestProductionRisk"],
             "stagePlan": stages,
             "executionBatches": execution_batches,
             "batchesRequired": batch_count,
@@ -9391,12 +9415,22 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
-    def _schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
+    def _schedule_safe_production_model(self, assets: list[dict[str, Any]], surface: str) -> dict[str, Any]:
         parent_assets = [asset for asset in assets if not self._schedule_safe_is_variant_asset(asset)]
         variant_assets = [asset for asset in assets if self._schedule_safe_is_variant_asset(asset)]
-        parent_ids = {str(asset["id"]) for asset in parent_assets}
+        fresh_parent_ids = {str(asset["id"]) for asset in parent_assets}
+        referenced_parent_ids = {
+            str(asset.get("parent_asset_id"))
+            for asset in variant_assets
+            if str(asset.get("parent_asset_id") or "").strip()
+        }
+        parent_ids = fresh_parent_ids | referenced_parent_ids
+        parent_lookup = {str(asset["id"]): asset for asset in parent_assets}
+        parent_lookup.update(self._schedule_safe_parent_assets_by_ids(parent_ids - fresh_parent_ids))
+        resolved_parent_assets = list(parent_lookup.values())
+        missing_parent_refs = sorted(parent_ids - set(parent_lookup))
         accepted_parents = [
-            asset for asset in parent_assets
+            asset for asset in resolved_parent_assets
             if str(asset.get("review_state") or "").lower() in {"approved", "review_ready"}
             or str(asset.get("audit_status") or "").lower() in {"passed", "pass", "approved", "approved_candidate"}
         ]
@@ -9410,8 +9444,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         publishability = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"] and item["discoverability_passed"] and item["instagram_post_caption_quality_passed"] and item["publishability_passed"])
         schedule_safe = sum(1 for item in checks if item["schedule_safe"])
         stage_counts = [
-            ("raw_parent_reels", len(parent_assets), len(parent_assets)),
-            ("accepted_parent_reels", len(parent_assets), len(accepted_parents)),
+            ("raw_parent_reels", len(parent_ids), len(parent_ids)),
+            ("accepted_parent_reels", len(parent_ids), len(accepted_parents)),
             ("caption_families_created", len(accepted_parents), caption_families),
             ("caption_families_accepted", caption_families, min(caption_families, caption_versions)),
             ("contentforge_variants_created", max(caption_versions, len(accepted_parents), len(variant_assets)), len(variant_assets)),
@@ -9422,7 +9456,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             ("publishability_passed", caption_quality, publishability),
             ("schedule_safe_assets_produced", publishability, schedule_safe),
         ]
-        return [
+        waterfall = [
             {
                 "stage": stage,
                 "inputCount": int(input_count),
@@ -9432,9 +9466,64 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             }
             for stage, input_count, output_count in stage_counts
         ]
+        metadata_gap_counts = {
+            "missingParentReferences": len(missing_parent_refs),
+            "variantsMissingParentAssetId": sum(1 for asset in variant_assets if not str(asset.get("parent_asset_id") or "").strip()),
+            "parentsMissingCaptionFamily": max(0, len(parent_ids) - caption_families),
+            "captionFamiliesMissingVersions": max(0, caption_families - caption_versions),
+        }
+        lineage_units = max(1, len(parent_ids) + len(variant_assets))
+        lineage_gaps = (
+            metadata_gap_counts["missingParentReferences"]
+            + metadata_gap_counts["variantsMissingParentAssetId"]
+            + metadata_gap_counts["parentsMissingCaptionFamily"]
+            + metadata_gap_counts["captionFamiliesMissingVersions"]
+        )
+        warnings: list[str] = []
+        if variant_assets and metadata_gap_counts["parentsMissingCaptionFamily"]:
+            warnings.append("lineage_metadata_gap:caption_families_missing_for_variant_parent_cohort")
+        if metadata_gap_counts["missingParentReferences"]:
+            warnings.append("lineage_metadata_gap:variant_parent_assets_missing")
+        if metadata_gap_counts["variantsMissingParentAssetId"]:
+            warnings.append("lineage_metadata_gap:variants_missing_parent_asset_id")
+        production_stages = {
+            "accepted_parent_reels",
+            "contentforge_variants_created",
+            "visual_qc_passed",
+            "caption_placement_qc_passed",
+            "discoverability_passed",
+            "instagram_post_caption_quality_passed",
+            "publishability_passed",
+            "schedule_safe_assets_produced",
+        }
+        production_losses = [
+            row for row in waterfall
+            if row["stage"] in production_stages and int(row.get("lossCount") or 0) > 0
+        ]
+        return {
+            "waterfall": waterfall,
+            "lineageCompletenessPct": round(max(0.0, 1.0 - (lineage_gaps / lineage_units)) * 100, 1),
+            "metadataGapCounts": metadata_gap_counts,
+            "measurementWarnings": warnings,
+            "productionLossesOnly": production_losses,
+            "variantCount": len(variant_assets),
+        }
+
+    def _schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
+        return self._schedule_safe_production_model(assets, surface)["waterfall"]
 
     def _schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
         return bool(asset.get("parent_asset_id") or asset.get("variant_id"))
+
+    def _schedule_safe_parent_assets_by_ids(self, asset_ids: set[str]) -> dict[str, dict[str, Any]]:
+        if not asset_ids:
+            return {}
+        placeholders = ",".join("?" for _ in asset_ids)
+        rows = self.conn.execute(
+            f"SELECT * FROM rendered_assets WHERE id IN ({placeholders})",
+            sorted(asset_ids),
+        ).fetchall()
+        return {str(row["id"]): dict(row) for row in rows}
 
     def _schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
         if not asset_ids:
@@ -9469,7 +9558,25 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "schedule_safe": bool(readiness.get("canHandoff")),
         }
 
-    def _schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
+    def _schedule_safe_production_largest_loss(
+        self,
+        waterfall: list[dict[str, Any]],
+        *,
+        measurement_warnings: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if not waterfall:
+            warnings = measurement_warnings or []
+            if any(str(warning).startswith("lineage_metadata_gap:") for warning in warnings):
+                return {
+                    "largestLossGate": "lineage_metadata_gap",
+                    "lossCount": 0,
+                    "percentOfTotalLoss": 0,
+                }
+            return {
+                "largestLossGate": "",
+                "lossCount": 0,
+                "percentOfTotalLoss": 0,
+            }
         total_loss = sum(int(row.get("lossCount") or 0) for row in waterfall)
         largest = max(waterfall, key=lambda row: (int(row.get("lossCount") or 0), str(row.get("stage") or "")), default={})
         loss = int(largest.get("lossCount") or 0)
@@ -9561,6 +9668,60 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 continue
             yield_pct *= float(stage_yield) / 100
         return round(yield_pct, 1)
+
+    def _fresh_reel_recent_schedule_safe_yield(
+        self,
+        *,
+        creator: str | None,
+        campaign_slug: str | None,
+        lookback_days: int = 7,
+        minimum_sample_size: int = 30,
+    ) -> dict[str, Any]:
+        assets = self._schedule_safe_production_assets(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            content_surface="reel",
+            lookback_days=lookback_days,
+        )
+        model = self._schedule_safe_production_model(assets, "reel")
+        variant_count = int(model.get("variantCount") or 0)
+        schedule_safe = int((model.get("waterfall") or [{}])[-1].get("outputCount") or 0) if model.get("waterfall") else 0
+        conservative = self._fresh_reel_downstream_schedule_safe_yield_pct()
+        if variant_count >= minimum_sample_size:
+            measured = round(self._ratio(schedule_safe, variant_count) * 100, 1)
+            confidence = "high" if variant_count >= 100 else "medium"
+            return {
+                "yieldSource": "measured_recent",
+                "yieldPct": max(1.0, measured),
+                "sampleSize": variant_count,
+                "confidence": confidence,
+                "evidenceStatus": "measured_recent_schedule_safe_variant_production_evidence",
+                "largestProductionRisk": "recent_schedule_safe_yield_observed",
+                "measuredRecentYield": {
+                    "lookbackDays": lookback_days,
+                    "variantsCreated": variant_count,
+                    "scheduleSafeAssets": schedule_safe,
+                    "yieldPct": measured,
+                    "lineageCompletenessPct": model.get("lineageCompletenessPct"),
+                    "measurementWarnings": model.get("measurementWarnings") or [],
+                },
+            }
+        return {
+            "yieldSource": "conservative_default",
+            "yieldPct": conservative,
+            "sampleSize": variant_count,
+            "confidence": "low",
+            "evidenceStatus": "insufficient_schedule_safe_variant_production_evidence",
+            "largestProductionRisk": "variant_to_schedule_safe_yield_not_yet_proven",
+            "measuredRecentYield": {
+                "lookbackDays": lookback_days,
+                "variantsCreated": variant_count,
+                "scheduleSafeAssets": schedule_safe,
+                "yieldPct": round(self._ratio(schedule_safe, variant_count) * 100, 1) if variant_count else 0,
+                "lineageCompletenessPct": model.get("lineageCompletenessPct"),
+                "measurementWarnings": model.get("measurementWarnings") or [],
+            },
+        }
 
     def _fresh_reel_expected_stage_rows(
         self,
@@ -11035,6 +11196,42 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "currentCertifiedStage": current,
             "nextStageTarget": next_target,
             "readyForNextStage": next_target is None,
+            "wouldWrite": False,
+        }
+
+    def creator_os_50_account_readiness(self, *, content_surface: str | None = None) -> dict[str, Any]:
+        target = 50
+        staged = self.creator_os_staged_live_acceptance(stages=[10, 25, target], content_surface=content_surface)
+        target_stage = next(
+            (row for row in staged.get("stages") or [] if int(row.get("accountTarget") or 0) == target),
+            self.creator_os_live_account_acceptance(account_target=target, content_surface=content_surface),
+        )
+        shortfall = max(0, int(target_stage.get("requiredInventory") or 0) - int(target_stage.get("availableInventory") or 0))
+        blockers = list(target_stage.get("blockingReasons") or [])
+        if not blockers:
+            recommended_action = "ready_for_50_account_gate"
+        elif "inventory_buffer_not_maintained" in blockers:
+            recommended_action = "produce_fresh_schedule_safe_reels"
+        elif "not_enough_safe_accounts" in blockers:
+            recommended_action = "verify_more_safe_accounts"
+        else:
+            recommended_action = "review_live_acceptance_blockers"
+        return {
+            "schema": "creator_os.50_account_readiness.v1",
+            "currentCertifiedStage": int(staged.get("currentCertifiedStage") or 0),
+            "targetStage": target,
+            "contentSurface": target_stage.get("contentSurface") or (normalize_content_surface(content_surface) if content_surface else "all"),
+            "requiredInventory": int(target_stage.get("requiredInventory") or 0),
+            "availableInventory": int(target_stage.get("availableInventory") or 0),
+            "shortfall": shortfall,
+            "actualAccounts": int(target_stage.get("actualAccounts") or 0),
+            "eligibleAccounts": int(target_stage.get("eligibleAccounts") or 0),
+            "restrictedAccounts": int(target_stage.get("restrictedAccounts") or 0),
+            "warmingAccounts": int(target_stage.get("warmingAccounts") or 0),
+            "acceptancePassed": bool(target_stage.get("acceptancePassed")),
+            "blockingReasons": blockers,
+            "recommendedNextAction": recommended_action,
+            "dataSource": "actual_current_state",
             "wouldWrite": False,
         }
 
