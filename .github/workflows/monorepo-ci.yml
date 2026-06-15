@@ -128,7 +128,7 @@ jobs:
           mkdir -p artifacts/sbom
           pnpm dlx @cyclonedx/cdxgen -t js --no-install-deps --no-babel --output artifacts/sbom/js.cdx.json .
           uv export --format requirements.txt --all-packages --all-groups --frozen --output-file artifacts/sbom/python-requirements.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: creator-os-sbom
           path: artifacts/sbom
@@ -160,7 +160,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build Dashboard artifact
         run: pnpm --filter juno33 build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dashboard-dist
           path: apps/dashboard/dist
