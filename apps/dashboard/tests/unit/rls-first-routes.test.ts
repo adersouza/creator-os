@@ -492,7 +492,7 @@ describe("analytics read-only RLS-first routes", () => {
 					username: "igram",
 					needs_reauth: false,
 					token_expires_at: "2099-01-01T00:00:00.000Z",
-					last_synced_at: "2026-06-12T00:00:00.000Z",
+					last_synced_at: new Date().toISOString(),
 					group_id: null,
 					is_active: true,
 				},

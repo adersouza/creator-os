@@ -96,6 +96,9 @@ interface WarmupStateRow {
 interface AccountScheduleDemandRow {
 	account_id: string;
 	posts_per_day: number | null;
+	paused?: boolean | null;
+	status?: string | null;
+	blocked_until?: string | null;
 }
 
 interface WatchdogAccountRow {
@@ -511,7 +514,7 @@ async function checkLowQueues(
 	if (allAccountIds.length > 0) {
 		const { data: schedules } = await db()
 			.from("account_schedule")
-			.select("account_id, posts_per_day")
+			.select("account_id, posts_per_day, paused, status, blocked_until")
 			.in("account_id", allAccountIds);
 		for (const schedule of (schedules || []) as AccountScheduleDemandRow[]) {
 			scheduleByAccount.set(schedule.account_id, schedule);
@@ -589,10 +592,25 @@ export function calculateDemandAwareQueueThreshold({
 	if (accountIds.length === 0) return Math.max(3, configuredThreshold);
 
 	let expectedDailyDemand = 0;
+	const nowMs = Date.now();
 	for (const accountId of accountIds) {
 		const state = stateByAccount.get(accountId);
 		const status = state?.restart_warmup_status || state?.status || "none";
 		const strategyMode = state?.recommended_strategy_mode || null;
+		const accountSchedule = scheduleByAccount.get(accountId);
+		const scheduleStatus = accountSchedule?.status ?? null;
+		const scheduleBlockedUntil = accountSchedule?.blocked_until
+			? new Date(accountSchedule.blocked_until).getTime()
+			: null;
+		if (
+			accountSchedule?.paused === true ||
+			(scheduleStatus && !["active", "enabled"].includes(scheduleStatus)) ||
+			(typeof scheduleBlockedUntil === "number" &&
+				Number.isFinite(scheduleBlockedUntil) &&
+				scheduleBlockedUntil > nowMs)
+		) {
+			continue;
+		}
 		if (
 			status === "suppressed" ||
 			strategyMode === "suppress" ||
@@ -624,7 +642,7 @@ export function calculateDemandAwareQueueThreshold({
 			continue;
 		}
 
-		const accountScheduleCap = scheduleByAccount.get(accountId)?.posts_per_day;
+		const accountScheduleCap = accountSchedule?.posts_per_day;
 		expectedDailyDemand += Math.max(
 			0,
 			accountScheduleCap ?? groupDailyCap ?? 0,

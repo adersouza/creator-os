@@ -155,6 +155,75 @@ describe("autoposter watchdog demand-aware queue threshold", () => {
 		expect(lowQueueWarningWatermark(threshold)).toBe(2);
 	});
 
+	it("does not count account schedules blocked by cooldown or pause toward demand", () => {
+		const threshold = calculateDemandAwareQueueThreshold({
+			configuredThreshold: 20,
+			groupDailyCap: 4,
+			accountIds: ["ready", "cooldown", "paused", "blocked"],
+			stateByAccount: new Map([
+				[
+					"ready",
+					{
+						account_id: "ready",
+						status: "active",
+						restart_warmup_status: "none",
+						restart_warmup_allowed_posts_per_day: null,
+					},
+				],
+				[
+					"cooldown",
+					{
+						account_id: "cooldown",
+						status: "active",
+						restart_warmup_status: "none",
+						restart_warmup_allowed_posts_per_day: null,
+					},
+				],
+				[
+					"paused",
+					{
+						account_id: "paused",
+						status: "active",
+						restart_warmup_status: "none",
+						restart_warmup_allowed_posts_per_day: null,
+					},
+				],
+				[
+					"blocked",
+					{
+						account_id: "blocked",
+						status: "active",
+						restart_warmup_status: "none",
+						restart_warmup_allowed_posts_per_day: null,
+					},
+				],
+			]),
+			scheduleByAccount: new Map([
+				["ready", { account_id: "ready", posts_per_day: 2, status: "active" }],
+				[
+					"cooldown",
+					{ account_id: "cooldown", posts_per_day: 10, status: "view_cooldown" },
+				],
+				[
+					"paused",
+					{ account_id: "paused", posts_per_day: 10, paused: true },
+				],
+				[
+					"blocked",
+					{
+						account_id: "blocked",
+						posts_per_day: 10,
+						status: "active",
+						blocked_until: new Date(Date.now() + 60_000).toISOString(),
+					},
+				],
+			]),
+		});
+
+		expect(threshold).toBe(3);
+		expect(lowQueueWarningWatermark(threshold)).toBe(2);
+	});
+
 	it("lets performance suppression override warm-up demand", () => {
 		const threshold = calculateDemandAwareQueueThreshold({
 			configuredThreshold: 20,

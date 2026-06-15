@@ -1,7 +1,7 @@
 # Creator OS Monorepo Deployment Promotion
 
-`creator-os` now has local monorepo gates through Phase 4, but the split repos
-remain the trusted runtime baseline until promotion is explicit.
+`creator-os/main` now has monorepo source gates through Phase 4, but the split
+repos remain the trusted runtime baseline until promotion is explicit.
 
 ## Current Promotion Status
 
@@ -17,6 +17,7 @@ remain the trusted runtime baseline until promotion is explicit.
   "runtimeArtifactsIgnored": true,
   "splitRepoParityVerified": true,
   "splitRepoBranchesMerged": true,
+  "creatorOsMainMerged": true,
   "productionRuntimePromoted": false
 }
 ```

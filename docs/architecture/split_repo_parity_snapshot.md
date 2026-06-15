@@ -10,27 +10,26 @@ the split-repo cleanup/merge pass.
 | `reference_factory` | `main` | `2cf59f2` | clean, merged docs/runbook boundary notes |
 | `campaign_factory` | `main` | `0f31681` | clean, merged repaired repurposer + docs |
 | `reel_factory` | `main` | `a4161d5` | clean, merged direct-reference simplification |
-| `ThreadsDashboard` | `main` | `566f2b162` | clean, merged UI/layout, interaction polish, analytics narrative, composer/calendar polish, and Calendar metric responsiveness |
+| `ThreadsDashboard` | `main` | `195654ba3` | clean, merged UI/layout, interaction polish, analytics narrative, composer/calendar polish, smart-link hardening, Calendar metric responsiveness, and autoposter alert false-positive fix |
 
 ## Parity Assessment
 
-The monorepo has passing package, app, contract, and integration gates on the
-latest `codex/creator-os-import-repair` commit. The split repos no longer have
-local dirty runtime work; intentional changes are merged to each repo's
-`main`.
+The monorepo has passing package, app, contract, and integration gates on
+`creator-os/main`. The split repos no longer have local dirty runtime work;
+intentional changes are either merged to each repo's `main` or preserved on
+separate review branches.
 
 This is source parity, not production runtime promotion:
 
-- `creator-os` is still a promotion candidate until PR #1 lands.
+- `creator-os/main` is merged and CI-green as the source integration baseline.
 - Deployment routing is still explicit and should not be moved automatically.
-- Smart-link hardening remains intentionally separate on
-  `origin/codex/smart-link-hardening`; it was not mixed into the UI/layout
-  branch.
+- Smart-link hardening is present in ThreadsDashboard `main`; the newer
+  bento-dashboard UI branch remains separate on
+  `origin/codex/dashboard-pending-ui-and-cap-review`.
 
 ## Required Before Final Promotion
 
 1. Keep generated media, DB files, local model weights, caches, and output
    folders out of source.
-2. Merge `creator-os` PR #1 after the latest monorepo CI remains green.
-3. Run staged operational dry-run proof from monorepo only after explicit
+2. Run staged operational dry-run proof from monorepo only after explicit
    approval.

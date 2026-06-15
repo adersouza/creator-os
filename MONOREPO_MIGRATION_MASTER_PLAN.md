@@ -51,11 +51,16 @@ creator-os/
 └── uv.lock
 ```
 
-The current branch is an import/repair branch, not the production source of truth:
+The import/repair branch has been merged. The current source integration
+baseline is:
 
 ```text
-codex/creator-os-import-repair
+creator-os/main
 ```
+
+This is still not production runtime promotion. Split repos remain the current
+deployment baseline until staged operational proof and deployment routing are
+completed.
 
 ## Target Architecture
 
@@ -415,11 +420,14 @@ codex/creator-os-monorepo-integration-tests
 codex/creator-os-monorepo-docs
 ```
 
-Keep the current branch as a staging/import repair branch until the above phases land:
+The historical staging/import repair branch was:
 
 ```text
 codex/creator-os-import-repair
 ```
+
+New migration follow-up work should branch from `creator-os/main`, not from the
+old import branch.
 
 ## Required `.gitignore` Policy
 

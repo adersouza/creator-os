@@ -65,6 +65,27 @@ describe("autoposter account health scoring", () => {
 		).toBe(true);
 	});
 
+	it("does not treat cap-control requeues as account health failures", () => {
+		const capReasons = [
+			"suppressed_cap_zero",
+			"warmup_cap_exceeded",
+			"held_cap_exceeded",
+			"performance_recommended_cap_exceeded",
+			"daily_cap",
+			"stale_warmup_cap_exceeded",
+		];
+
+		for (const reason of capReasons) {
+			expect(
+				isPublishAttemptFailureForAccountHealth({
+					result: "requeued",
+					errorCode: reason,
+					errorMessage: `${reason} — requeued`,
+				}),
+			).toBe(false);
+		}
+	});
+
 	it("does not treat system claim failures as account health failures", () => {
 		expect(
 			isPublishAttemptFailureForAccountHealth({

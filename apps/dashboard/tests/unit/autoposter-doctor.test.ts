@@ -235,4 +235,71 @@ describe("autoposter doctor", () => {
 			]),
 		);
 	});
+
+	it("does not flag high-health accounts for cap-control requeues", async () => {
+		mockFrom.mockImplementation((table: string) => {
+			if (table === "auto_post_config") {
+				return chainFor({
+					data: [{ workspace_id: "workspace-1" }],
+					error: null,
+				});
+			}
+			if (table === "account_autoposter_state") {
+				return chainFor({
+					data: [
+						{
+							account_id: "account-1",
+							workspace_id: "workspace-1",
+							group_id: "group-1",
+							status: "active",
+							account_health_score: 96,
+						},
+					],
+					error: null,
+				});
+			}
+			if (table === "publish_attempts") {
+				return chainFor({
+					data: [
+						{
+							account_id: "account-1",
+							result: "requeued",
+							error_code: "suppressed_cap_zero",
+							error_message: "suppressed_cap_zero — requeued",
+						},
+						{
+							account_id: "account-1",
+							result: "requeued",
+							error_code: "performance_recommended_cap_exceeded",
+							error_message:
+								"performance_recommended_cap_exceeded — requeued",
+						},
+						{
+							account_id: "account-1",
+							result: "requeued",
+							error_code: "warmup_cap_exceeded",
+							error_message: "warmup_cap_exceeded — requeued",
+						},
+					],
+					error: null,
+				});
+			}
+			return chainFor({ data: [], error: null });
+		});
+
+		const { runAutoposterDoctor } = await import(
+			"../../api/cron/autoposter-doctor.js"
+		);
+
+		const findings = await runAutoposterDoctor();
+
+		expect(findings).not.toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					check_name:
+						"autoposter-doctor:failure-heavy-account-marked-healthy",
+				}),
+			]),
+		);
+	});
 });

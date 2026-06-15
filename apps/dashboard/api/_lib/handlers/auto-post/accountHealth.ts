@@ -53,6 +53,25 @@ function isActiveWindowRequeue(
 	);
 }
 
+function isCapacityControlRequeue(
+	input: PublishAttemptHealthClassificationInput,
+): boolean {
+	const result = (input.result ?? "").toLowerCase();
+	const errorText =
+		`${input.errorCode ?? ""} ${input.errorMessage ?? ""}`.toLowerCase();
+	return (
+		result === "requeued" &&
+		(errorText.includes("cap_exceeded") ||
+			errorText.includes("cap_zero") ||
+			errorText.includes("daily_cap") ||
+			errorText.includes("warmup_cap") ||
+			errorText.includes("held_cap") ||
+			errorText.includes("performance_recommended_cap") ||
+			errorText.includes("reduced_cap") ||
+			errorText.includes("stale_warmup_cap"))
+	);
+}
+
 function isSystemClaimFailure(
 	input: PublishAttemptHealthClassificationInput,
 ): boolean {
@@ -77,6 +96,7 @@ export function isPublishAttemptFailureForAccountHealth(
 ): boolean {
 	const result = (input.result ?? "").toLowerCase();
 	if (isActiveWindowRequeue(input)) return false;
+	if (isCapacityControlRequeue(input)) return false;
 	if (isSystemClaimFailure(input)) return false;
 	if (isMetaTransientUnknownError(input)) return false;
 	return (
