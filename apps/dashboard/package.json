@@ -24,7 +24,7 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:public": "playwright test --project=public",
-    "test:visual": "npm run build-storybook && npx playwright test e2e/visual-regression.spec.ts",
+    "test:visual": "npm run build-storybook && (python3 -m http.server 6006 --directory storybook-static >/tmp/juno33-storybook.log 2>&1 & STORYBOOK_PID=$!; for i in $(seq 1 30); do curl -sf http://127.0.0.1:6006 >/dev/null && break; sleep 1; done; npx playwright test --project=storybook; STATUS=$?; kill $STORYBOOK_PID 2>/dev/null || true; exit $STATUS)",
     "ai:eval": "promptfoo eval -c promptfoo/content-classifier/promptfooconfig.yaml",
     "ai:eval:golden": "vitest run tests/unit/ai-golden-evals.test.ts",
     "test:perf": "npm run build && lhci autorun",

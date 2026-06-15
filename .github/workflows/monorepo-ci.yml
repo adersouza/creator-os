@@ -45,6 +45,21 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+  visual-regression:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/dashboard exec playwright install chromium
+      - run: pnpm test:visual
+
   python:
     runs-on: macos-latest
     steps:
@@ -65,9 +80,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git diff --check
-      - name: Reject runtime artifacts in git
-        run: |
-          if git ls-files | grep -E '(^|/)(node_modules|\.venv|\.next|dist|build|coverage|output|uploads|campaigns|models|graphify-out)/|\.(mp4|mov|sqlite|sqlite-shm|sqlite-wal|db)$'; then
-            echo "Runtime artifacts must not be tracked."
-            exit 1
-          fi
+      - run: bash scripts/check-runtime-artifacts.sh
