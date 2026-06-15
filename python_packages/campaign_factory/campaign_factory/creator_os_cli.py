@@ -356,6 +356,8 @@ def main() -> int:
     sub.add_parser("creator-os-9.5-readiness-report")
     sub.add_parser("creator-os-10.0-readiness-report")
     sub.add_parser("creator-os-live-100-account-readiness")
+    readiness_50 = sub.add_parser("50-account-readiness")
+    readiness_50.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
     live_acceptance = sub.add_parser("creator-os-live-account-acceptance")
     live_acceptance.add_argument("--account-target", type=int, default=10)
     live_acceptance.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
@@ -1032,6 +1034,9 @@ def main() -> int:
             return 0
         if args.cmd == "creator-os-live-100-account-readiness":
             print_json(cf.creator_os_live_100_account_readiness())
+            return 0
+        if args.cmd == "50-account-readiness":
+            print_json(cf.creator_os_50_account_readiness(content_surface=args.content_surface))
             return 0
         if args.cmd == "creator-os-live-account-acceptance":
             print_json(cf.creator_os_live_account_acceptance(account_target=args.account_target, content_surface=args.content_surface))
