@@ -1114,7 +1114,19 @@ def update_output_review(filename: str, body: dict = Body(...)):
     state = body.get("review_state", "draft")
     manifest = _manifest()
     try:
-        found = manifest.set_review_state(filename, state)
+        found = manifest.record_review_decision(
+            filename,
+            state,
+            reviewer=str(body.get("reviewer") or body.get("operator") or "operator"),
+            reason=str(body.get("reason") or ""),
+            deck_id=body.get("deckId") or body.get("deck_id"),
+            reference_hash=body.get("referenceHash") or body.get("reference_hash"),
+            generated_asset_hash=body.get("generatedAssetHash") or body.get("generated_asset_hash"),
+            soul_id=body.get("soulId") or body.get("soul_id"),
+            aspect_ratio=body.get("aspectRatio") or body.get("aspect_ratio"),
+            visual_qc_status=body.get("visualQcStatus") or body.get("visual_qc_status"),
+            identity_verification_status=body.get("identityVerificationStatus") or body.get("identity_verification_status"),
+        )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not found:
@@ -1872,8 +1884,8 @@ def batch_output_review(body: dict = Body(...)):
     hook = body.get("hook")
     recipe = body.get("recipe")
     stem = body.get("stem")
-    if state not in {"draft", "approved", "rejected"}:
-        raise HTTPException(400, "review_state must be draft, approved, or rejected")
+    if state not in {"draft", "maybe", "approved", "rejected"}:
+        raise HTTPException(400, "review_state must be draft, maybe, approved, or rejected")
     if not filenames:
         clip = get_clip(_safe_stem(stem)) if stem else None
         if clip:
@@ -1886,7 +1898,13 @@ def batch_output_review(body: dict = Body(...)):
     manifest = _manifest()
     changed = 0
     for filename in filenames:
-        if manifest.set_review_state(str(filename), state):
+        if manifest.record_review_decision(
+            str(filename),
+            state,
+            reviewer=str(body.get("reviewer") or body.get("operator") or "operator"),
+            reason=str(body.get("reason") or ""),
+            deck_id=body.get("deckId") or body.get("deck_id"),
+        ):
             changed += 1
     manifest.save()
     return {"ok": True, "changed": changed, "review_state": state}

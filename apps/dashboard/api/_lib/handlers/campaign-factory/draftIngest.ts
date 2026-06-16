@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { apiError, apiSuccess, methodNotAllowed } from "../../apiResponse.js";
 import { normalizeIGMediaType } from "../../instagram/shared.js";
+import { getSupabaseAny } from "../../supabase.js";
 import {
 	campaignFactoryAssetStateAllowsExport,
 	explainCampaignFactoryPublishability,
@@ -20,7 +21,9 @@ type IngestValidationItem = {
 	warnings: string[];
 	contentSurface: string;
 	igMediaType: string;
-	wouldWrite: false;
+	wouldWrite: boolean;
+	postId?: string;
+	writeAction?: "validated" | "inserted" | "updated";
 };
 
 export type CampaignFactoryDraftIngestResult = {
@@ -31,7 +34,18 @@ export type CampaignFactoryDraftIngestResult = {
 	rejectedDrafts: number;
 	items: IngestValidationItem[];
 	contractErrors: string[];
-	wouldWrite: false;
+	wouldWrite: boolean;
+	dryRun: boolean;
+	writtenDrafts: number;
+	postIds: string[];
+};
+
+type SupabaseLike = {
+	from: (table: string) => {
+		select: (columns?: string) => unknown;
+		insert: (row: Record<string, unknown>) => unknown;
+		update: (row: Record<string, unknown>) => unknown;
+	};
 };
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -96,6 +110,18 @@ function hasExplicitInstagramPostCaption(
 			manifest?.instagram_post_caption,
 			manifest?.instagramPostCaption,
 		),
+	);
+}
+
+function instagramPostCaption(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string {
+	return firstString(
+		campaignFactory.instagram_post_caption,
+		campaignFactory.instagramPostCaption,
+		manifest?.instagram_post_caption,
+		manifest?.instagramPostCaption,
 	);
 }
 
@@ -176,6 +202,36 @@ function mediaCount(draft: DraftRecord, manifest: Record<string, unknown> | null
 	const manifestItems = manifest?.mediaItems || manifest?.media_items;
 	if (Array.isArray(manifestItems)) return manifestItems.length;
 	return 0;
+}
+
+function mediaUrls(draft: DraftRecord, manifest: Record<string, unknown> | null): string[] {
+	const urls: string[] = [];
+	for (const value of [draft.media, draft.mediaItems, draft.media_urls, manifest?.mediaItems, manifest?.media_items]) {
+		if (!Array.isArray(value)) continue;
+		for (const item of value) {
+			if (typeof item === "string" && item.trim()) {
+				urls.push(item.trim());
+			} else if (item && typeof item === "object") {
+				const record = item as Record<string, unknown>;
+				const url = firstString(record.url, record.publicUrl, record.public_url, record.file_url, record.storage_url);
+				if (url) urls.push(url);
+			}
+		}
+	}
+	return [...new Set(urls)];
+}
+
+function bodyDryRun(value: unknown): boolean {
+	const envelope = recordValue(value);
+	return envelope?.dryRun === false ? false : true;
+}
+
+function ingestSecretFromRequest(req: VercelRequest): string {
+	const header = req.headers["x-campaign-factory-ingest-secret"];
+	if (typeof header === "string" && header.trim()) return header.trim();
+	const authorization = req.headers.authorization;
+	const match = typeof authorization === "string" ? authorization.match(/^Bearer\s+(.+)$/i) : null;
+	return match?.[1]?.trim() || "";
 }
 
 function validateReelDraft(
@@ -311,6 +367,7 @@ export function validateCampaignFactoryDraftIngest(value: unknown): CampaignFact
 			contentSurface,
 			igMediaType,
 			wouldWrite: false,
+			writeAction: "validated",
 		});
 	}
 
@@ -323,6 +380,187 @@ export function validateCampaignFactoryDraftIngest(value: unknown): CampaignFact
 		items,
 		contractErrors,
 		wouldWrite: false,
+		dryRun: true,
+		writtenDrafts: 0,
+		postIds: [],
+	};
+}
+
+function postKeyForDraft(
+	draft: DraftRecord,
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string {
+	return firstString(
+		draft.campaignFactoryPostKey,
+		draft.campaign_factory_post_key,
+		campaignFactory.post_key,
+		campaignFactory.draft_key,
+		campaignFactory.rendered_asset_id,
+		campaignFactory.asset_id,
+		manifest?.asset_id,
+		manifest?.rendered_asset_id,
+	);
+}
+
+function userIdForDraft(envelope: Record<string, unknown>, draft: DraftRecord): string {
+	return firstString(draft.userId, draft.user_id, envelope.userId, envelope.user_id);
+}
+
+function draftPostRow(
+	envelope: Record<string, unknown>,
+	draft: DraftRecord,
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): { row: Record<string, unknown>; postKey: string } {
+	const postKey = postKeyForDraft(draft, campaignFactory, manifest);
+	const userId = userIdForDraft(envelope, draft);
+	if (!userId) throw new Error("user_id_missing_for_write");
+	if (!postKey) throw new Error("campaign_factory_post_key_missing_for_write");
+	const contentSurface = normalizeContentSurface(
+		draft.content_surface,
+		draft.contentSurface,
+		campaignFactory.content_surface,
+		campaignFactory.contentSurface,
+		manifest?.content_surface,
+		manifest?.contentSurface,
+	);
+	const igMediaType = normalizeIGMediaType(
+		firstString(
+			draft.ig_media_type,
+			draft.igMediaType,
+			draft.media_type,
+			campaignFactory.ig_media_type,
+			campaignFactory.igMediaType,
+			manifest?.ig_media_type,
+			manifest?.igMediaType,
+		),
+	);
+	const metadata = recordValue(draft.metadata) || {};
+	const urls = mediaUrls(draft, manifest);
+	return {
+		postKey,
+		row: {
+			user_id: userId,
+			account_id: firstString(draft.accountId, draft.account_id) || null,
+			instagram_account_id: firstString(draft.instagramAccountId, draft.instagram_account_id) || null,
+			platform: "instagram",
+			content: instagramPostCaption(campaignFactory, manifest),
+			media_urls: urls,
+			media_type: contentSurface === "reel" ? "video" : "image",
+			ig_media_type: igMediaType,
+			content_surface: contentSurface,
+			status: "draft",
+			hashtags: Array.isArray(draft.hashtags) ? draft.hashtags : Array.isArray(draft.topics) ? draft.topics : [],
+			source: "campaign_factory",
+			metadata,
+			scheduled_for: null,
+			campaign_factory_asset_id: firstString(campaignFactory.rendered_asset_id, campaignFactory.asset_id),
+			campaign_factory_distribution_plan_id: firstString(campaignFactory.distribution_plan_id, draft.distributionPlanId),
+			campaign_factory_post_key: postKey,
+			campaign_factory_content_fingerprint: firstString(campaignFactory.content_fingerprint, campaignFactory.contentFingerprint),
+			campaign_factory_caption_hash: firstString(campaignFactory.caption_hash, draft.captionHash),
+			campaign_factory_concept_id: firstString(campaignFactory.concept_id, campaignFactory.conceptId) || null,
+			campaign_factory_parent_asset_id: firstString(campaignFactory.parent_asset_id, campaignFactory.parentAssetId) || null,
+			campaign_factory_variant_family_id: firstString(campaignFactory.variant_family_id, campaignFactory.variantFamilyId) || null,
+			campaign_factory_variant_id: firstString(campaignFactory.variant_id, campaignFactory.variantId) || null,
+			platform_draft_validated: true,
+		},
+	};
+}
+
+async function maybeSingle<T>(query: unknown): Promise<{ data: T | null; error?: { message?: string } | null }> {
+	const q = query as {
+		eq?: (column: string, value: unknown) => unknown;
+		maybeSingle?: () => Promise<{ data: T | null; error?: { message?: string } | null }>;
+	};
+	if (!q.maybeSingle) return { data: null, error: null };
+	const result = await q.maybeSingle();
+	return result || { data: null, error: null };
+}
+
+async function selectExistingPost(
+	db: SupabaseLike,
+	userId: string,
+	postKey: string,
+): Promise<Record<string, unknown> | null> {
+	const query = db.from("posts").select("id,status,campaign_factory_post_key,user_id") as {
+		eq?: (column: string, value: unknown) => unknown;
+	};
+	let chained: unknown = query;
+	if (query.eq) chained = query.eq("user_id", userId);
+	if ((chained as { eq?: (column: string, value: unknown) => unknown }).eq) {
+		chained = (chained as { eq: (column: string, value: unknown) => unknown }).eq("campaign_factory_post_key", postKey);
+	}
+	const result = await maybeSingle<Record<string, unknown>>(chained);
+	if (result.error) throw new Error(result.error.message || "campaign_factory_ingest_select_failed");
+	return result.data;
+}
+
+async function mutatePost(
+	db: SupabaseLike,
+	existing: Record<string, unknown> | null,
+	row: Record<string, unknown>,
+): Promise<{ id: string; action: "inserted" | "updated" }> {
+	if (existing?.id) {
+		const query = db.from("posts").update(row) as {
+			eq?: (column: string, value: unknown) => unknown;
+			select?: (columns?: string) => unknown;
+		};
+		let chained: unknown = query;
+		if (query.eq) chained = query.eq("id", existing.id);
+		if ((chained as { select?: (columns?: string) => unknown }).select) {
+			chained = (chained as { select: (columns?: string) => unknown }).select("id");
+		}
+		const result = await maybeSingle<Record<string, unknown>>(chained);
+		if (result.error) throw new Error(result.error.message || "campaign_factory_ingest_update_failed");
+		return { id: String(result.data?.id || existing.id), action: "updated" };
+	}
+	const query = db.from("posts").insert(row) as {
+		select?: (columns?: string) => unknown;
+	};
+	let chained: unknown = query;
+	if (query.select) chained = query.select("id");
+	const result = await maybeSingle<Record<string, unknown>>(chained);
+	if (result.error) throw new Error(result.error.message || "campaign_factory_ingest_insert_failed");
+	return { id: String(result.data?.id || ""), action: "inserted" };
+}
+
+export async function writeCampaignFactoryDraftIngest(
+	value: unknown,
+	db: SupabaseLike = getSupabaseAny(),
+): Promise<CampaignFactoryDraftIngestResult> {
+	const validation = validateCampaignFactoryDraftIngest(value);
+	if (!validation.ok) return validation;
+	const envelope = recordValue(value) || {};
+	const drafts = Array.isArray(envelope.drafts) ? (envelope.drafts as unknown[]) : [];
+	const items: IngestValidationItem[] = [];
+	const postIds: string[] = [];
+	for (const [index, rawDraft] of drafts.entries()) {
+		const draft = recordValue(rawDraft) || {};
+		const campaignFactory = draftCampaignFactory(draft);
+		if (!campaignFactory) throw new Error("campaign_factory_metadata_missing");
+		const manifest = handoffManifest(campaignFactory);
+		const { row, postKey } = draftPostRow(envelope, draft, campaignFactory, manifest);
+		const existing = await selectExistingPost(db, String(row.user_id), postKey);
+		const mutation = await mutatePost(db, existing, row);
+		const validationItem = validation.items[index];
+		if (!validationItem) throw new Error("campaign_factory_validation_item_missing");
+		postIds.push(mutation.id);
+		items.push({
+			...validationItem,
+			wouldWrite: true,
+			postId: mutation.id,
+			writeAction: mutation.action,
+		});
+	}
+	return {
+		...validation,
+		items,
+		wouldWrite: true,
+		dryRun: false,
+		writtenDrafts: items.length,
+		postIds,
 	};
 }
 
@@ -331,7 +569,23 @@ export default async function handleCampaignFactoryDraftIngest(
 	res: VercelResponse,
 ): Promise<VercelResponse> {
 	if (req.method !== "POST") return methodNotAllowed(res);
-	const result = validateCampaignFactoryDraftIngest(req.body);
+	const dryRun = bodyDryRun(req.body);
+	if (!dryRun) {
+		const expected = stringValue(process.env.CAMPAIGN_FACTORY_INGEST_SECRET);
+		if (!expected) {
+			return apiError(res, 503, "Campaign Factory ingest writes are not configured", {
+				code: "CAMPAIGN_FACTORY_INGEST_SECRET_MISSING",
+			});
+		}
+		if (ingestSecretFromRequest(req) !== expected) {
+			return apiError(res, 401, "Campaign Factory ingest secret is invalid", {
+				code: "CAMPAIGN_FACTORY_INGEST_UNAUTHORIZED",
+			});
+		}
+	}
+	const result = dryRun
+		? validateCampaignFactoryDraftIngest(req.body)
+		: await writeCampaignFactoryDraftIngest(req.body);
 	if (!result.ok) {
 		return apiError(res, 422, "Campaign Factory draft ingest validation failed", {
 			code: "CAMPAIGN_FACTORY_DRAFT_INGEST_REJECTED",
