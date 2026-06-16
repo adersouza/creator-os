@@ -4,6 +4,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-En63S4cQ0WuA9sfCMtavf1omSzkUEwP6Xv+H6YtXpkc=
+
 importers:
 
   .:
@@ -147,6 +149,9 @@ importers:
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.7)
+      es-toolkit:
+        specifier: 1.47.0
+        version: 1.47.0
       i18next-browser-languagedetector:
         specifier: ^8.2.0
         version: 8.2.1

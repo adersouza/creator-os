@@ -6,7 +6,7 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from .config import Settings, DEVELOPER_ROOT
+from .config import CREATOR_OS_ROOT, Settings
 
 
 def operator_control_check(
@@ -57,17 +57,21 @@ def operator_control_check(
         "blockingCount": len(blocking),
         "warningCount": len(warnings),
         "commands": {
-            "startContentForge": f"cd {settings.contentforge_root} && npm run dev -- -p 3100",
-            "startCampaignFactory": f"cd {settings.root} && python3 -m campaign_factory.cli serve --host 127.0.0.1 --port 8877",
-            "exportReferencePatterns": f"cd {settings.reference_factory_root} && python3 -m reference_factory.cli export-patterns --limit 300 --for-campaign-factory",
+            "startContentForge": f"{_run_script('contentforge')} dev -- -p 3100",
+            "startCampaignFactory": f"{_run_script('campaign-factory')} serve --host 127.0.0.1 --port 8877",
+            "exportReferencePatterns": f"{_run_script('reference-factory')} export-patterns --limit 300 --for-campaign-factory",
             "makeBatch": (
-                f"cd {settings.root} && python3 -m campaign_factory.cli make-batch "
+                f"{_run_script('campaign-factory')} make-batch "
                 "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
                 "--format auto --variant-count 20 --reference-pattern auto "
                 "--contentforge-base-url http://127.0.0.1:3100 --dry-run-export --user-id <user_id>"
             ),
         },
     }
+
+
+def _run_script(name: str) -> str:
+    return str(CREATOR_OS_ROOT / "scripts" / "run" / name)
 
 
 def _path_check(name: str, path: Path, *, required: bool) -> dict[str, Any]:

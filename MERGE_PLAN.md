@@ -321,3 +321,19 @@ For every actual merge, append:
 - Secret rotation and git-history purge.
 - 50/100/200 scale proof and QStash outage/reconciliation-drain proof.
 - Account graph certification.
+
+## PR Merge Records
+
+### creator-os PR #4 setup-uv v7
+
+- Repo: `creator-os`
+- PR: `#4`
+- Branch: `dependabot/github_actions/astral-sh/setup-uv-7`
+- Branch tip SHA: `82ce3ecc1b80347160c3945a025b88e9814640cd`
+- Pre-merge integration SHA: `6f5696e25a5c06a4f58bff95150e8e77e4b1f7ae`
+- Merge SHA: `be8b5ae00944e188e79ad5847a52de1d2811b078`
+- Rollback command: `git revert -m 1 be8b5ae00944e188e79ad5847a52de1d2811b078`
+- Ancestor proof command and result: `git merge-base --is-ancestor 82ce3ecc1b80347160c3945a025b88e9814640cd origin/main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - GitHub PR checks all green: `contracts`, `Dependency review`, `architecture`, `CodeQL (javascript-typescript)`, `CodeQL (python)`, `javascript`, `Secret scan`, `visual-regression`, `Trivy filesystem scan`, `python`, `hygiene`, `sbom`, `CodeQL`, and `Trivy`.
+  - PR diff is CI-only: `.github/workflows/monorepo-ci.yml` changes `astral-sh/setup-uv@v6` to `@v7`.
