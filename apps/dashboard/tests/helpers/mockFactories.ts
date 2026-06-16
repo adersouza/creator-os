@@ -52,7 +52,7 @@ export function createChainMock(finalValue: unknown) {
 	const chain: any = {};
 	const methods = [
 		"select", "eq", "in", "not", "or", "is", "gte", "lt", "lte",
-		"maybeSingle", "single", "limit", "order", "update", "insert",
+		"neq", "maybeSingle", "single", "limit", "order", "update", "insert",
 	];
 	for (const m of methods) {
 		if (m === "maybeSingle" || m === "single") {

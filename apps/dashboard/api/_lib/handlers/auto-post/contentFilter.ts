@@ -14,6 +14,7 @@
  */
 
 import { logger } from "../../logger.js";
+import { validateDiscoverabilitySafeContent } from "../../discoverabilitySafety.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -408,6 +409,11 @@ const STRUCTURAL_PATTERNS: { regex: RegExp; reason: string }[] = [
 		regex: /^(Reach|Conversion|Punch)\s*(Post|1|2|3)/i,
 		reason: "structural-category-label",
 	},
+	{
+		regex:
+			/^\s*(?:hot\s+take|unpopular\s+opinion|opinion|confession|asking\s+for\s+(?:a\s+)?friend)\s*:/i,
+		reason: "structural-formula-prefix",
+	},
 	...TAXONOMY_LABEL_PATTERNS.map((regex) => ({
 		regex,
 		reason: "structural-taxonomy-label",
@@ -444,6 +450,59 @@ const STRUCTURAL_PATTERNS: { regex: RegExp; reason: string }[] = [
 	// Voice Profile Engineering S3.3: semicolons never appear in casual social media
 	{ regex: /;/, reason: "structural-semicolon" },
 ];
+
+const SLOGAN_ENDINGS = [
+	"that's tuff",
+	"no cap",
+	"on god",
+	"fr fr",
+	"deadass",
+	"lowkey",
+	"trust",
+	"bruh",
+	"based",
+	"sheesh",
+	"haha",
+	"tbh",
+	"ngl",
+	"lol",
+	"rn",
+	"fr",
+];
+
+function normalizeSlangTail(content: string): string {
+	return content
+		.toLowerCase()
+		.replace(/[’]/g, "'")
+		.replace(/[^a-z0-9'\s]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function stackedSloganEnding(content: string): string | null {
+	let tail = normalizeSlangTail(content);
+	const matches: string[] = [];
+	let matched = true;
+	while (matched && tail.length > 0) {
+		matched = false;
+		for (const phrase of SLOGAN_ENDINGS) {
+			if (tail === phrase || tail.endsWith(` ${phrase}`)) {
+				matches.push(phrase);
+				tail =
+					tail === phrase
+						? ""
+						: tail.slice(0, tail.length - phrase.length).trimEnd();
+				matched = true;
+				break;
+			}
+		}
+	}
+	const unique = new Set(matches);
+	if (matches.length >= 3 || unique.size < matches.length) {
+		return matches.reverse().join(" ");
+	}
+	return null;
+}
 
 // ---------------------------------------------------------------------------
 // ReDoS protection
@@ -740,6 +799,14 @@ export function filterContent(
 			const match = content.match(regex);
 			if (match) return { passed: false, reason, matchedText: match[0] };
 		}
+		const slangStack = stackedSloganEnding(content);
+		if (slangStack) {
+			return {
+				passed: false,
+				reason: "structural-stacked-slang-ending",
+				matchedText: slangStack,
+			};
+		}
 	}
 
 	// Safety blacklist — applies to ALL content (manual, AI, competitor)
@@ -754,6 +821,16 @@ export function filterContent(
 			reason: "safety-blacklist",
 			matchedText: safetyMatch[0],
 		};
+	}
+	if (!isManualPost) {
+		const discoverability = validateDiscoverabilitySafeContent(content);
+		if (!discoverability.discoverabilitySafe) {
+			return {
+				passed: false,
+				reason: discoverability.blockedReason,
+				matchedText: discoverability.blockedTerms[0]?.matchedText,
+			};
+		}
 	}
 
 	// Voice profile avoid_words — hard reject on match (applies to AI + competitor)

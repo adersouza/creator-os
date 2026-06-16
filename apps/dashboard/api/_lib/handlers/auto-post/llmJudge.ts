@@ -1,5 +1,5 @@
 /**
- * LLM Quality Judge — batched 5-dim Gemini judge for autoposter content.
+ * LLM Quality Judge — batched 5-dim provider-routed judge for autoposter content.
  *
  * Replaces the rolled-back regex scorer's hard floor with a richer pass.
  * Five dimensions, each scored 1–5:
@@ -12,20 +12,20 @@
  * Composite: weighted mean (hook 25, voice 25, safety 20, quality 15, novelty 15).
  * A score of 1 on safety vetoes regardless of composite (any safety risk fails).
  *
- * Pipeline contract: FAIL-OPEN. Any LLM error, schema mismatch, or timeout
- * returns `{ skipped: true, reason }` per post — the caller treats those as
- * passes so a degraded LLM never blocks the queue.
+ * Pipeline contract: the batch layer returns `{ skipped: true, reason }` for
+ * LLM/provider failures. The caller decides whether that is fail-open or
+ * fail-closed; the autoposter queue-fill path treats enabled judge skips as
+ * blocks.
  *
- * Batched in a single Gemini call so a fill of 20 candidates is one API hit
+ * Batched in a single provider call so a fill of 20 candidates is one API hit
  * instead of 20. Posts come in indexed; the judge returns an array preserving
  * order and length so the caller can zip results back to candidates safely.
  */
 
-import { GoogleGenAI } from "@google/genai";
-import { trackAICost } from "../../aiCostTracker.js";
 import { logger } from "../../logger.js";
 import { z } from "../../zodCompat.js";
 import type { Infer } from "../../zodCompat.js";
+import { generateWithProvider } from "./aiProviders.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -69,7 +69,9 @@ export type JudgeVerdict =
 
 export interface JudgeBatchOptions {
 	apiKey: string;
-	/** Default gemini-2.5-flash. Caller may override with a configured model. */
+	/** gemini, xai, openai, anthropic. Defaults to gemini for legacy callers. */
+	provider?: string | undefined;
+	/** Caller may override with a configured model. */
 	model?: string | undefined;
 	/** Composite threshold below which a post is rejected. 1.0–5.0. */
 	minScore: number;
@@ -83,6 +85,8 @@ export interface JudgeBatchOptions {
         		userId: string;
         		source: "user" | "env_fallback";
         	} | undefined;
+	workspaceId?: string | undefined;
+	groupId?: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +208,14 @@ export async function judgeBatch(
 
 	const {
 		apiKey,
-		model = "gemini-2.5-flash",
+		provider = "gemini",
+		model,
 		minScore,
 		voiceProfileHint,
 		timeoutMs = 20_000,
 		costAttribution,
+		workspaceId,
+		groupId,
 	} = options;
 
 	const skipAll = (reason: string): JudgeVerdict[] =>
@@ -221,11 +228,7 @@ export async function judgeBatch(
 	if (!apiKey) return skipAll("no_api_key");
 
 	let rawText: string;
-	let usage:
-		| { promptTokenCount?: number | undefined; candidatesTokenCount?: number | undefined }
-		| undefined;
 	try {
-		const client = new GoogleGenAI({ apiKey });
 		const prompt = buildJudgePrompt(candidates, voiceProfileHint);
 
 		// Capture the timeout handle so we can cancel it once the LLM
@@ -240,28 +243,65 @@ export async function judgeBatch(
 		});
 
 		try {
-			const response = await Promise.race([
-				client.models.generateContent({
+			const responseText = await Promise.race([
+				generateWithProvider(prompt, {
+					provider,
+					apiKey,
 					model,
-					contents: prompt,
-					config: {
-						maxOutputTokens: 1200,
-						temperature: 0.2,
-						thinkingConfig: { thinkingBudget: 0 },
-						responseMimeType: "application/json",
-					},
+					ideaCount: candidates.length,
+					allowProviderFallback: false,
+					useStructuredOutput: provider === "gemini",
+					structuredOutputSchema:
+						provider === "gemini"
+							? {
+									type: "OBJECT",
+									properties: {
+										verdicts: {
+											type: "ARRAY",
+											items: {
+												type: "OBJECT",
+												properties: {
+													i: { type: "INTEGER" },
+													hook: { type: "INTEGER" },
+													voice: { type: "INTEGER" },
+													safety: { type: "INTEGER" },
+													quality: { type: "INTEGER" },
+													novelty: { type: "INTEGER" },
+													rationale: { type: "STRING" },
+												},
+												required: [
+													"i",
+													"hook",
+													"voice",
+													"safety",
+													"quality",
+													"novelty",
+												],
+											},
+										},
+									},
+									required: ["verdicts"],
+								}
+							: undefined,
+					systemInstruction:
+						"You are a strict social-content quality judge. Return JSON only.",
+					actionLog: costAttribution
+						? {
+								userId: costAttribution.userId,
+								surface: "autopilot",
+								actionType: "autopost_judge",
+								metadata: {
+									workspaceId,
+									groupId,
+									provider,
+								},
+							}
+						: undefined,
+					keySource: costAttribution?.source,
 				}),
 				timeoutPromise,
 			]);
-			rawText = (response.text || "").trim();
-			usage = (
-				response as {
-					usageMetadata?: {
-                        						promptTokenCount?: number | undefined;
-                        						candidatesTokenCount?: number | undefined;
-                        					} | undefined;
-				}
-			).usageMetadata;
+			rawText = (responseText || "").trim();
 		} finally {
 			if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
 		}
@@ -272,7 +312,8 @@ export async function judgeBatch(
 			err instanceof Error && err.message === "judge_timeout"
 				? "timeout"
 				: "llm_error";
-		logger.warn("[llmJudge] LLM call failed — failing open", {
+		logger.warn("[llmJudge] LLM call failed", {
+			provider,
 			reason,
 			error: err instanceof Error ? err.message : String(err),
 			batchSize: candidates.length,
@@ -301,26 +342,6 @@ export async function judgeBatch(
 			preview: rawText.slice(0, 200),
 		});
 		return skipAll("schema_error");
-	}
-
-	// Attribute Gemini token cost to the user once the response is confirmed
-	// usable. Skipped batches (no LLM call) and degraded batches (parse/schema
-	// failures handled above) deliberately do not bill.
-	if (costAttribution && usage) {
-		try {
-			await trackAICost(
-				costAttribution.userId,
-				usage.promptTokenCount ?? 0,
-				usage.candidatesTokenCount ?? 0,
-				model,
-				"autopost_judge",
-				costAttribution.source,
-			);
-		} catch (err) {
-			logger.debug("[llmJudge] Cost tracking failed (non-blocking)", {
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
 	}
 
 	const byIndex = new Map<number, VerdictItem>();

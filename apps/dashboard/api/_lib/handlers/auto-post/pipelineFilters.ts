@@ -356,9 +356,10 @@ export interface LLMJudgePhaseConfig {
 	enabled: boolean;
 	apiKey: string;
 	minScore: number;
+	provider?: string | undefined;
 	model?: string | undefined;
 	voiceProfileHint?: string | undefined;
-	/** When set, judge attributes Gemini token cost to this user. */
+	/** When set, judge attributes token cost to this user. */
 	costAttribution?:
 		| {
 				userId: string;
@@ -370,13 +371,13 @@ export interface LLMJudgePhaseConfig {
 
 /**
  * Run the optional LLM judge between fast filter and embedding dedup. The
- * judge scores phase-1 survivors on five dimensions in a single Gemini call.
+ * judge scores phase-1 survivors on five dimensions in a single provider call.
  * Posts below threshold (or vetoed on safety) move to `auto_post_queue` with
  * `status='rejected'`; passing posts get their judge result stamped onto
  * `metadata.judge` so a future eval harness can replay decisions.
  *
- * Fail-open: any judge skip is treated as a pass — the pipeline never blocks
- * on a degraded judge.
+ * Fail-closed when enabled: any judge skip/error is rejected. Disabled judge
+ * still skips this phase cleanly before reaching this function.
  */
 export async function runLLMJudgePhase(
 	filterSurvivors: FilterSurvivor[],
@@ -399,10 +400,13 @@ export async function runLLMJudgePhase(
 
 	const judgeOpts: JudgeBatchOptions = {
 		apiKey: judgeConfig.apiKey,
+		provider: judgeConfig.provider,
 		model: judgeConfig.model,
 		minScore: judgeConfig.minScore,
 		voiceProfileHint: judgeConfig.voiceProfileHint,
 		costAttribution: judgeConfig.costAttribution,
+		workspaceId,
+		groupId,
 	};
 
 	const verdicts = await judgeBatch(candidates, judgeOpts);
@@ -419,13 +423,41 @@ export async function runLLMJudgePhase(
 		const survivor = filterSurvivors[i];
 		const verdict = verdicts[i] as JudgeVerdict | undefined;
 
-		// Missing or skipped → pass through (fail-open).
+		// Missing or skipped while enabled → reject (fail-closed).
 		if (!verdict || "skipped" in verdict) {
 			skippedCount++;
 			const reason =
 				verdict && "skipped" in verdict ? verdict.reason : "missing_verdict";
 			skippedReasons[reason] = (skippedReasons[reason] ?? 0) + 1;
-			survivors.push(survivor!);
+			rejectedCount++;
+			const rejectReason = `judge:${reason}`;
+			rejectionReasons[rejectReason] =
+				(rejectionReasons[rejectReason] || 0) + 1;
+			try {
+				await dbClient.from("auto_post_queue").insert({
+					workspace_id: workspaceId,
+					content: survivor!.idea.content,
+					status: "rejected",
+					rejection_reason: `${rejectReason} (fail_closed=true)`,
+					source_type: "ai",
+					scheduled_for: new Date().toISOString(),
+					metadata: {
+						judge: {
+							skipped: true,
+							reason,
+							fail_closed: true,
+						},
+					},
+					...(groupId ? { group_id: groupId } : {}),
+				});
+			} catch (err) {
+				logger.debug(
+					"[pipelineFilters] Judge fail-closed rejection insert failed (non-blocking)",
+					{
+						error: err instanceof Error ? err.message : String(err),
+					},
+				);
+			}
 			continue;
 		}
 

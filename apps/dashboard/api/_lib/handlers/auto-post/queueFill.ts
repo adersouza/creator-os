@@ -33,6 +33,7 @@ import {
 	recycleEvergreenPosts,
 } from "./evergreenManager.js";
 import { isAutoposterHardDisabled } from "./killSwitch.js";
+import { deriveAutoposterRuntimeMode } from "./controlPlane.js";
 import { evaluateCompetitorDirectMicrocopy } from "./microcopyPolicy.js";
 import { isLLMJudgeCircuitOpen } from "./llmJudgeCircuitBreaker.js";
 import {
@@ -426,6 +427,24 @@ export async function checkAndFillQueueWithAI(
 			groupId,
 		});
 		return { filled: false, count: 0, reason: "autoposter_hard_disabled" };
+	}
+
+	const runtimeMode = deriveAutoposterRuntimeMode({
+		is_enabled: config.is_enabled !== false,
+		group_mode_enabled: config.group_mode_enabled !== false,
+		enable_ai_queue_fill: Boolean(config.enable_ai_queue_fill),
+		hard_disabled: false,
+	});
+	if (runtimeMode === "paused" || runtimeMode === "group_mode_disabled") {
+		logger.info("AI queue fill: autoposter runtime disabled", {
+			workspaceId,
+			groupId,
+			runtimeMode,
+			isEnabled: config.is_enabled,
+			groupModeEnabled: config.group_mode_enabled,
+			enableAiQueueFill: config.enable_ai_queue_fill,
+		});
+		return { filled: false, count: 0, reason: runtimeMode };
 	}
 
 	logger.info("checkAndFillQueueWithAI", {
@@ -1737,28 +1756,17 @@ async function _checkAndFillQueueWithAIInner(
 	);
 
 	// Phase 1.5: Optional LLM judge (off by default; enabled per group via
-	// auto_post_group_config.llm_judge_enabled). Fail-open by design.
-	// The judge is Gemini-only — passing an xAI key to GoogleGenAI would 401
-	// and silently no-op (fail-open returns "skipped"). Gate explicitly so
-	// the user sees a warning instead of getting nothing back.
+	// auto_post_group_config.llm_judge_enabled). When enabled, provider errors
+	// fail closed inside runLLMJudgePhase so a degraded judge cannot silently
+	// pass candidates.
 	const judgeRequested = groupConfig?.llm_judge_enabled === true;
-	const judgeRunnable = judgeRequested && aiConfig.provider === "gemini";
-	if (judgeRequested && !judgeRunnable) {
-		logger.warn(
-			"[queueFill] llm_judge_enabled=true but provider is not gemini — judge phase skipped",
-			{
-				workspaceId,
-				groupId,
-				provider: aiConfig.provider,
-			},
-		);
-	}
-	const phase1Judged = judgeRunnable
+	const phase1Judged = judgeRequested
 		? await runLLMJudgePhase(
 				phase1.survivors,
 				{
 					enabled: true,
 					apiKey: aiConfig.apiKey,
+					provider: aiConfig.provider,
 					minScore: groupConfig?.llm_judge_min_score ?? 3.0,
 					model: aiConfig.model,
 					voiceProfileHint: voiceProfile?.voice_profile,
