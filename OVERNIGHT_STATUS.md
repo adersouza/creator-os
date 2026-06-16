@@ -1,5 +1,18 @@
 # Overnight Status - 2026-06-16
 
+## Monorepo CI Remediation - 2026-06-16
+
+Scope: fixed the two non-secret failing jobs from Creator OS Monorepo CI on `main@584f8e96f0c5626e4976e18fd858f9f7acb8dead`; `mirror-parity` secret setup remains owner-owned.
+
+- `dashboard-build-provenance`: fixed in monorepo workspace config, not the generated TD mirror. Added a `juno33@*` `packageExtensions` entry for `es-toolkit@1.47.0` in `pnpm-workspace.yaml` and regenerated `pnpm-lock.yaml`, which makes `apps/dashboard/node_modules/es-toolkit` resolve for the existing read-only `recharts-compat` shim.
+- `javascript` / ContentForge: fixed in split source repo first. `contentforge/main@6affefd2cca96c2eaca81e433d0621a8919f02bf` hardens the compression warning route test so CI-specific compression helper availability still requires a compression warning while `compression_gop_review` remains required when failed GOP findings exist. Pushed source commit to `origin/main`; `git merge-base --is-ancestor 6affefd origin/main` returned `0`.
+- Creator-os mirror sync: `node scripts/sync/mirror-sync.mjs --update --only apps/contentforge` re-pinned `apps/contentforge` from `47e1293ce35175ba0082a78de5f091a73fab9226` to `6affefd2cca96c2eaca81e433d0621a8919f02bf`.
+
+Local evidence before creator-os commit:
+
+- `contentforge`: `git diff --check` pass; `npm test` pass: 81 passed; `graphify update .` pass with no topology changes.
+- `creator-os`: `pnpm install --frozen-lockfile` pass; `pnpm --filter contentforge test` pass: 81 passed; `pnpm --filter juno33 test` pass: 360 files passed, 1 skipped; 4711 passed, 1 skipped, 3 todo; `pnpm --filter juno33 typecheck` pass; `pnpm --filter juno33 build` pass; `pnpm check:mirror-parity` pass after removing ignored test-generated mirror fixture files; `git diff --check` pass.
+
 ## Step 0 Inventory
 
 `git fetch --all` completed in all seven sibling repos before implementation edits in this resumed run:

@@ -47,7 +47,7 @@
       "mirrorPath": "apps/contentforge",
       "sourceRepoPath": "../contentforge",
       "sourceRepoUrl": "https://github.com/adersouza/contentforge.git",
-      "sourceCommit": "47e1293ce35175ba0082a78de5f091a73fab9226",
+      "sourceCommit": "6affefd2cca96c2eaca81e433d0621a8919f02bf",
       "include": [
         "**/*"
       ],
