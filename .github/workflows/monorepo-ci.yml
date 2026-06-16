@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - run: pnpm install --frozen-lockfile
       - run: uv sync --dev
       - run: pnpm check:arch
@@ -83,7 +83,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Install media tooling
         run: brew install ffmpeg tesseract
       - run: uv sync --all-extras --all-packages
@@ -139,7 +139,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - run: pnpm install --frozen-lockfile
       - name: Generate SBOMs
         run: |
