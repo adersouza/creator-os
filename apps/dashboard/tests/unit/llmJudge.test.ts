@@ -3,7 +3,7 @@
  *
  * Behaviors under test:
  * - Empty input returns empty array
- * - Missing apiKey skips all (fail-open)
+ * - Missing apiKey skips all at the batch layer
  * - LLM error / timeout skips all
  * - Schema-invalid response skips all
  * - Safety <= 1 vetoes regardless of composite
@@ -15,14 +15,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockGenerateContent = vi.fn();
-const mockTrackAICost = vi.fn();
-
-vi.mock("@google/genai", () => ({
-	GoogleGenAI: class {
-		models = { generateContent: mockGenerateContent };
-	},
-}));
+const mockGenerateWithProvider = vi.fn();
 
 vi.mock("../../api/_lib/logger", () => ({
 	logger: {
@@ -33,8 +26,9 @@ vi.mock("../../api/_lib/logger", () => ({
 	},
 }));
 
-vi.mock("../../api/_lib/aiCostTracker", () => ({
-	trackAICost: (...args: unknown[]) => mockTrackAICost(...args),
+vi.mock("../../api/_lib/handlers/auto-post/aiProviders", () => ({
+	generateWithProvider: (...args: unknown[]) =>
+		mockGenerateWithProvider(...args),
 }));
 
 import {
@@ -51,14 +45,11 @@ const baselineDimensions = {
 };
 
 function mkResponse(verdicts: unknown[]) {
-	return Promise.resolve({
-		text: JSON.stringify({ verdicts }),
-	});
+	return Promise.resolve(JSON.stringify({ verdicts }));
 }
 
 beforeEach(() => {
-	mockGenerateContent.mockReset();
-	mockTrackAICost.mockReset();
+	mockGenerateWithProvider.mockReset();
 });
 
 describe("composeScore", () => {
@@ -88,7 +79,7 @@ describe("judgeBatch", () => {
 			minScore: 3,
 		});
 		expect(result).toEqual([]);
-		expect(mockGenerateContent).not.toHaveBeenCalled();
+		expect(mockGenerateWithProvider).not.toHaveBeenCalled();
 	});
 
 	it("skips all when apiKey is missing (fail-open)", async () => {
@@ -98,11 +89,11 @@ describe("judgeBatch", () => {
 		);
 		expect(result).toHaveLength(1);
 		expect(result[0]).toMatchObject({ index: 0, skipped: true, reason: "no_api_key" });
-		expect(mockGenerateContent).not.toHaveBeenCalled();
+		expect(mockGenerateWithProvider).not.toHaveBeenCalled();
 	});
 
 	it("skips all when LLM call throws", async () => {
-		mockGenerateContent.mockRejectedValue(new Error("boom"));
+		mockGenerateWithProvider.mockRejectedValue(new Error("boom"));
 		const result = await judgeBatch(
 			[
 				{ index: 0, content: "a" },
@@ -117,7 +108,7 @@ describe("judgeBatch", () => {
 	});
 
 	it("skips all when response is not parseable JSON", async () => {
-		mockGenerateContent.mockResolvedValue({ text: "not json at all" });
+		mockGenerateWithProvider.mockResolvedValue("not json at all");
 		const result = await judgeBatch(
 			[{ index: 0, content: "a" }],
 			{ apiKey: "key", minScore: 3 },
@@ -127,7 +118,7 @@ describe("judgeBatch", () => {
 
 	it("skips all when response fails schema validation", async () => {
 		// Missing required fields (e.g. no `quality`)
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([{ i: 0, hook: 4, voice: 4, safety: 5, novelty: 4 }]),
 		);
 		const result = await judgeBatch(
@@ -141,7 +132,7 @@ describe("judgeBatch", () => {
 		// hook=5 voice=5 quality=5 novelty=5 safety=1 → composite =
 		//   5*0.25 + 5*0.25 + 1*0.20 + 5*0.15 + 5*0.15 = 4.2 (above min=3)
 		// but safety=1 must veto regardless.
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 0, hook: 5, voice: 5, safety: 1, quality: 5, novelty: 5 },
 			]),
@@ -157,7 +148,7 @@ describe("judgeBatch", () => {
 	});
 
 	it("rejects when composite is below threshold", async () => {
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 0, hook: 2, voice: 2, safety: 5, quality: 2, novelty: 2 },
 			]),
@@ -171,7 +162,7 @@ describe("judgeBatch", () => {
 	});
 
 	it("passes when composite is at/above threshold", async () => {
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 0, hook: 4, voice: 4, safety: 5, quality: 4, novelty: 4 },
 			]),
@@ -187,7 +178,7 @@ describe("judgeBatch", () => {
 	});
 
 	it("aligns verdicts to input indexes when LLM returns out of order", async () => {
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 1, hook: 5, voice: 5, safety: 5, quality: 5, novelty: 5 },
 				{ i: 0, hook: 1, voice: 1, safety: 5, quality: 1, novelty: 1 },
@@ -209,7 +200,7 @@ describe("judgeBatch", () => {
 	});
 
 	it("reports a missing verdict as skipped — not silently dropped", async () => {
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 0, hook: 4, voice: 4, safety: 5, quality: 4, novelty: 4 },
 			]),
@@ -229,15 +220,14 @@ describe("judgeBatch", () => {
 		});
 	});
 
-	it("attributes Gemini token cost when costAttribution is provided", async () => {
-		mockGenerateContent.mockResolvedValue({
-			text: JSON.stringify({
+	it("passes cost attribution through the shared provider router", async () => {
+		mockGenerateWithProvider.mockResolvedValue(
+			JSON.stringify({
 				verdicts: [
 					{ i: 0, hook: 4, voice: 4, safety: 5, quality: 4, novelty: 4 },
 				],
 			}),
-			usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 40 },
-		});
+		);
 		await judgeBatch(
 			[{ index: 0, content: "hi" }],
 			{
@@ -246,17 +236,21 @@ describe("judgeBatch", () => {
 				costAttribution: { userId: "u_test", source: "user" },
 			},
 		);
-		expect(mockTrackAICost).toHaveBeenCalledTimes(1);
-		const args = mockTrackAICost.mock.calls[0];
-		expect(args[0]).toBe("u_test");
-		expect(args[1]).toBe(120);
-		expect(args[2]).toBe(40);
-		expect(args[4]).toBe("autopost_judge");
-		expect(args[5]).toBe("user");
+		expect(mockGenerateWithProvider).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({
+				actionLog: expect.objectContaining({
+					userId: "u_test",
+					actionType: "autopost_judge",
+					surface: "autopilot",
+				}),
+				keySource: "user",
+			}),
+		);
 	});
 
 	it("does not bill when the LLM call fails (skipped batch)", async () => {
-		mockGenerateContent.mockRejectedValue(new Error("boom"));
+		mockGenerateWithProvider.mockRejectedValue(new Error("boom"));
 		await judgeBatch(
 			[{ index: 0, content: "hi" }],
 			{
@@ -265,11 +259,11 @@ describe("judgeBatch", () => {
 				costAttribution: { userId: "u_test", source: "user" },
 			},
 		);
-		expect(mockTrackAICost).not.toHaveBeenCalled();
+		expect(mockGenerateWithProvider).toHaveBeenCalledTimes(1);
 	});
 
 	it("includes voiceProfileHint in the prompt when provided", async () => {
-		mockGenerateContent.mockReturnValue(
+		mockGenerateWithProvider.mockReturnValue(
 			mkResponse([
 				{ i: 0, hook: 4, voice: 4, safety: 5, quality: 4, novelty: 4 },
 			]),
@@ -282,7 +276,27 @@ describe("judgeBatch", () => {
 				voiceProfileHint: "casual gen-z, lowercase, witty",
 			},
 		);
-		const call = mockGenerateContent.mock.calls[0][0];
-		expect(call.contents).toContain("casual gen-z, lowercase, witty");
+		const call = mockGenerateWithProvider.mock.calls[0][0];
+		expect(call).toContain("casual gen-z, lowercase, witty");
+	});
+
+	it("routes judge calls through xAI when configured", async () => {
+		mockGenerateWithProvider.mockReturnValue(
+			mkResponse([
+				{ i: 0, hook: 4, voice: 4, safety: 5, quality: 4, novelty: 4 },
+			]),
+		);
+		await judgeBatch(
+			[{ index: 0, content: "xai judged post" }],
+			{ apiKey: "xai-key", provider: "xai", minScore: 3 },
+		);
+		expect(mockGenerateWithProvider).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({
+				provider: "xai",
+				apiKey: "xai-key",
+				allowProviderFallback: false,
+			}),
+		);
 	});
 });

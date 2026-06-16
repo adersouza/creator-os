@@ -41,7 +41,10 @@ import { evaluateQueueProvenance } from "./provenanceGate.js";
 import {
 	buildPublishFingerprint,
 	findRecentDuplicateFingerprint,
+	findRecentMediaFingerprintAcrossAccounts,
 } from "./publishFingerprint.js";
+import { validateDiscoverabilitySafeContent } from "../../discoverabilitySafety.js";
+import { createAutopublishGatePassToken } from "./gatePassToken.js";
 import {
 	applyPerformanceBackedQualityGateLane,
 	type AIQualityGateResult,
@@ -63,7 +66,10 @@ import { getRemainingPostingCapacity } from "./warmupCapacity.js";
 
 const db = () => getSupabaseAny();
 const APPROVAL_SETTINGS_KEY = "autopilot_preferences";
-const DEFAULT_APPROVAL_THRESHOLD = 0;
+const DEFAULT_APPROVAL_THRESHOLD = 100;
+const PROVEN_ACCOUNT_MIN_FACTS = 12;
+const PROVEN_ACCOUNT_MIN_AVG_VIEWS_24H = 50;
+const PROVEN_ACCOUNT_MIN_ABOVE_100_RATE = 0.08;
 const RESTART_WARMUP_PRIMARY_HOURS = [6, 7, 11, 12, 13];
 
 export function canPerformanceBackedCloneBypassDnaReview(input: {
@@ -203,7 +209,9 @@ export interface InsertionContext {
 	strategyRecommendations?: StrategyRecommendation[] | undefined;
 }
 
-async function loadApprovalThresholdPercent(userId: string): Promise<number> {
+async function loadApprovalThresholdPercent(
+	userId: string,
+): Promise<{ threshold: number; explicit: boolean }> {
 	try {
 		const { data } = await db()
 			.from("user_settings")
@@ -213,18 +221,61 @@ async function loadApprovalThresholdPercent(userId: string): Promise<number> {
 			.maybeSingle();
 		const value = (data as { setting_value?: unknown } | null)?.setting_value;
 		if (!value || typeof value !== "object" || Array.isArray(value)) {
-			return DEFAULT_APPROVAL_THRESHOLD;
+			return { threshold: DEFAULT_APPROVAL_THRESHOLD, explicit: false };
 		}
 		const raw = (value as { threshold?: unknown }).threshold;
 		const threshold = typeof raw === "number" ? raw : Number(raw);
-		if (!Number.isFinite(threshold)) return DEFAULT_APPROVAL_THRESHOLD;
-		return Math.min(99, Math.max(50, Math.round(threshold)));
+		if (!Number.isFinite(threshold)) {
+			return { threshold: DEFAULT_APPROVAL_THRESHOLD, explicit: false };
+		}
+		return {
+			threshold: Math.min(99, Math.max(50, Math.round(threshold))),
+			explicit: true,
+		};
 	} catch (err) {
 		logger.warn("[scheduleAndInsert] Failed to load approval threshold", {
 			userId,
 			error: err instanceof Error ? err.message : String(err),
 		});
-		return DEFAULT_APPROVAL_THRESHOLD;
+		return { threshold: DEFAULT_APPROVAL_THRESHOLD, explicit: false };
+	}
+}
+
+async function loadAccountAutopublishProven(input: {
+	accountId: string | null | undefined;
+	platform: "threads" | "instagram";
+}): Promise<boolean> {
+	if (!input.accountId) return false;
+	try {
+		const { data, error } = await db()
+			.from("autoposter_post_performance_facts")
+			.select("views_24h")
+			.eq("account_id", input.accountId)
+			.eq("platform", input.platform)
+			.not("views_24h", "is", null)
+			.order("published_at", { ascending: false })
+			.limit(30);
+		if (error) throw error;
+		const rows = (data ?? []) as Array<{ views_24h?: number | null }>;
+		if (rows.length < PROVEN_ACCOUNT_MIN_FACTS) return false;
+		const views = rows
+			.map((row) => Number(row.views_24h ?? 0))
+			.filter((value) => Number.isFinite(value));
+		if (views.length < PROVEN_ACCOUNT_MIN_FACTS) return false;
+		const avg = views.reduce((sum, value) => sum + value, 0) / views.length;
+		const above100Rate =
+			views.filter((value) => value >= 100).length / views.length;
+		return (
+			avg >= PROVEN_ACCOUNT_MIN_AVG_VIEWS_24H ||
+			above100Rate >= PROVEN_ACCOUNT_MIN_ABOVE_100_RATE
+		);
+	} catch (err) {
+		logger.warn("[scheduleAndInsert] Failed to load account proof status", {
+			accountId: input.accountId,
+			platform: input.platform,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return false;
 	}
 }
 
@@ -777,7 +828,19 @@ export async function insertCandidatesIntoQueue(
 		competitorCopyRatio <= 0
 			? 0
 			: Math.max(1, Math.floor(ctx.maxInserts * competitorCopyRatio));
-	const approvalThreshold = await loadApprovalThresholdPercent(ctx.ownerId);
+	const approvalPolicy = await loadApprovalThresholdPercent(ctx.ownerId);
+	const accountProofCache = new Map<string, Promise<boolean>>();
+	const getAccountAutopublishProven = (accountId: string | null | undefined) => {
+		if (!accountId) return Promise.resolve(false);
+		const existing = accountProofCache.get(accountId);
+		if (existing) return existing;
+		const promise = loadAccountAutopublishProven({
+			accountId,
+			platform: ctx.targetPlatform,
+		});
+		accountProofCache.set(accountId, promise);
+		return promise;
+	};
 
 	// 30-day competitor cap — REMOVED: competitor content is the strategy,
 	// not a supplement. The per-competitor cap and intra-batch dedup in
@@ -1203,6 +1266,15 @@ export async function insertCandidatesIntoQueue(
 					duplicateWindowHours: fingerprint.duplicateWindowHours,
 				})
 			: null;
+		const crossAccountMediaDuplicate = plannedSlot?.accountId
+			? await findRecentMediaFingerprintAcrossAccounts({
+					workspaceId: ctx.workspaceId,
+					accountId: plannedSlot.accountId,
+					platform: ctx.targetPlatform,
+					mediaFingerprint: fingerprint.mediaFingerprint,
+					duplicateWindowHours: fingerprint.duplicateWindowHours,
+				})
+			: null;
 		const generationId =
 			ctx.fillCycleId ??
 			`generated:${ctx.workspaceId}:${fingerprint.normalizedTextHash.slice(0, 16)}`;
@@ -1535,6 +1607,7 @@ export async function insertCandidatesIntoQueue(
 			},
 			predictedViralScore: idea.viralScore ?? null,
 		});
+		const discoverability = validateDiscoverabilitySafeContent(finalQueueContent);
 		const dnaRequiresReview =
 			dnaEvaluation.decision === "needs_review" ||
 			dnaEvaluation.decision === "regenerate" ||
@@ -1550,15 +1623,28 @@ export async function insertCandidatesIntoQueue(
 				qualityGate,
 				winnerCloneFrameMismatch,
 				winnerCloneSourceTaxonomyLeak,
-				hasDuplicateMatch: Boolean(duplicateMatch),
+				hasDuplicateMatch:
+					Boolean(duplicateMatch) || Boolean(crossAccountMediaDuplicate),
 				hasMissingProvenance: provenanceCheck.decision === "missing",
 			});
+		const accountAutopublishProven =
+			approvalPolicy.explicit || !plannedSlot?.accountId
+				? true
+				: await getAccountAutopublishProven(plannedSlot.accountId);
+		const requiresDefaultAccountApproval =
+			!approvalPolicy.explicit && !accountAutopublishProven;
+		const approvalScoreThreshold = approvalPolicy.explicit
+			? approvalPolicy.threshold
+			: 0;
 
 		const requiresApproval =
-			(idea.viralScore ?? 0) < approvalThreshold ||
+			(idea.viralScore ?? 0) < approvalScoreThreshold ||
+			requiresDefaultAccountApproval ||
+			!discoverability.discoverabilitySafe ||
 			qualityGate?.decision === "needs_review" ||
 			Boolean(winnerCloneGuardReason) ||
 			Boolean(duplicateMatch) ||
+			Boolean(crossAccountMediaDuplicate) ||
 			provenanceCheck.decision === "missing" ||
 			(dnaRequiresReview && !bypassDnaReviewForPerformanceClone);
 		const missingPlannedReadyConstraints =
@@ -1593,8 +1679,14 @@ export async function insertCandidatesIntoQueue(
 					approval: {
 						reason: missingPlannedReadyConstraints
 							? "missing_planned_account_constraints"
-							: duplicateMatch
-								? "duplicate_fingerprint_needs_review"
+								: duplicateMatch
+									? "duplicate_fingerprint_needs_review"
+								: crossAccountMediaDuplicate
+									? "cross_account_media_reuse_blocked"
+								: !discoverability.discoverabilitySafe
+									? discoverability.blockedReason
+								: requiresDefaultAccountApproval
+									? "account_unproven_manual_review_required"
 								: provenanceCheck.decision === "missing"
 									? "provenance_missing_needs_review"
 									: dnaRequiresReview
@@ -1605,14 +1697,42 @@ export async function insertCandidatesIntoQueue(
 											? qualityGate.reason
 											: "below_confidence_threshold",
 						score: idea.viralScore ?? null,
-						threshold: approvalThreshold,
+						threshold: approvalScoreThreshold,
+						default_threshold: approvalPolicy.threshold,
+						explicit_threshold: approvalPolicy.explicit,
+						account_autopublish_proven: accountAutopublishProven,
+						proven_account_bar: {
+							minFacts: PROVEN_ACCOUNT_MIN_FACTS,
+							minAvgViews24h: PROVEN_ACCOUNT_MIN_AVG_VIEWS_24H,
+							minAbove100Rate: PROVEN_ACCOUNT_MIN_ABOVE_100_RATE,
+						},
 						quality_gate_decision: qualityGate?.decision ?? null,
+						discoverability_safe: discoverability.discoverabilitySafe,
+						discoverability_blocked_terms: discoverability.blockedTerms,
 						duplicate_queue_item_id: duplicateMatch?.id ?? null,
+						cross_account_media_duplicate_queue_item_id:
+							crossAccountMediaDuplicate?.id ?? null,
 						provenance_errors: provenanceCheck.reasons,
 						dna_reasons: dnaEvaluation.reasons,
 					},
 				}
 			: undefined;
+		const gatePassToken = createAutopublishGatePassToken({
+			content: finalQueueContent,
+			platform: ctx.targetPlatform,
+			sourceType,
+			contentFingerprint: fingerprint.normalizedTextHash,
+			publishFingerprint: fingerprint.publishFingerprint,
+			qualityGateDecision: qualityGate?.decision ?? null,
+			qualityGateReason: qualityGate?.reason ?? null,
+			provenanceStatus: provenanceCheck.status,
+			provenanceError:
+				provenanceCheck.reasons.length > 0
+					? provenanceCheck.reasons.join(",")
+					: null,
+			dnaDecision: dnaEvaluation.decision,
+			discoverability,
+		});
 		const dnaMeta = {
 			dna: {
 				decision: dnaEvaluation.decision,
@@ -1722,8 +1842,17 @@ export async function insertCandidatesIntoQueue(
 					: archetypeDecision.archetype,
 		};
 		const contentArcMeta = buildContentArcMetadata(contentArc);
+		const gatePassMeta = {
+			discoverability: {
+				safe: discoverability.discoverabilitySafe,
+				blockedReason: discoverability.blockedReason || null,
+				blockedTerms: discoverability.blockedTerms,
+			},
+			gate_pass: gatePassToken,
+		};
 		const finalMetadata =
 			metadata ||
+			gatePassMeta ||
 			approvalMeta ||
 			dnaMeta ||
 			archetypeMeta ||
@@ -1732,6 +1861,7 @@ export async function insertCandidatesIntoQueue(
 			timingMeta
 				? {
 						...(metadata ?? {}),
+						...gatePassMeta,
 						...dnaMeta,
 						...archetypeMeta,
 						...(contentArcMeta ?? {}),

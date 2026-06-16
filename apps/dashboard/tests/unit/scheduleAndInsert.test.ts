@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createChainMock } from "../helpers/mockFactories";
 import type { FilterSurvivor } from "../../api/_lib/handlers/auto-post/pipelineFilters";
 import type { InsertionContext } from "../../api/_lib/handlers/auto-post/scheduleAndInsert";
 
@@ -252,6 +253,12 @@ function setupDbMock(opts: {
 	const topPost = opts.topPost ?? null;
 
 	mockFrom.mockImplementation((table: string) => {
+		if (table === "user_settings") {
+			return createChainMock({
+				data: { setting_value: { threshold: 50 } },
+				error: null,
+			});
+		}
 		if (table === "auto_post_queue") {
 			return {
 				insert: vi.fn().mockReturnValue({
@@ -296,14 +303,7 @@ function setupDbMock(opts: {
 			};
 		}
 		// Fallback
-		return {
-			select: vi.fn().mockReturnThis(),
-			insert: vi.fn().mockReturnThis(),
-			update: vi.fn().mockReturnThis(),
-			eq: vi.fn().mockReturnThis(),
-			single: vi.fn().mockResolvedValue({ data: null, error: null }),
-			maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-		};
+		return createChainMock({ data: null, error: null });
 	});
 }
 
@@ -410,6 +410,12 @@ describe("scheduleAndInsert", () => {
 		it("sets source_type to 'ai' for non-competitor content", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -449,9 +455,67 @@ describe("scheduleAndInsert", () => {
 			expect(capturedInsertData!.group_id).toBe("grp-1");
 		});
 
+		it("routes brand-new unproven accounts to manual review by default", async () => {
+			let capturedInsertData: Record<string, unknown> | null = null;
+			mockFrom.mockImplementation((table: string) => {
+				if (table === "auto_post_queue") {
+					return {
+						insert: vi.fn().mockImplementation((data: unknown) => {
+							capturedInsertData = data as Record<string, unknown>;
+							return {
+								select: vi.fn().mockReturnValue({
+									single: vi.fn().mockResolvedValue({
+										data: { id: "q-new" },
+										error: null,
+									}),
+								}),
+							};
+						}),
+					};
+				}
+				if (table === "user_settings") {
+					return createChainMock({ data: null, error: null });
+				}
+				if (table === "autoposter_post_performance_facts") {
+					return {
+						select: vi.fn().mockReturnThis(),
+						eq: vi.fn().mockReturnThis(),
+						not: vi.fn().mockReturnThis(),
+						order: vi.fn().mockReturnThis(),
+						limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+					};
+				}
+				return createChainMock({ data: null, error: null });
+			});
+
+			await insertCandidatesIntoQueue(
+				[makeCandidate({ content: "would you date a girl who lifts?" })],
+				[makeSlot("brand-new-account")],
+				makeContext(),
+			);
+
+			expect(capturedInsertData).toMatchObject({
+				status: "needs_review",
+			});
+			expect(capturedInsertData!.metadata).toMatchObject({
+				approval: {
+					reason: "account_unproven_manual_review_required",
+					explicit_threshold: false,
+					account_autopublish_proven: false,
+				},
+			});
+			expect(mockQstashPublishJSON).not.toHaveBeenCalled();
+		});
+
 		it("stamps canonical timing, warm-up, and planned-account metadata on pool-mode Threads rows", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						select: vi.fn().mockReturnValue({
@@ -541,6 +605,12 @@ describe("scheduleAndInsert", () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			let collisionChecks = 0;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						select: vi.fn().mockReturnValue({
@@ -603,6 +673,12 @@ describe("scheduleAndInsert", () => {
 		it("does not insert a ready warm-up row when existing claimable rows already use the account cap", async () => {
 			let insertCalled = false;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					const chain: Record<string, any> = {};
 					for (const method of ["select", "eq", "in", "or", "gte", "lt"]) {
@@ -808,6 +884,12 @@ describe("scheduleAndInsert", () => {
 		it("sets source_type to 'competitor_copy' when sourceCompetitorId is present", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -855,6 +937,12 @@ describe("scheduleAndInsert", () => {
 		it("rejects taxonomy leakage before a row can become queued", async () => {
 			let insertCalled = false;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation(() => {
@@ -901,6 +989,12 @@ describe("scheduleAndInsert", () => {
 		it("assigns account_id from planned slot in legacy mode", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -940,6 +1034,12 @@ describe("scheduleAndInsert", () => {
 		it("sets pool_status='available' without account_id in pool mode (v3+)", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -979,6 +1079,12 @@ describe("scheduleAndInsert", () => {
 		it("includes ai_provider from context", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1017,6 +1123,12 @@ describe("scheduleAndInsert", () => {
 		it("routes quality-gate uncertainty to needs_review and does not dispatch QStash", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1090,6 +1202,12 @@ describe("scheduleAndInsert", () => {
 		it("stamps performance-backed quality gate lane metadata for proven winner clones", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1190,6 +1308,12 @@ describe("scheduleAndInsert", () => {
 		it("routes frame-mismatched winner clones to review instead of ready", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1285,6 +1409,12 @@ describe("scheduleAndInsert", () => {
 			it("attributes winner clone variations by clone family when source pattern id is missing", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1382,6 +1512,12 @@ describe("scheduleAndInsert", () => {
 			it("honors explicit winner-clone recommendation ids carried by generated ideas", async () => {
 				let capturedInsertData: Record<string, unknown> | null = null;
 				mockFrom.mockImplementation((table: string) => {
+					if (table === "user_settings") {
+						return createChainMock({
+							data: { setting_value: { threshold: 50 } },
+							error: null,
+						});
+					}
 					if (table === "auto_post_queue") {
 						return {
 							insert: vi.fn().mockImplementation((data: unknown) => {
@@ -1479,6 +1615,12 @@ describe("scheduleAndInsert", () => {
 			it("keeps duplicate fingerprint matches in review even with performance-backed lane", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					const duplicateQuery = {
 						eq: vi.fn().mockReturnThis(),
@@ -1750,6 +1892,12 @@ describe("scheduleAndInsert", () => {
 				lt: vi.fn().mockResolvedValue({ data: [], error: null }),
 			};
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						select: vi.fn().mockReturnValue(autoPostQuery),
@@ -1843,6 +1991,12 @@ describe("scheduleAndInsert", () => {
 		it("does not insert Threads pool-mode rows without planned constraints", async () => {
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						select: vi.fn().mockReturnValue({
@@ -2016,6 +2170,12 @@ describe("scheduleAndInsert", () => {
 
 		it("increments failedCount on unexpected exception during insert", async () => {
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation(() => {
@@ -2057,6 +2217,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2103,6 +2269,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2164,6 +2336,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2213,6 +2391,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2296,6 +2480,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2371,6 +2561,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2434,6 +2630,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2502,6 +2704,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2580,6 +2788,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2650,6 +2864,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2742,6 +2962,12 @@ describe("scheduleAndInsert", () => {
 			// 2 candidates — 1 succeeds, 1 fails
 			let insertCallCount = 0;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation(() => {
@@ -2852,6 +3078,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2916,6 +3148,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedInsertData: Record<string, unknown> | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockImplementation((data: unknown) => {
@@ -2992,6 +3230,12 @@ describe("scheduleAndInsert", () => {
 
 			let capturedMediaGroupId: string | null = null;
 			mockFrom.mockImplementation((table: string) => {
+				if (table === "user_settings") {
+					return createChainMock({
+						data: { setting_value: { threshold: 50 } },
+						error: null,
+					});
+				}
 				if (table === "auto_post_queue") {
 					return {
 						insert: vi.fn().mockReturnValue({

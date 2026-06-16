@@ -20,6 +20,7 @@ import { verifyQStashSignature } from "../../qstash.js";
 import { getSupabaseAny } from "../../supabase.js";
 import { z } from "../../zodCompat.js";
 import { isAutoposterHardDisabled } from "../auto-post/killSwitch.js";
+import { deriveAutoposterRuntimeModeFromConfig } from "../auto-post/controlPlane.js";
 import {
 	autoposterHealthSortValue,
 	isAutoposterHealthSuppressed,
@@ -31,9 +32,11 @@ import {
 import {
 	buildPublishFingerprint,
 	findRecentDuplicateFingerprint,
-	HARD_BLOCK_DUPLICATE_WINDOW_HOURS,
+	findRecentMediaFingerprintAcrossAccounts,
 	stampQueueItemFingerprint,
 } from "../auto-post/publishFingerprint.js";
+import { validateDiscoverabilitySafeContent } from "../../discoverabilitySafety.js";
+import { verifyAutopublishGatePassToken } from "../auto-post/gatePassToken.js";
 import {
 	evaluateQueueProvenance,
 	stampQueueProvenance,
@@ -681,14 +684,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 		// 2. Check autoposter + group still enabled
 		const { data: wsConfig } = await db()
 			.from("auto_post_config")
-			.select("is_enabled, group_mode_enabled")
+			.select("is_enabled, group_mode_enabled, enable_ai_queue_fill")
 			.eq("workspace_id", workspaceId)
 			.maybeSingle();
 
 		// Manual posts bypass master switch — they're explicit user intent, not AI fill
 		const isManual = item.source_type === "manual";
 
-		if (!isManual && (!wsConfig?.is_enabled || !wsConfig?.group_mode_enabled)) {
+		const runtimeMode = deriveAutoposterRuntimeModeFromConfig(
+			wsConfig,
+			isAutoposterHardDisabled(),
+		);
+
+		if (
+			!isManual &&
+			runtimeMode !== "running" &&
+			runtimeMode !== "fill_disabled"
+		) {
 			logger.info("[auto-post-publish] Skip disabled workspace", {
 				queueItemId,
 				traceId,
@@ -696,6 +708,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 				workspaceId,
 				isEnabled: wsConfig?.is_enabled ?? null,
 				groupModeEnabled: wsConfig?.group_mode_enabled ?? null,
+				runtimeMode,
 			});
 			await cancelQueueItem(queueItemId, "Autoposter disabled at publish time");
 			return res
@@ -1585,12 +1598,66 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 				.json({ ok: true, result: "requeued", reason: "daily_cap" });
 		}
 
-		// 7. Light safety gate — trust the fill pipeline for quality, only catch ban-risk here
-		// Full blacklist + humanization removed per Grok recommendation: content doesn't rot
-		// between generation and publish. Only check for explicit/ban-risk terms.
+		// 7. Publish-time content integrity gate. Fill-time gates are not enough:
+		// queued content can be edited or imported by compatibility paths. Before
+		// any Graph API side effect, require the fill-time signed gate token to
+		// still match the final content and re-run discoverability safety.
 		const finalContent = item.content;
 
 		if (!isManual) {
+			const gatePass = verifyAutopublishGatePassToken({
+				content: finalContent,
+				token:
+					item.metadata && typeof item.metadata === "object"
+						? (item.metadata as Record<string, unknown>).gate_pass
+						: null,
+			});
+			if (!gatePass.ok) {
+				await releaseSelectedAccountLock();
+				await deadLetterQueueItem(
+					queueItemId,
+					`Autopublish gate pass invalid: ${gatePass.reason}`,
+					{ claimToken: queueClaimToken },
+				);
+				await finishPublishAttempt(publishAttemptId, {
+					result: "dead_letter",
+					accountId: account.id,
+					errorCode: "autopublish_gate_pass_invalid",
+					errorMessage: gatePass.reason,
+					metadata: {
+						contentHash: gatePass.contentHash,
+					},
+				});
+				return res.status(200).json({
+					ok: true,
+					result: "dead_letter",
+					reason: gatePass.reason,
+				});
+			}
+			const discoverability =
+				validateDiscoverabilitySafeContent(finalContent);
+			if (!discoverability.discoverabilitySafe) {
+				await releaseSelectedAccountLock();
+				await deadLetterQueueItem(
+					queueItemId,
+					`Discoverability blocked: ${discoverability.blockedReason}`,
+					{ claimToken: queueClaimToken },
+				);
+				await finishPublishAttempt(publishAttemptId, {
+					result: "dead_letter",
+					accountId: account.id,
+					errorCode: "discoverability_safety_failed",
+					errorMessage: discoverability.blockedReason,
+					metadata: {
+						blockedTerms: discoverability.blockedTerms,
+					},
+				});
+				return res.status(200).json({
+					ok: true,
+					result: "dead_letter",
+					reason: discoverability.blockedReason,
+				});
+			}
 			const { bannedWordsCheck } = await import("../../contentSafety.js");
 			const banned = bannedWordsCheck(finalContent);
 			if (banned.flagged) {
@@ -1676,15 +1743,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 			excludeQueueItemId: queueItemId,
 			statuses: ["published", "publishing", "queued", "pending"],
 		});
+		const crossAccountMediaDuplicate =
+			!isManual && mediaUrls.length > 0
+				? await findRecentMediaFingerprintAcrossAccounts({
+						workspaceId,
+						accountId: account.id,
+						platform: item.platform || "threads",
+						mediaFingerprint: fingerprint.mediaFingerprint,
+						duplicateWindowHours: fingerprint.duplicateWindowHours,
+						excludeQueueItemId: queueItemId,
+						statuses: ["published", "publishing", "queued", "pending"],
+					})
+				: null;
+		if (crossAccountMediaDuplicate) {
+			await releaseSelectedAccountLock();
+			await deadLetterQueueItem(
+				queueItemId,
+				`Cross-account media reuse blocked; duplicate queue item ${crossAccountMediaDuplicate.id}`,
+				{ claimToken: queueClaimToken },
+			);
+			await finishPublishAttempt(publishAttemptId, {
+				result: "dead_letter",
+				accountId: account.id,
+				errorCode: "cross_account_media_reuse_blocked",
+				errorMessage: `Duplicate media queue item ${crossAccountMediaDuplicate.id}`,
+				metadata: {
+					duplicateQueueItemId: crossAccountMediaDuplicate.id,
+					duplicateStatus: crossAccountMediaDuplicate.status,
+					mediaFingerprint: fingerprint.mediaFingerprint,
+				},
+			});
+			return res.status(200).json({
+				ok: true,
+				result: "dead_letter",
+				reason: "cross_account_media_reuse_blocked",
+				duplicateQueueItemId: crossAccountMediaDuplicate.id,
+			});
+		}
 		if (duplicateMatch) {
-			const duplicateAgeMs = duplicateMatch.created_at
-				? Date.now() - new Date(duplicateMatch.created_at).getTime()
-				: Number.POSITIVE_INFINITY;
-			const duplicateAgeHours = Number.isFinite(duplicateAgeMs)
-				? duplicateAgeMs / 3_600_000
-				: Number.POSITIVE_INFINITY;
-
-			if (!isManual && duplicateAgeHours <= HARD_BLOCK_DUPLICATE_WINDOW_HOURS) {
+			if (!isManual) {
 				await releaseSelectedAccountLock();
 				await deadLetterQueueItem(
 					queueItemId,
@@ -1715,43 +1812,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 				return res.status(200).json({
 					ok: true,
 					result: "duplicate_fingerprint_blocked",
-					duplicateQueueItemId: duplicateMatch.id,
-				});
-			}
-
-			if (!isManual) {
-				await releaseSelectedAccountLock();
-				await db()
-					.from("auto_post_queue")
-					.update({
-						status: "needs_review",
-						pool_status: "available",
-						account_id: account.id,
-						last_error: `Duplicate publish fingerprint needs review; duplicate queue item ${duplicateMatch.id}`,
-						claim_token: null,
-						claim_expires_at: null,
-						duplicate_of_queue_item_id: duplicateMatch.id,
-						normalized_text_hash: fingerprint.normalizedTextHash,
-						media_fingerprint: fingerprint.mediaFingerprint,
-						publish_fingerprint: fingerprint.publishFingerprint,
-						duplicate_window_hours: fingerprint.duplicateWindowHours,
-					} as Record<string, unknown>)
-					.eq("id", queueItemId)
-					.eq("claim_token", queueClaimToken);
-				await finishPublishAttempt(publishAttemptId, {
-					result: "duplicate_fingerprint_needs_review",
-					accountId: account.id,
-					errorCode: "duplicate_fingerprint_needs_review",
-					errorMessage: `Duplicate queue item ${duplicateMatch.id}`,
-					metadata: {
-						duplicateQueueItemId: duplicateMatch.id,
-						duplicateStatus: duplicateMatch.status,
-						publishFingerprint: fingerprint.publishFingerprint,
-					},
-				});
-				return res.status(200).json({
-					ok: true,
-					result: "duplicate_fingerprint_needs_review",
 					duplicateQueueItemId: duplicateMatch.id,
 				});
 			}
@@ -2116,12 +2176,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 			qstashMessageId: item.qstash_message_id,
 		});
 
-		// Log failure activity — skip Discord alert for transient Meta 500s (they auto-retry)
+		const { isDefinitiveOAuthError } = await import("../../retryUtils.js");
+
+		// Log failure activity only when action is likely required. Retryable
+		// publish failures are still tracked in publish_attempts below, but
+		// Discord should not page for Meta 5xx/transport noise that the queue
+		// will retry automatically.
 		const errLowerForTransient = errorStr.toLowerCase();
-		const isTransientMeta =
+		const isRetryablePublishFailure =
+			result.retryable === true ||
 			errLowerForTransient.includes("unknown error") ||
-			errLowerForTransient.includes("unexpected error");
-		if (!isTransientMeta) {
+			errLowerForTransient.includes("unexpected error") ||
+			/\bhttp\s+5\d\d\b/i.test(errorStr);
+		const shouldLogFailureActivity =
+			!isRetryablePublishFailure || isDefinitiveOAuthError(errorStr);
+		if (shouldLogFailureActivity) {
 			const { logActivity } = await import("../auto-post/publisher.js");
 			await logActivity(
 				workspaceId,
@@ -2134,15 +2203,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 				groupName,
 			).catch(() => {});
 		} else {
-			logger.warn("[publish] Transient Meta 500, will retry", {
+			logger.warn("[publish] Retryable publish failure, suppressing Discord alert", {
 				queueItemId,
 				account: account.username,
 				error: errorStr,
+				retryable: result.retryable ?? null,
 			});
 		}
 
 		// OAuth error → attempt inline token refresh, then flag if refresh fails.
-		const { isDefinitiveOAuthError } = await import("../../retryUtils.js");
 		if (isDefinitiveOAuthError(errorStr)) {
 			// Attempt inline token refresh before giving up
 			let refreshed = false;

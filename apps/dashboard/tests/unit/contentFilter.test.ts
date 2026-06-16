@@ -137,9 +137,9 @@ describe("contentFilter", () => {
 			}
 		});
 
-		it("allows human-facing opinion and confession prefixes", () => {
-			expect(filterContent("opinion: pre-workout should taste like candy", cfg).passed).toBe(true);
-			expect(filterContent("confession: i still listen to my middle school playlist", cfg).passed).toBe(true);
+		it("allows natural opinion and confession wording without mechanical labels", () => {
+			expect(filterContent("my opinion is pre-workout should taste like candy", cfg).passed).toBe(true);
+			expect(filterContent("confession time i still listen to my middle school playlist", cfg).passed).toBe(true);
 		});
 
 		it("rejects AI preamble", () => {
@@ -319,7 +319,6 @@ describe("contentFilter", () => {
 
 		const thirstTermsThatShouldPass: string[] = [
 			"feeling horny on a tuesday night honestly",
-			"check my onlyfans link in bio for more",
 			"stoners unite we love a good vibe here",
 			"wet for you and i dont care who knows",
 			"420 friendly only please and thank you",

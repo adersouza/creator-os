@@ -137,6 +137,60 @@ export async function findRecentDuplicateFingerprint(values: {
 	}
 }
 
+export async function findRecentMediaFingerprintAcrossAccounts(values: {
+	workspaceId: string;
+	accountId: string;
+	platform?: string | null | undefined;
+	mediaFingerprint: string;
+	duplicateWindowHours?: number | null | undefined;
+	excludeQueueItemId?: string | null | undefined;
+	statuses?: string[] | undefined;
+}): Promise<DuplicateFingerprintMatch | null> {
+	if (!values.mediaFingerprint || values.mediaFingerprint === NO_MEDIA_FINGERPRINT) {
+		return null;
+	}
+	const duplicateWindowHours =
+		values.duplicateWindowHours ?? DEFAULT_DUPLICATE_WINDOW_HOURS;
+	const cutoff = new Date(
+		Date.now() - duplicateWindowHours * 60 * 60 * 1000,
+	).toISOString();
+
+	try {
+		let query = db()
+			.from("auto_post_queue")
+			.select(
+				"id, status, account_id, threads_post_id, posted_at, created_at, publish_fingerprint",
+			)
+			.eq("workspace_id", values.workspaceId)
+			.eq("platform", values.platform || "threads")
+			.eq("media_fingerprint", values.mediaFingerprint)
+			.not("account_id", "is", null)
+			.neq("account_id", values.accountId)
+			.in(
+				"status",
+				values.statuses ?? ["pending", "queued", "publishing", "published"],
+			)
+			.gte("created_at", cutoff)
+			.order("created_at", { ascending: false })
+			.limit(1);
+
+		if (values.excludeQueueItemId) {
+			query = query.neq("id", values.excludeQueueItemId);
+		}
+
+		const { data, error } = await query;
+		if (error) throw error;
+		return ((data ?? []) as DuplicateFingerprintMatch[])[0] ?? null;
+	} catch (error) {
+		logger.warn("findRecentMediaFingerprintAcrossAccounts failed", {
+			workspaceId: values.workspaceId,
+			accountId: values.accountId,
+			error: String(error),
+		});
+		return null;
+	}
+}
+
 export async function stampQueueItemFingerprint(
 	queueItemId: string,
 	fingerprint: PublishFingerprint,
