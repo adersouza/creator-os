@@ -30,7 +30,7 @@ async function openComposer(page: Page, targetCount = 1) {
 		}
 		const done = page.getByRole("button", { name: /^done$/i }).last();
 		if (await done.isVisible().catch(() => false)) {
-			await done.click();
+			await done.click({ timeout: 2_000 }).catch(() => page.keyboard.press("Escape"));
 		} else {
 			await page.keyboard.press("Escape");
 		}
