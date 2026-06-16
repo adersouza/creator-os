@@ -22,7 +22,7 @@ Open PRs after fetch:
 
 | Repo | Current branch | Intended integration | HEAD | vs `main` | Upstream | Dirty state | Baseline |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `creator-os` | `codex/mirror-parity-gate` | `main` | `28846dfc8` | behind 0, ahead 1 | no upstream | dirty mirror sync/parity/docs changes, plus untracked mirror provenance/status docs; classified as intended WS1 mirror baseline | `git diff --check` pass; `pnpm check:mirror-parity` pass; `pnpm check:contracts` pass; `pnpm check:artifacts` pass; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache pnpm check:arch` pass; `pnpm --filter juno33 typecheck` pass; `pnpm --filter juno33 test` pass: 359 files passed, 1 skipped; 4701 passed, 1 skipped, 3 todo; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run pytest packages/pipeline_contracts/tests python_packages/campaign_factory/tests python_packages/reel_factory/tests python_packages/reference_factory/tests tests/integration` pass: 795 passed, 48 warnings |
+| `creator-os` | `codex/mirror-parity-gate` | `main` | inventory `28846dfc8`; WS1 commit `5af6d62ac` | behind 0, ahead 2 | `origin/codex/mirror-parity-gate`, behind 0, ahead 0 after push | clean after WS1 commit/push | `git diff --check` pass; `pnpm check:mirror-parity` pass; `pnpm check:contracts` pass; `pnpm check:artifacts` pass; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache pnpm check:arch` pass; `pnpm --filter juno33 typecheck` pass; `pnpm --filter juno33 test` pass: 359 files passed, 1 skipped; 4701 passed, 1 skipped, 3 todo; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run pytest packages/pipeline_contracts/tests python_packages/campaign_factory/tests python_packages/reel_factory/tests tests/integration` pass: 795 passed, 48 warnings |
 | `ThreadsDashboard` | `codex/autoposter-hardening` | `main` | `82f0dc839` | behind 10, ahead 4 | `origin/codex/autoposter-hardening`, behind 0, ahead 0 | clean after baseline | `git diff --check` pass; `npm run typecheck` pass; `npm run compat:check` pass; `npm run test` pass: 359 files passed, 1 skipped; 4701 passed, 1 skipped, 3 todo; `npm run build` pass; first `npm run test:e2e:critical` failed because no server was listening on `localhost:3000`; after starting `npm run dev`, rerun passed: 5 passed, 1 skipped |
 | `campaign_factory` | `codex/campaign-caption-inventory` | `main` | `99f27208c` | behind 1, ahead 1 | `origin/codex/campaign-caption-inventory`, behind 0, ahead 0 | untracked generated `graphify-out/`, generated `uv.lock` | `git diff --check` pass; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 383 passed |
 | `reel_factory` | `codex/split-review-truth` | `main` | `4bad3acab` | behind 0, ahead 2 | no upstream | generated `uv.lock` | `git diff --check` pass; `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 307 passed, 48 warnings |
@@ -37,7 +37,7 @@ Skipped baseline commands:
 
 ## Current Blockers To Fix
 
-1. `creator-os`: WS1 changes are green but uncommitted/unpushed after re-sync; must commit, push, then merge with `MERGE_PLAN.md` rollback and ancestor proof.
+1. `creator-os`: WS1 changes are committed and pushed on `codex/mirror-parity-gate@5af6d62ac`; next action is merge to `main` with `MERGE_PLAN.md` rollback and ancestor proof.
 2. `ThreadsDashboard`: branch gates are green, but branch is 10 commits behind `main`; any TD merge needs a fresh integration merge/check cycle and live rollback record.
 3. `campaign_factory` and `pipeline_contracts`: branch heads are green but each is 1 behind/1 ahead of `main`; merge must be recorded and ancestor-proven.
 4. `reel_factory`: branch head is green and 2 ahead of `main`; branch has no upstream tracking yet and must be pushed with `-u` after the next commit if changed.
@@ -45,7 +45,7 @@ Skipped baseline commands:
 
 ## Workstream Status
 
-- Step A / WS1 mirror parity: in progress. Current branch baseline is green; next action is commit/push WS1 status and mirror baseline, then merge `codex/mirror-parity-gate` to `creator-os/main` with proof.
+- Step A / WS1 mirror parity: in progress. Current branch baseline is green and pushed at `5af6d62ac`; next action is merge `codex/mirror-parity-gate` to `creator-os/main` with proof.
 - Step B TD autoposter: branch baseline is green; pending merge discipline against current `main`.
 - Step C TD draft ingest: pending after TD autoposter merge state is reconciled.
 - Step D split repo ports: `campaign_factory`, `reel_factory`, and `pipeline_contracts` split branches are green; pending integration merges and creator-os mirror re-sync/re-pin afterward.

@@ -6,7 +6,7 @@ No integration merges have been performed by this resumed run yet.
 
 | Repo | Integration branch | Current branch at inventory | Inventory HEAD | Required pre-merge action |
 | --- | --- | --- | --- | --- |
-| `creator-os` | `main` | `codex/mirror-parity-gate` | `28846dfc8` | Commit/push green WS1 mirror baseline, then record `main` pre-merge SHA before merge |
+| `creator-os` | `main` | `codex/mirror-parity-gate` | inventory `28846dfc8`; current `5af6d62ac` | Record `main` pre-merge SHA before merge |
 | `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | `82f0dc839` | Reconcile branch against current `main`, rerun TD full gate including critical Playwright, then record pre-merge SHA |
 | `campaign_factory` | `main` | `codex/campaign-caption-inventory` | `99f27208c` | Rerun pytest if branch changes; record `main` pre-merge SHA |
 | `reel_factory` | `main` | `codex/split-review-truth` | `4bad3acab` | Push branch upstream if needed; record `main` pre-merge SHA |
@@ -30,7 +30,7 @@ For every actual merge, append:
 
 ## Inventory Ancestry State
 
-- `creator-os`: `codex/mirror-parity-gate@28846dfc8` is 1 commit ahead of `main`; merge pending.
+- `creator-os`: `codex/mirror-parity-gate@5af6d62ac` is 2 commits ahead of `main`; merge pending.
 - `ThreadsDashboard`: `codex/autoposter-hardening@82f0dc839` is 10 behind and 4 ahead of `main`; merge pending after reconciliation and fresh gates.
 - `campaign_factory`: `codex/campaign-caption-inventory@99f27208c` is 1 behind and 1 ahead of `main`; merge pending.
 - `reel_factory`: `codex/split-review-truth@4bad3acab` is 2 ahead of `main`; merge pending.
