@@ -13,6 +13,10 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | merged to `main` as `49584b77114b6308597a6d9303bf7e8edcfd4c1d`; ancestor proof exit 0; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
 | `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | merged to `main` as `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`; ancestor proof exit 0 |
 | `pipeline_contracts` | `main` | `codex/canonical-campaign-draft-schema-sync` | branch tip `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` | merged to `main` as `94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`; ancestor proof exit 0 |
+| `pipeline_contracts` | `main` | `codex/ws3-trust-blocker-contract` | branch tip `5dbd2d3f094edff73086c50627254e5a81904014` | merged to `main` as `fb3226ed70a1d6d45647f0681783a14060f6aba6`; ancestor proof exit 0 |
+| `campaign_factory` | `main` | `codex/ws3-qc-fail-closed` | branch tip `eb3f044d30331c88c97323d906744716693cdc94` | merged to `main` as `8bea6e64e561289af34773007aa89c6ed452cdff`; ancestor proof exit 0 |
+| `campaign_factory` | `main` | `codex/ws3-contract-blocker-codes` | branch tip `e83307781d60ce82d588025dc1241ee21b36a97e` | merged to `main` as `5371570b2ce369f6c41ce474fc0e96460dffe9c8`; ancestor proof exit 0 |
+| `reel_factory` | `main` | `codex/ws3-reel-backend-gates` | branch tip `f6cdf33b07071627c9846ff8d1e52e7907fc9e88` | merged to `main` as `4506e277da22d3e86c8c4eeca19334ae8130b691`; ancestor proof exit 0 |
 | `contentforge` | `main` | `main` | `47e1293ce` | Pending only if future changes are made |
 | `reference_factory` | `main` | inventory `main`; fix branch `codex/reference-test-deps` | inventory `2cf59f2a7`; fix branch `2ea2a7f` | Red pytest dependency baseline fixed and pushed; record `main` pre-merge SHA before ordered repo-maturity merge |
 
@@ -159,6 +163,66 @@ For every actual merge, append:
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 9 passed.
+  - `graphify update .` pass.
+
+### campaign_factory Step E QC Fail-Closed
+
+- Repo: `campaign_factory`
+- Branch: `codex/ws3-qc-fail-closed`
+- Branch tip SHA: `eb3f044d30331c88c97323d906744716693cdc94`
+- Pre-merge integration SHA: `c0912e4cf44fd40216858f75f89d8980a73c1400`
+- Merge SHA: `8bea6e64e561289af34773007aa89c6ed452cdff`
+- Rollback command: `git revert -m 1 8bea6e64e561289af34773007aa89c6ed452cdff`
+- Ancestor proof command and result: `git merge-base --is-ancestor eb3f044d30331c88c97323d906744716693cdc94 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests/test_core.py -k "publishability or surface_handoff or visual_qc or identity"` pass: 23 passed, 341 deselected.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests/test_core.py::test_generate_variants_accepts_contentforge_v2_pack` pass: 1 passed.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 385 passed.
+  - `graphify update .` pass.
+
+### reel_factory Step E Backend Production Gates
+
+- Repo: `reel_factory`
+- Branch: `codex/ws3-reel-backend-gates`
+- Branch tip SHA: `f6cdf33b07071627c9846ff8d1e52e7907fc9e88`
+- Pre-merge integration SHA: `49584b77114b6308597a6d9303bf7e8edcfd4c1d`
+- Merge SHA: `4506e277da22d3e86c8c4eeca19334ae8130b691`
+- Rollback command: `git revert -m 1 4506e277da22d3e86c8c4eeca19334ae8130b691`
+- Ancestor proof command and result: `git merge-base --is-ancestor f6cdf33b07071627c9846ff8d1e52e7907fc9e88 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests/test_reel_pipeline.py tests/test_content_trust_hardening.py tests/test_grid_crop.py tests/test_advanced_roadmap.py` pass: 198 passed, 44 warnings.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 313 passed, 48 warnings.
+  - `graphify update .` pass.
+
+### campaign_factory Step E Contract-Bounded Trust Blockers
+
+- Repo: `campaign_factory`
+- Branch: `codex/ws3-contract-blocker-codes`
+- Branch tip SHA: `e83307781d60ce82d588025dc1241ee21b36a97e`
+- Pre-merge integration SHA: `8bea6e64e561289af34773007aa89c6ed452cdff`
+- Merge SHA: `5371570b2ce369f6c41ce474fc0e96460dffe9c8`
+- Rollback command: `git revert -m 1 5371570b2ce369f6c41ce474fc0e96460dffe9c8`
+- Ancestor proof command and result: `git merge-base --is-ancestor e83307781d60ce82d588025dc1241ee21b36a97e main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests/test_core.py -k "publishability or surface_handoff or visual_qc or identity"` pass: 24 passed, 341 deselected.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 386 passed.
+  - `graphify update .` pass.
+
+### pipeline_contracts Step E Trust Blocker Contract
+
+- Repo: `pipeline_contracts`
+- Branch: `codex/ws3-trust-blocker-contract`
+- Branch tip SHA: `5dbd2d3f094edff73086c50627254e5a81904014`
+- Pre-merge integration SHA: `94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`
+- Merge SHA: `fb3226ed70a1d6d45647f0681783a14060f6aba6`
+- Rollback command: `git revert -m 1 fb3226ed70a1d6d45647f0681783a14060f6aba6`
+- Ancestor proof command and result: `git merge-base --is-ancestor 5dbd2d3f094edff73086c50627254e5a81904014 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run python -m pytest tests` pass: 10 passed.
   - `graphify update .` pass.
 
 ## Deferred Owner-Only Work

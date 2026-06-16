@@ -2804,7 +2804,13 @@ def add_audit_report(
             "warnings": warnings,
             "blockingCodes": [],
             "warningCodes": warning_codes,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
         },
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
         "overallVerdict": overall_verdict,
         "warnings": warnings,
         "failedChecks": failed,
@@ -5009,6 +5015,61 @@ def test_publishability_blocks_blank_instagram_post_caption(tmp_path: Path):
         cf.close()
 
 
+def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        audit = add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        audit_path = Path(audit["path"])
+        payload = json.loads(audit_path.read_text(encoding="utf-8"))
+        payload["readinessSummary"]["visualQcStatus"] = "unavailable"
+        payload["readinessSummary"]["identityVerificationStatus"] = "failed"
+        payload["visualQcStatus"] = "unavailable"
+        payload["identityVerificationStatus"] = "failed"
+        payload["visualQc"] = {"status": "unavailable"}
+        payload["identityVerification"] = {"status": "failed"}
+        audit_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+
+        assert explanation["publishableCandidate"] is False
+        assert explanation["checks"]["visual_qc_passed"] is False
+        assert explanation["checks"]["identity_verification_passed"] is False
+        assert explanation["visualQcStatus"] == "unavailable"
+        assert explanation["identityVerificationStatus"] == "failed"
+        assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
+        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert explanation["handoff_manifest"] is None
+    finally:
+        cf.close()
+
+
+def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        audit = add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        audit_path = Path(audit["path"])
+        payload = json.loads(audit_path.read_text(encoding="utf-8"))
+        payload["readinessSummary"]["visualQcStatus"] = "pending"
+        payload["readinessSummary"]["identityVerificationStatus"] = "provider_error"
+        audit_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        explanation = cf.explain_publishability("asset_1")
+
+        assert explanation["visualQcStatus"] == "pending"
+        assert explanation["identityVerificationStatus"] == "provider_error"
+        assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
+        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert "visual_qc_pending" not in explanation["publishability_failure_reasons"]
+        assert "identity_verification_provider_error" not in explanation["publishability_failure_reasons"]
+    finally:
+        cf.close()
+
+
 def test_publishability_blocks_reel_captions_with_dm_or_link_references(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -6979,7 +7040,11 @@ def add_variant_fixture(
         contentforge_preset="caption_safe_v2",
     )
     audit_path = rendered_path.with_suffix(".audit.json")
-    audit_path.write_text(json.dumps({"readinessSummary": {"uploadReady": True}, "variant": {
+    audit_path.write_text(json.dumps({"readinessSummary": {
+        "uploadReady": True,
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+    }, "visualQcStatus": "passed", "identityVerificationStatus": "passed", "variant": {
         "familyName": family_name,
         "uploadReady": True,
         "qualityScore": quality_score,
@@ -7033,6 +7098,10 @@ def add_inventory_parent_fixture(
         "creator_mix": creator,
         "render_recipe": "v01_original",
         "rendered_output": str(rendered_path),
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
     }
     if caption_placement_qc:
         caption_context["captionPlacementPolicy"] = "focal_safe_v1"
@@ -7637,6 +7706,10 @@ def add_surface_asset_fixture(
         "caption_text": "burned caption",
         "creator_mix": creator,
         "render_recipe": "surface_fixture",
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
     }
     caption_generation = {}
     if instagram_post_caption is not None:
@@ -7772,6 +7845,41 @@ def test_surface_handoff_readiness_blocks_discoverability_unsafe_feed_caption(tm
         assert report["assets"][0]["discoverabilitySafe"] is False
         assert "discoverability_safety_failed" in report["assets"][0]["blockingReasons"]
         assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        asset = add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_missing_trust",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="new post",
+        )
+        caption_context = json.loads(asset["caption_outcome_context_json"])
+        caption_context["visualQcStatus"] = "unavailable"
+        caption_context["identityVerificationStatus"] = "failed"
+        caption_context["visualQc"] = {"status": "unavailable"}
+        caption_context["identityVerification"] = {"status": "failed"}
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_outcome_context_json = ? WHERE id = ?",
+            (json.dumps(caption_context, ensure_ascii=False, sort_keys=True), asset["id"]),
+        )
+        cf.conn.commit()
+
+        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id=asset["id"])
+        readiness = report["assets"][0]
+
+        assert readiness["canHandoff"] is False
+        assert readiness["visualQcStatus"] == "unavailable"
+        assert readiness["identityVerificationStatus"] == "failed"
+        assert "visual_qc_unavailable" in readiness["blockingReasons"]
+        assert "identity_verification_failed" in readiness["blockingReasons"]
+        assert readiness["handoffManifestV2"] is None
     finally:
         cf.close()
 

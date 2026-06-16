@@ -1,7 +1,7 @@
 {
   "schema": "creator-os.mirror_provenance.v1",
   "sourceRepo": "../campaign_factory",
-  "sourceCommit": "c0912e4cf44fd40216858f75f89d8980a73c1400",
+  "sourceCommit": "5371570b2ce369f6c41ce474fc0e96460dffe9c8",
   "mirrorPath": "python_packages/campaign_factory",
   "fileCount": 68,
   "note": "GENERATED read-only mirror. Do not hand-edit. Run scripts/sync/mirror-sync.mjs."

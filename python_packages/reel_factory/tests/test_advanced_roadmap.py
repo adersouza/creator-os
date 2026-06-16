@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -30,6 +31,7 @@ from audio_intent import write_audio_intent
 from embedding_index import duplicate_risk, similar as similar_media, upsert_embedding
 from generate_assets import (
     AssetGenerationPlan,
+    _six_pack_prompts,
     build_source_lineage,
     build_image_cmd,
     create_image_asset,
@@ -549,6 +551,23 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(len(image_commands), 6)
             self.assertTrue(all("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644" in cmd for cmd in image_commands))
             self.assertIn("Render only outfit variation 6", image_commands[-1])
+
+    def test_deprecated_six_pack_path_raises_when_guard_enabled(self):
+        prompt = AssetPromptSet(
+            higgsfieldGridPrompt="six panel soul id grid",
+            klingMotionPrompt="subtle camera motion",
+            notes="manual review",
+        )
+        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
+                _six_pack_prompts(prompt)
+
+    def test_deprecated_grok4_reference_analysis_raises_when_guard_enabled(self):
+        import reel_gui
+
+        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "grok_4_reference_analysis is deprecated"):
+                reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
 
     def test_generate_assets_image_command_requires_soul_identity_param(self):
         prompt = parse_asset_prompt_response(json.dumps({

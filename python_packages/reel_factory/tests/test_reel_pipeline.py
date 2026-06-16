@@ -5,6 +5,7 @@ import json
 from argparse import Namespace
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -29,6 +30,8 @@ from reel_pipeline import (
     ensure_source_asset_lineage,
     limit_render_pool,
     load_asset_prompt_set,
+    enforce_production_identity_provider,
+    normalize_rendered_mp4_metadata,
     phone_creation_time,
     reconcile_interrupted_temp_outputs,
     source_lineage_path_for,
@@ -1068,6 +1071,51 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertIn("--source tmp/in.mp4", joined)
         self.assertIn("--output tmp/out.mp4", joined)
         self.assertIn("--replace", cmd)
+
+    def test_rendered_mp4_metadata_normalization_is_required(self):
+        with patch("reel_pipeline.normalize_media_metadata", return_value={
+            "metadataNormalized": True,
+            "metadataWarnings": [],
+        }) as normalize:
+            result = normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
+
+        normalize.assert_called_once_with(Path("tmp/out.mp4"), dry_run=False)
+        self.assertTrue(result["metadataNormalized"])
+
+        with patch("reel_pipeline.normalize_media_metadata", return_value={
+            "metadataNormalized": False,
+            "metadataWarnings": ["exiftool_unavailable"],
+        }):
+            with self.assertRaisesRegex(RuntimeError, "metadata_normalization_failed:exiftool_unavailable"):
+                normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
+
+    def test_production_render_requires_venv_and_insightface_provider(self):
+        class FakeInsightFaceProvider:
+            name = "insightface_arcface"
+
+            def available(self):
+                return True, "ok"
+
+        class FakeUnavailableProvider:
+            name = "unavailable"
+
+            def available(self):
+                return False, "missing"
+
+        with patch("reel_pipeline.sys.executable", "/usr/bin/python3"):
+            with self.assertRaisesRegex(RuntimeError, "production_render_requires_venv_python"):
+                enforce_production_identity_provider(True)
+
+        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
+             patch("reel_pipeline.get_identity_provider", return_value=FakeUnavailableProvider()):
+            with self.assertRaisesRegex(RuntimeError, "production_render_identity_provider_unavailable"):
+                enforce_production_identity_provider(True)
+
+        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
+             patch("reel_pipeline.get_identity_provider", return_value=FakeInsightFaceProvider()):
+            result = enforce_production_identity_provider(True)
+
+        self.assertEqual(result["provider"], "insightface_arcface")
 
     def test_phone_creation_time_uses_utc_mp4_timestamp_shape(self):
         created_at = phone_creation_time()

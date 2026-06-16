@@ -32,6 +32,8 @@ from campaign_store import link_campaign_output
 from graph_builder import ENCODER_PROFILES, build_ffmpeg_cmd as build_graph_ffmpeg_cmd
 from graph_builder import build_video_filter as build_graph_video_filter
 from graph_builder import target_dimensions
+from identity_verification import get_identity_provider
+from media_metadata import normalize_media_metadata
 from preflight import check_clip_readiness
 from project_config import load_config
 from placement import (
@@ -354,6 +356,29 @@ def build_avconvert_finalize_cmd(src: Path, out: Path, avconvert: str = AVCONVER
         "--output", str(out),
         "--replace",
     ]
+
+
+def normalize_rendered_mp4_metadata(path: Path) -> dict:
+    if path.suffix.lower() != ".mp4":
+        return {"metadataNormalized": True, "metadataWarnings": [], "skipped": "non_mp4"}
+    result = normalize_media_metadata(path, dry_run=False)
+    if not result.get("metadataNormalized"):
+        warnings = result.get("metadataWarnings") or ["metadata_not_normalized"]
+        raise RuntimeError(f"metadata_normalization_failed:{','.join(str(item) for item in warnings)}")
+    return result
+
+
+def enforce_production_identity_provider(production_render: bool) -> dict:
+    if not production_render:
+        return {"required": False, "provider": "", "providerAvailable": None}
+    executable = Path(sys.executable).resolve()
+    if ".venv" not in executable.parts:
+        raise RuntimeError("production_render_requires_venv_python")
+    provider = get_identity_provider()
+    ok, reason = provider.available()
+    if not ok or provider.name != "insightface_arcface":
+        raise RuntimeError(f"production_render_identity_provider_unavailable:{provider.name}:{reason}")
+    return {"required": True, "provider": provider.name, "providerAvailable": True}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1149,6 +1174,22 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 log.warning(f"phone finalize failed {src.stem} h{hook_idx} {recipe.name}; using encoded output: {msg}")
 
         final_tmp_path.replace(out_path)
+        try:
+            metadata_normalization = normalize_rendered_mp4_metadata(out_path)
+        except RuntimeError as e:
+            msg = str(e)
+            log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
+            manifest.add_failure(
+                src.stem, recipe, caption_for_manifest, out_path, key, duration,
+                msg, render_time_sec=round(elapsed, 3),
+                encoder=output_profile,
+                target_ratio=target_ratio,
+            )
+            try:
+                out_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {"status": "failed", "key": key}
         caption_hash = sha256_str(caption_for_manifest)
         write_caption_lineage_sidecar(
             out_path,
@@ -1268,6 +1309,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             "captionPosition": caption_position,
             "captionPlacementPolicy": placement_policy,
             "captionPlacementDecision": placement_lineage["captionPlacementDecision"],
+            "metadataNormalization": metadata_normalization,
             "generationId": generation_id,
             "renderJobKey": key,
         },
@@ -1681,6 +1723,12 @@ async def amain(args):
         account_scope = validate_account_scope(args.account, production_render=bool(getattr(args, "production_render", False)))
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        identity_provider_check = enforce_production_identity_provider(bool(getattr(args, "production_render", False)))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    if identity_provider_check.get("required"):
+        log.info("identity_provider_check " + json.dumps(identity_provider_check, ensure_ascii=False))
 
     if args.caption_mix or args.caption_banks:
         try:
