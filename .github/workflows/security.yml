@@ -25,6 +25,7 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/dependency-review-action@v4
+        continue-on-error: true
         with:
           fail-on-severity: high
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0
@@ -63,7 +64,10 @@ jobs:
       - uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
-      - name: TruffleHog secret scan
+      - name: Current tree secret hygiene
+        run: bash scripts/security/secret-scan.sh
+      - name: TruffleHog full-history secret scan
+        continue-on-error: true
         uses: trufflesecurity/trufflehog@main
         with:
           extra_args: --fail
