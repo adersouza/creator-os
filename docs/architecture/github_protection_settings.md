@@ -27,10 +27,12 @@ Require these checks before merge:
 - `Creator OS Monorepo CI / python`
 - `Creator OS Monorepo CI / hygiene`
 - `Creator OS Monorepo CI / dashboard-build-provenance`
-- `Security / Dependency review`
+- `Security / Dependency review` after GitHub Dependency Graph is enabled.
 - `Security / CodeQL (javascript-typescript)`
 - `Security / CodeQL (python)`
-- `Security / Secret scan`
+- `Security / Secret scan` after the current-tree hygiene step is confirmed
+  blocking and the full-history incident scan is either clean or explicitly
+  kept report-only during the documented secret incident.
 - `OpenSSF Scorecard / Scorecard report` after the first SARIF baseline is
   reviewed. Scorecard starts in report mode so baseline findings do not block
   unrelated migration work.

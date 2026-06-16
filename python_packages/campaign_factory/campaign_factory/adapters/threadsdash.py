@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import mimetypes
+import os
 import re
 import time
 import uuid
@@ -300,7 +301,7 @@ def _campaign_factory_manifest_blockers(payload: dict[str, Any]) -> list[str]:
         caption_hash = meta.get("caption_hash") or draft.get("captionHash")
         if content_surface != "story" and caption_hash and manifest.get("caption_hash") != caption_hash:
             blockers.append(f"{rendered_asset_id}:handoff_manifest.caption_hash_mismatch")
-        post_caption = meta.get("instagram_post_caption") or draft.get("instagramPostCaption") or draft.get("content")
+        post_caption = meta.get("instagram_post_caption") or draft.get("instagramPostCaption")
         post_caption_hash = meta.get("instagram_post_caption_hash") or draft.get("instagramPostCaptionHash")
         if content_surface != "story" and (not isinstance(post_caption, str) or not post_caption.strip()):
             blockers.append(f"{rendered_asset_id}:instagram_post_caption_missing")
@@ -387,6 +388,8 @@ def export_threadsdash(
     max_drafts: int | None = None,
     rendered_asset_ids: list[str] | None = None,
     schedule_mode: str = "draft",
+    threadsdash_ingest_url: str | None = None,
+    threadsdash_ingest_secret: str | None = None,
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -407,6 +410,7 @@ def export_threadsdash(
             "maxDrafts": max_drafts,
             "renderedAssetIds": rendered_asset_ids or [],
             "scheduleMode": normalized_schedule_mode,
+            "hasThreadsdashIngestUrl": bool(threadsdash_ingest_url or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL") or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")),
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -469,31 +473,55 @@ def export_threadsdash(
             "payload": payload,
             "readiness": readiness,
             "supabase": {"attempted": False, "media": [], "posts": []},
+            "dashboardIngest": {"attempted": False, "dryRun": dry_run, "postIds": []},
             "path": str(out_path),
             "pipelineJobId": pipeline_job["id"],
         }
         if not dry_run:
-            if normalized_schedule_mode == "preview":
-                preview_cleanup_client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
-                result["previewCleanup"] = _delete_existing_preview_schedule_rows(
-                    preview_cleanup_client,
+            if _legacy_supabase_writes_enabled():
+                if normalized_schedule_mode == "preview":
+                    preview_cleanup_client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
+                    result["previewCleanup"] = _delete_existing_preview_schedule_rows(
+                        preview_cleanup_client,
+                        user_id=user_id,
+                        campaign_slug=campaign["slug"],
+                    )
+                result["supabase"] = _write_supabase(
+                    factory,
+                    payload["drafts"],
                     user_id=user_id,
-                    campaign_slug=campaign["slug"],
+                    supabase_url=supabase_url,
+                    service_role_key=supabase_service_role_key,
+                    bucket=supabase_storage_bucket,
                 )
-            result["supabase"] = _write_supabase(
-                factory,
-                payload["drafts"],
-                user_id=user_id,
-                supabase_url=supabase_url,
-                service_role_key=supabase_service_role_key,
-                bucket=supabase_storage_bucket,
-            )
+            else:
+                if normalized_schedule_mode != "draft":
+                    raise ValueError(
+                        "Campaign Factory preview/live exports must go through ThreadsDashboard scheduling APIs; "
+                        "raw Supabase writes require CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1"
+                    )
+                result["dashboardIngest"] = _post_threadsdash_draft_ingest(
+                    payload,
+                    ingest_url=threadsdash_ingest_url,
+                    ingest_secret=threadsdash_ingest_secret,
+                )
+                result["supabase"] = {
+                    "attempted": False,
+                    "disabled": True,
+                    "reason": "dashboard_ingest_boundary_required",
+                    "media": [],
+                    "posts": [],
+                }
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         factory.conn.execute(
             "INSERT INTO threadsdash_exports (id, campaign_id, manifest_path, user_id, dry_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (export_id, campaign["id"], str(out_path), user_id, 1 if dry_run else 0, "dry_run" if dry_run else "exported", utc_now()),
         )
         export_label = "Dry-run" if dry_run else ("Draft" if normalized_schedule_mode == "draft" else ("Preview schedule" if normalized_schedule_mode == "preview" else "Live"))
+        media_ids = [item.get("id") for item in (result.get("supabase") or {}).get("media", [])]
+        supabase_post_ids = [item.get("id") for item in (result.get("supabase") or {}).get("posts", [])]
+        dashboard_post_ids = list((result.get("dashboardIngest") or {}).get("postIds") or [])
+        post_ids = supabase_post_ids or dashboard_post_ids
         factory.record_event(
             "threadsdash_export_created",
             campaign_id=campaign["id"],
@@ -507,8 +535,8 @@ def export_threadsdash(
                 "dryRun": dry_run,
                 "schedulingOwner": "threadsdashboard_campaign_schedule_api",
                 "scheduleHandoffRequired": normalized_schedule_mode in {"preview", "live"},
-                "mediaIds": [item.get("id") for item in (result.get("supabase") or {}).get("media", [])],
-                "postIds": [item.get("id") for item in (result.get("supabase") or {}).get("posts", [])],
+                "mediaIds": media_ids,
+                "postIds": post_ids,
                 "blockingReasons": readiness.get("blockingReasons") or [],
                 "warnings": readiness.get("warnings") or [],
                 "scheduleMode": normalized_schedule_mode,
@@ -521,8 +549,8 @@ def export_threadsdash(
             "manifestPath": str(out_path),
             "draftCount": len(payload["drafts"]),
             "dryRun": dry_run,
-            "mediaIds": [item.get("id") for item in (result.get("supabase") or {}).get("media", [])],
-            "postIds": [item.get("id") for item in (result.get("supabase") or {}).get("posts", [])],
+            "mediaIds": media_ids,
+            "postIds": post_ids,
             "scheduleMode": normalized_schedule_mode,
             "previewCleanup": result.get("previewCleanup") or {},
         })
@@ -984,6 +1012,7 @@ def _write_supabase(
     service_role_key: str | None,
     bucket: str,
 ) -> dict[str, Any]:
+    _require_legacy_supabase_writes()
     if not supabase_url or not service_role_key:
         raise ValueError("supabase_url and supabase_service_role_key are required when dry_run is false")
     client = SupabaseRestClient(supabase_url.rstrip("/"), service_role_key)
@@ -1078,6 +1107,62 @@ def _write_supabase(
     }
 
 
+def _legacy_supabase_writes_enabled() -> bool:
+    return os.environ.get("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES") == "1"
+
+
+def _require_legacy_supabase_writes() -> None:
+    if not _legacy_supabase_writes_enabled():
+        raise ValueError(
+            "raw ThreadsDashboard Supabase post writes are disabled; use Dashboard draft ingest "
+            "or set CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1 for explicit migration/backfill work"
+        )
+
+
+def _post_threadsdash_draft_ingest(
+    payload: dict[str, Any],
+    *,
+    ingest_url: str | None,
+    ingest_secret: str | None,
+) -> dict[str, Any]:
+    url = (
+        ingest_url
+        or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
+    )
+    secret = ingest_secret or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET")
+    if not url:
+        raise ValueError("threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL is required when dry_run is false")
+    if not secret:
+        raise ValueError("threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false")
+    body = dict(payload)
+    body["dryRun"] = False
+    request = Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Campaign-Factory-Ingest-Secret": secret,
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            response_body = response.read().decode("utf-8")
+            parsed = json.loads(response_body) if response_body else {}
+            return {
+                "attempted": True,
+                "dryRun": False,
+                "statusCode": getattr(response, "status", 200),
+                "postIds": parsed.get("postIds") or [],
+                "response": parsed,
+            }
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise ValueError(f"Dashboard draft ingest rejected export ({exc.code}): {detail}") from exc
+
+
 def _hydrate_surface_media_items_for_uploaded_media(draft: dict[str, Any], media_ref: dict[str, Any]) -> None:
     content_surface = normalize_content_surface(draft.get("contentSurface") or draft.get("content_surface"))
     if content_surface == "reel":
@@ -1167,6 +1252,7 @@ def _upload_media(
 
 
 def _insert_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], media_ref: dict[str, Any]) -> dict[str, Any]:
+    _require_legacy_supabase_writes()
     metadata = draft.get("metadata") or _draft_metadata(draft)
     campaign_meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
     media_type, ig_media_type = _draft_media_types(draft)
@@ -1205,6 +1291,7 @@ def _insert_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], m
 
 
 def _update_existing_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], media_ref: dict[str, Any], post_id: str) -> dict[str, Any]:
+    _require_legacy_supabase_writes()
     metadata = draft.get("metadata") or _draft_metadata(draft)
     campaign_meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
     media_type, ig_media_type = _draft_media_types(draft)
@@ -1847,7 +1934,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "caption_family_id": publishability.get("caption_family_id") or publishability.get("captionFamilyId") or caption_context.get("caption_family_id") or caption_context.get("captionFamilyId"),
             "caption_version_id": publishability.get("caption_version_id") or publishability.get("captionVersionId") or caption_context.get("caption_version_id") or caption_context.get("captionVersionId"),
             "caption_hash": draft.get("captionHash"),
-            "instagram_post_caption": draft.get("instagramPostCaption") or draft.get("content") or "",
+            "instagram_post_caption": draft.get("instagramPostCaption") or "",
             "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
             "caption_cta": draft.get("captionCta"),
             "hashtags": draft.get("hashtags") or draft.get("topics") or [],

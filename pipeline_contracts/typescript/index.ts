@@ -442,6 +442,101 @@ function handoffManifestFor(
 			: null;
 }
 
+function normalizeContentSurface(value: unknown): string | undefined {
+	const raw = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+	if (!raw) return undefined;
+	if (raw === "reel" || raw === "reels" || raw === "regular_reel") return "reel";
+	if (raw === "story" || raw === "stories") return "story";
+	if (raw === "feed_single" || raw === "image" || raw === "feed_image") return "feed_single";
+	if (raw === "feed_carousel" || raw === "carousel" || raw === "carousel_album") return "feed_carousel";
+	return raw;
+}
+
+function contentSurfaceForDraft(
+	draft: Record<string, unknown>,
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string | undefined {
+	return normalizeContentSurface(
+		firstStringValue(
+			draft.content_surface,
+			draft.contentSurface,
+			campaignFactory.content_surface,
+			campaignFactory.contentSurface,
+			manifest?.content_surface,
+			manifest?.contentSurface,
+		),
+	);
+}
+
+function explicitInstagramPostCaptionFor(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string | undefined {
+	return firstStringValue(
+		campaignFactory.instagram_post_caption,
+		campaignFactory.instagramPostCaption,
+		manifest?.instagram_post_caption,
+		manifest?.instagramPostCaption,
+	);
+}
+
+function statusValue(...values: unknown[]): string | undefined {
+	const value = firstStringValue(...values);
+	return value ? value.trim().toLowerCase() : undefined;
+}
+
+function visualQcStatusFor(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string | undefined {
+	const quality = qualityFor(campaignFactory);
+	const visualQc = isRecord(campaignFactory.visualQc)
+		? campaignFactory.visualQc
+		: isRecord(campaignFactory.visual_qc)
+			? campaignFactory.visual_qc
+			: isRecord(manifest?.visualQc)
+				? manifest?.visualQc
+				: isRecord(manifest?.visual_qc)
+					? manifest?.visual_qc
+					: {};
+	return statusValue(
+		campaignFactory.visualQcStatus,
+		campaignFactory.visual_qc_status,
+		manifest?.visualQcStatus,
+		manifest?.visual_qc_status,
+		quality.visualQcStatus,
+		quality.visual_qc_status,
+		visualQc.visualQcStatus,
+		visualQc.visual_qc_status,
+		visualQc.status,
+	);
+}
+
+function identityVerificationStatusFor(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string | undefined {
+	const identity = isRecord(campaignFactory.identityVerification)
+		? campaignFactory.identityVerification
+		: isRecord(campaignFactory.identity_verification)
+			? campaignFactory.identity_verification
+			: isRecord(manifest?.identityVerification)
+				? manifest?.identityVerification
+				: isRecord(manifest?.identity_verification)
+					? manifest?.identity_verification
+					: {};
+	return statusValue(
+		campaignFactory.identityVerificationStatus,
+		campaignFactory.identity_verification_status,
+		manifest?.identityVerificationStatus,
+		manifest?.identity_verification_status,
+		identity.identityVerificationStatus,
+		identity.identity_verification_status,
+		identity.status,
+	);
+}
+
 function qualityFor(campaignFactory: Record<string, unknown>): Record<string, unknown> {
 	const lineage = isRecord(campaignFactory.generated_asset_lineage)
 		? campaignFactory.generated_asset_lineage
@@ -728,6 +823,14 @@ export function validateHandoffManifestContract(
 	if (isQuarantined(campaignFactory)) {
 		errors.push("handoff_manifest asset is quarantined");
 	}
+	const visualQcStatus = visualQcStatusFor(campaignFactory, manifest);
+	if (visualQcStatus !== "passed") {
+		errors.push("handoff_manifest.visualQcStatus must be passed");
+	}
+	const identityVerificationStatus = identityVerificationStatusFor(campaignFactory, manifest);
+	if (identityVerificationStatus !== "passed") {
+		errors.push("handoff_manifest.identityVerificationStatus must be passed");
+	}
 	return errors;
 }
 
@@ -889,6 +992,13 @@ export function validateCampaignFactoryDraftPayload(
 		}
 		for (const error of validateHandoffManifestContract(campaignFactory)) {
 			errors.push(`drafts[${index}].metadata.campaign_factory.${error}`);
+		}
+		const manifest = handoffManifestFor(campaignFactory);
+		const contentSurface = contentSurfaceForDraft(draft, campaignFactory, manifest);
+		if (contentSurface !== "story" && !explicitInstagramPostCaptionFor(campaignFactory, manifest)) {
+			errors.push(
+				`drafts[${index}].metadata.campaign_factory.instagram_post_caption is required for non-Story Instagram surfaces`,
+			);
 		}
 	}
 	return errors;

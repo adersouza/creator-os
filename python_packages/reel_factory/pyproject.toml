@@ -94,6 +94,7 @@ py-modules = [
   "reference_analyzer",
   "render_plan",
   "render_queue",
+  "review_truth",
   "safe_zone",
   "slideshow_factory",
   "sscd_check",

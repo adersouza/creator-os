@@ -38,10 +38,12 @@ function inputWithAudioStatus(status: string, audioName?: string) {
 				asset_state: "exportable",
 					content_hash: "sha256-content",
 					content_fingerprint: "sha256-content",
-					caption_hash: "sha256-caption",
-					instagram_post_caption: "caption",
-					instagram_post_caption_hash: "sha256-post-caption",
-					captionOutcomeContext: {
+				caption_hash: "sha256-caption",
+				instagram_post_caption: "caption",
+				instagram_post_caption_hash: "sha256-post-caption",
+				visualQcStatus: "passed",
+				identityVerificationStatus: "passed",
+				captionOutcomeContext: {
 					schema: "campaign_factory.caption_outcome_context.v1",
 					caption_hash: "sha256-caption",
 					caption_text: "caption",
@@ -57,6 +59,8 @@ function inputWithAudioStatus(status: string, audioName?: string) {
 						instagram_post_caption: "caption",
 						instagram_post_caption_hash: "sha256-post-caption",
 						post_caption_style: "short_natural",
+						visualQcStatus: "passed",
+						identityVerificationStatus: "passed",
 						captionOutcomeContext: {
 						schema: "campaign_factory.caption_outcome_context.v1",
 						caption_hash: "sha256-caption",

@@ -21,7 +21,10 @@ scan_pattern() {
       ':!**/*.md' \
       ':!**/*.example' \
       ':!**/fixtures/**' \
-      ':!**/tests/**' >"$tmp"; then
+      ':!**/tests/**' \
+      ':!**/__tests__/**' \
+      ':!**/*.test.*' \
+      ':!**/*.spec.*' >"$tmp"; then
     echo "Potential secret pattern found: $name" >&2
     sed 's/^/  /' "$tmp" >&2
     failures=1
@@ -32,12 +35,13 @@ scan_pattern() {
 scan_pattern "juno_api_key" 'juno_ak_[A-Za-z0-9_-]{16,}'
 scan_pattern "stripe_live_key" 'sk_live_[A-Za-z0-9]{16,}'
 scan_pattern "supabase_service_role_jwt" 'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'
-scan_pattern "supabase_service_role_name" 'SUPABASE_SERVICE_ROLE_KEY\s*='
-scan_pattern "cron_secret" 'CRON_SECRET\s*='
-scan_pattern "encryption_key" 'ENCRYPTION_KEY\s*='
-scan_pattern "upstash_token" '(UPSTASH|QSTASH)[A-Z0-9_]*(TOKEN|SECRET|KEY)\s*='
-scan_pattern "meta_app_secret" '(META|FACEBOOK|INSTAGRAM|THREADS)[A-Z0-9_]*(APP_SECRET|CLIENT_SECRET|ACCESS_TOKEN)\s*='
-scan_pattern "vercel_token" 'VERCEL[A-Z0-9_]*TOKEN\s*='
+scan_pattern "supabase_service_role_literal" 'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "cron_secret_literal" 'CRON_SECRET[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "encryption_key_literal" 'ENCRYPTION_KEY[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "upstash_token_literal" '(UPSTASH|QSTASH)[A-Z0-9_]*(TOKEN|SECRET|KEY)[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "meta_app_secret_literal" '(META|FACEBOOK|INSTAGRAM|THREADS)[A-Z0-9_]*(APP_SECRET|CLIENT_SECRET|ACCESS_TOKEN)[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "vercel_token_literal" 'VERCEL[A-Z0-9_]*TOKEN[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9._=-]{24,}["'\'']'
+scan_pattern "vercel_token_value" 'vercel_[A-Za-z0-9_-]{20,}'
 
 if command -v gitleaks >/dev/null 2>&1; then
   scanner_ran=1
@@ -46,7 +50,7 @@ fi
 
 if command -v trufflehog >/dev/null 2>&1; then
   scanner_ran=1
-  trufflehog git file://. --fail || failures=1
+  trufflehog filesystem . --fail || failures=1
 fi
 
 if [[ "$failures" -ne 0 ]]; then

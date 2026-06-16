@@ -3102,10 +3102,61 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         cf.close()
 
 
+def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"success": True, "postIds": ["post_ingest_1"], "writtenDrafts": 1}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        ensure_exportable_distribution_plan(cf)
+        result = export_threadsdash(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            dry_run=False,
+            threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+            threadsdash_ingest_secret="ingest-secret",
+        )
+
+        assert result["dashboardIngest"]["attempted"] is True
+        assert result["dashboardIngest"]["postIds"] == ["post_ingest_1"]
+        assert result["supabase"]["attempted"] is False
+        assert result["supabase"]["disabled"] is True
+        assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
+        assert captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        assert captured["body"]["dryRun"] is False
+        assert captured["body"]["drafts"][0]["instagramPostCaption"]
+    finally:
+        cf.close()
+
+
 def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     upserted: list[tuple[str, dict, str]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -6387,6 +6438,36 @@ def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_cap
         cf.close()
 
 
+def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_caption():
+    metadata = threadsdash_adapter._draft_metadata({
+        "campaignId": "campaign_1",
+        "renderedAssetId": "asset_1",
+        "sourceAssetId": "source_1",
+        "content": "visible overlay text should stay separate",
+        "captionHash": "caption_hash_1",
+        "burnedCaptionText": "visible overlay text should stay separate",
+        "publishability": {
+            "asset_state": "approved_but_not_publishable",
+            "publishability_failure_reasons": ["missing_instagram_post_caption"],
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+        },
+        "audioIntent": {
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "native_platform_audio",
+            "required": False,
+            "status": "not_required",
+            "platform": "instagram",
+            "recommendations": [],
+            "gates": {"allow_draft_export": False, "allow_publish": False},
+        },
+    })
+
+    campaign_meta = metadata["campaign_factory"]
+    assert campaign_meta["instagram_post_caption"] == ""
+    assert campaign_meta["burned_caption_text"] == "visible overlay text should stay separate"
+
+
 def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     try:
@@ -6805,7 +6886,7 @@ def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(tmp_pat
         cf.close()
 
 
-def test_threadsdash_insert_preserves_variant_first_class_columns():
+def test_threadsdash_insert_preserves_variant_first_class_columns(monkeypatch):
     inserted: list[tuple[str, dict]] = []
 
     class FakeClient:
@@ -6835,6 +6916,11 @@ def test_threadsdash_insert_preserves_variant_first_class_columns():
         },
     }
 
+    monkeypatch.delenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", raising=False)
+    with pytest.raises(ValueError, match="raw ThreadsDashboard Supabase post writes are disabled"):
+        threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
+
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
     threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
 
     post_row = inserted[0][1]
@@ -6845,7 +6931,7 @@ def test_threadsdash_insert_preserves_variant_first_class_columns():
     assert post_row["campaign_factory_variant_id"] == "var_1"
 
 
-def test_threadsdash_insert_preserves_feed_single_surface():
+def test_threadsdash_insert_preserves_feed_single_surface(monkeypatch):
     inserted: list[tuple[str, dict]] = []
 
     class FakeClient:
@@ -6874,6 +6960,7 @@ def test_threadsdash_insert_preserves_feed_single_surface():
         },
     }
 
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
     threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/feed.jpg"})
 
     post_row = inserted[0][1]
@@ -9673,6 +9760,7 @@ def test_live_export_requires_explicit_confirmation_for_warnings(tmp_path: Path,
     cf = make_factory(tmp_path)
     rows = []
     inserted: list[tuple[str, dict]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -9746,6 +9834,7 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     uploads: list[tuple[str, str]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11165,6 +11254,7 @@ def test_safe_live_smoke_exports_one_draft_and_verifies(tmp_path: Path, monkeypa
     cf = make_factory(tmp_path)
     media_rows = {}
     post_rows = {}
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11360,6 +11450,7 @@ def test_export_live_job_redacts_secrets_and_records_ids(tmp_path: Path, monkeyp
     cf = make_factory(tmp_path)
     media_rows = {}
     post_rows = {}
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11516,6 +11607,7 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
 def test_account_assignment_drives_draft_destinations_and_metadata(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
