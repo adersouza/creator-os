@@ -9,6 +9,7 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `creator-os` | `main` | `codex/mirror-parity-gate` | merged branch tip `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` | merged to `main` as `b6ca0c66ed41d1c8134645cab0de1788f2526edf`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | merged branch tip `e77466edecd1891962b7ebb52047960b1c284e81` | merged to `main` as `7c3757574dd1b3d7b6d0008f1902d1e157c41577`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/audit-port` | branch tip `22a9476890dfebfd8200c15b602c9b7d2139e1c5` | merged to `main` as `bac25a9d213f86d837e07a94559a78f935abffd9`; ancestor proof exit 0 |
+| `ThreadsDashboard` | `main` | `codex/ws5-radix-boundary` | branch tip `14f913e98aae267bb1c158672250fe6bbd51e511` | merged to `main` as `22cf7b959b6058475b0f8590d9597ce81b8c2960`; ancestor proof exit 0 |
 | `campaign_factory` | `main` | `codex/campaign-caption-inventory` | branch tip `99f27208c8664d488fd666e81f685ce31eebf85f` | merged to `main` as `c0912e4cf44fd40216858f75f89d8980a73c1400`; ancestor proof exit 0 |
 | `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | merged to `main` as `49584b77114b6308597a6d9303bf7e8edcfd4c1d`; ancestor proof exit 0; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
 | `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | merged to `main` as `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`; ancestor proof exit 0 |
@@ -43,6 +44,7 @@ For every actual merge, append:
 - `creator-os`: `codex/mirror-parity-gate@e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` is an ancestor of `main` after merge commit `b6ca0c66ed41d1c8134645cab0de1788f2526edf`.
 - `ThreadsDashboard`: `codex/autoposter-hardening@e77466edecd1891962b7ebb52047960b1c284e81` is an ancestor of `main` after merge commit `7c3757574dd1b3d7b6d0008f1902d1e157c41577`.
 - `ThreadsDashboard`: `codex/audit-port@22a9476890dfebfd8200c15b602c9b7d2139e1c5` is an ancestor of `main` after merge commit `bac25a9d213f86d837e07a94559a78f935abffd9`.
+- `ThreadsDashboard`: `codex/ws5-radix-boundary@14f913e98aae267bb1c158672250fe6bbd51e511` is an ancestor of `main` after merge commit `22cf7b959b6058475b0f8590d9597ce81b8c2960`.
 - `campaign_factory`: `codex/campaign-caption-inventory@99f27208c8664d488fd666e81f685ce31eebf85f` is an ancestor of `main` after merge commit `c0912e4cf44fd40216858f75f89d8980a73c1400`.
 - `reel_factory`: `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` is an ancestor of `main` after merge commit `49584b77114b6308597a6d9303bf7e8edcfd4c1d`.
 - `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abeb1c57aa28432b00c0c68ed45328725a` is an ancestor of `main` after merge commit `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`.
@@ -114,6 +116,27 @@ For every actual merge, append:
   - `graphify update .` pass.
   - Branch commit `22a9476890dfebfd8200c15b602c9b7d2139e1c5` pushed to `origin/codex/audit-port`.
 - TD deploy note: pushed `ThreadsDashboard/main` from `7c3757574dd1b3d7b6d0008f1902d1e157c41577` to `bac25a9d213f86d837e07a94559a78f935abffd9`; no Vercel relink or deploy-config change was made.
+
+### ThreadsDashboard Step G Radix Boundary
+
+- Repo: `ThreadsDashboard`
+- Branch: `codex/ws5-radix-boundary`
+- Branch tip SHA: `14f913e98aae267bb1c158672250fe6bbd51e511`
+- Pre-merge integration SHA: `bac25a9d213f86d837e07a94559a78f935abffd9`
+- Merge SHA: `22cf7b959b6058475b0f8590d9597ce81b8c2960`
+- Rollback command: `git revert -m 1 22cf7b959b6058475b0f8590d9597ce81b8c2960`
+- Ancestor proof command and result: `git merge-base --is-ancestor 14f913e98aae267bb1c158672250fe6bbd51e511 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `npm run check:ui-boundaries` pass.
+  - `npm run compat:check` pass.
+  - `npm run typecheck` pass.
+  - `npm run test` pass: 360 files passed, 1 skipped; 4711 passed, 1 skipped, 3 todo.
+  - `npm run build` pass.
+  - `npm run test:e2e:critical` pass with local `npm run dev` server: 1 passed, 5 skipped.
+  - `graphify update . --force` pass.
+  - Direct dependency check pass: no direct `@radix-ui/*`; `radix-ui@^1.5.0`, `lucide-react@^1.17.0`, `zod@^4.4.3`; `npm ls zod --all --depth=20` showed only `zod@4.4.3`.
+- TD deploy note: pushed `ThreadsDashboard/main` from `bac25a9d213f86d837e07a94559a78f935abffd9` to `22cf7b959b6058475b0f8590d9597ce81b8c2960`; no Vercel relink or deploy-config change was made.
 
 ### campaign_factory Step D Caption Inventory
 

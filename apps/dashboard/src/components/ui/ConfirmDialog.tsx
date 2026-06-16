@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import { AlertDialog } from 'radix-ui';
 import { cn } from '@/lib/utils';
 import { haptics } from '@/utils/haptics';
 import { Button } from './Button';
