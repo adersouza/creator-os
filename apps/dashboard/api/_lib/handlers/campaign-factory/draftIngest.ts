@@ -230,8 +230,11 @@ function ingestSecretFromRequest(req: VercelRequest): string {
 	const header = req.headers["x-campaign-factory-ingest-secret"];
 	if (typeof header === "string" && header.trim()) return header.trim();
 	const authorization = req.headers.authorization;
-	const match = typeof authorization === "string" ? authorization.match(/^Bearer\s+(.+)$/i) : null;
-	return match?.[1]?.trim() || "";
+	if (typeof authorization !== "string") return "";
+	const trimmed = authorization.trim();
+	const bearerPrefix = "bearer ";
+	if (!trimmed.toLowerCase().startsWith(bearerPrefix)) return "";
+	return trimmed.slice(bearerPrefix.length).trim();
 }
 
 function validateReelDraft(
