@@ -9,9 +9,9 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `creator-os` | `main` | `codex/mirror-parity-gate` | merged branch tip `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` | merged to `main` as `b6ca0c66ed41d1c8134645cab0de1788f2526edf`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | merged branch tip `e77466edecd1891962b7ebb52047960b1c284e81` | merged to `main` as `7c3757574dd1b3d7b6d0008f1902d1e157c41577`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/audit-port` | branch tip `22a9476890dfebfd8200c15b602c9b7d2139e1c5` | merged to `main` as `bac25a9d213f86d837e07a94559a78f935abffd9`; ancestor proof exit 0 |
-| `campaign_factory` | `main` | `codex/campaign-caption-inventory` | `99f27208c` | Rerun pytest if branch changes; record `main` pre-merge SHA |
-| `reel_factory` | `main` | `codex/split-review-truth` | `4bad3acab` | Push branch upstream if needed; record `main` pre-merge SHA |
-| `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | `e45374abe` | Rerun pytest if branch changes; record `main` pre-merge SHA |
+| `campaign_factory` | `main` | `codex/campaign-caption-inventory` | branch tip `99f27208c8664d488fd666e81f685ce31eebf85f` | pre-merge tests green; merge pending from `main@ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3` |
+| `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | pre-merge tests green; merge pending from `main@cc8845be5915484e7fe81d5c419f76d007ddadb3`; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
+| `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | pre-merge tests green; merge pending from `main@c84faa7d478b78cb227eeed3a27f53aedd480ea6` |
 | `contentforge` | `main` | `main` | `47e1293ce` | Pending only if future changes are made |
 | `reference_factory` | `main` | inventory `main`; fix branch `codex/reference-test-deps` | inventory `2cf59f2a7`; fix branch `2ea2a7f` | Red pytest dependency baseline fixed and pushed; record `main` pre-merge SHA before ordered repo-maturity merge |
 
@@ -34,13 +34,14 @@ For every actual merge, append:
 - `creator-os`: `codex/mirror-parity-gate@e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` is an ancestor of `main` after merge commit `b6ca0c66ed41d1c8134645cab0de1788f2526edf`.
 - `ThreadsDashboard`: `codex/autoposter-hardening@e77466edecd1891962b7ebb52047960b1c284e81` is an ancestor of `main` after merge commit `7c3757574dd1b3d7b6d0008f1902d1e157c41577`.
 - `ThreadsDashboard`: `codex/audit-port@22a9476890dfebfd8200c15b602c9b7d2139e1c5` is an ancestor of `main` after merge commit `bac25a9d213f86d837e07a94559a78f935abffd9`.
-- `campaign_factory`: `codex/campaign-caption-inventory@99f27208c` is 1 behind and 1 ahead of `main`; merge pending.
-- `reel_factory`: `codex/split-review-truth@4bad3acab` is 2 ahead of `main`; merge pending.
-- `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abe` is 1 behind and 1 ahead of `main`; merge pending.
+- `campaign_factory`: `codex/campaign-caption-inventory@99f27208c8664d488fd666e81f685ce31eebf85f` is green and pending merge to `main@ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3`.
+- `reel_factory`: `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` is green and pending merge to `main@cc8845be5915484e7fe81d5c419f76d007ddadb3`.
+- `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abeb1c57aa28432b00c0c68ed45328725a` is green and pending merge to `main@c84faa7d478b78cb227eeed3a27f53aedd480ea6`.
 
 ## Current Red Gates Blocking Merges
 
-- None currently after `reference_factory/codex/reference-test-deps@2ea2a7f` fixed the `httpx2` test extra and reran 84 passing tests. Merges still require fresh pre-merge gates.
+- `reel_factory/codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is not mergeable in this fresh run: `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` collected 113 items then failed with 4 collection errors because `pilmoji` is missing. The green `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` branch is a superset and includes the dependency/portability fixes.
+- `reference_factory/codex/reference-test-deps@2ea2a7f` fixed the `httpx2` test extra and reran 84 passing tests. Merge still requires fresh pre-merge gates.
 
 ## Planned Merge Records
 
@@ -103,6 +104,46 @@ For every actual merge, append:
   - `graphify update .` pass.
   - Branch commit `22a9476890dfebfd8200c15b602c9b7d2139e1c5` pushed to `origin/codex/audit-port`.
 - TD deploy note: pushed `ThreadsDashboard/main` from `7c3757574dd1b3d7b6d0008f1902d1e157c41577` to `bac25a9d213f86d837e07a94559a78f935abffd9`; no Vercel relink or deploy-config change was made.
+
+### campaign_factory Step D Caption Inventory
+
+- Repo: `campaign_factory`
+- Branch: `codex/campaign-caption-inventory`
+- Branch tip SHA: `99f27208c8664d488fd666e81f685ce31eebf85f`
+- Pre-merge integration SHA: `ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3`
+- Merge SHA: pending
+- Rollback command: `git revert -m 1 <campaign-factory-step-d-merge-sha>`
+- Ancestor proof command and result: pending.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 383 passed.
+
+### reel_factory Step D Review Truth
+
+- Repo: `reel_factory`
+- Branch: `codex/split-review-truth`
+- Branch tip SHA: `4bad3acabcef1b128f02f15f16869b28e7830589`
+- Pre-merge integration SHA: `cc8845be5915484e7fe81d5c419f76d007ddadb3`
+- Merge SHA: pending
+- Rollback command: `git revert -m 1 <reel-factory-step-d-merge-sha>`
+- Ancestor proof command and result: pending.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 307 passed, 48 warnings.
+- Divergence note: `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` was not merged because the fresh suite is red with 4 collection errors from missing `pilmoji`; `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` contains the review-truth work plus producer/dependency/portability fixes and is green.
+
+### pipeline_contracts Step D Campaign Draft Contract Sync
+
+- Repo: `pipeline_contracts`
+- Branch: `codex/campaign-draft-contract-sync`
+- Branch tip SHA: `e45374abeb1c57aa28432b00c0c68ed45328725a`
+- Pre-merge integration SHA: `c84faa7d478b78cb227eeed3a27f53aedd480ea6`
+- Merge SHA: pending
+- Rollback command: `git revert -m 1 <pipeline-contracts-step-d-merge-sha>`
+- Ancestor proof command and result: pending.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 9 passed.
 
 ## Deferred Owner-Only Work
 
