@@ -99,6 +99,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git diff --check
+      - name: Install gitleaks
+        run: brew install gitleaks
+      - name: Run gitleaks
+        run: gitleaks detect --no-git --redact --config .gitleaks.toml --source .
       - run: bash scripts/check-runtime-artifacts.sh
 
   mirror-parity:

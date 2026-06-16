@@ -16,9 +16,13 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `pipeline_contracts` | `main` | `codex/ws3-trust-blocker-contract` | branch tip `5dbd2d3f094edff73086c50627254e5a81904014` | merged to `main` as `fb3226ed70a1d6d45647f0681783a14060f6aba6`; ancestor proof exit 0 |
 | `campaign_factory` | `main` | `codex/ws3-qc-fail-closed` | branch tip `eb3f044d30331c88c97323d906744716693cdc94` | merged to `main` as `8bea6e64e561289af34773007aa89c6ed452cdff`; ancestor proof exit 0 |
 | `campaign_factory` | `main` | `codex/ws3-contract-blocker-codes` | branch tip `e83307781d60ce82d588025dc1241ee21b36a97e` | merged to `main` as `5371570b2ce369f6c41ce474fc0e96460dffe9c8`; ancestor proof exit 0 |
+| `campaign_factory` | `main` | `codex/ws6-python-maturity` | branch tip `b22e25a72e99e653339131f664ab90a2cfadb1f6` | merged to `main` as `978f886af287093c176e73b3de8393a77a5fffd1`; ancestor proof exit 0 |
 | `reel_factory` | `main` | `codex/ws3-reel-backend-gates` | branch tip `f6cdf33b07071627c9846ff8d1e52e7907fc9e88` | merged to `main` as `4506e277da22d3e86c8c4eeca19334ae8130b691`; ancestor proof exit 0 |
+| `reel_factory` | `main` | `codex/ws6-python-maturity` | branch tip `f6d0794aede7e936a3d2d3cef600519e476e8aa7` | merged to `main` as `a9b3029bc92ff0de7d3ec994b48ffb9ff9797136`; ancestor proof exit 0 |
 | `contentforge` | `main` | `main` | `47e1293ce` | Pending only if future changes are made |
 | `reference_factory` | `main` | inventory `main`; fix branch `codex/reference-test-deps` | inventory `2cf59f2a7`; fix branch `2ea2a7f` | Red pytest dependency baseline fixed and pushed; record `main` pre-merge SHA before ordered repo-maturity merge |
+| `pipeline_contracts` | `main` | `codex/ws6-python-maturity` | branch tip `8520b8644c134c22127a0317d295a06a13d7f047` | merged to `main` as `1cb1106b242278c1ca9f9f56d5d2053a0ad43cc3`; ancestor proof exit 0 |
+| `reference_factory` | `main` | `codex/reference-test-deps` | branch tip `a01d70b1e305e5ae777a00955153381f08079d4a` | merged to `main` as `5e8bfa73522700a54c85782643a35c75f82dd2ff`; ancestor proof exit 0 |
 
 ## Required Merge Record Format
 
@@ -223,6 +227,70 @@ For every actual merge, append:
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run python -m pytest tests` pass: 10 passed.
+  - `graphify update .` pass.
+
+### campaign_factory Step F Python Maturity
+
+- Repo: `campaign_factory`
+- Branch: `codex/ws6-python-maturity`
+- Branch tip SHA: `b22e25a72e99e653339131f664ab90a2cfadb1f6`
+- Pre-merge integration SHA: `5371570b2ce369f6c41ce474fc0e96460dffe9c8`
+- Merge SHA: `978f886af287093c176e73b3de8393a77a5fffd1`
+- Rollback command: `git revert -m 1 978f886af287093c176e73b3de8393a77a5fffd1`
+- Ancestor proof command and result: `git merge-base --is-ancestor b22e25a72e99e653339131f664ab90a2cfadb1f6 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev ruff check --select E9,F63,F7,F82 .` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m compileall campaign_factory repurposer tests` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 386 passed.
+  - `graphify update .` pass.
+
+### reel_factory Step F Python Maturity
+
+- Repo: `reel_factory`
+- Branch: `codex/ws6-python-maturity`
+- Branch tip SHA: `f6d0794aede7e936a3d2d3cef600519e476e8aa7`
+- Pre-merge integration SHA: `4506e277da22d3e86c8c4eeca19334ae8130b691`
+- Merge SHA: `a9b3029bc92ff0de7d3ec994b48ffb9ff9797136`
+- Rollback command: `git revert -m 1 a9b3029bc92ff0de7d3ec994b48ffb9ff9797136`
+- Ancestor proof command and result: `git merge-base --is-ancestor f6d0794aede7e936a3d2d3cef600519e476e8aa7 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev ruff check --select E9,F63,F7,F82 .` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m compileall *.py tests` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 313 passed, 48 warnings.
+  - `graphify update .` pass.
+
+### pipeline_contracts Step F Python Maturity
+
+- Repo: `pipeline_contracts`
+- Branch: `codex/ws6-python-maturity`
+- Branch tip SHA: `8520b8644c134c22127a0317d295a06a13d7f047`
+- Pre-merge integration SHA: `fb3226ed70a1d6d45647f0681783a14060f6aba6`
+- Merge SHA: `1cb1106b242278c1ca9f9f56d5d2053a0ad43cc3`
+- Rollback command: `git revert -m 1 1cb1106b242278c1ca9f9f56d5d2053a0ad43cc3`
+- Ancestor proof command and result: `git merge-base --is-ancestor 8520b8644c134c22127a0317d295a06a13d7f047 main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev ruff check --select E9,F63,F7,F82 .` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m compileall pipeline_contracts tests` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 10 passed.
+  - `graphify update .` pass.
+
+### reference_factory Step F Dependency And Python Maturity
+
+- Repo: `reference_factory`
+- Branch: `codex/reference-test-deps`
+- Branch tip SHA: `a01d70b1e305e5ae777a00955153381f08079d4a`
+- Pre-merge integration SHA: `2cf59f2a7a59413202f6520cf59d29b4e443472a`
+- Merge SHA: `5e8bfa73522700a54c85782643a35c75f82dd2ff`
+- Rollback command: `git revert -m 1 5e8bfa73522700a54c85782643a35c75f82dd2ff`
+- Ancestor proof command and result: `git merge-base --is-ancestor a01d70b1e305e5ae777a00955153381f08079d4a main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra test ruff check --select E9,F63,F7,F82 .` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra test python -m compileall reference_factory tests` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra test python -m pytest tests` pass: 84 passed.
   - `graphify update .` pass.
 
 ## Deferred Owner-Only Work

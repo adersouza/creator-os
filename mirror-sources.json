@@ -60,7 +60,7 @@
       "mirrorPath": "python_packages/reel_factory",
       "sourceRepoPath": "../reel_factory",
       "sourceRepoUrl": "https://github.com/adersouza/reel_factory.git",
-      "sourceCommit": "4506e277da22d3e86c8c4eeca19334ae8130b691",
+      "sourceCommit": "a9b3029bc92ff0de7d3ec994b48ffb9ff9797136",
       "include": [
         "**/*"
       ],
@@ -72,7 +72,7 @@
       "mirrorPath": "python_packages/campaign_factory",
       "sourceRepoPath": "../campaign_factory",
       "sourceRepoUrl": "https://github.com/adersouza/campaign_factory.git",
-      "sourceCommit": "5371570b2ce369f6c41ce474fc0e96460dffe9c8",
+      "sourceCommit": "978f886af287093c176e73b3de8393a77a5fffd1",
       "include": [
         "**/*"
       ],
@@ -85,7 +85,7 @@
       "mirrorPath": "python_packages/reference_factory",
       "sourceRepoPath": "../reference_factory",
       "sourceRepoUrl": "https://github.com/adersouza/reference_factory.git",
-      "sourceCommit": "2cf59f2a7a59413202f6520cf59d29b4e443472a",
+      "sourceCommit": "5e8bfa73522700a54c85782643a35c75f82dd2ff",
       "include": [
         "**/*"
       ],
