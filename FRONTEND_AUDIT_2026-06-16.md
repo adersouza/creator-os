@@ -18,7 +18,8 @@ Evidence re-checked against `creator-os` on 2026-06-16:
 | Dashboard `src/components/shadcn` TS/TSX files | 50 |
 | `src/pages/Composer.tsx` | 5 LOC |
 | `src/pages/Autopilot.tsx` | 5 LOC |
-| `src/components/composer/ComposerScreen.tsx` | 5,901 LOC |
+| `src/components/composer/ComposerScreen.tsx` | 5,168 LOC |
+| `src/components/composer/ComposerPanels.tsx` | 833 LOC |
 | `src/components/autopilot/AutopilotScreen.tsx` | 4,374 LOC |
 | `src/pages/Listening.tsx` | 1,844 LOC |
 | `src/pages/Analytics.tsx` | 1,586 LOC |
@@ -31,7 +32,7 @@ The prior audit's older size, component-count, and "7 lazy files" claims are sta
 
 Branch update on `codex/frontend-cleanup`: before the Radix cleanup, `HEAD` had 29 granular Radix source imports and 20 direct granular Radix dependencies. The current branch has converged app source to unified `radix-ui` imports and removed direct granular dependencies from `apps/dashboard/package.json`. `vite build --mode analyze` emits the Radix code in a single `radix` manual chunk (`93.36 kB`, gzip `28.91 kB`, brotli `24.89 kB`), and the visualizer data shows one resolved copy of each Radix primitive version. Granular `@radix-ui/react-*` packages still appear transitively through `radix-ui`, `cmdk`, and `vaul`, which is expected.
 
-Verification on this branch: `pnpm --filter juno33 run check:ui-boundaries`, `pnpm --filter juno33 compat:check`, `pnpm --filter juno33 typecheck`, `pnpm --filter juno33 test -- --run`, and `pnpm --filter juno33 build` all pass after the Radix cleanup. After the Composer/Autopilot route-shell extraction, `pnpm --filter juno33 typecheck` and `pnpm --filter juno33 compat:check` pass.
+Verification on this branch: `pnpm --filter juno33 run check:ui-boundaries`, `pnpm --filter juno33 compat:check`, `pnpm --filter juno33 typecheck`, `pnpm --filter juno33 test -- --run`, and `pnpm --filter juno33 build` all pass after the Radix cleanup. After the Composer/Autopilot route-shell extraction and first Composer panel extraction, `pnpm --filter juno33 typecheck`, `pnpm --filter juno33 compat:check`, and `pnpm --filter juno33 test:e2e:critical` pass locally; the critical Composer cases skip when no authenticated storage state is available.
 
 ---
 
@@ -46,7 +47,7 @@ Verification on this branch: `pnpm --filter juno33 run check:ui-boundaries`, `pn
 | Dependency consistency | 6.75/10 | Radix import convergence is complete on this branch; Zod-major convergence, registry workflow discipline, and icon provenance remain cleanup items. |
 | ContentForge frontend | n/a | Still a separate, thinner UI stack; acceptable if it stays internal and small. |
 
-**Overall TD frontend: 7.7/10.** The stack and governance are solid. This branch has closed the Radix import, wrapper-boundary, and route-shell-size risks; the remaining problems are feature-screen decomposition, Zod convergence, registry provenance, and deeper bundle/performance review — not a failed frontend foundation.
+**Overall TD frontend: 7.75/10.** The stack and governance are solid. This branch has closed the Radix import, wrapper-boundary, and route-shell-size risks, and has started Composer panel-level extraction; the remaining problems are deeper feature-screen decomposition, Zod convergence, registry provenance, and deeper bundle/performance review — not a failed frontend foundation.
 
 ---
 
@@ -84,7 +85,7 @@ Current dashboard size: 727 TS/TSX files and 171,712 LOC under `apps/dashboard/s
 
 4. **Monster feature screens remain the main maintainability risk.**
    - `src/pages/Composer.tsx` and `src/pages/Autopilot.tsx` are now thin route shells.
-   - `ComposerScreen.tsx` is 5,901 LOC.
+   - `ComposerScreen.tsx` is 5,168 LOC after extracting shared Composer presentation panels into `ComposerPanels.tsx` (833 LOC).
    - `AutopilotScreen.tsx` is 4,374 LOC.
    - `Listening.tsx` is 1,844 LOC.
    - `Analytics.tsx` is 1,586 LOC.
@@ -130,9 +131,10 @@ Current dashboard size: 727 TS/TSX files and 171,712 LOC under `apps/dashboard/s
    - Direct granular Radix dependencies are removed.
    - Bundle analysis shows one resolved primitive copy per Radix package version.
 
-4. **Decompose Composer and Autopilot first. — route shell done; panel extraction remains**
+4. **Decompose Composer and Autopilot first. — route shell done; Composer panel extraction started**
    - `src/pages/Composer.tsx` and `src/pages/Autopilot.tsx` are now thin route wrappers.
-   - The extracted feature screens remain the largest frontend files and should be split by behavior boundary: shell, editor/forms, media/upload, preview, actions, diagnostics, and route-specific hooks.
+   - Composer now has an extracted `ComposerPanels.tsx` for shared presentation panels, but the feature screen is still too large.
+   - The remaining feature screens should be split by behavior boundary: shell, editor/forms, media/upload, preview, actions, diagnostics, and route-specific hooks.
 
 5. **Run a bundle analysis. — first pass done; deeper review remains**
    - Verify route chunks and heavy dependencies instead of relying on lazy-call counts.
