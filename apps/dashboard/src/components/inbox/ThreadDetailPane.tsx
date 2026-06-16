@@ -189,8 +189,13 @@ export function ThreadDetailPane({
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-y-auto min-h-0 px-4 md:px-6 py-5 md:py-6">
-				<div className="flex flex-col lg:flex-row gap-5">
+			<div
+				className={cn(
+					"flex-1 overflow-y-auto min-h-0",
+					mobileChrome ? "px-3 py-4" : "px-4 py-5 md:px-6 md:py-6",
+				)}
+			>
+				<div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_19rem]">
 					<ThreadMessages conversation={c} />
 					<ContextRail
 						conversation={c}

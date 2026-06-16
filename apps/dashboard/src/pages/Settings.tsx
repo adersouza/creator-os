@@ -117,7 +117,7 @@ const GROUPS: TabGroup[] = [
 			{ id: "whitelabel", label: "White-label", icon: Palette },
 			{ id: "connections", label: "Connections", icon: Blocks },
 			{ id: "voice", label: "Voice profiles", icon: MessageSquare },
-			{ id: "autopilot", label: "Autopilot", icon: Zap },
+			{ id: "autopilot", label: "Automation", icon: Zap },
 		],
 	},
 	{
@@ -128,18 +128,22 @@ const GROUPS: TabGroup[] = [
 		],
 	},
 	{
-		label: "Advanced",
+		label: "Privacy",
 		tabs: [
-			{ id: "labs", label: "Beta labs", icon: FlaskConical },
-			{ id: "ux-health", label: "UX health", icon: Activity },
-			{ id: "audit", label: "Audit log", icon: ScrollText },
 			{ id: "data", label: "Data & privacy", icon: ShieldCheck },
-			{ id: "danger", label: "Danger zone", icon: ShieldAlert },
 		],
 	},
 ];
 
-const ALL_TABS: TabDef[] = GROUPS.flatMap((g) => g.tabs);
+const CONTEXTUAL_TABS: TabDef[] = [
+	{ id: "labs", label: "Beta labs", icon: FlaskConical },
+	{ id: "audit", label: "Audit log", icon: ScrollText },
+	{ id: "danger", label: "Danger zone", icon: ShieldAlert },
+	{ id: "ux-health", label: "UX health", icon: Activity },
+];
+
+const VISIBLE_TABS: TabDef[] = GROUPS.flatMap((g) => g.tabs);
+const ALL_TABS: TabDef[] = [...VISIBLE_TABS, ...CONTEXTUAL_TABS];
 
 /* ============================================================================
    Autopilot — enable / approval threshold / cooldown
@@ -203,7 +207,7 @@ function AutopilotTab() {
 				...patch,
 			});
 		} catch (err) {
-			appToast.error("Could not save autopilot settings", {
+			appToast.error("Could not save automation settings", {
 				description:
 					err instanceof Error ? err.message : "Try again in a moment.",
 			});
@@ -215,7 +219,7 @@ function AutopilotTab() {
 	return (
 		<div className="flex w-full flex-col gap-6">
 			<SectionHeader
-				title="Autopilot"
+				title="Automation"
 				description="Let Juno33 publish approved drafts, reply to safe comments, and pause underperforming accounts automatically. You stay in control — set the confidence bar and the cooldown."
 			/>
 
@@ -223,10 +227,10 @@ function AutopilotTab() {
 				<div className="flex items-start justify-between gap-6">
 					<div className="flex-1 min-w-0">
 						<div className="text-[0.8125rem] font-medium text-foreground">
-							Enable autopilot
+							Enable automation
 						</div>
 						<p className="mt-1 text-[0.78125rem] text-muted-foreground leading-[1.55]">
-							Master switch. When off, autopilot will not take any action —
+							Master switch. When off, Automation will not take any action —
 							scheduled posts still publish on their own schedule, but nothing
 							is auto-generated, auto-approved, or auto-paused.
 						</p>
@@ -257,7 +261,7 @@ function AutopilotTab() {
 								Approval threshold
 							</div>
 							<p className="mt-1 text-[0.78125rem] text-muted-foreground leading-[1.55] max-w-[480px]">
-								Minimum confidence score required for autopilot to act without
+								Minimum confidence score required for Automation to act without
 								asking. Below this, items land in your approval queue.
 							</p>
 						</div>
@@ -291,7 +295,7 @@ function AutopilotTab() {
 								Cooldown between actions
 							</div>
 							<p className="mt-1 text-[0.78125rem] text-muted-foreground leading-[1.55] max-w-[480px]">
-								Minimum hours between autopilot actions on the same account.
+								Minimum hours between automated actions on the same account.
 								Protects against unnatural posting cadence that trips Meta's
 								spam filters.
 							</p>
@@ -328,8 +332,8 @@ function AutopilotTab() {
 					: saving
 						? "Saving…"
 						: enabled
-							? "Autopilot is active."
-							: "Autopilot is off — all actions require manual approval."}
+							? "Automation is active."
+							: "Automation is off — all actions require manual approval."}
 			</div>
 		</div>
 	);
@@ -558,10 +562,9 @@ function DangerZone() {
 				contentClassName="flex items-start gap-4"
 			>
 				<span
-					className="w-9 h-9 rounded-md flex items-center justify-center shrink-0 text-white"
-					style={{ backgroundColor: "var(--color-oxblood)" }}
+					className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"
 				>
-					<AlertTriangle className="w-4 h-4" />
+					<AlertTriangle data-icon="inline-start" aria-hidden="true" />
 				</span>
 				<div className="flex-1 min-w-0">
 					<div className="text-[0.84375rem] font-semibold text-foreground">
@@ -673,7 +676,7 @@ const LAST_PANE_KEY = "juno33-settings-last-pane";
 function readLastPane(): TabId | null {
 	if (typeof localStorage === "undefined") return null;
 	const raw = localStorage.getItem(LAST_PANE_KEY);
-	return ALL_TABS.find((t) => t.id === raw)?.id ?? null;
+	return VISIBLE_TABS.find((t) => t.id === raw)?.id ?? null;
 }
 
 export function Settings() {
@@ -702,16 +705,41 @@ export function Settings() {
 		navigate(`/settings/${next}`, { replace: true });
 	};
 
-	const tabIds = useMemo(() => ALL_TABS.map((t) => t.id), []);
+	const activeTab = useMemo(
+		() => ALL_TABS.find((t) => t.id === active),
+		[active],
+	);
+	const activeTabIsVisible = useMemo(
+		() => VISIBLE_TABS.some((t) => t.id === active),
+		[active],
+	);
+	const contextualActiveTab =
+		activeTab && !activeTabIsVisible ? activeTab : null;
+	const visibleTabIds = useMemo(() => VISIBLE_TABS.map((t) => t.id), []);
+	const desktopTabIds = useMemo(
+		() =>
+			contextualActiveTab
+				? [...visibleTabIds, contextualActiveTab.id]
+				: visibleTabIds,
+		[contextualActiveTab, visibleTabIds],
+	);
+	const mobileTabs = useMemo(
+		() =>
+			contextualActiveTab
+				? [contextualActiveTab, ...VISIBLE_TABS]
+				: VISIBLE_TABS,
+		[contextualActiveTab],
+	);
+	const mobileTabIds = useMemo(() => mobileTabs.map((t) => t.id), [mobileTabs]);
 	const onTablistKey = useTablistKeyboardNav({
-		ids: tabIds,
+		ids: desktopTabIds,
 		activeId: active,
 		onNavigate: (id) => setActive(id as TabId),
 		orientation: "vertical",
 		scopeSelector: '[data-tablist="settings-desktop"]',
 	});
 	const onMobileTablistKey = useTablistKeyboardNav({
-		ids: tabIds,
+		ids: mobileTabIds,
 		activeId: active,
 		onNavigate: (id) => setActive(id as TabId),
 		orientation: "horizontal",
@@ -719,22 +747,18 @@ export function Settings() {
 	});
 
 	const ActiveComponent = TAB_RENDER[active];
-	const activeTab = useMemo(
-		() => ALL_TABS.find((t) => t.id === active),
-		[active],
-	);
 
 	// Keep document.title + last-pane memory in sync with the active tab.
 	useEffect(() => {
 		if (!activeTab) return;
 		document.title = `${activeTab.label} · Juno33 Settings`;
-		if (typeof localStorage !== "undefined") {
+		if (activeTabIsVisible && typeof localStorage !== "undefined") {
 			localStorage.setItem(LAST_PANE_KEY, active);
 		}
 		return () => {
 			document.title = "Juno33";
 		};
-	}, [active, activeTab]);
+	}, [active, activeTab, activeTabIsVisible]);
 
 	return (
 		<NovaScreen className="settings-page flex-col md:flex-row min-h-full" width="full" density="compact">
@@ -803,6 +827,45 @@ export function Settings() {
 						</div>
 					</div>
 				))}
+				{contextualActiveTab ? (
+					<div>
+						<div className="px-2.5 mb-1.5 text-[0.6875rem] font-medium text-muted-foreground">
+							Direct link
+						</div>
+						<div className="flex flex-col gap-0.5">
+							<Button
+								type="button"
+								key={contextualActiveTab.id}
+								id={`settings-tab-${contextualActiveTab.id}`}
+								role="tab"
+								aria-selected
+								aria-controls={`settings-panel-${contextualActiveTab.id}`}
+								data-tab-id={contextualActiveTab.id}
+								tabIndex={0}
+								onClick={() => setActive(contextualActiveTab.id)}
+								className={cn(
+									"relative flex h-8 w-full items-center justify-start gap-2.5 rounded-full px-2.5 text-left text-[0.78125rem]",
+									"bg-[color-mix(in_srgb,var(--color-oxblood)_10%,transparent)] text-[var(--color-oxblood)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-oxblood)_20%,transparent)]",
+									"outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood-strong)]",
+								)}
+								variant="ghost"
+								size="sm"
+							>
+								<contextualActiveTab.icon className="w-3.5 h-3.5 shrink-0 text-[var(--color-oxblood)]" />
+								<span className="truncate flex-1">{contextualActiveTab.label}</span>
+							</Button>
+							<Button
+								type="button"
+								onClick={() => setActive("profile")}
+								className="h-8 justify-start rounded-full px-2.5 text-[0.78125rem]"
+								variant="ghost"
+								size="sm"
+							>
+								Back to Settings
+							</Button>
+						</div>
+					</div>
+				) : null}
 			</nav>
 
 			{/* Mobile horizontal tabs */}
@@ -813,7 +876,7 @@ export function Settings() {
 				onKeyDown={onMobileTablistKey}
 				className="flex md:hidden overflow-x-auto gap-1 px-3 py-2 border-b border-border hide-scrollbar shrink-0 sticky top-0 z-10 bg-background/95 backdrop-blur-[8px]"
 			>
-				{ALL_TABS.map((t) => {
+				{mobileTabs.map((t) => {
 					const isActive = active === t.id;
 					return (
 						<Button
@@ -867,8 +930,20 @@ export function Settings() {
 						filters={
 							<NovaToolbar>
 								<Badge tone="outline">{active}</Badge>
-								<Badge tone={active === "danger" ? "danger" : "secondary"}>
-									{active === "danger" ? "destructive" : "config"}
+								<Badge
+									tone={
+										active === "danger"
+											? "danger"
+											: activeTabIsVisible
+												? "secondary"
+												: "outline"
+									}
+								>
+									{active === "danger"
+										? "destructive"
+										: activeTabIsVisible
+											? "config"
+											: "direct link"}
 								</Badge>
 							</NovaToolbar>
 						}

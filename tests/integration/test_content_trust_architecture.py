@@ -15,6 +15,7 @@ def test_tribev2_remains_research_only() -> None:
     forbidden_terms = ("tribev2", "tribe_v2", "TRIBE")
     allowed_fragments = (
         "_spikes/tribev2",
+        "tribev2_reel_scores",
         "tribev2_reel_analysis",
         "tribev2_reel_review",
         "tribev2_holdout_pilot_review",

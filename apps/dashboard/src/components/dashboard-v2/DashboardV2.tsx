@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Children, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
-	ArrowDownRight,
-	ArrowRight,
-	ArrowUpRight,
 	BarChart3,
 	CalendarClock,
 	CheckCircle2,
@@ -48,7 +45,7 @@ import { Badge } from "@/components/ui/Badge";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { MatrixLoader } from "@/components/ui/MatrixLoader";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { MotionReveal } from "@/components/ui/Motion";
 import {
 	NovaCard,
 	NovaDataPanel,
@@ -57,10 +54,10 @@ import {
 	NovaListRow,
 	NovaMiniStat,
 	NovaSection,
+	NovaStat,
 } from "@/components/ui/NovaPrimitives";
 import { PillSegmented } from "@/components/ui/PillSegmented";
 import { JunoBarChart } from "@/components/ui/JunoChart";
-import { MobileOverview } from "@/components/dashboard/MobileOverview";
 import { useAccountScopeStore } from "@/stores/useAccountScopeStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { useAccountGroups } from "@/hooks/useAccountGroups";
@@ -72,6 +69,13 @@ import {
 	discoveryScore,
 	engagementTotal,
 } from "@/lib/contentOperations";
+import {
+	KPI_PRESENTATION,
+	deltaDirection,
+	formatCompact,
+	formatDelta,
+	formatPercent,
+} from "@/lib/kpiPresentation";
 
 import { PLATFORMS, type Platform } from "./shared";
 import { HeroTile } from "./tiles/HeroTile";
@@ -100,16 +104,49 @@ import {
 	VanityFlagTile,
 } from "./tiles/IgV2Tiles";
 import { HookStrengthTile } from "./tiles/HookStrengthTile";
-import { AICostMetricsTile } from "./tiles/AICostMetricsTile";
 
 function BandHeader({ label, title }: { label: string; title: string }) {
 	return (
-		<div className="mt-6 flex min-w-0 flex-col gap-1">
+		<div className="flex min-w-0 flex-col gap-1">
 			<div className="text-sm font-medium text-primary">{label}</div>
 			<div className="text-lg font-semibold tracking-[-0.02em] text-foreground">
 				{title}
 			</div>
 		</div>
+	);
+}
+
+function PlatformInsightGrid({
+	children,
+	desktopColumns,
+}: {
+	children: ReactNode;
+	desktopColumns?: [number[], number[]] | undefined;
+}) {
+	const items = Children.toArray(children);
+	const leftColumn = desktopColumns
+		? desktopColumns[0].map((index) => items[index]).filter(Boolean)
+		: items.filter((_, index) => index % 2 === 0);
+	const rightColumn = desktopColumns
+		? desktopColumns[1].map((index) => items[index]).filter(Boolean)
+		: items.filter((_, index) => index % 2 === 1);
+
+	return (
+		<div className="dashboard-platform-insights min-w-0">
+			<div className="grid min-w-0 gap-5 md:gap-6 xl:hidden">{items}</div>
+			<div className="hidden min-w-0 gap-5 md:gap-6 xl:grid xl:grid-cols-2">
+				<div className="flex min-w-0 flex-col gap-5 md:gap-6">{leftColumn}</div>
+				<div className="flex min-w-0 flex-col gap-5 md:gap-6">{rightColumn}</div>
+			</div>
+		</div>
+	);
+}
+
+function PlatformInsightSection({ children }: { children: ReactNode }) {
+	return (
+		<section className="flex min-w-0 flex-col gap-3">
+			{children}
+		</section>
 	);
 }
 
@@ -129,35 +166,6 @@ function TimeframeSegmented({
 			size="md"
 		/>
 	);
-}
-
-function formatCompact(value: number | null | undefined) {
-	const safeValue = Number(value ?? 0);
-	return new Intl.NumberFormat("en", {
-		notation: "compact",
-		maximumFractionDigits: safeValue >= 1000 ? 1 : 0,
-	}).format(safeValue);
-}
-
-function formatPercent(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return "Unavailable";
-	return `${Math.round(value * 10) / 10}%`;
-}
-
-function formatDelta(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return "No prior";
-	const rounded = Math.round(value * 10) / 10;
-	return `${rounded > 0 ? "+" : ""}${rounded}%`;
-}
-
-function deltaDirection(value: number | null | undefined): "up" | "down" | "flat" {
-	if (value == null || Math.abs(value) < 0.1) return "flat";
-	return value > 0 ? "up" : "down";
-}
-
-function progressFromDelta(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return 0;
-	return Math.max(8, Math.min(100, Math.abs(value)));
 }
 
 function platformToFleet(platform: Platform): "all" | "threads" | "instagram" {
@@ -210,6 +218,7 @@ function DashboardKpiCard({
 	value,
 	description,
 	trendValue,
+	trendLabel,
 	icon: Icon,
 	footerLabel,
 	footerValue,
@@ -219,56 +228,34 @@ function DashboardKpiCard({
 	value: string;
 	description: string;
 	trendValue: number | null | undefined;
+	trendLabel?: string | undefined;
 	icon: LucideIcon;
 	footerLabel: string;
 	footerValue: string;
 	loading?: boolean;
 }) {
 	const direction = deltaDirection(trendValue);
-	const trendTone = direction === "down" ? "danger" : direction === "up" ? "oxblood" : "secondary";
-	const TrendIcon = direction === "down" ? ArrowDownRight : direction === "up" ? ArrowUpRight : ArrowRight;
 
 	return (
-		<NovaCard
+		<NovaStat
+			label={label}
+			value={value}
+			description={description}
+			icon={<Icon aria-hidden="true" />}
+			trend={{
+				direction,
+				label: trendLabel ?? formatDelta(trendValue),
+			}}
+			loading={loading}
 			variant="compact"
-			className="h-full"
-			contentClassName="flex h-full flex-col gap-4"
+			className="h-full [&_.nova-card-footer]:hidden max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8 sm:[&_.nova-stat-description]:line-clamp-2"
 			footer={
 				<div className="flex w-full items-center justify-between gap-3 text-xs">
 					<span className="truncate text-muted-foreground">{footerLabel}</span>
 					<span className="shrink-0 font-semibold tabular-nums text-foreground">{footerValue}</span>
 				</div>
 			}
-		>
-			<div className="flex min-w-0 items-start justify-between gap-3">
-				<div className="min-w-0">
-					<div className="text-sm font-medium text-muted-foreground">{label}</div>
-					{loading ? (
-						<Skeleton className="mt-3 h-9 w-28" />
-					) : (
-						<div className="mt-2 truncate text-4xl font-semibold tracking-normal text-foreground tabular-nums">
-							{value}
-						</div>
-					)}
-				</div>
-				<div className="nova-icon-box flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
-					<Icon aria-hidden="true" />
-				</div>
-			</div>
-			<p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-			<div className="mt-auto grid gap-2">
-				<div className="h-1.5 overflow-hidden rounded-full bg-muted">
-					<div
-						className="h-full rounded-full bg-primary"
-						style={{ width: `${progressFromDelta(trendValue)}%` }}
-					/>
-				</div>
-				<Badge tone={trendTone} className="w-fit gap-1">
-					<TrendIcon data-icon="inline-start" aria-hidden="true" />
-					{formatDelta(trendValue)}
-				</Badge>
-			</div>
-		</NovaCard>
+		/>
 	);
 }
 
@@ -277,7 +264,7 @@ function DashboardKpiCard({
  *
  * Tile selection and spans are owned here. Keep the dashboard focused on
  * operator attention: summary in the hero/all-view ribbon, platform-specific
- * evidence in the Threads and Instagram drilldowns.
+ * insights in the Threads and Instagram drilldowns.
  */
 export function DashboardV2() {
 	const [urlState, updateUrlState] = useDashboardUrlState();
@@ -291,21 +278,6 @@ export function DashboardV2() {
 		(next: DashboardTimeframe) => updateUrlState({ timeframe: next }),
 		[updateUrlState],
 	);
-	// Bento stays active for tablet-width and narrow desktop windows so the
-	// dashboard doesn't become a different product when the app window is
-	// resized. Phones keep the compact MobileOverview.
-	const [showMobileOverview, setShowMobileOverview] = useState(() =>
-		typeof window !== "undefined"
-			? window.matchMedia("(max-width: 767px)").matches
-			: false,
-	);
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-		const mql = window.matchMedia("(max-width: 767px)");
-		const update = () => setShowMobileOverview(mql.matches);
-		mql.addEventListener("change", update);
-		return () => mql.removeEventListener("change", update);
-	}, []);
 	const navigate = useNavigate();
 	const composer = useComposer();
 	const authUser = useAuthUser();
@@ -535,13 +507,12 @@ export function DashboardV2() {
 
 	if (!authUser) return null;
 	if (
-		!showMobileOverview &&
 		!fleet.isLoading &&
 		!fleet.hasError &&
 		fleet.accounts === 0
 	) {
 		return (
-			<NovaScreen className="hidden md:flex" width="default">
+			<NovaScreen width="default">
 				<div className="flex flex-col gap-3">
 					<PublishingStartCard surface="dashboard_empty" />
 					<NovaEmpty
@@ -589,19 +560,8 @@ export function DashboardV2() {
 				: "Live data is stable. Background syncs will update these tiles automatically.";
 
 	return (
-		<>
-			{/* Phone-only overview. Tablet and narrow desktop windows keep the
-          same Dashboard V2 surface as fullscreen. */}
-			{showMobileOverview ? (
-				<MobileOverview
-					scopedAccount={scopedHandle}
-					accountIds={scopedGroupAccountIds}
-					groupId={scopedGroupId}
-				/>
-			) : null}
-
-			<NovaScreen
-				className="dashboard-rebuild-screen dv3-root hidden md:flex"
+		<NovaScreen
+				className="dashboard-rebuild-screen dv3-root"
 				width="default"
 				density="compact"
 			>
@@ -609,7 +569,7 @@ export function DashboardV2() {
 				<NovaHeader
 					eyebrow="Dashboard"
 					title="Dashboard"
-					description={`Monitor ${scopeCopy.noun}, rebalance attention, and jump into the evidence behind the current ${timeframe.toUpperCase()} window.`}
+					description={`Track ${scopeCopy.noun}, spot what changed, and decide what to publish or review in the current ${timeframe.toUpperCase()} window.`}
 					meta={`${timeStr} ${tzStr}`}
 					variant="board"
 					filters={
@@ -731,7 +691,7 @@ export function DashboardV2() {
 
 				{/* Dashboard bands keep the existing real data tiles and footprints;
 				    the dv3 scope only changes the color/material language. */}
-				<section aria-label="Dashboard tiles">
+				<section aria-label="Dashboard tiles" className="flex min-w-0 flex-col gap-6 md:gap-7">
 					{/* === ALL VIEW (10 tiles) === */}
 					{platform === "all" && (
 							<DailyDashboardAllView
@@ -757,21 +717,18 @@ export function DashboardV2() {
 
 					{/* === THREADS VIEW (8 tiles) === */}
 					{platform === "threads" && (
-						<>
-							{/* Band 0 — Hero (12, full-width) per mockup line 565 */}
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-12">
-									<TileErrorBoundary scope="dv2:hero">
-										<HeroTile
-											platform={platform}
-											timeframe={timeframe}
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-											scopeLabel={scopeCopy.header}
-										/>
-									</TileErrorBoundary>
-								</div>
+						<div className="flex min-w-0 flex-col gap-5 md:gap-6">
+							<div className="min-w-0">
+								<TileErrorBoundary scope="dv2:hero">
+									<HeroTile
+										platform={platform}
+										timeframe={timeframe}
+										scopedAccount={scopedHandle}
+										accountIds={scopedGroupAccountIds}
+										groupId={scopedGroupId}
+										scopeLabel={scopeCopy.header}
+									/>
+								</TileErrorBoundary>
 							</div>
 							<FundamentalsRibbon
 								platform={platform}
@@ -780,68 +737,77 @@ export function DashboardV2() {
 								accountIds={scopedGroupAccountIds}
 								groupId={scopedGroupId}
 							/>
-							<BandHeader
-								label="Conversation attention"
-								title="Conversation quality · ghost count"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-8">
-									<TileErrorBoundary scope="dv2:conversation-quality">
-										<ConversationQualityTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+							<PlatformInsightGrid desktopColumns={[[0, 2, 3, 7], [1, 4, 5, 6]]}>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Conversation attention"
+											title="Conversation quality"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:ghost-count">
-										<GhostCountTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-							{/* Band 2 — Reply-depth leaders (12, Mosseri-confirmed) */}
-							<BandHeader
-								label="Conversation leaders"
-								title="Reply-depth leaders"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-12">
-									<TileErrorBoundary scope="dv2:reply-depth-leaders">
-										<ReplyDepthLeadersTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-							{/* Band 3 — Conv winner (4) + Held replies (4) + Suppression (4) */}
-							<BandHeader
-								label="Operations"
-								title="Deepest thread · moderation · reach drops"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-6">
-									<TileErrorBoundary scope="dv2:conversation-winner">
-										<ConversationWinnerTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="flex flex-col gap-4 lg:col-span-6">
-									<div className="min-h-0">
-										<TileErrorBoundary scope="dv2:ai-costs">
-											<AICostMetricsTile />
+										<TileErrorBoundary scope="dv2:conversation-quality">
+											<ConversationQualityTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
 										</TileErrorBoundary>
-									</div>
-									<div className="min-h-0">
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Conversation leaders"
+											title="Reply-depth leaders"
+										/>
+										<TileErrorBoundary scope="dv2:reply-depth-leaders">
+											<ReplyDepthLeadersTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Performance signals"
+											title="Deepest thread"
+										/>
+										<TileErrorBoundary scope="dv2:conversation-winner">
+											<ConversationWinnerTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Source insight"
+											title="Views provenance"
+										/>
+										<TileErrorBoundary scope="dv2:views-by-source">
+											<ViewsBySourceStripTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="What to review"
+											title="Reply attention"
+										/>
+										<TileErrorBoundary scope="dv2:ghost-count">
+											<GhostCountTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Moderation"
+											title="Held replies"
+										/>
 										<TileErrorBoundary scope="dv2:held-replies">
 											<HeldRepliesQueueTile
 												scopedAccount={scopedHandle}
@@ -849,8 +815,12 @@ export function DashboardV2() {
 												groupId={scopedGroupId}
 											/>
 										</TileErrorBoundary>
-									</div>
-									<div className="min-h-0">
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Reach drops"
+											title="Suppression watch"
+										/>
 										<TileErrorBoundary scope="dv2:suppression-dark-threads">
 											<SuppressionDarkTile
 												variant="threads"
@@ -859,56 +829,40 @@ export function DashboardV2() {
 												groupId={scopedGroupId}
 											/>
 										</TileErrorBoundary>
-									</div>
-								</div>
-							</div>
-							{/* Band 4 — Views source provenance + Streak[Threads] */}
-							<BandHeader
-								label="Source evidence"
-								title="Views provenance · streak"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-8">
-									<TileErrorBoundary scope="dv2:views-by-source">
-										<ViewsBySourceStripTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Posting rhythm"
+											title="Streak"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:streak-threads">
-										<StreakTile
-											platform="threads"
-											variant="compact"
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-						</>
+										<TileErrorBoundary scope="dv2:streak-threads">
+											<StreakTile
+												platform="threads"
+												variant="compact"
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+							</PlatformInsightGrid>
+						</div>
 					)}
 
 					{/* === IG VIEW (11 tiles) === */}
 					{platform === "ig" && (
-						<>
-							{/* Band 0 — Hero (12, full-width) per mockup line 594 */}
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-12">
-									<TileErrorBoundary scope="dv2:hero">
-										<HeroTile
-											platform={platform}
-											timeframe={timeframe}
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
-											scopeLabel={scopeCopy.header}
-										/>
-									</TileErrorBoundary>
-								</div>
+						<div className="flex min-w-0 flex-col gap-5 md:gap-6">
+							<div className="min-w-0">
+								<TileErrorBoundary scope="dv2:hero">
+									<HeroTile
+										platform={platform}
+										timeframe={timeframe}
+										scopedAccount={scopedHandle}
+										accountIds={scopedGroupAccountIds}
+										groupId={scopedGroupId}
+										scopeLabel={scopeCopy.header}
+									/>
+								</TileErrorBoundary>
 							</div>
 							<FundamentalsRibbon
 								platform={platform}
@@ -917,139 +871,157 @@ export function DashboardV2() {
 								accountIds={scopedGroupAccountIds}
 								groupId={scopedGroupId}
 							/>
-							<BandHeader
-								label="Share attention"
-								title="Share rate · watch-time · non-follower"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-3">
-									<TileErrorBoundary scope="dv2:sends-per-reach-bullet">
-										<SendsPerReachBulletDarkTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+							<PlatformInsightGrid desktopColumns={[[0, 2, 7, 8, 10], [1, 3, 4, 5, 6, 9]]}>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Share attention"
+											title="Non-follower reach"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:watch-per-view">
-										<WatchPerViewTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:non-follower-reach-ig">
+											<NonFollowerReachTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Performance leaders"
+											title="Sends-per-reach leaders"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-5">
-									<TileErrorBoundary scope="dv2:non-follower-reach-ig">
-										<NonFollowerReachTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:sends-per-reach-leaders">
+											<SendsPerReachLeadersTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Content signals"
+											title="Content mix"
 										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-							{/* Band 2 — Sends-per-reach leaders (12, Mosseri #1 leaderboard) */}
-							<BandHeader
-								label="Performance leaders"
-								title="Sends-per-reach leaders · save rate"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-8">
-									<TileErrorBoundary scope="dv2:sends-per-reach-leaders">
-										<SendsPerReachLeadersTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:content-mix-health">
+											<ContentMixHealthTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Stories"
+											title="Stories funnel"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:save-rate-top-bottom">
-										<SaveRateTopBottomTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:stories-funnel">
+											<StoriesFunnelTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="What to review"
+											title="Performance signals"
 										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-							{/* Band 3 — IG trio: content mix (4) + stories funnel (4) + hook strength (4). */}
-							<BandHeader
-								label="Content signals"
-								title="Content mix · stories funnel · hook strength"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:content-mix-health">
-										<ContentMixHealthTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:quality-signal-bullets">
+											<QualitySignalBulletsTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Share rate"
+											title="Sends per reach"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:stories-funnel">
-										<StoriesFunnelTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:sends-per-reach-bullet">
+											<SendsPerReachBulletDarkTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Watch time"
+											title="Watch per view"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:hook-strength">
-										<HookStrengthTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:watch-per-view">
+											<WatchPerViewTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Save rate"
+											title="Save-rate movement"
 										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-							{/* Band 4 — lower-priority research checks. Profile visits stays off-dashboard until prod captures non-zero profile_activity. */}
-							<BandHeader
-								label="What to review"
-								title="Performance signals · vanity gap · streak"
-							/>
-							<div className="grid gap-4 lg:grid-cols-12">
-								<div className="lg:col-span-5">
-									<TileErrorBoundary scope="dv2:quality-signal-bullets">
-										<QualitySignalBulletsTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:save-rate-top-bottom">
+											<SaveRateTopBottomTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Opening hook"
+											title="Hook strength"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-4">
-									<TileErrorBoundary scope="dv2:vanity-flag">
-										<VanityFlagTile
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:hook-strength">
+											<HookStrengthTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Audience fit"
+											title="Vanity gap"
 										/>
-									</TileErrorBoundary>
-								</div>
-								<div className="lg:col-span-3">
-									<TileErrorBoundary scope="dv2:streak-ig">
-										<StreakTile
-											platform="ig"
-											variant="compact"
-											scopedAccount={scopedHandle}
-											accountIds={scopedGroupAccountIds}
-											groupId={scopedGroupId}
+										<TileErrorBoundary scope="dv2:vanity-flag">
+											<VanityFlagTile
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+									<PlatformInsightSection>
+										<BandHeader
+											label="Posting rhythm"
+											title="Streak"
 										/>
-									</TileErrorBoundary>
-								</div>
-							</div>
-						</>
+										<TileErrorBoundary scope="dv2:streak-ig">
+											<StreakTile
+												platform="ig"
+												variant="compact"
+												scopedAccount={scopedHandle}
+												accountIds={scopedGroupAccountIds}
+												groupId={scopedGroupId}
+											/>
+										</TileErrorBoundary>
+									</PlatformInsightSection>
+							</PlatformInsightGrid>
+						</div>
 					)}
 				</section>
 			</NovaScreen>
-		</>
 	);
 }
 
@@ -1121,108 +1093,127 @@ function DailyDashboardAllView({
 
 	return (
 		<>
-			<NovaSection
-				aria-label="Daily performance"
-				className="grid gap-3 md:grid-cols-2 xl:grid-cols-5"
-			>
-				<DashboardKpiCard
-					label="Views"
-					value={formatCompact(primaryViews)}
-					description="Best available views or reach across the selected accounts."
-					trendValue={kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
-					icon={Eye}
-					footerLabel="Window"
-					footerValue={timeframe.toUpperCase()}
-					loading={isMetricLoading}
-				/>
-				<DashboardKpiCard
-					label="People reached"
-					value={formatCompact(kpiData.reach || fleetMetrics.totalReach)}
-					description="Reach-backed audience movement for this scope."
-					trendValue={kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
-					icon={Users}
-					footerLabel="Scope"
-					footerValue={scopeLabel}
-					loading={isMetricLoading}
-				/>
-				<DashboardKpiCard
-					label="Engagement rate"
-					value={formatPercent(kpiData.engagementRate)}
-					description={`${formatCompact(kpiData.totalInteractions)} likes, replies, saves, sends, and shares.`}
-					trendValue={kpiData.engagementRateDelta}
-					icon={TrendingUp}
-					footerLabel="Interactions"
-					footerValue={formatCompact(kpiData.totalInteractions)}
-					loading={kpiData.isLoading}
-				/>
-				<DashboardKpiCard
-					label="New followers"
-					value={formatPercent(fleetMetrics.followerGrowthPct)}
-					description="Follower growth compared with the previous window."
-					trendValue={fleetMetrics.followerGrowthDeltaPct}
-					icon={Sparkles}
-					footerLabel="Growth"
-					footerValue={formatPercent(fleetMetrics.followerGrowthPct)}
-					loading={fleetMetrics.isLoading}
-				/>
-				<DashboardKpiCard
-					label="Link clicks"
-					value={formatCompact(kpiData.totalClicks)}
-					description="Website and smart-link activity from published content."
-					trendValue={kpiData.totalClicksDelta}
-					icon={MousePointerClick}
-					footerLabel="Smart links"
-					footerValue={formatCompact(kpiData.totalClicks)}
-					loading={kpiData.isLoading}
-				/>
-			</NovaSection>
+			<MotionReveal delay={0}>
+				<NovaSection
+					aria-label="Daily performance"
+					className="grid auto-rows-auto grid-cols-1 gap-5 sm:auto-rows-fr md:grid-cols-2 lg:grid-cols-3 xl:gap-6 2xl:grid-cols-6"
+				>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.views.label}
+						value={formatCompact(primaryViews)}
+						description={KPI_PRESENTATION.views.description}
+						trendValue={kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
+						icon={Eye}
+						footerLabel="Window"
+						footerValue={timeframe.toUpperCase()}
+						loading={isMetricLoading}
+					/>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.peopleReached.label}
+						value={formatCompact(kpiData.reach || fleetMetrics.totalReach)}
+						description={KPI_PRESENTATION.peopleReached.description}
+						trendValue={kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
+						icon={Users}
+						footerLabel="Scope"
+						footerValue={scopeLabel}
+						loading={isMetricLoading}
+					/>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.engagementRate.label}
+						value={formatPercent(kpiData.engagementRate)}
+						description={`${formatCompact(kpiData.totalInteractions)} total interactions in this window.`}
+						trendValue={kpiData.engagementRateDelta}
+						icon={TrendingUp}
+						footerLabel="Interactions"
+						footerValue={formatCompact(kpiData.totalInteractions)}
+						loading={kpiData.isLoading}
+					/>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.followerGrowth.label}
+						value={formatPercent(fleetMetrics.followerGrowthPct)}
+						description={KPI_PRESENTATION.followerGrowth.description}
+						trendValue={fleetMetrics.followerGrowthDeltaPct}
+						icon={Sparkles}
+						footerLabel="Growth"
+						footerValue={formatPercent(fleetMetrics.followerGrowthPct)}
+						loading={fleetMetrics.isLoading}
+					/>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.linkClicks.label}
+						value={formatCompact(kpiData.totalClicks)}
+						description={KPI_PRESENTATION.linkClicks.description}
+						trendValue={kpiData.totalClicksDelta}
+						icon={MousePointerClick}
+						footerLabel="Clicks"
+						footerValue={formatCompact(kpiData.totalClicks)}
+						loading={kpiData.isLoading}
+					/>
+					<DashboardKpiCard
+						label={KPI_PRESENTATION.scheduledPosts.label}
+						value={formatCompact(nextUp.totalQueue)}
+						description={KPI_PRESENTATION.scheduledPosts.description}
+						trendValue={null}
+						trendLabel={nextUp.totalQueue > 0 ? "Runway ready" : "Needs plan"}
+						icon={CalendarClock}
+						footerLabel="Runway"
+						footerValue={`${formatCompact(nextUp.totalQueue)} queued`}
+						loading={nextUp.isLoading}
+					/>
+				</NovaSection>
+			</MotionReveal>
 
-			<NovaSection className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+			<MotionReveal delay={0.04}>
+				<NovaSection className="grid items-stretch gap-6 md:gap-7 xl:grid-cols-2">
 				<NovaDataPanel
 					title="What needs attention"
-					description={`Priority work for ${scopeLabel.toLowerCase()} before the next post goes out.`}
+					description={`Priority work for ${scopeLabel.toLowerCase()}.`}
+					variant="compact"
 					toolbar={
 						<Badge tone={attentionCount > 0 ? "danger" : "secondary"}>
 							{attentionCount > 0 ? `${attentionCount} items` : "Clear"}
 						</Badge>
 					}
 					footer={
-						<div className="flex w-full flex-wrap items-center gap-2">
-							<Button type="button" variant="outline" size="sm" onClick={onOpenInbox}>
-								Open inbox
+						<div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
+							<Button type="button" variant="outline" size="sm" className="min-w-0 px-2" onClick={onOpenInbox}>
+								Inbox
 							</Button>
-							<Button type="button" variant="outline" size="sm" onClick={onOpenCalendar}>
-								Review schedule
+							<Button type="button" variant="outline" size="sm" className="min-w-0 px-2" onClick={onOpenCalendar}>
+								Schedule
 							</Button>
-							<Button type="button" size="sm" onClick={onOpenAccounts}>
-								Fix accounts
+							<Button type="button" size="sm" className="min-w-0 px-2" onClick={onOpenAccounts}>
+								Accounts
 							</Button>
 						</div>
 					}
 					loading={needsAttention.isLoading || pendingReplies.isLoading}
+					contentClassName="grid gap-4"
 					empty={
 						<NovaEmpty
 							title="No urgent work right now"
 							description="Accounts, replies, and posting gaps look clear for this window."
 							icon={<CheckCircle2 aria-hidden="true" />}
+							className="rounded-lg border border-border bg-muted/35"
 						/>
 					}
 				>
-					<div className="grid gap-3 lg:grid-cols-2">
+					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 						<NovaMiniStat
-							label="Waiting for reply"
+							label="Replies"
 							value={formatCompact(pendingReplies.pending)}
 							description={`${formatCompact(pendingReplies.needsReview)} need review`}
 							tone={inboxTone}
+							size="compact"
 						/>
 						<NovaMiniStat
-							label="Days with no posts scheduled"
+							label="Gaps"
 							value={formatCompact(needsAttention.gapsCount)}
-							description="Accounts without near-term scheduled posts"
+							description="No near-term posts"
 							tone={needsAttention.gapsCount > 0 ? "warning" : "default"}
+							size="compact"
 						/>
 						<NovaMiniStat
-							label="Failed posts"
+							label="Failed"
 							value={
 								fleetMetrics.scheduleCompliance == null
 									? "Unavailable"
@@ -1230,23 +1221,25 @@ function DailyDashboardAllView({
 										? "Review"
 										: "0"
 							}
-							description="Uses published / attempted signal"
+							description="Publishing attempts that need review"
 							tone={
 								fleetMetrics.scheduleCompliance != null && fleetMetrics.scheduleCompliance < 100
 									? "danger"
 									: "default"
 							}
+							size="compact"
 						/>
 						<NovaMiniStat
-							label="Posts scheduled this week"
+							label="Scheduled"
 							value={formatCompact(nextUp.totalQueue)}
-							description="Upcoming scheduled queue"
+							description="This week"
 							tone={nextUp.totalQueue > 0 ? "success" : "warning"}
+							size="compact"
 						/>
 					</div>
 					{needsAttention.items.length > 0 ? (
-						<div className="mt-4 grid gap-2">
-							{needsAttention.items.slice(0, 3).map((item) => (
+						<div className="mt-auto grid max-h-44 gap-3 overflow-auto pr-1">
+							{needsAttention.items.slice(0, 2).map((item) => (
 								<NovaListRow
 									key={`${item.platform}-${item.id}`}
 									leading={
@@ -1265,6 +1258,7 @@ function DailyDashboardAllView({
 										</Button>
 									}
 									tone={item.severity === "crit" ? "danger" : "warning"}
+									className="max-sm:px-2.5 max-sm:py-2 max-sm:[&_.nova-icon-box]:size-8 max-sm:[&_button]:h-7 max-sm:[&_button]:px-2"
 								/>
 							))}
 						</div>
@@ -1272,63 +1266,35 @@ function DailyDashboardAllView({
 				</NovaDataPanel>
 
 				<NovaCard
-					title="Inbox queue"
-					description="Replies and conversations that may need a human pass."
-					action={<Badge tone={inboxTone === "danger" ? "danger" : "outline"}>{formatCompact(pendingReplies.pending)} waiting</Badge>}
-					footer={
-						<Button type="button" variant="outline" size="sm" onClick={onOpenInbox}>
-							Open inbox
-							<ExternalLink data-icon="inline-end" aria-hidden="true" />
-						</Button>
-					}
-				>
-					<div className="grid gap-3">
-						<NovaMiniStat
-							label="Waiting for reply"
-							value={formatCompact(pendingReplies.pending)}
-							description={`${formatCompact(pendingReplies.total)} total queued conversations`}
-							tone={inboxTone}
-						/>
-						<NovaMiniStat
-							label="Needs review"
-							value={formatCompact(pendingReplies.needsReview)}
-							description="Safety or routing checks"
-							tone={pendingReplies.needsReview > 0 ? "danger" : "default"}
-						/>
-						{pendingReplies.accounts.slice(0, 2).map((account) => (
-							<NovaListRow
-								key={account.accountId}
-								leading={<MessageCircle aria-hidden="true" />}
-								title={account.username ? `@${account.username}` : "Account"}
-								description={account.topReason ?? "Pending conversation"}
-								meta={<Badge tone="secondary">{formatCompact(account.pending)}</Badge>}
-							/>
-						))}
-					</div>
-				</NovaCard>
-			</NovaSection>
-
-			<NovaSection className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-				<NovaCard
 					title="What changed"
-					description={`Views, interactions, and follower movement across the current ${timeframe.toUpperCase()} window.`}
+					description={`Views, engagement rate, follower growth, and link clicks across the current ${timeframe.toUpperCase()} window.`}
 					action={<Badge tone="outline">{timeframe.toUpperCase()}</Badge>}
+					contentClassName="grid gap-4"
 					footer={
-						<div className="grid w-full gap-3 sm:grid-cols-3">
+						<div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
 							<NovaMiniStat
-								label="Views"
+								label={KPI_PRESENTATION.views.label}
 								value={formatCompact(primaryViews)}
 								trend={formatDelta(kpiData.reachDelta ?? fleetMetrics.reachDeltaPct)}
+								size="compact"
 							/>
 							<NovaMiniStat
-								label="Engagement rate"
+								label={KPI_PRESENTATION.engagementRate.label}
 								value={formatPercent(kpiData.engagementRate)}
 								trend={formatDelta(kpiData.engagementRateDelta)}
+								size="compact"
 							/>
 							<NovaMiniStat
-								label="New followers"
+								label={KPI_PRESENTATION.followerGrowth.label}
 								value={formatPercent(fleetMetrics.followerGrowthPct)}
 								trend={formatDelta(fleetMetrics.followerGrowthDeltaPct)}
+								size="compact"
+							/>
+							<NovaMiniStat
+								label={KPI_PRESENTATION.linkClicks.label}
+								value={formatCompact(kpiData.totalClicks)}
+								trend={formatDelta(kpiData.totalClicksDelta)}
+								size="compact"
 							/>
 						</div>
 					}
@@ -1340,18 +1306,21 @@ function DailyDashboardAllView({
 							icon={<BarChart3 aria-hidden="true" />}
 						/>
 					) : dashboardTrend.length > 0 ? (
-						<div className="grid gap-4">
-							<JunoBarChart
-								ariaLabel="Views trend"
-								data={dashboardTrend}
-								valueLabel="Views"
-								valueFormatter={formatCompact}
-							/>
-							<div className="rounded-lg border border-border bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground">
+						<>
+							<div className="min-h-0 overflow-hidden rounded-lg border border-border bg-muted/25 p-3">
+								<JunoBarChart
+									ariaLabel={KPI_PRESENTATION.views.chartTitle ?? KPI_PRESENTATION.views.label}
+									data={dashboardTrend}
+									height={180}
+									valueLabel={KPI_PRESENTATION.views.label}
+									valueFormatter={formatCompact}
+								/>
+							</div>
+							<div className="mt-auto rounded-lg border border-border bg-muted/45 p-3 text-sm leading-snug text-muted-foreground">
 								<span className="font-medium text-foreground">Likely driver: </span>
 								{likelyDriver}
 							</div>
-						</div>
+						</>
 					) : (
 						<NovaEmpty
 							title="No trend yet"
@@ -1361,12 +1330,47 @@ function DailyDashboardAllView({
 					)}
 				</NovaCard>
 
+				</NovaSection>
+			</MotionReveal>
+
+			<MotionReveal delay={0.08}>
+				<NovaSection className="grid items-stretch gap-6 md:gap-7 xl:grid-cols-2">
+				<NovaDataPanel
+					title="Top posts"
+					description="The strongest mature content signals in this scope."
+					toolbar={
+						<Button type="button" variant="outline" size="sm" onClick={onOpenContent}>
+							View all content
+							<ExternalLink data-icon="inline-end" aria-hidden="true" />
+						</Button>
+					}
+					loading={topPosts.isLoading}
+					contentClassName="grid gap-4"
+					empty={
+						<NovaEmpty
+							title="No top posts yet"
+							description="Published content will appear here once synced metrics are available."
+							icon={<FileText aria-hidden="true" />}
+							className="rounded-lg border border-border bg-muted/35"
+						/>
+					}
+				>
+					{topContent.length > 0 ? (
+						<div className="grid max-h-[260px] gap-3 overflow-auto pr-1">
+							{topContent.map((post) => (
+								<DashboardPostRow key={post.id} post={post} />
+							))}
+						</div>
+					) : null}
+				</NovaDataPanel>
+
 				<NovaCard
 					title="Publishing runway"
 					description="What is scheduled next and where gaps may slow momentum."
 					action={<Badge tone={nextUp.totalQueue > 0 ? "secondary" : "outline"}>{formatCompact(nextUp.totalQueue)} scheduled</Badge>}
+					contentClassName="grid gap-4"
 					footer={
-						<div className="flex w-full flex-wrap gap-2">
+						<div className="flex w-full flex-wrap gap-3">
 							<Button type="button" variant="outline" size="sm" onClick={onOpenCalendar}>
 								Open calendar
 							</Button>
@@ -1383,7 +1387,7 @@ function DailyDashboardAllView({
 							icon={<CalendarClock aria-hidden="true" />}
 						/>
 					) : nextUp.items.length > 0 ? (
-						<div className="grid gap-2">
+						<div className="grid max-h-[260px] gap-3 overflow-auto pr-1">
 							{nextUp.items.map((item) => (
 								<NovaListRow
 									key={item.id}
@@ -1407,43 +1411,82 @@ function DailyDashboardAllView({
 							icon={<Clock3 aria-hidden="true" />}
 							action={<Button type="button" onClick={onCompose}>Create post</Button>}
 						/>
-					)}
-				</NovaCard>
-			</NovaSection>
+						)}
+					</NovaCard>
+				</NovaSection>
+			</MotionReveal>
 
-			<NovaSection className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-				<NovaDataPanel
-					title="Top posts"
-					description="The strongest mature content signals in this scope."
-					toolbar={
-						<Button type="button" variant="outline" size="sm" onClick={onOpenContent}>
-							View all content
-							<ExternalLink data-icon="inline-end" aria-hidden="true" />
-						</Button>
-					}
-					loading={topPosts.isLoading}
-					empty={
-						<NovaEmpty
-							title="No top posts yet"
-							description="Published content will appear here once synced metrics are available."
-							icon={<FileText aria-hidden="true" />}
-						/>
+			<MotionReveal delay={0.12}>
+				<NovaSection className="grid items-stretch gap-6 md:gap-7 xl:grid-cols-2">
+				<NovaCard
+					title="Inbox queue"
+					description="Replies and conversations that may need a human pass."
+					action={<Badge tone={inboxTone === "danger" ? "danger" : "outline"}>{formatCompact(pendingReplies.pending)} waiting</Badge>}
+					contentClassName="grid gap-4"
+					footer={
+						<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+							<span className="min-w-0 text-sm leading-snug text-muted-foreground">
+								Reply work stays here, not in the posting plan.
+							</span>
+							<Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onOpenInbox}>
+								Open inbox
+								<ExternalLink data-icon="inline-end" aria-hidden="true" />
+							</Button>
+						</div>
 					}
 				>
-					<div className="grid gap-2">
-						{topContent.map((post) => (
-							<DashboardPostRow key={post.id} post={post} />
-						))}
-					</div>
-				</NovaDataPanel>
+					<NovaMiniStat
+						label="Waiting for reply"
+						value={formatCompact(pendingReplies.pending)}
+						description={`${formatCompact(pendingReplies.total)} total queued conversations`}
+						tone={inboxTone}
+					/>
+					<NovaMiniStat
+						label="Needs review"
+						value={formatCompact(pendingReplies.needsReview)}
+						description="Replies that need a human pass"
+						tone={pendingReplies.needsReview > 0 ? "danger" : "default"}
+					/>
+					{pendingReplies.accounts.length > 0 ? (
+						<div className="grid max-h-44 gap-3 overflow-auto pr-1">
+							{pendingReplies.accounts.slice(0, 2).map((account) => (
+								<NovaListRow
+									key={account.accountId}
+									leading={<MessageCircle aria-hidden="true" />}
+									title={account.username ? `@${account.username}` : "Account"}
+									description={account.topReason ?? "Pending conversation"}
+									meta={<Badge tone="secondary">{formatCompact(account.pending)}</Badge>}
+								/>
+							))}
+						</div>
+					) : (
+						<NovaEmpty
+							title="No reply backlog"
+							description="The inbox is clear for this scope."
+							icon={<MessageCircle aria-hidden="true" />}
+							className="rounded-lg border border-border bg-muted/35 p-6"
+						/>
+					)}
+				</NovaCard>
 
 				<NovaCard
 					title="Posts to review"
 					description="Mature posts below this window's baseline."
 					action={<Badge tone={reviewContent.length > 0 ? "outline" : "secondary"}>{reviewContent.length > 0 ? `${reviewContent.length} review` : "Clear"}</Badge>}
+					contentClassName="grid gap-4"
+					footer={
+						<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+							<span className="min-w-0 text-sm leading-snug text-muted-foreground">
+								Review is based on mature posts, not fresh posts still collecting signal.
+							</span>
+							<Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onOpenContent}>
+								Open content
+							</Button>
+						</div>
+					}
 				>
 					{reviewContent.length > 0 ? (
-						<div className="grid gap-2">
+						<div className="grid max-h-[260px] gap-3 overflow-auto pr-1">
 							{reviewContent.map((post) => (
 								<NovaListRow
 									key={post.id}
@@ -1463,7 +1506,8 @@ function DailyDashboardAllView({
 						/>
 					)}
 				</NovaCard>
-			</NovaSection>
+				</NovaSection>
+			</MotionReveal>
 
 		</>
 	);

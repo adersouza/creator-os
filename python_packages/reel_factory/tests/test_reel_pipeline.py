@@ -7,7 +7,6 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 
 from caption_render import render_caption_png
 from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
@@ -89,7 +88,7 @@ class ReelPipelineTests(unittest.TestCase):
             (cap_dir / "clip_001.json").write_text(
                 json.dumps({
                     "hooks": [
-                        "account so small that if you follow me I will message you",
+                        "mirror selfie after the light hit different",
                         "gym mirror selfie after the coach said front or back",
                     ]
                 }),
@@ -110,6 +109,36 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(lineage["schema"], "reel_factory.caption_lineage.v1")
             self.assertEqual(lineage["selectedMix"], "Lola")
             self.assertIn("captionBankSourceHash", lineage)
+
+    def test_caption_bank_selection_blocks_discoverability_unsafe_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cap_dir = root / "01_captions"
+            cap_dir.mkdir()
+            (cap_dir / "clip_001.json").write_text(
+                json.dumps({"hooks": ["I respond to DMs. I just don't respond to basic ones"]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "discoverability unsafe caption"):
+                caption_set_from_bank_selection(
+                    root,
+                    caption_mix="Stacey",
+                    caption_banks=None,
+                    limit=1,
+                    seed=1,
+                )
+
+    def test_caption_sidecar_blocks_discoverability_unsafe_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip_001.json"
+            path.write_text(
+                json.dumps({"hooks": [{"segments": [{"text": "link in bio", "end": 1.0}]}]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "discoverability unsafe caption"):
+                CaptionSet.from_path(path)
 
     def test_caption_fit_filters_long_hooks_for_mirror_fullbody(self):
         cap_set = CaptionSet(
@@ -731,7 +760,7 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertIn("encoder busy", row["error_message"])
 
     def test_default_recipe_config_loads_and_validates(self):
-        recipes = load_recipes(REEL_FACTORY_ROOT / "recipes" / "default.json", Recipe)
+        recipes = load_recipes(Path("recipes/default.json"), Recipe)
         by_name = {recipe.name: recipe for recipe in recipes}
         names = [recipe.name for recipe in recipes]
         self.assertIn("v00_passthrough", names)
@@ -878,7 +907,7 @@ class ReelPipelineTests(unittest.TestCase):
             render_caption_png(
                 "hello world",
                 font_family="Instagram Sans Condensed",
-                fonts_dir=REEL_FACTORY_ROOT / "fonts",
+                fonts_dir=Path("fonts"),
                 color_scheme="light",
                 band="center",
                 style="ig",

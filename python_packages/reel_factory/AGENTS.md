@@ -19,7 +19,7 @@ High-priority reminders:
   `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
 - Active stills are direct Higgsfield reference-image generations with `--image <reference>`.
 - Active still aspect ratio is `9:16`.
-- Optional body emphasis is append-only: `none`, `bust`, or `bust_hips`.
+- Do not append prompt text for Stacey reference generations. No body-emphasis flags, no captured-prompt reruns, and no "make it sexier" prompt hacks in the active path.
 - Do not make Grok, Qwen, Ollama, Florence, visual-schema extraction, grids, or panel crops the default operator path.
 - Use `reel_motion_prompt.py` for accepted-still Kling prompts.
 - Do not automate Instagram/private APIs/logins/publishing.

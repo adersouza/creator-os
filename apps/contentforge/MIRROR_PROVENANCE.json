@@ -1,0 +1,8 @@
+{
+  "schema": "creator-os.mirror_provenance.v1",
+  "sourceRepo": "../contentforge",
+  "sourceCommit": "47e1293ce35175ba0082a78de5f091a73fab9226",
+  "mirrorPath": "apps/contentforge",
+  "fileCount": 125,
+  "note": "GENERATED read-only mirror. Do not hand-edit. Run scripts/sync/mirror-sync.mjs."
+}

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
-import { Progress } from "@/components/ui/Progress";
 import { Select } from "@/components/ui/Select";
+import { UploadStatusList, UploadZone } from "@/components/ui/Upload";
 import { supabase } from "@/services/supabase";
 import { registerUploadedMedia } from "@/services/api/contentLibrary";
 import { invalidateMediaCache } from "@/services/mediaService";
@@ -51,6 +51,7 @@ export function MediaUploadZone({
 	const [progress, setProgress] = useState(0);
 	const [isUploading, setIsUploading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [uploadName, setUploadName] = useState<string | null>(null);
 	const [groupId, setGroupId] = useState("unassigned");
 	const [accountKey, setAccountKey] = useState("unassigned");
 
@@ -76,6 +77,7 @@ export function MediaUploadZone({
 		setProgress(0);
 		setIsUploading(false);
 		setError(null);
+		setUploadName(null);
 		setGroupId("unassigned");
 		setAccountKey("unassigned");
 	}, [open]);
@@ -92,6 +94,7 @@ export function MediaUploadZone({
 		const file = Array.from(files)[0];
 		if (!file) return;
 		setError(null);
+		setUploadName(file.name);
 		if (!ACCEPTED_TYPES.has(file.type)) {
 			setError("Use JPG, PNG, GIF, WebP, MP4, MOV, or WebM.");
 			return;
@@ -177,29 +180,19 @@ export function MediaUploadZone({
 				</Button>
 			}
 		>
-			<Button
-				type="button"
-				onClick={() => inputRef.current?.click()}
-				onDrop={(event) => {
-					event.preventDefault();
-					void uploadFiles(event.dataTransfer.files);
-				}}
-				onDragOver={(event) => event.preventDefault()}
+			<UploadZone
 				disabled={isUploading}
-				variant="outline"
-				className="flex min-h-[220px] w-full flex-col items-center justify-center border-dashed px-6 text-center disabled:cursor-wait"
-			>
-				<Upload
-					className="mb-3 size-8 text-muted-foreground"
-					aria-hidden="true"
-				/>
-				<span className="text-[0.875rem] font-semibold text-foreground">
-					Drop files here or click to select
-				</span>
-				<span className="mt-1 text-sm text-muted-foreground">
-					JPG, PNG, GIF, WebP, MP4, MOV, or WebM up to 50MB.
-				</span>
-			</Button>
+				title="Drop files here or click to select"
+				description="Add media to the shared library and assign it to a group or creator."
+				helper="JPG, PNG, GIF, WebP, MP4, MOV, or WebM up to 50MB."
+				actionLabel="Choose media"
+				inputRef={inputRef}
+				accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+				onFilesSelected={(files) => {
+					if (files) void uploadFiles(files);
+				}}
+				onDropFiles={(files) => void uploadFiles(files)}
+			/>
 			<div className="mt-4 grid gap-3 sm:grid-cols-2">
 				<Field label="Group">
 					<Select
@@ -237,27 +230,24 @@ export function MediaUploadZone({
 					</Select>
 				</Field>
 			</div>
-			<input
-				ref={inputRef}
-				type="file"
-				accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
-				className="hidden"
-				onChange={(event) => {
-					if (event.target.files) void uploadFiles(event.target.files);
-				}}
-			/>
-
 			{(isUploading || progress > 0 || error) && (
-				<div className="mt-4" role="status" aria-live="polite">
-					{(isUploading || progress > 0) && (
-						<Progress value={progress} aria-label="Upload progress" />
-					)}
-					<div
-						className={`mt-2 text-sm ${error ? "text-[var(--color-oxblood)]" : "text-muted-foreground"}`}
-					>
-						{error ?? (progress >= 100 ? "Upload complete" : "Uploading...")}
-					</div>
-				</div>
+				<UploadStatusList
+					className="mt-4"
+					showSections={false}
+					items={[
+						{
+							id: "library-upload",
+							name: uploadName ?? "Media upload",
+							description:
+								error ??
+								(progress >= 100
+									? "Upload complete"
+									: "Uploading and registering this asset."),
+							status: error ? "error" : progress >= 100 ? "done" : "uploading",
+							progress,
+						},
+					]}
+				/>
 			)}
 		</Modal>
 	);

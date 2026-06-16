@@ -9,6 +9,12 @@ import { apiError } from "./_lib/apiResponse.js";
 import { logAudit, trackUsage } from "./_lib/auditLog.js";
 // --- Config handlers ---
 import {
+	handleAutoposterControlDrain,
+	handleAutoposterControlPause,
+	handleAutoposterControlResumeWarmup,
+	handleAutoposterControlStatus,
+} from "./_lib/handlers/auto-post/route/controlHandlers.js";
+import {
 	handleDeleteAccountOverride,
 	handleDeleteGroupConfig,
 	handleGetAccountOverrides,
@@ -75,6 +81,9 @@ const IDEMPOTENT_HIGH_RISK_ACTIONS = new Set([
 	"upsert-group-config",
 	"delete-group-config",
 	"toggle-group-mode",
+	"autoposter-control-pause",
+	"autoposter-control-resume-warmup",
+	"autoposter-control-drain",
 	"override-account-state",
 	"backfill-account-dna",
 ]);
@@ -133,6 +142,17 @@ export default withAuth(async (req, res, user) => {
 						return handleGetGroupConfigs(req, res, userId);
 					case "get-workspace-config":
 						return handleGetWorkspaceConfig(req, res, userId);
+					case "autoposter-control-status":
+						return handleAutoposterControlStatus(req, res, userId);
+					case "autoposter-control-pause":
+						logAudit(userId, "auto-post.control-pause", { req });
+						return handleAutoposterControlPause(req, res, userId);
+					case "autoposter-control-resume-warmup":
+						logAudit(userId, "auto-post.control-resume-warmup", { req });
+						return handleAutoposterControlResumeWarmup(req, res, userId);
+					case "autoposter-control-drain":
+						logAudit(userId, "auto-post.control-drain", { req });
+						return handleAutoposterControlDrain(req, res, userId);
 					case "upsert-workspace-config":
 						logAudit(userId, "auto-post.upsert-workspace-config", { req });
 						return handleUpsertWorkspaceConfig(req, res, userId);

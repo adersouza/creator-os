@@ -11,6 +11,7 @@ import { useAccountScopeStore } from '@/stores/useAccountScopeStore';
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore';
 import { isFleetResetMainNavPath, mainSidebarRoute } from '@/lib/scopedRoutes';
 import { MOBILE_MORE_SECTIONS, PRIMARY_NAV } from '@/routes/routeRegistry';
+import { ThemeToggle } from './ThemeToggle';
 
 export { MOBILE_MORE_SECTIONS };
 
@@ -96,7 +97,7 @@ export function MobileTabBar() {
         aria-label="Primary"
         className={cn(
           'mobile-tabbar md:hidden fixed bottom-0 inset-x-0 z-40 h-[80px]',
-          'flex items-start justify-around px-2.5 pt-2.5',
+          'flex items-start justify-between px-3 pt-2.5',
         )}
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
@@ -143,6 +144,9 @@ export function MobileTabBar() {
         panelClassName="mobile-more-sheet"
       >
         <div className="px-4 pt-1 pb-6">
+          <div className="mb-4 rounded-xl border border-border bg-card p-1">
+            <ThemeToggle variant="row" />
+          </div>
           {MOBILE_MORE_SECTIONS.map((section) => (
             <div key={section.title} className="mb-4 last:mb-0">
               <div className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-label-quaternary px-3 pb-2 pt-3">
@@ -199,11 +203,12 @@ function MoreTabButton({
     <Button
       type="button"
       variant="ghost"
+      size="sm"
       onClick={onClick}
       aria-label="More destinations"
       aria-haspopup="dialog"
       aria-expanded={isOpen}
-      className="mobile-tab-item flex flex-col items-center gap-0.5 pt-1 pb-0.5 min-w-[48px] min-h-[48px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)] focus-visible:rounded-md"
+      className="mobile-tab-item flex min-h-[48px] w-12 min-w-0 flex-col items-center gap-0.5 px-0 pb-0.5 pt-1 outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
     >
       <span className={cn('mobile-tab-icon-shell', (isActive || isOpen) && 'is-active')}>
         <MoreHorizontal
@@ -246,10 +251,11 @@ function MobileTab({
     <Button
       type="button"
       variant="ghost"
+      size="sm"
       onClick={() => onNavigate(to)}
       aria-current={isActive ? 'page' : undefined}
       aria-label={badge && badge > 0 ? `${label} (${badge} need attention)` : label}
-      className="mobile-tab-item flex flex-col items-center gap-0.5 pt-1 pb-0.5 min-w-[48px] min-h-[48px] relative outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)] focus-visible:rounded-md"
+      className="mobile-tab-item relative flex min-h-[48px] w-12 min-w-0 flex-col items-center gap-0.5 px-0 pb-0.5 pt-1 outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
     >
       <span className={cn('mobile-tab-icon-shell', isActive && 'is-active')}>
         <Icon

@@ -75,4 +75,24 @@ describe("DataTable", () => {
 
 		expect(screen.getByText("No scores yet")).toBeInTheDocument();
 	});
+
+	it("renders optional toolbar and footer slots", () => {
+		const { container } = render(
+			<DataTable
+				data={rows}
+				columns={columns}
+				ariaLabel="Scores"
+				toolbar={<div>Search scores</div>}
+				footer={<div>Showing 1 to 2 of 2 entries</div>}
+			/>,
+		);
+
+		expect(screen.getByText("Search scores")).toBeInTheDocument();
+		expect(screen.getByText("Showing 1 to 2 of 2 entries")).toBeInTheDocument();
+		const toolbar = container.querySelector(".data-table-toolbar");
+		const footer = container.querySelector(".data-table-footer");
+		if (!toolbar || !footer) throw new Error("Expected table toolbar and footer");
+		expect(toolbar).toHaveClass("bg-card");
+		expect(footer).toHaveClass("bg-card");
+	});
 });

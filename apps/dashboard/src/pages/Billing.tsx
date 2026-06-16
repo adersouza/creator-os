@@ -7,11 +7,10 @@ import { Button } from "@/components/ui/Button";
 import {
   NovaCard,
   NovaDataPanel,
-  NovaEmpty,
   NovaHeader,
   NovaSection,
-  NovaStat,
   NovaToolbar,
+  NovaUsageList,
 } from "@/components/ui/NovaPrimitives";
 import { Progress } from "@/components/ui/Progress";
 import { Separator } from "@/components/ui/Separator";
@@ -25,6 +24,7 @@ import {
   ExternalLink,
   ArrowUpRight,
   Users,
+  CreditCard,
 } from "lucide-react";
 import { appToast } from "@/lib/toast";
 import {
@@ -594,6 +594,22 @@ export function Billing() {
         },
       ]
     : [];
+  const usageItems = usageRows.map((row) => {
+    const unlimited = row.max === Infinity;
+    const safeMax = row.max <= 0 || unlimited ? Math.max(row.value, 1) : row.max;
+    const progress = unlimited ? undefined : Math.min(100, Math.round((row.value / safeMax) * 100));
+    const nearCap = !unlimited && progress !== undefined && progress >= 80;
+    return {
+      label: row.label,
+      value: unlimited
+        ? row.value.toLocaleString()
+        : `${row.value.toLocaleString()} / ${safeMax.toLocaleString()}`,
+      description: row.helper,
+      limit: unlimited ? "unlimited" : `${safeMax.toLocaleString()} max`,
+      progress,
+      tone: nearCap ? "warning" : unlimited ? "success" : "primary",
+    } as const;
+  });
 
   return (
     <NovaScreen className="billing-page" width="narrow">
@@ -691,34 +707,81 @@ export function Billing() {
             </StatusPill>
           }
         >
-          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0" aria-hidden="true" />
-            <div className="grid grid-cols-2 gap-2 md:min-w-[220px]">
-              {usageRows.length > 0 ? (
-                usageRows.map((row) => (
-                  <NovaStat
-                    key={row.label}
-                    label={row.label}
-                    value={
-                      row.max === Infinity
-                        ? row.value.toLocaleString()
-                        : `${row.value.toLocaleString()} / ${row.max.toLocaleString()}`
-                    }
-                    description={row.helper}
-                    variant="compact"
+          <div className="grid gap-4 md:grid-cols-[minmax(0,0.95fr)_minmax(280px,0.65fr)]">
+            <NovaCard
+              eyebrow="Subscription"
+              title={tier === "free" ? "No active paid plan" : "Paid plan active"}
+              description={
+                tier === "free"
+                  ? "Upgrade when you need more connected accounts, team seats, and reporting headroom."
+                  : "Invoices, payment methods, and receipts are managed in the Stripe portal."
+              }
+              action={
+                tier === "free" ? (
+                  <Badge tone="secondary">Self-serve ready</Badge>
+                ) : (
+                  <ShieldCheck
+                    className="size-4 text-[color:var(--color-health-good)]"
+                    aria-hidden="true"
                   />
-                ))
-              ) : (
-                <NovaEmpty
-                  className="col-span-2 min-h-28"
-                  title="Usage is syncing"
-                  description="Usage stats will appear once your workspace is fully synced."
-                />
-              )}
-            </div>
-          </div>
+                )
+              }
+              variant="panel"
+            >
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-muted/35 p-3">
+                  <div className="app-caption text-muted-foreground">
+                    Current tier
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">
+                    {tierDisplay.label}
+                  </div>
+                  <div className="app-caption mt-1 text-muted-foreground">
+                    {tierDisplay.tagline ?? "Workspace subscription"}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/35 p-3">
+                  <div className="app-caption text-muted-foreground">
+                    Billing status
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">
+                    {tier === "free" ? "Not connected" : "Stripe"}
+                  </div>
+                  <div className="app-caption mt-1 text-muted-foreground">
+                    {tier === "free"
+                      ? "No card required on Free"
+                      : "Secure customer portal"}
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant={tier === "free" ? "default" : "outline"}
+                className="mt-4 w-full justify-between"
+                disabled={portalLoading}
+                onClick={() => {
+                  if (tier === "free") {
+                    scrollToPlans();
+                    return;
+                  }
+                  void openPortal();
+                }}
+              >
+                {tier === "free" ? (
+                  <>
+                    Compare paid plans
+                    <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+                  </>
+                ) : portalLoading ? (
+                  "Opening Stripe..."
+                ) : (
+                  <>
+                    Manage billing in Stripe
+                    <ExternalLink data-icon="inline-end" aria-hidden="true" />
+                  </>
+                )}
+              </Button>
+            </NovaCard>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
             <NovaCard
               eyebrow="Usage"
               title="Workspace headroom"
@@ -732,28 +795,7 @@ export function Billing() {
             >
               <div className="flex flex-col gap-5">
                 {usage ? (
-                  <>
-                    <UsageBar
-                      label="Connected accounts"
-                      value={usage.accountCount}
-                      max={
-                        usage.accountLimit === Infinity
-                          ? usage.accountCount || 1
-                          : usage.accountLimit
-                      }
-                      unlimited={usage.accountLimit === Infinity}
-                    />
-                    <UsageBar
-                      label="Team members"
-                      value={usage.memberCount}
-                      max={
-                        usage.memberLimit === Infinity
-                          ? usage.memberCount || 1
-                          : usage.memberLimit
-                      }
-                      unlimited={usage.memberLimit === Infinity}
-                    />
-                  </>
+                  <NovaUsageList items={usageItems} />
                 ) : (
                   <div
                     className="flex flex-col gap-3"
@@ -767,40 +809,54 @@ export function Billing() {
                 )}
               </div>
             </NovaCard>
+          </div>
 
-            <NovaCard eyebrow="Payment method" variant="panel">
-              <div className="mt-3 flex items-center gap-3">
-                <div className="flex h-9 w-12 items-center justify-center rounded-md border border-border bg-muted/35">
+          <NovaCard
+            className="mt-4"
+            eyebrow="Payment method"
+            variant="panel"
+            contentClassName="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-12 items-center justify-center rounded-md border border-border bg-muted/35">
+                {tier === "free" ? (
+                  <CreditCard
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                ) : (
                   <BrandLogo name="stripe" size="sm" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="app-card-title text-foreground">
+                  {tier === "free"
+                    ? "No payment method on file"
+                    : "Stripe-managed"}
                 </div>
-                <div className="min-w-0">
-                  <div className="app-card-title text-foreground">
-                    {tier === "free" ? "No payment method" : "Stripe-managed"}
-                  </div>
-                  <div className="app-caption mt-1 text-muted-foreground">
-                    {tier === "free"
-                      ? "Add one when you pick a paid plan."
-                      : "Open the billing portal to update your card."}
-                  </div>
+                <div className="app-caption mt-1 text-muted-foreground">
+                  {tier === "free"
+                    ? "Payment details are requested only during checkout."
+                    : "Update cards, invoices, tax details, and receipts in Stripe."}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                className="mt-4 w-full"
-                disabled={portalLoading || tier === "free"}
-                onClick={() => void openPortal()}
-              >
-                {portalLoading ? (
-                  "Opening..."
-                ) : (
-                  <>
-                    Manage in Stripe{" "}
-                    <ExternalLink data-icon="inline-end" aria-hidden="true" />
-                  </>
-                )}
-              </Button>
-            </NovaCard>
-          </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              disabled={portalLoading || tier === "free"}
+              onClick={() => void openPortal()}
+            >
+              {portalLoading ? (
+                "Opening..."
+              ) : (
+                <>
+                  Open portal
+                  <ExternalLink data-icon="inline-end" aria-hidden="true" />
+                </>
+              )}
+            </Button>
+          </NovaCard>
         </NovaCard>
 
         <NovaCard
@@ -868,11 +924,45 @@ export function Billing() {
               </Button>
             </>
           ) : (
-            <NovaEmpty
-              className="min-h-44"
-              title="You are on the highest self-serve tier"
-              description="Use the Stripe portal for invoices, payment method changes, and account billing details."
-            />
+            <div className="flex h-full flex-col justify-between gap-5">
+              <div>
+                <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/35">
+                  <ShieldCheck
+                    className="size-4 text-[color:var(--color-health-good)]"
+                    aria-hidden="true"
+                  />
+                </div>
+                <h3 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                  Highest tier active
+                </h3>
+                <p className="app-body mt-2 text-muted-foreground">
+                  Your workspace is already on the top self-serve plan. Keep
+                  invoices and payment methods in Stripe, or contact support for
+                  custom limits.
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/35 p-3">
+                <div className="flex items-center gap-2">
+                  <BrandLogo name="stripe" size="xs" />
+                  <span className="text-sm font-semibold text-foreground">
+                    Stripe portal
+                  </span>
+                </div>
+                <p className="app-caption mt-2 text-muted-foreground">
+                  Receipts, billing contacts, tax details, and cards stay in the
+                  secure portal.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                disabled={portalLoading || tier === "free"}
+                onClick={() => void openPortal()}
+              >
+                {portalLoading ? "Opening..." : "Open billing portal"}
+                <ExternalLink data-icon="inline-end" aria-hidden="true" />
+              </Button>
+            </div>
           )}
         </NovaCard>
       </NovaSection>
@@ -1131,51 +1221,5 @@ function PlanCompareTable({
         </div>
       </div>
     </NovaDataPanel>
-  );
-}
-
-function UsageBar({
-  label,
-  value,
-  max,
-  unlimited,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  unlimited?: boolean | undefined;
-}) {
-  const safeMax = max <= 0 ? 1 : max;
-  const pct = unlimited
-    ? 0
-    : Math.min(100, Math.round((value / safeMax) * 100));
-  const nearCap = !unlimited && pct >= 80;
-  return (
-    <div>
-      <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-[0.75rem] font-medium text-muted-foreground">
-          {label}
-        </span>
-        <span
-          className="text-[0.71875rem] font-mono tabular-nums"
-          style={{
-            color: nearCap
-              ? "var(--color-oxblood)"
-              : "var(--color-muted-foreground)",
-          }}
-        >
-          {value.toLocaleString()}
-          {unlimited ? " · unlimited" : ` / ${safeMax.toLocaleString()}`}
-        </span>
-      </div>
-      <Progress
-        value={unlimited ? 12 : pct}
-        tone={nearCap ? "warn" : unlimited ? "default" : "good"}
-        aria-label={label}
-        aria-valuenow={value}
-        aria-valuemin={0}
-        aria-valuemax={unlimited ? value + 1 : safeMax}
-      />
-    </div>
   );
 }

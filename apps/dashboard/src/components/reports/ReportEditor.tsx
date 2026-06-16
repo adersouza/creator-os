@@ -1,6 +1,8 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { ExternalLink, Loader2, Plus, Send, X } from "lucide-react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import type { ConnectedAccount } from "@/hooks/useConnectedAccounts";
 import type { AccountGroup } from "@/hooks/useAccountGroups";
@@ -17,8 +19,8 @@ import { appToast } from "@/lib/toast";
 import { supabase } from "@/services/supabase";
 import { Button } from "@/components/ui/Button";
 import { Field as JunoField } from "@/components/ui/Field";
+import { Form, FormField, FormInputField, FormSelectField } from "@/components/ui/Form";
 import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
 import { Sheet } from "@/components/ui/Sheet";
 
 const updateSchema = z
@@ -36,6 +38,16 @@ const SECTION_OPTIONS = [
 ] as const;
 
 type DeliveryMode = "now" | "scheduled";
+
+const reportEditorFormSchema = z.object({
+	name: z.string().trim().min(1, "Report name is required."),
+	start: z.string().trim().min(1, "Choose a start date."),
+	end: z.string().trim().min(1, "Choose an end date."),
+	delivery: z.enum(["now", "scheduled"]),
+	cadence: z.enum(["weekly", "monthly", "quarterly"]),
+});
+
+type ReportEditorFormValues = z.infer<typeof reportEditorFormSchema>;
 
 interface ReportConfig {
 	dateRange?:
@@ -68,11 +80,17 @@ export function ReportEditor({
 		() => defaultDateRange(report.cadence),
 		[report.cadence],
 	);
-	const [name, setName] = useState(report.name);
-	const [start, setStart] = useState(
-		config.dateRange?.start ?? defaultRange.start,
-	);
-	const [end, setEnd] = useState(config.dateRange?.end ?? defaultRange.end);
+	const reportForm = useForm<ReportEditorFormValues>({
+		resolver: zodResolver(reportEditorFormSchema),
+		defaultValues: {
+			name: report.name,
+			start: config.dateRange?.start ?? defaultRange.start,
+			end: config.dateRange?.end ?? defaultRange.end,
+			delivery: config.delivery ?? "now",
+			cadence: report.cadence === "one-off" ? "weekly" : report.cadence,
+		},
+	});
+	const delivery = reportForm.watch("delivery");
 	const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(
 		new Set(config.accountIds ?? []),
 	);
@@ -91,42 +109,57 @@ export function ReportEditor({
 		report.recipients,
 	);
 	const [recipientInput, setRecipientInput] = useState("");
-	const [delivery, setDelivery] = useState<DeliveryMode>(
-		config.delivery ?? "now",
-	);
-	const [cadence, setCadence] = useState<ReportCadence>(
-		report.cadence === "one-off" ? "weekly" : report.cadence,
-	);
 	const [busy, setBusy] = useState<"save" | "send" | "preview" | null>(null);
 
 	useEffect(() => {
-		setName(report.name);
-	}, [report.name]);
+		reportForm.reset({
+			name: report.name,
+			start: config.dateRange?.start ?? defaultRange.start,
+			end: config.dateRange?.end ?? defaultRange.end,
+			delivery: config.delivery ?? "now",
+			cadence: report.cadence === "one-off" ? "weekly" : report.cadence,
+		});
+	}, [
+		report.name,
+		report.cadence,
+		config.dateRange?.start,
+		config.dateRange?.end,
+		config.delivery,
+		defaultRange.start,
+		defaultRange.end,
+		reportForm,
+	]);
 
-	const save = async (mode: "draft" | "send" | "preview" = "draft") => {
+	const save = async (
+		mode: "draft" | "send" | "preview" = "draft",
+	): Promise<boolean> => {
+		const formIsValid = await reportForm.trigger();
+		if (!formIsValid) return false;
+		const values = reportForm.getValues();
 		const recipientRows = normalizeRecipients(recipients);
 		const nextConfig: ReportConfig = {
-			dateRange: { start, end },
+			dateRange: { start: values.start, end: values.end },
 			accountIds: Array.from(selectedAccounts),
 			groupIds: Array.from(selectedGroups),
 			metrics: Array.from(metrics),
 			sections: Array.from(sections),
-			delivery,
+			delivery: values.delivery,
 		};
-		const isScheduled = delivery === "scheduled" && mode === "draft";
+		const isScheduled = values.delivery === "scheduled" && mode === "draft";
 		const nextCadence = isScheduled
-			? cadence
+			? values.cadence
 			: report.cadence === "one-off"
 				? "one-off"
-				: cadence;
+				: values.cadence;
 		const nextType: ReportType = isScheduled ? "scheduled" : report.type;
 		const nextRunAt = isScheduled ? nextWeeklyRun() : report.nextRunAt;
+		const trimmedName = values.name.trim() || "Untitled report";
 
 		await apiFetch("/api/reports?action=update", updateSchema, {
 			method: "PUT",
 			json: {
 				report_id: report.id,
-				name: name.trim() || "Untitled report",
+				name: trimmedName,
 				type: nextType,
 				cadence: nextCadence,
 				status: isScheduled ? "active" : "draft",
@@ -137,12 +170,15 @@ export function ReportEditor({
 			},
 		});
 		onSaved();
+		reportForm.reset({ ...values, name: trimmedName });
+		return true;
 	};
 
 	const saveDraft = async () => {
 		setBusy("save");
 		try {
-			await save("draft");
+			const saved = await save("draft");
+			if (!saved) return;
 			appToast.success(
 				delivery === "scheduled" ? "Schedule saved" : "Draft saved",
 			);
@@ -163,7 +199,8 @@ export function ReportEditor({
 		}
 		setBusy("send");
 		try {
-			await save("send");
+			const saved = await save("send");
+			if (!saved) return;
 			const result = await apiFetch("/api/reports?action=send", sendSchema, {
 				method: "POST",
 				json: { report_id: report.id },
@@ -184,7 +221,10 @@ export function ReportEditor({
 	const preview = async () => {
 		setBusy("preview");
 		try {
-			await save("preview");
+			const saved = await save("preview");
+			if (!saved) return;
+			const values = reportForm.getValues();
+			const trimmedName = values.name.trim() || "Untitled report";
 			const token = randomUUID();
 			const {
 				data: { user },
@@ -197,9 +237,9 @@ export function ReportEditor({
 				view_count: 0,
 				report_data: {
 					reportId: report.id,
-					name: name.trim() || "Untitled report",
-					headline: name.trim() || "Untitled report",
-					description: `Preview for ${start} to ${end}.`,
+					name: trimmedName,
+					headline: trimmedName,
+					description: `Preview for ${values.start} to ${values.end}.`,
 					stats: [
 						{ label: "Metrics", value: String(metrics.size) },
 						{ label: "Sections", value: String(sections.size) },
@@ -207,7 +247,7 @@ export function ReportEditor({
 							label: "Recipients",
 							value: String(normalizeRecipients(recipients).length),
 						},
-						{ label: "Delivery", value: delivery },
+						{ label: "Delivery", value: values.delivery },
 					],
 				},
 			});
@@ -248,29 +288,62 @@ export function ReportEditor({
 		>
 			<div className="flex min-h-full flex-col">
 				<div className="flex flex-1 flex-col gap-5 px-6 py-5">
-					<Field label="Report name">
-						<Input
-							value={name}
-							onChange={(event) => setName(event.target.value)}
+					<Form form={reportForm} onSubmit={() => void saveDraft()} className="gap-5">
+						<FormInputField
+							name="name"
+							label="Report name"
+							disabled={busy !== null}
 						/>
-					</Field>
+						<section className="grid grid-cols-2 gap-3">
+							<FormInputField
+								name="start"
+								label="Start date"
+								type="date"
+								disabled={busy !== null}
+							/>
+							<FormInputField
+								name="end"
+								label="End date"
+								type="date"
+								disabled={busy !== null}
+							/>
+						</section>
 
-					<section className="grid grid-cols-2 gap-3">
-						<Field label="Start date">
-							<Input
-								type="date"
-								value={start}
-								onChange={(event) => setStart(event.target.value)}
-							/>
-						</Field>
-						<Field label="End date">
-							<Input
-								type="date"
-								value={end}
-								onChange={(event) => setEnd(event.target.value)}
-							/>
-						</Field>
-					</section>
+						<FormField name="delivery" label="Delivery" disabled={busy !== null}>
+							{({ field }) => (
+								<>
+									<div className="inline-flex rounded-md bg-muted p-[3px]">
+										<Segment
+											active={field.value === "now"}
+											onClick={() => field.onChange("now")}
+										>
+											Now
+										</Segment>
+										<Segment
+											active={field.value === "scheduled"}
+											onClick={() => field.onChange("scheduled")}
+										>
+											Scheduled
+										</Segment>
+									</div>
+									{field.value === "scheduled" && (
+										<div className="mt-3 max-w-[220px]">
+											<FormSelectField
+												name="cadence"
+												label="Cadence"
+												disabled={busy !== null}
+												options={[
+													{ value: "weekly", label: "Weekly" },
+													{ value: "monthly", label: "Monthly" },
+													{ value: "quarterly", label: "Quarterly" },
+												]}
+											/>
+										</div>
+									)}
+								</>
+							)}
+						</FormField>
+					</Form>
 
 					<Field label="Groups">
 						<div className="grid grid-cols-2 gap-2">
@@ -365,37 +438,6 @@ export function ReportEditor({
 						</div>
 					</Field>
 
-					<Field label="Delivery">
-						<div className="inline-flex rounded-md bg-muted p-[3px]">
-							<Segment
-								active={delivery === "now"}
-								onClick={() => setDelivery("now")}
-							>
-								Now
-							</Segment>
-							<Segment
-								active={delivery === "scheduled"}
-								onClick={() => setDelivery("scheduled")}
-							>
-								Scheduled
-							</Segment>
-						</div>
-						{delivery === "scheduled" && (
-							<div className="mt-3 max-w-[220px]">
-								<Select
-									value={cadence}
-									onChange={(event) =>
-										setCadence(event.target.value as ReportCadence)
-									}
-									options={[
-										{ value: "weekly", label: "Weekly" },
-										{ value: "monthly", label: "Monthly" },
-										{ value: "quarterly", label: "Quarterly" },
-									]}
-								/>
-							</div>
-						)}
-					</Field>
 				</div>
 
 				<footer className="px-6 py-4 border-t border-border flex items-center gap-2">

@@ -7,7 +7,6 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from .config import Settings, DEVELOPER_ROOT
-from .contracts import SCHEMA_DIR
 
 
 def operator_control_check(
@@ -36,10 +35,10 @@ def operator_control_check(
         _path_check("threadsdash", settings.threadsdash_root, required=False),
         _path_check("threadsdash.package", settings.threadsdash_root / "package.json", required=False),
         _path_check("threadsdash.audio_smoke_validator", settings.threadsdash_root / "tests" / "pipelineAudioSmokeFixture.test.ts", required=False),
-        _path_check("schema.audio_intent", SCHEMA_DIR / "audio_intent.v1.schema.json", required=True),
-        _path_check("schema.threadsdash_drafts", SCHEMA_DIR / "campaign_draft_payload.v1.schema.json", required=True),
-        _path_check("schema.audio_catalog_export", SCHEMA_DIR / "audio_catalog_export.v1.schema.json", required=True),
-        _path_check("schema.performance_sync", SCHEMA_DIR / "performance_sync.v1.schema.json", required=True),
+        _path_check("schema.audio_intent", settings.root / "schemas" / "audio_intent.v1.schema.json", required=True),
+        _path_check("schema.threadsdash_drafts", settings.root / "schemas" / "campaign_draft_payload.v1.schema.json", required=True),
+        _path_check("schema.audio_catalog_export", settings.root / "schemas" / "audio_catalog_export.v1.schema.json", required=True),
+        _path_check("schema.performance_sync", settings.root / "schemas" / "performance_sync.v1.schema.json", required=True),
         _command_check("ffmpeg", required=True),
         _command_check("ffprobe", required=True),
         _path_check("campaign_factory.venv_python", settings.root / ".venv" / "bin" / "python", required=False),

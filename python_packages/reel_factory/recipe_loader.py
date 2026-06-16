@@ -67,6 +67,10 @@ def load_recipes(path: Path, recipe_factory: Callable[..., T]) -> list[T]:
     The factory is usually the pipeline's ``Recipe`` dataclass. Validation is
     intentionally strict so typos in recipe files fail before any ffmpeg work.
     """
+    if not path.exists() and not path.is_absolute():
+        package_path = Path(__file__).resolve().parent / path
+        if package_path.exists():
+            path = package_path
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError(f"recipe config must be a list: {path}")

@@ -356,8 +356,6 @@ def main() -> int:
     sub.add_parser("creator-os-9.5-readiness-report")
     sub.add_parser("creator-os-10.0-readiness-report")
     sub.add_parser("creator-os-live-100-account-readiness")
-    readiness_50 = sub.add_parser("50-account-readiness")
-    readiness_50.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
     live_acceptance = sub.add_parser("creator-os-live-account-acceptance")
     live_acceptance.add_argument("--account-target", type=int, default=10)
     live_acceptance.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
@@ -488,6 +486,23 @@ def main() -> int:
     add_creative_kb_args(surface_comparison)
     recommendation_audit = sub.add_parser("recommendation-quality-audit")
     add_creative_kb_args(recommendation_audit)
+    tribev2_analysis = sub.add_parser("tribev2-reel-analysis")
+    add_creative_kb_args(tribev2_analysis)
+    tribev2_review = sub.add_parser("tribev2-reel-review")
+    tribev2_review.add_argument("--creator", required=True)
+    tribev2_review.add_argument("--campaign")
+    tribev2_review.add_argument("--sort-by", default="meanAbsActivation", choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"])
+    tribev2_review.add_argument("--bucket", default="top", choices=["top", "bottom", "both"])
+    tribev2_review.add_argument("--limit", type=int, default=12)
+    tribev2_review.add_argument("--contact-sheet", action="store_true")
+    tribev2_review.add_argument("--show-metrics", action="store_true")
+    tribev2_review.add_argument("--hide-tribe-score", action="store_true")
+    tribev2_review.add_argument("--blind-mode", action="store_true")
+    tribev2_holdout = sub.add_parser("tribev2-holdout-pilot-review")
+    tribev2_holdout.add_argument("--creator", required=True)
+    tribev2_holdout.add_argument("--campaign")
+    tribev2_holdout.add_argument("--limit", type=int, default=20)
+    tribev2_holdout.add_argument("--contact-sheet", action="store_true")
     caption_repair = sub.add_parser("caption-quality-repair-plan")
     caption_repair.add_argument("--creator", required=True)
     caption_repair.add_argument("--campaign")
@@ -1035,9 +1050,6 @@ def main() -> int:
         if args.cmd == "creator-os-live-100-account-readiness":
             print_json(cf.creator_os_live_100_account_readiness())
             return 0
-        if args.cmd == "50-account-readiness":
-            print_json(cf.creator_os_50_account_readiness(content_surface=args.content_surface))
-            return 0
         if args.cmd == "creator-os-live-account-acceptance":
             print_json(cf.creator_os_live_account_acceptance(account_target=args.account_target, content_surface=args.content_surface))
             return 0
@@ -1311,6 +1323,35 @@ def main() -> int:
                 campaign_slug=args.campaign,
                 minimum_sample_size=args.minimum_sample_size,
                 limit=args.limit,
+            ))
+            return 0
+        if args.cmd == "tribev2-reel-analysis":
+            print_json(cf.tribev2_reel_analysis(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                minimum_sample_size=args.minimum_sample_size,
+                limit=args.limit,
+            ))
+            return 0
+        if args.cmd == "tribev2-reel-review":
+            print_json(cf.tribev2_reel_review(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                sort_by=args.sort_by,
+                bucket=args.bucket,
+                limit=args.limit,
+                contact_sheet=args.contact_sheet,
+                show_metrics=True if args.show_metrics or not args.blind_mode else False,
+                show_tribe_score=not args.hide_tribe_score,
+                blind_mode=args.blind_mode,
+            ))
+            return 0
+        if args.cmd == "tribev2-holdout-pilot-review":
+            print_json(cf.tribev2_holdout_pilot_review(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                limit=args.limit,
+                contact_sheet=args.contact_sheet,
             ))
             return 0
         if args.cmd == "caption-quality-repair-plan":

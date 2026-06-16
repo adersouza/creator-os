@@ -9,8 +9,7 @@ single-person reference image
 → Higgsfield direct reference-image generation
 → Stacey Soul ID
 → one 9:16 still image
-→ captured Higgsfield prompt + lineage
-→ optional append-only body emphasis
+→ captured Higgsfield prompt + lineage for audit only
 → human/QC accepted still
 → deterministic Kling motion prompt
 → Kling image-to-video
@@ -24,7 +23,6 @@ python3 generate_assets.py reference-image \
   --reference <reference-image> \
   --creator Stacey \
   --stem <clip_stem> \
-  --body-emphasis none|bust|bust_hips \
   --wait
 ```
 
@@ -35,7 +33,6 @@ python3 generate_assets.py reference-image-dry-run \
   --reference <reference-image> \
   --creator Stacey \
   --stem <clip_stem> \
-  --body-emphasis none|bust|bust_hips \
   --wait
 ```
 
@@ -48,21 +45,16 @@ python3 generate_assets.py reference-image-dry-run \
 - Image quality: `2k`
 - Higgsfield input: direct `--image <reference-image>`
 - Identity: Soul ID via `--custom_reference_id`
-- Prompt strategy: use Higgsfield's reference-image understanding; only append body emphasis when requested.
+- Prompt strategy: use Higgsfield's reference-image understanding only. Do not append body emphasis, captured prompts, Grok/Qwen output, or rewritten prompt text.
 
 Do not use Grok, Qwen, Ollama, Florence, visual-schema extraction, grids, panel crops, or prompt-json generation for the normal operator still-image path.
 
-## Body Emphasis
+## Prompt Append Policy
 
-Body emphasis is append-only. It must not rewrite Higgsfield's captured/reference prompt.
-
-Allowed values:
-
-- `none`
-- `bust`
-- `bust_hips`
-
-The emphasis text must preserve the same pose, outfit, setting, lighting, and 9:16 composition.
+There is no active prompt-append system for Stacey reference generations.
+Captured Higgsfield prompts are saved for audit/debugging only and must not be
+fed back into the active still-generation path. If the Soul ID needs a different
+body shape, update the Soul ID training set rather than adding prompt hacks.
 
 ## Video Prompt Path
 
@@ -86,34 +78,6 @@ Every Kling prompt must preserve:
 - same setting
 - full head and face visible
 - no new text, logos, UI, captions, or overlays
-
-## Photo-To-Reel Utility
-
-For an Edits-style simple reel from one accepted still, use `photo_reel.py`. This path creates a local 9:16 MP4 with a subtle still-image motion treatment and either:
-
-- writes a native trending audio intent sidecar for later in-app/platform attachment, or
-- muxes a local audio file into the MP4 when a real local audio file is provided.
-
-Examples:
-
-```bash
-python3 photo_reel.py \
-  --image <accepted-still.jpg> \
-  --out output/photo_reel.mp4 \
-  --audio-mode native_trending \
-  --motion slow_zoom
-```
-
-```bash
-python3 photo_reel.py \
-  --image <accepted-still.jpg> \
-  --out output/photo_reel_with_audio.mp4 \
-  --audio-mode local_mux \
-  --audio-file 03_audio_library/example.wav \
-  --motion slow_zoom
-```
-
-This utility does not register assets, schedule posts, publish posts, export drafts, sync metrics, or mutate production inventory.
 
 ## Legacy Experiments
 

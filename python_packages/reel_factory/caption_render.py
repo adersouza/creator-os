@@ -36,6 +36,7 @@ FONT_FILE = {
 
 CANVAS_W, CANVAS_H = 1080, 1920
 MAX_TEXT_W = 960
+REELS_SAFE_TEXT_W = 600
 
 
 def _resolve_font_path(font_family: str, fonts_dir: Path) -> Path:
@@ -43,7 +44,11 @@ def _resolve_font_path(font_family: str, fonts_dir: Path) -> Path:
     path = Path(configured)
     if path.is_absolute():
         return path
-    return fonts_dir / path
+    candidate = fonts_dir / path
+    if candidate.exists() or fonts_dir.is_absolute():
+        return candidate
+    package_candidate = Path(__file__).resolve().parent / fonts_dir / path
+    return package_candidate if package_candidate.exists() else candidate
 
 
 def _ensure_homebrew_gi_library_path() -> None:
@@ -266,7 +271,7 @@ def render_caption_png(
     scale = canvas_w / 1080
     safe_top    = round(280 * canvas_h / 1920)
     safe_bottom = round(480 * canvas_h / 1920)
-    max_text_w  = round((520 if band in {"left", "right"} else 960) * scale)
+    max_text_w  = round((520 if band in {"left", "right"} else REELS_SAFE_TEXT_W) * scale)
     canvas_w_   = canvas_w
     canvas_h_   = canvas_h
     font_path = _resolve_font_path(font_family, fonts_dir)

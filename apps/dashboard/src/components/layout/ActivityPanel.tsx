@@ -286,8 +286,11 @@ interface ActivityPanelProps {
 	deletedIds: Set<string>;
 	setDeletedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
 	notifications: AppNotification[];
-	setNotifications: React.Dispatch<React.SetStateAction<AppNotification[]>>;
 	notificationsError: boolean;
+	stageNotificationReads: (ids: readonly string[]) => void;
+	stageNotificationDeletes: (ids: readonly string[]) => void;
+	rollbackNotificationReads: (ids: readonly string[]) => void;
+	rollbackNotificationDeletes: (ids: readonly string[]) => void;
 }
 
 export function ActivityPanel({
@@ -297,8 +300,11 @@ export function ActivityPanel({
 	deletedIds,
 	setDeletedIds,
 	notifications,
-	setNotifications,
 	notificationsError,
+	stageNotificationReads,
+	stageNotificationDeletes,
+	rollbackNotificationReads,
+	rollbackNotificationDeletes,
 }: ActivityPanelProps) {
 	const [filter, setFilter] = useState<ActivityFilter>("all");
 	const [yesterdayOpen, setYesterdayOpen] = useState(true);
@@ -382,15 +388,20 @@ export function ActivityPanel({
 		});
 
 	const markNotificationRead = (id: string) => {
-		setNotifications((items) =>
-			items.map((item) => (item.id === id ? { ...item, read: true } : item)),
-		);
-		void notificationService.markAsRead(id);
+		stageNotificationReads([id]);
+		void notificationService
+			.markAsRead(id)
+			.then((ok) => {
+				if (!ok) rollbackNotificationReads([id]);
+			})
+			.catch(() => rollbackNotificationReads([id]));
 	};
 
 	const deleteNotification = (id: string) => {
-		setNotifications((items) => items.filter((item) => item.id !== id));
-		void notificationService.deleteNotification(id);
+		stageNotificationDeletes([id]);
+		void notificationService
+			.deleteNotification(id)
+			.catch(() => rollbackNotificationDeletes([id]));
 	};
 
 	const visibleCritical = criticalSource.filter(
@@ -436,15 +447,21 @@ export function ActivityPanel({
 			return next;
 		});
 		if (visibleUnreadNotifications.length > 0) {
-			const ids = new Set(visibleUnreadNotifications.map((n) => n.id));
-			setNotifications((items) =>
-				items.map((item) =>
-					ids.has(item.id) ? { ...item, read: true } : item,
-				),
-			);
+			const ids = visibleUnreadNotifications.map((n) => n.id);
+			stageNotificationReads(ids);
 			void Promise.all(
-				visibleUnreadNotifications.map((n) => notificationService.markAsRead(n.id)),
-			);
+				ids.map((id) =>
+					notificationService
+						.markAsRead(id)
+						.then((ok) => ({ id, ok }))
+						.catch(() => ({ id, ok: false })),
+				),
+			).then((results) => {
+				const failedIds = results
+					.filter((result) => !result.ok)
+					.map((result) => result.id);
+				rollbackNotificationReads(failedIds);
+			});
 		}
 	};
 
@@ -458,13 +475,21 @@ export function ActivityPanel({
 			return next;
 		});
 		if (visibleNotifications.length > 0) {
-			const ids = new Set(visibleNotifications.map((n) => n.id));
-			setNotifications((items) => items.filter((item) => !ids.has(item.id)));
+			const ids = visibleNotifications.map((n) => n.id);
+			stageNotificationDeletes(ids);
 			void Promise.all(
-				visibleNotifications.map((n) =>
-					notificationService.deleteNotification(n.id),
+				ids.map((id) =>
+					notificationService
+						.deleteNotification(id)
+						.then(() => ({ id, ok: true }))
+						.catch(() => ({ id, ok: false })),
 				),
-			);
+			).then((results) => {
+				const failedIds = results
+					.filter((result) => !result.ok)
+					.map((result) => result.id);
+				rollbackNotificationDeletes(failedIds);
+			});
 		}
 	};
 

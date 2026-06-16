@@ -24,24 +24,32 @@ import { Button } from "@/components/ui/Button";
 import { DataTable } from "@/components/ui/DataTable";
 import {
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuRoot,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
-import { JunoBarChart } from "@/components/ui/JunoChart";
+import {
+	JunoBarChart,
+	JunoComparisonBarChart,
+	JunoShareBarChart,
+} from "@/components/ui/JunoChart";
+import { MotionReveal } from "@/components/ui/Motion";
 import {
 	NovaCard,
 	NovaDataPanel,
 	NovaEmpty,
 	NovaHeader,
+	NovaInset,
 	NovaListRow,
 	NovaMiniStat,
 	NovaSection,
 	NovaStat,
 } from "@/components/ui/NovaPrimitives";
 import { PillSegmented } from "@/components/ui/PillSegmented";
+import { Progress } from "@/components/ui/Progress";
 import { Separator } from "@/components/ui/Separator";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -82,6 +90,7 @@ import {
 	dateRangeLabel,
 	dateRangeToDays,
 	type AnalyticsCompareMode,
+	type AnalyticsState,
 	type AnalyticsPlatform,
 	type AnalyticsTab,
 	useAnalyticsUrlState,
@@ -92,6 +101,13 @@ import {
 	engagementTotal,
 } from "@/lib/contentOperations";
 import { calendarPostPath } from "@/lib/deepLinks";
+import {
+	KPI_PRESENTATION,
+	deltaDirection,
+	formatCompact,
+	formatDelta,
+	formatPercent,
+} from "@/lib/kpiPresentation";
 
 type AnalyticsPlatformUi = "all" | "threads" | "ig";
 
@@ -128,6 +144,62 @@ const COMPARE_OPTIONS: Array<{ id: AnalyticsCompareMode; label: string }> = [
 	{ id: "off", label: "Off" },
 ];
 
+type AnalyticsSavedView = {
+	id:
+		| "performance-pulse"
+		| "post-review"
+		| "audience-readiness"
+		| "compare-movement";
+	label: string;
+	description: string;
+	patch: Partial<AnalyticsState>;
+};
+
+const SAVED_ANALYTICS_VIEWS: AnalyticsSavedView[] = [
+	{
+		id: "performance-pulse",
+		label: "Performance pulse",
+		description: "Overview, fleet-wide, last 30 days.",
+		patch: {
+			tab: "overview",
+			platform: "all",
+			dateRange: { kind: "preset", preset: "30d" },
+			compare: "prev",
+		},
+	},
+	{
+		id: "post-review",
+		label: "Post review",
+		description: "Rank mature posts and find what needs review.",
+		patch: {
+			tab: "posts",
+			platform: "all",
+			dateRange: { kind: "preset", preset: "30d" },
+		},
+	},
+	{
+		id: "audience-readiness",
+		label: "Audience readiness",
+		description: "Check follower movement and demographic availability.",
+		patch: {
+			tab: "audience",
+			platform: "ig",
+			dateRange: { kind: "preset", preset: "30d" },
+		},
+	},
+	{
+		id: "compare-movement",
+		label: "Compare movement",
+		description: "Current window against the prior window.",
+		patch: {
+			tab: "compare",
+			platform: "all",
+			dateRange: { kind: "preset", preset: "30d" },
+			compare: "prev",
+		},
+	},
+];
+
 function toFleetPlatform(platform: AnalyticsPlatform): FleetKpiPlatform {
 	return platform === "ig" ? "instagram" : platform;
 }
@@ -138,35 +210,14 @@ function toTopBottomPlatform(
 	return platform === "ig" ? "instagram" : platform;
 }
 
-function formatCompact(value: number | null | undefined) {
-	const safeValue = Number(value ?? 0);
-	return new Intl.NumberFormat("en", {
-		notation: "compact",
-		maximumFractionDigits: safeValue >= 1000 ? 1 : 0,
-	}).format(safeValue);
-}
-
-function formatPercent(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return "Pending";
-	return `${Math.round(value * 10) / 10}%`;
-}
-
-function formatAvailablePercent(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return "Unavailable";
-	return `${Math.round(value * 10) / 10}%`;
-}
-
-function formatDelta(value: number | null | undefined) {
-	if (value == null || Number.isNaN(value)) return "No prior";
-	const rounded = Math.round(value * 10) / 10;
-	return `${rounded > 0 ? "+" : ""}${rounded}%`;
-}
-
-function deltaDirection(
-	value: number | null | undefined,
-): "up" | "down" | "flat" {
-	if (value == null || Math.abs(value) < 0.1) return "flat";
-	return value > 0 ? "up" : "down";
+function savedViewMatches(state: AnalyticsState, view: AnalyticsSavedView) {
+	if (view.patch.tab && state.tab !== view.patch.tab) return false;
+	if (view.patch.platform && state.platform !== view.patch.platform) return false;
+	if (view.patch.compare && state.compare !== view.patch.compare) return false;
+	if (view.patch.dateRange) {
+		return dateRangeLabel(state.dateRange) === dateRangeLabel(view.patch.dateRange);
+	}
+	return true;
 }
 
 function postIsReadyForReview(post: TopBottomPost) {
@@ -213,6 +264,20 @@ function topPostPlatformLabel(post: TopPostRow) {
 
 function topPostPlatformLogo(post: TopPostRow) {
 	return post.platform === "instagram" ? "instagram" : "threads";
+}
+
+function changeToneLabel(tone: "default" | "success" | "warning" | "danger" | undefined) {
+	if (tone === "success") return "Up";
+	if (tone === "danger") return "Down";
+	if (tone === "warning") return "Review";
+	return "Insight";
+}
+
+function changeToneForPanel(tone: "default" | "success" | "warning" | "danger" | undefined) {
+	if (tone === "success") return "success";
+	if (tone === "danger") return "danger";
+	if (tone === "warning") return "warning";
+	return "default";
 }
 
 function previousFromDelta(current: number, delta: number | null | undefined) {
@@ -345,6 +410,9 @@ export function Analytics() {
 
 	const scopeLabel = scopedAccount ? `@${scopedAccount.handle}` : "Fleet";
 	const recentSeries = fleetMetrics.series.slice(-14);
+	const reachSparkline = recentSeries
+		.map((point) => point.reach)
+		.filter((value) => Number.isFinite(value));
 	const maxReach = Math.max(1, ...recentSeries.map((point) => point.reach || 0));
 	const topAccounts = fleetMetrics.accounts.slice(0, 10);
 	const bestPosts = topBottomPosts.top.slice(0, 3);
@@ -382,14 +450,14 @@ export function Analytics() {
 	const comparisonRows = useMemo(
 		() => [
 			{
-				label: "Views",
+				label: KPI_PRESENTATION.views.label,
 				current: formatCompact(views),
 				previous: formatCompact(previousFromDelta(views, viewsDelta)),
 				delta: viewsDelta,
-				description: "Reach-backed views for the selected window.",
+				description: KPI_PRESENTATION.views.description,
 			},
 			{
-				label: "Engagements",
+				label: KPI_PRESENTATION.engagements.label,
 				current: formatCompact(kpiData.totalInteractions),
 				previous: formatCompact(
 					previousFromDelta(
@@ -398,7 +466,7 @@ export function Analytics() {
 					),
 				),
 				delta: kpiData.totalInteractionsDelta,
-				description: "Likes, replies, saves, shares, reposts, and quotes.",
+				description: KPI_PRESENTATION.engagements.description,
 			},
 			{
 				label: "Saves + shares",
@@ -414,19 +482,19 @@ export function Analytics() {
 				description: "Quality actions that usually outlast likes.",
 			},
 			{
-				label: "Engagement rate",
-				current: formatAvailablePercent(engagementRate),
-				previous: formatAvailablePercent(
+				label: KPI_PRESENTATION.engagementRate.label,
+				current: formatPercent(engagementRate),
+				previous: formatPercent(
 					previousFromPointDelta(engagementRate, kpiData.engagementRateDelta),
 				),
 				delta: kpiData.engagementRateDelta,
 				deltaSuffix: "pp",
-				description: "Engagements divided by people reached.",
+				description: KPI_PRESENTATION.engagementRate.description,
 			},
 			{
 				label: "Publishing reliability",
-				current: formatAvailablePercent(fleetMetrics.scheduleCompliance),
-				previous: formatAvailablePercent(
+				current: formatPercent(fleetMetrics.scheduleCompliance),
+				previous: formatPercent(
 					previousFromPointDelta(
 						fleetMetrics.scheduleCompliance,
 						fleetMetrics.scheduleComplianceDelta,
@@ -452,6 +520,56 @@ export function Analytics() {
 			views,
 			viewsDelta,
 		],
+	);
+	const comparisonChartRows = useMemo(
+		() => [
+			{
+				label: KPI_PRESENTATION.views.label,
+				current: views,
+				previous: previousFromDelta(views, viewsDelta) ?? 0,
+			},
+			{
+				label: KPI_PRESENTATION.engagements.label,
+				current: kpiData.totalInteractions,
+				previous:
+					previousFromDelta(
+						kpiData.totalInteractions,
+						kpiData.totalInteractionsDelta,
+					) ?? 0,
+			},
+			{
+				label: "Saves + shares",
+				current: kpiData.saves + kpiData.shares,
+				previous:
+					(previousFromDelta(kpiData.saves, kpiData.savesDelta) ?? 0) +
+					(previousFromDelta(kpiData.shares, kpiData.sharesDelta) ?? 0),
+			},
+		],
+		[
+			kpiData.saves,
+			kpiData.savesDelta,
+			kpiData.shares,
+			kpiData.sharesDelta,
+			kpiData.totalInteractions,
+			kpiData.totalInteractionsDelta,
+			views,
+			viewsDelta,
+		],
+	);
+	const platformShareData = useMemo(
+		() =>
+			platformComparison.map((platform) => ({
+				label: platformLabel(platform.platform),
+				pct:
+					views > 0
+						? Math.round((platform.reach / views) * 1000) / 10
+						: 0,
+				color:
+					platform.platform === "instagram"
+						? "var(--color-chart-1)"
+						: "var(--color-chart-2)",
+			})),
+		[platformComparison, views],
 	);
 	const evidenceTrendData = useMemo(
 		() =>
@@ -508,6 +626,9 @@ export function Analytics() {
 		kpiData.totalInteractionsDelta,
 		reviewPosts,
 	]);
+	const activeSavedView = SAVED_ANALYTICS_VIEWS.find((view) =>
+		savedViewMatches(state, view),
+	);
 	const accountColumns = useMemo<ColumnDef<FleetAccountAggregate>[]>(
 		() => [
 			{
@@ -748,6 +869,10 @@ export function Analytics() {
 				}
 				actions={
 					<div className="flex flex-wrap items-center gap-2">
+						<AnalyticsSavedViewsMenu
+							activeView={activeSavedView}
+							onSelect={(view) => updateState(view.patch)}
+						/>
 						<Button
 							variant="outline"
 							size="sm"
@@ -795,20 +920,24 @@ export function Analytics() {
 				onValueChange={(tab) => updateState({ tab: tab as AnalyticsTab })}
 				className="flex min-w-0 flex-col gap-4"
 			>
-				<TabsList className="w-full justify-start overflow-x-auto">
+				<TabsList className="w-full justify-start overflow-visible max-sm:flex max-sm:flex-wrap max-sm:rounded-2xl sm:overflow-x-auto">
 					{ANALYTICS_TABS.map((tab) => (
-						<TabsTrigger key={tab.id} value={tab.id}>
+						<TabsTrigger
+							key={tab.id}
+							value={tab.id}
+							className="max-sm:basis-[31%] max-sm:shrink max-sm:px-2"
+						>
 							{tab.label}
 						</TabsTrigger>
 					))}
 				</TabsList>
 
 				<TabsContent value="overview" className="mt-0 flex flex-col gap-4">
-					<NovaSection className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+					<NovaSection className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 						<NovaStat
-							label="Views"
+							label={KPI_PRESENTATION.views.label}
 							value={formatCompact(views)}
-							description="Reach-backed total until dedicated views aggregation lands."
+							description={KPI_PRESENTATION.views.description}
 							trend={{
 								direction: deltaDirection(
 									kpiData.reachDelta ?? fleetMetrics.reachDeltaPct,
@@ -818,12 +947,21 @@ export function Analytics() {
 								),
 							}}
 							icon={<TrendingUp aria-hidden />}
+							sparkline={{ points: reachSparkline, label: "Views trend" }}
 							loading={kpiData.isLoading || fleetMetrics.isLoading}
+							variant="compact"
+							className="h-full max-sm:[&_.nova-card-footer]:hidden max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-stat-sparkline]:hidden max-sm:[&_.nova-icon-box]:size-8 sm:[&_.nova-card-footer]:flex sm:[&_.nova-stat-description]:line-clamp-2"
+							footer={
+								<div className="flex w-full items-center justify-between gap-3 text-xs">
+									<span className="text-muted-foreground">Window</span>
+									<span className="font-semibold text-foreground">{dateRangeLabel(state.dateRange)}</span>
+								</div>
+							}
 						/>
 						<NovaStat
-							label="People reached"
+							label={KPI_PRESENTATION.peopleReached.label}
 							value={formatCompact(kpiData.reach || fleetMetrics.totalReach)}
-							description={`${formatCompact(fleetMetrics.postCount)} posts sampled`}
+							description={KPI_PRESENTATION.peopleReached.description}
 							trend={{
 								direction: deltaDirection(
 									kpiData.reachDelta ?? fleetMetrics.reachDeltaPct,
@@ -833,35 +971,60 @@ export function Analytics() {
 								),
 							}}
 							icon={<Users aria-hidden />}
+							sparkline={{ points: reachSparkline, label: "People reached trend" }}
 							loading={kpiData.isLoading || fleetMetrics.isLoading}
+							variant="compact"
+							className="h-full max-sm:[&_.nova-card-footer]:hidden max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-stat-sparkline]:hidden max-sm:[&_.nova-icon-box]:size-8 sm:[&_.nova-card-footer]:flex sm:[&_.nova-stat-description]:line-clamp-2"
+							footer={
+								<div className="flex w-full items-center justify-between gap-3 text-xs">
+									<span className="text-muted-foreground">Scope</span>
+									<span className="truncate font-semibold text-foreground">{scopeLabel}</span>
+								</div>
+							}
 						/>
 						<NovaStat
-							label="Engagements"
+							label={KPI_PRESENTATION.engagements.label}
 							value={formatCompact(kpiData.totalInteractions)}
-							description="Likes, comments, replies, saves, shares, reposts."
+							description={KPI_PRESENTATION.engagements.description}
 							trend={{
 								direction: deltaDirection(kpiData.totalInteractionsDelta),
 								label: formatDelta(kpiData.totalInteractionsDelta),
 							}}
 							icon={<Sparkles aria-hidden />}
 							loading={kpiData.isLoading}
+							variant="compact"
+							className="h-full max-sm:[&_.nova-card-footer]:hidden max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8 sm:[&_.nova-card-footer]:flex sm:[&_.nova-stat-description]:line-clamp-2"
+							footer={
+								<div className="flex w-full items-center justify-between gap-3 text-xs">
+									<span className="text-muted-foreground">Rate</span>
+									<span className="font-semibold text-foreground">{formatPercent(engagementRate)}</span>
+								</div>
+							}
 						/>
 						<NovaStat
-							label="Engagement rate"
+							label={KPI_PRESENTATION.engagementRate.label}
 							value={formatPercent(engagementRate)}
-							description="Engagements divided by people reached."
+							description={KPI_PRESENTATION.engagementRate.description}
 							trend={{
 								direction: deltaDirection(kpiData.engagementRateDelta),
 								label: formatDelta(kpiData.engagementRateDelta),
 							}}
 							icon={<BarChart3 aria-hidden />}
 							loading={kpiData.isLoading}
+							variant="compact"
+							className="h-full max-sm:[&_.nova-card-footer]:hidden max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8 sm:[&_.nova-card-footer]:flex sm:[&_.nova-stat-description]:line-clamp-2"
+							footer={
+								<div className="flex w-full items-center justify-between gap-3 text-xs">
+									<span className="text-muted-foreground">Interactions</span>
+									<span className="font-semibold text-foreground">{formatCompact(kpiData.totalInteractions)}</span>
+								</div>
+							}
 						/>
 					</NovaSection>
 
-					<NovaSection className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+					<NovaSection className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 						<NovaStat
-							label="Saves"
+							label={KPI_PRESENTATION.saves.label}
 							value={formatCompact(kpiData.saves)}
 							description={formatPercent(kpiData.saveRate)}
 							trend={{
@@ -871,9 +1034,10 @@ export function Analytics() {
 							icon={<Bookmark aria-hidden />}
 							loading={kpiData.isLoading}
 							variant="compact"
+							className="h-full max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8"
 						/>
 						<NovaStat
-							label="Shares"
+							label={KPI_PRESENTATION.shares.label}
 							value={formatCompact(kpiData.shares)}
 							description={formatPercent(kpiData.sendRate)}
 							trend={{
@@ -883,11 +1047,12 @@ export function Analytics() {
 							icon={<Share2 aria-hidden />}
 							loading={kpiData.isLoading}
 							variant="compact"
+							className="h-full max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8"
 						/>
 						<NovaStat
-							label="Replies"
+							label={KPI_PRESENTATION.replies.label}
 							value={formatCompact(kpiData.replies)}
-							description="Comments and reply volume."
+							description={KPI_PRESENTATION.replies.description}
 							trend={{
 								direction: deltaDirection(kpiData.repliesDelta),
 								label: formatDelta(kpiData.repliesDelta),
@@ -895,11 +1060,12 @@ export function Analytics() {
 							icon={<MessageCircle aria-hidden />}
 							loading={kpiData.isLoading}
 							variant="compact"
+							className="h-full max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8"
 						/>
 						<NovaStat
-							label="Net followers"
+							label={KPI_PRESENTATION.followerGrowth.label}
 							value={formatPercent(fleetMetrics.followerGrowthPct)}
-							description="Growth across the selected window."
+							description={KPI_PRESENTATION.followerGrowth.description}
 							trend={{
 								direction: deltaDirection(fleetMetrics.followerGrowthDeltaPct),
 								label: formatDelta(fleetMetrics.followerGrowthDeltaPct),
@@ -907,19 +1073,23 @@ export function Analytics() {
 							icon={<ArrowUpRight aria-hidden />}
 							loading={fleetMetrics.isLoading}
 							variant="compact"
+							className="h-full max-sm:[&_.nova-stat-description]:hidden max-sm:[&_.nova-icon-box]:size-8"
 						/>
 					</NovaSection>
 
-					<NovaSection className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
+					<MotionReveal delay={0.04}>
+						<NovaSection className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
 						<NovaCard
-							title="Views trend"
-							description="Daily views/reach for the selected platform and scope."
+							title={KPI_PRESENTATION.views.chartTitle ?? KPI_PRESENTATION.views.label}
+							description={KPI_PRESENTATION.views.chartDescription}
+							action={<Badge tone="outline">{dateRangeLabel(state.dateRange)}</Badge>}
+							contentClassName="grid gap-3"
 							footer={
-								<div className="grid w-full gap-3 sm:grid-cols-3">
+								<div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
 										<NovaMiniStat
-											label="Views"
+											label={KPI_PRESENTATION.views.label}
 											value={formatCompact(views)}
-											description="vs. prior window"
+											description="prior"
 											trend={formatDelta(viewsDelta)}
 											tone={
 												viewsDelta == null
@@ -928,11 +1098,12 @@ export function Analytics() {
 														? "success"
 														: "danger"
 											}
+											size="compact"
 									/>
 									<NovaMiniStat
-										label="Engagements"
+										label="Engmt."
 										value={formatCompact(kpiData.totalInteractions)}
-										description="vs. prior window"
+										description="prior"
 										trend={formatDelta(kpiData.totalInteractionsDelta)}
 										tone={
 											kpiData.totalInteractionsDelta == null
@@ -941,17 +1112,19 @@ export function Analytics() {
 													? "success"
 													: "danger"
 										}
+										size="compact"
 									/>
 									<NovaMiniStat
-										label="Peak day"
+										label="Peak"
 										value={formatCompact(maxReach)}
-										description="highest daily reach"
+										description="day"
+										size="compact"
 									/>
 								</div>
 							}
 						>
 							{fleetMetrics.isLoading ? (
-								<div className="flex min-h-72 flex-col justify-end gap-4">
+								<div className="grid min-h-72 gap-4">
 									<Skeleton className="h-[268px] w-full rounded-lg" />
 									<Separator />
 									<div className="grid gap-2 sm:grid-cols-3">
@@ -961,19 +1134,20 @@ export function Analytics() {
 									</div>
 								</div>
 							) : recentSeries.length > 0 ? (
-								<div className="flex min-h-72 flex-col justify-end gap-4">
+								<>
 									<JunoBarChart
 										ariaLabel="Daily views trend"
 										data={evidenceTrendData}
+										height={190}
 										valueLabel="Views"
 										valueFormatter={formatCompact}
 									/>
-									<Separator />
-									<div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+									<Separator className="hidden sm:block" />
+									<div className="hidden flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground sm:flex">
 										<span>Synced account and post performance.</span>
 										<Badge tone="outline">{formatCompact(maxReach)} peak</Badge>
 									</div>
-								</div>
+								</>
 							) : (
 								<NovaEmpty
 									title="No analytics sample yet"
@@ -985,40 +1159,43 @@ export function Analytics() {
 						<NovaDataPanel
 							title="What changed"
 							description="The quick read before opening deeper tabs."
+							toolbar={<Badge tone="outline">{dateRangeLabel(state.dateRange)}</Badge>}
 							loading={fleetMetrics.isLoading || kpiData.isLoading}
-							empty={
+						>
+							{changeNotes.length > 0 ? (
+								<div className="flex flex-col gap-3">
+									<NovaInset tone={changeToneForPanel(changeNotes[0]?.tone)}>
+										<div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+											<div className="min-w-0">
+												<Badge tone="outline">{changeToneLabel(changeNotes[0]?.tone)}</Badge>
+												<div className="mt-3 text-lg font-semibold leading-tight text-foreground">
+													{changeNotes[0]?.title}
+												</div>
+												<p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+													{changeNotes[0]?.description}
+												</p>
+											</div>
+											<TrendingUp aria-hidden className="mt-1 text-muted-foreground" />
+										</div>
+									</NovaInset>
+									{changeNotes.slice(1).map((note) => (
+										<NovaListRow
+											key={`${note.title}-${note.description}`}
+											title={note.title}
+											description={note.description}
+											meta={<Badge tone="outline">{changeToneLabel(note.tone)}</Badge>}
+										/>
+									))}
+								</div>
+							) : (
 								<NovaEmpty
 									title="No change signals yet"
 									description="Widen the date range or publish more posts to compare movement."
 								/>
-							}
-						>
-							<div className="flex flex-col gap-2">
-								{changeNotes.map((note) => (
-									<NovaListRow
-										key={`${note.title}-${note.description}`}
-										title={note.title}
-										description={note.description}
-										meta={
-											note.tone && note.tone !== "default" ? (
-													<Badge
-														tone={
-															note.tone === "danger"
-																? "oxblood"
-																: note.tone === "success"
-																	? "outline"
-																	: "secondary"
-														}
-												>
-													{note.tone}
-												</Badge>
-											) : null
-										}
-									/>
-								))}
-							</div>
+							)}
 						</NovaDataPanel>
-					</NovaSection>
+						</NovaSection>
+					</MotionReveal>
 
 					<NovaSection className="grid gap-4 xl:grid-cols-2">
 						<PostStrip
@@ -1039,7 +1216,8 @@ export function Analytics() {
 				</TabsContent>
 
 				<TabsContent value="posts" className="mt-0">
-					<NovaDataPanel
+					<MotionReveal delay={0.04}>
+						<NovaDataPanel
 						title="Posts"
 						description="Ranked published posts for this analytics window. Mature underperformers are marked after 72 hours."
 						loading={analyticsPosts.isLoading}
@@ -1053,14 +1231,6 @@ export function Analytics() {
 									</Button>
 								}
 							/>
-						}
-						toolbar={
-							<Button asChild variant="outline">
-								<Link to="/content">
-									Open Content
-									<ArrowUpRight data-icon="inline-end" aria-hidden />
-								</Link>
-							</Button>
 						}
 					>
 						<DataTable
@@ -1079,10 +1249,37 @@ export function Analytics() {
 							}
 							ariaLabel="Post performance analytics"
 							getRowHref={(post) => calendarPostPath(post.id, post.publishedAt)}
-							className="overflow-x-auto"
-							tableClassName="min-w-[1180px]"
+							toolbar={
+								<>
+									<div className="flex flex-wrap items-center gap-2">
+										<Badge tone="outline">
+											{analyticsPosts.posts.length.toLocaleString()} posts
+										</Badge>
+										<Badge tone="secondary">Review after 72h</Badge>
+										<Badge tone="secondary">{dateRangeLabel(state.dateRange)}</Badge>
+									</div>
+									<Button asChild variant="outline" size="sm">
+										<Link to="/content">
+											Open Content
+											<ArrowUpRight data-icon="inline-end" aria-hidden />
+										</Link>
+									</Button>
+								</>
+							}
+							footer={
+								<>
+									<span>
+										Showing {analyticsPosts.posts.length.toLocaleString()} ranked posts for the active filters.
+									</span>
+									<span>Mature underperformers are marked only after the 72-hour read window.</span>
+								</>
+							}
+							className="min-w-0"
+							frameClassName="max-h-[560px] overflow-auto sm:max-h-[640px] xl:max-h-[720px]"
+							tableClassName="min-w-[980px] lg:min-w-[1180px]"
 						/>
-					</NovaDataPanel>
+						</NovaDataPanel>
+					</MotionReveal>
 				</TabsContent>
 
 				<TabsContent value="accounts" className="mt-0">
@@ -1101,7 +1298,8 @@ export function Analytics() {
 							data={topAccounts}
 							columns={accountColumns}
 							ariaLabel="Account analytics rollup"
-							className="overflow-x-auto"
+							className="min-w-0"
+							frameClassName="overflow-auto"
 							tableClassName="min-w-[820px]"
 						/>
 					</NovaDataPanel>
@@ -1111,12 +1309,12 @@ export function Analytics() {
 					<NovaSection className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
 						<NovaSection className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
 							<NovaStat
-								label="Net followers"
-								value={formatAvailablePercent(fleetMetrics.followerGrowthPct)}
+								label={KPI_PRESENTATION.followerGrowth.label}
+								value={formatPercent(fleetMetrics.followerGrowthPct)}
 								description={
 									fleetMetrics.followerGrowthPct == null
 										? "Unavailable until follower history exists for this scope."
-										: "Follower movement across the selected window."
+										: KPI_PRESENTATION.followerGrowth.description
 								}
 								trend={{
 									direction: deltaDirection(fleetMetrics.followerGrowthDeltaPct),
@@ -1129,7 +1327,7 @@ export function Analytics() {
 								label="Non-follower reach"
 								value={
 									kpiData.igNonFollowerReachAvailable
-										? formatAvailablePercent(kpiData.igNonFollowerReachPct)
+										? formatPercent(kpiData.igNonFollowerReachPct)
 										: "Unavailable"
 								}
 								description={
@@ -1145,9 +1343,9 @@ export function Analytics() {
 								loading={kpiData.isLoading}
 							/>
 							<NovaStat
-								label="People reached"
+								label={KPI_PRESENTATION.peopleReached.label}
 								value={formatCompact(kpiData.reach || fleetMetrics.totalReach)}
-								description="Audience size proxy for this filter."
+								description={KPI_PRESENTATION.peopleReached.description}
 								trend={{
 									direction: deltaDirection(
 										kpiData.reachDelta ?? fleetMetrics.reachDeltaPct,
@@ -1158,6 +1356,12 @@ export function Analytics() {
 								}}
 								icon={<TrendingUp aria-hidden />}
 								loading={kpiData.isLoading || fleetMetrics.isLoading}
+							/>
+							<AudienceAvailabilityCard
+								selectedAccountHandle={scopedAccount?.handle ?? null}
+								profileAvailable={audienceDemographics.hasRealData}
+								profileLoading={audienceDemographics.loading}
+								nonFollowerAvailable={kpiData.igNonFollowerReachAvailable}
 							/>
 						</NovaSection>
 
@@ -1197,21 +1401,21 @@ export function Analytics() {
 										<div className="grid gap-3">
 											<NovaMiniStat
 												label="Women"
-												value={formatAvailablePercent(
+												value={formatPercent(
 													audienceDemographics.data.gender.women,
 												)}
 												size="compact"
 											/>
 											<NovaMiniStat
 												label="Men"
-												value={formatAvailablePercent(
+												value={formatPercent(
 													audienceDemographics.data.gender.men,
 												)}
 												size="compact"
 											/>
 											<NovaMiniStat
 												label="Other"
-												value={formatAvailablePercent(
+												value={formatPercent(
 													audienceDemographics.data.gender.other,
 												)}
 												size="compact"
@@ -1236,24 +1440,29 @@ export function Analytics() {
 										icon={<MapPin aria-hidden />}
 									/>
 								</div>
-							) : null}
+							) : (
+								<NovaEmpty
+									title="Audience profile unavailable"
+									description={
+										scopedAccount
+											? "Meta only returns demographic buckets after the account clears privacy and sample-size thresholds. This is not a zero-read."
+											: "Select a single account before reading demographic buckets. Fleet and group scopes can still use movement and reach signals."
+									}
+									action={
+										scopedAccount ? undefined : (
+											<Button asChild variant="outline">
+												<Link to="/accounts">Choose account</Link>
+											</Button>
+										)
+									}
+								/>
+							)}
 						</NovaDataPanel>
 					</NovaSection>
 				</TabsContent>
 
 				<TabsContent value="links" className="mt-0">
-					<NovaSection className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-						<NovaDataPanel
-							title="Links"
-							description="Smart Link click performance and attribution summaries."
-						>
-							<NovaEmpty
-								title="Smart Links summary"
-								description="Top clicked links render alongside this panel when active links have traffic."
-							/>
-						</NovaDataPanel>
-						<SmartLinksAnalytics />
-					</NovaSection>
+					<SmartLinksAnalytics />
 				</TabsContent>
 
 				<TabsContent value="compare" className="mt-0">
@@ -1275,7 +1484,16 @@ export function Analytics() {
 							}
 						>
 							{state.compare === "prev" ? (
-								<div className="grid gap-3">
+								<div className="grid gap-4">
+									<JunoComparisonBarChart
+										ariaLabel="Current period compared with prior period"
+										data={comparisonChartRows}
+										height={220}
+										currentLabel="Current"
+										previousLabel="Prior"
+										valueFormatter={formatCompact}
+									/>
+									<Separator />
 									{comparisonRows.map((row) => (
 										<CompareMetricRow key={row.label} row={row} />
 									))}
@@ -1284,16 +1502,29 @@ export function Analytics() {
 								<NovaEmpty
 									title={`${COMPARE_OPTIONS.find((option) => option.id === state.compare)?.label ?? "This compare mode"} is not ready yet`}
 									description="The first compare pass supports prior-period comparison. Peer, cohort, and year-over-year views need deeper source data before they should be shown."
+									action={
+										<Button
+											variant="outline"
+											onClick={() => updateState({ compare: "prev" })}
+										>
+											Use prior period
+										</Button>
+									}
 									icon={<GitCompareArrows aria-hidden />}
 								/>
 							)}
 						</NovaDataPanel>
 
 						<NovaSection className="grid gap-4">
+							<CompareReadinessPanel
+								activeCompare={state.compare}
+								onSelect={(compare) => updateState({ compare })}
+							/>
 							<NovaDataPanel
 								title="Platform split"
 								description="Which surface is carrying the selected window."
 								loading={fleetMetrics.isLoading}
+								toolbar={<Badge tone="outline">{dateRangeLabel(state.dateRange)}</Badge>}
 								empty={
 									<NovaEmpty
 										title="No platform split yet"
@@ -1301,7 +1532,14 @@ export function Analytics() {
 									/>
 								}
 							>
-								<div className="grid gap-3">
+								<div className="grid gap-4">
+									{platformShareData.some((row) => row.pct > 0) ? (
+										<JunoShareBarChart
+											ariaLabel="Platform share of views"
+											data={platformShareData}
+											height={132}
+										/>
+									) : null}
 									{platformComparison.map((platform) => (
 										<NovaListRow
 											key={platform.platform}
@@ -1351,7 +1589,7 @@ export function Analytics() {
 													? `@${account.username}`
 													: account.accountId
 											}
-											description={`${formatCompact(account.reach)} views/reach · ${formatAvailablePercent(accountEngagementRate(account))} engagement rate`}
+											description={`${formatCompact(account.reach)} views/reach · ${formatPercent(accountEngagementRate(account))} engagement rate`}
 											meta={
 												<Badge tone={deltaDirection(account.reachDeltaPct) === "down" ? "danger" : "outline"}>
 													{formatDelta(account.reachDeltaPct)}
@@ -1366,6 +1604,68 @@ export function Analytics() {
 				</TabsContent>
 			</Tabs>
 		</NovaScreen>
+	);
+}
+
+function AudienceAvailabilityCard({
+	selectedAccountHandle,
+	profileAvailable,
+	profileLoading,
+	nonFollowerAvailable,
+}: {
+	selectedAccountHandle: string | null;
+	profileAvailable: boolean;
+	profileLoading: boolean;
+	nonFollowerAvailable: boolean;
+}) {
+	return (
+		<NovaCard
+			title="Audience data readiness"
+			description="What can be read for the current scope."
+			action={
+				!selectedAccountHandle ? (
+					<Button asChild variant="outline" size="sm">
+						<Link to="/accounts">Choose account</Link>
+					</Button>
+				) : (
+					<Badge tone="outline">{selectedAccountHandle}</Badge>
+				)
+			}
+			contentClassName="grid gap-2"
+		>
+			<NovaListRow
+				title="Profile buckets"
+				description={
+					selectedAccountHandle
+						? profileAvailable
+							? "Gender, age, and location buckets are available."
+							: "Waiting on platform privacy and sample-size thresholds."
+						: "Requires a single selected account."
+				}
+				meta={
+					<Badge tone={profileAvailable ? "oxblood" : "secondary"}>
+						{profileLoading
+							? "Checking"
+							: profileAvailable
+								? "Ready"
+								: "Unavailable"}
+					</Badge>
+				}
+			/>
+			<NovaListRow
+				title="Non-follower reach"
+				description={
+					nonFollowerAvailable
+						? "Instagram discovery share is present for this window."
+						: "Only available when Instagram daily analytics include this metric."
+				}
+				meta={
+					<Badge tone={nonFollowerAvailable ? "oxblood" : "secondary"}>
+						{nonFollowerAvailable ? "Ready" : "Unavailable"}
+					</Badge>
+				}
+			/>
+		</NovaCard>
 	);
 }
 
@@ -1398,8 +1698,8 @@ function AudienceBucketCard({
 						<NovaListRow
 							key={row.label}
 							title={row.label}
-							description={`${formatAvailablePercent(row.value)} of available data`}
-							meta={<Badge tone="outline">{formatAvailablePercent(row.value)}</Badge>}
+							description={`${formatPercent(row.value)} of available data`}
+							meta={<Badge tone="outline">{formatPercent(row.value)}</Badge>}
 							progress={Math.round((row.value / topValue) * 100)}
 							progressLabel={`${row.label} audience share`}
 						/>
@@ -1411,6 +1711,78 @@ function AudienceBucketCard({
 					description="Meta did not return enough data for this bucket."
 				/>
 			)}
+		</NovaCard>
+	);
+}
+
+function CompareReadinessPanel({
+	activeCompare,
+	onSelect,
+}: {
+	activeCompare: AnalyticsCompareMode;
+	onSelect: (compare: AnalyticsCompareMode) => void;
+}) {
+	const rows: Array<{
+		id: AnalyticsCompareMode;
+		title: string;
+		description: string;
+		ready: boolean;
+	}> = [
+		{
+			id: "prev",
+			title: "Prior period",
+			description: "Current window against the immediately previous window.",
+			ready: true,
+		},
+		{
+			id: "year",
+			title: "Year ago",
+			description: "Needs longer historical coverage before it should be trusted.",
+			ready: false,
+		},
+		{
+			id: "peer",
+			title: "Peer set",
+			description: "Requires cohort-safe peer normalization before release.",
+			ready: false,
+		},
+		{
+			id: "cohort",
+			title: "Cohort",
+			description: "Requires saved cohort definitions and enough accounts.",
+			ready: false,
+		},
+	];
+
+	return (
+		<NovaCard
+			title="Compare readiness"
+			description="Only show comparisons when the source data is mature enough to trust."
+			contentClassName="grid gap-2"
+		>
+			{rows.map((row) => (
+				<NovaListRow
+					key={row.id}
+					title={row.title}
+					description={row.description}
+					meta={
+						<Badge tone={row.ready ? "oxblood" : "secondary"}>
+							{row.ready ? "Ready" : "Future"}
+						</Badge>
+					}
+					action={
+						row.ready ? (
+							<Button
+								variant={activeCompare === row.id ? "secondary" : "outline"}
+								size="sm"
+								onClick={() => onSelect(row.id)}
+							>
+								{activeCompare === row.id ? "Active" : "Use"}
+							</Button>
+						) : null
+					}
+				/>
+			))}
 		</NovaCard>
 	);
 }
@@ -1432,19 +1804,21 @@ function CompareMetricRow({
 		row.delta == null
 			? "No prior"
 			: row.deltaSuffix === "pp"
-				? `${row.delta >= 0 ? "+" : ""}${Math.round(row.delta * 10) / 10}pp`
+				? formatDelta(row.delta, "pp")
 				: formatDelta(row.delta);
 	const tone =
 		direction === "down" ? "danger" : direction === "up" ? "primary" : "default";
+	const currentValue = parseFormattedMetric(row.current);
+	const previousValue = parseFormattedMetric(row.previous);
+	const largest = Math.max(currentValue, previousValue, 1);
+	const currentProgress = Math.round((currentValue / largest) * 100);
+	const previousProgress = Math.round((previousValue / largest) * 100);
 	return (
-		<div className="rounded-lg border border-border bg-muted/35 p-3">
-			<div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-				<div className="min-w-0">
-					<div className="font-semibold text-foreground">{row.label}</div>
-					<div className="mt-1 text-sm text-muted-foreground">
-						{row.description}
-					</div>
-				</div>
+		<NovaCard
+			variant="panel"
+			title={row.label}
+			description={row.description}
+			action={
 				<Badge
 					tone={
 						direction === "down"
@@ -1456,24 +1830,66 @@ function CompareMetricRow({
 				>
 					{deltaLabel}
 				</Badge>
-			</div>
-			<div className="mt-3 grid gap-2 sm:grid-cols-2">
-				<NovaMiniStat
+			}
+			contentClassName="grid gap-3"
+		>
+			<NovaInset tone={tone} className="grid gap-3">
+			<ComparePeriodRail
 					label="Current"
 					value={row.current}
-					description="selected window"
-					tone={tone}
-					size="compact"
+					progress={currentProgress}
+					tone={tone === "danger" ? "critical" : "default"}
 				/>
-				<NovaMiniStat
+				<ComparePeriodRail
 					label="Previous"
 					value={row.previous}
-					description="comparison window"
-					size="compact"
+					progress={previousProgress}
 				/>
+			</NovaInset>
+		</NovaCard>
+	);
+}
+
+function ComparePeriodRail({
+	label,
+	value,
+	progress,
+	tone = "default",
+}: {
+	label: string;
+	value: string;
+	progress: number;
+	tone?: "default" | "good" | "warn" | "critical";
+}) {
+	return (
+		<div className="grid gap-1.5">
+			<div className="flex items-center justify-between gap-3 text-sm">
+				<span className="text-muted-foreground">{label}</span>
+				<span className="font-semibold tabular-nums text-foreground">{value}</span>
 			</div>
+			<Progress
+				value={Math.max(0, Math.min(100, progress))}
+				tone={tone}
+				aria-label={`${label} comparison magnitude`}
+			/>
 		</div>
 	);
+}
+
+function parseFormattedMetric(value: string) {
+	if (value === "Pending" || value === "Unavailable" || value === "No prior") {
+		return 0;
+	}
+	const normalized = value.replace(/[,+%]/g, "").trim().toLowerCase();
+	const multiplier = normalized.endsWith("k")
+		? 1_000
+		: normalized.endsWith("m")
+			? 1_000_000
+			: normalized.endsWith("b")
+				? 1_000_000_000
+				: 1;
+	const parsed = Number.parseFloat(normalized.replace(/[kmb]$/, ""));
+	return Number.isFinite(parsed) ? parsed * multiplier : 0;
 }
 
 function PostStrip({
@@ -1517,6 +1933,52 @@ function PostStrip({
 	);
 }
 
+function AnalyticsSavedViewsMenu({
+	activeView,
+	onSelect,
+}: {
+	activeView: AnalyticsSavedView | undefined;
+	onSelect: (view: AnalyticsSavedView) => void;
+}) {
+	return (
+		<DropdownMenuRoot>
+			<DropdownMenuTrigger asChild>
+				<Button variant="outline" size="sm">
+					<Bookmark data-icon="inline-start" aria-hidden />
+					{activeView ? activeView.label : "Saved views"}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-[280px]">
+				<DropdownMenuLabel>Saved views</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuGroup>
+					{SAVED_ANALYTICS_VIEWS.map((view) => (
+						<DropdownMenuItem
+							key={view.id}
+							onSelect={() => onSelect(view)}
+							className="items-start"
+						>
+							<div className="min-w-0 flex-1">
+								<div className="flex min-w-0 items-center gap-2">
+									<span className="truncate font-medium">{view.label}</span>
+									{activeView?.id === view.id ? (
+										<Badge tone="oxblood" className="shrink-0">
+											Active
+										</Badge>
+									) : null}
+								</div>
+								<p className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
+									{view.description}
+								</p>
+							</div>
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuGroup>
+			</DropdownMenuContent>
+		</DropdownMenuRoot>
+	);
+}
+
 function AnalyticsExportMenu({
 	fleet,
 	kpi,
@@ -1547,39 +2009,41 @@ function AnalyticsExportMenu({
 			<DropdownMenuContent align="end">
 				<DropdownMenuLabel>Export CSV</DropdownMenuLabel>
 				<DropdownMenuSeparator />
-				<DropdownMenuItem
-					disabled={fleet.accounts.length === 0}
-					onSelect={() =>
-						downloadCsv(
-							`juno33-accounts-${slug}-${ts}.csv`,
-							buildAccountAggregatesCsv(fleet),
-						)
-					}
-				>
-					Per-account rollup
-				</DropdownMenuItem>
-				<DropdownMenuItem
-					disabled={fleet.series.length === 0}
-					onSelect={() =>
-						downloadCsv(
-							`juno33-daily-${slug}-${ts}.csv`,
-							buildDailySeriesCsv(fleet),
-						)
-					}
-				>
-					Daily views trend
-				</DropdownMenuItem>
-				<DropdownMenuItem
-					disabled={kpi.isLoading}
-					onSelect={() =>
-						downloadCsv(
-							`juno33-kpis-${slug}-${ts}.csv`,
-							buildKpiSnapshotCsv(kpi),
-						)
-					}
-				>
-					KPI snapshot
-				</DropdownMenuItem>
+				<DropdownMenuGroup>
+					<DropdownMenuItem
+						disabled={fleet.accounts.length === 0}
+						onSelect={() =>
+							downloadCsv(
+								`juno33-accounts-${slug}-${ts}.csv`,
+								buildAccountAggregatesCsv(fleet),
+							)
+						}
+					>
+						Per-account rollup
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						disabled={fleet.series.length === 0}
+						onSelect={() =>
+							downloadCsv(
+								`juno33-daily-${slug}-${ts}.csv`,
+								buildDailySeriesCsv(fleet),
+							)
+						}
+					>
+						Daily views trend
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						disabled={kpi.isLoading}
+						onSelect={() =>
+							downloadCsv(
+								`juno33-kpis-${slug}-${ts}.csv`,
+								buildKpiSnapshotCsv(kpi),
+							)
+						}
+					>
+						KPI snapshot
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenuRoot>
 	);

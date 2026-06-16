@@ -1,6 +1,7 @@
 import React from "react";
 import { Button as ShadButton } from "@/components/shadcn/button";
 import { cn } from "@/lib/utils";
+import { haptics } from "@/utils/haptics";
 
 type ShadButtonProps = React.ComponentProps<typeof ShadButton>;
 
@@ -14,6 +15,7 @@ interface ButtonProps extends Omit<ShadButtonProps, "variant" | "size" | "asChil
 		| undefined;
 	size?: "sm" | "md" | "lg" | "icon" | undefined;
 	asChild?: boolean | undefined;
+	haptic?: "none" | "selection" | "success" | "warning" | "error" | undefined;
 }
 
 const VARIANT_MAP: Record<
@@ -38,13 +40,36 @@ const SIZE_MAP: Record<
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-	({ className, variant = "default", size = "md", asChild = false, ...props }, ref) => {
+	(
+		{
+			className,
+			variant = "default",
+			size = "md",
+			asChild = false,
+			haptic = "none",
+			onClick,
+			disabled,
+			...props
+		},
+		ref,
+	) => {
+		const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+			onClick?.(event);
+			if (disabled || event.defaultPrevented || haptic === "none") return;
+			if (haptic === "selection") haptics.selection();
+			if (haptic === "success") haptics.success();
+			if (haptic === "warning") haptics.warning();
+			if (haptic === "error") haptics.error();
+		};
+
 		return (
 			<ShadButton
 				ref={ref}
 				asChild={asChild}
 				variant={VARIANT_MAP[variant]}
 				size={SIZE_MAP[size]}
+				disabled={disabled}
+				onClick={handleClick}
 				className={cn(
 					"app-control-text app-interactive relative rounded-md font-medium transition-[background-color,border-color,color,box-shadow] duration-150 ease-out active:scale-[0.985] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
 					"after:absolute after:left-1/2 after:top-1/2 after:h-full after:min-h-[44px] after:w-full after:min-w-[44px] after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",

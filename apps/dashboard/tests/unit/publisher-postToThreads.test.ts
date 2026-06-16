@@ -177,6 +177,65 @@ describe("postToThreads", () => {
 		expect(result.error).toContain("Rate limited");
 	});
 
+	it("preserves Meta auth code/type in container errors for downstream reauth detection", async () => {
+		mockFetch.mockImplementationOnce(() =>
+			jsonResponse(
+				{
+					error: {
+						message: "Error validating access token",
+						code: 190,
+						type: "OAuthException",
+					},
+				},
+				false,
+				400,
+			),
+		);
+
+		const result = await postToThreads(
+			"encrypted_token",
+			"user_123",
+			"hello world",
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("Error validating access token");
+		expect(result.error).toContain("code=190");
+		expect(result.error).toContain("type=OAuthException");
+	});
+
+	it("preserves Meta auth code/type in publish errors for downstream reauth detection", async () => {
+		mockFetch
+			.mockImplementationOnce(() => jsonResponse({ id: "container_123" }))
+			.mockImplementationOnce(() => jsonResponse({ status: "FINISHED" }))
+			.mockImplementationOnce(() =>
+				jsonResponse(
+					{
+						error: {
+							message: "Session key is malformed because of invalid user id.",
+							code: 190,
+							type: "OAuthException",
+						},
+					},
+					false,
+					400,
+				),
+			);
+
+		const result = await postToThreads(
+			"encrypted_token",
+			"user_123",
+			"hello world",
+		);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain(
+			"Session key is malformed because of invalid user id.",
+		);
+		expect(result.error).toContain("code=190");
+		expect(result.error).toContain("type=OAuthException");
+	});
+
 	it("returns error when container enters ERROR state during polling", async () => {
 		mockFetch.mockImplementationOnce(() =>
 			jsonResponse({}, true, 200),

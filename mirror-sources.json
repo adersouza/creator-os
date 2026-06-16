@@ -1,0 +1,87 @@
+{
+  "_doc": "Maps each monorepo read-only mirror to its source split repo at a pinned commit. Source of truth = the split repo (live runtime). The monorepo mirror is GENERATED, never hand-edited. pipeline_contracts is intentionally excluded (canonical in monorepo, opposite direction). See scripts/sync/README.md and REMEDIATION_MASTER_PLAN.md WS1.",
+  "excludeDefault": [
+    ".git/",
+    "node_modules/",
+    "**/node_modules/",
+    ".venv/",
+    ".next/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "__pycache__/",
+    "*.egg-info/",
+    "*.pyc",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".mypy_cache/",
+    "**/output/",
+    "**/uploads/",
+    "**/campaigns/",
+    "**/models/",
+    "**/00_source_videos/",
+    "**/02_processed/",
+    "graphify-out/",
+    "identity_references/",
+    "*.sqlite*",
+    "*.db",
+    "*.mp4",
+    "*.mov",
+    ".DS_Store"
+  ],
+  "mirrors": [
+    {
+      "mirrorPath": "apps/dashboard",
+      "sourceRepoPath": "../ThreadsDashboard",
+      "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
+      "sourceCommit": "82f0dc839019f2967bfd8a7623e10a541206366a",
+      "include": ["**/*"],
+      "exclude": [
+        "pipeline_contracts/",
+        "schemas/"
+      ]
+    },
+    {
+      "mirrorPath": "apps/contentforge",
+      "sourceRepoPath": "../contentforge",
+      "sourceRepoUrl": "https://github.com/adersouza/contentforge.git",
+      "sourceCommit": "47e1293ce35175ba0082a78de5f091a73fab9226",
+      "include": ["**/*"],
+      "exclude": [
+        "test/fixtures/campaign-factory/.generated/",
+        "test/fixtures/campaign-factory/feedback/"
+      ]
+    },
+    {
+      "mirrorPath": "python_packages/reel_factory",
+      "sourceRepoPath": "../reel_factory",
+      "sourceRepoUrl": "https://github.com/adersouza/reel_factory.git",
+      "sourceCommit": "4bad3acabcef1b128f02f15f16869b28e7830589",
+      "include": ["**/*"],
+      "exclude": [
+        "pyproject.toml"
+      ]
+    },
+    {
+      "mirrorPath": "python_packages/campaign_factory",
+      "sourceRepoPath": "../campaign_factory",
+      "sourceRepoUrl": "https://github.com/adersouza/campaign_factory.git",
+      "sourceCommit": "99f27208c8664d488fd666e81f685ce31eebf85f",
+      "include": ["**/*"],
+      "exclude": [
+        "pyproject.toml",
+        "schemas/"
+      ]
+    },
+    {
+      "mirrorPath": "python_packages/reference_factory",
+      "sourceRepoPath": "../reference_factory",
+      "sourceRepoUrl": "https://github.com/adersouza/reference_factory.git",
+      "sourceCommit": "2cf59f2a7a59413202f6520cf59d29b4e443472a",
+      "include": ["**/*"],
+      "exclude": [
+        "pyproject.toml"
+      ]
+    }
+  ]
+}

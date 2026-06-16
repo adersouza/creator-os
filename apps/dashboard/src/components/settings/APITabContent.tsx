@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Copy, Key, Trash2 } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { appToast } from "@/lib/toast";
-import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Checkbox } from "@/components/ui/Checkbox";
-import { Input } from "@/components/ui/Input";
+import { Form, FormCheckboxField, FormInputField } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Modal";
 import { NovaEmpty } from "@/components/ui/NovaPrimitives";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -15,13 +16,31 @@ import {
 	revokeApiKey,
 	type ApiKeyRow,
 } from "@/services/api/settingsDeveloper";
-import { Field, Panel, SectionHeader } from "./shared";
+import { Panel, SectionHeader } from "./shared";
 
 const SCOPES = [
 	{ id: "read", label: "Read" },
 	{ id: "write", label: "Write" },
 	{ id: "admin", label: "Admin" },
-];
+] as const;
+
+const apiKeySchema = z
+	.object({
+		name: z.string().min(1, "Add a key name."),
+		read: z.boolean(),
+		write: z.boolean(),
+		admin: z.boolean(),
+	})
+	.refine((values) => values.read || values.write || values.admin, {
+		path: ["read"],
+		message: "Choose at least one scope.",
+	});
+
+type ApiKeyFormValues = z.infer<typeof apiKeySchema>;
+
+function apiScopes(values: ApiKeyFormValues) {
+	return SCOPES.filter((scope) => values[scope.id]).map((scope) => scope.id);
+}
 
 function formatDate(value: string | null) {
 	return value ? new Date(value).toLocaleDateString() : "Never";
@@ -29,11 +48,20 @@ function formatDate(value: string | null) {
 
 export function APITabContent() {
 	const [keys, setKeys] = useState<ApiKeyRow[]>([]);
-	const [name, setName] = useState("Production integration");
-	const [scopes, setScopes] = useState<string[]>(["read"]);
 	const [loading, setLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
 	const [shownKey, setShownKey] = useState<string | null>(null);
+	const apiForm = useForm<ApiKeyFormValues>({
+		resolver: zodResolver(apiKeySchema),
+		defaultValues: {
+			name: "Production integration",
+			read: true,
+			write: false,
+			admin: false,
+		},
+	});
+	const watchedApiForm = apiForm.watch();
+	const selectedScopes = apiScopes(watchedApiForm);
 
 	const refresh = useCallback(async () => {
 		setLoading(true);
@@ -53,20 +81,21 @@ export function APITabContent() {
 		void refresh();
 	}, [refresh]);
 
-	const toggleScope = (scope: string) => {
-		setScopes((prev) =>
-			prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
-		);
-	};
-
-	const createKey = async () => {
-		if (!name.trim() || creating || scopes.length === 0) return;
+	const createKey = async (values: ApiKeyFormValues) => {
+		const scopes = apiScopes(values);
+		const name = values.name.trim();
+		if (!name || creating || scopes.length === 0) return;
 		setCreating(true);
 		try {
-			const result = await createApiKey({ name: name.trim(), scopes });
+			const result = await createApiKey({ name, scopes });
 			setKeys((prev) => [result.key, ...prev]);
 			setShownKey(result.rawKey);
-			setName("");
+			apiForm.reset({
+				name: "",
+				read: true,
+				write: false,
+				admin: false,
+			});
 		} catch (err) {
 			appToast.error("Could not create API key", {
 				description:
@@ -85,45 +114,41 @@ export function APITabContent() {
 			/>
 
 			<Panel>
-				<Field label="Key name">
-					<Input
-						value={name}
-						onChange={(event) => setName(event.target.value)}
-					/>
-				</Field>
-				<div>
-					<div className="text-[0.75rem] font-medium text-muted-foreground mb-2">
-						Scopes
-					</div>
-					<div className="flex flex-wrap gap-2">
-						{SCOPES.map((scope) => (
-							<label
-								key={scope.id}
-								htmlFor={`api-scope-${scope.id}`}
-								className={cn(
-									"h-8 px-3 rounded-md border border-border inline-flex items-center gap-2 text-[0.75rem] font-medium cursor-pointer",
-									scopes.includes(scope.id) &&
-										"bg-foreground text-background border-foreground",
-								)}
-							>
-								<Checkbox
-									id={`api-scope-${scope.id}`}
-									checked={scopes.includes(scope.id)}
-									onCheckedChange={() => toggleScope(scope.id)}
-								/>
-								{scope.label}
-							</label>
-						))}
-					</div>
-				</div>
-				<Button
-					type="button"
-					onClick={createKey}
-					disabled={!name.trim() || scopes.length === 0 || creating}
-					className="self-start"
+				<Form
+					form={apiForm}
+					onSubmit={(values) => void createKey(values)}
+					className="gap-4"
+					aria-label="Create API key"
 				>
-					{creating ? "Generating..." : "Generate key"}
-				</Button>
+					<FormInputField name="name" label="Key name" disabled={creating} />
+					<div>
+						<div className="mb-2 text-[0.75rem] font-medium text-muted-foreground">
+							Scopes
+						</div>
+						<div className="flex flex-wrap gap-2">
+							{SCOPES.map((scope) => (
+								<FormCheckboxField
+									key={scope.id}
+									name={scope.id}
+									label={scope.label}
+									disabled={creating}
+									className="min-w-28 rounded-md border border-border bg-card px-3 py-2"
+								/>
+							))}
+						</div>
+					</div>
+					<Button
+						type="submit"
+						disabled={
+							!watchedApiForm.name.trim() ||
+							selectedScopes.length === 0 ||
+							creating
+						}
+						className="self-start"
+					>
+						{creating ? "Generating..." : "Generate key"}
+					</Button>
+				</Form>
 			</Panel>
 
 			<Panel>

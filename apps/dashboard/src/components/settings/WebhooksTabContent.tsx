@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Send, Trash2, Webhook } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { appToast } from "@/lib/toast";
 import { Button } from "@/components/ui/Button";
-import { Checkbox } from "@/components/ui/Checkbox";
-import { Input } from "@/components/ui/Input";
+import { Form, FormCheckboxField, FormInputField } from "@/components/ui/Form";
 import { NovaEmpty } from "@/components/ui/NovaPrimitives";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -13,14 +15,33 @@ import {
 	testUserWebhook,
 	type UserWebhookRow,
 } from "@/services/api/settingsDeveloper";
-import { Field, Panel, SectionHeader } from "./shared";
+import { Panel, SectionHeader } from "./shared";
 
 const EVENTS = [
-	"post_published",
-	"post_failed",
-	"account_reconnect_needed",
-	"report_sent",
-];
+	{ id: "post_published", label: "Post published" },
+	{ id: "post_failed", label: "Post failed" },
+	{ id: "account_reconnect_needed", label: "Reconnect needed" },
+	{ id: "report_sent", label: "Report sent" },
+] as const;
+
+const webhookSchema = z
+	.object({
+		url: z.string().url("Use a valid HTTPS endpoint URL."),
+		post_published: z.boolean(),
+		post_failed: z.boolean(),
+		account_reconnect_needed: z.boolean(),
+		report_sent: z.boolean(),
+	})
+	.refine((values) => EVENTS.some((event) => values[event.id]), {
+		path: ["post_published"],
+		message: "Choose at least one event.",
+	});
+
+type WebhookFormValues = z.infer<typeof webhookSchema>;
+
+function selectedWebhookEvents(values: WebhookFormValues) {
+	return EVENTS.filter((event) => values[event.id]).map((event) => event.id);
+}
 
 function formatDate(value: string | null) {
 	return value ? new Date(value).toLocaleString() : "Never";
@@ -28,10 +49,20 @@ function formatDate(value: string | null) {
 
 export function WebhooksTabContent() {
 	const [webhooks, setWebhooks] = useState<UserWebhookRow[]>([]);
-	const [url, setUrl] = useState("");
-	const [events, setEvents] = useState<string[]>(["post_published"]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const webhookForm = useForm<WebhookFormValues>({
+		resolver: zodResolver(webhookSchema),
+		defaultValues: {
+			url: "",
+			post_published: true,
+			post_failed: false,
+			account_reconnect_needed: false,
+			report_sent: false,
+		},
+	});
+	const watchedWebhookForm = webhookForm.watch();
+	const selectedEvents = selectedWebhookEvents(watchedWebhookForm);
 
 	const refresh = useCallback(async () => {
 		setLoading(true);
@@ -51,21 +82,21 @@ export function WebhooksTabContent() {
 		void refresh();
 	}, [refresh]);
 
-	const toggleEvent = (event: string) => {
-		setEvents((prev) =>
-			prev.includes(event)
-				? prev.filter((item) => item !== event)
-				: [...prev, event],
-		);
-	};
-
-	const addWebhook = async () => {
-		if (!url.trim() || events.length === 0 || saving) return;
+	const addWebhook = async (values: WebhookFormValues) => {
+		const events = selectedWebhookEvents(values);
+		const url = values.url.trim();
+		if (!url || events.length === 0 || saving) return;
 		setSaving(true);
 		try {
-			const result = await createUserWebhook({ url: url.trim(), events });
+			const result = await createUserWebhook({ url, events });
 			setWebhooks((prev) => [result.webhook, ...prev]);
-			setUrl("");
+			webhookForm.reset({
+				url: "",
+				post_published: true,
+				post_failed: false,
+				account_reconnect_needed: false,
+				report_sent: false,
+			});
 			appToast.success("Webhook added", {
 				description: "Signing secret generated and stored securely.",
 			});
@@ -87,43 +118,47 @@ export function WebhooksTabContent() {
 			/>
 
 			<Panel>
-				<Field label="Endpoint URL">
-					<Input
-						type="url"
-						value={url}
-						onChange={(event) => setUrl(event.target.value)}
-						placeholder="https://example.com/juno33/webhook"
-					/>
-				</Field>
-				<div>
-					<div className="text-[0.75rem] font-medium text-muted-foreground mb-2">
-						Events
-					</div>
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-						{EVENTS.map((event) => (
-							<label
-								key={event}
-								htmlFor={`webhook-event-${event}`}
-								className="h-8 px-3 rounded-md border border-border inline-flex items-center gap-2 text-[0.75rem]"
-							>
-								<Checkbox
-									id={`webhook-event-${event}`}
-									checked={events.includes(event)}
-									onCheckedChange={() => toggleEvent(event)}
-								/>
-								{event}
-							</label>
-						))}
-					</div>
-				</div>
-				<Button
-					type="button"
-					onClick={addWebhook}
-					disabled={!url.trim() || events.length === 0 || saving}
-					className="self-start"
+				<Form
+					form={webhookForm}
+					onSubmit={(values) => void addWebhook(values)}
+					className="gap-4"
+					aria-label="Add webhook endpoint"
 				>
-					{saving ? "Adding..." : "Add webhook"}
-				</Button>
+					<FormInputField
+						name="url"
+						label="Endpoint URL"
+						type="url"
+						placeholder="https://example.com/juno33/webhook"
+						disabled={saving}
+					/>
+					<div>
+						<div className="mb-2 text-[0.75rem] font-medium text-muted-foreground">
+							Events
+						</div>
+						<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+							{EVENTS.map((event) => (
+								<FormCheckboxField
+									key={event.id}
+									name={event.id}
+									label={event.label}
+									disabled={saving}
+									className="rounded-md border border-border bg-card px-3 py-2"
+								/>
+							))}
+						</div>
+					</div>
+					<Button
+						type="submit"
+						disabled={
+							!watchedWebhookForm.url.trim() ||
+							selectedEvents.length === 0 ||
+							saving
+						}
+						className="self-start"
+					>
+						{saving ? "Adding..." : "Add webhook"}
+					</Button>
+				</Form>
 			</Panel>
 
 			<Panel>

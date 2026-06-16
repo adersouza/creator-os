@@ -9,6 +9,20 @@ Juno33 — Threads & Instagram management SaaS with multi-account support, sched
 **Vercel Team:** Vulcan Tech (`team_WBT8LccEmcqg2qWiaPfZaHw6`)
 **Vercel Project ID:** `prj_EuuY1qvIjvq7huam0CXsf98RCuox`
 
+## Creator OS Boundary Context
+
+ThreadsDashboard owns the product/data layer: drafts, approvals, schedules, publishing infrastructure, account data, analytics, and Supabase-backed UI state.
+
+Current upstream pipeline truth:
+
+- Reel Factory active generation is direct Higgsfield reference-image stills, `9:16`, Stacey Soul ID `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
+- Grok/Qwen/Ollama/Florence visual-schema, grids, cropped panels, and `_grok.json` prompt files are legacy Reel Factory experiments.
+- Campaign Factory is the control brain for readiness, inventory, learning, and draft payload exports.
+- ContentForge owns variant/audit mechanics.
+- Pipeline Contracts owns schema shape.
+
+Do not move Reel Factory generation behavior into ThreadsDashboard. Do not bypass Campaign Factory readiness, surface validation, smart-link safety, publish preflight, or scheduling guardrails.
+
 ## Commands
 
 ```bash
