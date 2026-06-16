@@ -2,6 +2,8 @@
   "_doc": "Maps each monorepo read-only mirror to its source split repo at a pinned commit. Source of truth = the split repo (live runtime). The monorepo mirror is GENERATED, never hand-edited. pipeline_contracts is intentionally excluded (canonical in monorepo, opposite direction). See scripts/sync/README.md and REMEDIATION_MASTER_PLAN.md WS1.",
   "excludeDefault": [
     ".git/",
+    ".env.example",
+    "**/project_data/",
     "node_modules/",
     "**/node_modules/",
     ".venv/",
