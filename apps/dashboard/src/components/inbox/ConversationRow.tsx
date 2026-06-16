@@ -55,7 +55,7 @@ export function ConversationRow({
 				done
 					? "opacity-70"
 					: c.sentiment === "negative" &&
-							"rounded-md bg-[color-mix(in_srgb,var(--color-negative)_7%,transparent)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--color-negative)_22%,transparent)]",
+							"rounded-lg bg-[color-mix(in_srgb,var(--color-negative)_7%,transparent)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--color-negative)_22%,transparent)]",
 			)}
 		>
 			<ListRow
@@ -65,6 +65,7 @@ export function ConversationRow({
 				density="compact"
 				separator={false}
 				pressFeedback
+				className="rounded-lg px-3 py-3"
 			>
 				<div className="flex gap-2.5">
 					<Avatar
@@ -164,7 +165,7 @@ export function ConversationRow({
 								<>
 									<Badge tone="outline" className="text-[0.625rem]">
 										<Sparkles aria-hidden="true" />
-										AI provenance
+										AI ready
 									</Badge>
 									<SuggestionChip
 										suggestion={suggestion}

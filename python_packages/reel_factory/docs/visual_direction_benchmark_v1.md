@@ -103,8 +103,8 @@ Format:
   {
     "reel_id": "reel_001",
     "reference_path": "/absolute/path/to/reference_001.mp4",
-    "neutral_prompt_json": "/Users/adercialonedesouza/Projects/reel_factory/prompts/benchmarks/reel_001_neutral.json",
-    "enhanced_prompt_json": "/Users/adercialonedesouza/Projects/reel_factory/prompts/benchmarks/reel_001_enhanced.json"
+    "neutral_prompt_json": "$CREATOR_OS_ROOT/reel_factory/prompts/benchmarks/reel_001_neutral.json",
+    "enhanced_prompt_json": "$CREATOR_OS_ROOT/reel_factory/prompts/benchmarks/reel_001_enhanced.json"
   }
 ]
 ```
@@ -115,8 +115,8 @@ Run:
 
 ```bash
 python3 benchmark_harness.py init \
-  --root /Users/adercialonedesouza/Projects/reel_factory \
-  --reels-json /Users/adercialonedesouza/Projects/reel_factory/project_data/benchmarks/visual_direction_v1/reels.json \
+  --root $CREATOR_OS_ROOT/reel_factory \
+  --reels-json $CREATOR_OS_ROOT/reel_factory/project_data/benchmarks/visual_direction_v1/reels.json \
   --benchmark-id visual_direction_v1 \
   --creator Stacey \
   --soul-name Stacey \
@@ -187,7 +187,7 @@ Run:
 
 ```bash
 python3 benchmark_harness.py record \
-  --root /Users/adercialonedesouza/Projects/reel_factory \
+  --root $CREATOR_OS_ROOT/reel_factory \
   --benchmark-id visual_direction_v1 \
   --reel-id reel_001 \
   --winner enhanced \

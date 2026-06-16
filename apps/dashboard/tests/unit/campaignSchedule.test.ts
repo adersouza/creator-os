@@ -197,16 +197,12 @@ function validCampaignMeta(overrides: Row = {}) {
 		asset_state: "exportable",
 		content_surface: "reel",
 		ig_media_type: "REELS",
-		visualQcStatus: "passed",
-		identityVerificationStatus: "passed",
 		publishability_failure_reasons: [],
 		handoff_manifest: {
 			manifest_version: 1,
 			asset_id: "asset-1",
 			content_fingerprint: "content-hash-1",
 			caption_hash: "caption-hash-1",
-			visualQcStatus: "passed",
-			identityVerificationStatus: "passed",
 			exported_by_system: "campaign_factory",
 		},
 		...overrides,
@@ -318,8 +314,6 @@ describe("Campaign schedule manager", () => {
 			content_surface: "feed_single",
 			ig_media_type: "IMAGE",
 			instagram_post_caption: "feed caption",
-			visualQcStatus: "passed",
-			identityVerificationStatus: "passed",
 			publishability_failure_reasons: [],
 			handoff_manifest: {
 				manifest_version: 2,
@@ -330,8 +324,6 @@ describe("Campaign schedule manager", () => {
 				content_fingerprint: "content-image-1",
 				caption_hash: "caption-image-1",
 				instagram_post_caption: "feed caption",
-				visualQcStatus: "passed",
-				identityVerificationStatus: "passed",
 			},
 		});
 		Object.assign(state.posts[0], {
@@ -372,8 +364,6 @@ describe("Campaign schedule manager", () => {
 			asset_state: "exportable",
 			content_surface: "story",
 			ig_media_type: "STORIES",
-			visualQcStatus: "passed",
-			identityVerificationStatus: "passed",
 			publishability_failure_reasons: [],
 			handoff_manifest: {
 				manifest_version: 2,
@@ -391,8 +381,6 @@ describe("Campaign schedule manager", () => {
 					storyStyleApproved: true,
 					sourceLineageBlockers: [],
 					visualQualityStatus: "passed",
-					visualQcStatus: "passed",
-					identityVerificationStatus: "passed",
 					surfaceReadiness: { canHandoff: true, blockingReasons: [] },
 				},
 			});

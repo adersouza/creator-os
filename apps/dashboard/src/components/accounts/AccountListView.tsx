@@ -1,6 +1,7 @@
 import type React from "react";
 import { ArrowUpRightFromSquare, Pause } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { NovaCard, NovaEmpty } from "@/components/ui/NovaPrimitives";
@@ -43,6 +44,9 @@ interface AccountListViewProps {
 	onRemove: (account: FleetAccount) => void;
 }
 
+const ACCOUNT_GRID_COLUMNS =
+	"3px 40px minmax(180px,1.7fr) minmax(92px,0.8fr) minmax(92px,0.7fr) 74px 70px 68px 70px 70px";
+
 export function AccountListView({
 	accounts,
 	selected,
@@ -62,57 +66,56 @@ export function AccountListView({
 	onRemove,
 }: AccountListViewProps) {
 	return (
-		<NovaCard className="relative" contentClassName="overflow-hidden p-0">
-			<div
-				className="h-9 grid items-center border-b border-border text-[0.65625rem] uppercase tracking-[0.08em] font-medium text-muted-foreground sticky top-0 z-10 bg-card"
-				style={{
-					gridTemplateColumns:
-						"3px 36px minmax(0,1.7fr) 100px 92px 80px 88px 72px 84px 86px",
-				}}
-			>
-				<div />
-				<div />
-				<div className="pl-2">Account</div>
-				<div>Network</div>
-				<div>Platform</div>
-				<div className="text-right pr-3">Followers</div>
-				<div className="text-right pr-3">Posts 24h</div>
+		<NovaCard className="relative" contentClassName="overflow-x-auto p-0">
+			<div className="min-w-[840px]">
 				<div
-					role="columnheader"
-					tabIndex={0}
-					className="text-right pr-3"
-					aria-label="Trend"
-				/>
-				<div className="text-right pr-3">Health</div>
-				<div className="text-right pr-3">Last Post</div>
-			</div>
-
-			{isLoading ? (
-				<LoadingRows />
-			) : accounts.length === 0 ? (
-				<EmptyRow />
-			) : (
-				accounts.map((account, index) => (
-					<AccountRow
-						key={account.id}
-						account={account}
-						signals={healthSignalsByAccount.get(account.id) ?? []}
-						selected={selected.has(account.id)}
-						focused={index === focusedIndex}
-						onToggleSelect={() => onToggleSelect(account.id)}
-						onOpen={() => onOpen(account)}
-						onHover={() => onFocusRow(index)}
-						onPause={() => onPause(account)}
-						onViewScheduler={() => onViewScheduler(account)}
-						onViewAnalytics={() => onViewAnalytics(account)}
-						onMoveGroup={() => onMoveGroup(account)}
-						onSync={() => onSync(account)}
-						onHealthCheck={() => onHealthCheck(account)}
-						onReconnect={() => onReconnect(account)}
-						onRemove={() => onRemove(account)}
+					className="sticky top-0 z-10 grid h-11 items-center border-b border-border bg-muted/40 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground"
+					style={{ gridTemplateColumns: ACCOUNT_GRID_COLUMNS }}
+				>
+					<div />
+					<div />
+					<div className="pl-2">Account</div>
+					<div>Group</div>
+					<div>Platform</div>
+					<div className="pr-4 text-right">Followers</div>
+					<div className="pr-4 text-right">Posts 24h</div>
+					<div
+						role="columnheader"
+						tabIndex={0}
+						className="pr-4 text-right"
+						aria-label="Trend"
 					/>
-				))
-			)}
+					<div className="pr-4 text-right">Health</div>
+					<div className="pr-4 text-right">Last Post</div>
+				</div>
+
+				{isLoading ? (
+					<LoadingRows />
+				) : accounts.length === 0 ? (
+					<EmptyRow />
+				) : (
+					accounts.map((account, index) => (
+						<AccountRow
+							key={account.id}
+							account={account}
+							signals={healthSignalsByAccount.get(account.id) ?? []}
+							selected={selected.has(account.id)}
+							focused={index === focusedIndex}
+							onToggleSelect={() => onToggleSelect(account.id)}
+							onOpen={() => onOpen(account)}
+							onHover={() => onFocusRow(index)}
+							onPause={() => onPause(account)}
+							onViewScheduler={() => onViewScheduler(account)}
+							onViewAnalytics={() => onViewAnalytics(account)}
+							onMoveGroup={() => onMoveGroup(account)}
+							onSync={() => onSync(account)}
+							onHealthCheck={() => onHealthCheck(account)}
+							onReconnect={() => onReconnect(account)}
+							onRemove={() => onRemove(account)}
+						/>
+					))
+				)}
+			</div>
 		</NovaCard>
 	);
 }
@@ -168,13 +171,11 @@ function AccountRow({
 			onRemove={onRemove}
 		>
 			<div
-				className={`relative grid items-center border-b border-border/60 transition-colors group cursor-pointer ${
-					focused ? "td-active-tint" : "hover:bg-muted"
+				className={`group relative grid min-h-[56px] cursor-pointer items-center border-b border-border/70 transition-colors ${
+					focused ? "td-active-tint" : "hover:bg-muted/60"
 				}`}
 				style={{
-					gridTemplateColumns:
-						"3px 36px minmax(0,1.7fr) 100px 92px 80px 88px 72px 84px 86px",
-					minHeight: "38px",
+					gridTemplateColumns: ACCOUNT_GRID_COLUMNS,
 					backgroundColor: !focused ? STATUS_ROW_TINT[ui] : undefined,
 				}}
 				onClick={onOpen}
@@ -199,22 +200,27 @@ function AccountRow({
 						onClick={(event) => event.stopPropagation()}
 					/>
 				</div>
-				<div className="flex items-center gap-2 min-w-0 pl-2">
+				<div className="flex min-w-0 items-center gap-3 pl-2">
 					<div
-						className="w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[0.625rem] font-semibold text-white"
+						className="flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm ring-1 ring-border/60"
 						style={{
 							background: `linear-gradient(135deg, ${account.groupColor}, color-mix(in srgb, ${account.groupColor} 60%, var(--color-ink)))`,
 						}}
 					>
 						{(account.displayName[0] ?? ".").toUpperCase()}
 					</div>
-					<span className="text-[0.8125rem] font-medium text-foreground truncate">
-						{account.handle}
-					</span>
+					<div className="min-w-0">
+						<div className="truncate text-sm font-medium text-foreground">
+							{account.handle}
+						</div>
+						<div className="truncate text-xs text-muted-foreground">
+							{account.displayName}
+						</div>
+					</div>
 					{tokenExpiring && (
 						<Badge
 							tone="outline"
-							className="shrink-0 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-[0.06em] text-[var(--color-warning)]"
+							className="shrink-0 px-1.5 py-0.5 text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--color-warning)]"
 						>
 							Token
 						</Badge>
@@ -228,56 +234,52 @@ function AccountRow({
 							<Badge
 								key={tag}
 								tone="secondary"
-								className="hidden px-1.5 py-0.5 text-[0.625rem] text-muted-foreground xl:inline-flex"
+								className="hidden px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground xl:inline-flex"
 							>
 								#{tag}
 							</Badge>
 						))}
 				</div>
-				<div className="flex items-center gap-1.5">
+				<div className="flex min-w-0 items-center gap-2">
 					<span
-						className="w-1.5 h-1.5 rounded-full"
+						className="size-2 rounded-full ring-2 ring-background"
 						style={{ background: account.groupColor }}
 					/>
-					<span className="text-[0.75rem] text-muted-foreground truncate">
+					<span className="truncate text-sm text-muted-foreground">
 						{account.groupName}
 					</span>
 				</div>
-				<div className="flex items-center gap-1.5 text-[0.75rem] text-muted-foreground">
-					<span
-						className="w-1.5 h-1.5 rounded-full"
-						style={{
-							background:
-								account.platform === "threads"
-									? "color-mix(in_srgb,var(--color-foreground)_55%,transparent)"
-									: "color-mix(in_srgb,var(--color-foreground)_28%,transparent)",
-						}}
+				<div className="flex items-center gap-2 text-sm text-muted-foreground">
+					<BrandLogo
+						name={account.platform === "instagram" ? "instagram" : "threads"}
+						size="xs"
+						monochrome={account.platform !== "instagram"}
 					/>
 					<span>{labelFor(account.platform)}</span>
 				</div>
-				<div className="text-right pr-3 text-[0.78125rem] text-foreground tabular-nums">
+				<div className="pr-4 text-right text-sm text-foreground tabular-nums">
 					{formatFollowers(account.followers)}
 				</div>
-				<div className="text-right pr-3 text-[0.78125rem] text-muted-foreground tabular-nums">
+				<div className="pr-4 text-right text-sm text-muted-foreground tabular-nums">
 					{account.posts24h}
 				</div>
-				<div className="flex justify-end pr-3">
+				<div className="flex justify-end pr-4">
 					<Sparkline values={account.trend7d} status={ui} />
 				</div>
 				<div
-					className="flex items-center justify-end gap-1.5 pr-3"
+					className="flex items-center justify-end gap-1.5 pr-4"
 					title={`${STATUS_LABEL[ui]} - health ${account.healthScore}`}
 				>
-					<HealthDot
-						state={UI_TO_HEALTH_STATE[ui]}
-						label={`${account.handle} ${STATUS_LABEL[ui].toLowerCase()} - health ${account.healthScore}`}
-						size={10}
-					/>
-					<span className="text-[0.75rem] tabular-nums text-foreground">
+					<span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-1 text-xs text-foreground tabular-nums">
+						<HealthDot
+							state={UI_TO_HEALTH_STATE[ui]}
+							label={`${account.handle} ${STATUS_LABEL[ui].toLowerCase()} - health ${account.healthScore}`}
+							size={8}
+						/>
 						{account.healthScore}
 					</span>
 				</div>
-				<div className="text-right pr-3 text-[0.75rem] text-muted-foreground tabular-nums">
+				<div className="pr-4 text-right text-xs text-muted-foreground tabular-nums">
 					{formatLastPost(account.lastPostHoursAgo)}
 				</div>
 				<div className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 bg-card pl-3 pr-0 shadow-[-8px_0_12px_color-mix(in_srgb,var(--color-card)_85%,transparent)] group-hover:flex focus-within:flex">
@@ -288,7 +290,7 @@ function AccountRow({
 							onPause();
 						}}
 					>
-						<Pause className="w-3.5 h-3.5" />
+						<Pause data-icon="icon" />
 					</RowAction>
 					<RowAction
 						label="Open"
@@ -297,7 +299,7 @@ function AccountRow({
 							onOpen();
 						}}
 					>
-						<ArrowUpRightFromSquare className="w-3.5 h-3.5" />
+						<ArrowUpRightFromSquare data-icon="icon" />
 					</RowAction>
 				</div>
 			</div>
@@ -322,7 +324,7 @@ function RowAction({
 			onClick={onClick}
 			variant="ghost"
 			size="icon"
-			className="h-7 w-7 text-muted-foreground hover:text-foreground"
+			className="size-7 text-muted-foreground hover:text-foreground"
 		>
 			{children}
 		</Button>
@@ -374,35 +376,32 @@ function LoadingRows() {
 			{Array.from({ length: 10 }).map((_, i) => (
 				<div
 					key={i}
-					className="grid h-10 items-center border-b border-border px-0"
-					style={{
-						gridTemplateColumns:
-							"3px 36px minmax(0,1.7fr) 100px 92px 80px 88px 72px 84px 86px",
-					}}
+					className="grid h-14 items-center border-b border-border/70 px-0"
+					style={{ gridTemplateColumns: ACCOUNT_GRID_COLUMNS }}
 					aria-hidden="true"
 				>
 					<div />
 					<div className="flex justify-center">
-						<Skeleton className="h-6 w-6 rounded-full" />
+						<Skeleton className="size-8 rounded-full" />
 					</div>
 					<div className="flex items-center gap-2 pl-2">
-						<Skeleton className="h-3 w-28 rounded-full" />
+						<Skeleton className="h-4 w-32 rounded-full" />
 					</div>
 					<Skeleton className="h-4 w-16 rounded-full" />
 					<Skeleton className="h-4 w-14 rounded-full" />
-					<div className="flex justify-end pr-3">
+					<div className="flex justify-end pr-4">
 						<Skeleton className="h-3 w-10 rounded-full" />
 					</div>
-					<div className="flex justify-end pr-3">
+					<div className="flex justify-end pr-4">
 						<Skeleton className="h-3 w-8 rounded-full" />
 					</div>
-					<div className="flex justify-end pr-3">
+					<div className="flex justify-end pr-4">
 						<Skeleton className="h-3 w-12 rounded-full opacity-70" />
 					</div>
-					<div className="flex justify-end pr-3">
+					<div className="flex justify-end pr-4">
 						<Skeleton className="h-4 w-14 rounded-full" />
 					</div>
-					<div className="flex justify-end pr-3">
+					<div className="flex justify-end pr-4">
 						<Skeleton className="h-3 w-12 rounded-full opacity-70" />
 					</div>
 				</div>

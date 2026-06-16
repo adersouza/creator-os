@@ -105,10 +105,10 @@ import {
 } from "@/components/autopilot/AutopilotModePages";
 
 /* =========================================================================
-   Autopilot — operator surface for the auto-poster backend.
+   Automation — workspace controls for the auto-poster backend.
    Single-scroll layout, three focused bands:
-     1. Jobs (left) + Failures feed (right) — the diagnostic pair
-     2. Queue health — days-of-content bars, link to Calendar for detail
+     1. Scheduled work + failures
+     2. Posting coverage — days-of-content bars, link to Calendar for detail
      3. Rate limits — signal-first (sorted by % desc, warn/critical default)
    Hero Pause all / Resume wire auto_post_config.is_enabled workspace-wide.
    Keyboard: J/K navigate failures · R retry focused · Enter opens account.
@@ -172,21 +172,21 @@ const AUTOPILOT_SECTIONS: Array<{
 }> = [
 	{
 		id: "agent",
-		label: "Agent",
+		label: "Assistant",
 		shortcut: "A",
 		group: "Agent",
 		icon: BrainCircuit,
 	},
 	{
 		id: "replay",
-		label: "Replay",
+		label: "Run history",
 		shortcut: "P",
 		group: "Agent",
 		icon: PlayCircle,
 	},
 	{
 		id: "queue",
-		label: "Queue",
+		label: "Schedule plan",
 		shortcut: "Q",
 		group: "Modes",
 		icon: ListChecks,
@@ -207,7 +207,7 @@ const AUTOPILOT_SECTIONS: Array<{
 	},
 	{
 		id: "conditions",
-		label: "Conditions",
+		label: "Rules",
 		shortcut: "C",
 		group: "Engine",
 		icon: SlidersHorizontal,
@@ -233,37 +233,43 @@ const SECTION_TITLES: Record<
 	{ title: string; meta: string }
 > = {
 	agent: {
-		title: "Agent",
-		meta: "Explainable autonomous decisions, operator notes, and the kill switch.",
+		title: "Assistant",
+		meta: "Review recent automated decisions, notes, and the workspace pause control.",
 	},
 	replay: {
-		title: "Replay",
-		meta: "Per-step autoposter run playback with safe replay from captured inputs.",
+		title: "Run history",
+		meta: "Inspect recent automation runs and safely retry supported steps.",
 	},
 	queue: {
-		title: "Queue",
-		meta: "Scheduled inventory by account group, with cap progress and condition state.",
+		title: "Schedule plan",
+		meta: "Scheduled inventory by account group, with coverage and rule readiness.",
 	},
 	evergreen: {
 		title: "Evergreen",
-		meta: "High-performing posts eligible to re-enter the queue after storage support is active.",
+		meta: "High-performing posts that can return to rotation once reuse controls are available.",
 	},
 	recurrent: {
-		title: "Recurrent",
-		meta: "Republish-as-new cycles, gated until recurrent scheduling fields exist.",
+		title: "Repeat cycles",
+		meta: "Recurring publish plans will appear here when cadence controls are available.",
 	},
 	conditions: {
-		title: "Conditions",
-		meta: "Read-only rule pills for the engine thresholds Autopilot can enforce today.",
+		title: "Rules",
+		meta: "Readable publishing rules that Automation can enforce today.",
 	},
 	health: {
-		title: "Health",
-		meta: "The existing job, failure, queue coverage, and rate-limit diagnostics.",
+		title: "Status",
+		meta: "Account readiness, publishing coverage, and recent automation outcomes.",
 	},
 	history: {
 		title: "History",
-		meta: "Chronological engine history. Step replay lives in the Replay section.",
+		meta: "Recent automation activity. Detailed run inspection stays in Run history.",
 	},
+};
+
+const AUTOPILOT_GROUP_LABELS: Record<"Agent" | "Modes" | "Engine", string> = {
+	Agent: "Control",
+	Modes: "Plans",
+	Engine: "Safety",
 };
 
 /* Rate limits have no cached fallback — when the live read fails we render
@@ -729,7 +735,7 @@ export function Autopilot() {
 			.catch((e: unknown) => {
 				if (cancelled) return;
 				setQueueError(
-					e instanceof Error ? e.message : "Could not load queue health.",
+					e instanceof Error ? e.message : "Could not load publishing coverage.",
 				);
 				setQueueRows([]);
 			})
@@ -794,7 +800,7 @@ export function Autopilot() {
 				if (cancelled) return;
 				setAgentLog([]);
 				setAgentLogError(
-					e instanceof Error ? e.message : "Could not load agent decisions.",
+					e instanceof Error ? e.message : "Could not load assistant decisions.",
 				);
 			})
 			.finally(() => {
@@ -812,7 +818,7 @@ export function Autopilot() {
 				if (cancelled) return;
 				setAgentNotes([]);
 				setAgentNotesError(
-					e instanceof Error ? e.message : "Could not load agent notes.",
+					e instanceof Error ? e.message : "Could not load automation notes.",
 				);
 			})
 			.finally(() => {
@@ -830,7 +836,7 @@ export function Autopilot() {
 				if (cancelled) return;
 				setAgentSettingsState(null);
 				setAgentSettingsError(
-					e instanceof Error ? e.message : "Could not load agent settings.",
+					e instanceof Error ? e.message : "Could not load automation settings.",
 				);
 			})
 			.finally(() => {
@@ -892,7 +898,7 @@ export function Autopilot() {
 				if (cancelled) return;
 				setReplayRuns([]);
 				setReplayRunsError(
-					e instanceof Error ? e.message : "Could not load replay runs.",
+					e instanceof Error ? e.message : "Could not load run history.",
 				);
 			})
 			.finally(() => {
@@ -1042,7 +1048,7 @@ export function Autopilot() {
 			setAgentNotes(await fetchAgentNotes());
 		} catch (e) {
 			setAgentNotesError(
-				e instanceof Error ? e.message : "Could not load agent notes.",
+				e instanceof Error ? e.message : "Could not load automation notes.",
 			);
 		} finally {
 			setAgentNotesLoading(false);
@@ -1074,7 +1080,7 @@ export function Autopilot() {
 			setAgentPauseConfirm(null);
 		} catch (e) {
 			setAgentPauseError(
-				e instanceof Error ? e.message : "Could not update agent state.",
+				e instanceof Error ? e.message : "Could not update automation state.",
 			);
 		} finally {
 			setAgentPauseSaving(false);
@@ -1173,7 +1179,7 @@ export function Autopilot() {
 					navigate(`/autopilot/replay/${result.runId}`);
 				}
 			} catch (e) {
-				setReplayActionError(e instanceof Error ? e.message : "Replay failed.");
+				setReplayActionError(e instanceof Error ? e.message : "Retry failed.");
 			} finally {
 				setReplayingStepId(null);
 			}
@@ -1284,7 +1290,7 @@ export function Autopilot() {
 	if (workspacePaused === true) {
 		subtitleParts.push("workspace paused");
 	} else if (diagnosticsUnavailable) {
-		subtitleParts.push("live diagnostics unavailable");
+		subtitleParts.push("live status unavailable");
 	} else {
 		subtitleParts.push(
 			`${stats.active} job${stats.active === 1 ? "" : "s"} active`,
@@ -1326,16 +1332,16 @@ export function Autopilot() {
 
 			<NovaSection>
 				<NovaHeader
-					eyebrow="Autopilot"
+					eyebrow="Automation"
 					title="Automation control"
-					meta="Engine · live"
+					meta="Live"
 					description={
 						<>
 							<strong className="font-semibold text-foreground">
-								Control queue automation without losing operator oversight.
+								Control automated publishing without losing approval control.
 							</strong>{" "}
-							Pause publishing, inspect replay runs, and jump into the failure
-							bucket that needs intervention.
+							Pause publishing, review recent runs, and fix anything that needs
+							attention before it affects the schedule.
 						</>
 					}
 					filters={subtitleParts.map((part) => (
@@ -1479,24 +1485,24 @@ export function Autopilot() {
 				{activeSection === "evergreen" && (
 					<SchemaGatedMode
 						icon={Leaf}
-						title="Evergreen queue is waiting on storage"
-						body="This mode needs an evergreen_posts table or posts.evergreen_status before operators can safely promote high performers back into inventory."
+						title="Evergreen rotation is coming soon"
+						body="This view will help you bring proven posts back into rotation after the reuse controls are ready."
 						rows={[
-							"Render high-performing candidates with source post, lift, and last published time.",
-							"Let operators approve or exclude posts before automated reposting.",
-							"Reuse the Queue cap rings once evergreen rows can be scheduled.",
+							"Show high-performing candidates with source post, lift, and last published time.",
+							"Let you approve or exclude posts before automated reuse.",
+							"Show whether each group has enough scheduled coverage before reuse starts.",
 						]}
 					/>
 				)}
 				{activeSection === "recurrent" && (
 					<SchemaGatedMode
 						icon={Repeat2}
-						title="Recurrent cycles need publish cadence fields"
-						body="The shell is in place, but recurrent posts need cycle-days and last-published timestamps before the UI can mutate live schedules."
+						title="Repeat cycles are coming soon"
+						body="This view will help you manage recurring post plans once cadence controls are available."
 						rows={[
 							"Show repeat cadence, next publish, and per-account cap pressure.",
-							"Block cycles that would exceed group conditions.",
-							"Expose pause, skip next, and edit cadence once schema is live.",
+							"Warn before a repeat plan would exceed group rules.",
+							"Expose pause, skip next, and edit cadence controls once the feature is live.",
 						]}
 					/>
 				)}
@@ -1516,12 +1522,12 @@ export function Autopilot() {
 				{activeSection === "history" && (
 					<SchemaGatedMode
 						icon={History}
-						title="Run history will attach to structured logs"
-						body="The current backend exposes cron summaries and failed posts. Step replay needs auto_post_run_log and auto_post_run_steps before this page can drill into preserved payloads."
+						title="Detailed run history is coming soon"
+						body="Recent automation summaries and failed posts are available today. A deeper step-by-step history will appear here when structured run details are available."
 						rows={[
 							"Show a 24h run timeline with success bars and failure dots.",
-							"Open raw payloads inline for retry and replay decisions.",
-							"Add a per-step rail once the publish worker emits step state.",
+							"Open step context inline for retry decisions.",
+							"Add per-step details once each automation action reports progress.",
 						]}
 					/>
 				)}
@@ -1531,7 +1537,7 @@ export function Autopilot() {
 						<NovaSection className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8"
 						>
 							<AutopilotHealthStat
-								label="Jobs active"
+								label="Work active"
 								value={jobsError ? "—" : `${stats.active}/${jobs.length}`}
 								icon={Activity}
 								tone={
@@ -1561,13 +1567,13 @@ export function Autopilot() {
 								}
 							/>
 							<AutopilotHealthStat
-								label="Posts queued"
+								label="Posts planned"
 								value={queueError ? "—" : `${stats.queued}`}
 								icon={Clock}
 								tone={queueError ? "critical" : "neutral"}
 							/>
 							<AutopilotHealthStat
-								label="Queues at risk"
+								label="Coverage gaps"
 								value={queueError ? "—" : `${stats.atRiskQueues}`}
 								icon={AlertTriangle}
 								tone={
@@ -1662,17 +1668,17 @@ export function Autopilot() {
 							/>
 						</NovaSection>
 
-						{/* Jobs — live cron diagnostics remain below the failure readout */}
+						{/* Scheduled work remains below the failure readout */}
 						<NovaSection className="mb-8"
 						>
 							<SectionHeader
-								eyebrow="Scheduled jobs"
+								eyebrow="Scheduled work"
 								meta={
 									jobsLoading
 										? "loading"
 										: jobsError
 											? "live read unavailable"
-											: `${jobs.length} cron${jobs.length === 1 ? "" : "s"} · live`
+											: `${jobs.length} job${jobs.length === 1 ? "" : "s"} · live`
 								}
 							/>
 							<div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5 mt-2.5">
@@ -1688,11 +1694,11 @@ export function Autopilot() {
 							</div>
 						</NovaSection>
 
-						{/* Queue health — compact bars + link to Calendar */}
+						{/* Publishing coverage — compact bars + link to Calendar */}
 						<NovaSection className="mb-8"
 						>
 							<SectionHeader
-								eyebrow="Queue health"
+								eyebrow="Publishing coverage"
 								meta={
 									queueLoading
 										? "loading"
@@ -1726,15 +1732,15 @@ export function Autopilot() {
 									<NovaEmpty
 										className="py-6"
 										icon={<AlertTriangle data-icon aria-hidden="true" />}
-										title="Queue health unavailable"
-										description="Autopilot could not load scheduled-post coverage right now. The queue is not being reported as empty."
+										title="Publishing coverage unavailable"
+										description="Automation could not load scheduled-post coverage right now. Existing posts are not being treated as missing."
 									/>
 								) : queueRows.length === 0 ? (
 									<NovaEmpty
 										className="py-6"
 										icon={<Clock data-icon aria-hidden="true" />}
 										title="No scheduled posts"
-										description="Schedule a post from the Composer and Autopilot will start tracking queue health per network."
+										description="Schedule a post from the Composer and Automation will start tracking coverage per network."
 									/>
 								) : (
 									<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -1922,7 +1928,7 @@ function AutopilotModeShell({
 			<NovaDataPanel contentClassName="p-2" className="xl:sticky xl:top-4">
 				<div className="px-2.5 pt-1 pb-2 border-b border-border">
 					<div className="text-[0.8125rem] font-semibold text-foreground">
-						Autopilot engine
+						Automation
 					</div>
 				</div>
 				{(
@@ -1931,10 +1937,10 @@ function AutopilotModeShell({
 					<nav
 						key={group}
 						className="pt-3"
-						aria-label={`Autopilot ${group.toLowerCase()}`}
+						aria-label={`Automation ${group.toLowerCase()}`}
 					>
 						<div className="px-2.5 pb-1.5 text-[0.59375rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-							{group}
+							{AUTOPILOT_GROUP_LABELS[group]}
 						</div>
 						<div className="flex flex-col gap-1">
 							{groupedSections[group].map((item) => {
@@ -1979,8 +1985,8 @@ function AutopilotModeShell({
 						<div>
 							<div className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
 								{activeSection === "health"
-									? "Engine diagnostics"
-									: "Autopilot mode"}
+									? "Automation status"
+									: "Automation view"}
 							</div>
 							<h2 className="app-page-title mt-1 text-foreground">
 								{activeMeta.title}
@@ -1989,15 +1995,15 @@ function AutopilotModeShell({
 								{activeMeta.meta}
 							</p>
 						</div>
-						<div className="grid grid-cols-3 gap-2 min-w-[260px]">
-							<NovaMiniStat label="Queued" value={String(stats.queued)} />
+						<div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[260px]">
+							<NovaMiniStat label="Planned" value={String(stats.queued)} />
 							<NovaMiniStat
-								label="Failures"
+								label="Needs review"
 								value={String(stats.openFailures)}
 								tone={stats.openFailures ? "danger" : "success"}
 							/>
 							<NovaMiniStat
-								label="Caps"
+								label="Limits"
 								value={rateLimits.length ? String(rateLimits.length) : "ok"}
 								tone={rateLimits.length ? "warning" : "success"}
 							/>
@@ -2016,6 +2022,16 @@ const SAFE_REPLAY_STEP_NAMES = new Set([
 	"validate",
 	"media_prep",
 ]);
+
+const RUN_TYPE_LABELS: Record<string, string> = {
+	queue_fill: "Schedule planning",
+	publish: "Publishing",
+	auto_unpost: "Duplicate cleanup",
+};
+
+function readableRunType(type: string): string {
+	return RUN_TYPE_LABELS[type] ?? type.replaceAll("_", " ");
+}
 
 function ReplayModePage({
 	runs,
@@ -2082,7 +2098,7 @@ function ReplayModePage({
 								active={runTypeFilter === type}
 								onClick={() => onRunTypeFilter(type)}
 							>
-								{type === "all" ? "All types" : type.replace("_", " ")}
+								{type === "all" ? "All types" : readableRunType(type)}
 							</ReplayFilterButton>
 						))}
 					</div>
@@ -2110,11 +2126,11 @@ function ReplayModePage({
 							</div>
 						))
 					) : runsError ? (
-						<ReplayEmpty title="Replay runs unavailable" body={runsError} />
+						<ReplayEmpty title="Run history unavailable" body={runsError} />
 					) : runs.length === 0 ? (
 						<ReplayEmpty
 							title="No runs in this window"
-							body="Trigger a queue fill or publish run and it will appear here."
+							body="Run schedule planning or publishing and the result will appear here."
 						/>
 					) : (
 						runs.map((run) => (
@@ -2138,13 +2154,13 @@ function ReplayModePage({
 									</div>
 									<div className="mt-2 flex items-center gap-2">
 										<span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted border border-border text-[0.625rem] font-semibold text-muted-foreground">
-											{run.run_type === "queue_fill"
-												? "QF"
-												: run.run_type.slice(0, 2).toUpperCase()}
+											{readableRunType(run.run_type)
+												.slice(0, 2)
+												.toUpperCase()}
 										</span>
 										<div className="min-w-0">
 											<div className="text-[0.8125rem] font-semibold text-foreground capitalize">
-												{run.run_type.replace("_", " ")}
+												{readableRunType(run.run_type)}
 											</div>
 											<div className="text-[0.65625rem] text-muted-foreground tabular-nums">
 												{formatDuration(runDurationMs(run))} ·{" "}
@@ -2166,13 +2182,13 @@ function ReplayModePage({
 							eyebrow="Step detail"
 							meta={
 								selectedRun
-									? `${selectedRun.run_type.replace("_", " ")} · ${formatRunTime(selectedRun.started_at)}`
+									? `${readableRunType(selectedRun.run_type)} · ${formatRunTime(selectedRun.started_at)}`
 									: "select a run"
 							}
 						/>
 						{selectedRun?.parent_run_id && (
 							<div className="mt-1 text-[0.6875rem] text-muted-foreground">
-								Replay of {selectedRun.parent_run_id.slice(0, 8)}
+								Retry from {selectedRun.parent_run_id.slice(0, 8)}
 							</div>
 						)}
 					</div>
@@ -2195,7 +2211,7 @@ function ReplayModePage({
 				{!selectedRun ? (
 					<ReplayEmpty
 						title="No run selected"
-						body="Choose a run from the left rail to inspect its step outputs."
+						body="Choose a run from the left rail to inspect what happened."
 					/>
 				) : stepsLoading ? (
 					<div className="flex flex-col gap-2 p-4">
@@ -2208,7 +2224,7 @@ function ReplayModePage({
 				) : steps.length === 0 ? (
 					<ReplayEmpty
 						title="No steps recorded"
-						body="This run predates Phase 5 instrumentation or the migration has not been applied yet."
+						body="This run does not include step-by-step detail yet."
 					/>
 				) : (
 					<div className="divide-y divide-border">
@@ -2218,8 +2234,8 @@ function ReplayModePage({
 							const unsafeReason =
 								step.step_name === "dispatch" ||
 								step.step_name === "response_capture"
-									? "Dispatch step replays would re-publish the post."
-									: "Replay is not enabled for this step in v1.";
+									? "Retrying this step would publish the post again."
+									: "Retry is not available for this step yet.";
 							return (
 								<div key={step.id}>
 									<Button
@@ -2271,15 +2287,15 @@ function ReplayModePage({
 												<Button
 													type="button"
 													disabled={!safe || replayingStepId === step.id}
-													title={safe ? "Replay from here" : unsafeReason}
+													title={safe ? "Retry from here" : unsafeReason}
 													onClick={() => onReplayStep(step)}
 													variant="outline"
 													size="sm"
 													className="h-8 text-[0.71875rem] disabled:opacity-45"
 												>
 													{replayingStepId === step.id
-														? "Replaying…"
-														: "Replay from here"}
+														? "Retrying…"
+														: "Retry from here"}
 												</Button>
 											</div>
 										</div>
@@ -2535,7 +2551,7 @@ function AgentModePage({
 								onClick={onOpenHealth}
 								className="h-8 gap-1.5 text-[0.71875rem]"
 							>
-								Engine health
+								Open status
 								<ChevronRight data-icon="inline-end" aria-hidden="true" />
 							</Button>
 						</div>
@@ -2561,8 +2577,8 @@ function AgentModePage({
 					) : logRows.length === 0 ? (
 						<InlineModeState
 							icon={BrainCircuit}
-							title="Agent is idle"
-							body={`Last action ${lastRun ? formatDateTime(lastRun) : "has not been recorded yet"}. Decisions appear here after autonomous tool calls are logged.`}
+							title="Assistant is idle"
+							body={`Last action ${lastRun ? formatDateTime(lastRun) : "has not been recorded yet"}. Decisions appear here after Automation takes action.`}
 						/>
 					) : filteredRows.length === 0 ? (
 						<InlineModeState
@@ -2622,7 +2638,7 @@ function AgentStatusHeader({
 }) {
 	const nextLabel =
 		nextRunMinutes === null
-			? "cron-derived"
+			? "schedule-derived"
 			: nextRunMinutes < 1
 				? "any second"
 				: `in ${nextRunMinutes}m`;
@@ -2643,7 +2659,7 @@ function AgentStatusHeader({
 							aria-hidden="true"
 						/>
 						<span className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-							Agent status
+							Automation status
 						</span>
 					</div>
 					<h3 className="app-page-title mt-2 text-foreground">
@@ -2653,8 +2669,8 @@ function AgentStatusHeader({
 						{error
 							? error
 							: paused
-								? `Paused since ${lastRun ? formatDateTime(lastRun) : "before the latest visible run"}. Agent writes are blocked until resumed.`
-								: "Agent writes are enabled. Decisions remain explainable and traceable through the log below."}
+								? `Paused since ${lastRun ? formatDateTime(lastRun) : "before the latest visible run"}. Automated publishing actions are blocked until resumed.`
+								: "Automated publishing actions are enabled. Recent decisions remain visible in the log below."}
 					</p>
 				</div>
 				<div className="flex flex-col items-start lg:items-end gap-2">
@@ -2670,7 +2686,7 @@ function AgentStatusHeader({
 						)}
 					>
 						<Power data-icon="inline-start" aria-hidden="true" />
-						{paused ? "Resume agent" : "Pause agent"}
+						{paused ? "Resume automation" : "Pause automation"}
 					</Button>
 					{pauseError && (
 						<div
@@ -2689,19 +2705,19 @@ function AgentStatusHeader({
 				/>
 				<NovaMiniStat label="Next run" value={nextLabel} />
 				<NovaMiniStat label="Accounts" value={String(accountScopeCount)} />
-				<NovaMiniStat label="Tools" value={String(toolCount)} />
+				<NovaMiniStat label="Actions" value={String(toolCount)} />
 			</div>
 
 			{pauseConfirm !== null && (
 				<div className="absolute inset-0 z-10 bg-background/72 backdrop-blur-[10px] grid place-items-center p-4">
 					<div className="w-full max-w-[420px] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-[var(--shadow-modal)]">
 						<div className="text-[0.9375rem] font-medium text-foreground">
-							{desiredPaused ? "Pause agent writes?" : "Resume agent writes?"}
+							{desiredPaused ? "Pause automation?" : "Resume automation?"}
 						</div>
 						<p className="mt-2 text-[0.75rem] leading-[1.5] text-muted-foreground">
 							{desiredPaused
-								? "This kill switch blocks autonomous write operations. Read-only diagnostics and notes remain visible."
-								: "This re-enables autonomous write operations and resets circuit-breaker counters when the backend accepts the change."}
+								? "This blocks automated publishing actions. Read-only status and notes remain visible."
+								: "This re-enables automated publishing actions once the workspace accepts the change."}
 						</p>
 						<div className="mt-4 flex justify-end gap-2">
 							<Button
@@ -2725,8 +2741,8 @@ function AgentStatusHeader({
 								{pauseSaving
 									? "Saving..."
 									: desiredPaused
-										? "Pause agent"
-										: "Resume agent"}
+										? "Pause automation"
+										: "Resume automation"}
 							</Button>
 						</div>
 					</div>
@@ -2875,12 +2891,12 @@ function AgentDecisionRow({ row }: { row: AgentActionLogRow }) {
 						</div>
 						<div>
 							<div className="text-[0.625rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-								Tools used
+								Automation action
 							</div>
 							<div className="mt-1 flex items-center gap-2 text-[0.75rem] text-muted-foreground">
 								<Wrench className="w-3.5 h-3.5" aria-hidden="true" />
 								<span className="font-medium text-foreground">
-									{row.tool_name}
+									{humanizeToolName(row.tool_name)}
 								</span>
 								<span className="tabular-nums">{row.duration_ms ?? 0}ms</span>
 								<span>{row.success ? "ok" : "failed"}</span>
@@ -2959,12 +2975,12 @@ function AgentNotesPanel({
 	return (
 		<NovaDataPanel contentClassName="p-4" className="xl:sticky xl:top-4">
 			<SectionHeader
-				eyebrow="Operator notes"
+				eyebrow="Automation notes"
 				meta={loading ? "loading" : `${notes.length} pinned`}
 			/>
 			<p className="mt-2 text-[0.71875rem] leading-[1.45] text-muted-foreground">
-				Notes are read by the agent at the start of its next run and stay pinned
-				until deleted.
+				Notes guide the assistant at the start of its next run and stay pinned
+				until you delete them.
 			</p>
 			<div className="mt-4 flex flex-col gap-2">
 				<Input
@@ -2975,7 +2991,7 @@ function AgentNotesPanel({
 				<Textarea
 					value={draftValue}
 					onChange={(e) => setDraftValue(e.target.value)}
-					placeholder="instruction for the agent"
+					placeholder="instruction for the assistant"
 					rows={3}
 					className="resize-none"
 				/>
@@ -3009,7 +3025,7 @@ function AgentNotesPanel({
 					))
 				) : notes.length === 0 ? (
 					<div className="rounded-md bg-muted/50 border border-border p-3 text-[0.71875rem] leading-[1.45] text-muted-foreground">
-						No pinned operator notes yet.
+						No pinned automation notes yet.
 					</div>
 				) : (
 					notes.map((note) => (
@@ -3297,8 +3313,8 @@ function JobsEmpty({ error }: { error?: string | null | undefined }) {
 				title={error ? "Job runs unavailable" : "No job runs yet"}
 				description={
 					error
-						? "Autopilot could not load cron-run diagnostics right now. No fallback data is shown."
-						: "Cron-run diagnostics will appear here once Autopilot starts executing scheduled work."
+						? "Automation could not load recent run history right now. No fallback data is shown."
+						: "Run history will appear here once Automation starts executing scheduled work."
 				}
 			/>
 		</NovaDataPanel>
@@ -3382,7 +3398,7 @@ function FailureSparklinePanel({
 		<NovaDataPanel contentClassName="p-5">
 			<div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
 				<SectionHeader
-					eyebrow="Failure density"
+					eyebrow="Issue trend"
 					meta={
 						loading
 							? "loading"
@@ -3413,14 +3429,14 @@ function FailureSparklinePanel({
 					<Skeleton className="h-24 rounded-md border border-border" />
 				) : error ? (
 					<FailurePanelMessage
-						title="Failure density unavailable"
+						title="Issue trend unavailable"
 						body="The failed-post read could not be loaded."
 					/>
 				) : (
 					<div
 						className="flex items-end gap-px h-24"
 						role="list"
-						aria-label={`Failures by ${window} bucket`}
+						aria-label={`Issues by ${window} bucket`}
 					>
 						{buckets.map((bucket) => {
 							const active = selectedBucketKey === bucket.key;
@@ -3495,7 +3511,7 @@ function FailureDrilldownPanel({
 		<NovaDataPanel contentClassName="p-0">
 			<div className="px-5 py-4 border-b border-border flex flex-col md:flex-row md:items-center md:justify-between gap-2">
 				<SectionHeader
-					eyebrow="Failure drilldown"
+					eyebrow="Issue details"
 					meta={
 						selectedBucket
 							? `${selectedBucket.label} bucket selected`
@@ -3520,7 +3536,7 @@ function FailureDrilldownPanel({
 				<FailureGroupsSkeleton />
 			) : error ? (
 				<FailurePanelMessage
-					title="Failure drilldown unavailable"
+					title="Issue details unavailable"
 					body="Grouped error rows could not be loaded."
 				/>
 			) : groups.length === 0 ? (
@@ -3677,7 +3693,7 @@ function FailureDrilldownPanel({
 														size="sm"
 														className="h-8 text-[0.71875rem] disabled:opacity-40"
 													>
-														Open replay
+														Open run history
 													</Button>
 												</div>
 											</div>

@@ -45,36 +45,6 @@ describe("shared pipeline contracts", () => {
 		);
 	});
 
-	it("requires explicit Instagram post captions for non-Story Campaign Factory drafts", () => {
-		const example = readPipelineSchemaExample("campaign_draft_payload.v1.example.json");
-		const campaignFactory = example.drafts[0].metadata.campaign_factory;
-		example.drafts[0].content = "burned overlay text is not a post caption";
-		campaignFactory.instagram_post_caption = "";
-		campaignFactory.instagramPostCaption = "";
-		campaignFactory.handoff_manifest.instagram_post_caption = "";
-		campaignFactory.handoff_manifest.instagramPostCaption = "";
-
-		expect(validateCampaignFactoryDraftPayload(example)).toContain(
-			"drafts[0].metadata.campaign_factory.instagram_post_caption is required for non-Story Instagram surfaces",
-		);
-	});
-
-	it("requires passed visual QC and identity verification for Campaign Factory handoff", () => {
-		const example = readPipelineSchemaExample("campaign_draft_payload.v1.example.json");
-		const campaignFactory = example.drafts[0].metadata.campaign_factory;
-		campaignFactory.visualQcStatus = "unavailable";
-		campaignFactory.identityVerificationStatus = "failed";
-		campaignFactory.handoff_manifest.visualQcStatus = "unavailable";
-		campaignFactory.handoff_manifest.identityVerificationStatus = "failed";
-
-		expect(validateCampaignFactoryDraftPayload(example)).toEqual(
-			expect.arrayContaining([
-				"drafts[0].metadata.campaign_factory.handoff_manifest.visualQcStatus must be passed",
-				"drafts[0].metadata.campaign_factory.handoff_manifest.identityVerificationStatus must be passed",
-			]),
-		);
-	});
-
 	it("accepts the Reference Factory audio catalog export example", () => {
 		const example = readPipelineSchemaExample("audio_catalog_export.v1.example.json");
 

@@ -144,7 +144,7 @@ export function InboxFilterBar({
 			<div className="hidden items-center gap-2 lg:flex">
 				<Badge tone="outline" className="h-8 px-3 text-[0.71875rem]">
 					<Radio data-icon="inline-start" />
-					Live queue
+					Live messages
 				</Badge>
 				<Badge tone="outline" className="h-8 px-3 text-[0.71875rem]">
 					<MessageCircle data-icon="inline-start" />

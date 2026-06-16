@@ -1,9 +1,17 @@
-import { Link2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowUpRight, Link2 } from "lucide-react";
 import { useSmartLinks } from "@/hooks/useSmartLinks";
 import { formatCompact } from "@/components/analytics/analyticsShared";
 import { Badge } from "@/components/ui/Badge";
-import { NovaCard } from "@/components/ui/NovaPrimitives";
-import { Progress } from "@/components/ui/Progress";
+import { Button } from "@/components/ui/Button";
+import {
+	NovaCard,
+	NovaDataPanel,
+	NovaEmpty,
+	NovaListRow,
+	NovaMiniStat,
+	NovaSection,
+} from "@/components/ui/NovaPrimitives";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { getSmartLinkRowTopPerformer } from "@/lib/smartLinksSampleGate";
 
@@ -14,64 +22,106 @@ export function SmartLinksAnalytics() {
 		.filter((l) => l.isActive && l.clickCount > 0)
 		.sort((a, b) => b.clickCount - a.clickCount)
 		.slice(0, 5);
+	const activeLinks = links.filter((link) => link.isActive);
+	const totalClicks = activeLinks.reduce((sum, link) => sum + link.clickCount, 0);
 
 	const maxClicks = top5[0]?.clickCount ?? 1;
 	const topPerformer = getSmartLinkRowTopPerformer(
-		links.filter((link) => link.isActive),
+		activeLinks,
 	);
 
-	if (!isLoading && top5.length === 0) return null;
-
 	return (
-		<NovaCard
-			title={
-				<span className="flex items-center gap-2">
-					<Link2
-						className="h-4 w-4"
-						style={{ color: "var(--color-meridian)" }}
+		<NovaSection className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+			<NovaDataPanel
+				title="Link performance"
+				description="Smart Link clicks and active destinations for the selected workspace."
+				toolbar={
+					<Button asChild variant="outline" size="sm">
+						<Link to="/links">
+							Open Links
+							<ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+						</Link>
+					</Button>
+				}
+				loading={isLoading}
+			>
+				<div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+					<NovaMiniStat
+						label="Active links"
+						value={activeLinks.length.toLocaleString()}
+						description="Available destinations"
 					/>
-					Top clicked links
-				</span>
-			}
-			description="Ranked by tracked Smart Link clicks."
-		>
-			{isLoading ? (
-				<div className="flex flex-col gap-2">
-					{[1, 2, 3].map((i) => (
-						<div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-muted/35 p-3">
-							<Skeleton className="h-4 flex-1 rounded" />
-							<Skeleton className="h-4 w-10 rounded" />
-						</div>
-					))}
+					<NovaMiniStat
+						label="Tracked clicks"
+						value={formatCompact(totalClicks)}
+						description="Across active links"
+						tone={totalClicks > 0 ? "primary" : "default"}
+					/>
+					<NovaMiniStat
+						label="Best link"
+						value={topPerformer ? `/${topPerformer.code}` : "Unavailable"}
+						description={topPerformer ? `${formatCompact(topPerformer.clickCount)} clicks` : "No clicked links yet"}
+					/>
 				</div>
-			) : (
-				<div className="flex flex-col gap-2 rounded-xl border border-border bg-muted/35 p-2">
-					{top5.map((link) => (
-						<div key={link.id} className="group flex items-center gap-3 rounded-lg border border-transparent p-3 transition-colors hover:border-border hover:bg-card">
-							<div className="flex-1 min-w-0">
-								<div className="flex min-w-0 items-center gap-2">
-									<span className="min-w-0 truncate font-mono text-[0.6875rem] text-muted-foreground transition-colors group-hover:text-foreground">
-										/{link.code}
-									</span>
-									{topPerformer?.id === link.id ? (
-										<Badge tone="outline" className="h-[18px] shrink-0 px-1.5 text-[0.5625rem] tracking-normal">
-											Top performer
-										</Badge>
-									) : null}
-								</div>
-								<Progress
-									value={Math.round((link.clickCount / maxClicks) * 100)}
-									className="mt-1 [&>div]:bg-[color:var(--color-meridian)]"
-									aria-label={`/${link.code} clicks`}
-								/>
+			</NovaDataPanel>
+
+			<NovaCard
+				title={
+					<span className="inline-flex items-center gap-2">
+						<Link2 data-icon="inline-start" aria-hidden="true" />
+						Top clicked links
+					</span>
+				}
+				description="Ranked by tracked Smart Link clicks."
+				action={<Badge tone="outline">{top5.length} shown</Badge>}
+			>
+				{isLoading ? (
+					<div className="flex flex-col gap-2">
+						{[1, 2, 3].map((i) => (
+							<div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-muted/45 p-3">
+								<Skeleton className="h-4 flex-1 rounded" />
+								<Skeleton className="h-4 w-10 rounded" />
 							</div>
-							<div className="text-[0.71875rem] font-medium tabular-nums text-foreground shrink-0 w-10 text-right">
-								{formatCompact(link.clickCount)}
-							</div>
-						</div>
-					))}
-				</div>
-			)}
-		</NovaCard>
+						))}
+					</div>
+				) : top5.length > 0 ? (
+					<div className="flex flex-col gap-2">
+						{top5.map((link) => (
+							<NovaListRow
+								key={link.id}
+								leading={<Link2 data-icon="inline-start" aria-hidden="true" />}
+								title={`/${link.code}`}
+								description={`${formatCompact(link.clickCount)} tracked clicks`}
+								meta={
+									topPerformer?.id === link.id ? (
+										<Badge tone="outline">Top performer</Badge>
+									) : null
+								}
+								progress={Math.round((link.clickCount / maxClicks) * 100)}
+								progressLabel={`/${link.code} share of top clicked links`}
+							/>
+						))}
+					</div>
+				) : (
+					<NovaEmpty
+						title="No clicked links yet"
+						description={
+							activeLinks.length > 0
+								? "Active links are ready. Click data will appear here after traffic is tracked."
+								: "Create or activate a Smart Link to start tracking link performance."
+						}
+						action={
+							<Button asChild>
+								<Link to="/links">
+									Open Links
+									<ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+								</Link>
+							</Button>
+						}
+						icon={<Link2 data-icon="inline-start" aria-hidden="true" />}
+					/>
+				)}
+			</NovaCard>
+		</NovaSection>
 	);
 }

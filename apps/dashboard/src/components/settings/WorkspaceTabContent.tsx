@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Link2, Upload } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { appToast } from "@/lib/toast";
 import { supabase } from "@/services/supabase";
 import {
@@ -8,10 +11,10 @@ import {
 } from "@/services/userSettingsService";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Form, FormField, FormInputField, FormSelectField } from "@/components/ui/Form";
 import { NovaCard } from "@/components/ui/NovaPrimitives";
 import { Input } from "@/components/ui/Input";
 import { Separator } from "@/components/ui/Separator";
-import { Select } from "@/components/ui/Select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +40,30 @@ interface WhiteLabelPrefs {
 const WORKSPACE_PREFS_KEY = "workspace_preferences";
 const WHITELABEL_PREFS_KEY = "whitelabel_preferences";
 
+const workspacePrefsSchema = z.object({
+	name: z.string().trim().min(1, "Workspace name cannot be empty."),
+	tz: z.string().trim().min(1, "Choose a timezone."),
+	defaultWindow: z.string().trim().min(1, "Choose a default posting window."),
+	week: z.enum(["sun", "mon"]),
+});
+
+const DEFAULT_POSTING_WINDOW_OPTIONS = [
+	{ value: "6-8am", label: "Morning · 6 – 8am" },
+	{ value: "9-11am", label: "Morning · 9 – 11am" },
+	{ value: "12-2pm", label: "Midday · 12 – 2pm" },
+	{ value: "4-6pm", label: "Afternoon · 4 – 6pm" },
+	{ value: "7-9pm", label: "Evening · 7 – 9pm" },
+	{ value: "10pm", label: "Late · 10pm +" },
+];
+
+const TIMEZONE_OPTIONS = [
+	{ value: "America/New_York", label: "America / New York (ET)" },
+	{ value: "America/Chicago", label: "America / Chicago (CT)" },
+	{ value: "America/Los_Angeles", label: "America / Los Angeles (PT)" },
+	{ value: "Europe/London", label: "Europe / London (BST)" },
+	{ value: "UTC", label: "UTC" },
+];
+
 export function WorkspaceTabContent() {
 	const browserTz = (() => {
 		try {
@@ -51,16 +78,20 @@ export function WorkspaceTabContent() {
 		defaultWindow: "7-9pm",
 		week: "mon",
 	};
-	const [wsName, setWsName] = useState(initialPrefs.name);
-	const [tz, setTz] = useState(initialPrefs.tz);
-	const [defaultWindow, setDefaultWindow] = useState(
-		initialPrefs.defaultWindow,
-	);
-	const [week, setWeek] = useState<"sun" | "mon">(initialPrefs.week);
+	const workspaceForm = useForm<WorkspacePrefs>({
+		resolver: zodResolver(workspacePrefsSchema),
+		defaultValues: initialPrefs,
+	});
+	const workspaceValues = workspaceForm.watch();
 	const [savedPrefs, setSavedPrefs] = useState<WorkspacePrefs>(initialPrefs);
 	const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 	const [hydrated, setHydrated] = useState(false);
 	const [saving, setSaving] = useState(false);
+	const timezoneOptions = TIMEZONE_OPTIONS.some(
+		(option) => option.value === workspaceValues.tz,
+	)
+		? TIMEZONE_OPTIONS
+		: [...TIMEZONE_OPTIONS, { value: workspaceValues.tz, label: workspaceValues.tz }];
 
 	// Pull the active workspace + per-user scheduling prefs into the form.
 	useEffect(() => {
@@ -108,10 +139,7 @@ export function WorkspaceTabContent() {
 				defaultWindow: row.defaultWindow ?? initialPrefs.defaultWindow,
 				week: row.week ?? initialPrefs.week,
 			};
-			setWsName(hydratedPrefs.name);
-			setTz(hydratedPrefs.tz);
-			setDefaultWindow(hydratedPrefs.defaultWindow);
-			setWeek(hydratedPrefs.week);
+			workspaceForm.reset(hydratedPrefs);
 			setSavedPrefs(hydratedPrefs);
 			setWorkspaceId(ws?.id ?? null);
 			setHydrated(true);
@@ -124,29 +152,18 @@ export function WorkspaceTabContent() {
 		initialPrefs.name,
 		initialPrefs.defaultWindow,
 		browserTz,
-	]); // eslint-disable-line react-hooks/exhaustive-deps
+		workspaceForm,
+	]);
 
-	const dirty =
-		hydrated &&
-		(wsName !== savedPrefs.name ||
-			tz !== savedPrefs.tz ||
-			defaultWindow !== savedPrefs.defaultWindow ||
-			week !== savedPrefs.week);
+	const dirty = hydrated && workspaceForm.formState.isDirty;
 
 	const reset = () => {
-		setWsName(savedPrefs.name);
-		setTz(savedPrefs.tz);
-		setDefaultWindow(savedPrefs.defaultWindow);
-		setWeek(savedPrefs.week);
+		workspaceForm.reset(savedPrefs);
 	};
 
-	const save = async () => {
+	const save = async (values: WorkspacePrefs) => {
 		if (!dirty || saving) return;
-		const trimmedName = wsName.trim();
-		if (!trimmedName) {
-			appToast.error("Workspace name cannot be empty.");
-			return;
-		}
+		const trimmedName = values.name.trim();
 		setSaving(true);
 		try {
 			const {
@@ -155,9 +172,9 @@ export function WorkspaceTabContent() {
 			if (!user) throw new Error("Not authenticated");
 
 			await upsertUserSetting(user.id, WORKSPACE_PREFS_KEY, {
-				timezone: tz,
-				defaultWindow,
-				week,
+				timezone: values.tz,
+				defaultWindow: values.defaultWindow,
+				week: values.week,
 			});
 
 			if (workspaceId && trimmedName !== savedPrefs.name) {
@@ -168,8 +185,14 @@ export function WorkspaceTabContent() {
 				if (wsRes.error) throw wsRes.error;
 			}
 
-			setWsName(trimmedName);
-			setSavedPrefs({ name: trimmedName, tz, defaultWindow, week });
+			const nextPrefs = {
+				name: trimmedName,
+				tz: values.tz,
+				defaultWindow: values.defaultWindow,
+				week: values.week,
+			};
+			workspaceForm.reset(nextPrefs);
+			setSavedPrefs(nextPrefs);
 			appToast.success("Workspace preferences saved");
 		} catch (err) {
 			appToast.error("Could not save workspace preferences", {
@@ -188,77 +211,74 @@ export function WorkspaceTabContent() {
 			/>
 
 			<Panel>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<Field label="Workspace name">
-						<Input value={wsName} onChange={(e) => setWsName(e.target.value)} />
-					</Field>
-					<Field label="Timezone" hint="Auto-detected from your browser.">
-						<Select value={tz} onChange={(e) => setTz(e.target.value)}>
-							<option value="America/New_York">America / New York (ET)</option>
-							<option value="America/Chicago">America / Chicago (CT)</option>
-							<option value="America/Los_Angeles">
-								America / Los Angeles (PT)
-							</option>
-							<option value="Europe/London">Europe / London (BST)</option>
-							<option value="UTC">UTC</option>
-							<option value={tz}>{tz}</option>
-						</Select>
-					</Field>
-					<Field
-						label="Default posting window"
-						hint="Used as the fallback when scheduling without a pick."
-					>
-						<Select
-							value={defaultWindow}
-							onChange={(e) => setDefaultWindow(e.target.value)}
-						>
-							<option value="6-8am">Morning · 6 – 8am</option>
-							<option value="9-11am">Morning · 9 – 11am</option>
-							<option value="12-2pm">Midday · 12 – 2pm</option>
-							<option value="4-6pm">Afternoon · 4 – 6pm</option>
-							<option value="7-9pm">Evening · 7 – 9pm</option>
-							<option value="10pm">Late · 10pm +</option>
-						</Select>
-					</Field>
-					<Field label="Week starts on">
-						<ToggleGroup
-							type="single"
-							value={week}
-							onValueChange={(next) => {
-								if (next === "sun" || next === "mon") setWeek(next);
-							}}
-							className="w-full rounded-md"
-						>
-							{(["sun", "mon"] as const).map((d) => (
-								<ToggleGroupItem
-									key={d}
-									value={d}
-									className="flex-1 rounded-md"
+				<Form form={workspaceForm} onSubmit={save} className="gap-5">
+					<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+						<FormInputField
+							name="name"
+							label="Workspace name"
+							disabled={saving}
+						/>
+						<FormSelectField
+							name="tz"
+							label="Timezone"
+							hint="Auto-detected from your browser."
+							options={timezoneOptions}
+							disabled={saving}
+						/>
+						<FormSelectField
+							name="defaultWindow"
+							label="Default posting window"
+							hint="Used as the fallback when scheduling without a pick."
+							options={DEFAULT_POSTING_WINDOW_OPTIONS}
+							disabled={saving}
+						/>
+						<FormField name="week" label="Week starts on" disabled={saving}>
+							{({ field }) => (
+								<ToggleGroup
+									type="single"
+									value={field.value}
+									onValueChange={(next) => {
+										if (next === "sun" || next === "mon") {
+											field.onChange(next);
+										}
+									}}
+									className="w-full rounded-md"
+									aria-label="Week starts on"
 								>
-									{d === "sun" ? "Sunday" : "Monday"}
-								</ToggleGroupItem>
-							))}
-						</ToggleGroup>
-					</Field>
-				</div>
+									{(["sun", "mon"] as const).map((d) => (
+										<ToggleGroupItem
+											key={d}
+											value={d}
+											className="flex-1 rounded-md"
+											disabled={saving}
+										>
+											{d === "sun" ? "Sunday" : "Monday"}
+										</ToggleGroupItem>
+									))}
+								</ToggleGroup>
+							)}
+						</FormField>
+					</div>
 
-				<div className="flex items-center justify-end gap-2 pt-6 mt-6 border-t border-border">
-					<Button
-						variant="ghost"
-						className="h-9 text-[0.8125rem]"
-						onClick={reset}
-						disabled={!dirty || saving}
-					>
-						Reset
-					</Button>
-					<Button
-						className="h-9 text-[0.8125rem]"
-						onClick={() => void save()}
-						disabled={!dirty || saving}
-					>
-						{saving ? "Saving…" : "Save preferences"}
-					</Button>
-				</div>
+					<div className="flex items-center justify-end gap-2 border-t border-border pt-6">
+						<Button
+							type="button"
+							variant="ghost"
+							className="h-9 text-[0.8125rem]"
+							onClick={reset}
+							disabled={!dirty || saving}
+						>
+							Reset
+						</Button>
+						<Button
+							type="submit"
+							className="h-9 text-[0.8125rem]"
+							disabled={!dirty || saving}
+						>
+							{saving ? "Saving…" : "Save preferences"}
+						</Button>
+					</div>
+				</Form>
 			</Panel>
 		</div>
 	);

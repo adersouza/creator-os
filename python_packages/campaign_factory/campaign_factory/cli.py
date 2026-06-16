@@ -132,16 +132,8 @@ def main() -> int:
 
     review = sub.add_parser("review-decision")
     review.add_argument("--rendered-asset-id", required=True)
-    review.add_argument("--decision", choices=["approved", "rejected", "maybe"], required=True)
+    review.add_argument("--decision", choices=["approved", "rejected"], required=True)
     review.add_argument("--notes")
-    review.add_argument("--reviewer")
-    review.add_argument("--source-deck-id")
-    review.add_argument("--reference-hash")
-    review.add_argument("--generated-image-hash")
-    review.add_argument("--soul-id")
-    review.add_argument("--aspect-ratio")
-    review.add_argument("--visual-qc-status")
-    review.add_argument("--identity-verification-status")
     review.add_argument("--force-unsafe-audit", action="store_true", help="Allow approval even when audit is missing or not an approved candidate")
 
     readiness = sub.add_parser("export-readiness")
@@ -618,10 +610,6 @@ def main() -> int:
     add_creative_kb_args(creative_performance)
     creator_learning = sub.add_parser("creator-learning-summary")
     add_creative_kb_args(creator_learning)
-    caption_weights = sub.add_parser("caption-weight-report")
-    caption_weights.add_argument("--campaign", required=True)
-    caption_weights.add_argument("--minimum-sample-size", type=int, default=3)
-    caption_weights.add_argument("--limit", type=int, default=50)
     next_content = sub.add_parser("next-content-recommendations")
     add_creative_kb_args(next_content)
     confidence_model = sub.add_parser("creative-learning-confidence-model")
@@ -632,6 +620,23 @@ def main() -> int:
     add_creative_kb_args(surface_comparison)
     recommendation_audit = sub.add_parser("recommendation-quality-audit")
     add_creative_kb_args(recommendation_audit)
+    tribev2_analysis = sub.add_parser("tribev2-reel-analysis")
+    add_creative_kb_args(tribev2_analysis)
+    tribev2_review = sub.add_parser("tribev2-reel-review")
+    tribev2_review.add_argument("--creator", required=True)
+    tribev2_review.add_argument("--campaign")
+    tribev2_review.add_argument("--sort-by", default="meanAbsActivation", choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"])
+    tribev2_review.add_argument("--bucket", default="top", choices=["top", "bottom", "both"])
+    tribev2_review.add_argument("--limit", type=int, default=12)
+    tribev2_review.add_argument("--contact-sheet", action="store_true")
+    tribev2_review.add_argument("--show-metrics", action="store_true")
+    tribev2_review.add_argument("--hide-tribe-score", action="store_true")
+    tribev2_review.add_argument("--blind-mode", action="store_true")
+    tribev2_holdout = sub.add_parser("tribev2-holdout-pilot-review")
+    tribev2_holdout.add_argument("--creator", required=True)
+    tribev2_holdout.add_argument("--campaign")
+    tribev2_holdout.add_argument("--limit", type=int, default=20)
+    tribev2_holdout.add_argument("--contact-sheet", action="store_true")
     caption_repair = sub.add_parser("caption-quality-repair-plan")
     caption_repair.add_argument("--creator", required=True)
     caption_repair.add_argument("--campaign")
@@ -1091,14 +1096,6 @@ def main() -> int:
                 args.rendered_asset_id,
                 decision=args.decision,
                 notes=args.notes,
-                reviewer=args.reviewer,
-                source_deck_id=args.source_deck_id,
-                reference_hash=args.reference_hash,
-                generated_image_hash=args.generated_image_hash,
-                soul_id=args.soul_id,
-                aspect_ratio=args.aspect_ratio,
-                visual_qc_status=args.visual_qc_status,
-                identity_verification_status=args.identity_verification_status,
                 require_safe_audit=not args.force_unsafe_audit,
             ))
         elif args.cmd == "export-readiness":
@@ -1838,12 +1835,6 @@ def main() -> int:
                 minimum_sample_size=args.minimum_sample_size,
                 limit=args.limit,
             ))
-        elif args.cmd == "caption-weight-report":
-            print_json(cf.caption_weight_report(
-                args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
         elif args.cmd == "next-content-recommendations":
             print_json(cf.next_content_recommendations(
                 creator=args.creator,
@@ -1875,6 +1866,32 @@ def main() -> int:
                 campaign_slug=args.campaign,
                 minimum_sample_size=args.minimum_sample_size,
                 limit=args.limit,
+            ))
+        elif args.cmd == "tribev2-reel-analysis":
+            print_json(cf.tribev2_reel_analysis(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                minimum_sample_size=args.minimum_sample_size,
+                limit=args.limit,
+            ))
+        elif args.cmd == "tribev2-reel-review":
+            print_json(cf.tribev2_reel_review(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                sort_by=args.sort_by,
+                bucket=args.bucket,
+                limit=args.limit,
+                contact_sheet=args.contact_sheet,
+                show_metrics=True if args.show_metrics or not args.blind_mode else False,
+                show_tribe_score=not args.hide_tribe_score,
+                blind_mode=args.blind_mode,
+            ))
+        elif args.cmd == "tribev2-holdout-pilot-review":
+            print_json(cf.tribev2_holdout_pilot_review(
+                creator=args.creator,
+                campaign_slug=args.campaign,
+                limit=args.limit,
+                contact_sheet=args.contact_sheet,
             ))
         elif args.cmd == "caption-quality-repair-plan":
             print_json(cf.caption_quality_repair_plan(

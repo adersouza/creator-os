@@ -1,10 +1,10 @@
-"""sscd_check.py — perceptual-freshness audit of variation outputs.
+"""sscd_check.py — perceptual-similarity audit of variation outputs.
 
 Samples N frames evenly across each MP4, computes pHash + dHash for each
-frame, and reports the mean Hamming distance between the v01_original baseline
-and every other variant. This is an interim near-duplicate risk signal, not a
-claim that the media has been validated against a platform-level learned SSCD
-detector.
+frame, and reports the mean Hamming distance between the v01_original
+baseline and every other variant. Mirrors the first-line check most copy-
+detection systems (Meta's SSCD, TikTok's videohash, IG's similarity
+fingerprinting) run against incoming uploads.
 
 Hamming-distance interpretation (64-bit pHash):
    0..4   → near-duplicate (will likely flag as same content)
@@ -30,14 +30,6 @@ FFPROBE = str(_FFMPEG_FULL / "ffprobe") if (_FFMPEG_FULL / "ffprobe").exists() e
 SAMPLE_TIMES = [0.5, 1.0, 1.5, 2.5, 3.5, 5.0]
 
 HASHES = ("phash", "dhash", "whash")
-
-
-def detector_status() -> dict:
-    return {
-        "sscdAvailable": False,
-        "detectorValidation": "not_validated_against_sscd",
-        "freshnessSignal": "phash_dhash_whash_consensus",
-    }
 
 
 def recipe_from_name(name: str) -> str:
@@ -130,8 +122,6 @@ def main(clip_dir: str) -> None:
         print(f"no MP4s in {d}"); return
 
     baseline = next((r for r in rows if "v01_original" in r["recipe"]), rows[0])
-    status = detector_status()
-    print(f"detector: {status['detectorValidation']} ({status['freshnessSignal']})")
     print(f"baseline: {baseline['filename']}")
     print(f"sampling at absolute t = {SAMPLE_TIMES} seconds\n")
     print(f"{'recipe':<18} {'pHash':>8} {'dHash':>8} {'wHash':>8}  "

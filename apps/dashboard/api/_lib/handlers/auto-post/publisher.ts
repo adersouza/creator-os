@@ -23,6 +23,22 @@ const db = () => getSupabaseAny();
 const THREADS_TEXT_MAX_BYTES = 500;
 const THREADS_CAROUSEL_MAX_ITEMS = 20;
 
+function formatMetaErrorMessage(
+	message: string,
+	code: string | number | undefined,
+	type: string | undefined,
+	subcode?: string | number | undefined,
+): string {
+	const parts = [
+		code !== undefined && code !== null && code !== "" ? `code=${code}` : null,
+		type ? `type=${type}` : null,
+		subcode !== undefined && subcode !== null && subcode !== ""
+			? `subcode=${subcode}`
+			: null,
+	].filter(Boolean);
+	return parts.length > 0 ? `${message} (${parts.join(", ")})` : message;
+}
+
 export function validateThreadsPublishText(
 	content: string,
 	mediaCount: number,
@@ -396,7 +412,12 @@ export async function postToThreads(
 				}
 				return {
 					success: false,
-					error: `${errorMsg} (code=${errorCode}, type=${errorType})`,
+					error: formatMetaErrorMessage(
+						errorMsg,
+						errorCode,
+						typeof errorType === "string" ? errorType : undefined,
+						containerData.error?.error_subcode,
+					),
 					retryable: classified.retryable,
 				};
 			}
@@ -579,7 +600,12 @@ export async function postToThreads(
 			});
 			return {
 				success: false,
-				error: `${errorMsg} (code=${errorCode}, type=${errorType})`,
+				error: formatMetaErrorMessage(
+					errorMsg,
+					errorCode,
+					typeof errorType === "string" ? errorType : undefined,
+					publishData.error?.error_subcode,
+				),
 				retryable: classified.retryable,
 			};
 		}

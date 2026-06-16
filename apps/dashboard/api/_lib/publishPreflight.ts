@@ -452,21 +452,21 @@ function validateInstagram(input: PreflightInput, issues: PreflightIssue[]) {
 		);
 	}
 	const campaignFactory = campaignFactoryMetadata(input);
-	const unsafeTexts = campaignFactory
-		? campaignFactoryCaptionTexts(input, campaignFactory)
-		: [content, input.firstComment].filter(
-				(value): value is string =>
-					typeof value === "string" && value.trim().length > 0,
-			);
-	if (igMediaType !== "STORIES" || unsafeTexts.length > 0) {
+	if (igMediaType === "REELS") {
+		const unsafeTexts = campaignFactory
+			? campaignFactoryCaptionTexts(input, campaignFactory)
+			: [content, input.firstComment].filter(
+					(value): value is string =>
+						typeof value === "string" && value.trim().length > 0,
+				);
 		const discoverability = validateDiscoverabilitySafeContent(...unsafeTexts);
 		if (!discoverability.discoverabilitySafe) {
 			add(
 				issues,
 				"error",
 				"caption",
-				"ig_caption_link_or_dm_reference",
-				"Instagram captions and Story text must not mention DMs, links, bio links, or off-platform contact destinations. Remove all DM/link/contact CTA language before scheduling or publishing.",
+				"ig_reel_caption_link_or_dm_reference",
+				"Instagram Reels must not mention DMs, links, bio links, or off-platform contact destinations. Remove all DM/link/contact CTA language before scheduling or publishing.",
 			);
 		}
 	}
@@ -676,7 +676,8 @@ function campaignFactoryInstagramPostCaption(
 		stringValue(campaignFactory.instagram_post_caption) ||
 		stringValue(campaignFactory.instagramPostCaption) ||
 		stringValue(manifest?.instagram_post_caption) ||
-		stringValue(manifest?.instagramPostCaption)
+		stringValue(manifest?.instagramPostCaption) ||
+		stringValue(input.content)
 	);
 }
 
@@ -811,35 +812,6 @@ function validateCampaignFactoryStoryProof(
 	}
 }
 
-function validateCampaignFactoryContentTrustProof(
-	campaignFactory: Record<string, unknown>,
-	issues: PreflightIssue[],
-) {
-	const manifest = recordValue(campaignFactory.handoff_manifest);
-	const visualQcStatus = stringValue(campaignFactory.visualQcStatus || manifest?.visualQcStatus).toLowerCase();
-	const identityVerificationStatus = stringValue(
-		campaignFactory.identityVerificationStatus || manifest?.identityVerificationStatus,
-	).toLowerCase();
-	if (!visualQcStatus || visualQcStatus === "failed" || visualQcStatus === "unavailable") {
-		add(
-			issues,
-			"error",
-			"campaign_factory",
-			`campaign_factory_${visualQcStatus === "failed" ? "visual_qc_failed" : "visual_qc_unavailable"}`,
-			"Campaign Factory visual QC proof did not pass; do not schedule or publish this asset.",
-		);
-	}
-	if (!identityVerificationStatus || identityVerificationStatus === "failed" || identityVerificationStatus === "unavailable") {
-		add(
-			issues,
-			"error",
-			"campaign_factory",
-			`campaign_factory_${identityVerificationStatus === "failed" ? "identity_verification_failed" : "identity_verification_unavailable"}`,
-			"Campaign Factory identity verification proof did not pass; do not schedule or publish this asset.",
-		);
-	}
-}
-
 function nativeAudioStatusAllowsPublish(status: unknown): boolean {
 	return ["attached", "verified", "skipped", "not_required"].includes(
 		String(status || "")
@@ -961,18 +933,17 @@ function validateCampaignFactoryGate(
 			"Campaign Factory marked this asset as quarantined or retired; do not schedule or publish it.",
 		);
 	}
-	for (const error of validateHandoffManifestContract(campaignFactory)) {
-		add(
-			issues,
+		for (const error of validateHandoffManifestContract(campaignFactory)) {
+			add(
+				issues,
 			"error",
 			"campaign_factory",
 			"campaign_factory_handoff_manifest_invalid",
-			error,
-		);
-	}
-	validateCampaignFactoryStoryProof(campaignFactory, issues);
-	validateCampaignFactoryContentTrustProof(campaignFactory, issues);
-	const igMediaType = normalizedIgMediaType(input);
+				error,
+			);
+		}
+		validateCampaignFactoryStoryProof(campaignFactory, issues);
+		const igMediaType = normalizedIgMediaType(input);
 	if (
 		input.platform === "instagram" &&
 		igMediaType !== "STORIES" &&

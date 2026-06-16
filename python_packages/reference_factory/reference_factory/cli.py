@@ -7,7 +7,13 @@ from typing import Any
 
 from .audio import analyze_audio_patterns, audio_catalog_health, audio_resolution_shortlist, competitor_audio_leaderboard, export_audio_catalog, import_audio_csv, import_audio_snapshot_csv, import_example_reel_audio, list_audio_catalog, list_audio_trend_snapshots, recommend_audio, resolve_audio_record, review_audio_catalog, scrape_instagram_audio, upsert_audio_trend_snapshot
 from .audio_refresh import refresh_tiktok_audio
-from .config import DEFAULT_DATA_ROOT, DEFAULT_DB_PATH, DEFAULT_SOURCE_ROOT, ensure_data_dirs
+from .config import (
+    DEFAULT_DATA_ROOT,
+    DEFAULT_DB_PATH,
+    DEFAULT_SOURCE_ROOT,
+    DEFAULT_TIKTOK_SOURCE_ROOT,
+    ensure_data_dirs,
+)
 from .caption_adaptation import adapt_caption_library, ensure_default_profile
 from .contact_sheet import generate_contact_sheet
 from .db import connect
@@ -96,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     apify_import.add_argument("--top-limit", type=int, default=300)
 
     tiktok_import = sub.add_parser("import-tiktok-archive", help="Import a local TikTok archive as slideshow references")
-    tiktok_import.add_argument("--source", default="/Users/adercialonedesouza/Downloads/tiktok")
+    tiktok_import.add_argument("--source", default=str(DEFAULT_TIKTOK_SOURCE_ROOT))
     tiktok_import.add_argument("--top-limit", type=int, default=300)
     tiktok_import.add_argument("--as-slideshow", action=argparse.BooleanOptionalAction, default=True)
 
@@ -156,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     audio_recommend.add_argument("--limit", type=int, default=3)
 
     audio_refresh = sub.add_parser("refresh-tiktok-audio", help="Import local TikTok downloads and refresh audio recommendations")
-    audio_refresh.add_argument("--source", default="/Users/adercialonedesouza/Downloads/tiktok")
+    audio_refresh.add_argument("--source", default=str(DEFAULT_TIKTOK_SOURCE_ROOT))
     audio_refresh.add_argument("--top-limit", type=int, default=500)
     audio_refresh.add_argument("--catalog-limit", type=int, default=80)
     audio_refresh.add_argument("--recommend-limit", type=int, default=10)

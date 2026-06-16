@@ -43,6 +43,7 @@ from recipe_loader import load_recipes
 from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 from caption_bank import CaptionBankStore, caption_static_metadata, load_or_build_caption_bank_store
+from discoverability_safety import discoverability_safe_content_contract
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     caption_text_for_scene,
@@ -205,6 +206,7 @@ class CaptionSet:
                 raise ValueError(f"hooks must be a list in {path}")
             parsed: list[str | dict] = []
             for h in hooks:
+                _ensure_discoverability_safe_caption(h, source=str(path))
                 if isinstance(h, dict):
                     if "segments" not in h:
                         raise ValueError(f"hook dict missing 'segments' key in {path}")
@@ -239,6 +241,33 @@ def find_caption_for(video: Path, cap_dir: Path) -> CaptionSet | None:
     if t.exists():
         return CaptionSet.from_path(t)
     return None
+
+
+def _caption_contract_text(caption: str | dict) -> str:
+    if isinstance(caption, str):
+        return caption.strip()
+    if isinstance(caption, dict):
+        if isinstance(caption.get("text"), str):
+            return caption["text"].strip()
+        segments = caption.get("segments")
+        if isinstance(segments, list):
+            return "\n".join(
+                str(segment.get("text") or "").strip()
+                for segment in segments
+                if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+            ).strip()
+    return str(caption).strip()
+
+
+def _ensure_discoverability_safe_caption(caption: str | dict, *, source: str) -> None:
+    text = _caption_contract_text(caption)
+    contract = discoverability_safe_content_contract(text)
+    if contract["discoverabilitySafe"]:
+        return
+    raise ValueError(
+        "discoverability unsafe caption blocked "
+        f"source={source} terms={','.join(contract['blockedTerms'])}: {text}"
+    )
 
 
 def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
@@ -279,11 +308,11 @@ def build_ffmpeg_cmd(src: Path,
         fonts_dir=fonts_dir,
         src_hash=src_hash,
         src_dims=src_dims,
-        account_scope=account_scope,
         bitrate_mbps=bitrate_mbps,
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile=output_profile,
         target_ratio=target_ratio,
+        account_scope=account_scope,
     )
     return build_graph_ffmpeg_cmd(plan, FFMPEG)
 
@@ -1280,6 +1309,18 @@ def caption_set_from_bank_selection(
         raise ValueError("caption_mix or caption_banks is required")
     if not selected:
         raise ValueError("caption bank selection produced no hooks")
+    unsafe_items = []
+    for item in selected:
+        contract = discoverability_safe_content_contract(item.get("text") or "")
+        if not contract["discoverabilitySafe"]:
+            unsafe_items.append((item, contract))
+    if unsafe_items:
+        item, contract = unsafe_items[0]
+        raise ValueError(
+            "caption bank selection contains discoverability unsafe caption "
+            f"source={item.get('source_file')} terms={','.join(contract['blockedTerms'])}: "
+            f"{item.get('text')}"
+        )
     hooks = [item["text"] for item in selected]
     lineage = {
         idx: store.lineage_for(

@@ -23,6 +23,8 @@ made fixes read "done" while production stayed unpatched).
 - `mirror-lib.mjs` — shared logic (list/read source at SHA, materialize, hash, diff).
 - `mirror-sync.mjs` — regenerate mirrors from source.
 - `check-mirror-parity.mjs` — the gate: fails if any mirror differs from its source.
+- `prepare-ci-mirror-sources.mjs` — CI helper: clones each `sourceRepoUrl` beside the
+  checkout and checks out the pinned `sourceCommit` before parity runs.
 
 ## Commands
 
@@ -75,5 +77,6 @@ The gate is in **report-only** mode in CI right now because the existing mirrors
 
 Locally the script reads the sibling split repos directly. In CI (where the split repos
 aren't checked out next to the monorepo) provide read access via a token secret
-`MIRROR_SYNC_TOKEN` and clone each `sourceRepoPath` at its pinned SHA before running the
+`MIRROR_SYNC_TOKEN`; `prepare-ci-mirror-sources.mjs` uses each mirror's `sourceRepoUrl`
+and `sourceCommit` to recreate the sibling layout before running the blocking parity
 check. ThreadsDashboard is private — the token must have read scope on it.

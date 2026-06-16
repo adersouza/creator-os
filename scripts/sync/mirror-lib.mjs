@@ -37,6 +37,10 @@ export function loadConfig() {
 function patternToTest(pattern) {
   if (pattern.endsWith("/")) {
     const name = pattern.slice(0, -1).replace(/^\*\*\//, "");
+    if (name.startsWith("*.")) {
+      const suffix = name.slice(1);
+      return (p) => p.split("/").some((segment) => segment.endsWith(suffix));
+    }
     return (p) => p.split("/").includes(name);
   }
   if (pattern.startsWith("*.") && pattern.endsWith("*")) {
@@ -81,12 +85,35 @@ function sha256(buf) {
   return createHash("sha256").update(buf).digest("hex");
 }
 
+function cleanMirrorTree(destBase, isExcluded) {
+  if (!existsSync(destBase)) return;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const rel = relative(destBase, full);
+      if (isExcluded(rel)) continue;
+      const ls = lstatSync(full);
+      if (ls.isDirectory()) {
+        walk(full);
+        try {
+          if (readdirSync(full).length === 0) rmSync(full, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup races with generated artifacts.
+        }
+      } else {
+        rmSync(full, { force: true });
+      }
+    }
+  };
+  walk(destBase);
+}
+
 // Materialize a mirror's source content into destRoot/<mirrorPath>.
 // Returns { files: [{path, hash}], provenance }.
 export function materialize(mirror, destRoot) {
   const files = listSourceFiles(mirror);
   const destBase = join(destRoot, mirror.mirrorPath);
-  if (existsSync(destBase)) rmSync(destBase, { recursive: true, force: true });
+  cleanMirrorTree(destBase, buildFilter(mirror.exclude));
   const manifest = [];
   for (const p of files) {
     const buf = readSourceFile(mirror, p);
@@ -112,12 +139,14 @@ export function materialize(mirror, destRoot) {
 
 // Hash an on-disk tree (the committed mirror), ignoring the provenance file's
 // own volatility is unnecessary — provenance is deterministic, so include it.
-export function hashTree(absDir) {
+export function hashTree(absDir, isExcluded = () => false) {
   const map = new Map();
   if (!existsSync(absDir)) return map;
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
+      const rel = relative(absDir, full);
+      if (isExcluded(rel)) continue;
       let ls;
       try {
         ls = lstatSync(full);
@@ -126,13 +155,13 @@ export function hashTree(absDir) {
       }
       if (ls.isSymbolicLink()) {
         // Do not follow symlinks (may dangle); record the link path as a marker.
-        map.set(relative(absDir, full), "symlink:" + sha256(Buffer.from(full)));
+        map.set(rel, "symlink:" + sha256(Buffer.from(full)));
         continue;
       }
       if (ls.isDirectory()) walk(full);
       else if (ls.isFile()) {
         try {
-          map.set(relative(absDir, full), sha256(readFileSync(full)));
+          map.set(rel, sha256(readFileSync(full)));
         } catch {
           continue;
         }
@@ -149,7 +178,7 @@ export function diffMirror(mirror, tempRoot) {
   const expectedDir = join(tempRoot, mirror.mirrorPath);
   const actualDir = join(REPO_ROOT, mirror.mirrorPath);
   const expected = hashTree(expectedDir);
-  const actual = hashTree(actualDir);
+  const actual = hashTree(actualDir, buildFilter(mirror.exclude));
   const missing = [];
   const changed = [];
   const extra = [];

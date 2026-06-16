@@ -19,7 +19,12 @@ from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
-DEFAULT_GRID_IMAGE_ASPECT_RATIO = "4:3"
+DEFAULT_GRID_IMAGE_ASPECT_RATIO = "9:16"
+DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO = "3:4"
+DIRECT_REFERENCE_SEED_PROMPT = (
+    "Use the supplied reference image as the visual guide. Recreate the same pose, clothing, setting, "
+    "camera framing, lighting, and social-photo mood for this Soul ID model as one realistic {aspect_ratio} image."
+)
 IMAGE_MODEL_CANDIDATES = ("soul_2", "soul_v2", IMAGE_MODEL)
 VIDEO_MODEL_CANDIDATES = (VIDEO_MODEL,)
 CAPABILITY_SCHEMA = "reel_factory.higgsfield_capabilities.v1"
@@ -60,6 +65,22 @@ class AssetGenerationPlan:
     video_sound: str = "off"
     image_model: str = IMAGE_MODEL
     video_model: str = VIDEO_MODEL
+    estimated_cost_usd: float | None = None
+    allow_unbudgeted_local_test: bool = False
+
+
+@dataclass(frozen=True)
+class DirectReferenceImagePlan:
+    reference_image: str
+    stem: str
+    soul_id: str | None
+    soul_name: str | None
+    out_dir: Path
+    source_dir: Path
+    creator: str | None = None
+    image_aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO
+    image_quality: str = "2k"
+    image_model: str = IMAGE_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
 
@@ -356,6 +377,15 @@ def extract_status(data: dict[str, Any]) -> str | None:
     return None
 
 
+def extract_higgsfield_generated_prompt(data: dict[str, Any]) -> str | None:
+    item = _primary_generation_item(data)
+    if item:
+        params = item.get("params")
+        if isinstance(params, dict) and isinstance(params.get("prompt"), str) and params["prompt"].strip():
+            return params["prompt"].strip()
+    return _extract_first(data, {"prompt"})
+
+
 def resolve_soul_id(name: str) -> str:
     data = _run_json(build_soul_list_cmd())
     items = data.get("items", data)
@@ -397,6 +427,38 @@ def _soul_id_for_plan(plan: AssetGenerationPlan, *, dry: bool) -> str | None:
         return str(creator_by_name(conn, name)["soul_id"])
     except Exception:
         return resolve_soul_id(name)
+
+
+def _soul_id_for_direct_plan(plan: DirectReferenceImagePlan, *, dry: bool) -> str | None:
+    if plan.soul_id:
+        return plan.soul_id
+    name = plan.soul_name or plan.creator
+    if not name:
+        return None
+    if dry:
+        if name.lower() == "stacey":
+            return "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+        try:
+            conn = connect(Path.cwd())
+            return str(creator_by_name(conn, name)["soul_id"])
+        except Exception:
+            return f"<soul_id:{name}>"
+    try:
+        conn = connect(plan.source_dir.parent)
+        return str(creator_by_name(conn, name)["soul_id"])
+    except Exception:
+        return resolve_soul_id(name)
+
+
+def direct_reference_prompt(aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO) -> str:
+    """Return the only active direct-reference seed prompt.
+
+    Higgsfield receives the reference image through ``--image`` and owns the
+    visual interpretation. The active Stacey workflow intentionally does not
+    append cleavage/body-emphasis text or feed captured prompts back in.
+    """
+    prompt = DIRECT_REFERENCE_SEED_PROMPT.format(aspect_ratio=aspect_ratio)
+    return " ".join(prompt.split())
 
 
 def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
@@ -474,6 +536,35 @@ def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     }
 
 
+def direct_reference_lineage_path(plan: DirectReferenceImagePlan) -> Path:
+    return plan.source_dir / f"{plan.stem}.direct_reference_lineage.json"
+
+
+def dry_run_direct_reference_image(plan: DirectReferenceImagePlan, *, wait: bool) -> dict[str, Any]:
+    soul_id = _soul_id_for_direct_plan(plan, dry=True)
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt=direct_reference_prompt(plan.image_aspect_ratio),
+        klingMotionPrompt="",
+        notes="Direct Higgsfield reference-image still; no prompt rewriting, appending, or VLM prompt writing.",
+    )
+    image_cmd = build_image_cmd(
+        prompt,
+        reference=plan.reference_image,
+        soul_id=soul_id,
+        model=plan.image_model,
+        aspect_ratio=plan.image_aspect_ratio,
+        quality=plan.image_quality,
+        wait=wait,
+    )
+    return {
+        "ok": True,
+        "dry_run": True,
+        "workflow": "higgsfield_direct_reference_image",
+        "commands": [image_cmd],
+        "lineage_path": str(direct_reference_lineage_path(plan)),
+    }
+
+
 def _step(name: str, cmd: list[str], response: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"name": name, "command": cmd, "raw": response or {}}
 
@@ -486,6 +577,49 @@ def _failure_raw(exc: HiggsfieldCommandError) -> dict[str, Any]:
         "stdoutTail": exc.stdout[-4000:],
         "stderrTail": exc.stderr[-4000:],
     }
+
+
+def _record_cost_preflight_block(
+    plan: AssetGenerationPlan,
+    *,
+    prompt: AssetPromptSet,
+    cost_preflight: dict[str, Any],
+    soul_id: str | None = None,
+    soul_name: str | None = None,
+) -> dict[str, Any]:
+    payload = build_source_lineage(
+        plan,
+        prompt=prompt,
+        commands=[],
+        soul_id=soul_id or plan.soul_id,
+        soul_name=soul_name or plan.soul_name,
+        local_paths={},
+        raw={},
+    )
+    payload["generation"]["status"] = "cost_preflight_blocked"
+    payload["generation"]["failure"] = {
+        "stage": "cost_preflight",
+        "reason": cost_preflight.get("blockingReason") or "higgsfield_cost_preflight_blocked",
+    }
+    payload["generation"]["costPreflight"] = cost_preflight
+    path = lineage_path(plan)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": None, "error": payload["generation"]["failure"]}
+
+
+def _cost_preflight_for_plan(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    *,
+    include_video: bool = False,
+    asset_count: int | None = None,
+) -> dict[str, Any]:
+    count = asset_count if asset_count is not None else (2 if include_video else 1)
+    return check_higgsfield_cost_preflight(
+        asset_count=count,
+        estimated_cost_usd=plan.estimated_cost_usd,
+        allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+    )
 
 
 def _record_generation_failure(
@@ -542,50 +676,6 @@ def _record_generation_failure(
     return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": campaign_record, "error": failure}
 
 
-def _asset_count_for_plan(plan: AssetGenerationPlan, *, include_video: bool = False) -> int:
-    images = 6 if plan.image_mode == "six-pack" else 1
-    return images + (1 if include_video else 0)
-
-
-def _record_cost_preflight_block(
-    plan: AssetGenerationPlan,
-    *,
-    prompt: AssetPromptSet,
-    cost_preflight: dict[str, Any],
-    soul_id: str | None = None,
-    soul_name: str | None = None,
-) -> dict[str, Any]:
-    payload = build_source_lineage(
-        plan,
-        prompt=prompt,
-        commands=[],
-        soul_id=soul_id or plan.soul_id,
-        soul_name=soul_name or plan.soul_name,
-        local_paths={},
-        raw={},
-    )
-    payload["generation"]["status"] = "cost_preflight_blocked"
-    payload["generation"]["costPreflight"] = cost_preflight
-    payload["generation"]["failure"] = {
-        "stage": "cost_preflight",
-        "error": "higgsfield_cost_preflight_blocked",
-        "blockingReason": cost_preflight.get("blockingReason") or "unknown",
-    }
-    path = lineage_path(plan)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": None, "error": payload["generation"]["failure"]}
-
-
-def _cost_preflight_for_plan(plan: AssetGenerationPlan, *, include_video: bool = False,
-                             asset_count: int | None = None) -> dict[str, Any]:
-    return check_higgsfield_cost_preflight(
-        asset_count=asset_count if asset_count is not None else _asset_count_for_plan(plan, include_video=include_video),
-        estimated_cost_usd=plan.estimated_cost_usd,
-        allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
-    )
-
-
 def create_assets(plan: AssetGenerationPlan, *, wait: bool = False,
                   download: bool = False) -> dict[str, Any]:
     capabilities = ensure_required_capabilities(plan.source_dir.parent, plan.image_model, plan.video_model)
@@ -596,7 +686,7 @@ def create_assets(plan: AssetGenerationPlan, *, wait: bool = False,
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
     cost_preflight = _cost_preflight_for_plan(plan, include_video=True)
-    if not cost_preflight["allowed"]:
+    if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=soul_id, soul_name=plan.soul_name)
 
     upload_id = None
@@ -713,7 +803,7 @@ def create_image_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
     cost_preflight = _cost_preflight_for_plan(plan, include_video=False)
-    if not cost_preflight["allowed"]:
+    if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=soul_id, soul_name=plan.soul_name)
     upload_id = None
     image_prompts = _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
@@ -811,6 +901,165 @@ def create_image_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     return {"ok": True, "path": str(path), "lineage": payload, "campaign_record": campaign_record}
 
 
+def create_direct_reference_image_asset(
+    plan: DirectReferenceImagePlan,
+    *,
+    wait: bool = False,
+    download: bool = True,
+) -> dict[str, Any]:
+    capabilities = ensure_required_capabilities(plan.source_dir.parent, plan.image_model, VIDEO_MODEL)
+    resolved = resolve_generation_models(capabilities, plan.image_model, VIDEO_MODEL)
+    soul_id = _soul_id_for_direct_plan(plan, dry=False)
+    prompt_text = direct_reference_prompt(plan.image_aspect_ratio)
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt=prompt_text,
+        klingMotionPrompt="",
+        notes="Direct Higgsfield reference-image still; no prompt rewriting, appending, or VLM prompt writing.",
+    )
+    commands: list[list[str]] = []
+    steps: list[dict[str, Any]] = []
+    raw: dict[str, Any] = {}
+    cost_preflight = _cost_preflight_for_plan(plan, asset_count=1)
+    if not cost_preflight.get("allowed"):
+        payload = _direct_reference_lineage(
+            plan,
+            prompt=prompt,
+            commands=[],
+            steps=[],
+            raw={},
+            soul_id=soul_id,
+            actual_models=resolved,
+            status="cost_preflight_blocked",
+            failure={
+                "stage": "cost_preflight",
+                "reason": cost_preflight.get("blockingReason") or "higgsfield_cost_preflight_blocked",
+            },
+        )
+        payload["generation"]["costPreflight"] = cost_preflight
+        path = direct_reference_lineage_path(plan)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": None, "error": payload["generation"]["failure"]}
+    image_cmd = build_image_cmd(
+        prompt,
+        reference=plan.reference_image,
+        soul_id=soul_id,
+        model=resolved["imageModel"],
+        identity_flag=resolved["imageIdentityFlag"],
+        aspect_ratio=plan.image_aspect_ratio,
+        quality=plan.image_quality,
+        wait=wait,
+    )
+    commands.append(image_cmd)
+    try:
+        raw["image"] = _run_json(image_cmd)
+    except HiggsfieldCommandError as exc:
+        failure = _failure_raw(exc)
+        payload = _direct_reference_lineage(
+            plan,
+            prompt=prompt,
+            commands=commands,
+            steps=steps + [_step("image_create", image_cmd, failure)],
+            raw={"image": failure},
+            soul_id=soul_id,
+            actual_models=resolved,
+            status="generation_rejected_or_failed",
+            failure={"stage": "image_create", "command": exc.cmd, **failure},
+        )
+        path = direct_reference_lineage_path(plan)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": None, "error": failure}
+    steps.append(_step("image_create", image_cmd, raw["image"]))
+    image_job_id = extract_id(raw["image"])
+    image_url = extract_url(raw["image"])
+    captured_prompt = extract_higgsfield_generated_prompt(raw["image"])
+    local_paths: dict[str, str] = {}
+    if download and image_url:
+        aspect_slug = plan.image_aspect_ratio.replace(":", "x").replace("/", "_")
+        local_paths["image"] = str(download_result(image_url, plan.out_dir / f"{plan.stem}_direct_reference_{aspect_slug}.png"))
+    payload = _direct_reference_lineage(
+        plan,
+        prompt=prompt,
+        commands=commands,
+        steps=steps,
+        raw=raw,
+        soul_id=soul_id,
+        actual_models=resolved,
+        image_job_id=image_job_id,
+        image_result_url=image_url,
+        local_paths=local_paths,
+        captured_prompt=captured_prompt,
+        status="image_completed",
+    )
+    payload["generation"]["costPreflight"] = cost_preflight
+    path = direct_reference_lineage_path(plan)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "path": str(path), "lineage": payload, "campaign_record": None}
+
+
+def _direct_reference_lineage(
+    plan: DirectReferenceImagePlan,
+    *,
+    prompt: AssetPromptSet,
+    commands: list[list[str]],
+    steps: list[dict[str, Any]],
+    raw: dict[str, Any],
+    soul_id: str | None,
+    actual_models: dict[str, str],
+    status: str,
+    image_job_id: str | None = None,
+    image_result_url: str | None = None,
+    local_paths: dict[str, str] | None = None,
+    captured_prompt: str | None = None,
+    failure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema": "reel_factory.direct_reference_image_lineage.v1",
+        "createdAt": int(time.time()),
+        "source": {
+            "stem": plan.stem,
+            "referenceImage": plan.reference_image,
+            "soulId": soul_id or plan.soul_id,
+            "soulName": plan.soul_name,
+            "creator": plan.creator,
+        },
+        "generation": {
+            "tool": "higgsfield_cli",
+            "workflow": "higgsfield_direct_reference_image",
+            "status": status,
+            "models": {"image": actual_models.get("imageModel", plan.image_model)},
+            "requestedModels": {"image": plan.image_model},
+            "imageIdentityFlag": actual_models.get("imageIdentityFlag"),
+            "imageJobId": image_job_id,
+            "imageResultUrl": image_result_url,
+            "prompts": asdict(prompt),
+            "capturedHiggsfieldPrompt": captured_prompt,
+            "promptPolicy": {
+                "grokUsed": False,
+                "qwenUsed": False,
+                "ollamaUsed": False,
+                "florenceUsed": False,
+                "visualSchemaUsed": False,
+                "promptAppendUsed": False,
+                "capturedPromptReused": False,
+                "policy": "reference_image_only",
+            },
+            "params": {
+                "imageAspectRatio": plan.image_aspect_ratio,
+                "imageQuality": plan.image_quality,
+            },
+            "commands": commands,
+            "steps": steps,
+            "raw": raw,
+            "failure": failure,
+        },
+        "assets": {"localPaths": local_paths or {}},
+        "review": {"humanReviewRequired": True},
+    }
+
+
 def create_video_asset(plan: AssetGenerationPlan, *, wait: bool = False,
                        download: bool = True) -> dict[str, Any]:
     capabilities = ensure_required_capabilities(plan.source_dir.parent, plan.image_model, plan.video_model)
@@ -822,7 +1071,7 @@ def create_video_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     cost_preflight = _cost_preflight_for_plan(plan, asset_count=1)
-    if not cost_preflight["allowed"]:
+    if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=plan.soul_id, soul_name=plan.soul_name)
     video_cmd = build_video_cmd(
         prompt,
@@ -863,8 +1112,8 @@ def create_video_asset(plan: AssetGenerationPlan, *, wait: bool = False,
         actual_models=resolved,
     )
     payload["generation"]["workflow"] = "kling3_0_video_from_selected_panel"
-    payload["generation"]["steps"] = steps
     payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["steps"] = steps
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
         "createdAt": capabilities.get("createdAt"),
@@ -1003,7 +1252,7 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         creator=args.creator,
         selected_panel=args.selected_panel,
         image_mode=args.image_mode,
-        image_aspect_ratio=args.image_aspect_ratio,
+        image_aspect_ratio=args.image_aspect_ratio or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=args.image_quality,
         video_aspect_ratio=args.video_aspect_ratio,
         video_duration=args.video_duration,
@@ -1015,9 +1264,31 @@ def _plan_from_args(args) -> AssetGenerationPlan:
     )
 
 
+def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
+    root = Path(args.root).resolve()
+    soul_id = args.soul_id
+    soul_name = args.soul_name
+    if args.creator and not soul_id and not soul_name:
+        soul_name = args.creator
+    return DirectReferenceImagePlan(
+        reference_image=str(Path(args.reference).expanduser().resolve()) if args.reference else "",
+        stem=args.stem,
+        soul_id=soul_id,
+        soul_name=soul_name,
+        creator=args.creator,
+        out_dir=(root / args.out_dir).resolve(),
+        source_dir=(root / "00_source_videos").resolve(),
+        image_aspect_ratio=args.image_aspect_ratio or DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO,
+        image_quality=args.image_quality,
+        image_model=args.image_model,
+        estimated_cost_usd=args.estimated_cost_usd,
+        allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mode", choices=["create", "dry-run", "wait", "status", "capabilities"])
+    ap.add_argument("mode", choices=["create", "dry-run", "reference-image", "reference-image-dry-run", "wait", "status", "capabilities"])
     ap.add_argument("--root", default=".")
     ap.add_argument("--prompt-json")
     ap.add_argument("--stem")
@@ -1031,7 +1302,7 @@ def main() -> int:
     ap.add_argument("--selected-panel")
     ap.add_argument("--image-mode", choices=["single", "six-pack"], default="single")
     ap.add_argument("--out-dir", default="00_source_videos")
-    ap.add_argument("--image-aspect-ratio", default=DEFAULT_GRID_IMAGE_ASPECT_RATIO)
+    ap.add_argument("--image-aspect-ratio")
     ap.add_argument("--image-quality", default="2k")
     ap.add_argument("--video-aspect-ratio", default="9:16")
     ap.add_argument("--video-duration", type=int, default=5)
@@ -1048,6 +1319,17 @@ def main() -> int:
 
     if args.mode == "capabilities":
         result = probe_higgsfield_capabilities(Path(args.root).resolve(), force=args.force)
+    elif args.mode in {"reference-image", "reference-image-dry-run"}:
+        if not args.reference or not args.stem:
+            raise SystemExit("--reference and --stem are required")
+        if not args.soul_id and not args.soul_name and not args.creator:
+            raise SystemExit("--creator, --soul-id, or --soul-name is required so Soul V2 uses the creator identity")
+        plan = _direct_plan_from_args(args)
+        result = dry_run_direct_reference_image(plan, wait=args.wait) if args.mode == "reference-image-dry-run" else create_direct_reference_image_asset(
+            plan,
+            wait=args.wait,
+            download=args.download,
+        )
     elif args.mode in {"create", "dry-run"}:
         if not args.prompt_json or not args.stem:
             raise SystemExit("--prompt-json and --stem are required")

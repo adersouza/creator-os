@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
+	NovaBentoGrid,
 	NovaDataPanel,
 	NovaEmpty,
 	NovaHeader,
@@ -983,8 +984,8 @@ export function Listening() {
 				</NovaDataPanel>
 			</NovaSection>
 
-			<div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
-				<main className="flex min-w-0 flex-col gap-5">
+			<NovaBentoGrid className="xl:grid-cols-12">
+				<main className="flex min-w-0 flex-col gap-5 xl:col-span-8 2xl:col-span-9">
 					<SignalSection
 						title="Mentions and customer signals"
 						icon={Bell}
@@ -1282,7 +1283,7 @@ export function Listening() {
 					</SignalSection>
 				</main>
 
-				<aside className="flex min-w-0 flex-col gap-5">
+				<aside className="flex min-w-0 flex-col gap-5 xl:col-span-4 2xl:col-span-3">
 					<SidePanel title="Active monitors" icon={Activity}>
 						{data.alerts.length === 0 && data.trendKeywords.length === 0 ? (
 							<InlineEmpty icon={Radio} title="Add a watch term to begin" />
@@ -1466,7 +1467,7 @@ export function Listening() {
 						)}
 					</SidePanel>
 				</aside>
-			</div>
+			</NovaBentoGrid>
 		</NovaScreen>
 	);
 }

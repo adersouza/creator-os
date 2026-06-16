@@ -422,32 +422,6 @@
         ]
       },
       {
-        "caption_hash": "cc75bd46eb7b0e17f54aed42f14e8729fe2073fa2f09777adbcfbb49a06b210b",
-        "text": "I respond to DMs.\nI just don't respond to basic ones",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 11,
-        "char_count": 52,
-        "line_count": 2,
-        "length_class": "medium",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 105,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 15
-          }
-        ]
-      },
-      {
         "caption_hash": "b3f54fa4321565f97a0485b524a0daf0feb0dbda50d103eb40506386cadad537",
         "text": "I'm not everyone's type.\njust the dangerous ones",
         "banks": [
@@ -467,59 +441,6 @@
             "source_type": "sidecar",
             "source_file": "01_captions/clip_005.json",
             "source_clip": "clip_005",
-            "source_index": 14
-          }
-        ]
-      },
-      {
-        "caption_hash": "af3f2d874339cbbc600ed1a1dae899ce1fc9a38a6458c388295d0987bd0060fd",
-        "text": "I'm so single I end up\ntexting anyone who follows me...\nlowkey hoping we become something.\n\nsend me this post & I'll message you",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 23,
-        "char_count": 128,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 133,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 134
-          }
-        ]
-      },
-      {
-        "caption_hash": "606f6c3a91a4aea0bbe5a4a5dc5aebdd000b6523c8911d7dad5988a27db795e7",
-        "text": "I'm so single I literally text\neveryone who follows me...\nI get excited thinking we might be friends.\nSend me this post and I'll say hi",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 26,
-        "char_count": 135,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
             "source_index": 14
           }
         ]
@@ -722,31 +643,6 @@
             "source_file": "01_captions/clip_002.json",
             "source_clip": "clip_002",
             "source_index": 0
-          }
-        ]
-      },
-      {
-        "caption_hash": "96c35c5c5c97c8b890d17083559d63d68349848f1e67a147a5cd341086d98e5e",
-        "text": "account so small that if you\nfollow or interact with this reel\nI will definitely send you something in dms",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 20,
-        "char_count": 106,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 1,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 1
           }
         ]
       },
@@ -1218,32 +1114,6 @@
         ]
       },
       {
-        "caption_hash": "663e72fe1f18754134aa65f6b8b73925aad3002899f9df3dce24f381da976645",
-        "text": "if I see\n\"started following you\nfrom this reel\"\n\nI'll reply to you in DM 🖤",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 15,
-        "char_count": 74,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 131,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 132
-          }
-        ]
-      },
-      {
         "caption_hash": "4ddb92e850058daa7d71b7da77d9dcc6ae3822674a492fd5403293f79341d019",
         "text": "if I see that you followed me\nfrom this reel\nI'll send u a voice note\nbased on ur pfp 🖤",
         "banks": [
@@ -1518,32 +1388,6 @@
         ]
       },
       {
-        "caption_hash": "b9dd5701a4bd44d960b90386cde479e290df1a4c1f2996ae654c66c7c11e2f69",
-        "text": "let's make a deal,\nyou give me a like\nand say good morning\nand I'll message you\nif I like you 🙂",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 21,
-        "char_count": 95,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
-      },
-      {
         "caption_hash": "53f3561bc9e8118bca9dea78fb4c7eaecf187306ea8146f2f0c5ab38605bcef8",
         "text": "like this if its big...",
         "banks": [
@@ -1589,31 +1433,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 96
-          }
-        ]
-      },
-      {
-        "caption_hash": "e4d2570f8cf485a6a75c9caeb0a1d375acd7707eb6395c0932dc7d24796f6ff2",
-        "text": "men I'm not joking\n\nif you follow me from this reel\nand send me this reel\nI will message you right away",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 22,
-        "char_count": 103,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 33,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 34
           }
         ]
       },
@@ -1846,32 +1665,6 @@
         ]
       },
       {
-        "caption_hash": "df35e29c2a473b990f296710bd61deae719b486a78f87754d38d6637721cb521",
-        "text": "only to the few who can read this backwards\n\nesirprus elttil a tog ev'I\nDM dna em wollof",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "read_backwards_puzzle"
-        ],
-        "word_count": 18,
-        "char_count": 88,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "puzzle",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 144,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 145
-          }
-        ]
-      },
-      {
         "caption_hash": "ea033364b3326542b7013a85d4cb426c9dc2edf02bd192c3f67d910664986a8f",
         "text": "pick one to eat\n\n1. 🍔\n2. 🍩\n3. your wife\n4. ME",
         "banks": [
@@ -1894,31 +1687,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 33
-          }
-        ]
-      },
-      {
-        "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
-        "text": "pov: I slide into YOUR dms first",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 7,
-        "char_count": 32,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 113,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_003.json",
-            "source_clip": "clip_003",
-            "source_index": 16
           }
         ]
       },
@@ -2050,31 +1818,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 70
-          }
-        ]
-      },
-      {
-        "caption_hash": "f8b755031623a228f4b215e841c830f449f9804b89799f334376872eb305b53d",
-        "text": "some things i only show in dms",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 7,
-        "char_count": 30,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 56,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 8
           }
         ]
       },
@@ -2290,31 +2033,6 @@
             "source_file": "01_captions/clip_008.json",
             "source_clip": "clip_008",
             "source_index": 16
-          }
-        ]
-      },
-      {
-        "caption_hash": "6540653ce5d7949b8eb560c7907a6492e77c3d9e924ea295757a912458b2d442",
-        "text": "who didn't get a pic in dms\nyet today?",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 9,
-        "char_count": 38,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 29,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_003.json",
-            "source_clip": "clip_003",
-            "source_index": 4
           }
         ]
       },
@@ -2565,110 +2283,6 @@
         ]
       },
       {
-        "caption_hash": "cc75bd46eb7b0e17f54aed42f14e8729fe2073fa2f09777adbcfbb49a06b210b",
-        "text": "I respond to DMs.\nI just don't respond to basic ones",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 11,
-        "char_count": 52,
-        "line_count": 2,
-        "length_class": "medium",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 105,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 15
-          }
-        ]
-      },
-      {
-        "caption_hash": "af3f2d874339cbbc600ed1a1dae899ce1fc9a38a6458c388295d0987bd0060fd",
-        "text": "I'm so single I end up\ntexting anyone who follows me...\nlowkey hoping we become something.\n\nsend me this post & I'll message you",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 23,
-        "char_count": 128,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 133,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 134
-          }
-        ]
-      },
-      {
-        "caption_hash": "606f6c3a91a4aea0bbe5a4a5dc5aebdd000b6523c8911d7dad5988a27db795e7",
-        "text": "I'm so single I literally text\neveryone who follows me...\nI get excited thinking we might be friends.\nSend me this post and I'll say hi",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 26,
-        "char_count": 135,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 14
-          }
-        ]
-      },
-      {
-        "caption_hash": "96c35c5c5c97c8b890d17083559d63d68349848f1e67a147a5cd341086d98e5e",
-        "text": "account so small that if you\nfollow or interact with this reel\nI will definitely send you something in dms",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 20,
-        "char_count": 106,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 1,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 1
-          }
-        ]
-      },
-      {
         "caption_hash": "06889bf4f1444f988caa92b5f5cb92038f765ddb97584aae4b4baa68fc5533e7",
         "text": "chalant\nreposts about me\nclingy to me\ncompliments me\nsmells good\nlowkey obsessed\nmakes time to text me\nheight difference\ntalks about me to others\nonly interested in me",
         "banks": [
@@ -2797,32 +2411,6 @@
         ]
       },
       {
-        "caption_hash": "663e72fe1f18754134aa65f6b8b73925aad3002899f9df3dce24f381da976645",
-        "text": "if I see\n\"started following you\nfrom this reel\"\n\nI'll reply to you in DM 🖤",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 15,
-        "char_count": 74,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 131,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 132
-          }
-        ]
-      },
-      {
         "caption_hash": "4ddb92e850058daa7d71b7da77d9dcc6ae3822674a492fd5403293f79341d019",
         "text": "if I see that you followed me\nfrom this reel\nI'll send u a voice note\nbased on ur pfp 🖤",
         "banks": [
@@ -2873,57 +2461,6 @@
         ]
       },
       {
-        "caption_hash": "b9dd5701a4bd44d960b90386cde479e290df1a4c1f2996ae654c66c7c11e2f69",
-        "text": "let's make a deal,\nyou give me a like\nand say good morning\nand I'll message you\nif I like you 🙂",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 21,
-        "char_count": 95,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
-          }
-        ]
-      },
-      {
-        "caption_hash": "e4d2570f8cf485a6a75c9caeb0a1d375acd7707eb6395c0932dc7d24796f6ff2",
-        "text": "men I'm not joking\n\nif you follow me from this reel\nand send me this reel\nI will message you right away",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 22,
-        "char_count": 103,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 33,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 34
-          }
-        ]
-      },
-      {
         "caption_hash": "0bf67312181c6de71c84c064b7d5e6d1b6d12863f7a6b3ce038db8ec507a4c1e",
         "text": "only overthinkers can read this:\n\nimysdmbidkhttybikydc",
         "banks": [
@@ -2946,57 +2483,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 117
-          }
-        ]
-      },
-      {
-        "caption_hash": "df35e29c2a473b990f296710bd61deae719b486a78f87754d38d6637721cb521",
-        "text": "only to the few who can read this backwards\n\nesirprus elttil a tog ev'I\nDM dna em wollof",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "read_backwards_puzzle"
-        ],
-        "word_count": 18,
-        "char_count": 88,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "puzzle",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 144,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 145
-          }
-        ]
-      },
-      {
-        "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
-        "text": "pov: I slide into YOUR dms first",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 7,
-        "char_count": 32,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 113,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_003.json",
-            "source_clip": "clip_003",
-            "source_index": 16
           }
         ]
       },
@@ -3026,31 +2512,6 @@
         ]
       },
       {
-        "caption_hash": "f8b755031623a228f4b215e841c830f449f9804b89799f334376872eb305b53d",
-        "text": "some things i only show in dms",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 7,
-        "char_count": 30,
-        "line_count": 1,
-        "length_class": "short",
-        "format_class": "single_line",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 56,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 8
-          }
-        ]
-      },
-      {
         "caption_hash": "7951e4337e7091f0c52f76d9ab8eb4d2e096a0854038022a211add016b7d8bd8",
         "text": "this could be us...\nbut you're too scared to text me",
         "banks": [
@@ -3072,31 +2533,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 22
-          }
-        ]
-      },
-      {
-        "caption_hash": "6540653ce5d7949b8eb560c7907a6492e77c3d9e924ea295757a912458b2d442",
-        "text": "who didn't get a pic in dms\nyet today?",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait"
-        ],
-        "word_count": 9,
-        "char_count": 38,
-        "line_count": 2,
-        "length_class": "short",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 29,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_003.json",
-            "source_clip": "clip_003",
-            "source_index": 4
           }
         ]
       },
@@ -3226,59 +2662,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 74
-          }
-        ]
-      },
-      {
-        "caption_hash": "cc75bd46eb7b0e17f54aed42f14e8729fe2073fa2f09777adbcfbb49a06b210b",
-        "text": "I respond to DMs.\nI just don't respond to basic ones",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 11,
-        "char_count": 52,
-        "line_count": 2,
-        "length_class": "medium",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_001.json",
-        "source_clip": "clip_001",
-        "source_index": 105,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_002.json",
-            "source_clip": "clip_002",
-            "source_index": 15
-          }
-        ]
-      },
-      {
-        "caption_hash": "606f6c3a91a4aea0bbe5a4a5dc5aebdd000b6523c8911d7dad5988a27db795e7",
-        "text": "I'm so single I literally text\neveryone who follows me...\nI get excited thinking we might be friends.\nSend me this post and I'll say hi",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 26,
-        "char_count": 135,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 14
           }
         ]
       },
@@ -3484,32 +2867,6 @@
         ]
       },
       {
-        "caption_hash": "663e72fe1f18754134aa65f6b8b73925aad3002899f9df3dce24f381da976645",
-        "text": "if I see\n\"started following you\nfrom this reel\"\n\nI'll reply to you in DM 🖤",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 15,
-        "char_count": 74,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 131,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 132
-          }
-        ]
-      },
-      {
         "caption_hash": "2abfd17a466b25c939a32dd468788131f5f285111c4d1c761f227ace920e4d6c",
         "text": "if u are a straight guy\nthat likes girls with abs\nstop scrolling and leave a ❤️",
         "banks": [
@@ -3705,32 +3062,6 @@
             "source_file": "01_captions/clip_010.json",
             "source_clip": "clip_010",
             "source_index": 87
-          }
-        ]
-      },
-      {
-        "caption_hash": "b9dd5701a4bd44d960b90386cde479e290df1a4c1f2996ae654c66c7c11e2f69",
-        "text": "let's make a deal,\nyou give me a like\nand say good morning\nand I'll message you\nif I like you 🙂",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait"
-        ],
-        "word_count": 21,
-        "char_count": 95,
-        "line_count": 5,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 2,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 2
           }
         ]
       },
@@ -5544,32 +4875,6 @@
         ]
       },
       {
-        "caption_hash": "df35e29c2a473b990f296710bd61deae719b486a78f87754d38d6637721cb521",
-        "text": "only to the few who can read this backwards\n\nesirprus elttil a tog ev'I\nDM dna em wollof",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "read_backwards_puzzle"
-        ],
-        "word_count": 18,
-        "char_count": 88,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "puzzle",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 144,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 145
-          }
-        ]
-      },
-      {
         "caption_hash": "db0600c3ffd3312d8640ee6807d20ac1b99ba497ec57afcc5ba67353cbba8f52",
         "text": "read it backwards:\n\nshtog ekil uoy\nfi ❤️ a porD",
         "banks": [
@@ -6040,59 +5345,6 @@
             "source_file": "01_captions/clip_006.json",
             "source_clip": "clip_006",
             "source_index": 13
-          }
-        ]
-      },
-      {
-        "caption_hash": "af3f2d874339cbbc600ed1a1dae899ce1fc9a38a6458c388295d0987bd0060fd",
-        "text": "I'm so single I end up\ntexting anyone who follows me...\nlowkey hoping we become something.\n\nsend me this post & I'll message you",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 23,
-        "char_count": 128,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 133,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 134
-          }
-        ]
-      },
-      {
-        "caption_hash": "606f6c3a91a4aea0bbe5a4a5dc5aebdd000b6523c8911d7dad5988a27db795e7",
-        "text": "I'm so single I literally text\neveryone who follows me...\nI get excited thinking we might be friends.\nSend me this post and I'll say hi",
-        "banks": [
-          "shared_girl_next_door",
-          "dm_follow_bait",
-          "comment_bait",
-          "boyfriend_bait"
-        ],
-        "word_count": 26,
-        "char_count": 135,
-        "line_count": 4,
-        "length_class": "long",
-        "format_class": "paragraph",
-        "source_type": "sidecar",
-        "source_file": "01_captions/clip_009.json",
-        "source_clip": "clip_009",
-        "source_index": 19,
-        "additional_sources": [
-          {
-            "source_type": "sidecar",
-            "source_file": "01_captions/clip_010.json",
-            "source_clip": "clip_010",
-            "source_index": 14
           }
         ]
       },

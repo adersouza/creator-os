@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AuthCard } from "@/components/ui/AuthCard";
 import { Button } from "@/components/ui/Button";
 import { Field, FieldGroup } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
@@ -108,16 +109,15 @@ export function ResetPassword() {
 	};
 
 	return (
-		<div className="w-full max-w-sm rounded-lg border border-border bg-card p-8 shadow-sm">
-			<div className="mb-6 text-center">
-				<h1 className="text-xl font-semibold mb-1">Set a new password</h1>
-				<p className="text-sm text-muted-foreground">
-					{ready
-						? "Pick something you haven't used before."
-						: "Verifying your reset link…"}
-				</p>
-			</div>
-
+		<AuthCard
+			icon={<Key data-icon aria-hidden="true" />}
+			title="Set a new password"
+			description={
+				ready
+					? "Pick something you haven't used before."
+					: "Verifying your reset link…"
+			}
+		>
 			{ready && (
 				<form onSubmit={handleSubmit}>
 					<FieldGroup>
@@ -153,13 +153,13 @@ export function ResetPassword() {
 					<Button
 						type="submit"
 						disabled={isLoading}
-						className=" mt-4 w-full"
+						className="mt-4 w-full"
 					>
 						{isLoading ? "Updating…" : "Update password"}
 						{!isLoading && <ArrowRight data-icon="inline-end" />}
 					</Button>
 				</form>
 			)}
-		</div>
+		</AuthCard>
 	);
 }

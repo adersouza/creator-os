@@ -5,6 +5,7 @@ import {
 	FieldError as ShadFieldError,
 	FieldGroup as ShadFieldGroup,
 	FieldLabel as ShadFieldLabel,
+	FieldSeparator as ShadFieldSeparator,
 } from "@/components/shadcn/field";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,9 @@ export interface FieldProps extends Omit<React.ComponentProps<typeof ShadField>,
 	label?: React.ReactNode | undefined;
 	hint?: React.ReactNode | undefined;
 	error?: React.ReactNode | undefined;
+	labelProps?: React.ComponentProps<typeof ShadFieldLabel> | undefined;
+	hintProps?: React.ComponentProps<typeof ShadFieldDescription> | undefined;
+	errorProps?: React.ComponentProps<typeof ShadFieldError> | undefined;
 	children: React.ReactNode;
 }
 
@@ -19,16 +23,19 @@ export function Field({
 	label,
 	hint,
 	error,
+	labelProps,
+	hintProps,
+	errorProps,
 	children,
 	className,
 	...props
 }: FieldProps) {
 	return (
 		<ShadField className={cn("gap-1.5", className)} {...props}>
-			{label ? <FieldLabel>{label}</FieldLabel> : null}
+			{label ? <FieldLabel {...labelProps}>{label}</FieldLabel> : null}
 			{children}
-			{error ? <FieldError>{error}</FieldError> : null}
-			{hint ? <FieldDescription>{hint}</FieldDescription> : null}
+			{error ? <FieldError {...errorProps}>{error}</FieldError> : null}
+			{hint ? <FieldDescription {...hintProps}>{hint}</FieldDescription> : null}
 		</ShadField>
 	);
 }
@@ -62,6 +69,21 @@ export function FieldDescription({
 	return (
 		<ShadFieldDescription
 			className={cn("mt-0 text-[0.6875rem] leading-relaxed text-muted-foreground", className)}
+			{...props}
+		/>
+	);
+}
+
+export function FieldSeparator({
+	className,
+	...props
+}: React.ComponentProps<typeof ShadFieldSeparator>) {
+	return (
+		<ShadFieldSeparator
+			className={cn(
+				"*:data-[slot=field-separator-content]:bg-card",
+				className,
+			)}
 			{...props}
 		/>
 	);

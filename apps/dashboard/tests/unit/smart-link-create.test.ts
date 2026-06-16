@@ -36,6 +36,10 @@ vi.mock("@/api/_lib/logger.js", () => ({
   },
 }));
 
+vi.mock("@/api/_lib/outboundUrlSecurity.js", () => ({
+  validatePublicRedirectUrl: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/api/_lib/apiResponse.js", () => ({
   apiError: (res: any, status: number, msg: string) =>
     res.status(status).json({ error: msg }),

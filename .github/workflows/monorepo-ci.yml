@@ -101,6 +101,20 @@ jobs:
       - run: git diff --check
       - run: bash scripts/check-runtime-artifacts.sh
 
+  mirror-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Clone pinned mirror sources
+        run: node scripts/sync/prepare-ci-mirror-sources.mjs
+        env:
+          MIRROR_SYNC_TOKEN: ${{ secrets.MIRROR_SYNC_TOKEN }}
+      - name: Check mirror parity
+        run: node scripts/sync/check-mirror-parity.mjs
+
   sbom:
     runs-on: ubuntu-latest
     permissions:

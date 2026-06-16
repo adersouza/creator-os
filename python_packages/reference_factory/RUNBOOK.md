@@ -1,9 +1,16 @@
 # Reference Factory Gold Review Runbook
 
+Current Creator OS note:
+
+- Reference Factory owns reference review, learning sets, pattern cards, audio snapshots, and campaign reference-bank exports.
+- Reel Factory's active generation path is direct Higgsfield reference-image stills, not Grok/grid prompt generation.
+- Treat old prompt packs as learning/legacy context unless the user explicitly asks to use them.
+- Do not schedule, publish, export drafts, mutate account health, or mutate production inventory from Reference Factory.
+
 ## Start Review
 
 ```bash
-cd /Users/adercialonedesouza/Projects/reference_factory
+cd $CREATOR_OS_ROOT/reference_factory
 python3 -m reference_factory.cli review-server --host 127.0.0.1 --port 8765
 ```
 
@@ -39,8 +46,8 @@ python3 -m reference_factory.cli export-gold
 Outputs:
 
 ```text
-/Users/adercialonedesouza/Projects/reference_reels/curated/gold_manifest.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/curated/gold_summary.json
+$CREATOR_OS_ROOT/reference_reels/curated/gold_manifest.jsonl
+$CREATOR_OS_ROOT/reference_reels/curated/gold_summary.json
 ```
 
 ## Verify
@@ -51,7 +58,7 @@ python3 -m reference_factory.cli review-batch --target 300 --mode balanced
 python3 -m reference_factory.cli export-gold
 ```
 
-Source videos under `/Users/adercialonedesouza/Downloads/examples` are never moved,
+Source videos under `$HOME/Downloads/examples` are never moved,
 edited, or deleted.
 
 ## Public Winners Learning Set
@@ -61,8 +68,8 @@ set:
 
 ```bash
 python3 -m reference_factory.cli import-apify-metrics \
-  --input /Users/adercialonedesouza/Projects/reference_reels/apify/ig_scrape_top30x50_detailed.json \
-  --input /Users/adercialonedesouza/Projects/reference_reels/apify/ig_scrape_remaining_x50_detailed.json
+  --input $CREATOR_OS_ROOT/reference_reels/apify/ig_scrape_top30x50_detailed.json \
+  --input $CREATOR_OS_ROOT/reference_reels/apify/ig_scrape_remaining_x50_detailed.json
 
 python3 -m reference_factory.cli export-learning-set --limit 300
 python3 -m reference_factory.cli analyze-patterns --limit 300
@@ -76,18 +83,18 @@ python3 -m reference_factory.cli build-learning-system --limit 300
 Outputs:
 
 ```text
-/Users/adercialonedesouza/Projects/reference_reels/learning/learning_set_top300.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/learning_set_top300.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/learning/prompt_cards_top300.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/learning/pattern_cards_top300.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/learning/pattern_summary_top300.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/audio_patterns_top300.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/audio_patterns_top300.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/learning/learning_clusters_top300.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/reference_playbook_top300.md
-/Users/adercialonedesouza/Projects/reference_reels/learning/higgsfield_prompt_pack_top300.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/learning/campaign_reference_bank.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/caption_formula_bank.json
+$CREATOR_OS_ROOT/reference_reels/learning/learning_set_top300.json
+$CREATOR_OS_ROOT/reference_reels/learning/learning_set_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/learning/prompt_cards_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/learning/pattern_cards_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/learning/pattern_summary_top300.json
+$CREATOR_OS_ROOT/reference_reels/learning/audio_patterns_top300.json
+$CREATOR_OS_ROOT/reference_reels/learning/audio_patterns_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/learning/learning_clusters_top300.json
+$CREATOR_OS_ROOT/reference_reels/learning/reference_playbook_top300.md
+$CREATOR_OS_ROOT/reference_reels/learning/higgsfield_prompt_pack_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/learning/campaign_reference_bank.json
+$CREATOR_OS_ROOT/reference_reels/learning/caption_formula_bank.json
 ```
 
 The `campaign_reference_bank.json` file is the bridge into Campaign Factory:
@@ -115,11 +122,11 @@ for reference match and upload-readiness.
 ## TikTok Slideshow References
 
 Use this when a local TikTok/myfaveTT archive is saved under
-`/Users/adercialonedesouza/Downloads/tiktok`:
+`$HOME/Downloads/tiktok`:
 
 ```bash
 python3 -m reference_factory.cli import-tiktok-archive \
-  --source /Users/adercialonedesouza/Downloads/tiktok \
+  --source $HOME/Downloads/tiktok \
   --top-limit 300
 python3 -m reference_factory.cli probe --limit all
 python3 -m reference_factory.cli thumbnail-batch --limit all
@@ -131,10 +138,10 @@ python3 -m reference_factory.cli build-learning-system --limit 300
 Expected outputs:
 
 ```text
-/Users/adercialonedesouza/Projects/reference_reels/tiktok/top_300_public_posts_matched.jsonl
-/Users/adercialonedesouza/Projects/reference_reels/tiktok/top_300_public_posts_matched_summary.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/campaign_reference_bank.json
-/Users/adercialonedesouza/Projects/reference_reels/learning/higgsfield_prompt_pack_top300.jsonl
+$CREATOR_OS_ROOT/reference_reels/tiktok/top_300_public_posts_matched.jsonl
+$CREATOR_OS_ROOT/reference_reels/tiktok/top_300_public_posts_matched_summary.json
+$CREATOR_OS_ROOT/reference_reels/learning/campaign_reference_bank.json
+$CREATOR_OS_ROOT/reference_reels/learning/higgsfield_prompt_pack_top300.jsonl
 ```
 
 TikTok slideshow posts are marked as `tiktok_slideshow` patterns. Campaign
@@ -147,10 +154,10 @@ Use this after Gemini/manual or Gemini API analysis has produced daily prompt
 exports:
 
 ```bash
-cd /Users/adercialonedesouza/Projects/reference_factory
+cd $CREATOR_OS_ROOT/reference_factory
 
 .venv/bin/python -m reference_factory.cli \
-  --data-root /Users/adercialonedesouza/Projects/reference_reels \
+  --data-root $CREATOR_OS_ROOT/reference_reels \
   generate-video-prompts \
   --tools higgsfield_soul,kling_3 \
   --model-profile Stacey \
@@ -161,7 +168,7 @@ Check the exact commands and credit estimate before spending credits:
 
 ```bash
 .venv/bin/python -m reference_factory.cli \
-  --data-root /Users/adercialonedesouza/Projects/reference_reels \
+  --data-root $CREATOR_OS_ROOT/reference_reels \
   generate-with-higgsfield \
   --limit 1 \
   --soul-id Stacey \
@@ -174,7 +181,7 @@ Run one real generation with a conservative cap:
 
 ```bash
 .venv/bin/python -m reference_factory.cli \
-  --data-root /Users/adercialonedesouza/Projects/reference_reels \
+  --data-root $CREATOR_OS_ROOT/reference_reels \
   generate-with-higgsfield \
   --limit 1 \
   --soul-id Stacey \
@@ -192,7 +199,7 @@ The runner uses Higgsfield CLI directly:
 Outputs are written under:
 
 ```text
-/Users/adercialonedesouza/Projects/reference_reels/reference_intake/generated/YYYY-MM-DD/<reference_id>/
+$CREATOR_OS_ROOT/reference_reels/reference_intake/generated/YYYY-MM-DD/<reference_id>/
 ```
 
 Each run writes `run_manifest.json` and `generated_asset_lineage.json`. The
@@ -204,12 +211,12 @@ draft-first assets:
 
 ```bash
 .venv/bin/python -m reference_factory.cli \
-  --data-root /Users/adercialonedesouza/Projects/reference_reels \
+  --data-root $CREATOR_OS_ROOT/reference_reels \
   run-daily-generation \
   --creative-plan stacey_daily \
   --campaign stacey_daily \
   --model stacey \
-  --campaign-factory-root /Users/adercialonedesouza/Projects/campaign_factory \
+  --campaign-factory-root $CREATOR_OS_ROOT/campaign_factory \
   --limit 10 \
   --soul-id Stacey \
   --kling-mode std \

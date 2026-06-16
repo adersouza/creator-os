@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import sqlite3
@@ -72,12 +71,6 @@ def generate_with_higgsfield(
     min_prompt_score: int | None = DEFAULT_PROMPT_SCORE_THRESHOLD,
     runner: Runner | None = None,
 ) -> dict[str, Any]:
-    if variation_grid and os.environ.get("CREATOR_OS_ENABLE_LEGACY_GENERATION") != "1":
-        raise RuntimeError(
-            "Legacy variation-grid/six-panel generation is disabled. "
-            "Use the direct reference-image still path, or set "
-            "CREATOR_OS_ENABLE_LEGACY_GENERATION=1 for explicit historical tests."
-        )
     pairs = load_prompt_pairs(data_root=data_root, limit=limit, reference_id=reference_id)
     scored_pairs = [(pair, score_prompt_pair(pair)) for pair in pairs]
     runnable = [
