@@ -21,3 +21,10 @@ class RenderPlan:
     src_bitrate_mbps: int | None = None
     output_profile: str = "social_h264"
     target_ratio: str = "9:16"
+
+
+def validate_account_scope(account_scope: str | None, *, production_render: bool = False) -> str:
+    scope = (account_scope or "local_review").strip() or "local_review"
+    if production_render and scope == "local_review":
+        raise ValueError("production render requires explicit account_id or account_group_id scope")
+    return scope

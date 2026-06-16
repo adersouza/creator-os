@@ -1791,6 +1791,38 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
         ),
         None,
     )
+    visual_qc = (
+        publishability.get("visualQc")
+        or publishability.get("visual_qc")
+        or (handoff_manifest.get("visualQc") if isinstance(handoff_manifest, dict) else None)
+        or {}
+    )
+    identity_verification = (
+        publishability.get("identityVerification")
+        or publishability.get("identity_verification")
+        or (handoff_manifest.get("identityVerification") if isinstance(handoff_manifest, dict) else None)
+        or {}
+    )
+    visual_qc_status = str(
+        publishability.get("visualQcStatus")
+        or publishability.get("visual_qc_status")
+        or (handoff_manifest.get("visualQcStatus") if isinstance(handoff_manifest, dict) else None)
+        or (visual_qc.get("visualQcStatus") if isinstance(visual_qc, dict) else None)
+        or (visual_qc.get("status") if isinstance(visual_qc, dict) else None)
+        or "unavailable"
+    ).strip().lower()
+    identity_verification_status = str(
+        publishability.get("identityVerificationStatus")
+        or publishability.get("identity_verification_status")
+        or (handoff_manifest.get("identityVerificationStatus") if isinstance(handoff_manifest, dict) else None)
+        or (identity_verification.get("identityVerificationStatus") if isinstance(identity_verification, dict) else None)
+        or (identity_verification.get("status") if isinstance(identity_verification, dict) else None)
+        or "unavailable"
+    ).strip().lower()
+    if visual_qc_status not in {"passed", "failed", "unavailable"}:
+        visual_qc_status = "unavailable"
+    if identity_verification_status not in {"passed", "failed", "unavailable"}:
+        identity_verification_status = "unavailable"
     metadata = {
         "campaign_factory": {
             "graph_id": draft.get("graphId") or draft.get("renderedAssetGraphId"),
@@ -1853,6 +1885,10 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "captioned_render_present": bool(publishability.get("captioned_render_present") or publishability.get("captionedRenderPresent")),
             "visible_caption_verification": "pass" if publishability.get("visible_caption_verification") else "fail",
             "expected_visual_verification": "pass" if publishability.get("expected_visual_verification") else "fail",
+            "visualQcStatus": visual_qc_status,
+            "identityVerificationStatus": identity_verification_status,
+            "visualQc": visual_qc if isinstance(visual_qc, dict) else {},
+            "identityVerification": identity_verification if isinstance(identity_verification, dict) else {},
             "readiness_checks_pass": bool(publishability.get("readiness_checks_pass") or publishability.get("readinessChecksPass")),
             "publishability_failure_reasons": failure_reasons,
             "blockingReason": publishability.get("blockingReason"),

@@ -801,6 +801,16 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(account_a, account_a_again)
         self.assertNotEqual(account_a, account_b)
 
+    def test_production_render_requires_explicit_account_scope(self):
+        from render_plan import validate_account_scope
+
+        self.assertEqual(validate_account_scope(None), "local_review")
+        self.assertEqual(validate_account_scope("stacey_a", production_render=True), "stacey_a")
+        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+            validate_account_scope(None, production_render=True)
+        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+            validate_account_scope("local_review", production_render=True)
+
     def test_job_key_includes_account_scope_for_production_accounts(self):
         recipe = Recipe("v_seeded", camera_variation=True)
         account_a = compute_job_key("video", "caption", recipe, account_scope="stacey_a")

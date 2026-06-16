@@ -40,7 +40,7 @@ from placement import (
     probe_duration, probe_source_bitrate, resolve_segment_bands,
 )
 from recipe_loader import load_recipes
-from render_plan import RenderPlan
+from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 from caption_bank import CaptionBankStore, caption_static_metadata, load_or_build_caption_bank_store
 from caption_scene_fit import (
@@ -1636,7 +1636,10 @@ async def amain(args):
             )
         else:
             log.warning(f"account profile not found: {acc_path}")
-    account_scope = args.account or "local_review"
+    try:
+        account_scope = validate_account_scope(args.account, production_render=bool(getattr(args, "production_render", False)))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if args.caption_mix or args.caption_banks:
         try:
@@ -2046,6 +2049,8 @@ def main():
     ap.add_argument("--account", default=None,
                     help="apply preferences from accounts/<NAME>.json — biases auto-pick "
                          "of font/style/color toward that account's voice")
+    ap.add_argument("--production-render", action="store_true",
+                    help="require an explicit --account scope so production variants are account-aware")
     ap.add_argument("--caption-mix", choices=["Larissa", "Stacey", "Lola"], default=None,
                     help="select hooks from a creator-weighted caption bank mix")
     ap.add_argument("--caption-banks", nargs="+", default=None,

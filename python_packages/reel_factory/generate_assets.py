@@ -15,6 +15,7 @@ from PIL import Image
 
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import connect, creator_by_name, record_asset_generation, validate_generation_soul
+from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
@@ -59,6 +60,8 @@ class AssetGenerationPlan:
     video_sound: str = "off"
     image_model: str = IMAGE_MODEL
     video_model: str = VIDEO_MODEL
+    estimated_cost_usd: float | None = None
+    allow_unbudgeted_local_test: bool = False
 
 
 def load_prompt(path: Path) -> AssetPromptSet:
@@ -539,6 +542,50 @@ def _record_generation_failure(
     return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": campaign_record, "error": failure}
 
 
+def _asset_count_for_plan(plan: AssetGenerationPlan, *, include_video: bool = False) -> int:
+    images = 6 if plan.image_mode == "six-pack" else 1
+    return images + (1 if include_video else 0)
+
+
+def _record_cost_preflight_block(
+    plan: AssetGenerationPlan,
+    *,
+    prompt: AssetPromptSet,
+    cost_preflight: dict[str, Any],
+    soul_id: str | None = None,
+    soul_name: str | None = None,
+) -> dict[str, Any]:
+    payload = build_source_lineage(
+        plan,
+        prompt=prompt,
+        commands=[],
+        soul_id=soul_id or plan.soul_id,
+        soul_name=soul_name or plan.soul_name,
+        local_paths={},
+        raw={},
+    )
+    payload["generation"]["status"] = "cost_preflight_blocked"
+    payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["failure"] = {
+        "stage": "cost_preflight",
+        "error": "higgsfield_cost_preflight_blocked",
+        "blockingReason": cost_preflight.get("blockingReason") or "unknown",
+    }
+    path = lineage_path(plan)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": False, "path": str(path), "lineage": payload, "campaign_record": None, "error": payload["generation"]["failure"]}
+
+
+def _cost_preflight_for_plan(plan: AssetGenerationPlan, *, include_video: bool = False,
+                             asset_count: int | None = None) -> dict[str, Any]:
+    return check_higgsfield_cost_preflight(
+        asset_count=asset_count if asset_count is not None else _asset_count_for_plan(plan, include_video=include_video),
+        estimated_cost_usd=plan.estimated_cost_usd,
+        allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+    )
+
+
 def create_assets(plan: AssetGenerationPlan, *, wait: bool = False,
                   download: bool = False) -> dict[str, Any]:
     capabilities = ensure_required_capabilities(plan.source_dir.parent, plan.image_model, plan.video_model)
@@ -548,6 +595,9 @@ def create_assets(plan: AssetGenerationPlan, *, wait: bool = False,
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
+    cost_preflight = _cost_preflight_for_plan(plan, include_video=True)
+    if not cost_preflight["allowed"]:
+        return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=soul_id, soul_name=plan.soul_name)
 
     upload_id = None
 
@@ -622,6 +672,7 @@ def create_assets(plan: AssetGenerationPlan, *, wait: bool = False,
         actual_models=resolved,
     )
     payload["generation"]["identityValidation"] = identity_validation
+    payload["generation"]["costPreflight"] = cost_preflight
     payload["generation"]["steps"] = steps
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
@@ -661,6 +712,9 @@ def create_image_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
+    cost_preflight = _cost_preflight_for_plan(plan, include_video=False)
+    if not cost_preflight["allowed"]:
+        return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=soul_id, soul_name=plan.soul_name)
     upload_id = None
     image_prompts = _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
     image_job_ids: list[str] = []
@@ -726,6 +780,7 @@ def create_image_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     )
     payload["generation"]["workflow"] = "higgsfield_soul_v2_image_only"
     payload["generation"]["identityValidation"] = validate_generation_soul(raw["image"], soul_id)
+    payload["generation"]["costPreflight"] = cost_preflight
     payload["generation"]["imageJobIds"] = image_job_ids
     payload["generation"]["imageResultUrls"] = image_urls
     payload["generation"]["steps"] = steps
@@ -766,6 +821,9 @@ def create_video_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     commands: list[list[str]] = []
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
+    cost_preflight = _cost_preflight_for_plan(plan, asset_count=1)
+    if not cost_preflight["allowed"]:
+        return _record_cost_preflight_block(plan, prompt=prompt, cost_preflight=cost_preflight, soul_id=plan.soul_id, soul_name=plan.soul_name)
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
@@ -806,6 +864,7 @@ def create_video_asset(plan: AssetGenerationPlan, *, wait: bool = False,
     )
     payload["generation"]["workflow"] = "kling3_0_video_from_selected_panel"
     payload["generation"]["steps"] = steps
+    payload["generation"]["costPreflight"] = cost_preflight
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
         "createdAt": capabilities.get("createdAt"),
@@ -951,6 +1010,8 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         video_sound=args.video_sound,
         image_model=args.image_model,
         video_model=args.video_model,
+        estimated_cost_usd=args.estimated_cost_usd,
+        allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
     )
 
 
@@ -977,6 +1038,8 @@ def main() -> int:
     ap.add_argument("--video-sound", default="off")
     ap.add_argument("--image-model", default=IMAGE_MODEL)
     ap.add_argument("--video-model", default=VIDEO_MODEL)
+    ap.add_argument("--estimated-cost-usd", type=float)
+    ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--download", action="store_true")

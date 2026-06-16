@@ -25,7 +25,6 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/dependency-review-action@v4
-        continue-on-error: true
         with:
           fail-on-severity: high
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0

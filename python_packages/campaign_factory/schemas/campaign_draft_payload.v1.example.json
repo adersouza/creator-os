@@ -40,7 +40,18 @@
             "audio_id": "ig_runway_pop",
             "distribution_plan_id": "dist_smoke",
             "exported_by_system": "campaign_factory",
-            "exported_at": "2026-06-04T12:05:00Z"
+            "exported_at": "2026-06-04T12:05:00Z",
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {
+              "visualQcStatus": "passed",
+              "status": "passed"
+            },
+            "identityVerification": {
+              "schema": "reel_factory.identity_verification.v1",
+              "status": "passed",
+              "score": 0.91
+            }
           },
           "captionOutcomeContext": {
             "schema": "campaign_factory.caption_outcome_context.v1",
@@ -119,7 +130,9 @@
               "allow_live_schedule": false,
               "allow_publish": false
             }
-          }
+          },
+          "visualQcStatus": "passed",
+          "identityVerificationStatus": "passed"
         }
       }
     }

@@ -273,6 +273,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             err = HiggsfieldCommandError(["higgsfield", "generate", "create"], 1, "", "rejected by provider")
             with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
+                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
                  patch("generate_assets._run_json", side_effect=err):
                 result = create_image_asset(plan)
             self.assertFalse(result["ok"])
@@ -282,6 +283,37 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(lineage["generation"]["status"], "generation_rejected_or_failed")
             self.assertEqual(lineage["generation"]["failure"]["stage"], "image_create")
             self.assertIn("rejected by provider", lineage["generation"]["failure"]["stderrTail"])
+
+    def test_higgsfield_cost_preflight_blocks_paid_image_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_path = root / "prompt.json"
+            prompt_path.write_text(json.dumps({
+                "higgsfieldGridPrompt": "reference image still",
+                "klingMotionPrompt": "motion",
+            }), encoding="utf-8")
+            plan = AssetGenerationPlan(
+                prompt_json=prompt_path,
+                stem="clip_cost",
+                reference=None,
+                soul_id="soul_123",
+                soul_name="Stacey",
+                start_image=None,
+                out_dir=root / "project_data" / "generated_assets",
+                source_dir=root / "00_source_videos",
+            )
+
+            with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
+                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": False, "blockingReason": "budget_policy_missing", "blockingReasons": ["budget_policy_missing"]}), \
+                 patch("generate_assets._run_json") as run_json:
+                result = create_image_asset(plan)
+
+            self.assertFalse(result["ok"])
+            run_json.assert_not_called()
+            lineage = result["lineage"]
+            self.assertEqual(lineage["generation"]["status"], "cost_preflight_blocked")
+            self.assertEqual(lineage["generation"]["failure"]["stage"], "cost_preflight")
+            self.assertEqual(lineage["generation"]["costPreflight"]["blockingReason"], "budget_policy_missing")
 
     def test_first_visible_frame_selector_skips_black_frames(self):
         from PIL import Image, ImageDraw
