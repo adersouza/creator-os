@@ -46,7 +46,7 @@ from campaign_factory.adapters.threadsdash import (
     sync_performance_snapshots,
     verify_threadsdash_export,
 )
-from campaign_factory.config import Settings
+from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_audio_catalog_export,
     validate_audio_intent,
@@ -272,6 +272,10 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "make-batch" in result["commands"]["makeBatch"]
+    assert result["commands"]["startContentForge"] == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3100"
+    assert result["commands"]["startCampaignFactory"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory"))
+    assert result["commands"]["exportReferencePatterns"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory"))
+    assert "cd " not in "\n".join(result["commands"].values())
 
 
 def test_contract_schema_examples_validate():

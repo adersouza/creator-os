@@ -1,8 +1,0 @@
-{
-  "schema": "creator-os.mirror_provenance.v1",
-  "sourceRepo": "../reference_factory",
-  "sourceCommit": "5e8bfa73522700a54c85782643a35c75f82dd2ff",
-  "mirrorPath": "python_packages/reference_factory",
-  "fileCount": 32,
-  "note": "GENERATED read-only mirror. Do not hand-edit. Run scripts/sync/mirror-sync.mjs."
-}
