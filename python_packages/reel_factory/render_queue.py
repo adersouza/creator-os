@@ -148,7 +148,43 @@ class RenderQueue:
                 "SELECT * FROM queue_jobs ORDER BY created_at DESC LIMIT 20"
             ).fetchall()
         ]
-        return {"counts": counts, "recent": recent, "db": str(self.db_path)}
+        return {"counts": counts, "diagnostics": self.diagnostics(), "recent": recent, "db": str(self.db_path)}
+
+    def diagnostics(self) -> dict[str, Any]:
+        now = int(time.time())
+        rows = self.conn.execute(
+            """
+            SELECT status, attempts, max_attempts, created_at, claimed_at, started_at, ended_at, heartbeat_at
+            FROM queue_jobs
+            """
+        ).fetchall()
+        failed = sum(1 for row in rows if row["status"] == "failed")
+        retryable = sum(
+            1
+            for row in rows
+            if row["status"] in {"failed", "interrupted"} and int(row["attempts"] or 0) < int(row["max_attempts"] or 2)
+        )
+        stale = sum(
+            1
+            for row in rows
+            if row["status"] in {"claimed", "running"}
+            and now - int(row["heartbeat_at"] or row["claimed_at"] or row["started_at"] or row["created_at"] or now) > 300
+        )
+        succeeded = [row for row in rows if row["status"] == "succeeded" and row["started_at"] and row["ended_at"]]
+        durations = [max(0, int(row["ended_at"]) - int(row["started_at"])) for row in succeeded]
+        drain_rate = 0.0
+        if succeeded:
+            first_created = min(int(row["created_at"] or now) for row in succeeded)
+            elapsed_hours = max((now - first_created) / 3600.0, 1 / 3600.0)
+            drain_rate = round(len(succeeded) / elapsed_hours, 3)
+        return {
+            "failedJobs": failed,
+            "retryableFailures": retryable,
+            "staleClaims": stale,
+            "succeededJobs": len(succeeded),
+            "avgSucceededRuntimeSec": round(sum(durations) / len(durations), 3) if durations else 0,
+            "queueDrainRatePerHour": drain_rate,
+        }
 
     def _row_to_job(self, row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
@@ -267,7 +303,37 @@ class RedisRenderQueue:
             counts[job.get("status", "queued")] = counts.get(job.get("status", "queued"), 0) + 1
             recent.append(job)
         recent.sort(key=lambda item: int(item.get("created_at") or 0), reverse=True)
-        return {"counts": counts, "recent": recent[:20], "backend": "redis", "url": self.url}
+        return {"counts": counts, "diagnostics": self.diagnostics_from_jobs(recent), "recent": recent[:20], "backend": "redis", "url": self.url}
+
+    def diagnostics_from_jobs(self, jobs: list[dict[str, Any]]) -> dict[str, Any]:
+        now = int(time.time())
+        failed = sum(1 for row in jobs if row.get("status") == "failed")
+        retryable = sum(
+            1
+            for row in jobs
+            if row.get("status") in {"failed", "interrupted"} and int(row.get("attempts") or 0) < int(row.get("max_attempts") or 2)
+        )
+        stale = sum(
+            1
+            for row in jobs
+            if row.get("status") in {"claimed", "running"}
+            and now - int(row.get("heartbeat_at") or row.get("claimed_at") or row.get("started_at") or row.get("created_at") or now) > 300
+        )
+        succeeded = [row for row in jobs if row.get("status") == "succeeded" and row.get("started_at") and row.get("ended_at")]
+        durations = [max(0, int(row["ended_at"]) - int(row["started_at"])) for row in succeeded]
+        drain_rate = 0.0
+        if succeeded:
+            first_created = min(int(row.get("created_at") or now) for row in succeeded)
+            elapsed_hours = max((now - first_created) / 3600.0, 1 / 3600.0)
+            drain_rate = round(len(succeeded) / elapsed_hours, 3)
+        return {
+            "failedJobs": failed,
+            "retryableFailures": retryable,
+            "staleClaims": stale,
+            "succeededJobs": len(succeeded),
+            "avgSucceededRuntimeSec": round(sum(durations) / len(durations), 3) if durations else 0,
+            "queueDrainRatePerHour": drain_rate,
+        }
 
     def _row_to_job(self, row: dict[str, str]) -> dict[str, Any]:
         data: dict[str, Any] = dict(row)

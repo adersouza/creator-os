@@ -7,6 +7,8 @@ import base64
 import gzip
 from pathlib import Path
 
+import pytest
+
 from reference_factory.audio import analyze_audio_patterns, audio_catalog_health, audio_resolution_shortlist, competitor_audio_leaderboard, export_audio_catalog, extract_audio_signal, import_audio_csv, import_audio_snapshot_csv, import_example_reel_audio, list_audio_catalog, list_audio_trend_snapshots, recommend_audio, resolve_audio_record, review_audio_catalog, scrape_instagram_audio, upsert_audio_record, upsert_audio_trend_snapshot
 from reference_factory.audio_refresh import leaderboard_to_catalog_rows
 from reference_factory.contact_sheet import generate_contact_sheet
@@ -33,6 +35,11 @@ from reference_factory.review import (
 from reference_factory.scan import classify_file, scan_source
 from reference_factory.server import create_app
 from reference_factory.tiktok_archive import import_tiktok_archive
+
+
+@pytest.fixture(autouse=True)
+def enable_legacy_generation_for_historical_reference_factory_tests(monkeypatch):
+    monkeypatch.setenv("CREATOR_OS_ENABLE_LEGACY_GENERATION", "1")
 
 
 GOOD_IMAGE_PROMPT_JSON = {
@@ -1014,6 +1021,23 @@ def test_higgsfield_variation_moderation_status_is_blocked(tmp_path: Path) -> No
     assert run["errors"] == ["variation_grid_blocked"]
     assert lineage["generation"]["variationGrid"]["status"] == "blocked"
     assert lineage["generation"]["variationGrid"]["path"] is None
+
+
+def test_higgsfield_variation_grid_requires_explicit_legacy_flag(tmp_path: Path, monkeypatch) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root)
+    monkeypatch.delenv("CREATOR_OS_ENABLE_LEGACY_GENERATION", raising=False)
+
+    with pytest.raises(RuntimeError, match="Legacy variation-grid"):
+        generate_with_higgsfield(
+            data_root=data_root,
+            limit=1,
+            variation_grid=True,
+            variation_strategy="grid",
+            no_video=True,
+            no_campaign_intake=True,
+            dry_run=True,
+        )
 
 
 def test_higgsfield_variation_reruns_blocked_cached_result(tmp_path: Path, monkeypatch) -> None:

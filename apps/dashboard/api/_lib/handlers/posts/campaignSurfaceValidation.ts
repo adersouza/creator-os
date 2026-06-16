@@ -109,8 +109,7 @@ function hasInstagramPostCaption(payload: CampaignSurfaceDraftPayload, campaignF
 	return Boolean(
 		stringValue(campaignFactory.instagram_post_caption) ||
 			stringValue(campaignFactory.instagramPostCaption) ||
-			manifestString(manifest, "instagram_post_caption", "instagramPostCaption") ||
-			stringValue(payload.content),
+			manifestString(manifest, "instagram_post_caption", "instagramPostCaption"),
 	);
 }
 
@@ -199,6 +198,19 @@ function storyProofBlockers(
 	return blockers;
 }
 
+function contentTrustBlockers(campaignFactory: Record<string, unknown>, manifest: Record<string, unknown> | null): string[] {
+	const blockers: string[] = [];
+	const visualQcStatus = stringValue(campaignFactory.visualQcStatus || manifest?.visualQcStatus).toLowerCase();
+	const identityVerificationStatus = stringValue(
+		campaignFactory.identityVerificationStatus || manifest?.identityVerificationStatus,
+	).toLowerCase();
+	if (visualQcStatus === "failed") blockers.push("visual_qc_failed");
+	if (!visualQcStatus || visualQcStatus === "unavailable") blockers.push("visual_qc_unavailable");
+	if (identityVerificationStatus === "failed") blockers.push("identity_verification_failed");
+	if (!identityVerificationStatus || identityVerificationStatus === "unavailable") blockers.push("identity_verification_unavailable");
+	return blockers;
+}
+
 /**
  * Dry-run validation for Campaign Factory non-Reel surface drafts.
  *
@@ -243,6 +255,7 @@ export function validateCampaignSurfaceDraftPayload(
 	if (!manifest) blockers.push("handoff_manifest_missing");
 	if (manifest && manifestVersion !== 2) blockers.push("handoff_manifest_v2_required");
 	if (manifest && manifest.exported_by_system !== "campaign_factory") blockers.push("handoff_manifest_exported_by_system_invalid");
+	blockers.push(...contentTrustBlockers(campaignFactory, manifest));
 
 	if (mediaItems.length === 0) blockers.push("media_items_required");
 	for (const [index, item] of mediaItems.entries()) {

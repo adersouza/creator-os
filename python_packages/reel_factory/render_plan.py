@@ -16,6 +16,7 @@ class RenderPlan:
     fonts_dir: Path
     src_hash: str
     src_dims: tuple[int, int]
+    account_scope: str = "local_review"
     bitrate_mbps: int = 14
     src_bitrate_mbps: int | None = None
     output_profile: str = "social_h264"

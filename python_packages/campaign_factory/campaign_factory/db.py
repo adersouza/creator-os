@@ -395,6 +395,15 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
   rendered_asset_id TEXT NOT NULL,
   decision TEXT NOT NULL,
   notes TEXT,
+  reviewer TEXT,
+  source_deck_id TEXT,
+  reference_hash TEXT,
+  generated_image_hash TEXT,
+  soul_id TEXT,
+  aspect_ratio TEXT,
+  visual_qc_status TEXT,
+  identity_verification_status TEXT,
+  previous_decision TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
@@ -603,6 +612,46 @@ CREATE TABLE IF NOT EXISTS asset_account_assignments (
 
 CREATE INDEX IF NOT EXISTS idx_asset_account_assignments_campaign ON asset_account_assignments(campaign_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_asset_account_assignments_rendered ON asset_account_assignments(rendered_asset_id);
+
+CREATE TABLE IF NOT EXISTS asset_inventory_reservations (
+  id TEXT PRIMARY KEY,
+  asset_id TEXT NOT NULL,
+  campaign_id TEXT NOT NULL,
+  account_id TEXT,
+  surface TEXT NOT NULL DEFAULT 'reel',
+  reservation_id TEXT NOT NULL,
+  reserved_by TEXT NOT NULL,
+  reserved_at TEXT NOT NULL,
+  expires_at TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  idempotency_key TEXT,
+  source_family_id TEXT,
+  perceptual_fingerprint TEXT,
+  perceptual_cluster_id TEXT,
+  account_group_id TEXT,
+  reuse_cooldown_days INTEGER NOT NULL DEFAULT 14,
+  override_reason TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(asset_id) REFERENCES rendered_assets(id) ON UPDATE CASCADE,
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON UPDATE CASCADE,
+  FOREIGN KEY(account_id) REFERENCES accounts(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_inventory_reservations_asset
+  ON asset_inventory_reservations(asset_id, status, reserved_at);
+
+CREATE INDEX IF NOT EXISTS idx_asset_inventory_reservations_surface
+  ON asset_inventory_reservations(surface, status, reserved_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_inventory_reservations_active_asset
+  ON asset_inventory_reservations(asset_id)
+  WHERE status IN ('pending', 'committed');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_inventory_reservations_idempotency
+  ON asset_inventory_reservations(idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
 
 CREATE TABLE IF NOT EXISTS model_account_profiles (
   id TEXT PRIMARY KEY,
@@ -1130,6 +1179,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             "variant_index": "INTEGER",
             "variant_operations_json": "TEXT NOT NULL DEFAULT '[]'",
             "caption_generation_json": "TEXT NOT NULL DEFAULT '{}'",
+            "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
             "caption_hash": "TEXT",
             "caption_bank": "TEXT",
             "caption_banks_json": "TEXT NOT NULL DEFAULT '[]'",
@@ -1278,6 +1328,21 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         conn,
+        "approval_decisions",
+        {
+            "reviewer": "TEXT",
+            "source_deck_id": "TEXT",
+            "reference_hash": "TEXT",
+            "generated_image_hash": "TEXT",
+            "soul_id": "TEXT",
+            "aspect_ratio": "TEXT",
+            "visual_qc_status": "TEXT",
+            "identity_verification_status": "TEXT",
+            "previous_decision": "TEXT",
+        },
+    )
+    _ensure_columns(
+        conn,
         "asset_account_assignments",
         {
             "caption_hash": "TEXT",
@@ -1296,6 +1361,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             "caption_outcome_context_json": "TEXT NOT NULL DEFAULT '{}'",
             "instagram_trial_reels": "INTEGER NOT NULL DEFAULT 0",
             "trial_graduation_strategy": "TEXT",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "asset_inventory_reservations",
+        {
+            "source_family_id": "TEXT",
+            "perceptual_fingerprint": "TEXT",
+            "perceptual_cluster_id": "TEXT",
+            "account_group_id": "TEXT",
+            "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
+            "override_reason": "TEXT",
         },
     )
     _ensure_columns(
@@ -1413,6 +1490,26 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantined_assets_campaign ON quarantined_assets(campaign_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_asset ON asset_rejection_evidence(rendered_asset_id, failed_stage, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_category ON asset_rejection_evidence(failed_stage, failure_category, created_at)")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_inventory_reservations_active_asset
+        ON asset_inventory_reservations(asset_id)
+        WHERE status IN ('pending', 'committed')
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_inventory_reservations_idempotency
+        ON asset_inventory_reservations(idempotency_key)
+        WHERE idempotency_key IS NOT NULL AND idempotency_key != ''
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_asset_inventory_reservations_uniqueness
+        ON asset_inventory_reservations(campaign_id, surface, source_family_id, perceptual_cluster_id, status, reserved_at)
+        """
+    )
     _repair_source_asset_fk_references(conn)
     _repair_fk_references(conn, "rendered_assets_old_global_hash", "rendered_assets")
     conn.commit()
@@ -1544,6 +1641,7 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
           source_clip TEXT,
           caption_outcome_context_json TEXT NOT NULL DEFAULT '{}',
           caption_generation_json TEXT NOT NULL DEFAULT '{}',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
           recipe TEXT,
           target_ratio TEXT,
           audit_status TEXT NOT NULL DEFAULT 'pending',
@@ -1581,6 +1679,7 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "source_clip",
         "caption_outcome_context_json",
         "caption_generation_json",
+        "metadata_json",
         "recipe",
         "target_ratio",
         "audit_status",

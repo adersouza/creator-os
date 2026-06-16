@@ -132,8 +132,16 @@ def main() -> int:
 
     review = sub.add_parser("review-decision")
     review.add_argument("--rendered-asset-id", required=True)
-    review.add_argument("--decision", choices=["approved", "rejected"], required=True)
+    review.add_argument("--decision", choices=["approved", "rejected", "maybe"], required=True)
     review.add_argument("--notes")
+    review.add_argument("--reviewer")
+    review.add_argument("--source-deck-id")
+    review.add_argument("--reference-hash")
+    review.add_argument("--generated-image-hash")
+    review.add_argument("--soul-id")
+    review.add_argument("--aspect-ratio")
+    review.add_argument("--visual-qc-status")
+    review.add_argument("--identity-verification-status")
     review.add_argument("--force-unsafe-audit", action="store_true", help="Allow approval even when audit is missing or not an approved candidate")
 
     readiness = sub.add_parser("export-readiness")
@@ -610,6 +618,10 @@ def main() -> int:
     add_creative_kb_args(creative_performance)
     creator_learning = sub.add_parser("creator-learning-summary")
     add_creative_kb_args(creator_learning)
+    caption_weights = sub.add_parser("caption-weight-report")
+    caption_weights.add_argument("--campaign", required=True)
+    caption_weights.add_argument("--minimum-sample-size", type=int, default=3)
+    caption_weights.add_argument("--limit", type=int, default=50)
     next_content = sub.add_parser("next-content-recommendations")
     add_creative_kb_args(next_content)
     confidence_model = sub.add_parser("creative-learning-confidence-model")
@@ -1079,6 +1091,14 @@ def main() -> int:
                 args.rendered_asset_id,
                 decision=args.decision,
                 notes=args.notes,
+                reviewer=args.reviewer,
+                source_deck_id=args.source_deck_id,
+                reference_hash=args.reference_hash,
+                generated_image_hash=args.generated_image_hash,
+                soul_id=args.soul_id,
+                aspect_ratio=args.aspect_ratio,
+                visual_qc_status=args.visual_qc_status,
+                identity_verification_status=args.identity_verification_status,
                 require_safe_audit=not args.force_unsafe_audit,
             ))
         elif args.cmd == "export-readiness":
@@ -1815,6 +1835,12 @@ def main() -> int:
             print_json(cf.creator_learning_summary(
                 creator=args.creator,
                 campaign_slug=args.campaign,
+                minimum_sample_size=args.minimum_sample_size,
+                limit=args.limit,
+            ))
+        elif args.cmd == "caption-weight-report":
+            print_json(cf.caption_weight_report(
+                args.campaign,
                 minimum_sample_size=args.minimum_sample_size,
                 limit=args.limit,
             ))

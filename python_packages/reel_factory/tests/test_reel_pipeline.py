@@ -11,7 +11,7 @@ REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 
 from caption_render import render_caption_png
 from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
-from graph_builder import build_ffmpeg_cmd
+from graph_builder import build_ffmpeg_cmd, build_video_filter
 from recipe_loader import load_recipes
 from reel_pipeline import (
     CaptionSet,
@@ -781,6 +781,35 @@ class ReelPipelineTests(unittest.TestCase):
         cmd = build_ffmpeg_cmd(plan, "ffmpeg")
         self.assertEqual(cmd[-1], "tmp/out.mp4")
         self.assertIn("-filter_complex", cmd)
+
+    def test_camera_variation_seed_is_account_scoped(self):
+        recipe = Recipe("v_seeded", camera_variation=True)
+        base = {
+            "src": Path("in.mp4"),
+            "caption_pngs": [],
+            "recipe": recipe,
+            "out": Path("tmp/out.mp4"),
+            "duration": 3.0,
+            "fonts_dir": Path("fonts"),
+            "src_hash": "same-source",
+            "src_dims": (1080, 1920),
+        }
+        account_a = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
+        account_a_again = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
+        account_b = build_video_filter(RenderPlan(**base, account_scope="stacey_b"))
+
+        self.assertEqual(account_a, account_a_again)
+        self.assertNotEqual(account_a, account_b)
+
+    def test_job_key_includes_account_scope_for_production_accounts(self):
+        recipe = Recipe("v_seeded", camera_variation=True)
+        account_a = compute_job_key("video", "caption", recipe, account_scope="stacey_a")
+        account_b = compute_job_key("video", "caption", recipe, account_scope="stacey_b")
+        local_a = compute_job_key("video", "caption", recipe)
+        local_b = compute_job_key("video", "caption", recipe, account_scope="local_review")
+
+        self.assertNotEqual(account_a, account_b)
+        self.assertEqual(local_a, local_b)
 
     def test_graph_builder_supports_prores_mezzanine_profile(self):
         plan = RenderPlan(

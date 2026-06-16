@@ -2,14 +2,21 @@ import { describe, expect, it } from "vitest";
 import { validateCampaignSurfaceDraftPayload } from "../../api/_lib/handlers/posts/campaignSurfaceValidation.js";
 
 function baseCampaign(surface: string, extraManifest: Record<string, unknown> = {}) {
+	const visualQcStatus = typeof extraManifest.visualQcStatus === "string" ? extraManifest.visualQcStatus : "passed";
+	const identityVerificationStatus =
+		typeof extraManifest.identityVerificationStatus === "string" ? extraManifest.identityVerificationStatus : "passed";
 	return {
 		asset_state: "exportable",
 		content_surface: surface,
 		instagram_post_caption: "new post",
+		visualQcStatus,
+		identityVerificationStatus,
 		handoff_manifest: {
 			manifest_version: 2,
 			exported_by_system: "campaign_factory",
 			content_surface: surface,
+			visualQcStatus,
+			identityVerificationStatus,
 			...extraManifest,
 		},
 	};
@@ -37,6 +44,53 @@ describe("validateCampaignSurfaceDraftPayload", () => {
 		});
 	});
 
+	it("does not accept payload content as Campaign Factory Instagram post caption fallback", () => {
+		const result = validateCampaignSurfaceDraftPayload({
+			content_surface: "feed_single",
+			ig_media_type: "IMAGE",
+			content: "overlay-style text should not count",
+			media_urls: ["https://cdn.example.com/stacey.jpg"],
+			metadata: {
+				campaign_factory: {
+					asset_state: "exportable",
+					content_surface: "feed_single",
+					handoff_manifest: {
+						manifest_version: 2,
+						exported_by_system: "campaign_factory",
+						content_surface: "feed_single",
+					},
+				},
+			},
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.blockers).toContain("feed_single_instagram_post_caption_missing");
+		expect(result.preservedFields.instagramPostCaption).toBe(false);
+	});
+
+	it("blocks Campaign drafts when visual QC or identity verification proof fails", () => {
+		const result = validateCampaignSurfaceDraftPayload({
+			content_surface: "feed_single",
+			ig_media_type: "IMAGE",
+			content: "feed caption",
+			media_urls: ["https://cdn.example.com/stacey.jpg"],
+			metadata: {
+				campaign_factory: baseCampaign("feed_single", {
+					visualQcStatus: "unavailable",
+					identityVerificationStatus: "failed",
+				}),
+			},
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.blockers).toEqual(
+			expect.arrayContaining([
+				"visual_qc_unavailable",
+				"identity_verification_failed",
+			]),
+		);
+	});
+
 	it("accepts story drafts without requiring an Instagram post caption", () => {
 		const result = validateCampaignSurfaceDraftPayload({
 			content_surface: "story",
@@ -46,11 +100,15 @@ describe("validateCampaignSurfaceDraftPayload", () => {
 				campaign_factory: {
 					asset_state: "exportable",
 					content_surface: "story",
+					visualQcStatus: "passed",
+					identityVerificationStatus: "passed",
 						handoff_manifest: {
 							manifest_version: 2,
 							exported_by_system: "campaign_factory",
 							content_surface: "story",
 							ig_media_type: "STORIES",
+							visualQcStatus: "passed",
+							identityVerificationStatus: "passed",
 							mediaItems: [{ type: "image", url: "https://cdn.example.com/story.jpg" }],
 							storyQualityGatePassed: true,
 							storySourceNative: true,
@@ -80,11 +138,15 @@ describe("validateCampaignSurfaceDraftPayload", () => {
 				campaign_factory: {
 					asset_state: "exportable",
 					content_surface: "story",
+					visualQcStatus: "passed",
+					identityVerificationStatus: "passed",
 					handoff_manifest: {
 						manifest_version: 2,
 						exported_by_system: "campaign_factory",
 						content_surface: "story",
 						ig_media_type: "STORIES",
+						visualQcStatus: "passed",
+						identityVerificationStatus: "passed",
 						mediaItems: [{ type: "image", url: "https://cdn.example.com/story.jpg" }],
 						storyQualityGatePassed: false,
 						storySourceNative: true,
@@ -118,11 +180,15 @@ describe("validateCampaignSurfaceDraftPayload", () => {
 				campaign_factory: {
 					asset_state: "exportable",
 					content_surface: "story",
+					visualQcStatus: "passed",
+					identityVerificationStatus: "passed",
 					handoff_manifest: {
 						manifest_version: 2,
 						exported_by_system: "campaign_factory",
 						content_surface: "story",
 						ig_media_type: "STORIES",
+						visualQcStatus: "passed",
+						identityVerificationStatus: "passed",
 						mediaItems: [{ type: "image", url: "https://cdn.example.com/story.jpg" }],
 						storyQualityGatePassed: true,
 						storySourceNative: false,

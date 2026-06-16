@@ -183,6 +183,11 @@ def validate_hook_variant(base: str, hook: str, *, min_chars: int,
     return True, "ok"
 
 
+def hook_similarity_mode(embedding_model: str | None) -> str:
+    provider = get_embedding_provider(embedding_model)
+    return "lexical_fallback_similarity" if provider.name == HASH_MODEL else "semantic_embedding_similarity"
+
+
 def validate_hook_variants(base: str, hooks: list[str], *, min_chars: int,
                            max_chars: int, required_terms: list[str] | None = None,
                            reject_identical: bool = False, strict: bool = False,
@@ -222,6 +227,10 @@ def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
                    recent_hooks: list[str] | None = None) -> dict[str, Any]:
     if backend != "ollama":
         return {"ok": False, "error": f"unsupported backend: {backend}", "hooks": []}
+    similarity_mode = hook_similarity_mode(embedding_model)
+    warnings: list[str] = []
+    if strict and similarity_mode == "lexical_fallback_similarity":
+        warnings.append("strict_semantic_validation_using_lexical_fallback")
     provider = OllamaHookProvider(model=model)
     ok, reason = provider.available()
     if not ok:
@@ -283,6 +292,8 @@ def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
         "hooks": hooks,
         "quality": quality,
         "rejected": rejected_with_quality,
+        "similarityMode": similarity_mode,
+        "warnings": warnings,
     }
 
 

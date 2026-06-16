@@ -1,0 +1,35 @@
+{
+  "schema": "creator_os.discoverability_safety_cases.v1",
+  "cases": [
+    {
+      "id": "dm_language",
+      "text": "DM me if you get it",
+      "discoverabilitySafe": false,
+      "reasons": ["dm_reference"]
+    },
+    {
+      "id": "bio_link_language",
+      "text": "link in bio for the rest",
+      "discoverabilitySafe": false,
+      "reasons": ["link_reference"]
+    },
+    {
+      "id": "off_platform_apps",
+      "text": "snapchat or telegram me",
+      "discoverabilitySafe": false,
+      "reasons": ["off_platform_reference"]
+    },
+    {
+      "id": "of_language",
+      "text": "OF is where I post more",
+      "discoverabilitySafe": false,
+      "reasons": ["of_reference"]
+    },
+    {
+      "id": "clean_baity_caption",
+      "text": "Can u get it or nah #fyp",
+      "discoverabilitySafe": true,
+      "reasons": []
+    }
+  ]
+}

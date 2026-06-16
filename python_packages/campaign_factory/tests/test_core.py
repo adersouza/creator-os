@@ -1949,13 +1949,17 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             "reason": "test fixture placement passed",
         },
     }
+    content_trust_metadata = {
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+    }
     cf.conn.execute(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-         caption_generation_json, created_at, updated_at)
-        VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?)
+         caption_generation_json, metadata_json, created_at, updated_at)
+        VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
         """,
         (
             source["campaign_id"],
@@ -1965,6 +1969,7 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             filename,
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
             json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -1972,6 +1977,7 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
                     "status": "not_required",
                 }
             }),
+            json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             now,
             now,
         ),
@@ -3024,9 +3030,10 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({
-                    "audioRecommendations": {
-                        "primaryStrategy": "current_native_trending_sound",
+                    json.dumps({
+                        "instagram_post_caption": "new post",
+                        "audioRecommendations": {
+                            "primaryStrategy": "current_native_trending_sound",
                         "nativeAudioPreferred": True,
                         "recommendations": [{"audioVibe": "clean_fitcheck"}],
                     }
@@ -3669,6 +3676,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
             cf.conn.execute(
                 "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
                 (json.dumps({
+                    "instagram_post_caption": "new post",
                     "audioIntent": {
                         "schema": "pipeline.audio_intent.v1",
                         "mode": "native_platform_audio",
@@ -3718,6 +3726,7 @@ def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path,
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -3762,6 +3771,7 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -3836,6 +3846,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -4092,9 +4103,10 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                         "captionPlacementPolicy": "focal_safe_v1",
                         "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
                     }),
-                    json.dumps({
-                        "audioIntent": {
-                            "schema": "pipeline.audio_intent.v1",
+                        json.dumps({
+                            "instagram_post_caption": "new post",
+                            "audioIntent": {
+                                "schema": "pipeline.audio_intent.v1",
                             "mode": "native_platform_audio",
                             "required": False,
                             "status": "not_required",
@@ -4405,6 +4417,56 @@ def test_review_decision_supports_reject_and_approve(tmp_path: Path):
         assert approved["review_state"] == "approved"
         decisions = cf.conn.execute("SELECT decision FROM approval_decisions ORDER BY created_at").fetchall()
         assert [row["decision"] for row in decisions] == ["rejected", "approved"]
+    finally:
+        cf.close()
+
+
+def test_review_decision_supports_maybe_and_provenance_history(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+
+        maybe = cf.review_rendered_asset(
+            "asset_1",
+            decision="maybe",
+            notes="needs another look",
+            reviewer="ader",
+            source_deck_id="deck_20260616",
+            reference_hash="ref_hash_1",
+            generated_image_hash="generated_hash_1",
+            soul_id="stacey_soul",
+            aspect_ratio="3:4",
+            visual_qc_status="passed",
+            identity_verification_status="passed",
+        )
+        approved = cf.review_rendered_asset(
+            "asset_1",
+            decision="approved",
+            notes="approved after review",
+            reviewer="ader",
+            source_deck_id="deck_20260616",
+        )
+
+        assert maybe["review_state"] == "maybe"
+        assert approved["review_state"] == "approved"
+        decisions = [
+            dict(row)
+            for row in cf.conn.execute(
+                "SELECT * FROM approval_decisions WHERE rendered_asset_id = ? ORDER BY created_at",
+                ("asset_1",),
+            ).fetchall()
+        ]
+        assert [row["decision"] for row in decisions] == ["maybe", "approved"]
+        assert decisions[0]["reviewer"] == "ader"
+        assert decisions[0]["source_deck_id"] == "deck_20260616"
+        assert decisions[0]["reference_hash"] == "ref_hash_1"
+        assert decisions[0]["generated_image_hash"] == "generated_hash_1"
+        assert decisions[0]["soul_id"] == "stacey_soul"
+        assert decisions[0]["aspect_ratio"] == "3:4"
+        assert decisions[0]["visual_qc_status"] == "passed"
+        assert decisions[0]["identity_verification_status"] == "passed"
+        assert decisions[0]["previous_decision"] == "draft"
+        assert decisions[1]["previous_decision"] == "maybe"
     finally:
         cf.close()
 
@@ -4947,6 +5009,52 @@ def test_publishability_blocks_low_quality_instagram_post_caption(tmp_path: Path
         cf.close()
 
 
+def test_native_micro_reel_post_caption_policy_allows_bait_examples(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        for caption in core_module.NATIVE_REEL_POST_CAPTION_POOL:
+            quality = cf._instagram_post_caption_quality({
+                "instagram_post_caption": caption,
+                "post_caption_style": "native_micro_reel",
+                "hashtags": [],
+                "burned_caption_text": "caption",
+            })
+            discoverability = cf.discoverability_safe_content_contract(caption)
+
+            assert quality["passed"] is True, caption
+            assert quality["policy"] == "native_micro_ig_post_caption_v1"
+            assert quality["maxCharacters"] == 60
+            assert quality["maxLines"] == 1
+            assert quality["maxHashtags"] == 1
+            assert discoverability["discoverabilitySafe"] is True
+    finally:
+        cf.close()
+
+
+def test_native_micro_reel_post_caption_policy_blocks_non_fyp_hashtags_and_ctas(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        bad_hashtag = cf._instagram_post_caption_quality({
+            "instagram_post_caption": "say less #viral",
+            "post_caption_style": "native_micro_reel",
+            "hashtags": [],
+            "burned_caption_text": "caption",
+        })
+        dm_caption = cf._instagram_post_caption_quality({
+            "instagram_post_caption": "dm me #fyp",
+            "post_caption_style": "native_micro_reel",
+            "hashtags": [],
+            "burned_caption_text": "caption",
+        })
+
+        assert bad_hashtag["passed"] is False
+        assert "instagram_post_caption_disallowed_hashtag" in bad_hashtag["reasons"]
+        assert dm_caption["passed"] is False
+        assert "instagram_post_caption_platform_risk" in dm_caption["reasons"]
+    finally:
+        cf.close()
+
+
 def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -4995,7 +5103,7 @@ def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(tmp_
         candidate = plan["replacementCandidates"][0]
         assert candidate["assetId"] == "asset_1"
         assert candidate["recoveryClass"] == "recoverableByCaptionRewrite"
-        assert candidate["suggestedInstagramPostCaption"] in core_module.SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+        assert candidate["suggestedInstagramPostCaption"] in core_module.NATIVE_REEL_POST_CAPTION_POOL
         assert candidate["wouldPassQualityGate"] is True
         assert candidate["burnedCaptionText"] == burned_before
         assert after_context["caption_text"] == burned_before
@@ -5192,10 +5300,10 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
              caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-             caption_generation_json, created_at, updated_at)
+             caption_generation_json, metadata_json, created_at, updated_at)
             VALUES ('asset_operator', ?, ?, 'hash_operator', ?, ?, 'asset_operator_audio_preview_test.mp4',
                     'caption', 'caption_hash_operator', ?, 'v01_original', 'passed', 'approved',
-                    ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
+                    ?, ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
             """,
             (
                 source["campaign_id"],
@@ -5210,10 +5318,18 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
                         "mode": "native_platform_audio",
                         "required": False,
                         "status": "not_required",
-                    },
-                }),
-            ),
-        )
+                        },
+                    }),
+                    json.dumps({
+                        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+                        "identityVerification": {
+                            "schema": "reel_factory.identity_verification.v1",
+                            "status": "passed",
+                            "score": 0.9,
+                        },
+                    }, ensure_ascii=False, sort_keys=True),
+                ),
+            )
         add_audit_report(cf, rendered_asset_id="asset_operator", audit_id="audit_operator")
         cf.conn.commit()
         before_changes = cf.conn.total_changes
@@ -5329,14 +5445,18 @@ def add_schedule_safe_production_asset(
             "status": "not_required",
         },
     }
+    content_trust_metadata = {
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+    }
     cf.conn.execute(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, parent_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-         caption_generation_json, creator_mix, creator_model, created_at, updated_at)
+         caption_generation_json, metadata_json, creator_mix, creator_model, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'caption', ?, ?, 'v01_original', 'passed', ?,
-                ?, 'Test', 'Test', ?, ?)
+                ?, ?, 'Test', 'Test', ?, ?)
         """,
         (
             asset_id,
@@ -5351,6 +5471,7 @@ def add_schedule_safe_production_asset(
             json.dumps(context, ensure_ascii=False, sort_keys=True),
             review_state,
             json.dumps(generation, ensure_ascii=False, sort_keys=True),
+            json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             now,
             now,
         ),
@@ -6234,6 +6355,38 @@ def test_handoff_manifest_preserves_distinct_instagram_post_caption(tmp_path: Pa
         cf.close()
 
 
+def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_caption(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": False,
+                    "status": "not_required",
+                },
+            }),),
+        )
+        cf.conn.commit()
+        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+
+        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        manifest = explanation["handoff_manifest"]
+
+        assert explanation["burned_caption_text"] == "caption"
+        assert explanation["instagram_post_caption"] == ""
+        assert manifest is None
+        assert "missing_instagram_post_caption" in explanation["publishability_failure_reasons"]
+        assert explanation["publishableCandidate"] is False
+    finally:
+        cf.close()
+
+
 def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     try:
@@ -7071,14 +7224,18 @@ def add_inventory_parent_fixture(
     caption_generation = {"audioIntent": audio_intent}
     if instagram_post_caption is not None:
         caption_generation["instagram_post_caption"] = instagram_post_caption
+    content_trust_metadata = {
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+    }
     cf.conn.execute(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-         caption_generation_json, creator_mix, creator_model, created_at, updated_at)
+         caption_generation_json, metadata_json, creator_mix, creator_model, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'caption', ?, ?, 'v01_original', 'passed', 'approved',
-                ?, ?, ?, ?, ?)
+                ?, ?, ?, ?, ?, ?)
         """,
         (
             asset_id,
@@ -7091,6 +7248,7 @@ def add_inventory_parent_fixture(
             f"caption_hash_{asset_id}",
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
             json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+            json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             creator,
             creator,
             now,
@@ -7158,7 +7316,7 @@ def test_caption_family_plan_is_read_only_and_produces_requested_versions(tmp_pa
         cf.close()
 
 
-def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_and_caps_hashtags(tmp_path: Path):
+def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_for_native_reel_captions(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
@@ -7193,9 +7351,10 @@ def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_and_ca
         assert first["burnedCaptionText"] != first["instagramPostCaption"]
         assert first["burnedCaptionHash"] == cf._text_hash(first["burnedCaptionText"])
         assert first["instagramPostCaptionHash"] == cf._text_hash(first["instagramPostCaption"])
-        assert len(first["hashtags"]) <= 5
-        assert first["captionCta"]
-        assert first["postCaptionStyle"] == "ig_short"
+        assert first["instagramPostCaption"] in core_module.NATIVE_REEL_POST_CAPTION_POOL
+        assert first["hashtags"] == []
+        assert first["captionCta"] == ""
+        assert first["postCaptionStyle"] == "native_micro_reel"
     finally:
         cf.close()
 
@@ -7217,6 +7376,61 @@ def test_caption_family_plan_blocks_blank_instagram_post_caption(tmp_path: Path)
         assert plan["blockingReason"] == "blank_instagram_post_caption"
         assert plan["plannedVersions"][0]["instagramPostCaption"] == ""
         assert plan["plannedVersions"][0]["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_caption_family_plan_uses_native_micro_reel_post_captions_for_reels(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
+
+        plan = cf.caption_family_plan(
+            creator="Stacey",
+            parent_asset_id="asset_caption_parent",
+            requested_caption_versions=5,
+            style="ig_short",
+            dry_run=True,
+        )
+
+        captions = [version["instagramPostCaption"] for version in plan["plannedVersions"]]
+        assert plan["canProceed"] is True
+        assert {version["postCaptionStyle"] for version in plan["plannedVersions"]} == {"native_micro_reel"}
+        assert all(caption in core_module.NATIVE_REEL_POST_CAPTION_POOL for caption in captions)
+        assert all(version["captionCta"] == "" for version in plan["plannedVersions"])
+        assert all(version["hashtags"] == [] for version in plan["plannedVersions"])
+    finally:
+        cf.close()
+
+
+def test_regular_instagram_caption_suggestions_stay_non_bait_for_feed_posts(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        caption = cf._suggest_simple_instagram_post_caption(
+            asset_id="feed_asset_1",
+            current_caption="",
+            burned_caption="",
+            content_surface="feed_single",
+        )
+
+        assert caption in core_module.REGULAR_INSTAGRAM_POST_CAPTION_POOL
+        assert caption not in core_module.NATIVE_REEL_POST_CAPTION_POOL
+    finally:
+        cf.close()
+
+
+def test_reel_caption_suggestion_uses_native_micro_quality_policy(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(core_module, "NATIVE_REEL_POST_CAPTION_POOL", ("say less #viral", "Say less #fyp"))
+    cf = make_factory(tmp_path)
+    try:
+        caption = cf._suggest_simple_instagram_post_caption(
+            asset_id="reel_asset_native_policy",
+            current_caption="",
+            burned_caption="",
+            content_surface="reel",
+        )
+
+        assert caption == "Say less #fyp"
     finally:
         cf.close()
 
@@ -7654,15 +7868,19 @@ def add_surface_asset_fixture(
             "story_style": "selfie",
         })
     now = "2026-06-06T00:00:00+00:00"
+    content_trust_metadata = {
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+    }
     cf.conn.execute(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, caption_generation_json,
          recipe, target_ratio, audit_status, review_state, creator_mix, creator_model,
-         content_surface, media_type, story_asset_class, story_intent, story_style, created_at, updated_at)
+         content_surface, media_type, story_asset_class, story_intent, story_style, metadata_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'burned caption', ?, ?, ?, 'surface_fixture', ?,
-                'passed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                'passed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             asset_id,
@@ -7684,6 +7902,7 @@ def add_surface_asset_fixture(
             "story_selfie" if content_surface == "story" else None,
             "casual_selfie" if content_surface == "story" else None,
             "selfie" if content_surface == "story" else None,
+            json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             now,
             now,
         ),
@@ -7721,6 +7940,19 @@ def test_discoverability_safe_contract_blocks_dm_link_and_off_platform_language(
             "subscription_cta",
         }
         assert result["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_discoverability_safe_contract_matches_shared_fixture_corpus(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        fixture_path = Path(__file__).resolve().parents[3] / "packages" / "pipeline_contracts" / "fixtures" / "discoverability_safety_cases.v1.json"
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+        for case in payload["cases"]:
+            result = cf.discoverability_safe_content_contract(case["text"])
+            assert result["discoverabilitySafe"] is case["discoverabilitySafe"], case["id"]
+            assert {item["reason"] for item in result["blockedTerms"]} == set(case["reasons"]), case["id"]
     finally:
         cf.close()
 
@@ -8090,6 +8322,32 @@ def test_surface_handoff_readiness_validates_surfaces_differently(tmp_path: Path
         assert by_asset["asset_carousel_ready"]["igMediaType"] == "CAROUSEL"
         assert len(by_asset["asset_carousel_ready"]["handoffManifestV2"]["mediaItems"]) == 2
         assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_surface_handoff_readiness_blocks_visual_and_identity_proof_failures(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_unverified", content_surface="feed_single", media_type="image", instagram_post_caption="new post")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET metadata_json = ? WHERE id = 'asset_unverified'",
+            (json.dumps({
+                "visualQc": {"visualQcStatus": "unavailable"},
+                "identityVerification": {"status": "failed", "score": 0.1},
+            }, ensure_ascii=False, sort_keys=True),),
+        )
+        cf.conn.commit()
+
+        report = cf.surface_handoff_readiness_report(creator="Stacey")
+        item = next(asset for asset in report["assets"] if asset["assetId"] == "asset_unverified")
+
+        assert item["canHandoff"] is False
+        assert item["visualQcStatus"] == "unavailable"
+        assert item["identityVerificationStatus"] == "failed"
+        assert "visual_qc_unavailable" in item["blockingReasons"]
+        assert "identity_verification_failed" in item["blockingReasons"]
+        assert item["handoffManifestV2"] is None
     finally:
         cf.close()
 
@@ -9536,6 +9794,7 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
                     "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
                 }),
                 json.dumps({
+                    "instagram_post_caption": "new post",
                     "audioIntent": {
                         "schema": "pipeline.audio_intent.v1",
                         "mode": "native_platform_audio",
@@ -10207,6 +10466,7 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
 
         review = cf.performance_summary("may")["captionOutcomeReview"]
         direct = cf.caption_outcome_report("may")
+        weights = cf.caption_weight_report("may", minimum_sample_size=1)
 
         assert review["manualReviewOnly"] is True
         assert cf.performance_summary("may")["snapshotCount"] == 1
@@ -10225,6 +10485,11 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
         assert review["byCaptionPlacementStatus"][0]["captionPlacementStatus"] == "passed"
         assert "promote" not in json.dumps(review).lower()
         assert "winner" not in json.dumps(review).lower()
+        assert weights["schema"] == "campaign_factory.caption_weight_report.v1"
+        assert weights["wouldWrite"] is False
+        assert weights["selectionImpact"] == "advisory_until_operator_approved_weights_file_exists"
+        assert weights["weights"][0]["captionHash"] == "caption_hash_1"
+        assert weights["weights"][0]["captionBank"] == "question_bank"
     finally:
         cf.close()
 
@@ -14165,6 +14430,137 @@ def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_sta
         cf.close()
 
 
+def test_live_account_acceptance_counts_net_inventory_after_reservations_and_assignments(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        for index in range(10):
+            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+        for index in range(90):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_net_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="schedule safe",
+            )
+        reservation = cf.reserve_inventory_asset(
+            "asset_net_inventory_0",
+            account_id=None,
+            surface="feed_single",
+            reserved_by="test",
+            idempotency_key="net_inventory_asset_0",
+        )
+        same_reservation = cf.reserve_inventory_asset(
+            "asset_net_inventory_0",
+            surface="feed_single",
+            reserved_by="test",
+            idempotency_key="net_inventory_asset_0",
+        )
+        cf.assign_asset_account("asset_net_inventory_1", instagram_account_id="ig_1")
+
+        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+
+        assert reservation["id"] == same_reservation["id"]
+        assert result["grossInventory"] == 90
+        assert result["reservedInventory"] == 1
+        assert result["usedInventory"] == 1
+        assert result["netInventory"] == 88
+        assert result["availableInventory"] == 88
+        assert result["actuals"]["inventoryBufferMaintained"] is False
+        assert "inventory_buffer_not_maintained" in result["blockingReasons"]
+        released = cf.release_inventory_reservation(reservation["reservation_id"])
+        assert released["status"] == "released"
+        after_release = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        assert after_release["reservedInventory"] == 0
+        assert after_release["netInventory"] == 89
+    finally:
+        cf.close()
+
+
+def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
+        for index in range(3):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_uniqueness_{index}",
+                content_surface="reel",
+                media_type="video",
+                instagram_post_caption="lmk",
+            )
+
+        first = cf.reserve_inventory_asset(
+            "asset_uniqueness_0",
+            account_id=account_a["id"],
+            surface="reel",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+        )
+        with pytest.raises(ValueError, match="cross-account source/perceptual reuse cooldown conflict"):
+            cf.reserve_inventory_asset(
+                "asset_uniqueness_1",
+                account_id=account_b["id"],
+                surface="reel",
+                reserved_by="test",
+                metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            )
+        override = cf.reserve_inventory_asset(
+            "asset_uniqueness_1",
+            account_id=account_b["id"],
+            surface="reel",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            override_reason="manual operator approved source reuse",
+        )
+        assert first["source_family_id"] == "family_same"
+        assert override["override_reason"] == "manual operator approved source reuse"
+    finally:
+        cf.close()
+
+
+def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        for index in range(90):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_cooldown_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="lmk",
+            )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id IN ('asset_cooldown_inventory_0', 'asset_cooldown_inventory_1')",
+            (json.dumps({"instagram_post_caption": "lmk", "sourceFamilyId": "family_cooldown"}),),
+        )
+        cf.conn.commit()
+        cf.reserve_inventory_asset(
+            "asset_cooldown_inventory_0",
+            account_id=account["id"],
+            surface="feed_single",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_cooldown"},
+        )
+
+        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+
+        assert result["grossInventory"] == 90
+        assert result["reservedInventory"] == 1
+        assert result["cooldownBlockedInventory"] == 1
+        assert result["netInventory"] == 88
+    finally:
+        cf.close()
+
+
 def test_story_certification_requires_actual_publish_and_metrics_evidence(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -14747,7 +15143,8 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
             UPDATE rendered_assets
             SET review_state = 'approved',
                 caption = ?,
-                caption_outcome_context_json = ?
+                caption_outcome_context_json = ?,
+                caption_generation_json = ?
             WHERE id = 'asset_1'
             """,
             (
@@ -14755,8 +15152,16 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
                 json.dumps({
                     "caption_text": "DM me",
                     "burned_caption_text": "DM me",
-                    "instagram_post_caption": "link in bio",
                     "captionPlacementDecision": {"status": "passed"},
+                }),
+                json.dumps({
+                    "instagram_post_caption": "link in bio",
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    },
                 }),
             ),
         )

@@ -1346,6 +1346,17 @@ def main() -> int:
     ap.add_argument("--operator-notes", default="")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    legacy_requested = (
+        args.prompt_mode in {GROK_DIRECT_COMPAT_MODE}
+        or args.provider in {"grok", "local"}
+        or str(args.grid_layout or "").strip().lower() not in {"single", "1x1"}
+    )
+    if legacy_requested and os.environ.get("CREATOR_OS_ENABLE_LEGACY_GENERATION") != "1":
+        raise RuntimeError(
+            "Legacy Grok/Qwen/Ollama/Florence/grid prompt generation is disabled. "
+            "Use generate_assets.py reference-image for the active direct-reference path, "
+            "or set CREATOR_OS_ENABLE_LEGACY_GENERATION=1 for explicit historical tests."
+        )
     result = generate_prompt(
         out_path=args.out.expanduser().resolve(),
         root=args.root.expanduser().resolve(),

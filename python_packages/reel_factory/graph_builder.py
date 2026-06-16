@@ -84,8 +84,9 @@ def target_dimensions(target_ratio: str) -> tuple[int, int]:
     return TARGET_DIMS[target_ratio]
 
 
-def _camera_variation_pre_scale(recipe_name: str, src_hash: str) -> list[str]:
-    rng = random.Random(f"camera|{recipe_name}|{src_hash}")
+def _camera_variation_pre_scale(recipe_name: str, src_hash: str, account_scope: str = "local_review") -> list[str]:
+    scope = (account_scope or "local_review").strip() or "local_review"
+    rng = random.Random(f"camera|{recipe_name}|{src_hash}|{scope}")
     chain: list[str] = []
 
     crop_w = rng.uniform(0.95, 0.97)
@@ -152,7 +153,7 @@ def build_video_filter(plan: RenderPlan) -> str:
         chain.append(f"crop=iw*{inv:.4f}:ih*{inv:.4f}")
 
     if recipe.camera_variation:
-        chain.extend(_camera_variation_pre_scale(recipe.name, plan.src_hash))
+        chain.extend(_camera_variation_pre_scale(recipe.name, plan.src_hash, plan.account_scope))
 
     src_w, src_h = plan.src_dims
     target_w, target_h = target_dimensions(plan.target_ratio)

@@ -1018,6 +1018,14 @@ def review_decision(body: dict[str, Any] = Body(...)):
             body["renderedAssetId"],
             decision=body["decision"],
             notes=body.get("notes"),
+            reviewer=body.get("reviewer"),
+            source_deck_id=body.get("sourceDeckId") or body.get("source_deck_id"),
+            reference_hash=body.get("referenceHash") or body.get("reference_hash"),
+            generated_image_hash=body.get("generatedImageHash") or body.get("generated_image_hash"),
+            soul_id=body.get("soulId") or body.get("soul_id"),
+            aspect_ratio=body.get("aspectRatio") or body.get("aspect_ratio"),
+            visual_qc_status=body.get("visualQcStatus") or body.get("visual_qc_status"),
+            identity_verification_status=body.get("identityVerificationStatus") or body.get("identity_verification_status"),
             require_safe_audit=not bool(body.get("forceUnsafeAudit")),
         )
     except Exception as exc:

@@ -77,6 +77,20 @@ def discover_audio(root: Path, *, tag: str | None = None) -> list[Path]:
     return out
 
 
+def audio_library_health(root: Path, *, tag: str | None = None) -> dict[str, Any]:
+    tracks = discover_audio(root, tag=tag)
+    blocking_reason = "" if tracks else "audio_library_empty"
+    return {
+        "schema": "reel_factory.audio_library_health.v1",
+        "trackCount": len(tracks),
+        "tag": tag,
+        "nativeAudioIntentReady": True,
+        "localMuxReady": bool(tracks),
+        "blockingReason": blocking_reason,
+        "wouldWriteProductionState": False,
+    }
+
+
 def select_audio(root: Path, *, tag: str | None = None,
                  seed: int = 42, target_duration: float | None = None) -> Path:
     tracks = discover_audio(root, tag=tag)
@@ -149,6 +163,10 @@ def mux_root(root: Path, *, clip: str | None = None, audio_tag: str | None = Non
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    sub = ap.add_subparsers(dest="cmd")
+    health = sub.add_parser("health")
+    health.add_argument("--root", default=".")
+    health.add_argument("--audio-tag")
     ap.add_argument("--root", default=".")
     ap.add_argument("--clip", default=None)
     ap.add_argument("--audio-tag", default=None)
@@ -157,6 +175,9 @@ def main() -> int:
     ap.add_argument("--fade-seconds", type=float, default=0.15)
     ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args()
+    if args.cmd == "health":
+        print(json.dumps(audio_library_health(Path(args.root), tag=args.audio_tag), indent=2, ensure_ascii=False))
+        return 0
     print(json.dumps(mux_root(
         Path(args.root),
         clip=args.clip,

@@ -5,7 +5,10 @@ for known inputs. They run without live AI calls and should never drift
 unless the function behavior intentionally changes.
 """
 
+import sys
+
 import pytest
+import generate_prompts
 from generate_prompts import (
     _direct_prompt_from_response_text,
     clean_direct_higgsfield_prompt,
@@ -70,6 +73,28 @@ class TestGridLayoutGolden:
     def test_invalid_large_grid_raises(self):
         with pytest.raises(ValueError):
             normalize_grid_layout("10x10")
+
+
+def test_generate_prompts_cli_blocks_legacy_grok_grid_path_by_default(tmp_path, monkeypatch):
+    reference = tmp_path / "reference.jpg"
+    reference.write_bytes(b"not-a-real-image-but-cli-guard-runs-first")
+    out = tmp_path / "prompt.json"
+    monkeypatch.delenv("CREATOR_OS_ENABLE_LEGACY_GENERATION", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_prompts.py",
+            "--reference-image",
+            str(reference),
+            "--out",
+            str(out),
+            "--dry-run",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="Legacy Grok/Qwen/Ollama/Florence/grid"):
+        generate_prompts.main()
 
 
 # ── Prompt Cleanup ───────────────────────────────────────────────────

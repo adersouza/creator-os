@@ -1,4 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { validateDiscoverabilitySafeContent } from "../../api/_lib/discoverabilitySafety";
 import { runPublishPreflight } from "../../api/_lib/publishPreflight";
 
 const healthyAccount = {
@@ -112,8 +115,25 @@ describe("publish preflight", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues.map((issue) => issue.code)).toContain(
-			"ig_reel_caption_link_or_dm_reference",
+			"ig_caption_link_or_dm_reference",
 		);
+	});
+
+	it("matches the shared discoverability safety fixture corpus", () => {
+		const fixturePath = path.resolve(
+			process.cwd(),
+			"../../packages/pipeline_contracts/fixtures/discoverability_safety_cases.v1.json",
+		);
+		const payload = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as {
+			cases: Array<{ id: string; text: string; discoverabilitySafe: boolean; reasons: string[] }>;
+		};
+		for (const item of payload.cases) {
+			const result = validateDiscoverabilitySafeContent(item.text);
+			expect(result.discoverabilitySafe, item.id).toBe(item.discoverabilitySafe);
+			expect(result.blockedTerms.map((term) => term.reason).sort(), item.id).toEqual(
+				[...item.reasons].sort(),
+			);
+		}
 	});
 
 	it("does not block harmless captions that use the normal word of", async () => {
@@ -129,8 +149,32 @@ describe("publish preflight", () => {
 		);
 
 		expect(result.issues.map((issue) => issue.code)).not.toContain(
-			"ig_reel_caption_link_or_dm_reference",
+			"ig_caption_link_or_dm_reference",
 		);
+	});
+
+	it("blocks feed image and carousel captions with off-platform language", async () => {
+		for (const igMediaType of ["IMAGE", "CAROUSEL"] as const) {
+			const result = await runPublishPreflight(
+				{
+					platform: "instagram",
+					instagramAccountId: "ig-1",
+					content: "link in bio",
+					igMediaType,
+					media:
+						igMediaType === "CAROUSEL"
+							? [
+									{ type: "image", url: "https://cdn.example.com/one.jpg" },
+									{ type: "image", url: "https://cdn.example.com/two.jpg" },
+								]
+							: [{ type: "image", url: "https://cdn.example.com/image.jpg" }],
+				},
+				{ account: healthyAccount },
+			);
+			expect(result.issues.map((issue) => issue.code)).toContain(
+				"ig_caption_link_or_dm_reference",
+			);
+		}
 	});
 
 	it("blocks Campaign Factory Reels when burned caption metadata contains linkout language", async () => {
@@ -174,7 +218,85 @@ describe("publish preflight", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues.map((issue) => issue.code)).toContain(
-			"ig_reel_caption_link_or_dm_reference",
+			"ig_caption_link_or_dm_reference",
+		);
+	});
+
+	it("blocks Campaign Factory assets with failed content-trust proof", async () => {
+		const result = await runPublishPreflight(
+			{
+				platform: "instagram",
+				instagramAccountId: "ig-1",
+				content: "clean platform caption",
+				igMediaType: "IMAGE",
+				media: [{ type: "image", url: "https://cdn.example.com/feed.jpg" }],
+				metadata: {
+					campaign_factory: {
+						content_surface: "feed_single",
+						ig_media_type: "IMAGE",
+						asset_state: "exportable",
+						publishability_failure_reasons: [],
+						instagram_post_caption: "clean platform caption",
+						handoff_manifest: {
+							manifest_version: 2,
+							exported_by_system: "campaign_factory",
+							content_surface: "feed_single",
+							ig_media_type: "IMAGE",
+							instagram_post_caption: "clean platform caption",
+							visualQcStatus: "failed",
+							identityVerificationStatus: "unavailable",
+						},
+					},
+				},
+			},
+			{ account: healthyAccount },
+		);
+
+		expect(result.issues.map((issue) => issue.code)).toEqual(
+			expect.arrayContaining([
+				"campaign_factory_visual_qc_failed",
+				"campaign_factory_identity_verification_unavailable",
+			]),
+		);
+	});
+
+	it("does not accept draft content as Campaign Factory Instagram post caption fallback", async () => {
+		const result = await runPublishPreflight(
+			{
+				platform: "instagram",
+				instagramAccountId: "ig-1",
+				content: "overlay-style burned text",
+				igMediaType: "REELS",
+				media: [{ type: "video", url: "https://cdn.example.com/reel.mp4" }],
+				metadata: {
+					campaign_factory: {
+						content_surface: "reel",
+						ig_media_type: "REELS",
+						asset_state: "exportable",
+						publishability_failure_reasons: [],
+						handoff_manifest: {
+							manifest_version: 1,
+							asset_id: "asset_1",
+							render_file_id: "render_1",
+							content_fingerprint: "hash_1",
+							caption_hash: "caption_hash_1",
+							captionOutcomeContext: { caption_hash: "caption_hash_1" },
+							visual_verification_id: "visual_1",
+							caption_verification_id: "caption_1",
+							audio_id: "audio_1",
+							distribution_plan_id: "dist_1",
+							exported_by_system: "campaign_factory",
+							exported_at: "2026-06-08T00:00:00+00:00",
+						},
+					},
+				},
+			},
+			{ account: healthyAccount },
+		);
+
+		expect(result.ok).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toContain(
+			"campaign_factory_instagram_post_caption_missing",
 		);
 	});
 

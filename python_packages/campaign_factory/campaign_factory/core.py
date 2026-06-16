@@ -227,7 +227,21 @@ CAPTION_FAMILY_POST_TEMPLATES = {
     "reply_bait": "be honest, would you post this?",
     "soft_cta": "more like this soon",
 }
-SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = (
+NATIVE_REEL_POST_CAPTION_POOL = (
+    "i meannnn #fyp",
+    "Plzzzzz🙈 #fyp",
+    "Can u get it or nah",
+    "Say less #fyp",
+    "lmk",
+    "did you get it?",
+    "no cappp #fyp",
+    "be fr",
+    "u see it?",
+    "ok but like",
+    "this one tho",
+    "idk #fyp",
+)
+REGULAR_INSTAGRAM_POST_CAPTION_POOL = (
     "new fit today",
     "which one wins?",
     "felt cute",
@@ -237,6 +251,7 @@ SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = (
     "soft launch",
     "posting this one",
 )
+SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = REGULAR_INSTAGRAM_POST_CAPTION_POOL
 CAPTION_PLACEMENT_QC_WARNING_CODES = {
     "caption_too_close_to_edge",
     "caption_overlaps_ui_safe_zone",
@@ -5272,9 +5287,22 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             hashtags: list[str] = []
         else:
             burned_caption = CAPTION_FAMILY_BURNED_TEMPLATES[angle].format(base=base_burned).strip()
-            instagram_base = CAPTION_FAMILY_POST_TEMPLATES[angle].format(base=base_burned).strip()
-            caption_cta = CAPTION_FAMILY_CTA_BY_ANGLE[angle]
-            hashtags = base_hashtags[:5]
+            content_surface = normalize_content_surface(parent.get("content_surface"))
+            if content_surface == "reel" and style in {"ig_short", "simple_native", "native_micro_reel", "reel_native_bait"}:
+                instagram_base = self._suggest_simple_instagram_post_caption(
+                    asset_id=f"{parent['id']}:{caption_family_id}:{index}:{angle}",
+                    current_caption="",
+                    burned_caption=burned_caption,
+                    content_surface="reel",
+                )
+                caption_cta = ""
+                hashtags = []
+                style = "native_micro_reel"
+                caption_source = "native_micro_reel_pool:v1"
+            else:
+                instagram_base = CAPTION_FAMILY_POST_TEMPLATES[angle].format(base=base_burned).strip()
+                caption_cta = CAPTION_FAMILY_CTA_BY_ANGLE[angle]
+                hashtags = base_hashtags[:5]
             synthetic = {
                 **parent,
                 "caption": burned_caption,
@@ -5606,8 +5634,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if caption_version
             else parent.get("caption_hash") or parent_caption_context.get("caption_hash")
         )
-        variant_instagram_caption = caption_version.get("instagramPostCaption") if caption_version else None
-        variant_instagram_hash = caption_version.get("instagramPostCaptionHash") if caption_version else None
+        parent_post_caption = self._instagram_post_caption_for_asset(parent, parent_caption_context)
+        variant_instagram_caption = (
+            caption_version.get("instagramPostCaption")
+            if caption_version
+            else parent_post_caption.get("instagram_post_caption")
+        )
+        variant_instagram_hash = (
+            caption_version.get("instagramPostCaptionHash")
+            if caption_version
+            else parent_post_caption.get("instagram_post_caption_hash")
+        )
         savepoint = f"variant_pack_register_{uuid.uuid4().hex[:12]}"
         self.conn.execute(f"SAVEPOINT {savepoint}")
         try:
@@ -11106,6 +11143,299 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "wouldWrite": False,
         }
 
+    def reserve_inventory_asset(
+        self,
+        asset_id: str,
+        *,
+        account_id: str | None = None,
+        surface: str | None = None,
+        reserved_by: str = "campaign_factory",
+        expires_at: str | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        reuse_cooldown_days: int = DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        asset = self.rendered_asset(asset_id)
+        normalized_surface = normalize_content_surface(surface or asset.get("content_surface") or "reel")
+        uniqueness = self._asset_uniqueness_values(asset, metadata=metadata)
+        if idempotency_key:
+            existing = self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            if existing:
+                return dict(existing)
+        if account_id:
+            account = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+            if not account:
+                raise ValueError(f"account not found: {account_id}")
+        now = utc_now()
+        reservation_id = new_id("invres")
+        row_id = new_id("invresrow")
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if "within a transaction" not in str(exc).lower():
+                raise
+        active = self.conn.execute(
+            """
+            SELECT * FROM asset_inventory_reservations
+            WHERE asset_id = ? AND status IN ('pending', 'committed')
+            ORDER BY reserved_at DESC
+            LIMIT 1
+            """,
+            (asset_id,),
+        ).fetchone()
+        if active:
+            self.conn.rollback()
+            raise ValueError(f"asset already has an active reservation: {asset_id}")
+        reuse_conflicts = self._inventory_uniqueness_conflicts(
+            asset,
+            uniqueness=uniqueness,
+            surface=normalized_surface,
+            cooldown_days=reuse_cooldown_days,
+            account_id=account_id,
+        )
+        if reuse_conflicts and not override_reason:
+            self.conn.rollback()
+            raise ValueError(
+                "cross-account source/perceptual reuse cooldown conflict: "
+                + ",".join(item["assetId"] for item in reuse_conflicts[:5])
+            )
+        self.conn.execute(
+            """
+            INSERT INTO asset_inventory_reservations
+            (id, asset_id, campaign_id, account_id, surface, reservation_id, reserved_by,
+             reserved_at, expires_at, status, idempotency_key, source_family_id,
+             perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+             reuse_cooldown_days, override_reason, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row_id,
+                asset_id,
+                asset["campaign_id"],
+                account_id,
+                normalized_surface,
+                reservation_id,
+                reserved_by,
+                now,
+                expires_at,
+                idempotency_key,
+                uniqueness["sourceFamilyId"],
+                uniqueness["perceptualFingerprint"],
+                uniqueness["perceptualClusterId"],
+                uniqueness["accountGroupId"],
+                reuse_cooldown_days,
+                override_reason,
+                json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+                now,
+                now,
+            ),
+        )
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row_id,)).fetchone())
+
+    def release_inventory_reservation(
+        self,
+        reservation_id: str,
+        *,
+        status: str = "released",
+    ) -> dict[str, Any]:
+        if status not in {"released", "expired", "cancelled"}:
+            raise ValueError("status must be released, expired, or cancelled")
+        row = self.conn.execute(
+            "SELECT * FROM asset_inventory_reservations WHERE reservation_id = ? OR id = ?",
+            (reservation_id, reservation_id),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"reservation not found: {reservation_id}")
+        now = utc_now()
+        self.conn.execute(
+            "UPDATE asset_inventory_reservations SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, row["id"]),
+        )
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)).fetchone())
+
+    def _asset_uniqueness_values(self, asset: dict[str, Any], *, metadata: dict[str, Any] | None = None) -> dict[str, str]:
+        metadata = metadata or {}
+        caption_generation = json_load(asset.get("caption_generation_json"), {})
+        if not isinstance(caption_generation, dict):
+            caption_generation = {}
+        caption_context = load_context_json(asset.get("caption_outcome_context_json"))
+        source_family = (
+            metadata.get("sourceFamilyId")
+            or metadata.get("source_family_id")
+            or caption_generation.get("sourceFamilyId")
+            or caption_generation.get("source_family_id")
+            or caption_context.get("source_family_id")
+            or asset.get("parent_asset_id")
+            or asset.get("parent_reel_id")
+        )
+        perceptual = (
+            metadata.get("perceptualFingerprint")
+            or metadata.get("perceptual_fingerprint")
+            or caption_generation.get("perceptualFingerprint")
+            or caption_generation.get("perceptual_fingerprint")
+            or caption_context.get("perceptual_fingerprint")
+        )
+        cluster = (
+            metadata.get("perceptualClusterId")
+            or metadata.get("perceptual_cluster_id")
+            or caption_generation.get("perceptualClusterId")
+            or caption_generation.get("perceptual_cluster_id")
+            or caption_context.get("perceptual_cluster_id")
+            or perceptual
+            or source_family
+        )
+        account_group = (
+            metadata.get("accountGroupId")
+            or metadata.get("account_group_id")
+            or caption_generation.get("accountGroupId")
+            or caption_generation.get("account_group_id")
+            or caption_context.get("account_group_id")
+            or asset.get("creator_model")
+            or asset.get("creator_mix")
+            or asset.get("campaign_id")
+        )
+        return {
+            "sourceFamilyId": str(source_family or ""),
+            "contentFingerprint": str(asset.get("content_hash") or ""),
+            "perceptualFingerprint": str(perceptual or ""),
+            "perceptualClusterId": str(cluster or ""),
+            "accountGroupId": str(account_group or ""),
+        }
+
+    def _inventory_uniqueness_conflicts(
+        self,
+        asset: dict[str, Any],
+        *,
+        uniqueness: dict[str, str],
+        surface: str,
+        cooldown_days: int,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        keys = {
+            "sourceFamilyId": uniqueness.get("sourceFamilyId") or "",
+            "perceptualClusterId": uniqueness.get("perceptualClusterId") or "",
+        }
+        if not any(keys.values()):
+            return []
+        now = datetime.fromisoformat(utc_now())
+        cutoff = (now - timedelta(days=max(0, int(cooldown_days or 0)))).isoformat()
+        conflicts: list[dict[str, Any]] = []
+        for key_name, value in keys.items():
+            if not value:
+                continue
+            column = "source_family_id" if key_name == "sourceFamilyId" else "perceptual_cluster_id"
+            rows = self.conn.execute(
+                f"""
+                SELECT asset_id, account_id, reserved_at, status
+                FROM asset_inventory_reservations
+                WHERE campaign_id = ? AND surface = ? AND {column} = ?
+                  AND status IN ('pending', 'committed')
+                  AND asset_id <> ?
+                  AND reserved_at >= ?
+                """,
+                (asset["campaign_id"], surface, value, asset["id"], cutoff),
+            ).fetchall()
+            for row in rows:
+                if account_id and row["account_id"] == account_id:
+                    continue
+                conflicts.append({"assetId": row["asset_id"], "reason": f"active_reservation_{column}", "status": row["status"]})
+            assigned = self.conn.execute(
+                f"""
+                SELECT a.rendered_asset_id, a.account_id, a.created_at
+                FROM asset_account_assignments a
+                JOIN rendered_assets r ON r.id = a.rendered_asset_id
+                WHERE a.campaign_id = ? AND r.content_surface = ? AND r.id <> ?
+                  AND a.created_at >= ?
+                """,
+                (asset["campaign_id"], surface, asset["id"], cutoff),
+            ).fetchall()
+            for row in assigned:
+                other = self.rendered_asset(row["rendered_asset_id"])
+                other_values = self._asset_uniqueness_values(other)
+                if other_values.get(key_name) != value:
+                    continue
+                if account_id and row["account_id"] == account_id:
+                    continue
+                conflicts.append({"assetId": row["rendered_asset_id"], "reason": f"assigned_{column}", "status": "assigned"})
+        return conflicts
+
+    def _reservation_adjusted_inventory(
+        self,
+        readiness_rows: list[dict[str, Any]],
+        *,
+        content_surface: str | None = None,
+    ) -> dict[str, int]:
+        active_asset_ids = [
+            str(row.get("assetId"))
+            for row in readiness_rows
+            if row.get("canHandoff")
+            and row.get("assetId")
+            and (content_surface is None or row.get("contentSurface") == content_surface)
+        ]
+        if not active_asset_ids:
+            return {"grossInventory": 0, "reservedInventory": 0, "usedInventory": 0, "cooldownBlockedInventory": 0, "netInventory": 0}
+        placeholders = ",".join("?" for _ in active_asset_ids)
+        params = sorted(active_asset_ids)
+        reserved_rows = self.conn.execute(
+            f"""
+            SELECT DISTINCT asset_id
+            FROM asset_inventory_reservations
+            WHERE asset_id IN ({placeholders})
+              AND status IN ('pending', 'committed')
+            """,
+            params,
+        ).fetchall()
+        assignment_rows = self.conn.execute(
+            f"""
+            SELECT DISTINCT rendered_asset_id
+            FROM asset_account_assignments
+            WHERE rendered_asset_id IN ({placeholders})
+            """,
+            params,
+        ).fetchall()
+        reserved = {str(row["asset_id"]) for row in reserved_rows}
+        used = {str(row["rendered_asset_id"]) for row in assignment_rows}
+        reserved_or_used = reserved | used
+        assets_by_id = {
+            str(row["id"]): dict(row)
+            for row in self.conn.execute(
+                f"SELECT * FROM rendered_assets WHERE id IN ({placeholders})",
+                params,
+            ).fetchall()
+        }
+        blocked_keys: set[tuple[str, str]] = set()
+        for asset_id in reserved_or_used:
+            asset = assets_by_id.get(asset_id)
+            if not asset:
+                continue
+            values = self._asset_uniqueness_values(asset)
+            for key_name in ("sourceFamilyId", "perceptualClusterId"):
+                value = values.get(key_name) or ""
+                if value:
+                    blocked_keys.add((key_name, value))
+        cooldown_blocked: set[str] = set()
+        for asset_id, asset in assets_by_id.items():
+            if asset_id in reserved_or_used:
+                continue
+            values = self._asset_uniqueness_values(asset)
+            if any((key_name, values.get(key_name) or "") in blocked_keys for key_name in ("sourceFamilyId", "perceptualClusterId")):
+                cooldown_blocked.add(asset_id)
+        unavailable = reserved | used
+        unavailable |= cooldown_blocked
+        return {
+            "grossInventory": len(active_asset_ids),
+            "reservedInventory": len(reserved),
+            "usedInventory": len(used),
+            "cooldownBlockedInventory": len(cooldown_blocked),
+            "netInventory": max(0, len(active_asset_ids) - len(unavailable)),
+        }
+
     def creator_os_live_account_acceptance(
         self,
         *,
@@ -11122,13 +11452,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         surface = normalize_content_surface(content_surface) if content_surface else None
         if surface:
             assets = self._surface_report_assets()
-            available_inventory = sum(
-                1
-                for row in self._build_surface_readiness(assets)
-                if row.get("canHandoff") and row.get("contentSurface") == surface
+            inventory_accounting = self._reservation_adjusted_inventory(
+                self._build_surface_readiness(assets),
+                content_surface=surface,
             )
+            available_inventory = inventory_accounting["netInventory"]
         else:
-            available_inventory = self._inventory_stage_counts()["scheduleSafeAssets"]
+            inventory_accounting = self._reservation_adjusted_inventory(self._build_surface_readiness(self._surface_report_assets()))
+            available_inventory = inventory_accounting["netInventory"]
         exceptions = self.exception_queue_report()
         actuals = self._live_acceptance_actuals(
             account_target=target,
@@ -11159,6 +11490,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "postsPerDay": posts_per_day,
             "requiredInventory": required_inventory,
             "availableInventory": available_inventory,
+            "grossInventory": inventory_accounting["grossInventory"],
+            "reservedInventory": inventory_accounting["reservedInventory"],
+            "usedInventory": inventory_accounting["usedInventory"],
+            "cooldownBlockedInventory": inventory_accounting.get("cooldownBlockedInventory", 0),
+            "netInventory": inventory_accounting["netInventory"],
             "actualAccounts": accounts["totalAccounts"],
             "eligibleAccounts": accounts["safeAccounts"],
             "restrictedAccounts": accounts["blockedAccounts"],
@@ -11223,6 +11559,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "contentSurface": target_stage.get("contentSurface") or (normalize_content_surface(content_surface) if content_surface else "all"),
             "requiredInventory": int(target_stage.get("requiredInventory") or 0),
             "availableInventory": int(target_stage.get("availableInventory") or 0),
+            "grossInventory": int(target_stage.get("grossInventory") or target_stage.get("availableInventory") or 0),
+            "reservedInventory": int(target_stage.get("reservedInventory") or 0),
+            "usedInventory": int(target_stage.get("usedInventory") or 0),
+            "cooldownBlockedInventory": int(target_stage.get("cooldownBlockedInventory") or 0),
+            "netInventory": int(target_stage.get("netInventory") or target_stage.get("availableInventory") or 0),
             "shortfall": shortfall,
             "actualAccounts": int(target_stage.get("actualAccounts") or 0),
             "eligibleAccounts": int(target_stage.get("eligibleAccounts") or 0),
@@ -17280,6 +17621,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                             asset_id=rendered_id,
                             current_caption="",
                             burned_caption=caption_text,
+                            content_surface="reel",
                         )
                         caption_context["instagram_post_caption"] = post_caption
                         caption_context["instagram_post_caption_hash"] = self._text_hash(post_caption)
@@ -17289,7 +17631,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                             "instagram_post_caption": post_caption,
                             "instagramPostCaption": post_caption,
                             "instagram_post_caption_hash": self._text_hash(post_caption),
-                            "post_caption_style": "simple_native",
+                            "post_caption_style": "native_micro_reel",
                             "hashtags": [],
                         }
                     caption_generation["captionHash"] = caption_hash_value
@@ -17628,6 +17970,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 asset_id=str(asset["id"]),
                 current_caption="",
                 burned_caption=burned_caption,
+                content_surface=normalize_content_surface(asset.get("content_surface") or "reel"),
             )
             caption_context["instagram_post_caption"] = post_caption
             caption_context["instagram_post_caption_hash"] = self._text_hash(post_caption)
@@ -17637,7 +17980,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "instagram_post_caption": post_caption,
                 "instagramPostCaption": post_caption,
                 "instagram_post_caption_hash": self._text_hash(post_caption),
-                "post_caption_style": "simple_native",
+                "post_caption_style": "native_micro_reel",
                 "hashtags": [],
             }
         caption_generation["captionHash"] = caption_hash_value
@@ -17691,10 +18034,18 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         *,
         decision: str,
         notes: str | None = None,
+        reviewer: str | None = None,
+        source_deck_id: str | None = None,
+        reference_hash: str | None = None,
+        generated_image_hash: str | None = None,
+        soul_id: str | None = None,
+        aspect_ratio: str | None = None,
+        visual_qc_status: str | None = None,
+        identity_verification_status: str | None = None,
         require_safe_audit: bool = False,
     ) -> dict[str, Any]:
-        if decision not in {"approved", "rejected"}:
-            raise ValueError("decision must be approved or rejected")
+        if decision not in {"approved", "rejected", "maybe"}:
+            raise ValueError("decision must be approved, rejected, or maybe")
         row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
@@ -17705,16 +18056,48 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             )
         now = utc_now()
         decision_id = new_id("approval")
+        previous_decision = row["review_state"]
         self.conn.execute("UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?", (decision, now, rendered_asset_id))
         self.conn.execute(
-            "INSERT INTO approval_decisions (id, campaign_id, rendered_asset_id, decision, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (decision_id, row["campaign_id"], rendered_asset_id, decision, notes, now),
+            """
+            INSERT INTO approval_decisions
+            (id, campaign_id, rendered_asset_id, decision, notes, reviewer, source_deck_id,
+             reference_hash, generated_image_hash, soul_id, aspect_ratio, visual_qc_status,
+             identity_verification_status, previous_decision, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                decision_id,
+                row["campaign_id"],
+                rendered_asset_id,
+                decision,
+                notes,
+                reviewer,
+                source_deck_id,
+                reference_hash,
+                generated_image_hash,
+                soul_id,
+                aspect_ratio,
+                visual_qc_status,
+                identity_verification_status,
+                previous_decision,
+                now,
+            ),
         )
         approval_graph_id = self.ensure_graph_node(
             "approval_decision",
             local_table="approval_decisions",
             local_id=decision_id,
-            payload={"decision": decision, "renderedAssetId": rendered_asset_id, "notes": notes},
+            payload={
+                "decision": decision,
+                "renderedAssetId": rendered_asset_id,
+                "notes": notes,
+                "reviewer": reviewer,
+                "sourceDeckId": source_deck_id,
+                "previousDecision": previous_decision,
+                "visualQcStatus": visual_qc_status,
+                "identityVerificationStatus": identity_verification_status,
+            },
         )
         self.ensure_graph_edge(
             self.graph_id_for("rendered_assets", rendered_asset_id, entity_type="rendered_asset"),
@@ -17729,7 +18112,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             rendered_asset_id=rendered_asset_id,
             status="success",
             message=f"Asset {decision}: {row['filename']}",
-            metadata={"decision": decision, "notes": notes, "approvalDecisionId": decision_id},
+            metadata={
+                "decision": decision,
+                "notes": notes,
+                "approvalDecisionId": decision_id,
+                "reviewer": reviewer,
+                "sourceDeckId": source_deck_id,
+                "previousDecision": previous_decision,
+            },
             commit=False,
         )
         self.conn.commit()
@@ -18341,6 +18731,26 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "approvedAt": now,
             },
         }
+        content_trust_metadata = {
+            "visualQc": {
+                "schema": "campaign_factory.visual_qc_attestation.v1",
+                "visualQcStatus": "passed",
+                "status": "passed",
+                "provider": "operator_attestation",
+                "attestedBy": operator or "operator",
+                "attestedAt": now,
+            },
+            "identityVerification": {
+                "schema": "reel_factory.identity_verification.v1",
+                "status": "passed",
+                "provider": "operator_attestation",
+                "score": 1.0,
+                "threshold": 1.0,
+                "failureReason": "",
+                "attestedBy": operator or "operator",
+                "attestedAt": now,
+            },
+        }
         if content_surface == "story":
             caption_generation.update({
                 "story_asset_class": (story_asset_class or "").strip() or None,
@@ -18427,12 +18837,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
              caption_generation_json, recipe, target_ratio, audit_status, review_state,
              story_asset_class, story_cta_type, story_cta_text, story_cta_target_url,
              story_intent, story_goal, story_style, snapchat_username, snapchat_display_name,
-             snapchat_cta_text,
+             snapchat_cta_text, metadata_json,
              created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'operator_surface_asset', ?,
                     ?, ?, ?, 'static', ?, 'surface_asset_v1', 'allowed',
                     'operator registered surface asset', ?, ?, ?, 'surface_asset_registered',
-                    ?, 'passed', 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, 'passed', 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(campaign_id, content_hash) DO UPDATE SET
               source_asset_id = excluded.source_asset_id,
               render_job_id = excluded.render_job_id,
@@ -18470,6 +18880,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
               snapchat_username = excluded.snapchat_username,
               snapchat_display_name = excluded.snapchat_display_name,
               snapchat_cta_text = excluded.snapchat_cta_text,
+              metadata_json = excluded.metadata_json,
               updated_at = excluded.updated_at
             """,
             (
@@ -18504,6 +18915,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 (snapchat_username or "").strip() or None,
                 (snapchat_display_name or "").strip() or None,
                 (snapchat_cta_text or "").strip() or None,
+                json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
                 now,
                 now,
             ),
@@ -20823,6 +21235,59 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         ]
         return any(self._creator_label(candidate).lower() == expected for candidate in candidates if candidate)
 
+    def _content_trust_proof_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        caption_generation = json_load(asset.get("caption_generation_json"), {})
+        if not isinstance(caption_generation, dict):
+            caption_generation = {}
+        visual = metadata.get("visualQc") or metadata.get("visual_qc") or caption_generation.get("visualQc") or {}
+        identity = (
+            metadata.get("identityVerification")
+            or metadata.get("identity_verification")
+            or caption_generation.get("identityVerification")
+            or {}
+        )
+        if not isinstance(visual, dict):
+            visual = {}
+        if not isinstance(identity, dict):
+            identity = {}
+        visual_status = str(
+            visual.get("visualQcStatus")
+            or visual.get("status")
+            or metadata.get("visual_qc_status")
+            or metadata.get("visualQcStatus")
+            or ""
+        ).strip().lower()
+        identity_status = str(
+            identity.get("status")
+            or identity.get("identityVerificationStatus")
+            or metadata.get("identity_verification_status")
+            or metadata.get("identityVerificationStatus")
+            or ""
+        ).strip().lower()
+        if not visual_status:
+            visual_status = "unavailable"
+        if not identity_status:
+            identity_status = "unavailable"
+        blocking: list[str] = []
+        if visual_status == "failed":
+            blocking.append("visual_qc_failed")
+        elif visual_status != "passed":
+            blocking.append("visual_qc_unavailable")
+        if identity_status == "failed":
+            blocking.append("identity_verification_failed")
+        elif identity_status != "passed":
+            blocking.append("identity_verification_unavailable")
+        return {
+            "visualQcStatus": visual_status,
+            "identityVerificationStatus": identity_status,
+            "visualQc": visual,
+            "identityVerification": identity,
+            "blockingReasons": blocking,
+        }
+
     def _surface_handoff_readiness_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         surface = normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
         media_type = str(asset.get("media_type") or asset.get("source_media_type") or media_type_for_path(asset.get("campaign_path") or asset.get("filename") or "")).lower()
@@ -20833,6 +21298,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(caption_generation, dict):
             caption_generation = {}
+        content_trust = self._content_trust_proof_for_asset(asset)
+        blocking.extend(content_trust["blockingReasons"])
         discoverability_contract = self.discoverability_safe_content_contract(
             post_caption.get("instagram_post_caption"),
             post_caption.get("burned_caption_text"),
@@ -20958,6 +21425,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     "blockingReasons": [],
                     "warnings": warnings,
                 },
+                "visualQcStatus": content_trust["visualQcStatus"],
+                "identityVerificationStatus": content_trust["identityVerificationStatus"],
+                "visualQc": content_trust["visualQc"],
+                "identityVerification": content_trust["identityVerification"],
                 "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
                 "discoverabilityContract": discoverability_contract,
             }
@@ -20982,6 +21453,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "warnings": sorted(set(warnings)),
             "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
             "discoverabilityContract": discoverability_contract,
+            "visualQcStatus": content_trust["visualQcStatus"],
+            "identityVerificationStatus": content_trust["identityVerificationStatus"],
+            "visualQc": content_trust["visualQc"],
+            "identityVerification": content_trust["identityVerification"],
             "storyQuality": story_quality,
             "storyStyleApproved": story_style_approved if surface == "story" else None,
             "handoffManifestV2": manifest_v2,
@@ -23909,6 +24384,56 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         report["generatedAt"] = summary["generatedAt"]
         return report
 
+    def caption_weight_report(self, campaign_slug: str, *, minimum_sample_size: int = 3, limit: int = 50) -> dict[str, Any]:
+        summary = self.performance_summary(campaign_slug)
+        snapshots = [
+            snapshot for snapshot in summary["snapshots"]
+            if snapshot.get("captionHash") and snapshot.get("captionBank")
+        ]
+        groups: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+        for snapshot in snapshots:
+            key = (
+                str(snapshot.get("captionHash") or ""),
+                str(snapshot.get("captionBank") or ""),
+                str(snapshot.get("captionVersionId") or ""),
+                str(snapshot.get("recipe") or ""),
+                str(snapshot.get("contentSurface") or "reel"),
+            )
+            groups.setdefault(key, []).append(snapshot)
+        rows: list[dict[str, Any]] = []
+        for (caption_hash, caption_bank, caption_version_id, recipe, content_surface), group in groups.items():
+            performance = self._aggregate_performance(group)
+            score = self._performance_quality_score(performance)
+            sample_size = int(performance.get("count") or 0)
+            if sample_size < minimum_sample_size:
+                recommendation = "needs_more_data"
+                weight = 1.0
+            else:
+                recommendation = self._performance_recommendation_label(performance)
+                weight = round(max(0.25, min(3.0, (score or 50) / 50)), 3)
+            rows.append({
+                "captionHash": caption_hash,
+                "captionBank": caption_bank,
+                "captionVersionId": caption_version_id or None,
+                "recipe": recipe or None,
+                "contentSurface": content_surface,
+                "sampleSize": sample_size,
+                "score": score,
+                "recommendedWeight": weight,
+                "recommendation": recommendation,
+                "performance": performance,
+            })
+        rows.sort(key=lambda item: (item["recommendation"] == "needs_more_data", -(item["score"] or -1), -item["sampleSize"], item["captionHash"]))
+        return {
+            "schema": "campaign_factory.caption_weight_report.v1",
+            "campaign": summary["campaign"],
+            "generatedAt": summary["generatedAt"],
+            "minimumSampleSize": minimum_sample_size,
+            "selectionImpact": "advisory_until_operator_approved_weights_file_exists",
+            "wouldWrite": False,
+            "weights": rows[:limit],
+        }
+
     def _performance_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         caption_hash = hashlib.sha256(" ".join((asset.get("caption") or "").strip().lower().split()).encode("utf-8")).hexdigest()
         latest = self.conn.execute(
@@ -25518,8 +26043,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if explicit_post_caption:
                 break
         burned_caption = str(asset.get("caption") or (caption_context or {}).get("caption_text") or "").strip()
-        if not explicit_post_caption and not post_caption:
-            post_caption = burned_caption
         caption_cta = next(
             (
                 str(value).strip()
@@ -25577,23 +26100,36 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption = str(post_caption.get("instagram_post_caption") or "").strip()
         burned = str(post_caption.get("burned_caption_text") or "").strip()
         hashtags = list(post_caption.get("hashtags") or [])
+        style = str(post_caption.get("post_caption_style") or post_caption.get("postCaptionStyle") or "").strip()
+        native_micro_reel = style in {"native_micro_reel", "reel_native_bait"}
+        max_characters = 60 if native_micro_reel else 140
+        max_lines = 1 if native_micro_reel else 3
+        max_hashtags = 1 if native_micro_reel else 5
         reasons: list[str] = []
         if not caption:
             return {
                 "passed": False,
                 "reasons": ["blank_instagram_post_caption"],
-                "policy": "simple_ig_post_caption_v1",
-                "maxCharacters": 140,
-                "maxLines": 3,
-                "maxHashtags": 5,
+                "policy": "native_micro_ig_post_caption_v1" if native_micro_reel else "simple_ig_post_caption_v1",
+                "maxCharacters": max_characters,
+                "maxLines": max_lines,
+                "maxHashtags": max_hashtags,
             }
         lines = [line for line in caption.splitlines() if line.strip()]
-        if len(caption) > 140:
+        if len(caption) > max_characters:
             reasons.append("instagram_post_caption_too_long")
-        if len(lines) > 3:
+        if len(lines) > max_lines:
             reasons.append("instagram_post_caption_too_many_lines")
-        if len(re.findall(r"#[A-Za-z0-9_]+", caption)) > 5 or len(hashtags) > 5:
+        caption_hashtags = re.findall(r"#[A-Za-z0-9_]+", caption)
+        if len(caption_hashtags) > max_hashtags or len(hashtags) > max_hashtags:
             reasons.append("instagram_post_caption_too_many_hashtags")
+        if native_micro_reel:
+            disallowed_hashtags = [
+                tag for tag in [*caption_hashtags, *hashtags]
+                if tag.lower() != "#fyp"
+            ]
+            if disallowed_hashtags:
+                reasons.append("instagram_post_caption_disallowed_hashtag")
         if re.search(r"https?://|www\.|link\s*in\s*bio|dm\s+me|message\s+me|text\s+me|telegram|whatsapp|onlyfans|fansly", caption, re.IGNORECASE):
             reasons.append("instagram_post_caption_platform_risk")
         caption_words = re.findall(r"[A-Za-z0-9']+", caption.lower())
@@ -25603,14 +26139,15 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return {
             "passed": not reasons,
             "reasons": sorted(set(reasons)),
-            "policy": "simple_ig_post_caption_v1",
-            "maxCharacters": 140,
-            "maxLines": 3,
-            "maxHashtags": 5,
+            "policy": "native_micro_ig_post_caption_v1" if native_micro_reel else "simple_ig_post_caption_v1",
+            "maxCharacters": max_characters,
+            "maxLines": max_lines,
+            "maxHashtags": max_hashtags,
             "characterCount": len(caption),
             "lineCount": len(lines),
             "wordCount": len(caption_words),
-            "hashtagCount": max(len(re.findall(r"#[A-Za-z0-9_]+", caption)), len(hashtags)),
+            "hashtagCount": max(len(caption_hashtags), len(hashtags)),
+            "postCaptionStyle": style or ("native_micro_reel" if native_micro_reel else "short_natural"),
         }
 
     def caption_quality_repair_plan(
@@ -25654,11 +26191,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 asset_id=str(asset["id"]),
                 current_caption=current_caption,
                 burned_caption=str(publishability.get("burned_caption_text") or ""),
+                content_surface=surface,
             )
             suggested_payload = {
                 "instagram_post_caption": suggested_caption,
                 "hashtags": [],
                 "burned_caption_text": str(publishability.get("burned_caption_text") or ""),
+                "post_caption_style": "native_micro_reel" if surface == "reel" else "short_natural",
             }
             suggested_quality = self._instagram_post_caption_quality(suggested_payload)
             discoverability_contract = self.discoverability_safe_content_contract(suggested_caption)
@@ -25712,12 +26251,27 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return "recoverableByCTARemoval"
         return "recoverableByCaptionRewrite"
 
-    def _suggest_simple_instagram_post_caption(self, *, asset_id: str, current_caption: str, burned_caption: str) -> str:
-        start = int(hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:8], 16) % len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)
+    def _instagram_post_caption_pool_for_surface(self, content_surface: str | None) -> tuple[str, ...]:
+        surface = normalize_content_surface(content_surface or "")
+        if surface == "reel":
+            return NATIVE_REEL_POST_CAPTION_POOL
+        return REGULAR_INSTAGRAM_POST_CAPTION_POOL
+
+    def _suggest_simple_instagram_post_caption(
+        self,
+        *,
+        asset_id: str,
+        current_caption: str,
+        burned_caption: str,
+        content_surface: str | None = "reel",
+    ) -> str:
+        surface = normalize_content_surface(content_surface or "")
+        pool = self._instagram_post_caption_pool_for_surface(content_surface)
+        start = int(hashlib.sha256(asset_id.encode("utf-8")).hexdigest()[:8], 16) % len(pool)
         current_normalized = " ".join(current_caption.lower().split())
         burned_normalized = " ".join(burned_caption.lower().split())
-        for offset in range(len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)):
-            suggestion = SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[(start + offset) % len(SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL)]
+        for offset in range(len(pool)):
+            suggestion = pool[(start + offset) % len(pool)]
             normalized = suggestion.lower()
             if normalized == current_normalized or normalized == burned_normalized:
                 continue
@@ -25725,11 +26279,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "instagram_post_caption": suggestion,
                 "hashtags": [],
                 "burned_caption_text": burned_caption,
+                "post_caption_style": "native_micro_reel" if surface == "reel" else "short_natural",
             })
             discoverability = self.discoverability_safe_content_contract(suggestion)
             if quality.get("passed") and discoverability.get("discoverabilitySafe"):
                 return suggestion
-        return SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL[0]
+        return pool[0]
 
     def _publishability_check(
         self,

@@ -243,7 +243,8 @@ def find_caption_for(video: Path, cap_dir: Path) -> CaptionSet | None:
 
 def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
                        fonts_dir: Path, src_hash: str = "",
-                       src_w: int = 1080, src_h: int = 1920) -> str:
+                       src_w: int = 1080, src_h: int = 1920,
+                       account_scope: str = "local_review") -> str:
     plan = RenderPlan(
         src=Path("input.mp4"),
         caption_pngs=[],
@@ -253,6 +254,7 @@ def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
         fonts_dir=fonts_dir,
         src_hash=src_hash,
         src_dims=(src_w, src_h),
+        account_scope=account_scope,
     )
     return build_graph_video_filter(plan)
 
@@ -266,7 +268,8 @@ def build_ffmpeg_cmd(src: Path,
                      bitrate_mbps: int = 14,
                      src_bitrate_mbps: int | None = None,
                      output_profile: str = "mac_h264_videotoolbox",
-                     target_ratio: str = "9:16") -> list[str]:
+                     target_ratio: str = "9:16",
+                     account_scope: str = "local_review") -> list[str]:
     plan = RenderPlan(
         src=src,
         caption_pngs=caption_pngs,
@@ -276,6 +279,7 @@ def build_ffmpeg_cmd(src: Path,
         fonts_dir=fonts_dir,
         src_hash=src_hash,
         src_dims=src_dims,
+        account_scope=account_scope,
         bitrate_mbps=bitrate_mbps,
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile=output_profile,
@@ -348,7 +352,8 @@ def effective_placement_mode_for_caption(caption: str | dict, placement_mode: st
 def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
                     placement_mode: str = "source",
                     target_ratio: str = "9:16",
-                    caption_placement_policy: str = "focal-safe") -> str:
+                    caption_placement_policy: str = "focal-safe",
+                    account_scope: str = "local_review") -> str:
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     cap_str = json.dumps(caption, sort_keys=True, ensure_ascii=False) if isinstance(caption, dict) else caption
     cap_h = sha256_str(cap_str)
@@ -361,6 +366,9 @@ def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
         rec_params["_placement_mode"] = placement_mode
     if target_ratio != "9:16":
         rec_params["_target_ratio"] = target_ratio
+    scope = (account_scope or "local_review").strip() or "local_review"
+    if scope != "local_review":
+        rec_params["_account_scope"] = scope
     rec_h = sha256_str(json.dumps(rec_params, sort_keys=True))
     return hashlib.sha256(f"{video_hash}|{cap_h}|{rec_h}".encode()).hexdigest()
 
@@ -618,6 +626,9 @@ def build_single_job_enqueue_cmd(
         cmd.append("--no-phone-finalize")
     if args.rerender_all:
         cmd.append("--rerender-all")
+    account_scope = getattr(args, "account", None)
+    if account_scope:
+        cmd += ["--account", account_scope]
     if args.strict_preflight:
         cmd.append("--strict-preflight")
     if args.asset_prompt_json:
@@ -657,12 +668,14 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                       phone_finalize: bool = True,
                       rerender_all: bool = False,
                       asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
-                      caption_lineage: dict | None = None) -> dict:
+                      caption_lineage: dict | None = None,
+                      account_scope: str = "local_review") -> dict:
     """Render one (video, caption_variant, recipe) combo."""
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     key = compute_job_key(src_hash, caption, recipe, placement_mode=placement_mode,
                           target_ratio=target_ratio,
-                          caption_placement_policy=caption_placement_policy)
+                          caption_placement_policy=caption_placement_policy,
+                          account_scope=account_scope)
 
     if not preview and not rerender_all and manifest.has_job(key):
         materialized = manifest.materialize_cached_job(src.stem, key)
@@ -822,7 +835,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                             fonts_dir, src_hash=src_hash, src_dims=src_dims,
                             src_bitrate_mbps=src_bitrate_mbps,
                             output_profile=output_profile,
-                            target_ratio=target_ratio)
+                            target_ratio=target_ratio,
+                            account_scope=account_scope)
     mezz_out_path = out_dir / f"{src.stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
     mezz_tmp_path = tmp_dir / mezz_out_path.name
     mezz_cmd = build_ffmpeg_cmd(
@@ -831,6 +845,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile="prores_lt",
         target_ratio=target_ratio,
+        account_scope=account_scope,
     ) if mezzanine else None
 
     if dry_run:
@@ -895,6 +910,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             src_hash=src_hash,
             src_dims=src_dims,
             target_ratio=target_ratio,
+            account_scope=account_scope,
         ))
         fc_parts = [f"[0:v]{vf}[vs0]"]
         inputs = ["-ss", f"{mid_t:.3f}", "-i", str(src)]
@@ -1620,6 +1636,7 @@ async def amain(args):
             )
         else:
             log.warning(f"account profile not found: {acc_path}")
+    account_scope = args.account or "local_review"
 
     if args.caption_mix or args.caption_banks:
         try:
@@ -1856,6 +1873,7 @@ async def amain(args):
                         placement_mode=args.placement_mode,
                         target_ratio=target_ratio,
                         caption_placement_policy=args.caption_placement_policy,
+                        account_scope=account_scope,
                     )
                     if key in queued_keys:
                         duplicate_jobs += 1
@@ -1897,6 +1915,7 @@ async def amain(args):
                         rerender_all=args.rerender_all,
                         asset_prompt_info=asset_prompt_info,
                         caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
+                        account_scope=account_scope,
                     ))
 
     if duplicate_jobs:

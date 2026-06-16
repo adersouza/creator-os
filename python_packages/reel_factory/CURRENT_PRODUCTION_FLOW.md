@@ -87,6 +87,34 @@ Every Kling prompt must preserve:
 - full head and face visible
 - no new text, logos, UI, captions, or overlays
 
+## Photo-To-Reel Utility
+
+For an Edits-style simple reel from one accepted still, use `photo_reel.py`. This path creates a local 9:16 MP4 with a subtle still-image motion treatment and either:
+
+- writes a native trending audio intent sidecar for later in-app/platform attachment, or
+- muxes a local audio file into the MP4 when a real local audio file is provided.
+
+Examples:
+
+```bash
+python3 photo_reel.py \
+  --image <accepted-still.jpg> \
+  --out output/photo_reel.mp4 \
+  --audio-mode native_trending \
+  --motion slow_zoom
+```
+
+```bash
+python3 photo_reel.py \
+  --image <accepted-still.jpg> \
+  --out output/photo_reel_with_audio.mp4 \
+  --audio-mode local_mux \
+  --audio-file 03_audio_library/example.wav \
+  --motion slow_zoom
+```
+
+This utility does not register assets, schedule posts, publish posts, export drafts, sync metrics, or mutate production inventory.
+
 ## Legacy Experiments
 
 The following systems are historical or experimental only:

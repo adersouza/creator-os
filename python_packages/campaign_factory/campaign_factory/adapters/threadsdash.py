@@ -99,6 +99,12 @@ def build_draft_payloads(
             if isinstance(cover_frame.get("image_url"), str) and cover_frame.get("image_url").strip():
                 destination_media_item["thumbnailUrl"] = cover_frame.get("image_url").strip()
             draft_content = post_caption["instagram_post_caption"]
+            if (
+                distribution_surface == "story_cta"
+                and isinstance(destination.get("ctaText"), str)
+                and destination.get("ctaText").strip()
+            ):
+                draft_content = destination.get("ctaText").strip()
             draft_key = _stable_export_key(
                 "draft",
                 campaign_slug,
@@ -1498,8 +1504,6 @@ def _instagram_post_caption_for_export(
         and destination.get("ctaText").strip()
     ):
         platform_caption = destination.get("ctaText").strip()
-    if not explicit_platform_caption and not platform_caption:
-        platform_caption = burned_caption
     caption_cta = _first_string_from_records(records, "caption_cta", "captionCta")
     hashtags: list[str] = []
     for record in records:

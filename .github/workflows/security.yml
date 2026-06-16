@@ -67,7 +67,7 @@ jobs:
       - name: TruffleHog secret scan
         uses: trufflesecurity/trufflehog@main
         with:
-          extra_args: --only-verified
+          extra_args: --fail
 
   trivy:
     name: Trivy filesystem scan
