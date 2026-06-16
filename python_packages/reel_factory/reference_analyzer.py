@@ -78,8 +78,6 @@ PERCEPTION_TEXT_REJECT_RE = re.compile(
     r"|\busername\b|\bcomment\b|\bbutton\b|\bwatermark\b",
     flags=re.IGNORECASE,
 )
-
-
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -341,7 +339,8 @@ def main() -> int:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(analyze_reference(Path(args.root), Path(args.reference), model=args.model, dry_run=args.dry_run), indent=2, ensure_ascii=False))
+    result = analyze_reference(Path(args.root), Path(args.reference), model=args.model, dry_run=args.dry_run)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
 

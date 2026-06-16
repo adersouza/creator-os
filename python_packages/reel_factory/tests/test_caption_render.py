@@ -6,7 +6,6 @@ import sys
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 class CaptionRenderTests(unittest.TestCase):
@@ -23,7 +22,7 @@ class CaptionRenderTests(unittest.TestCase):
             render_caption_png(
                 "supercalifragilisticexpialidocious but make it fit the caption box",
                 font_family="Onest",
-                fonts_dir=REEL_FACTORY_ROOT / "fonts",
+                fonts_dir=Path("fonts"),
                 color_scheme="light",
                 band="top",
                 style="classic",

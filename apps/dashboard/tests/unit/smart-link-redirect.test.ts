@@ -215,12 +215,49 @@ describe("smart link redirect route", () => {
 		);
 		expect(res.body).toContain("Destination: example.com");
 		expect(res.body).toContain("No hidden redirects or auto-launches.");
+		expect(res.body).toContain("Copy Link");
 		expect(res.body).toContain("data-track-destination");
+		expect(res.body).not.toContain("Online now");
+		expect(res.body).not.toContain("6.9 miles away");
+		expect(res.body).not.toContain("@abc123");
 		expect(res.body).toContain('<link rel="canonical"');
 		expect(res.body).toContain('property="og:title"');
 		expect(res.body).toContain('property="og:image"');
+		expect(res.headers.get("content-security-policy")).toContain(
+			"https://cdn.example.com",
+		);
+		expect(res.headers.get("content-security-policy")).not.toContain(
+			"apsrvwxfoomhtswlhczo.supabase.co",
+		);
+		expect(res.headers.get("content-security-policy")).not.toContain(
+			"fonts.googleapis.com",
+		);
 		expect(res.body).not.toMatch(/window\.location\.(href|replace)\s*=\s*deep/i);
 		expect(res.body).not.toContain("intent://");
+	});
+
+	it("renders explicit appearance handles without falling back to the short code", async () => {
+		currentSmartLink = {
+			...smartLink,
+			metadata: {
+				appearance: {
+					...(smartLink.metadata.appearance as Record<string, unknown>),
+					handle: "@creator.real",
+				},
+			},
+		};
+		const res = makeRes();
+
+		await handler(
+			makeReq(
+				"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 356.0.0.0.0",
+			),
+			res,
+		);
+
+		expect(res.statusCode).toBe(200);
+		expect(res.body).toContain("@creator.real");
+		expect(res.body).not.toContain("@abc123");
 	});
 
 	it("supports HEAD checks for in-app interstitials without rendering a body", async () => {
@@ -262,6 +299,10 @@ describe("smart link redirect route", () => {
 		expect(res.body).toContain("Creator VIP");
 		expect(res.body).toContain("Destination: onlyfans.com");
 		expect(res.body).toContain("This page shows the destination before opening it.");
+		expect(res.body).toContain("Copy Link");
+		expect(res.body).not.toContain("Online now");
+		expect(res.body).not.toContain("6.9 miles away");
+		expect(res.body).not.toContain("@abc123");
 		expect(mockInsertClick).toHaveBeenCalledWith(
 			expect.objectContaining({
 				smart_link_id: "link-1",
@@ -372,11 +413,15 @@ describe("smart link redirect route", () => {
 		);
 
 		expect(res.statusCode).toBe(200);
-		expect(res.body).toContain("This page waits for your tap before opening another app.");
+		expect(res.body).toContain("This page waits for your tap before opening.");
 		expect(res.body).toContain("data-track-destination");
 		expect(res.body).toContain("Open in Instagram");
 		expect(res.body).toContain("View Profile");
+		expect(res.body).toContain("Copy Link");
 		expect(res.body).toContain("Creator VIP");
+		expect(res.body).not.toContain("Online now");
+		expect(res.body).not.toContain("6.9 miles away");
+		expect(res.body).not.toContain("@abc123");
 		expect(res.body).toContain('<link rel="canonical"');
 		expect(res.body).toContain('property="og:title"');
 		expect(res.body).not.toMatch(/window\.location\.(href|replace)\s*=\s*deep/i);

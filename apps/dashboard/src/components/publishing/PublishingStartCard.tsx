@@ -7,28 +7,39 @@ import { trackClientEvent } from "@/services/clientTelemetry";
 export function PublishingStartCard({
 	surface,
 	className = "",
+	compact = false,
 }: {
 	surface: string;
 	className?: string | undefined;
+	compact?: boolean | undefined;
 }) {
 	const navigate = useNavigate();
 	return (
 		<NovaCard
 			className={className}
+			variant={compact ? "compact" : "default"}
 			eyebrow={
 				<span className="inline-flex items-center gap-2">
 					<CalendarCheck className="h-3.5 w-3.5" aria-hidden="true" />
 					First post setup
 				</span>
 			}
-			title="Get from account setup to a scheduled Instagram post."
-			description="Juno33 will check Instagram connection, Notify Me phone setup, media readiness, and schedule timing before you post."
+			title={
+				compact
+					? "Set up the first publish path."
+					: "Get from account setup to a scheduled Instagram post."
+			}
+			description={
+				compact
+					? "Check phone handoff, media readiness, and scheduling before the first post."
+					: "Juno33 will check Instagram connection, Notify Me phone setup, media readiness, and schedule timing before you post."
+			}
 		>
 			<div className="flex flex-wrap items-center justify-end gap-2">
 				<Button
 					type="button"
 					variant="outline"
-					size="md"
+					size={compact ? "sm" : "md"}
 					onClick={() => {
 						trackClientEvent("empty_state_cta_clicked", {
 							surface,
@@ -43,7 +54,7 @@ export function PublishingStartCard({
 				<Button
 					type="button"
 					variant="default"
-					size="md"
+					size={compact ? "sm" : "md"}
 					onClick={() => {
 						trackClientEvent("empty_state_cta_clicked", {
 							surface,

@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
 	NovaCard,
+	NovaBentoGrid,
 	NovaDataPanel,
 	NovaEmpty,
 	NovaHeader,
@@ -662,44 +663,46 @@ export function Ideas() {
 				}
 			/>
 
-			<NovaSection className="grid items-start gap-4 xl:grid-cols-[20rem_minmax(0,1fr)_20rem]">
-				<IdeaCapturePanel
-					source={source}
-					quickInputRef={quickCaptureRef}
-					onSourceChange={setSource}
-					body={body}
-					onBodyChange={setBody}
-					linkUrl={linkUrl}
-					onLinkUrlChange={(value) => {
-						setLinkUrl(value);
-						if (value.trim()) setSource("link");
-					}}
-					imageUrl={imageUrl}
-					onImageUrlChange={(value) => {
-						setImageUrl(value);
-						if (value.trim()) setSource("screenshot");
-					}}
-					onImageFile={onImageFile}
-					transcript={transcript}
-					onTranscriptChange={(value) => {
-						setTranscript(value);
-						if (value.trim()) setSource("voice");
-					}}
-					audioUrl={audioUrl}
-					recording={recording}
-					onToggleRecording={() => void toggleRecording()}
-					accountId={accountId}
-					onAccountIdChange={setAccountId}
-					groupId={groupId}
-					onGroupIdChange={setGroupId}
-					accounts={accounts}
-					groups={groups}
-					stats={stats}
-					canSave={canSave}
-					onSave={saveIdea}
-				/>
+			<NovaBentoGrid className="xl:grid-cols-12">
+				<div className="min-w-0 xl:col-span-4 2xl:col-span-3">
+					<IdeaCapturePanel
+						source={source}
+						quickInputRef={quickCaptureRef}
+						onSourceChange={setSource}
+						body={body}
+						onBodyChange={setBody}
+						linkUrl={linkUrl}
+						onLinkUrlChange={(value) => {
+							setLinkUrl(value);
+							if (value.trim()) setSource("link");
+						}}
+						imageUrl={imageUrl}
+						onImageUrlChange={(value) => {
+							setImageUrl(value);
+							if (value.trim()) setSource("screenshot");
+						}}
+						onImageFile={onImageFile}
+						transcript={transcript}
+						onTranscriptChange={(value) => {
+							setTranscript(value);
+							if (value.trim()) setSource("voice");
+						}}
+						audioUrl={audioUrl}
+						recording={recording}
+						onToggleRecording={() => void toggleRecording()}
+						accountId={accountId}
+						onAccountIdChange={setAccountId}
+						groupId={groupId}
+						onGroupIdChange={setGroupId}
+						accounts={accounts}
+						groups={groups}
+						stats={stats}
+						canSave={canSave}
+						onSave={saveIdea}
+					/>
+				</div>
 
-				<NovaSection>
+				<NovaSection className="xl:col-span-8 2xl:col-span-6">
 					<IdeaAnglesList
 						ideas={rankedIdeas}
 						accountsById={accountsById}
@@ -729,25 +732,27 @@ export function Ideas() {
 					/>
 				</NovaSection>
 
-				<IdeaInspector
-					idea={selectedIdea}
-					accountLabel={
-						selectedIdea?.accountId
-							? (accountsById.get(selectedIdea.accountId)?.handle ?? "Account")
-							: null
-					}
-					groupLabel={
-						selectedIdea?.groupId
-							? (groupsById.get(selectedIdea.groupId)?.name ?? "Group")
-							: null
-					}
-					onExpand={
-						selectedIdea ? () => void expandIdea(selectedIdea) : undefined
-					}
-					onCompose={selectedIdea ? () => composeIdea(selectedIdea) : undefined}
-					expanding={selectedIdea ? variantBusyId === selectedIdea.id : false}
-				/>
-			</NovaSection>
+				<div className="min-w-0 xl:col-span-12 2xl:col-span-3">
+					<IdeaInspector
+						idea={selectedIdea}
+						accountLabel={
+							selectedIdea?.accountId
+								? (accountsById.get(selectedIdea.accountId)?.handle ?? "Account")
+								: null
+						}
+						groupLabel={
+							selectedIdea?.groupId
+								? (groupsById.get(selectedIdea.groupId)?.name ?? "Group")
+								: null
+						}
+						onExpand={
+							selectedIdea ? () => void expandIdea(selectedIdea) : undefined
+						}
+						onCompose={selectedIdea ? () => composeIdea(selectedIdea) : undefined}
+						expanding={selectedIdea ? variantBusyId === selectedIdea.id : false}
+					/>
+				</div>
+			</NovaBentoGrid>
 		</NovaScreen>
 	);
 }

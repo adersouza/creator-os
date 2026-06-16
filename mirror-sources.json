@@ -1,0 +1,50 @@
+{
+  "_doc": "Maps each remaining monorepo read-only mirror to its source split repo at a pinned commit. ThreadsDashboard is the only remaining mirror and stays standalone. reel_factory, campaign_factory, contentforge, and reference_factory are canonical in this monorepo. pipeline_contracts is intentionally excluded because it is canonical in the monorepo.",
+  "excludeDefault": [
+    ".git/",
+    ".env.example",
+    ".generated/",
+    "**/project_data/",
+    "node_modules/",
+    "**/node_modules/",
+    ".venv/",
+    ".next/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "__pycache__/",
+    "*.egg-info/",
+    "*.pyc",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".mypy_cache/",
+    "**/output/",
+    "**/uploads/",
+    "**/campaigns/",
+    "**/models/",
+    "**/00_source_videos/",
+    "**/02_processed/",
+    "graphify-out/",
+    "identity_references/",
+    "*.sqlite*",
+    "*.db",
+    "*.mp4",
+    "*.mov",
+    ".DS_Store"
+  ],
+  "mirrors": [
+    {
+      "mirrorPath": "apps/dashboard",
+      "sourceRepoPath": "../ThreadsDashboard",
+      "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
+      "sourceCommit": "22cf7b959b6058475b0f8590d9597ce81b8c2960",
+      "include": [
+        "**/*"
+      ],
+      "exclude": [
+        "pipeline_contracts/",
+        "schemas/"
+      ]
+    }
+  ]
+}

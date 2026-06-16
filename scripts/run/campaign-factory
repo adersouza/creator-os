@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+export REEL_FACTORY_ROOT="${REEL_FACTORY_ROOT:-$REPO_ROOT/python_packages/reel_factory}"
+export CONTENTFORGE_ROOT="${CONTENTFORGE_ROOT:-$REPO_ROOT/apps/contentforge}"
+export REFERENCE_FACTORY_ROOT="${REFERENCE_FACTORY_ROOT:-$REPO_ROOT/python_packages/reference_factory}"
+export THREADSDASH_ROOT="${THREADSDASH_ROOT:-$REPO_ROOT/apps/dashboard}"
+
+cd "$REPO_ROOT"
+exec uv run --package campaign-factory campaign-factory "$@"

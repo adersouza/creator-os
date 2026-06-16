@@ -1,7 +1,10 @@
 import { logger } from "../../logger.js";
 import { getSupabaseAny } from "../../supabase.js";
 import { escapeForPrompt } from "../../promptUtils.js";
-import { profileCuriosityPriorityScore } from "./performanceFirst.js";
+import {
+	isLowCuriosityAiFormulaContent,
+	profileCuriosityPriorityScore,
+} from "./performanceFirst.js";
 
 export type StrategyRecommendationAction =
 	| "increase"
@@ -378,13 +381,20 @@ function recommendationPerformanceRank(
 		recommendationIsCompetitorBacked(recommendation)
 			? 8
 			: 0;
+	const lowCuriosityFormulaPenalty = isLowCuriosityAiFormulaContent(
+		sourceText,
+		typeof basis.sourceType === "string" ? basis.sourceType : null,
+	)
+		? 160
+		: 0;
 	return (
 		recommendation.confidence * 100 +
 		Math.min(25, views24h / 12) +
 		Math.min(10, replies1h * 2) +
 		profileCuriosityScore +
 		evidenceBonus +
-		competitorBonus
+		competitorBonus -
+		lowCuriosityFormulaPenalty
 	);
 }
 

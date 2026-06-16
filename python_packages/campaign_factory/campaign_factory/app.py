@@ -25,7 +25,6 @@ from .adapters.threadsdash import (
 )
 from .config import PROJECT_ROOT, get_settings
 from .core import CampaignFactory
-from .cost_tracker import cost_summary
 
 settings = get_settings()
 app = FastAPI(title="campaign_factory")
@@ -51,17 +50,6 @@ def dashboard(campaign: str | None = None):
     cf = factory()
     try:
         return cf.dashboard(campaign)
-    finally:
-        cf.close()
-
-
-@app.get("/api/cost-summary")
-def get_cost_summary(campaign_id: str | None = None, days: int | None = None):
-    cf = factory()
-    try:
-        return cost_summary(cf.conn, campaign_id=campaign_id, days=days)
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
     finally:
         cf.close()
 
@@ -1018,14 +1006,6 @@ def review_decision(body: dict[str, Any] = Body(...)):
             body["renderedAssetId"],
             decision=body["decision"],
             notes=body.get("notes"),
-            reviewer=body.get("reviewer"),
-            source_deck_id=body.get("sourceDeckId") or body.get("source_deck_id"),
-            reference_hash=body.get("referenceHash") or body.get("reference_hash"),
-            generated_image_hash=body.get("generatedImageHash") or body.get("generated_image_hash"),
-            soul_id=body.get("soulId") or body.get("soul_id"),
-            aspect_ratio=body.get("aspectRatio") or body.get("aspect_ratio"),
-            visual_qc_status=body.get("visualQcStatus") or body.get("visual_qc_status"),
-            identity_verification_status=body.get("identityVerificationStatus") or body.get("identity_verification_status"),
             require_safe_audit=not bool(body.get("forceUnsafeAudit")),
         )
     except Exception as exc:

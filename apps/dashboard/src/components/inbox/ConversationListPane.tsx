@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/Input";
 import { ListRow } from "@/components/ui/ListRow";
 import { NovaEmpty } from "@/components/ui/NovaPrimitives";
 import { TogglePill } from "@/components/ui/TogglePill";
+import { VirtualizedList } from "@/components/ui/VirtualizedList";
 import { cn } from "@/lib/utils";
 import { MobilePageShell, MobileSection } from "@/components/layout/mobile";
 import { ConversationRow } from "./ConversationRow";
@@ -77,7 +78,7 @@ export function ConversationListPane({
 	return (
 		<aside
 			className={cn(
-				"flex w-full shrink-0 flex-col border-r border-border bg-card transition-transform duration-300 md:w-[360px] md:translate-x-0 xl:w-[390px]",
+				"flex w-full shrink-0 flex-col border-r border-border bg-card transition-transform duration-300 md:w-[384px] md:translate-x-0 xl:w-[420px]",
 				viewingThread
 					? "-translate-x-full absolute md:relative inset-0 md:inset-auto h-full z-10 md:z-auto"
 					: "translate-x-0",
@@ -87,7 +88,7 @@ export function ConversationListPane({
 				<div className="mb-3 flex items-center justify-between gap-3">
 					<div className="min-w-0">
 						<div className="text-[0.71875rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-							Conversation queue
+							Conversations
 						</div>
 						<div className="mt-0.5 text-[0.8125rem] font-medium text-foreground">
 							{visible.length} visible
@@ -133,7 +134,7 @@ export function ConversationListPane({
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-y-auto scrollbar-hide px-2 py-2">
+			<div className="flex min-h-0 flex-1 flex-col px-2.5 py-2.5">
 				{noise.length > 1 && (
 					<Button
 						type="button"
@@ -145,36 +146,45 @@ export function ConversationListPane({
 						{noiseExpanded ? "Hide" : "Show"} {noise.length} emoji-only comments
 					</Button>
 				)}
-				{visible.map((c) => (
-					<ConversationRow
-						key={c.id}
-						conversation={c}
-						active={activeConversation?.id === c.id}
-						identityAdvisory={identityAdvisories.get(c.id)}
-						suggestion={suggestionsByKey.get(keyForConversation(c))}
-						done={doneKeys.has(keyForConversation(c))}
-						needsAttention={needsAttention(
-							c,
-							suggestionsByKey.get(keyForConversation(c)),
-						)}
-						onClick={() => onOpen(c.id)}
-						onAcceptSuggestion={onAcceptSuggestion}
-						onRejectSuggestion={onRejectSuggestion}
-					/>
-				))}
-
-				{conversations.length === 0 && (
-					<NovaEmpty
-						className="m-8"
-						icon={<CheckCircle2 data-icon aria-hidden="true" />}
-						title="Inbox zero"
-						description={`Nothing in ${
-							tabsForPlatform(platform)
-								.find((t) => t.id === tab)
-								?.label.toLowerCase() ?? "this queue"
-						} for this filter.`}
-					/>
-				)}
+				<VirtualizedList
+					items={visible}
+					estimateSize={132}
+					height="100%"
+					getItemKey={(conversation) => conversation.id}
+					ariaLabel="Conversation list"
+					className="min-h-0 flex-1 rounded-none border-0 bg-transparent"
+					contentClassName="pb-2"
+					empty={
+						<NovaEmpty
+							className="m-8"
+							icon={<CheckCircle2 data-icon aria-hidden="true" />}
+							title="Inbox zero"
+							description={`Nothing in ${
+								tabsForPlatform(platform)
+									.find((t) => t.id === tab)
+									?.label.toLowerCase() ?? "this view"
+							} for this filter.`}
+						/>
+					}
+					renderItem={(c) => (
+						<div className="pb-2.5">
+							<ConversationRow
+								conversation={c}
+								active={activeConversation?.id === c.id}
+								identityAdvisory={identityAdvisories.get(c.id)}
+								suggestion={suggestionsByKey.get(keyForConversation(c))}
+								done={doneKeys.has(keyForConversation(c))}
+								needsAttention={needsAttention(
+									c,
+									suggestionsByKey.get(keyForConversation(c)),
+								)}
+								onClick={() => onOpen(c.id)}
+								onAcceptSuggestion={onAcceptSuggestion}
+								onRejectSuggestion={onRejectSuggestion}
+							/>
+						</div>
+					)}
+				/>
 			</div>
 		</aside>
 	);
@@ -357,7 +367,7 @@ export function MobileInbox({
 					/>
 				</div>
 			</div>
-			<ul className="flex flex-col gap-1.5">
+			<ul className="flex flex-col gap-2">
 				{conversations.length === 0 && totalCount === 0 ? (
 					<li>
 						<MobileSection>
@@ -379,7 +389,7 @@ export function MobileInbox({
 								description={`Nothing in ${
 									tabsForPlatform(platform)
 										.find((t) => t.id === tab)
-										?.label.toLowerCase() ?? "this queue"
+										?.label.toLowerCase() ?? "this view"
 								} for this filter.`}
 							/>
 						</MobileSection>

@@ -8,6 +8,49 @@ function isThemeChoice(v: unknown): v is ThemeChoice {
   return v === 'light' || v === 'dark' || v === 'system';
 }
 
+const THEME_STORAGE_KEY = 'juno33-theme';
+export const THEME_CHANGE_EVENT = 'juno33:theme-change';
+
+export function readThemeChoiceFromStorage(): ThemeChoice {
+  if (typeof window === 'undefined') return 'system';
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return isThemeChoice(stored) ? stored : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+export function resolveThemeChoice(choice: ThemeChoice): 'light' | 'dark' {
+  if (choice === 'system') {
+    if (typeof window === 'undefined') return 'light';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return choice;
+}
+
+export function applyThemeChoice(choice: ThemeChoice): 'light' | 'dark' {
+  const resolved = resolveThemeChoice(choice);
+  if (typeof document === 'undefined') return resolved;
+
+  document.documentElement.classList.toggle('dark', resolved === 'dark');
+
+  try {
+    if (choice === 'system') window.localStorage.removeItem(THEME_STORAGE_KEY);
+    else window.localStorage.setItem(THEME_STORAGE_KEY, choice);
+  } catch {
+    /* ignore */
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, {
+      detail: { choice, resolved },
+    }));
+  }
+
+  return resolved;
+}
+
 export async function persistThemeToRemote(choice: ThemeChoice): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -29,9 +72,9 @@ export async function loadThemeFromRemote(): Promise<ThemeChoice | null> {
   }
 }
 
-/* Brand palette — orthogonal to light/dark. Juno is canonical (default);
-   the Roman-deity alternates each have their own light + dark token sets,
-   switched via [data-theme] attribute on <html>. */
+/* Brand palette — legacy-compatible API. The product palette is now locked to
+   Nova/zinc + Juno oxblood, so every legacy palette value canonicalizes to
+   "juno" and no runtime [data-theme] switching is applied. */
 export type PaletteChoice =
   | 'juno'
   | 'neptune'
@@ -59,7 +102,8 @@ export async function persistPaletteToRemote(choice: PaletteChoice): Promise<voi
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await upsertUserSetting(user.id, 'palette', choice);
+    void choice;
+    await upsertUserSetting(user.id, 'palette', 'juno');
   } catch {
     /* best-effort — localStorage remains authoritative for unauth users */
   }
@@ -70,7 +114,7 @@ export async function loadPaletteFromRemote(): Promise<PaletteChoice | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const value = await getUserSetting(user.id, 'palette');
-    return isPaletteChoice(value) ? value : null;
+    return isPaletteChoice(value) ? 'juno' : null;
   } catch {
     return null;
   }

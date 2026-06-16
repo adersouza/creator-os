@@ -1,3 +1,5 @@
+import { Badge } from '@/components/ui/Badge';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { NovaEmpty } from '@/components/ui/NovaPrimitives';
@@ -17,29 +19,34 @@ export function AccountReconnectModal({ open, accounts, onClose }: AccountReconn
     <Modal
       open={open}
       onClose={onClose}
-      title="Fix expiring tokens"
-      description="Reconnect each account before the token window closes."
+      title="Reconnect accounts"
+      description="Refresh platform access before publishing and sync actions fail."
     >
       <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
         {accounts.map((account) => (
           <div
             key={account.id}
-            className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5"
+            className="flex items-center gap-3 rounded-lg border border-border bg-muted/45 px-3 py-3"
           >
-            <div
-              className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-[0.75rem] font-semibold text-white"
-              style={{
-                background: `linear-gradient(135deg, ${account.groupColor}, color-mix(in srgb, ${account.groupColor} 60%, var(--color-ink)))`,
-              }}
-            >
-              {(account.displayName[0] ?? '.').toUpperCase()}
-            </div>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+              <BrandLogo
+                name={account.platform === 'instagram' ? 'instagram' : 'threads'}
+                size="sm"
+                monochrome
+              />
+            </span>
             <div className="min-w-0 flex-1">
               <div className="text-[0.8125rem] font-medium text-foreground truncate">
                 {account.handle}
               </div>
-              <div className="text-[0.6875rem] text-muted-foreground tabular-nums">
-                {formatFollowers(account.followers)} followers - {expiryLabel(account)}
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[0.6875rem] text-muted-foreground tabular-nums">
+                <span>{formatFollowers(account.followers)} followers</span>
+                <Badge
+                  tone={account.needsReauth || account.tokenDaysLeft !== null && account.tokenDaysLeft <= 0 ? 'danger' : 'outline'}
+                  className="text-[0.65625rem]"
+                >
+                  {expiryLabel(account)}
+                </Badge>
               </div>
             </div>
             <Button
@@ -48,6 +55,7 @@ export function AccountReconnectModal({ open, accounts, onClose }: AccountReconn
                 void reconnectAccount(account);
               }}
               size="sm"
+              haptic="warning"
             >
               Reconnect
             </Button>

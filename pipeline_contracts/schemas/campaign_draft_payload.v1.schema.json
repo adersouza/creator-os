@@ -111,7 +111,11 @@
                         "not_approved",
                         "caption_placement_qc_failed",
                         "missing_instagram_post_caption",
-                        "instagram_post_caption_quality_failed"
+                        "instagram_post_caption_quality_failed",
+                        "visual_qc_unavailable",
+                        "visual_qc_failed",
+                        "identity_verification_unavailable",
+                        "identity_verification_failed"
                       ]
                     }
                   },

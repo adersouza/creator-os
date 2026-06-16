@@ -63,10 +63,10 @@ interface AccountLeader {
 }
 
 type ReplySortMode = 'avg' | 'best' | 'total';
-const REPLY_SORT_OPTIONS: readonly [ReplySortMode, string][] = [
-  ['avg', 'Avg thread depth'],
-  ['best', 'Best thread depth'],
-  ['total', 'Total replies'],
+const REPLY_SORT_OPTIONS: readonly [ReplySortMode, string, string][] = [
+  ['avg', 'Avg thread depth', 'Avg depth'],
+  ['best', 'Best thread depth', 'Best depth'],
+  ['total', 'Total replies', 'Replies'],
 ];
 
 export function ReplyDepthLeadersTile({ scopedAccount, accountIds, groupId }: DashboardScopeProps) {
@@ -149,15 +149,16 @@ export function ReplyDepthLeadersTile({ scopedAccount, accountIds, groupId }: Da
               onValueChange={(value) => {
                 if (value) setSortMode(value as ReplySortMode);
               }}
-              className="mb-2"
+              className="mb-2 w-full justify-start sm:w-max"
             >
-              {REPLY_SORT_OPTIONS.map(([mode, label]) => (
+              {REPLY_SORT_OPTIONS.map(([mode, label, shortLabel]) => (
                 <ToggleGroupItem
                   key={mode}
                   value={mode}
                   sizeVariant="sm"
                 >
-                  {label}
+                  <span className="sm:hidden">{shortLabel}</span>
+                  <span className="hidden sm:inline">{label}</span>
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>

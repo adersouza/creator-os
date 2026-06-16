@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  applyThemeChoice,
   persistThemeToRemote,
   loadThemeFromRemote,
+  readThemeChoiceFromStorage,
+  resolveThemeChoice,
+  THEME_CHANGE_EVENT,
   persistPaletteToRemote,
   loadPaletteFromRemote,
 } from './themeSync';
@@ -28,6 +32,57 @@ describe('themeSync — light/dark choice', () => {
     upsertSpy.mockReset();
     getSpy.mockReset();
     mockGetUser.mockReset();
+    document.documentElement.className = '';
+    localStorage.clear();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+  });
+
+  it('applies and persists explicit light/dark choices locally', () => {
+    expect(applyThemeChoice('dark')).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(localStorage.getItem('juno33-theme')).toBe('dark');
+    expect(readThemeChoiceFromStorage()).toBe('dark');
+
+    expect(applyThemeChoice('light')).toBe('light');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem('juno33-theme')).toBe('light');
+  });
+
+  it('system choice removes local storage and resolves from matchMedia', () => {
+    localStorage.setItem('juno33-theme', 'dark');
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    expect(resolveThemeChoice('system')).toBe('dark');
+    expect(applyThemeChoice('system')).toBe('dark');
+    expect(localStorage.getItem('juno33-theme')).toBeNull();
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  it('dispatches a theme change event when applying a local choice', () => {
+    const listener = vi.fn();
+    window.addEventListener(THEME_CHANGE_EVENT, listener);
+    applyThemeChoice('dark');
+    window.removeEventListener(THEME_CHANGE_EVENT, listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      choice: 'dark',
+      resolved: 'dark',
+    });
   });
 
   it('persistThemeToRemote no-ops when user is unauthenticated', async () => {
@@ -72,18 +127,18 @@ describe('themeSync — palette choice', () => {
     mockGetUser.mockReset();
   });
 
-  it('persistPaletteToRemote upserts to palette key', async () => {
+  it('persistPaletteToRemote canonicalizes legacy palettes to Juno', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u2' } } });
     await persistPaletteToRemote('neptune');
-    expect(upsertSpy).toHaveBeenCalledWith('u2', 'palette', 'neptune');
+    expect(upsertSpy).toHaveBeenCalledWith('u2', 'palette', 'juno');
   });
 
   it.each(['juno', 'neptune', 'apollo', 'mars', 'diana', 'vulcan', 'minerva'] as const)(
-    'loadPaletteFromRemote validates %s',
+    'loadPaletteFromRemote canonicalizes %s to Juno',
     async (val) => {
       mockGetUser.mockResolvedValue({ data: { user: { id: 'u2' } } });
       getSpy.mockResolvedValue(val);
-      expect(await loadPaletteFromRemote()).toBe(val);
+      expect(await loadPaletteFromRemote()).toBe('juno');
     },
   );
 

@@ -23,7 +23,6 @@ import {
 	Image as ImageIcon,
 	Film,
 	Play,
-	UploadCloud,
 	Wand2,
 	Command as CommandIcon,
 	History,
@@ -126,15 +125,7 @@ import { NovaScreen } from "@/components/layout/NovaScreen";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
-import {
-	CommandDialog,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-	CommandShortcut,
-} from "@/components/ui/Command";
+import { CommandMenuShell } from "@/components/ui/CommandMenuShell";
 import {
 	NovaCard,
 	NovaEmpty,
@@ -145,10 +136,12 @@ import {
 import { FormSection } from "@/components/ui/FormSection";
 import { Input } from "@/components/ui/Input";
 import { Kbd } from "@/components/ui/Kbd";
-import { MatrixLoader } from "@/components/ui/MatrixLoader";
+import { ProcessingState } from "@/components/ui/ProcessingState";
+import { Progress } from "@/components/ui/Progress";
 import { Select } from "@/components/ui/Select";
 import { Sheet } from "@/components/ui/Sheet";
 import { Textarea } from "@/components/ui/Textarea";
+import { UploadStatusList } from "@/components/ui/Upload";
 import {
 	AccountChip,
 	AccountPickerPopover,
@@ -647,7 +640,7 @@ function ComposerVisualPlanner({
 										}}
 									/>
 								)}
-								<span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-[0.08em] text-white">
+								<span className="absolute left-2 top-2 rounded border border-border bg-popover/90 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase tracking-[0.08em] text-popover-foreground shadow-sm">
 									{tile.attachment.kind}
 								</span>
 							</>
@@ -3821,10 +3814,141 @@ export function Composer() {
 			: scheduleMode === "schedule"
 				? "Schedule"
 				: "Queue");
+	const schedulePanel = (
+		<NovaCard contentClassName="p-4">
+			<div className="mb-3 flex items-center justify-between gap-3">
+				<span className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+					Schedule
+				</span>
+				{bestTimesLabel ? (
+					<span className="truncate text-[0.65625rem] text-muted-foreground">
+						Best time: {bestTimesLabel}
+					</span>
+				) : (
+					<span className="truncate text-[0.65625rem] text-muted-foreground">
+						{bestTimes.isLoading
+							? "Learning best times…"
+							: "Best times need 5+ posts"}
+					</span>
+				)}
+			</div>
+
+			<div className="mb-3">
+				<ScheduleModeRadio
+					scheduleMode={scheduleMode}
+					onScheduleModeChange={setScheduleMode}
+				/>
+			</div>
+
+			{scheduleMode === "schedule" && (
+				<div className="mb-3">
+					<ScheduleDateTimePickers
+						scheduleDate={scheduleDate}
+						onScheduleDateChange={setScheduleDate}
+						scheduleTime={scheduleTime}
+						onScheduleTimeChange={setScheduleTime}
+					/>
+				</div>
+			)}
+
+			{scheduleMode === "queue" && (
+				<div className="mb-3">
+					<QueueModeHint />
+				</div>
+			)}
+
+			<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[auto_auto_minmax(0,1fr)]">
+				<DraftsPopover
+					open={draftsOpen}
+					onOpenChange={setDraftsOpen}
+					drafts={drafts}
+					currentDraftId={currentDraftId}
+					onLoad={loadDraft}
+					onDelete={deleteDraft}
+					trigger={
+						<Button
+							type="button"
+							aria-haspopup="listbox"
+							variant="outline"
+							size="sm"
+							className="h-9 w-full xl:w-auto"
+						>
+							<Layers data-icon="inline-start" aria-hidden="true" />
+							Drafts
+							{drafts.length > 0 && (
+								<Badge tone="oxblood" className="h-5 px-1.5 text-[0.625rem]">
+									{drafts.length}
+								</Badge>
+							)}
+						</Button>
+					}
+				/>
+				<Button
+					type="button"
+					onClick={handleSaveDraft}
+					haptic="selection"
+					variant="outline"
+					size="sm"
+					className="h-9 w-full xl:w-auto"
+				>
+					<FileText data-icon="inline-start" aria-hidden="true" />
+					{isSavingDraft
+						? "Saving…"
+						: currentDraftId
+							? "Update draft"
+							: "Save draft"}
+				</Button>
+
+				<div
+					className={cn(
+						"hidden h-9 min-w-0 items-center gap-2 rounded-md border px-2.5 text-[0.75rem] xl:inline-flex",
+						isSubmitting && publishStage
+							? "border-[color-mix(in_srgb,var(--color-oxblood)_32%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-oxblood)_7%,transparent)] text-muted-foreground"
+							: submitBlockers.length
+								? "border-[color-mix(in_srgb,var(--color-gold)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-gold)_8%,transparent)] text-muted-foreground"
+								: "border-border bg-card text-muted-foreground",
+					)}
+					title={composerCheckTitle}
+				>
+					{submitBlockers.length ? (
+						<AlertTriangle
+							className="size-3.5 shrink-0 text-[color:var(--color-gold)]"
+							aria-hidden="true"
+						/>
+					) : isSubmitting ? (
+						<Clock
+							className="size-3.5 shrink-0 animate-pulse text-[color:var(--color-oxblood)]"
+							aria-hidden="true"
+						/>
+					) : (
+						<ShieldCheck
+							className="size-3.5 shrink-0 text-[color:var(--color-positive)]"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="truncate">{composerCheckLabel}</span>
+				</div>
+
+				<Button
+					type="button"
+					disabled={!canPublish}
+					onClick={handleSubmit}
+					haptic="selection"
+					title={composerCheckTitle}
+					size="sm"
+					className="h-9 w-full sm:col-span-2 xl:col-span-3"
+				>
+					<Send data-icon="inline-start" aria-hidden="true" />
+					{submitCtaLabel}
+				</Button>
+			</div>
+		</NovaCard>
+	);
 
 	return (
 		<NovaScreen width="full" density="compact" className="pb-28 lg:pb-8">
 			<NovaHeader
+				variant="compact"
 				eyebrow="Composer"
 				title="Compose"
 				meta={
@@ -3896,12 +4020,14 @@ export function Composer() {
 				<NovaSection className="gap-5">
 					{targets.length === 0 && !caption.trim() && media.length === 0 && (
 						<>
-							<PublishingStartCard surface="composer_empty" />
-							<SampleDraftPanel
-								hasAccounts={connectedAccounts.length > 0}
-								onUseSample={applySampleDraft}
-								onPickAccount={() => setPickerOpen(true)}
-							/>
+							<PublishingStartCard surface="composer_empty" compact />
+							{connectedAccounts.length > 0 ? (
+								<SampleDraftPanel
+									hasAccounts
+									onUseSample={applySampleDraft}
+									onPickAccount={() => setPickerOpen(true)}
+								/>
+							) : null}
 						</>
 					)}
 					{/* --- Targeting ---------------------------------------------- */}
@@ -4116,12 +4242,12 @@ export function Composer() {
 					</NovaCard>
 
 					{/* --- Caption + AI ----------------------------------------- */}
-					<NovaCard contentClassName="p-4">
-						<div className="flex items-center justify-between mb-3">
-							<span className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-								Caption
-							</span>
-							<div className="flex items-center gap-3 text-[0.65625rem] tabular-nums">
+					<NovaCard
+						title="Caption"
+						description="Write the source post, then tune it with AI only when useful."
+						className="scroll-mb-28 lg:scroll-mb-0"
+						action={
+							<div className="flex flex-wrap items-center justify-end gap-2 text-[0.65625rem] tabular-nums">
 								<Button
 									type="button"
 									onClick={() => setVoiceFileOpen(true)}
@@ -4147,10 +4273,11 @@ export function Composer() {
 									/>
 								)}
 							</div>
-						</div>
+						}
+					>
 
 						{replyToId && (
-							<div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-md bg-[color-mix(in_srgb,var(--color-oxblood)_6%,transparent)] border border-[color-mix(in_srgb,var(--color-oxblood)_12%,transparent)] text-[0.71875rem] text-oxblood">
+							<div className="mb-3 flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--color-oxblood)_12%,transparent)] bg-[color-mix(in_srgb,var(--color-oxblood)_6%,transparent)] px-2.5 py-1.5 text-[0.71875rem] text-oxblood">
 								<Reply className="w-3 h-3 shrink-0" aria-hidden="true" />
 								<span className="flex-1 truncate">
 									Replying to post{" "}
@@ -4171,149 +4298,156 @@ export function Composer() {
 							</div>
 						)}
 
-						<Textarea
-							ref={captionRef}
-							value={caption}
-							onChange={(e) => onCaptionChange(e.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Tab" && ghostSuggestion) {
-									event.preventDefault();
-									acceptGhostSuggestion();
-								}
-							}}
-							placeholder="What's the post?"
-							rows={4}
-							className="min-h-[142px] resize-none text-base leading-[1.55] md:text-[0.9375rem]"
-						/>
-						{ghostSuggestion && (
-							<Button
-								type="button"
-								onClick={acceptGhostSuggestion}
-								variant="outline"
-								size="sm"
-								className="mt-1 max-w-full justify-start border-dashed text-left text-[0.75rem]"
-							>
-								<span className="truncate">{ghostSuggestion.trim()}</span>
-								<Kbd className="shrink-0">Tab</Kbd>
-							</Button>
-						)}
-						<ChannelHealthPills accounts={targets} />
-
-						<div className="mt-3 flex items-center flex-wrap gap-1.5 border-t border-border pt-3">
-							<span className="inline-flex items-center gap-1 text-[0.65625rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground mr-1">
-								<Sparkles
-									className="w-3 h-3"
-									style={{ color: "var(--color-oxblood)" }}
-									aria-hidden="true"
-								/>
-								AI
-							</span>
-							{[
-								{ label: "Rephrase", action: "rephrase" as const },
-								{ label: "Spin", action: "spin" as const },
-								{ label: "Shorten", action: "shorten" as const },
-								{ label: "Expand", action: "expand" as const },
-								{ label: "Translate", action: "translate" as const },
-							].map(({ label, action }) => {
-								const busy = aiRunning === action;
-								return (
-									<Button
-										key={label}
-										type="button"
-										onClick={() => runAIAction(action)}
-										disabled={aiRunning !== null || !caption.trim()}
-										variant="outline"
-										size="sm"
-										className="h-7 rounded-full px-2.5 text-[0.71875rem]"
-									>
-										{busy ? (
-											<>
-												<MatrixLoader
-													label={`${label} AI action running`}
-													size="sm"
-													className="-ml-1 -mr-0.5 scale-75"
-												/>
-												{label}…
-											</>
-										) : (
-											label
-										)}
-									</Button>
-								);
-							})}
-							<Button
-								type="button"
-								onClick={runMatchVoice}
-								disabled={
-									aiRunning !== null ||
-									!caption.trim() ||
-									targetIds.length !== 1
-								}
-								title={
-									targetIds.length !== 1
-										? "Pick exactly one target account to match its voice"
-										: `Match @${targets[0]?.handle.replace(/^@/, "")}'s voice`
-								}
-								variant={targetIds.length === 1 ? "secondary" : "outline"}
-								size="sm"
-								className="h-7 rounded-full px-2.5 text-[0.71875rem]"
-							>
-								<Sparkles data-icon="inline-start" aria-hidden="true" />
-								{aiRunning === "matchVoice" ? (
-									<>
-										<MatrixLoader
-											label="Matching voice"
-											size="sm"
-											className="-ml-1 -mr-0.5 scale-75"
-										/>
-										Matching voice…
-									</>
-								) : targetIds.length === 1 ? (
-									`Match voice: @${targets[0]?.handle.replace(/^@/, "")}`
-								) : (
-									"Match voice"
-								)}
-							</Button>
-							<div className="mx-1 w-px h-4 bg-border" aria-hidden="true" />
-							<Button
-								type="button"
-								role="switch"
-								aria-checked={isHero}
-								aria-label="Mark as hero post — routes AI to Claude Haiku 4.5"
-								onClick={() => setIsHero((v) => !v)}
-								title={
-									isHero
-										? "Hero on — tone-critical AI routing (Claude Haiku 4.5)"
-										: "Mark hero — route AI to tone-critical model for this draft"
-								}
-								variant={isHero ? "secondary" : "outline"}
-								size="sm"
-								className="h-7 rounded-full px-2.5 text-[0.71875rem]"
-							>
-								<Flame data-icon="inline-start" aria-hidden="true" />
-								Hero
-							</Button>
-							<div className="mx-1 w-px h-4 bg-border" aria-hidden="true" />
-							<div className="relative inline-flex items-center">
-								<Select
-									aria-label="Composer persona"
-									value={persona}
-									onChange={(event) =>
-										setPersona(event.target.value as PersonaVoice)
+						<div className="grid gap-3">
+							<Textarea
+								ref={captionRef}
+								value={caption}
+								onChange={(e) => onCaptionChange(e.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Tab" && ghostSuggestion) {
+										event.preventDefault();
+										acceptGhostSuggestion();
 									}
-									sizeVariant="sm"
-									className="h-7 rounded-full pr-7 text-[0.71875rem]"
-									options={(Object.keys(PERSONA_LABEL) as PersonaVoice[]).map(
-										(v) => ({
-											value: v,
-											label: PERSONA_LABEL[v],
-										}),
+								}}
+								placeholder="What's the post?"
+								rows={4}
+								className="min-h-[118px] resize-none text-base leading-[1.55] md:min-h-[142px] md:text-[0.9375rem]"
+							/>
+							{ghostSuggestion && (
+								<Button
+									type="button"
+									onClick={acceptGhostSuggestion}
+									variant="outline"
+									size="sm"
+									className="max-w-full justify-start border-dashed text-left text-[0.75rem]"
+								>
+									<span className="truncate">{ghostSuggestion.trim()}</span>
+									<Kbd className="shrink-0">Tab</Kbd>
+								</Button>
+							)}
+							<ChannelHealthPills accounts={targets} />
+						</div>
+
+						<div className="mt-3 rounded-lg border border-border bg-muted/35 p-2.5 md:mt-4 md:p-3">
+							<div className="mb-2 flex items-start justify-between gap-3 md:mb-3">
+								<div className="min-w-0">
+									<div className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+										<Sparkles data-icon="inline-start" aria-hidden="true" />
+										AI actions
+									</div>
+									<p className="mt-1 hidden text-xs leading-snug text-muted-foreground sm:block">
+										Run quick rewrites, match one account's voice, or mark this
+										draft as tone-critical.
+									</p>
+								</div>
+								<Badge tone={aiRunning ? "oxblood" : "outline"}>
+									{aiRunning ? "Working" : "Ready"}
+								</Badge>
+							</div>
+							<div className="flex flex-wrap items-center gap-1.5">
+								{[
+									{ label: "Rephrase", action: "rephrase" as const },
+									{ label: "Spin", action: "spin" as const },
+									{ label: "Shorten", action: "shorten" as const },
+									{ label: "Expand", action: "expand" as const },
+									{ label: "Translate", action: "translate" as const },
+								].map(({ label, action }) => {
+									const busy = aiRunning === action;
+									return (
+										<Button
+											key={label}
+											type="button"
+											onClick={() => runAIAction(action)}
+											disabled={aiRunning !== null || !caption.trim()}
+											variant="outline"
+											size="sm"
+											className="h-8 rounded-full px-3 text-[0.71875rem]"
+										>
+											{busy ? (
+												<ProcessingState
+													label={`${label}…`}
+													size="sm"
+													inline
+													className="-ml-1 gap-1.5 border-0 bg-transparent p-0 text-[0.71875rem]"
+												/>
+											) : (
+												label
+											)}
+										</Button>
+									);
+								})}
+								<Button
+									type="button"
+									onClick={runMatchVoice}
+									disabled={
+										aiRunning !== null ||
+										!caption.trim() ||
+										targetIds.length !== 1
+									}
+									title={
+										targetIds.length !== 1
+											? "Pick exactly one target account to match its voice"
+											: `Match @${targets[0]?.handle.replace(/^@/, "")}'s voice`
+									}
+									variant={targetIds.length === 1 ? "secondary" : "outline"}
+									size="sm"
+									className="h-8 rounded-full px-3 text-[0.71875rem]"
+								>
+									<Sparkles data-icon="inline-start" aria-hidden="true" />
+									{aiRunning === "matchVoice" ? (
+										<ProcessingState
+											label="Matching voice…"
+											size="sm"
+											inline
+											className="-ml-1 gap-1.5 border-0 bg-transparent p-0 text-[0.71875rem]"
+										/>
+									) : targetIds.length === 1 ? (
+										`Match voice: @${targets[0]?.handle.replace(/^@/, "")}`
+									) : (
+										"Match voice"
 									)}
-								/>
-								<ChevronDown
-									className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none"
-									aria-hidden="true"
-								/>
+								</Button>
+							</div>
+							<div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+								<Button
+									type="button"
+									role="switch"
+									aria-checked={isHero}
+									aria-label="Mark as hero post — routes AI to Claude Haiku 4.5"
+									onClick={() => setIsHero((v) => !v)}
+									title={
+										isHero
+											? "Hero on — tone-critical AI routing (Claude Haiku 4.5)"
+											: "Mark hero — route AI to tone-critical model for this draft"
+									}
+									variant={isHero ? "secondary" : "outline"}
+									size="sm"
+									className="h-8 rounded-full px-3 text-[0.71875rem]"
+								>
+									<Flame data-icon="inline-start" aria-hidden="true" />
+									Hero
+								</Button>
+								<div className="relative inline-flex items-center">
+									<Select
+										aria-label="Composer persona"
+										value={persona}
+										onChange={(event) =>
+											setPersona(event.target.value as PersonaVoice)
+										}
+										sizeVariant="sm"
+										className="h-8 rounded-full pr-7 text-[0.71875rem]"
+										options={(Object.keys(PERSONA_LABEL) as PersonaVoice[]).map(
+											(v) => ({
+												value: v,
+												label: PERSONA_LABEL[v],
+											}),
+										)}
+									/>
+									<ChevronDown
+										className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+										aria-hidden="true"
+									/>
+								</div>
 							</div>
 						</div>
 					</NovaCard>
@@ -4605,6 +4739,8 @@ export function Composer() {
 						</div>
 					</NovaCard>
 
+					{schedulePanel}
+
 					<UnifiedPublishingReadinessCard
 						checks={readinessChecks}
 						setupIssues={publishingReadinessIssues}
@@ -4690,141 +4826,11 @@ export function Composer() {
 							/>
 						</>
 					)}
-
-					<NovaCard contentClassName="p-4">
-						<div className="flex items-center justify-between mb-3">
-							<span className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-								Schedule
-							</span>
-							{bestTimesLabel ? (
-								<span className="text-[0.65625rem] text-muted-foreground">
-									Best time: {bestTimesLabel}
-								</span>
-							) : (
-								<span className="text-[0.65625rem] text-muted-foreground">
-									{bestTimes.isLoading
-										? "Learning best times…"
-										: "Best times need 5+ posts"}
-								</span>
-							)}
-						</div>
-
-						<div className="mb-3">
-							<ScheduleModeRadio
-								scheduleMode={scheduleMode}
-								onScheduleModeChange={setScheduleMode}
-							/>
-						</div>
-
-						{scheduleMode === "schedule" && (
-							<div className="mb-3">
-								<ScheduleDateTimePickers
-									scheduleDate={scheduleDate}
-									onScheduleDateChange={setScheduleDate}
-									scheduleTime={scheduleTime}
-									onScheduleTimeChange={setScheduleTime}
-								/>
-							</div>
-						)}
-
-						{scheduleMode === "queue" && (
-							<div className="mb-3">
-								<QueueModeHint />
-							</div>
-						)}
-
-						<div className="flex items-center gap-2">
-							<DraftsPopover
-								open={draftsOpen}
-								onOpenChange={setDraftsOpen}
-								drafts={drafts}
-								currentDraftId={currentDraftId}
-								onLoad={loadDraft}
-								onDelete={deleteDraft}
-								trigger={
-									<Button
-										type="button"
-										aria-haspopup="listbox"
-										variant="outline"
-										size="sm"
-										className="h-9"
-									>
-										<Layers data-icon="inline-start" aria-hidden="true" />
-										Drafts
-										{drafts.length > 0 && (
-											<Badge
-												tone="oxblood"
-												className="h-5 px-1.5 text-[0.625rem]"
-											>
-												{drafts.length}
-											</Badge>
-										)}
-									</Button>
-								}
-							/>
-							<Button
-								type="button"
-								onClick={handleSaveDraft}
-								variant="outline"
-								size="sm"
-								className="h-9"
-							>
-								<FileText data-icon="inline-start" aria-hidden="true" />
-								{isSavingDraft
-									? "Saving…"
-									: currentDraftId
-										? "Update draft"
-										: "Save draft"}
-							</Button>
-
-							<div
-								className={cn(
-									"hidden xl:inline-flex h-9 min-w-[168px] items-center gap-2 rounded-md border px-2.5 text-[0.75rem]",
-									isSubmitting && publishStage
-										? "border-[color-mix(in_srgb,var(--color-oxblood)_32%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-oxblood)_7%,transparent)] text-muted-foreground"
-										: submitBlockers.length
-											? "border-[color-mix(in_srgb,var(--color-gold)_36%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-gold)_8%,transparent)] text-muted-foreground"
-											: "border-border bg-card text-muted-foreground",
-								)}
-								title={composerCheckTitle}
-							>
-								{submitBlockers.length ? (
-									<AlertTriangle
-										className="h-3.5 w-3.5 shrink-0 text-[color:var(--color-gold)]"
-										aria-hidden="true"
-									/>
-								) : isSubmitting ? (
-									<Clock
-										className="h-3.5 w-3.5 shrink-0 animate-pulse text-[color:var(--color-oxblood)]"
-										aria-hidden="true"
-									/>
-								) : (
-									<ShieldCheck
-										className="h-3.5 w-3.5 shrink-0 text-[color:var(--color-positive)]"
-										aria-hidden="true"
-									/>
-								)}
-								<span className="truncate">{composerCheckLabel}</span>
-							</div>
-
-							<Button
-								type="button"
-								disabled={!canPublish}
-								onClick={handleSubmit}
-								title={composerCheckTitle}
-								size="sm"
-								className="h-9 flex-1"
-							>
-								<Send data-icon="inline-start" aria-hidden="true" />
-								{submitCtaLabel}
-							</Button>
-						</div>
-					</NovaCard>
 				</NovaSection>
 			</div>
 
-			<div className="fixed inset-x-0 bottom-0 z-[70] border-t border-border bg-card/95 px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 shadow-lg backdrop-blur-md lg:hidden">
-				<div className="mx-auto flex max-w-[720px] items-center gap-1.5">
+			<div className="fixed inset-x-0 bottom-0 z-[70] border-t border-border bg-card/95 px-2.5 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 shadow-lg backdrop-blur-md lg:hidden">
+				<div className="mx-auto flex max-w-[720px] items-center gap-1">
 					<ComposerMobileButton
 						onClick={() => setMobilePreviewOpen(true)}
 						label="Preview"
@@ -4860,7 +4866,7 @@ export function Composer() {
 						disabled={!canPublish}
 						onClick={handleSubmit}
 						title={composerCheckTitle}
-						className="h-11 shrink-0 flex-1 max-w-[130px] gap-1.5 text-[0.84375rem]"
+						className="h-11 min-w-[76px] shrink-0 flex-1 max-w-[116px] gap-1.5 px-2 text-[0.8125rem]"
 					>
 						<Send data-icon="inline-start" aria-hidden="true" />
 						{mobileSubmitLabel}
@@ -5170,20 +5176,20 @@ function SampleDraftPanel({
 		<FormSection
 			eyebrow="Starter draft"
 			title="Start with a realistic Reel setup."
-			description="Replace the copy and media when you are ready. This stays client-side until you save or schedule it."
+			description="Load a safe sample to test targeting and preview states."
 			action={
 				<Button type="button" onClick={onUseSample} size="sm">
 					Use sample
 				</Button>
 			}
-			contentClassName="p-4 pt-0"
+			variant="compact"
+			contentClassName="px-3.5 pb-3.5 pt-0"
 		>
-			<div className="rounded-md border border-border bg-muted/35 p-3 text-sm text-muted-foreground">
-				Use a sample draft to quickly check account targeting, media validation,
-				and preview states without publishing anything.
+			<div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-[0.78125rem] text-muted-foreground">
+				Sample content stays local until you save or schedule it.
 			</div>
 			{hasAccounts ? (
-				<div className="mt-3">
+				<div className="mt-2">
 					<Button
 						type="button"
 						onClick={onPickAccount}
@@ -5215,10 +5221,10 @@ function ComposerMobileButton({
 			onClick={onClick}
 			variant={highlighted ? "secondary" : "ghost"}
 			size="sm"
-			className="h-11 min-w-0 flex-1 flex-col gap-0.5 px-2 text-[0.6875rem]"
+			className="h-11 min-w-[56px] flex-1 flex-col gap-0.5 px-1.5 text-[0.625rem] leading-none"
 		>
 			{icon}
-			<span className="max-w-full truncate">{label}</span>
+			<span className="max-w-full whitespace-nowrap">{label}</span>
 		</Button>
 	);
 }
@@ -5482,7 +5488,7 @@ function ComposerCommandPalette({
 			.includes(query.toLowerCase()),
 	);
 	return (
-		<CommandDialog
+		<CommandMenuShell
 			open={open}
 			title="Composer command palette"
 			description="Search composer actions and run the selected command."
@@ -5490,46 +5496,33 @@ function ComposerCommandPalette({
 				onOpenChange(nextOpen);
 				if (!nextOpen) setQuery("");
 			}}
-		>
-			<CommandInput
-				value={query}
-				onValueChange={setQuery}
-				placeholder="Run composer action..."
-			/>
-			<CommandList className="max-h-[420px] overflow-y-auto p-2">
-				{filtered.length === 0 ? (
-					<CommandEmpty>No composer action found.</CommandEmpty>
-				) : (
-					<CommandGroup heading="Composer actions">
-						{filtered.map((command) => (
-							<CommandItem
-								key={command.id}
-								value={command.id}
-								onSelect={() => {
+			value={query}
+			onValueChange={setQuery}
+			placeholder="Run composer action..."
+			empty="No composer action found."
+			groups={
+				filtered.length === 0
+					? []
+					: [
+							{
+								id: "composer-actions",
+								heading: "Composer actions",
+								items: filtered.map((command) => ({
+									id: command.id,
+									label: command.label,
+									description: command.detail,
+									icon: <CommandIcon aria-hidden="true" />,
+									shortcut: <Kbd>Enter</Kbd>,
+									onSelect: () => {
 									command.run();
 									onOpenChange(false);
 									setQuery("");
-								}}
-								className="gap-3"
-							>
-								<span className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
-									<CommandIcon aria-hidden="true" />
-								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block text-[0.84375rem] font-medium text-foreground">
-										{command.label}
-									</span>
-									<span className="mt-0.5 block text-[0.71875rem] text-muted-foreground">
-										{command.detail}
-									</span>
-								</span>
-								<CommandShortcut>Enter</CommandShortcut>
-							</CommandItem>
-						))}
-					</CommandGroup>
-				)}
-			</CommandList>
-		</CommandDialog>
+								},
+							})),
+						},
+					]
+			}
+		/>
 	);
 }
 
@@ -5553,50 +5546,87 @@ function BulkUploadQueuePanel({
 	disabled: boolean;
 }) {
 	const selectedCount = items.filter((item) => item.selected).length;
+	const blockedCount = items.filter((item) => item.status === "error").length;
+	const completedCount = items.filter((item) => item.status === "done").length;
+	const activeCount = items.filter((item) =>
+		["uploading", "saving"].includes(item.status),
+	).length;
+	const queueProgress = Math.round((completedCount / Math.max(1, items.length)) * 100);
+
 	return (
-		<NovaCard contentClassName="p-4">
-			<div className="mb-3 flex items-center justify-between gap-3">
-				<div className="inline-flex items-center gap-2">
-					<UploadCloud
-						className="h-4 w-4 text-muted-foreground"
-						aria-hidden="true"
-					/>
-					<div>
-						<div className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-							Bulk upload queue
+		<NovaCard
+			title="Bulk upload queue"
+			description={`${selectedCount} selected · review captions and schedule settings before creating posts.`}
+			action={
+				<div className="flex flex-wrap items-center justify-end gap-2">
+					<Badge tone={blockedCount > 0 ? "oxblood" : "outline"}>
+						{blockedCount > 0 ? `${blockedCount} need review` : `${items.length} files`}
+					</Badge>
+					{activeCount > 0 ? <Badge tone="oxblood">Processing</Badge> : null}
+				</div>
+			}
+			footer={
+				<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+					<div className="grid min-w-0 flex-1 gap-1.5">
+						<div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+							<span className="truncate">Queue progress</span>
+							<span className="shrink-0 tabular-nums">
+								{completedCount} of {items.length} done
+							</span>
 						</div>
-						<div className="mt-0.5 text-[0.71875rem] text-muted-foreground">
-							{selectedCount} selected · review before creating posts
-						</div>
+						<Progress
+							value={queueProgress}
+							tone={blockedCount > 0 ? "warn" : "default"}
+							aria-label="Bulk upload queue progress"
+						/>
+					</div>
+					<div className="flex shrink-0 items-center gap-1.5">
+						<Button
+							type="button"
+							onClick={onCreateDrafts}
+							disabled={disabled || selectedCount === 0}
+							variant="outline"
+							size="sm"
+						>
+							Create drafts
+						</Button>
+						<Button
+							type="button"
+							onClick={onScheduleSelected}
+							disabled={disabled || selectedCount === 0}
+							size="sm"
+						>
+							Schedule selected
+						</Button>
 					</div>
 				</div>
-				<div className="flex items-center gap-1.5">
-					<Button
-						type="button"
-						onClick={onCreateDrafts}
-						disabled={disabled || selectedCount === 0}
-						variant="outline"
-						size="sm"
-					>
-						Create drafts
-					</Button>
-					<Button
-						type="button"
-						onClick={onScheduleSelected}
-						disabled={disabled || selectedCount === 0}
-						size="sm"
-					>
-						Schedule selected
-					</Button>
-				</div>
-			</div>
-			<div className="flex flex-col gap-2">
-				{items.map((item, index) => (
-					<div
-						key={item.id}
-						className="grid gap-3 rounded-md border border-border bg-card p-3 md:grid-cols-[72px_minmax(0,1fr)_170px]"
-					>
-						<div className="relative h-[72px] overflow-hidden rounded-md border border-border bg-muted">
+			}
+		>
+			<UploadStatusList
+				showSections={false}
+				items={items.map((item, index) => ({
+					id: item.id,
+					name: item.name,
+					status: item.status,
+					description:
+						item.error || item.warnings[0] || "Review caption and scheduling.",
+					progress:
+						item.status === "done"
+							? 100
+							: item.status === "uploading" || item.status === "saving"
+								? 58
+								: undefined,
+					selectedControl: (
+						<Checkbox
+							checked={item.selected}
+							onCheckedChange={(checked) =>
+								onUpdate(item.id, { selected: checked === true })
+							}
+							aria-label={`Select ${item.name}`}
+						/>
+					),
+					preview: (
+						<span className="block h-[72px] w-[72px] overflow-hidden rounded-md border border-border bg-muted">
 							{item.kind === "video" ? (
 								<video
 									src={item.previewUrl}
@@ -5611,33 +5641,11 @@ function BulkUploadQueuePanel({
 									className="h-full w-full object-cover"
 								/>
 							)}
-							<Checkbox
-								checked={item.selected}
-								onCheckedChange={(checked) =>
-									onUpdate(item.id, { selected: checked === true })
-								}
-								className="absolute left-1 top-1"
-								aria-label={`Select ${item.name}`}
-							/>
-						</div>
-						<div className="min-w-0">
-							<div className="flex items-center gap-2">
-								<div className="truncate text-[0.8125rem] font-medium text-foreground">
-									{item.name}
-								</div>
-								<Badge
-									tone={
-										item.status === "error"
-											? "oxblood"
-											: item.status === "done"
-												? "secondary"
-												: "outline"
-									}
-								>
-									{item.status}
-								</Badge>
-							</div>
-							<div className="mt-2 flex items-center gap-1.5">
+						</span>
+					),
+					meta: (
+						<div className="grid min-w-0 gap-2">
+							<div className="flex flex-wrap items-center gap-1.5">
 								<Button
 									type="button"
 									onClick={() => onMove(item.id, -1)}
@@ -5666,15 +5674,11 @@ function BulkUploadQueuePanel({
 								}
 								rows={2}
 								placeholder="Caption for this post"
-								className="mt-2"
 							/>
-							{(item.error || item.warnings.length > 0) && (
-								<div className="mt-1.5 text-[0.6875rem] leading-snug text-muted-foreground">
-									{item.error || item.warnings[0]}
-								</div>
-							)}
 						</div>
-						<div className="flex flex-col gap-2">
+					),
+					actions: (
+						<div className="grid min-w-[12rem] gap-2">
 							<div className="grid grid-cols-2 gap-1.5">
 								<Select
 									value={item.postType}
@@ -5741,9 +5745,9 @@ function BulkUploadQueuePanel({
 								</Button>
 							</div>
 						</div>
-					</div>
-				))}
-			</div>
+					),
+				}))}
+			/>
 		</NovaCard>
 	);
 }

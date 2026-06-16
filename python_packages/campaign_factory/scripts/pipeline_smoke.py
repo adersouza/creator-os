@@ -11,9 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from campaign_factory.pipeline_smoke import run_pipeline_smoke
 
 
+DEFAULT_PROJECTS_ROOT = Path(__file__).resolve().parents[2]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the opt-in local-only cross-repo pipeline smoke fixture.")
-    parser.add_argument("--projects-root", default="/Users/adercialonedesouza/Projects")
+    parser.add_argument("--projects-root", default=str(DEFAULT_PROJECTS_ROOT))
     parser.add_argument("--workspace", default=None, help="Optional temp workspace to keep smoke artifacts.")
     parser.add_argument("--skip-threadsdash-validator", action="store_true")
     parser.add_argument("--real-providers", action="store_true", help="Reserved for a future paid-provider acceptance smoke; current default is mocked/no credits.")

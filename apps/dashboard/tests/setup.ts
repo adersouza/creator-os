@@ -1,9 +1,8 @@
 // Vitest global setup
 import "@testing-library/jest-dom";
-import { vi } from "vitest";
 
-vi.stubEnv("VITE_SUPABASE_URL", "https://test-project.supabase.co");
-vi.stubEnv("VITE_SUPABASE_ANON_KEY", "test-anon-key");
+import.meta.env.VITE_SUPABASE_URL ??= "http://127.0.0.1:54321";
+import.meta.env.VITE_SUPABASE_ANON_KEY ??= "test-anon-key";
 
 // Ensure localStorage is available in jsdom environment.
 // Some jsdom versions provide a broken localStorage stub — always override.
@@ -28,3 +27,16 @@ Object.defineProperty(window, 'localStorage', {
   writable: true,
   configurable: true,
 });
+
+// Radix/shadcn primitives use ResizeObserver in layout effects. jsdom does not
+// provide a reliable global constructor, so expose the same mock everywhere.
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+const ResizeObserverCtor = window.ResizeObserver ?? ResizeObserverMock;
+// @ts-expect-error jsdom does not type this slot consistently across globals.
+window.ResizeObserver = ResizeObserverCtor;
+globalThis.ResizeObserver = ResizeObserverCtor as unknown as typeof ResizeObserver;

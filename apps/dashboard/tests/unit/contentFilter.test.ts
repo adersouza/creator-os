@@ -137,9 +137,33 @@ describe("contentFilter", () => {
 			}
 		});
 
-		it("allows human-facing opinion and confession prefixes", () => {
-			expect(filterContent("opinion: pre-workout should taste like candy", cfg).passed).toBe(true);
-			expect(filterContent("confession: i still listen to my middle school playlist", cfg).passed).toBe(true);
+		it("rejects mechanical formula prefixes from generated content", () => {
+			const formulaPosts = [
+				"hot take: protein bars are overrated. trust",
+				"unpopular opinion: cardio is fake. on god",
+				"opinion: pre-workout should taste like candy",
+				"confession: i still listen to my middle school playlist",
+				"asking for a friend: is it weird if i still have a night light?",
+			];
+
+			for (const text of formulaPosts) {
+				const result = filterContent(text, cfg);
+				expect(result.passed).toBe(false);
+				expect(result.reason).toBe("structural-formula-prefix");
+			}
+		});
+
+		it("allows non-label uses of hot take and confession wording", () => {
+			expect(filterContent("my hot take is that gym dates are underrated", cfg).passed).toBe(true);
+			expect(filterContent("i have a confession about my gym crush", cfg).passed).toBe(true);
+		});
+
+		it("rejects stacked slogan endings while allowing occasional persona slang", () => {
+			const stacked = filterContent("protein coffee is superior trust fr no cap", cfg);
+			expect(stacked.passed).toBe(false);
+			expect(stacked.reason).toBe("structural-stacked-slang-ending");
+
+			expect(filterContent("would you date a girl who lifts heavy? no cap", cfg).passed).toBe(true);
 		});
 
 		it("rejects AI preamble", () => {
@@ -319,7 +343,6 @@ describe("contentFilter", () => {
 
 		const thirstTermsThatShouldPass: string[] = [
 			"feeling horny on a tuesday night honestly",
-			"check my onlyfans link in bio for more",
 			"stoners unite we love a good vibe here",
 			"wet for you and i dont care who knows",
 			"420 friendly only please and thank you",

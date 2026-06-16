@@ -1,4 +1,4 @@
-import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import React from "react";
 import { cn } from "@/lib/utils";
 
@@ -22,19 +22,41 @@ TabsList.displayName = TabsPrimitive.List.displayName;
 export const TabsTrigger = React.forwardRef<
 	React.ElementRef<typeof TabsPrimitive.Trigger>,
 	React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(({ className, ...props }, ref) => (
-	<TabsPrimitive.Trigger
-		ref={ref}
-		className={cn(
-			"app-control-text flex h-8 shrink-0 items-center justify-center rounded-full px-4 text-muted-foreground transition-colors",
-			"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-card)]",
-			"disabled:pointer-events-none disabled:opacity-50",
-			"data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm",
-			className,
-		)}
-		{...props}
-	/>
-));
+>(({ className, ...props }, ref) => {
+	const localRef = React.useRef<React.ElementRef<typeof TabsPrimitive.Trigger>>(null);
+
+	React.useEffect(() => {
+		const node = localRef.current;
+		if (node?.getAttribute("data-state") === "active") {
+			node.scrollIntoView({
+				behavior: "smooth",
+				block: "nearest",
+				inline: "nearest",
+			});
+		}
+	});
+
+	return (
+		<TabsPrimitive.Trigger
+			ref={(node) => {
+				localRef.current = node;
+				if (typeof ref === "function") {
+					ref(node);
+				} else if (ref) {
+					ref.current = node;
+				}
+			}}
+			className={cn(
+				"app-control-text flex h-8 shrink-0 items-center justify-center rounded-full px-4 text-muted-foreground transition-colors",
+				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-card)]",
+				"disabled:pointer-events-none disabled:opacity-50",
+				"data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm",
+				className,
+			)}
+			{...props}
+		/>
+	);
+});
 TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
 
 export const TabsContent = React.forwardRef<

@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS rendered_assets (
   snapchat_username TEXT,
   snapchat_display_name TEXT,
   snapchat_cta_text TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
   audit_status TEXT NOT NULL DEFAULT 'pending',
   review_state TEXT NOT NULL DEFAULT 'draft',
   created_at TEXT NOT NULL,
@@ -395,15 +396,6 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
   rendered_asset_id TEXT NOT NULL,
   decision TEXT NOT NULL,
   notes TEXT,
-  reviewer TEXT,
-  source_deck_id TEXT,
-  reference_hash TEXT,
-  generated_image_hash TEXT,
-  soul_id TEXT,
-  aspect_ratio TEXT,
-  visual_qc_status TEXT,
-  identity_verification_status TEXT,
-  previous_decision TEXT,
   created_at TEXT NOT NULL,
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
@@ -482,6 +474,28 @@ CREATE INDEX IF NOT EXISTS idx_performance_rendered_asset ON performance_snapsho
 CREATE INDEX IF NOT EXISTS idx_performance_source_asset ON performance_snapshots(source_asset_id);
 CREATE INDEX IF NOT EXISTS idx_performance_caption_hash ON performance_snapshots(caption_hash);
 CREATE INDEX IF NOT EXISTS idx_performance_recipe ON performance_snapshots(recipe);
+
+CREATE TABLE IF NOT EXISTS tribev2_reel_scores (
+  id TEXT PRIMARY KEY,
+  rendered_asset_id TEXT,
+  campaign_id TEXT,
+  content_hash TEXT,
+  model_id TEXT NOT NULL DEFAULT 'facebook/tribev2',
+  model_mode TEXT NOT NULL DEFAULT 'audio_video_cpu',
+  mean_abs_activation REAL NOT NULL DEFAULT 0,
+  peak_abs_activation REAL NOT NULL DEFAULT 0,
+  std_activation REAL NOT NULL DEFAULT 0,
+  segments_count INTEGER NOT NULL DEFAULT 0,
+  preds_shape_json TEXT NOT NULL DEFAULT '[]',
+  metrics_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tribev2_rendered_asset ON tribev2_reel_scores(rendered_asset_id);
+CREATE INDEX IF NOT EXISTS idx_tribev2_campaign ON tribev2_reel_scores(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_tribev2_content_hash ON tribev2_reel_scores(content_hash);
+
 CREATE INDEX IF NOT EXISTS idx_concepts_campaign ON concepts(campaign_id, status);
 CREATE INDEX IF NOT EXISTS idx_variant_families_concept ON variant_families(concept_id, status);
 CREATE INDEX IF NOT EXISTS idx_variant_assets_family ON variant_assets(variant_family_id, variant_index);
@@ -1179,7 +1193,6 @@ def init_db(conn: sqlite3.Connection) -> None:
             "variant_index": "INTEGER",
             "variant_operations_json": "TEXT NOT NULL DEFAULT '[]'",
             "caption_generation_json": "TEXT NOT NULL DEFAULT '{}'",
-            "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
             "caption_hash": "TEXT",
             "caption_bank": "TEXT",
             "caption_banks_json": "TEXT NOT NULL DEFAULT '[]'",
@@ -1204,6 +1217,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             "snapchat_username": "TEXT",
             "snapchat_display_name": "TEXT",
             "snapchat_cta_text": "TEXT",
+            "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
     _ensure_columns(
@@ -1328,21 +1342,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _ensure_columns(
         conn,
-        "approval_decisions",
-        {
-            "reviewer": "TEXT",
-            "source_deck_id": "TEXT",
-            "reference_hash": "TEXT",
-            "generated_image_hash": "TEXT",
-            "soul_id": "TEXT",
-            "aspect_ratio": "TEXT",
-            "visual_qc_status": "TEXT",
-            "identity_verification_status": "TEXT",
-            "previous_decision": "TEXT",
-        },
-    )
-    _ensure_columns(
-        conn,
         "asset_account_assignments",
         {
             "caption_hash": "TEXT",
@@ -1361,18 +1360,6 @@ def init_db(conn: sqlite3.Connection) -> None:
             "caption_outcome_context_json": "TEXT NOT NULL DEFAULT '{}'",
             "instagram_trial_reels": "INTEGER NOT NULL DEFAULT 0",
             "trial_graduation_strategy": "TEXT",
-        },
-    )
-    _ensure_columns(
-        conn,
-        "asset_inventory_reservations",
-        {
-            "source_family_id": "TEXT",
-            "perceptual_fingerprint": "TEXT",
-            "perceptual_cluster_id": "TEXT",
-            "account_group_id": "TEXT",
-            "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
-            "override_reason": "TEXT",
         },
     )
     _ensure_columns(
@@ -1641,7 +1628,6 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
           source_clip TEXT,
           caption_outcome_context_json TEXT NOT NULL DEFAULT '{}',
           caption_generation_json TEXT NOT NULL DEFAULT '{}',
-          metadata_json TEXT NOT NULL DEFAULT '{}',
           recipe TEXT,
           target_ratio TEXT,
           audit_status TEXT NOT NULL DEFAULT 'pending',
@@ -1679,7 +1665,6 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "source_clip",
         "caption_outcome_context_json",
         "caption_generation_json",
-        "metadata_json",
         "recipe",
         "target_ratio",
         "audit_status",

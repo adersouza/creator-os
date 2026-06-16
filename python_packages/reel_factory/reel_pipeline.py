@@ -32,6 +32,8 @@ from campaign_store import link_campaign_output
 from graph_builder import ENCODER_PROFILES, build_ffmpeg_cmd as build_graph_ffmpeg_cmd
 from graph_builder import build_video_filter as build_graph_video_filter
 from graph_builder import target_dimensions
+from identity_verification import get_identity_provider
+from media_metadata import normalize_media_metadata
 from preflight import check_clip_readiness
 from project_config import load_config
 from placement import (
@@ -43,6 +45,7 @@ from recipe_loader import load_recipes
 from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 from caption_bank import CaptionBankStore, caption_static_metadata, load_or_build_caption_bank_store
+from discoverability_safety import discoverability_safe_content_contract
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     caption_text_for_scene,
@@ -205,6 +208,7 @@ class CaptionSet:
                 raise ValueError(f"hooks must be a list in {path}")
             parsed: list[str | dict] = []
             for h in hooks:
+                _ensure_discoverability_safe_caption(h, source=str(path))
                 if isinstance(h, dict):
                     if "segments" not in h:
                         raise ValueError(f"hook dict missing 'segments' key in {path}")
@@ -239,6 +243,33 @@ def find_caption_for(video: Path, cap_dir: Path) -> CaptionSet | None:
     if t.exists():
         return CaptionSet.from_path(t)
     return None
+
+
+def _caption_contract_text(caption: str | dict) -> str:
+    if isinstance(caption, str):
+        return caption.strip()
+    if isinstance(caption, dict):
+        if isinstance(caption.get("text"), str):
+            return caption["text"].strip()
+        segments = caption.get("segments")
+        if isinstance(segments, list):
+            return "\n".join(
+                str(segment.get("text") or "").strip()
+                for segment in segments
+                if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+            ).strip()
+    return str(caption).strip()
+
+
+def _ensure_discoverability_safe_caption(caption: str | dict, *, source: str) -> None:
+    text = _caption_contract_text(caption)
+    contract = discoverability_safe_content_contract(text)
+    if contract["discoverabilitySafe"]:
+        return
+    raise ValueError(
+        "discoverability unsafe caption blocked "
+        f"source={source} terms={','.join(contract['blockedTerms'])}: {text}"
+    )
 
 
 def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
@@ -279,11 +310,11 @@ def build_ffmpeg_cmd(src: Path,
         fonts_dir=fonts_dir,
         src_hash=src_hash,
         src_dims=src_dims,
-        account_scope=account_scope,
         bitrate_mbps=bitrate_mbps,
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile=output_profile,
         target_ratio=target_ratio,
+        account_scope=account_scope,
     )
     return build_graph_ffmpeg_cmd(plan, FFMPEG)
 
@@ -325,6 +356,29 @@ def build_avconvert_finalize_cmd(src: Path, out: Path, avconvert: str = AVCONVER
         "--output", str(out),
         "--replace",
     ]
+
+
+def normalize_rendered_mp4_metadata(path: Path) -> dict:
+    if path.suffix.lower() != ".mp4":
+        return {"metadataNormalized": True, "metadataWarnings": [], "skipped": "non_mp4"}
+    result = normalize_media_metadata(path, dry_run=False)
+    if not result.get("metadataNormalized"):
+        warnings = result.get("metadataWarnings") or ["metadata_not_normalized"]
+        raise RuntimeError(f"metadata_normalization_failed:{','.join(str(item) for item in warnings)}")
+    return result
+
+
+def enforce_production_identity_provider(production_render: bool) -> dict:
+    if not production_render:
+        return {"required": False, "provider": "", "providerAvailable": None}
+    executable = Path(sys.executable).resolve()
+    if ".venv" not in executable.parts:
+        raise RuntimeError("production_render_requires_venv_python")
+    provider = get_identity_provider()
+    ok, reason = provider.available()
+    if not ok or provider.name != "insightface_arcface":
+        raise RuntimeError(f"production_render_identity_provider_unavailable:{provider.name}:{reason}")
+    return {"required": True, "provider": provider.name, "providerAvailable": True}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1120,6 +1174,22 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 log.warning(f"phone finalize failed {src.stem} h{hook_idx} {recipe.name}; using encoded output: {msg}")
 
         final_tmp_path.replace(out_path)
+        try:
+            metadata_normalization = normalize_rendered_mp4_metadata(out_path)
+        except RuntimeError as e:
+            msg = str(e)
+            log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
+            manifest.add_failure(
+                src.stem, recipe, caption_for_manifest, out_path, key, duration,
+                msg, render_time_sec=round(elapsed, 3),
+                encoder=output_profile,
+                target_ratio=target_ratio,
+            )
+            try:
+                out_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {"status": "failed", "key": key}
         caption_hash = sha256_str(caption_for_manifest)
         write_caption_lineage_sidecar(
             out_path,
@@ -1239,6 +1309,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             "captionPosition": caption_position,
             "captionPlacementPolicy": placement_policy,
             "captionPlacementDecision": placement_lineage["captionPlacementDecision"],
+            "metadataNormalization": metadata_normalization,
             "generationId": generation_id,
             "renderJobKey": key,
         },
@@ -1280,6 +1351,18 @@ def caption_set_from_bank_selection(
         raise ValueError("caption_mix or caption_banks is required")
     if not selected:
         raise ValueError("caption bank selection produced no hooks")
+    unsafe_items = []
+    for item in selected:
+        contract = discoverability_safe_content_contract(item.get("text") or "")
+        if not contract["discoverabilitySafe"]:
+            unsafe_items.append((item, contract))
+    if unsafe_items:
+        item, contract = unsafe_items[0]
+        raise ValueError(
+            "caption bank selection contains discoverability unsafe caption "
+            f"source={item.get('source_file')} terms={','.join(contract['blockedTerms'])}: "
+            f"{item.get('text')}"
+        )
     hooks = [item["text"] for item in selected]
     lineage = {
         idx: store.lineage_for(
@@ -1640,6 +1723,12 @@ async def amain(args):
         account_scope = validate_account_scope(args.account, production_render=bool(getattr(args, "production_render", False)))
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        identity_provider_check = enforce_production_identity_provider(bool(getattr(args, "production_render", False)))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    if identity_provider_check.get("required"):
+        log.info("identity_provider_check " + json.dumps(identity_provider_check, ensure_ascii=False))
 
     if args.caption_mix or args.caption_banks:
         try:

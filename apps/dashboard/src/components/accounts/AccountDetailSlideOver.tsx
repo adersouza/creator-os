@@ -17,11 +17,17 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { Badge } from "@/components/ui/Badge";
+import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Separator } from "@/components/ui/Separator";
 import { Sheet } from "@/components/ui/Sheet";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { NovaEmpty, NovaStat } from "@/components/ui/NovaPrimitives";
+import {
+	NovaEmpty,
+	NovaInset,
+	NovaListRow,
+	NovaMiniStat,
+} from "@/components/ui/NovaPrimitives";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/ToggleGroup";
 import { apiFetch } from "@/lib/apiFetch";
 import { appToast } from "@/lib/toast";
@@ -32,8 +38,7 @@ import {
 	accountSignalStatus,
 	formatFollowers,
 	formatLastPost,
-	signalLabel,
-	signalSeverityColor,
+	STATUS_LABEL,
 	type AccountHealthSignal,
 } from "./shared";
 
@@ -182,12 +187,12 @@ export function AccountDetailSlideOver({
 
 	const healthDot =
 		ui === "flagged"
-			? "var(--color-critical)"
+			? "var(--color-error)"
 			: ui === "drifting"
 				? "var(--color-warning)"
 				: ui === "inactive"
 					? "color-mix(in_srgb,var(--color-foreground)_30%,transparent)"
-					: "var(--color-health-good)";
+					: "var(--color-success)";
 	const isPaused = ui === "inactive";
 
 	const runHealthCheck = async () => {
@@ -216,14 +221,13 @@ export function AccountDetailSlideOver({
 			widthClass="w-full sm:w-[560px]"
 			title={
 				<div className="flex min-w-0 items-center gap-3">
-					<div
-						className="size-10 rounded-full shrink-0 flex items-center justify-center text-[0.875rem] font-semibold text-white"
-						style={{
-							background: `linear-gradient(135deg, ${account.groupColor}, color-mix(in srgb, ${account.groupColor} 60%, var(--color-ink)))`,
-						}}
-					>
-						{(account.displayName[0] ?? ".").toUpperCase()}
-					</div>
+					<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+						<BrandLogo
+							name={account.platform === "instagram" ? "instagram" : "threads"}
+							size="sm"
+							monochrome
+						/>
+					</span>
 					<div className="min-w-0">
 						<div className="text-[0.9375rem] font-medium text-foreground truncate">
 							{account.handle}
@@ -271,7 +275,7 @@ export function AccountDetailSlideOver({
 					</ToggleGroup>
 				</div>
 
-				<div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
+				<div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-5 sm:px-6">
 					{tab === "overview" ? (
 						<OverviewTab
 							account={account}
@@ -297,14 +301,16 @@ export function AccountDetailSlideOver({
 				</div>
 
 				<Separator />
-				<div className="px-6 py-4">
-					<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+				<div className="grid gap-3 px-4 py-4 sm:px-6">
+					<div className="grid grid-cols-2 gap-2">
 						<FooterButton label="Scheduler" onClick={onViewInScheduler} primary>
 							<CalendarDays data-icon="inline-start" />
 						</FooterButton>
 						<FooterButton label="Analytics" onClick={onViewAnalytics}>
 							<BarChart3 data-icon="inline-start" />
 						</FooterButton>
+					</div>
+					<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
 						<FooterButton label="Move group" onClick={onMoveGroup}>
 							<FolderInput data-icon="inline-start" />
 						</FooterButton>
@@ -326,6 +332,8 @@ export function AccountDetailSlideOver({
 						>
 							<Pause data-icon="inline-start" />
 						</FooterButton>
+					</div>
+					<div className="grid grid-cols-1">
 						<FooterButton label="Remove" onClick={onRemove} destructive>
 							<Trash2 data-icon="inline-start" />
 						</FooterButton>
@@ -378,36 +386,39 @@ function OverviewTab({
 }) {
 	return (
 		<>
-			<div className="grid grid-cols-3 gap-2 sm:gap-3">
-				<NovaStat
+			<div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+				<NovaMiniStat
 					label="Health"
 					value={account.healthScore}
-					status={
+					description={STATUS_LABEL[ui]}
+					trend={
 						<span
-							className="size-1 rounded-full"
-							style={{ background: healthDot }}
-							aria-hidden="true"
-						/>
+							className="inline-flex items-center gap-1"
+							style={{ color: healthDot }}
+						>
+							<span className="size-1.5 rounded-full bg-current" />
+							{STATUS_LABEL[ui]}
+						</span>
 					}
-					variant="compact"
-					className="min-h-0"
+					size="compact"
 				/>
-				<NovaStat
+				<NovaMiniStat
 					label="Posts (24h)"
 					value={account.posts24h}
-					variant="compact"
-					className="min-h-0"
+					description="Published recently"
+					size="compact"
 				/>
-				<NovaStat
+				<NovaMiniStat
 					label="Followers"
 					value={formatFollowers(account.followers)}
-					variant="compact"
-					className="min-h-0"
+					description="Current audience"
+					size="compact"
 				/>
 			</div>
 			<section>
 				<SectionHeader>Engagement - 7 days</SectionHeader>
-				<div className="h-24 flex items-end gap-1 mt-2 px-1">
+				<NovaInset className="mt-2 h-28 px-3 py-3">
+					<div className="flex h-full items-end gap-1.5">
 					{(() => {
 						const max = Math.max(...account.trend7d, 0.0001);
 						return account.trend7d.map((value, index) => (
@@ -416,18 +427,19 @@ function OverviewTab({
 								className="flex-1 rounded-t-sm"
 								style={{
 									height: `${(value / max) * 100}%`,
-									background:
-										ui === "flagged"
-											? "var(--color-critical)"
-											: ui === "drifting"
-												? "var(--color-warning)"
-												: "var(--color-foreground)",
+										background:
+											ui === "flagged"
+												? "var(--color-error)"
+												: ui === "drifting"
+													? "var(--color-warning)"
+													: "var(--color-foreground)",
 									opacity: ui === "active" ? 0.7 : 0.9,
 								}}
 							/>
 						));
 					})()}
-				</div>
+					</div>
+				</NovaInset>
 				{account.trend7d.every((value) => value === 0) && (
 					<div className="mt-2 text-[0.71875rem] text-muted-foreground">
 						Not enough data yet. Trend appears after the first 7 days.
@@ -437,70 +449,57 @@ function OverviewTab({
 			{account.lastPublishedAt && (
 				<section>
 					<SectionHeader>Most recent post</SectionHeader>
-					<div className="mt-2 flex flex-col gap-2">
-						<div className="rounded-md bg-muted/50 p-3 text-[0.78125rem] text-foreground/85">
-							<div className="flex items-start gap-2.5">
-								{recentPost?.mediaUrl ? (
-									<img
-										src={recentPost.mediaUrl}
-										alt=""
-										loading="lazy"
-										decoding="async"
-										className="size-10 rounded-md object-cover shrink-0 bg-muted"
-									/>
-								) : (
-									<div
-										className="size-10 rounded-md shrink-0"
-										style={{
-											background: `linear-gradient(135deg, ${account.groupColor}, color-mix(in srgb, ${account.groupColor} 55%, var(--color-ink)))`,
-										}}
-										aria-hidden="true"
-									/>
-								)}
-								<div className="min-w-0 flex-1">
-									{recentPost?.content ? (
-										<p className="text-[0.78125rem] text-foreground line-clamp-2 leading-snug">
-											{recentPost.content}
-										</p>
-									) : (
-										<p className="text-[0.78125rem] text-muted-foreground italic">
-											No caption
-										</p>
-									)}
-									<div className="mt-1 text-[0.6875rem] text-muted-foreground tabular-nums">
-										{formatLastPost(account.lastPostHoursAgo)} ago -{" "}
-										{account.posts24h} in last 24h
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
+					<NovaListRow
+						className="mt-2"
+						leading={
+							recentPost?.mediaUrl ? (
+								<img
+									src={recentPost.mediaUrl}
+									alt=""
+									loading="lazy"
+									decoding="async"
+									className="size-full object-cover"
+								/>
+							) : (
+								<BrandLogo
+									name={account.platform === "instagram" ? "instagram" : "threads"}
+									size="sm"
+									monochrome
+								/>
+							)
+						}
+						title={recentPost?.content || "No caption"}
+						description={`${formatLastPost(account.lastPostHoursAgo)} ago - ${account.posts24h} in last 24h`}
+					/>
 				</section>
 			)}
 			<section>
-				<SectionHeader>API token</SectionHeader>
-				<div className="mt-2 flex items-center gap-2 text-[0.78125rem]">
+				<SectionHeader>Connection</SectionHeader>
+				<NovaInset
+					tone={account.tokenActive ? "success" : "danger"}
+					className="mt-2 flex items-center gap-2 text-[0.78125rem]"
+				>
 					<span
 						className="w-1.5 h-1.5 rounded-full"
-						style={{
-							background: account.tokenActive
-								? "var(--color-health-good)"
-								: "var(--color-critical)",
-						}}
+							style={{
+								background: account.tokenActive
+									? "var(--color-success)"
+									: "var(--color-error)",
+							}}
 					/>
 					<span className="text-foreground">
 						{account.tokenActive
-							? "Active"
+							? "Ready to publish"
 							: account.needsReauth
-								? "Needs reauth"
-								: "Expired"}
+								? "Reconnect before publishing"
+								: "Connection expired"}
 					</span>
 					{account.tokenActive && account.tokenDaysLeft !== null && (
 						<span className="text-muted-foreground tabular-nums">
 							- {account.tokenDaysLeft}d remaining
 						</span>
 					)}
-				</div>
+				</NovaInset>
 			</section>
 		</>
 	);
@@ -517,10 +516,18 @@ function HealthTab({
 	busy: boolean;
 	onRunHealthCheck: () => void;
 }) {
+	const topSignal = signals[0];
+	const topTone =
+		topSignal?.severity === "critical"
+			? "danger"
+			: topSignal?.severity === "warn"
+				? "warning"
+				: "default";
+
 	return (
 		<section className="flex flex-col gap-3">
 			<div className="flex items-center justify-between">
-				<SectionHeader>Health signals</SectionHeader>
+				<SectionHeader>Fix list</SectionHeader>
 				<Button
 					type="button"
 					onClick={onRunHealthCheck}
@@ -531,37 +538,68 @@ function HealthTab({
 					{busy ? "Checking..." : "Run health check"}
 				</Button>
 			</div>
+			{topSignal ? (
+				<NovaInset tone={topTone} className="grid gap-1.5">
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<div className="text-sm font-semibold text-foreground">
+							{readableSignalLabel(topSignal.signal_type)}
+						</div>
+						<Badge
+							tone={
+								topSignal.severity === "critical"
+									? "danger"
+									: topSignal.severity === "warn"
+										? "oxblood"
+										: "secondary"
+							}
+						>
+							{topSignal.severity}
+						</Badge>
+					</div>
+					<p className="text-sm leading-relaxed text-muted-foreground">
+						{signalNextAction(topSignal.signal_type)}
+					</p>
+				</NovaInset>
+			) : null}
 			<div className="flex flex-col gap-2">
 				{signals.length > 0 ? (
 					signals.map((signal) => (
-						<div
+						<NovaListRow
 							key={signal.id}
-							className="rounded-md border border-border bg-muted/30 p-3"
-						>
-							<div className="flex items-center gap-2">
-								<span
-									className="rounded-[4px] px-2 py-1 text-[0.65625rem] font-semibold uppercase tracking-[0.08em] text-background"
-									style={{ background: signalSeverityColor(signal.severity) }}
-								>
-									{signalLabel(signal.signal_type)}
-								</span>
-								<span className="text-[0.71875rem] capitalize text-muted-foreground">
-									{signal.severity}
-								</span>
-							</div>
-							<div className="mt-2 text-[0.71875rem] text-muted-foreground tabular-nums">
-								Detected {new Date(signal.detected_at).toLocaleString()} -{" "}
-								{signal.resolved_at
-									? `Resolved ${new Date(signal.resolved_at).toLocaleString()}`
-									: "Active"}
-							</div>
-						</div>
+							tone={
+								signal.severity === "critical"
+									? "danger"
+									: signal.severity === "warn"
+										? "warning"
+										: "default"
+							}
+							title={readableSignalLabel(signal.signal_type)}
+							description={signalNextAction(signal.signal_type)}
+							meta={
+								<div className="flex flex-col items-end gap-1">
+										<Badge
+											tone={
+												signal.severity === "critical"
+													? "danger"
+													: signal.severity === "warn"
+														? "oxblood"
+														: "secondary"
+											}
+										>
+										{signal.severity}
+									</Badge>
+									<span className="text-[0.6875rem] text-muted-foreground tabular-nums">
+										{new Date(signal.detected_at).toLocaleDateString()}
+									</span>
+								</div>
+							}
+						/>
 					))
 				) : (
 					<NovaEmpty
 						className="min-h-24 p-4"
-						title="No health signals"
-						description={`No persisted health signals for ${account.handle}.`}
+						title="No account issues"
+						description={`${account.handle} has no active issues in this view.`}
 					/>
 				)}
 			</div>
@@ -591,7 +629,7 @@ function CollaborativeMediaTab({
 				</span>
 			</div>
 			{error ? (
-				<div className="rounded-md border border-[color-mix(in_srgb,var(--color-critical)_18%,transparent)] bg-[color-mix(in_srgb,var(--color-critical)_6%,transparent)] p-4 text-[0.8125rem] text-foreground">
+				<div className="rounded-md border border-error/20 bg-error/10 p-4 text-[0.8125rem] text-foreground">
 					{error}
 				</div>
 			) : loading ? (
@@ -716,4 +754,24 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 			{children}
 		</h3>
 	);
+}
+
+function readableSignalLabel(type: AccountHealthSignal["signal_type"]): string {
+	if (type === "token_expiring") return "Reconnect account";
+	if (type === "rate_limit") return "Rate limit pressure";
+	if (type === "capability_error") return "Feature access issue";
+	if (type === "shadowban_risk") return "Reach risk";
+	if (type === "reach_anomaly") return "Reach changed";
+	if (type === "engagement_spike") return "Engagement spike";
+	return "Account issue";
+}
+
+function signalNextAction(type: AccountHealthSignal["signal_type"]): string {
+	if (type === "token_expiring") return "Reconnect before publishing fails.";
+	if (type === "rate_limit") return "Pause heavy actions until the limit clears.";
+	if (type === "capability_error") return "Check platform access and permissions.";
+	if (type === "shadowban_risk") return "Review recent content and posting cadence.";
+	if (type === "reach_anomaly") return "Compare recent posts before changing strategy.";
+	if (type === "engagement_spike") return "Use the recent winner as a follow-up cue.";
+	return "Review this account before scheduling more posts.";
 }

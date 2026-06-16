@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
+CREATOR_OS_ROOT = Path(os.environ.get("CREATOR_OS_ROOT", Path.home() / "Developer"))
 DEFAULT_SOURCE_ROOT = Path.home() / "Downloads" / "examples"
-DEFAULT_DATA_ROOT = Path.home() / "Projects" / "reference_reels"
+DEFAULT_TIKTOK_SOURCE_ROOT = Path.home() / "Downloads" / "tiktok"
+DEFAULT_DATA_ROOT = CREATOR_OS_ROOT / "reference_reels"
 DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "reference_factory.sqlite"
 CONTENTFORGE_APPLE_VISION_SCRIPT = Path(
-    Path.home() / "Projects" / "contentforge" / "scripts" / "apple-vision-ocr.swift"
+    CREATOR_OS_ROOT / "contentforge" / "scripts" / "apple-vision-ocr.swift"
 )
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}

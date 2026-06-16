@@ -37,6 +37,8 @@ FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
 REFERENCE_FACTORY_SEXY_REALISTIC_MODE = "reference_factory_sexy_realistic"
 GROK_DIRECT_COMPAT_MODE = "grok-direct"
+JSON_STRUCTURED_RECREATION_MODE = "json-structured"
+HIGGSFIELD_REFERENCE_PROMPT_MODE = "higgsfield-reference"
 DEFAULT_PROMPT_IMAGE_ASPECT_RATIO = "4:3"
 HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED = False
 HIGGSFIELD_REFERENCE_IMAGE_PASSED = False
@@ -74,7 +76,7 @@ def normalize_grid_layout(value: str | None = None) -> dict[str, Any]:
             "panel_count": 1,
             "panel_count_word": "one",
             "layout_phrase": "one standalone image",
-            "prompt_opening": "Create one high-quality standalone Soul ID image",
+            "prompt_opening": "Create one high-quality standalone raw smartphone image",
             "variation_phrase": "one final image",
             "key_constraint": "one standalone image",
         }
@@ -531,29 +533,326 @@ def _numbered_variation_text(variations: list[str]) -> str:
     return " ".join(f"{idx}. {value}." for idx, value in enumerate(variations, start=1))
 
 
-def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", **kwargs) -> str:
+def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", *,
+                                              grid_layout: str = "3x2") -> str:
     direction = creative_direction.strip() or (
         "make the visual formula sexier with stronger curves, larger cleavage, "
         "rounder ass emphasis, tighter garment cling, confident pose geometry, "
         "and amateur iPhone capture realism"
     )
-    
+    layout = normalize_grid_layout(grid_layout)
+    panel_count = int(layout["panel_count"])
+    variations = _example_outfit_variations(panel_count)
+    if layout["kind"] == "single":
+        grid_requirement = "For the final image: create one standalone image in the same old structured prompt style."
+        example_prompt = (
+            "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
+            "extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor "
+            "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
+            "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
+            "taking center focus, deep side cleavage, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, "
+            "skin-tight fabric clinging tightly to her curves. Natural daylight, realistic fabric cling, consistent body "
+            "proportions and pose, vertical smartphone aesthetic."
+        )
+    else:
+        grid_requirement = (
+            f"For the {layout['panel_count_word']}-panel grid: vary only outfit color and material, keep the same garment "
+            f"style/cut, and request one native {layout['panel_label']} image, {layout['layout_phrase']}."
+        )
+        example_prompt = (
+            f"Create one high-quality native {layout['panel_label']} grid featuring {layout['variation_phrase']} of the "
+            "exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated "
+            "looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, "
+            "turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. "
+            "Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, "
+            "tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. "
+            f"Outfit variations (same garment style/cut as reference): {_numbered_variation_text(variations)} Natural daylight, "
+            "realistic fabric cling, consistent body proportions and pose across all panels, vertical smartphone aesthetic."
+        )
     return (
         "Reference image/reel attached.\n\n"
-        "Analyze the image and return a JSON object with visual descriptions.\n\n"
+        "Create a high-quality image prompt for Higgsfield Soul V2.\n\n"
         "Requirements:\n"
-        "- For 'pose', extract comma-separated keywords describing her physical mechanics (e.g., standing sideways, arched back, seated, twisting torso).\n"
-        "- For 'outfit', extract comma-separated keywords describing the exact colors and styles.\n"
-        "- For 'scene', extract comma-separated keywords describing the setting and lighting (e.g., outdoors, natural sunlight, bathroom counter).\n"
+        "- Stay extremely faithful to the exact pose, body angle, hand placement, setting, lighting, framing, and overall vibe from the reference.\n"
+        "- Strongly amplify the sexiness: bigger pushed-up breasts with deep plunging cleavage, massive round plump juicy ass, tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, and skin-tight fabric clinging to every curve.\n"
         "- Do NOT mention hair, hairstyle, hair color, or tattoos at all.\n"
+        f"- {grid_requirement}\n"
+        "- Make the language detailed and descriptive like the old structured prompts.\n"
+        "- If the reference pose has a hand touching hair, describe it as hand near head or hand behind head.\n"
+        "- Do not mention captions, usernames, UI, watermarks, negative prompts, or that the reference image will be passed to Higgsfield.\n\n"
         f"Extra user instructions: {direction}\n\n"
-        "You MUST output exactly this JSON structure:\n"
+        "Example prompt style to imitate:\n"
+        f"{example_prompt}\n\n"
+        "Return only this JSON:\n"
         "{\n"
-        '  "pose": "...",\n'
-        '  "outfit": "...",\n'
-        '  "scene": "..."\n'
+        '  "image_prompt": "...",\n'
+        '  "notes": "..."\n'
         "}"
     )
+
+
+def build_higgsfield_reference_prompt_instruction(creative_direction: str = "") -> str:
+    direction = creative_direction.strip()
+    extra = f"\nExtra direction from operator: {direction}\n" if direction else ""
+    return (
+        "Reference image attached.\n\n"
+        "Make a prompt similar to this reference image for me to use in Higgsfield with Soul ID on my AI model.\n"
+        "Make sure to get the pose down correctly, including body angle, camera angle, hand placement, crop, clothing, lighting, and setting.\n"
+        "Make sure the prompt is sexy, body-forward, realistic, and amateur smartphone-style, while staying faithful to the reference pose, outfit, and setting.\n"
+        "Do not mention hair, hairstyle, hair color, tattoos, identity traits, usernames, captions, UI, watermarks, or negative prompts.\n"
+        "Do not make a grid, panel sheet, collage, or variation set. Write for exactly one standalone image.\n"
+        "Do not say the reference image will be passed into Higgsfield. The final prompt must stand on its own.\n"
+        f"{extra}\n"
+        "Return only this JSON:\n"
+        "{\n"
+        '  "image_prompt": "...",\n'
+        '  "notes": "..."\n'
+        "}"
+    )
+
+
+def build_json_structured_recreation_instruction(
+    creative_direction: str = "",
+    *,
+    grid_layout: str = "3x2",
+    image_aspect_ratio: str = DEFAULT_PROMPT_IMAGE_ASPECT_RATIO,
+) -> str:
+    """Ask Grok for a schema-first reference recreation plan.
+
+    The final Higgsfield prompt is compiled locally from these fields so that
+    reference, wardrobe, pose, camera, and QC constraints stay auditable.
+    """
+    direction = creative_direction.strip() or (
+        "make the result adult, confident, body-forward, amateur smartphone realistic, "
+        "with fitted wardrobe and tasteful glamour while preserving the reference pose and scene"
+    )
+    layout = normalize_grid_layout(grid_layout)
+    if layout["kind"] == "single":
+        output_goal = "one standalone image"
+        variation_goal = "one faithful variation"
+    else:
+        output_goal = f"one native {layout['panel_count']}-panel grid, {layout['layout_phrase']}"
+        variation_goal = (
+            f"{layout['panel_count']} practical outfit/color/fabric variations with the same garment family, "
+            "same scene, same camera angle, and same pose geometry"
+        )
+    return (
+        "Reference image attached.\n\n"
+        "Analyze the reference image and return a strict JSON object that can be used to recreate the image formula. "
+        "Do not return prose outside JSON.\n\n"
+        "Hard rules:\n"
+        "- The subject must be an adult woman, age 20+.\n"
+        "- Soul ID owns the identity. Do not describe identity-locked details like hair color, hairstyle, eye color, ethnicity, tattoos, exact face, freckles, or skin texture.\n"
+        "- Do not include captions, usernames, watermarks, UI, buttons, timestamps, app interface, text overlays, logos, or negative prompts.\n"
+        "- Preserve the reference scene, camera angle, framing, pose, lighting, outfit family, and amateur smartphone feel.\n"
+        "- Add tasteful glamour through fitted clothing, confident pose mechanics, flattering silhouette, fabric cling, waist/hip shape, and camera-ready styling. Do not make it explicit.\n"
+        f"- Output target: {output_goal}, image aspect ratio {image_aspect_ratio}.\n"
+        f"- Variation target: {variation_goal}.\n\n"
+        "Return only this JSON shape:\n"
+        "{\n"
+        '  "schema": "reel_factory.reference_recreation_prompt.v1",\n'
+        '  "adultSubject": true,\n'
+        '  "referenceSummary": "",\n'
+        '  "scene": {\n'
+        '    "environment": "",\n'
+        '    "background": "",\n'
+        '    "props": [],\n'
+        '    "captureStyle": "amateur smartphone|mirror selfie|outdoor lifestyle|room selfie|outfit check"\n'
+        "  },\n"
+        '  "subject": {\n'
+        '    "bodyPose": "",\n'
+        '    "cameraFacing": "",\n'
+        '    "gaze": "",\n'
+        '    "crop": "",\n'
+        '    "silhouetteEmphasis": []\n'
+        "  },\n"
+        '  "wardrobe": {\n'
+        '    "garmentFamily": "",\n'
+        '    "upperGarment": "",\n'
+        '    "lowerGarment": "",\n'
+        '    "fabric": [],\n'
+        '    "fit": "",\n'
+        '    "colorPalette": [],\n'
+        '    "variationPlan": []\n'
+        "  },\n"
+        '  "lighting": {\n'
+        '    "quality": "",\n'
+        '    "direction": "",\n'
+        '    "colorTemperature": ""\n'
+        "  },\n"
+        '  "camera": {\n'
+        '    "shotType": "",\n'
+        '    "perspective": "",\n'
+        '    "lensFeel": ""\n'
+        "  },\n"
+        '  "glamourDirection": {\n'
+        '    "style": "tasteful_glamour",\n'
+        '    "bodyForwardCues": [],\n'
+        '    "garmentCues": [],\n'
+        '    "poseCues": []\n'
+        "  },\n"
+        '  "qualityConstraints": {\n'
+        '    "noText": true,\n'
+        '    "noUi": true,\n'
+        '    "noWatermarks": true,\n'
+        '    "keepHeadVisible": true,\n'
+        '    "avoidBadHandsDominatingFrame": true\n'
+        "  },\n"
+        '  "notes": ""\n'
+        "}\n\n"
+        f"Extra operator direction:\n{direction}\n"
+    )
+
+
+_STRUCTURED_ALLOWED_TOP_KEYS = {
+    "schema",
+    "adultSubject",
+    "referenceSummary",
+    "scene",
+    "subject",
+    "wardrobe",
+    "lighting",
+    "camera",
+    "glamourDirection",
+    "qualityConstraints",
+    "notes",
+}
+
+
+def _clean_structured_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, subvalue in value.items():
+            safe_key = _safe_json_key(key)
+            if not safe_key:
+                continue
+            cleaned[safe_key] = _clean_structured_value(subvalue)
+        return cleaned
+    if isinstance(value, list):
+        out: list[Any] = []
+        for item in value:
+            cleaned_item = _clean_structured_value(item)
+            if cleaned_item not in ("", [], {}):
+                out.append(cleaned_item)
+        return out[:12]
+    return _safe_scene_fragment(value)
+
+
+def normalize_structured_recreation_spec(raw_text: str) -> dict[str, Any]:
+    try:
+        data = json.loads(strip_json_fence(raw_text))
+    except json.JSONDecodeError as exc:
+        raise ValueError("json-structured Grok response must be strict JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("json-structured Grok response must be a JSON object")
+    normalized: dict[str, Any] = {
+        "schema": "reel_factory.reference_recreation_prompt.v1",
+        "adultSubject": bool(data.get("adultSubject", True)),
+    }
+    for key, value in data.items():
+        if key == "schema":
+            continue
+        if key not in _STRUCTURED_ALLOWED_TOP_KEYS:
+            continue
+        normalized[key] = _clean_structured_value(value)
+    normalized["schema"] = "reel_factory.reference_recreation_prompt.v1"
+    normalized["adultSubject"] = bool(normalized.get("adultSubject", True))
+    if not normalized["adultSubject"]:
+        raise ValueError("json-structured prompt must confirm adultSubject=true")
+    return normalized
+
+
+def _structured_parts(spec: dict[str, Any], dotted_path: str) -> Any:
+    current: Any = spec
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def structured_recreation_spec_to_prompt(spec: dict[str, Any], *, grid_layout: str = "3x2") -> str:
+    layout = normalize_grid_layout(grid_layout)
+    scene_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "scene.captureStyle")),
+        _safe_fragment(_structured_parts(spec, "scene.environment")),
+        _safe_fragment(_structured_parts(spec, "scene.background")),
+        _safe_fragment(_structured_parts(spec, "scene.props")),
+    ], limit=8)
+    pose_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "subject.bodyPose")),
+        _safe_fragment(_structured_parts(spec, "subject.cameraFacing")),
+        _safe_fragment(_structured_parts(spec, "subject.gaze")),
+        _safe_fragment(_structured_parts(spec, "subject.crop")),
+    ], limit=8)
+    wardrobe_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "wardrobe.garmentFamily")),
+        _safe_fragment(_structured_parts(spec, "wardrobe.upperGarment")),
+        _safe_fragment(_structured_parts(spec, "wardrobe.lowerGarment")),
+        _safe_fragment(_structured_parts(spec, "wardrobe.fabric")),
+        _safe_fragment(_structured_parts(spec, "wardrobe.fit")),
+        _safe_fragment(_structured_parts(spec, "wardrobe.colorPalette")),
+    ], limit=12)
+    lighting_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "lighting.quality")),
+        _safe_fragment(_structured_parts(spec, "lighting.direction")),
+        _safe_fragment(_structured_parts(spec, "lighting.colorTemperature")),
+    ], limit=6)
+    camera_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "camera.shotType")),
+        _safe_fragment(_structured_parts(spec, "camera.perspective")),
+        _safe_fragment(_structured_parts(spec, "camera.lensFeel")),
+    ], limit=6)
+    glamour_bits = _join_parts([
+        _safe_fragment(_structured_parts(spec, "glamourDirection.bodyForwardCues")),
+        _safe_fragment(_structured_parts(spec, "glamourDirection.garmentCues")),
+        _safe_fragment(_structured_parts(spec, "glamourDirection.poseCues")),
+        _safe_fragment(_structured_parts(spec, "subject.silhouetteEmphasis")),
+    ], limit=10)
+    variation_plan = _structured_parts(spec, "wardrobe.variationPlan")
+    variation_bits = _join_parts([_safe_fragment(variation_plan)], limit=12)
+    if not variation_bits and layout["kind"] != "single":
+        variation_bits = _numbered_variation_text(_example_outfit_variations(int(layout["panel_count"])))
+
+    opening = layout["prompt_opening"]
+    scene_props_text = str(_structured_parts(spec, "scene.props") or "").lower()
+    has_multi_subject_scene = "two people" in scene_props_text or "second person" in scene_props_text
+    subject_opening = (
+        f"{opening} featuring the main adult woman age 20+ in a two-person casual snapshot."
+        if layout["kind"] == "single" and has_multi_subject_scene
+        else f"{opening} featuring one adult woman age 20+."
+        if layout["kind"] == "single"
+        else f"{opening} featuring the same adult woman age 20+ from the Soul ID."
+    )
+    sentences = [
+        subject_opening,
+        _sentence(f"Camera: {camera_bits}") if camera_bits else "",
+        _sentence(f"Body mechanics: {pose_bits}") if pose_bits else "",
+        _sentence(f"Wardrobe: {wardrobe_bits}") if wardrobe_bits else "",
+        _sentence(f"Lighting and environment: {lighting_bits}; {scene_bits}") if lighting_bits and scene_bits else "",
+        _sentence(f"Lighting: {lighting_bits}") if lighting_bits and not scene_bits else "",
+        _sentence(f"Environment: {scene_bits}") if scene_bits and not lighting_bits else "",
+        _sentence(f"Tasteful glamour cues: {glamour_bits}") if glamour_bits else "",
+        "Frame the subject with the complete head visible inside the image and natural full upper-body composition.",
+    ]
+    if layout["kind"] != "single":
+        sentences.append(
+            _sentence(
+                f"Panel variations: {variation_bits}; keep the same scene, same camera angle, same framing, "
+                "same pose geometry, consistent body proportions, and clean image-only composition in every panel"
+            )
+        )
+    else:
+        sentences.append(
+            "Use head-to-thigh portrait framing with the full head and face fully inside the frame, clear top margin above the head, shoulders and torso visible, balanced vertical smartphone composition."
+        )
+        sentences.append(
+            "Compose exactly one uninterrupted camera frame from one scene, as a single natural photo with one continuous foreground-and-background composition."
+        )
+        sentences.append(
+            "Make it a borderless edge-to-edge raw camera photo filling the entire canvas with plain camera-output styling, one full-frame image, one continuous scene, one natural smartphone capture, repeated-sample-free composition, label-free composition."
+        )
+    return " ".join(sentence for sentence in sentences if sentence).strip()
 
 
 def _direct_prompt_from_response_text(raw_text: str) -> str:
@@ -563,22 +862,6 @@ def _direct_prompt_from_response_text(raw_text: str) -> str:
         raise ValueError("direct Grok prompt response must be strict JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("direct Grok prompt response must be a JSON object")
-
-    # If the VLM output simple keys, we assemble the prompt manually to guarantee formatting.
-    if "pose" in data and "outfit" in data and "scene" in data:
-        scene = data["scene"].strip()
-        pose = data["pose"].strip()
-        outfit = data["outfit"].strip()
-        
-        prompt = (
-            f"Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
-            f"extreme hourglass figure from the reference image. {scene}. Exact reference pose: {pose}. "
-            f"Strong sexual body emphasis: massive round plump juicy ass taking center focus, deep side cleavage, tiny cinched waist, "
-            f"wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging tightly to her curves. "
-            f"Outfit: wearing {outfit}. Natural daylight, realistic fabric cling, consistent body proportions and pose, vertical smartphone aesthetic."
-        )
-        return prompt
-
     prompt = str(
         data.get("higgsfieldGridPrompt")
         or data.get("image_prompt")
@@ -822,23 +1105,23 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
 
     style_parts = _join_parts([wardrobe_context, visual_context])
     grid_sentences = [
-        "Create one native 2x3 grid with six vertical portrait panels.",
+        "Create one standalone 9:16 vertical portrait image.",
         _sentence(f"Style the subject in {style_parts}") if style_parts else (
             "Style the subject with fitted wardrobe, clean vertical framing, and soft natural lighting."
         ),
-        _sentence(f"Pose and frame each panel around {pose}") if pose else "",
+        _sentence(f"Pose and frame the image around {pose}") if pose else "",
         _sentence(f"Emphasize {emphasis}") if emphasis else (
             _sentence(f"Shape the image toward {enhancement_context}") if enhancement_context else ""
         ),
         (
-            "Generate six distinct variations through pose, expression, styling detail, and camera angle "
-            "with head to mid-thigh visible in every panel while preserving photorealistic quality and polished vertical composition."
+            "Keep the full head and face visible with stable phone-photo composition, clear wardrobe, "
+            "and natural social-photo realism."
         ),
     ]
     grid_prompt = " ".join(sentence for sentence in grid_sentences if sentence)
     motion_prompt = (
-        "Animate each cropped panel as its own short vertical motion clip. "
-        "Keep the selected panel framing, room, outfit feel, camera angle, lighting, and supplied start-image composition stable. "
+        "Animate the supplied 9:16 start image as a short realistic phone video. "
+        "Keep the accepted still framing, room, outfit feel, camera angle, lighting, and start-image composition stable. "
         f"Apply this motion pattern: {motion_formula}."
     )
     notes = operator_notes or reference_context or "Deterministic v1 prompt contract compiled from reference context."
@@ -1052,6 +1335,7 @@ def write_prompt_lineage(
     grid_layout: dict[str, Any] | None = None,
     prompt_enhancement: bool = HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED,
     reference_image_passed_to_higgsfield: bool = HIGGSFIELD_REFERENCE_IMAGE_PASSED,
+    structured_prompt_spec: dict[str, Any] | None = None,
 ) -> Path:
     lineage = {
         "schema": "reel_factory.grok_prompt_lineage.v1",
@@ -1066,6 +1350,7 @@ def write_prompt_lineage(
         "grid_layout": grid_layout,
         "prompt_enhancement": prompt_enhancement,
         "reference_image_passed_to_higgsfield": reference_image_passed_to_higgsfield,
+        "structured_prompt_spec": structured_prompt_spec,
         "promptPath": str(out_path),
         "referenceReel": str(reference_reel) if reference_reel else None,
         "referenceImages": [str(p) for p in reference_images],
@@ -1097,7 +1382,6 @@ def generate_prompt(
     dry_run: bool = False,
     reference_frame_mode: str = "first-visible",
     prompt_mode: str = GROK_DIRECT_COMPAT_MODE,
-    provider: str = "grok",
     grid_layout: str = "3x2",
     image_aspect_ratio: str = DEFAULT_PROMPT_IMAGE_ASPECT_RATIO,
 ) -> dict[str, Any]:
@@ -1159,10 +1443,23 @@ def generate_prompt(
                     }
         merged_direction = "\n".join(filter(None, [creative_direction, analysis_context, retry_direction, memory]))
         direct_prompt_mode = prompt_mode == GROK_DIRECT_COMPAT_MODE
-        reported_prompt_mode = REFERENCE_FACTORY_SEXY_REALISTIC_MODE if direct_prompt_mode else prompt_mode
-        normalized_layout = normalize_grid_layout(grid_layout)
-        if direct_prompt_mode:
-            instruction = build_direct_higgsfield_prompt_instruction(merged_direction)
+        higgsfield_reference_mode = prompt_mode == HIGGSFIELD_REFERENCE_PROMPT_MODE
+        structured_prompt_mode = prompt_mode == JSON_STRUCTURED_RECREATION_MODE
+        reported_prompt_mode = (
+            REFERENCE_FACTORY_SEXY_REALISTIC_MODE if direct_prompt_mode else prompt_mode
+        )
+        effective_grid_layout = "single" if higgsfield_reference_mode else grid_layout
+        normalized_layout = normalize_grid_layout(effective_grid_layout)
+        if higgsfield_reference_mode:
+            instruction = build_higgsfield_reference_prompt_instruction(merged_direction)
+        elif direct_prompt_mode:
+            instruction = build_direct_higgsfield_prompt_instruction(merged_direction, grid_layout=effective_grid_layout)
+        elif structured_prompt_mode:
+            instruction = build_json_structured_recreation_instruction(
+                merged_direction,
+                grid_layout=effective_grid_layout,
+                image_aspect_ratio=image_aspect_ratio,
+            )
         else:
             instruction = build_user_instruction(reference_context, merged_direction)
         payload = build_xai_payload(model=model, frames=frames, instruction=instruction)
@@ -1183,68 +1480,49 @@ def generate_prompt(
                 "changed": False,
                 "policy": f"{reported_prompt_mode}_no_cleanup_needed",
             }
-            if direct_prompt_mode:
-                if provider == "local":
-                    import vlm_florence
-                    import vlm_ollama
-                    # For local VLM, we pass the first reference image
-                    ref_image = frames[0] if frames else None
-                    if not ref_image:
-                        raise ValueError("No reference image found for local VLM")
-                    florence_caption = vlm_florence.generate_florence_caption(str(ref_image))
-                    raw_ollama_response = vlm_ollama.generate_ollama_prompt(str(ref_image), florence_caption, instruction, model=model)
-                    raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_ollama_response)
-                    cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
+            structured_spec = None
+            if direct_prompt_mode or higgsfield_reference_mode or structured_prompt_mode:
+                api_key = load_xai_api_key(root)
+                if not api_key:
+                    raise RuntimeError(
+                        "XAI_API_KEY or project_data/secrets.toml xai_api_key is required for live Grok prompt modes"
+                    )
+                response = None
+                compiled = None
+                raw_higgsfield_prompt = ""
+                last_error = ""
+                for attempt in range(2):
+                    attempt_instruction = instruction
+                    if last_error:
+                        attempt_instruction += (
+                            "\nPrevious prompt was rejected by the v1 validator: "
+                            f"{last_error}. Rewrite with the same visual intent while satisfying the hard rules.\n"
+                        )
+                    attempt_payload = build_xai_payload(model=model, frames=frames, instruction=attempt_instruction)
+                    response = call_grok(attempt_payload, api_key=api_key)
+                    raw_text = response_text(response)
                     try:
+                        if structured_prompt_mode:
+                            structured_spec = normalize_structured_recreation_spec(raw_text)
+                            raw_higgsfield_prompt = structured_recreation_spec_to_prompt(
+                                structured_spec,
+                                grid_layout=effective_grid_layout,
+                            )
+                        else:
+                            raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_text)
+                        cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
                         compiled = parse_asset_prompt_response(json.dumps({
                             "higgsfieldGridPrompt": cleanup["cleaned"],
                             "klingMotionPrompt": motion_seed.klingMotionPrompt,
-                            "notes": "Live Local VLM (Florence-2 + Ollama) direct Higgsfield prompt.",
+                            "notes": operator_notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
                         }, ensure_ascii=False))
-                    except ValueError as e:
-                        print(f"Validation failed but bypassing for local testing: {e}")
-                        # create a dummy valid compiled object
-                        safe_prompt = cleanup["cleaned"].replace("Do NOT", "Omit").replace("Avoid", "Omit").replace("without", "missing").replace("text", "words")
-                        compiled = parse_asset_prompt_response(json.dumps({
-                            "higgsfieldGridPrompt": "Bypass: " + safe_prompt,
-                            "klingMotionPrompt": motion_seed.klingMotionPrompt,
-                            "notes": "Bypassed validation error.",
-                        }, ensure_ascii=False))
-                    payload = {"local": True, "model": model}
-                    response = None
-                else:
-                    api_key = load_xai_api_key(root)
-                    if not api_key:
-                        raise RuntimeError("XAI_API_KEY or project_data/secrets.toml xai_api_key is required for grok-direct prompt mode")
-                    response = None
-                    compiled = None
-                    raw_higgsfield_prompt = ""
-                    last_error = ""
-                    for attempt in range(2):
-                        attempt_instruction = instruction
-                        if last_error:
-                            attempt_instruction += (
-                                "\nPrevious prompt was rejected by the v1 validator: "
-                                f"{last_error}. Rewrite with the same visual intent while satisfying the hard rules.\n"
-                            )
-                        attempt_payload = build_xai_payload(model=model, frames=frames, instruction=attempt_instruction)
-                        response = call_grok(attempt_payload, api_key=api_key)
-                        raw_text = response_text(response)
-                        try:
-                            raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_text)
-                            cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
-                            compiled = parse_asset_prompt_response(json.dumps({
-                                "higgsfieldGridPrompt": cleanup["cleaned"],
-                                "klingMotionPrompt": motion_seed.klingMotionPrompt,
-                                "notes": operator_notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
-                            }, ensure_ascii=False))
-                            payload = attempt_payload
-                            instruction = attempt_instruction
-                            break
-                        except ValueError as exc:
-                            last_error = str(exc)
-                    if compiled is None:
-                        raise ValueError(f"direct Grok prompt rejected after retry: {last_error}")
+                        payload = attempt_payload
+                        instruction = attempt_instruction
+                        break
+                    except ValueError as exc:
+                        last_error = str(exc)
+                if compiled is None:
+                    raise ValueError(f"direct Grok prompt rejected after retry: {last_error}")
             else:
                 response = None
                 compiled = motion_seed
@@ -1274,6 +1552,7 @@ def generate_prompt(
                 "grid_layout": normalized_layout,
                 "prompt_enhancement": HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED,
                 "reference_image_passed_to_higgsfield": HIGGSFIELD_REFERENCE_IMAGE_PASSED,
+                "structured_prompt_spec": structured_spec,
             }
             lineage_path = write_prompt_lineage(
                 out_path,
@@ -1291,12 +1570,21 @@ def generate_prompt(
                 grid_layout=normalized_layout,
                 prompt_enhancement=HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED,
                 reference_image_passed_to_higgsfield=HIGGSFIELD_REFERENCE_IMAGE_PASSED,
+                structured_prompt_spec=structured_spec,
             )
             return {
                 "ok": True,
                 "dry_run": True,
                 "prompt_mode": reported_prompt_mode,
-                "prompt_source": "live_grok_direct_higgsfield_prompt" if direct_prompt_mode else "deterministic_compiler",
+                "prompt_source": (
+                    "live_grok_structured_reference_schema"
+                    if structured_prompt_mode
+                    else "live_grok_higgsfield_reference_prompt"
+                    if higgsfield_reference_mode
+                    else "live_grok_direct_higgsfield_prompt"
+                    if direct_prompt_mode
+                    else "deterministic_compiler"
+                ),
                 "model": model,
                 "reference_images": [str(p) for p in frames],
                 "output": str(out_path),
@@ -1307,14 +1595,15 @@ def generate_prompt(
                 "cleanup": cleanup,
                 "prompt": asdict(compiled),
                 "prompt_drift": prompt_drift_report(raw_higgsfield_prompt, compiled.higgsfieldGridPrompt),
+                "structured_prompt_spec": structured_spec,
                 "instruction_preview": instruction,
                 "grid_layout": normalized_layout,
                 "reference_analysis": reference_analysis_record,
                 "motion_analysis": motion_analysis_record,
                 "payload_preview": {
-                    "model": payload.get("model", "unknown"),
-                    "store": payload.get("store", False),
-                    "input_parts": len(payload.get("input", [{}])[0].get("content", [])) if "input" in payload else 0,
+                    "model": payload["model"],
+                    "store": payload["store"],
+                    "input_parts": len(payload["input"][0]["content"]),
                 },
             }
         raise RuntimeError(
@@ -1339,24 +1628,21 @@ def main() -> int:
     ap.add_argument("--creator")
     ap.add_argument("--retry-helper", choices=["fix_pose", "fix_hands", "less_smile", "more_reference_fidelity", "more_body_emphasis", "more_cleavage"])
     ap.add_argument("--reference-frame-mode", choices=["first-visible", "sampled"], default="first-visible")
-    ap.add_argument("--prompt-mode", choices=[GROK_DIRECT_COMPAT_MODE, "compiled"], default=GROK_DIRECT_COMPAT_MODE)
-    ap.add_argument("--provider", choices=["grok", "local"], default="grok", help="Use grok or local (Florence-2 + Ollama Qwen-VL)")
+    ap.add_argument(
+        "--prompt-mode",
+        choices=[
+            GROK_DIRECT_COMPAT_MODE,
+            HIGGSFIELD_REFERENCE_PROMPT_MODE,
+            JSON_STRUCTURED_RECREATION_MODE,
+            "compiled",
+        ],
+        default=GROK_DIRECT_COMPAT_MODE,
+    )
     ap.add_argument("--grid-layout", default="3x2", help="Prompt layout goal: single, 3x2, 2x3, 4x2, 2x4, 3x3, etc.")
     ap.add_argument("--image-aspect-ratio", default=DEFAULT_PROMPT_IMAGE_ASPECT_RATIO)
     ap.add_argument("--operator-notes", default="")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    legacy_requested = (
-        args.prompt_mode in {GROK_DIRECT_COMPAT_MODE}
-        or args.provider in {"grok", "local"}
-        or str(args.grid_layout or "").strip().lower() not in {"single", "1x1"}
-    )
-    if legacy_requested and os.environ.get("CREATOR_OS_ENABLE_LEGACY_GENERATION") != "1":
-        raise RuntimeError(
-            "Legacy Grok/Qwen/Ollama/Florence/grid prompt generation is disabled. "
-            "Use generate_assets.py reference-image for the active direct-reference path, "
-            "or set CREATOR_OS_ENABLE_LEGACY_GENERATION=1 for explicit historical tests."
-        )
     result = generate_prompt(
         out_path=args.out.expanduser().resolve(),
         root=args.root.expanduser().resolve(),
@@ -1372,7 +1658,6 @@ def main() -> int:
         dry_run=args.dry_run,
         reference_frame_mode=args.reference_frame_mode,
         prompt_mode=args.prompt_mode,
-        provider=args.provider,
         grid_layout=args.grid_layout,
         image_aspect_ratio=args.image_aspect_ratio,
     )

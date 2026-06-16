@@ -16,9 +16,11 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { NovaCard } from "@/components/ui/NovaPrimitives";
+import { Progress } from "@/components/ui/Progress";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { Kbd } from "@/components/ui/Kbd";
 import { Textarea } from "@/components/ui/Textarea";
+import { UploadZone } from "@/components/ui/Upload";
 import type { MediaItem } from "@/components/composer/PreviewSection";
 import { appToast } from "@/lib/toast";
 import { useAltTextGenerator } from "@/hooks/useAltTextGenerator";
@@ -94,6 +96,8 @@ export function MediaGrid({
 	const generatingAlt = editingAltItem?.url
 		? Boolean(altLoading[editingAltItem.url])
 		: false;
+	const uploadingCount = media.filter((item) => item.uploading).length;
+	const uploadCapacity = Math.round((media.length / 10) * 100);
 
 	const runGenerateAlt = async () => {
 		if (!editingAltItem?.url || editingAltItem.kind !== "image") return;
@@ -151,17 +155,46 @@ export function MediaGrid({
 		<NovaCard
 			role="region"
 			aria-label="Media upload"
+			title="Media"
+			description="Add images or video, reorder them, and keep accessibility text close to the asset."
+			action={
+				<div className="flex items-center gap-2">
+					{libraryMedia ? (
+						<Badge tone="oxblood">
+							<Sparkles data-icon="inline-start" aria-hidden="true" />
+							From library
+						</Badge>
+					) : null}
+					<Badge tone={uploadingCount > 0 ? "oxblood" : "outline"}>
+						{uploadingCount > 0
+							? `${uploadingCount} uploading`
+							: `${media.length} / 10`}
+					</Badge>
+				</div>
+			}
+			footer={
+				<div className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+					<span className="inline-flex min-w-0 items-center gap-1.5">
+						<Info data-icon="inline-start" aria-hidden="true" />
+						<span className="truncate">
+							Drop files here, use Add, then reorder or write alt text per asset.
+						</span>
+					</span>
+					<span className="shrink-0 tabular-nums">
+						{media.length} of 10 attached
+					</span>
+				</div>
+			}
 			onDragEnter={handleDragEnter}
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
 			className={cn(
-				"relative transition-colors",
+				"relative scroll-mb-28 transition-colors lg:scroll-mb-0",
 				dragActive
 					? "border-[color-mix(in_srgb,var(--color-oxblood)_52%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-oxblood)_5%,var(--color-card))]"
 					: "",
 			)}
-			contentClassName="p-4"
 		>
 			{dragActive && (
 				<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-[color-mix(in_srgb,var(--color-oxblood)_58%,transparent)] bg-[color-mix(in_srgb,var(--color-card)_86%,transparent)] backdrop-blur-[2px]">
@@ -179,52 +212,68 @@ export function MediaGrid({
 					</div>
 				</div>
 			)}
-			<div className="flex items-center justify-between mb-3">
-				<span className="text-[0.65625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-					Media
-				</span>
-				<div className="flex items-center gap-2 text-[0.65625rem] text-muted-foreground tabular-nums">
-					{libraryMedia && (
-						<Badge tone="oxblood">
-							<Sparkles data-icon="inline-start" aria-hidden="true" />
-							From library
-						</Badge>
-					)}
-					<span>{media.length} / 10</span>
-				</div>
-			</div>
-
-			<div className="flex items-start gap-2 overflow-x-auto hide-scrollbar pb-1">
-				{media.map((m) => (
-					<div
-						key={m.id}
-						className="shrink-0"
-					>
-						<MediaThumb
-							item={m}
-							editing={editingAltId === m.id}
-							canMoveLeft={media.findIndex((item) => item.id === m.id) > 0}
-							canMoveRight={
-								media.findIndex((item) => item.id === m.id) < media.length - 1
-							}
-							onRemove={() => onRemoveMedia(m.id)}
-							onMoveLeft={() => onMoveMedia(m.id, -1)}
-							onMoveRight={() => onMoveMedia(m.id, 1)}
-							onEditAlt={() => onBeginEditAlt(m.id)}
-						/>
+			<div className="grid gap-3">
+				<div className="grid gap-2">
+					<Progress
+						value={uploadCapacity}
+						aria-label="Media attachment capacity"
+						tone={media.length >= 10 ? "warn" : "default"}
+					/>
+					<div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+						<span>
+							{uploadingCount > 0
+								? "Uploads are still processing."
+								: media.length === 0
+									? "No media attached yet."
+									: "Media ready for this draft."}
+						</span>
+						<span className="shrink-0 tabular-nums">{uploadCapacity}% used</span>
 					</div>
-				))}
+				</div>
 
-				{media.length < 10 && (
-					<Button
-						type="button"
-						variant="outline"
+				{media.length === 0 ? (
+					<UploadZone
 						onClick={onOpenPicker}
-						className="h-20 w-20 shrink-0 flex-col gap-1 border-dashed text-muted-foreground hover:text-foreground"
-					>
-						<Plus data-icon="stacked" aria-hidden="true" />
-						<span className="text-[0.65625rem] font-medium">Add</span>
-					</Button>
+						title="Drop media here or choose files"
+						description="Images, videos, and reels stay attached to the current draft. Validation runs before upload."
+						helper={`${media.length} / 10 attached`}
+						actionLabel="Choose media"
+						className="min-h-[132px] md:min-h-[178px]"
+					/>
+				) : (
+					<div className="rounded-lg border border-border bg-muted/25 p-2">
+						<div className="flex items-start gap-2 overflow-x-auto hide-scrollbar pb-1">
+							{media.map((m) => (
+								<div key={m.id} className="shrink-0">
+									<MediaThumb
+										item={m}
+										editing={editingAltId === m.id}
+										canMoveLeft={media.findIndex((item) => item.id === m.id) > 0}
+										canMoveRight={
+											media.findIndex((item) => item.id === m.id) <
+											media.length - 1
+										}
+										onRemove={() => onRemoveMedia(m.id)}
+										onMoveLeft={() => onMoveMedia(m.id, -1)}
+										onMoveRight={() => onMoveMedia(m.id, 1)}
+										onEditAlt={() => onBeginEditAlt(m.id)}
+									/>
+								</div>
+							))}
+
+							{media.length < 10 && (
+								<Button
+									type="button"
+									variant="outline"
+									onClick={onOpenPicker}
+									className="h-20 w-20 shrink-0 flex-col gap-1 border-dashed text-muted-foreground hover:text-foreground"
+								>
+									<Plus data-icon="stacked" aria-hidden="true" />
+									<span className="text-[0.65625rem] font-medium">Add</span>
+								</Button>
+							)}
+						</div>
+					</div>
 				)}
 			</div>
 			<input
@@ -342,15 +391,6 @@ export function MediaGrid({
 						</div>
 					)}
 				</div>
-			</div>
-
-			<div className="mt-2 flex items-center gap-1.5 text-[0.65625rem] text-muted-foreground">
-				<Info className="w-3 h-3" aria-hidden="true" />
-				<span>
-					Drop files here to upload. Use arrow buttons or drag thumbnails to
-					reorder. Click <span className="font-semibold">Alt</span> on any thumb
-					to describe it.
-				</span>
 			</div>
 		</NovaCard>
 	);

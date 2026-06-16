@@ -40,6 +40,10 @@ vi.mock("@/api/_lib/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("@/api/_lib/outboundUrlSecurity.js", () => ({
+  validatePublicRedirectUrl: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/api/_lib/handlers/links/shared.js", async () => {
   const actual = await vi.importActual("@/api/_lib/handlers/links/shared.js");
   return {

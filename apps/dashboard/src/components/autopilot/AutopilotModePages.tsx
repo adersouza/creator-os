@@ -66,14 +66,14 @@ export function QueueModePage({
 			) : error ? (
 				<ModeInlineState
 					icon={AlertTriangle}
-					title="Queue unavailable"
-					body="Autopilot could not load scheduled-post coverage. The queue is not being reported as empty."
+					title="Publishing coverage unavailable"
+					body="Automation could not load scheduled-post coverage. Existing posts are not being treated as missing."
 				/>
 			) : rows.length === 0 ? (
 				<ModeInlineState
 					icon={Clock}
 					title="No scheduled posts"
-					body="Schedule a post from Composer and this page will show cap coverage by account group."
+					body="Schedule a post from Composer and this page will show publishing coverage by account group."
 				/>
 			) : (
 				<div className="divide-y divide-border">
@@ -149,13 +149,13 @@ export function ConditionsModePage({
 			<NovaDataPanel contentClassName="p-0">
 				<div className="px-5 py-4 border-b border-border">
 					<ModeSectionHeader
-						eyebrow="Rule pills"
+						eyebrow="Publishing rules"
 						meta={
 							loading
 								? "loading"
 								: error
 									? "live read unavailable"
-									: "derived from current queue coverage"
+									: "derived from current schedule coverage"
 						}
 					/>
 				</div>
@@ -168,14 +168,14 @@ export function ConditionsModePage({
 				) : error ? (
 					<ModeInlineState
 						icon={AlertTriangle}
-						title="Conditions unavailable"
-						body="The current backend did not return group coverage, so read-only condition pills are hidden."
+						title="Rules unavailable"
+						body="Automation could not load group coverage, so schedule rules are hidden until the live read recovers."
 					/>
 				) : displayRows.length === 0 ? (
 					<ModeInlineState
 						icon={SlidersHorizontal}
-						title="No group conditions to show"
-						body="When group autoposter config exists, this page will expose thresholds as readable pills."
+						title="No group rules to show"
+						body="When group automation settings exist, this page will show them as readable rules."
 					/>
 				) : (
 					<div className="divide-y divide-border">
@@ -197,7 +197,7 @@ export function ConditionsModePage({
 				)}
 			</NovaDataPanel>
 			<NovaDataPanel contentClassName="p-4">
-				<ModeSectionHeader eyebrow="Catalog" meta="source labels" />
+				<ModeSectionHeader eyebrow="Rule library" meta="available signals" />
 				<div className="mt-3 flex flex-col gap-2">
 					{catalog.map((item) => (
 						<div
@@ -234,10 +234,10 @@ function WorkspaceAutoUnpostRow({
 			<div className="grid grid-cols-1 xl:grid-cols-[minmax(180px,0.7fr)_minmax(0,1.6fr)] gap-4">
 				<div className="min-w-0">
 					<h3 className="text-[0.875rem] font-medium text-foreground truncate">
-						Workspace duplicate cleanup
+						Duplicate cleanup
 					</h3>
 					<div className="mt-1 text-[0.6875rem] text-muted-foreground">
-						Opt-in Hypefury-style auto-unpost for same-platform fanout groups.
+						Keep the strongest post when a same-platform group creates duplicates.
 					</div>
 				</div>
 				<div className="flex flex-wrap gap-2 items-start">
@@ -429,7 +429,7 @@ function ConditionGroupRow({
 						}}
 					/>
 					<ConditionPill
-						label="Queue floor"
+						label="Coverage target"
 						value=">= 4d"
 						source="J33"
 						tone={coverageTone}
@@ -822,7 +822,7 @@ function QueueModeRow({ row }: { row: QueueHealthRow }) {
 		Math.min(100, (row.scheduledCount / Math.max(1, dayTarget)) * 100),
 	);
 	const status =
-		row.days < 2 ? "N conditions" : row.days < 4 ? "Queued" : "Ready";
+		row.days < 2 ? "Needs plan" : row.days < 4 ? "Planned" : "Ready";
 	const statusTone = row.days < 2 ? "critical" : row.days < 4 ? "warn" : "good";
 	const label = networkLabelOf(row.network, row.networkLabel);
 
@@ -847,10 +847,10 @@ function QueueModeRow({ row }: { row: QueueHealthRow }) {
 				</div>
 			</div>
 			<div className="text-[0.78125rem] leading-[1.45] text-muted-foreground">
-				<ContentSourceTag source={row.days >= 4 ? "AI" : "Human"} />
+				<ContentSourceTag source={row.days >= 4 ? "Auto" : "Manual"} />
 				{row.days >= 4
-					? "Inventory is above the safety floor and ready for publish-worker claims."
-					: "Coverage is below the target floor; operator review or planner refill is needed."}
+					? "Inventory is above the safety floor and ready for scheduled publishing."
+					: "Coverage is below the target floor; add posts or review this group plan."}
 			</div>
 			<StatusBadge label={status} tone={statusTone} />
 		</article>
@@ -917,12 +917,12 @@ function RingAvatar({
 	);
 }
 
-function ContentSourceTag({ source }: { source: "AI" | "Human" }) {
+function ContentSourceTag({ source }: { source: "Auto" | "Manual" }) {
 	return (
 		<span
 			className={cn(
 				"mr-2 inline-flex items-center rounded-[4px] px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase tracking-[0.08em]",
-				source === "AI"
+				source === "Auto"
 					? "text-[var(--color-oxblood)] bg-[color-mix(in_srgb,var(--color-oxblood)_12%,transparent)]"
 					: "text-muted-foreground bg-muted border border-border",
 			)}

@@ -10,13 +10,16 @@ import sqlite3
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from metrics_store import ensure_metrics_schema
 from campaign_store import ensure_campaign_schema
 from intelligence_store import ensure_intelligence_schema
 
 log = logging.getLogger("reel")
+
+if TYPE_CHECKING:
+    from reel_pipeline import Recipe
 
 
 def sha256_file(p: Path, chunk: int = 1 << 20) -> str:

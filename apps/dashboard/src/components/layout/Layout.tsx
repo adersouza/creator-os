@@ -84,6 +84,8 @@ import {
 	persistIdSet,
 } from "./ActivityPanel";
 import { MobileTabBar } from "./MobileTabBar";
+import { applyNotificationLocalState } from "./notificationState";
+import { ThemeToggle } from "./ThemeToggle";
 
 const CommandPalette = lazy(() =>
 	import("./CommandPalette").then((m) => ({ default: m.CommandPalette })),
@@ -128,19 +130,31 @@ export function Layout({ children }: LayoutProps) {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const { root, current, rootPath } = useBreadcrumb();
+	const isComposerRoute = location.pathname.startsWith("/composer");
 
 	const authUser = useAuthUser();
+	const mainContentRef = React.useRef<HTMLElement | null>(null);
 	const readKey = activityStorageKey("read", authUser?.id);
 	const deletedKey = activityStorageKey("deleted", authUser?.id);
 	const [readIds, setReadIds] = useState<Set<string>>(() => loadIdSet(readKey));
 	const [deletedIds, setDeletedIds] = useState<Set<string>>(() => loadIdSet(deletedKey));
 	const [notifications, setNotifications] = useState<AppNotification[]>([]);
 	const [notificationsError, setNotificationsError] = useState(false);
+	const notificationReadOverridesRef = React.useRef<Set<string>>(new Set());
+	const notificationDeletedOverridesRef = React.useRef<Set<string>>(new Set());
 
 	useEffect(() => {
 		setReadIds(loadIdSet(readKey));
 		setDeletedIds(loadIdSet(deletedKey));
+		notificationReadOverridesRef.current = new Set();
+		notificationDeletedOverridesRef.current = new Set();
 	}, [readKey, deletedKey]);
+
+	useEffect(() => {
+		const _routeScrollKey = `${location.pathname}${location.search}`;
+		window.scrollTo(0, 0);
+		mainContentRef.current?.scrollTo({ top: 0, left: 0 });
+	}, [location.pathname, location.search]);
 
 	useEffect(() => {
 		persistIdSet(readKey, readIds);
@@ -156,12 +170,73 @@ export function Layout({ children }: LayoutProps) {
 		if (!authUser?.id) return;
 		return notificationService.subscribeToNotifications(
 			(next) => {
-				setNotifications(next);
+				setNotifications(
+					applyNotificationLocalState(next, {
+						readIds: notificationReadOverridesRef.current,
+						deletedIds: notificationDeletedOverridesRef.current,
+					}),
+				);
 				setNotificationsError(false);
 			},
 			() => setNotificationsError(true),
 		);
 	}, [authUser?.id]);
+
+	const applyNotificationOverridesToCurrent = React.useCallback(() => {
+		setNotifications((items) =>
+			applyNotificationLocalState(items, {
+				readIds: notificationReadOverridesRef.current,
+				deletedIds: notificationDeletedOverridesRef.current,
+			}),
+		);
+	}, []);
+
+	const stageNotificationReads = React.useCallback(
+		(ids: readonly string[]) => {
+			if (ids.length === 0) return;
+			for (const id of ids) notificationReadOverridesRef.current.add(id);
+			applyNotificationOverridesToCurrent();
+		},
+		[applyNotificationOverridesToCurrent],
+	);
+
+	const stageNotificationDeletes = React.useCallback(
+		(ids: readonly string[]) => {
+			if (ids.length === 0) return;
+			for (const id of ids) notificationDeletedOverridesRef.current.add(id);
+			applyNotificationOverridesToCurrent();
+		},
+		[applyNotificationOverridesToCurrent],
+	);
+
+	const rollbackNotificationReads = React.useCallback((ids: readonly string[]) => {
+		if (ids.length === 0) return;
+		for (const id of ids) notificationReadOverridesRef.current.delete(id);
+		void notificationService.getNotifications().then((next) => {
+			setNotifications(
+				applyNotificationLocalState(next, {
+					readIds: notificationReadOverridesRef.current,
+					deletedIds: notificationDeletedOverridesRef.current,
+				}),
+			);
+		});
+	}, []);
+
+	const rollbackNotificationDeletes = React.useCallback(
+		(ids: readonly string[]) => {
+			if (ids.length === 0) return;
+			for (const id of ids) notificationDeletedOverridesRef.current.delete(id);
+			void notificationService.getNotifications().then((next) => {
+				setNotifications(
+					applyNotificationLocalState(next, {
+						readIds: notificationReadOverridesRef.current,
+						deletedIds: notificationDeletedOverridesRef.current,
+					}),
+				);
+			});
+		},
+		[],
+	);
 
 	const { events: activityEvents } = useActivityEvents();
 	const unreadNotificationCount = useMemo(
@@ -251,14 +326,14 @@ export function Layout({ children }: LayoutProps) {
 				style={{ "--sidebar-width": APP_SIDEBAR_WIDTH } as React.CSSProperties}
 			>
 				<AppSidebar />
-				<SidebarInset className="min-h-svh overflow-hidden">
+				<SidebarInset className="min-h-svh overflow-hidden bg-[var(--color-surface-frame)]">
 					<a
 						href="#main-content"
 						className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:inline-flex focus:h-9 focus:items-center focus:rounded-md focus:bg-primary focus:px-4 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none"
 					>
 						Skip to main content
 					</a>
-					<header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+					<header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-[var(--color-surface-frame)] px-4">
 						<SidebarTrigger className="shrink-0" />
 						<Separator orientation="vertical" className="h-5" />
 						<Breadcrumb className="min-w-0 flex-1">
@@ -299,6 +374,7 @@ export function Layout({ children }: LayoutProps) {
 							<Button type="button" variant="ghost" size="icon" onClick={() => setIsHelpOpen(true)} aria-label="Keyboard shortcuts">
 								<BookOpen aria-hidden="true" />
 							</Button>
+							<ThemeToggle />
 							<Button type="button" variant="ghost" size="icon" onClick={() => setShowNotifications(true)} aria-label="Notifications" className="relative">
 								<Bell aria-hidden="true" />
 								{unreadTotalCount > 0 ? (
@@ -307,7 +383,7 @@ export function Layout({ children }: LayoutProps) {
 							</Button>
 						</div>
 					</header>
-					<main id="main-content" aria-label="Page content" className="min-h-0 flex-1 overflow-y-auto">
+					<main ref={mainContentRef} id="main-content" aria-label="Page content" className="min-h-0 flex-1 overflow-y-auto bg-[var(--color-surface-frame)]">
 						<ComposerContext.Provider
 							value={{
 								isOpen: isComposerOpen,
@@ -330,7 +406,16 @@ export function Layout({ children }: LayoutProps) {
 									close: () => setShowNotifications(false),
 								}}
 							>
-								<div key={location.pathname} className="min-h-full">{children}</div>
+								<div
+									key={location.pathname}
+									className={
+										isComposerRoute
+											? "min-h-full"
+											: "min-h-full pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-0"
+									}
+								>
+									{children}
+								</div>
 							</ActivityContext.Provider>
 						</ComposerContext.Provider>
 					</main>
@@ -344,8 +429,11 @@ export function Layout({ children }: LayoutProps) {
 						deletedIds={deletedIds}
 						setDeletedIds={setDeletedIds}
 						notifications={notifications}
-						setNotifications={setNotifications}
 						notificationsError={notificationsError}
+						stageNotificationReads={stageNotificationReads}
+						stageNotificationDeletes={stageNotificationDeletes}
+						rollbackNotificationReads={rollbackNotificationReads}
+						rollbackNotificationDeletes={rollbackNotificationDeletes}
 					/>
 				) : null}
 
@@ -398,7 +486,7 @@ export function Layout({ children }: LayoutProps) {
 				/>
 				<Toaster position="bottom-right" richColors />
 				<OfflineBanner />
-				<MobileTabBar />
+				{isComposerRoute ? null : <MobileTabBar />}
 			</SidebarProvider>
 		</TooltipProvider>
 	);
@@ -527,6 +615,11 @@ function AppSidebar() {
 										</DropdownMenuItem>
 									);
 								})}
+								<DropdownMenuSeparator />
+								<div className="px-1 py-1">
+									<ThemeToggle variant="row" />
+								</div>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem destructive disabled={isSigningOut} onSelect={handleSignOut}>
 									<LogOut aria-hidden="true" />
 									{isSigningOut ? "Signing out..." : "Sign out"}

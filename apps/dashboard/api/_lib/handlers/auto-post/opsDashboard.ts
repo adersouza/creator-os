@@ -13,6 +13,7 @@ import { logger } from "../../logger.js";
 import { getSupabaseAny } from "../../supabase.js";
 import { buildAccountScheduleDriftReport } from "./accountScheduleStatusSync.js";
 import { buildAccountDnaOpsSummary } from "./accountDna.js";
+import { getAutoposterRejectionReason } from "./rejectionReason.js";
 
 const db = () => getSupabaseAny();
 
@@ -142,7 +143,9 @@ export default async function handleOpsDashboard(
 			// 8. recent rejected queue items (last 10)
 			db()
 				.from("auto_post_queue")
-				.select("content, rejection_reason, source_type, group_id, created_at")
+				.select(
+					"content, rejection_reason, last_error, source_type, group_id, created_at, metadata",
+				)
 				.eq("workspace_id", workspaceId)
 				.eq("status", "rejected")
 				.order("created_at", { ascending: false })
@@ -195,9 +198,11 @@ export default async function handleOpsDashboard(
 		const recentRejected = (recentRejectedResult.data || []) as Array<{
 			content: string;
 			rejection_reason: string | null;
+			last_error?: string | null;
 			source_type: string;
 			group_id: string;
 			created_at: string;
+			metadata?: Record<string, unknown> | null;
 		}>;
 		const reconciliationItems = (reconciliationItemsResult.data ||
 			[]) as Array<{
@@ -397,7 +402,7 @@ export default async function handleOpsDashboard(
 
 		// Rejection stats
 		for (const item of recentRejected) {
-			const reason = item.rejection_reason || "unknown";
+			const reason = getAutoposterRejectionReason(item);
 			rejectionReasonMap[reason] = (rejectionReasonMap[reason] || 0) + 1;
 		}
 

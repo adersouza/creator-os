@@ -249,7 +249,7 @@ export function JunoBarChart({
 			ariaLabel={ariaLabel}
 			variant="routine-bar"
 			height={height}
-			minHeightClassName={height === 268 ? "min-h-[268px]" : undefined}
+			minHeightClassName={height === 268 ? "min-h-[268px]" : height <= 220 ? "min-h-[220px]" : undefined}
 			className={className}
 		>
 			<RechartsBarChart

@@ -1,10 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function isUnauthenticatedPage(page: Page): Promise<boolean> {
+	if (page.url().includes("/login")) return true;
+	return page
+		.getByText(/sign in to your threads and instagram command center/i)
+		.waitFor({ state: "visible", timeout: 1_000 })
+		.then(() => true)
+		.catch(() => false);
+}
+
 async function openComposer(page: Page, targetCount = 1) {
 	await page.goto("/composer");
 	await page.waitForLoadState("domcontentloaded");
-	test.skip(page.url().includes("/login"), "No authenticated storage state available");
-	await expect(page.getByRole("heading", { name: /post command center/i })).toBeVisible({ timeout: 10_000 });
+	test.skip(
+		await isUnauthenticatedPage(page),
+		"No authenticated storage state available",
+	);
+	await expect(
+		page.getByRole("heading", { name: /^(compose|post command center)$/i }),
+	).toBeVisible({ timeout: 10_000 });
 	const addAccounts = page.getByRole("button", { name: /add accounts/i });
 	if (await addAccounts.isVisible().catch(() => false)) {
 		await addAccounts.click();
@@ -16,7 +30,7 @@ async function openComposer(page: Page, targetCount = 1) {
 		}
 		const done = page.getByRole("button", { name: /^done$/i }).last();
 		if (await done.isVisible().catch(() => false)) {
-			await done.click();
+			await done.click({ timeout: 2_000 }).catch(() => page.keyboard.press("Escape"));
 		} else {
 			await page.keyboard.press("Escape");
 		}
@@ -125,7 +139,10 @@ test.describe("Composer critical publish reliability", () => {
 		});
 		await page.goto("/composer");
 		await page.waitForLoadState("domcontentloaded");
-		test.skip(page.url().includes("/login"), "No authenticated storage state available");
+		test.skip(
+			await isUnauthenticatedPage(page),
+			"No authenticated storage state available",
+		);
 
 		await expect(page.getByText(/recovered publish completed/i).first()).toBeVisible({ timeout: 20_000 });
 	});

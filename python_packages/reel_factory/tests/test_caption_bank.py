@@ -15,6 +15,10 @@ from caption_bank import (
     default_mixes,
     load_or_build_caption_bank_store,
 )
+from discoverability_safety import (
+    audit_caption_sources,
+    discoverability_safe_content_contract,
+)
 
 
 class CaptionBankTests(unittest.TestCase):
@@ -152,6 +156,68 @@ class CaptionBankTests(unittest.TestCase):
 
         self.assertEqual(loaded.mixes, default_mixes())
         self.assertIn("dm_follow_bait", loaded.banks)
+
+    def test_discoverability_contract_blocks_dm_links_and_off_platform_text(self):
+        report = discoverability_safe_content_contract(
+            "I respond to DMs.\nI just don't respond to basic ones",
+            "link in bio",
+            "Snap me",
+        )
+
+        self.assertFalse(report["discoverabilitySafe"])
+        self.assertIn("dm", report["blockedTerms"])
+        self.assertIn("link", report["blockedTerms"])
+        self.assertIn("snapchat", report["blockedTerms"])
+        self.assertEqual(report["blockedReason"], "unsafe_dm_link_or_off_platform_language")
+        self.assertFalse(report["wouldWrite"])
+
+    def test_discoverability_contract_does_not_block_lowercase_word_of(self):
+        report = discoverability_safe_content_contract("photo of the day")
+
+        self.assertTrue(report["discoverabilitySafe"])
+        self.assertEqual(report["blockedTerms"], [])
+
+    def test_caption_source_discoverability_audit_flags_active_sources_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            captions = root / "01_captions"
+            captions.mkdir()
+            (captions / "clip_001.json").write_text(
+                json.dumps({"hooks": ["I respond to DMs.", "photo of the day"]}),
+                encoding="utf-8",
+            )
+            (captions / "clip_002.json.pre_discoverability_cleanup.bak").write_text(
+                json.dumps({"hooks": ["link in bio"]}),
+                encoding="utf-8",
+            )
+            banks = root / "caption_banks"
+            banks.mkdir()
+            (banks / "banks.json").write_text(
+                json.dumps(
+                    {
+                        "banks": {
+                            "shared_girl_next_door": [
+                                {"text": "mirror selfie energy"}
+                            ],
+                            "comment_bait": [
+                                {"text": "who didn't get a pic in dms yet today?"}
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit_caption_sources(root)
+
+            self.assertFalse(report["discoverabilitySafe"])
+            self.assertEqual(report["captionFilesScanned"], 2)
+            self.assertEqual(report["remainingRiskEntries"], 2)
+            self.assertEqual(
+                {finding["sourceFile"] for finding in report["findings"]},
+                {"01_captions/clip_001.json", "caption_banks/banks.json"},
+            )
+            self.assertFalse(report["wouldWrite"])
 
 
 if __name__ == "__main__":

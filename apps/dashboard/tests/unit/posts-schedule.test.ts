@@ -174,6 +174,10 @@ vi.mock("@/api/_lib/qstashSchedule.js", () => ({
 	cancelQStashMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/api/_lib/ssrfProtection.js", () => ({
+	validateUrlNotPrivate: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/api/_lib/cron/scheduled-posts/mediaValidation.js", () => ({
 	checkMediaUrlAccessible: vi.fn().mockResolvedValue(null),
 }));

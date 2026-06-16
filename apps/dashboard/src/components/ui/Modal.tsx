@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { Dialog } from "radix-ui";
 import { AnimatePresence, motion } from "motion/react";
 import React from "react";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";

@@ -2,7 +2,13 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
-import { Field, FieldGroup } from "@/components/ui/Field";
+import { AuthCard } from "@/components/ui/AuthCard";
+import {
+	Field,
+	FieldGroup,
+	FieldLabel,
+	FieldSeparator,
+} from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Mail, Key, ArrowRight, ShieldCheck } from "lucide-react";
 import { BrandLogo } from "@/components/ui/BrandLogo";
@@ -204,59 +210,62 @@ export function Login() {
 		}
 	};
 
+	const legalFooter = (
+		<p>
+			By continuing, you agree to Juno33&apos;s{" "}
+			<Link to="/terms" className="font-medium text-foreground underline-offset-4 hover:underline">
+				Terms
+			</Link>{" "}
+			and{" "}
+			<Link to="/privacy" className="font-medium text-foreground underline-offset-4 hover:underline">
+				Privacy Policy
+			</Link>
+			.
+		</p>
+	);
+
 	return (
-		<div className="w-full max-w-md rounded-lg border border-border bg-card p-8 shadow-sm">
+		<div className="flex w-full max-w-md flex-col gap-4">
 			{mfaFactorId ? (
-				<div key="mfa">
-					<div className="mb-6 text-center">
-						<div
-							className="mx-auto mb-3 w-10 h-10 rounded-full inline-flex items-center justify-center"
-							style={{
-								background:
-									"color-mix(in srgb, var(--color-oxblood) 12%, transparent)",
-								color: "var(--color-oxblood)",
-							}}
-						>
-							<ShieldCheck className="w-5 h-5" aria-hidden="true" />
-						</div>
-						<h1>Verify it's you</h1>
-						<p
-							id={mfaMode === "totp" ? "mfa-totp-hint" : "mfa-backup-hint"}
-						>
-							{mfaMode === "totp"
-								? "Enter the 6-digit code from your authenticator app."
-								: "Enter one of your 12-character backup codes. Each works once."}
-						</p>
-					</div>
+				<AuthCard
+					key="mfa"
+					icon={<ShieldCheck data-icon aria-hidden="true" />}
+					title="Verify it's you"
+					description={
+						mfaMode === "totp"
+							? "Enter the 6-digit code from your authenticator app."
+							: "Enter one of your 12-character backup codes. Each works once."
+					}
+					footer={legalFooter}
+				>
 					{mfaMode === "totp" ? (
 						<form key="totp" onSubmit={handleMfaSubmit}>
 							<FieldGroup>
 								<Field label="Authentication code">
 									<Input
-									id="mfa-totp-code"
-									type="text"
-									inputMode="numeric"
-									autoComplete="one-time-code"
-									pattern="[0-9]{6}"
-									maxLength={6}
-									required
-									value={mfaCode}
-									onChange={(e) =>
-										setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-									}
-									aria-describedby="mfa-totp-hint"
-									className="h-12 text-center text-lg tracking-[0.5em] tabular-nums"
-									placeholder="000000"
-								/>
+										id="mfa-totp-code"
+										type="text"
+										inputMode="numeric"
+										autoComplete="one-time-code"
+										pattern="[0-9]{6}"
+										maxLength={6}
+										required
+										value={mfaCode}
+										onChange={(e) =>
+											setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+										}
+										className="h-12 text-center text-lg tracking-[0.5em] tabular-nums"
+										placeholder="000000"
+									/>
 								</Field>
-							{mfaError && (
-								<div
-									className="text-xs text-[color:var(--color-oxblood)] bg-[color-mix(in_srgb,var(--color-oxblood)_8%,transparent)] rounded-md px-2.5 py-2 leading-snug"
-									role="alert"
-								>
-									{mfaError}
-								</div>
-							)}
+								{mfaError && (
+									<div
+										className="rounded-md bg-primary/10 px-2.5 py-2 text-xs leading-snug text-primary"
+										role="alert"
+									>
+										{mfaError}
+									</div>
+								)}
 							</FieldGroup>
 							<Button
 								type="submit"
@@ -266,7 +275,8 @@ export function Login() {
 								{mfaVerifying ? "Verifying…" : "Verify"}
 								{!mfaVerifying && <ArrowRight data-icon="inline-end" />}
 							</Button>
-							<div className="mt-2 flex flex-col gap-0.5 border-t border-border/60 pt-2">
+							<FieldSeparator className="my-3 text-xs">Recovery</FieldSeparator>
+							<div className="flex flex-col gap-1">
 								<Button
 									type="button"
 									variant="ghost"
@@ -275,7 +285,7 @@ export function Login() {
 										setMfaError(null);
 										setBackupCode("");
 									}}
-									className="w-full text-center text-xs py-2 text-muted-foreground hover:text-foreground transition-colors rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
+									className="w-full text-center text-xs text-muted-foreground"
 								>
 									Lost your authenticator? Use a backup code
 								</Button>
@@ -283,7 +293,7 @@ export function Login() {
 									type="button"
 									variant="ghost"
 									onClick={handleMfaCancel}
-									className="w-full text-center text-xs py-2 text-muted-foreground hover:text-foreground transition-colors rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
+									className="w-full text-center text-xs text-muted-foreground"
 								>
 									← Use a different account
 								</Button>
@@ -297,41 +307,36 @@ export function Login() {
 							<FieldGroup>
 								<Field label="Backup code">
 									<Input
-									id="mfa-backup-code"
-									type="text"
-									inputMode="text"
-									autoComplete="off"
-									required
-									value={backupCode}
-									onChange={(e) => setBackupCode(e.target.value)}
-									aria-describedby="mfa-backup-hint mfa-backup-warning"
-									className="h-12 text-center text-base tracking-[0.15em] tabular-nums"
-									style={{
-										fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-									}}
-									placeholder="xxxx-xxxx-xxxx"
-								/>
+										id="mfa-backup-code"
+										type="text"
+										inputMode="text"
+										autoComplete="off"
+										required
+										value={backupCode}
+										onChange={(e) => setBackupCode(e.target.value)}
+										aria-describedby="mfa-backup-warning"
+										className="h-12 text-center text-base tracking-[0.15em] tabular-nums"
+										style={{
+											fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+										}}
+										placeholder="xxxx-xxxx-xxxx"
+									/>
 								</Field>
-							<div
-								id="mfa-backup-warning"
-								className="text-[0.6875rem] leading-relaxed rounded-md px-2.5 py-2"
-								style={{
-									color: "var(--color-oxblood)",
-									background:
-										"color-mix(in_srgb,var(--color-oxblood)_6%,transparent)",
-								}}
-							>
-								Using a backup code removes your current authenticator.
-								Re-enroll from Settings after you sign in.
-							</div>
-							{mfaError && (
 								<div
-									className="text-xs text-[color:var(--color-oxblood)] bg-[color-mix(in_srgb,var(--color-oxblood)_8%,transparent)] rounded-md px-2.5 py-2 leading-snug"
-									role="alert"
+									id="mfa-backup-warning"
+									className="rounded-md bg-primary/10 px-2.5 py-2 text-xs leading-relaxed text-primary"
 								>
-									{mfaError}
+									Using a backup code removes your current authenticator.
+									Re-enroll from Settings after you sign in.
 								</div>
-							)}
+								{mfaError && (
+									<div
+										className="rounded-md bg-primary/10 px-2.5 py-2 text-xs leading-snug text-primary"
+										role="alert"
+									>
+										{mfaError}
+									</div>
+								)}
 							</FieldGroup>
 							<Button
 								type="submit"
@@ -341,7 +346,8 @@ export function Login() {
 								{mfaVerifying ? "Verifying…" : "Use backup code"}
 								{!mfaVerifying && <ArrowRight data-icon="inline-end" />}
 							</Button>
-							<div className="mt-2 flex flex-col gap-0.5 border-t border-border/60 pt-2">
+							<FieldSeparator className="my-3 text-xs">Authenticator</FieldSeparator>
+							<div className="flex flex-col gap-1">
 								<Button
 									type="button"
 									variant="ghost"
@@ -350,7 +356,7 @@ export function Login() {
 										setMfaError(null);
 										setBackupCode("");
 									}}
-									className="w-full text-center text-xs py-2 text-muted-foreground hover:text-foreground transition-colors rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
+									className="w-full text-center text-xs text-muted-foreground"
 								>
 									← Back to authenticator code
 								</Button>
@@ -358,22 +364,22 @@ export function Login() {
 									type="button"
 									variant="ghost"
 									onClick={handleMfaCancel}
-									className="w-full text-center text-xs py-2 text-muted-foreground hover:text-foreground transition-colors rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring-oxblood)]"
+									className="w-full text-center text-xs text-muted-foreground"
 								>
 									Use a different account
 								</Button>
 							</div>
 						</form>
 					)}
-				</div>
+				</AuthCard>
 			) : showReset ? (
-				<div key="reset">
-					<div className="mb-6 text-center">
-						<h1>Reset your password</h1>
-						<p>
-							We'll email you a secure link.
-						</p>
-					</div>
+				<AuthCard
+					key="reset"
+					icon={<Mail data-icon aria-hidden="true" />}
+					title="Reset your password"
+					description="We'll email you a secure link."
+					footer={legalFooter}
+				>
 					<form onSubmit={handleSendReset}>
 						<FieldGroup>
 							<Field label="Email address">
@@ -401,22 +407,21 @@ export function Login() {
 							type="button"
 							variant="ghost"
 							onClick={() => setShowReset(false)}
-							className="mt-2 w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+							className="mt-2 w-full text-center text-xs text-muted-foreground"
 						>
 							← Back to sign in
 						</Button>
 					</form>
-				</div>
+				</AuthCard>
 			) : (
-				<div key="signin">
-					<div className="mb-6 text-center">
-						<h1>Welcome back</h1>
-						<p>
-							Sign in to your Juno33 account
-						</p>
-					</div>
-
-					<div className="mb-6 flex flex-col gap-3">
+				<AuthCard
+					key="signin"
+					eyebrow="Juno33"
+					title="Welcome back"
+					description="Sign in to your Threads and Instagram command center."
+					footer={legalFooter}
+				>
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<Button
 							type="button"
 							variant="outline"
@@ -427,7 +432,7 @@ export function Login() {
 							<BrandLogo name="github" size="xs" monochrome />
 							{oauthLoading === "github"
 								? "Redirecting…"
-								: "Continue with GitHub"}
+								: "GitHub"}
 						</Button>
 						<Button
 							type="button"
@@ -439,18 +444,13 @@ export function Login() {
 							<BrandLogo name="google" size="xs" />
 							{oauthLoading === "google"
 								? "Redirecting…"
-								: "Continue with Google"}
+								: "Google"}
 						</Button>
 					</div>
 
-					<div className="relative mb-6">
-						<div className="absolute inset-0 flex items-center">
-							<div className="w-full border-t border-border"></div>
-						</div>
-						<div className="relative flex justify-center text-[0.625rem] uppercase tracking-widest font-bold">
-							<span className="bg-background px-2 text-muted-foreground">Or sign in with email</span>
-						</div>
-					</div>
+					<FieldSeparator className="my-6 text-xs">
+						Or sign in with email
+					</FieldSeparator>
 
 					<form onSubmit={handleLogin}>
 						<FieldGroup>
@@ -467,25 +467,22 @@ export function Login() {
 								/>
 							</Field>
 
-							<Field
-								label={
-									<div className="flex w-full items-center justify-between gap-3">
-										<span>Password</span>
-										<Button
-											type="button"
-											variant="ghost"
-											size="sm"
-											onClick={() => {
-												setResetEmail(email);
-												setShowReset(true);
-											}}
-											className="h-8 px-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-										>
-											Forgot?
-										</Button>
-									</div>
-								}
-							>
+							<Field>
+								<div className="flex w-full items-center justify-between gap-3">
+									<FieldLabel>Password</FieldLabel>
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										onClick={() => {
+											setResetEmail(email);
+											setShowReset(true);
+										}}
+										className="h-8 px-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+									>
+										Forgot?
+									</Button>
+								</div>
 								<Input
 									id="login-password"
 									type="password"
@@ -502,7 +499,7 @@ export function Login() {
 						<Button
 							type="submit"
 							disabled={isLoading}
-							className="mt-2 w-full"
+							className="mt-4 w-full"
 						>
 							{isLoading ? "Signing in..." : "Sign In"}
 							{!isLoading && <ArrowRight data-icon="inline-end" />}
@@ -518,7 +515,7 @@ export function Login() {
 							Create an account
 						</Link>
 					</div>
-				</div>
+				</AuthCard>
 			)}
 		</div>
 	);

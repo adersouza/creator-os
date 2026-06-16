@@ -17,9 +17,10 @@ setup('authenticate', async ({ page }) => {
   await page.goto('/login');
   await page.waitForLoadState('networkidle');
 
-  // Fill login form
-  await page.getByRole('textbox', { name: /email/i }).fill(email);
-  await page.getByRole('textbox', { name: /password/i }).fill(password);
+  // Fill login form. The visual labels are not the textbox accessible names;
+  // the controls expose their placeholders, so use the concrete input types.
+  await page.locator('input[type="email"]').fill(email);
+  await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
 
   // Wait for redirect to dashboard

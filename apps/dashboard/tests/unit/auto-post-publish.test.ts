@@ -61,12 +61,22 @@ const mockPostToThreads = vi.fn();
 const mockShouldAttachMedia = vi.fn().mockReturnValue(false);
 const mockGetRandomMediaUrl = vi.fn().mockResolvedValue(null);
 const mockLogActivity = vi.fn().mockResolvedValue(undefined);
+const mockVerifyGatePassToken = vi.fn().mockReturnValue({
+	ok: true,
+	contentHash: "content-hash",
+	verdictHash: "verdict-hash",
+});
 
 vi.mock("../../api/_lib/handlers/auto-post/publisher", () => ({
 	postToThreads: (...args: unknown[]) => mockPostToThreads(...args),
 	shouldAttachMedia: (...args: unknown[]) => mockShouldAttachMedia(...args),
 	getRandomMediaUrl: (...args: unknown[]) => mockGetRandomMediaUrl(...args),
 	logActivity: (...args: unknown[]) => mockLogActivity(...args),
+}));
+
+vi.mock("../../api/_lib/handlers/auto-post/gatePassToken", () => ({
+	verifyAutopublishGatePassToken: (...args: unknown[]) =>
+		mockVerifyGatePassToken(...args),
 }));
 
 vi.mock("../../api/_lib/handlers/auto-post/types", () => ({
@@ -175,6 +185,12 @@ describe("auto-post-publish handler", () => {
 		mockRedisGet.mockResolvedValue(null);
 		mockRedisSet.mockReset();
 		mockRedisSet.mockResolvedValue(undefined);
+		mockVerifyGatePassToken.mockReset();
+		mockVerifyGatePassToken.mockReturnValue({
+			ok: true,
+			contentHash: "content-hash",
+			verdictHash: "verdict-hash",
+		});
 		installDefaultRpcMocks();
 		delete process.env.AUTOPOSTER_HARD_DISABLED;
 		delete process.env.CRON_SECRET;
@@ -1388,6 +1404,187 @@ describe("auto-post-publish handler", () => {
 			}),
 		);
 		expect(mockFrom).not.toHaveBeenCalledWith("posts");
+	});
+
+	it("dead-letters non-manual rows with an invalid fill-time gate pass before Graph publish", async () => {
+		const queueItem = createTestQueueItem({
+			id: "q1",
+			account_id: "acct-1",
+			status: "pending",
+			content: "final content changed after fill",
+		} as any);
+		let autoPostQueueCallCount = 0;
+		mockVerifyGatePassToken.mockReturnValueOnce({
+			ok: false,
+			reason: "gate_pass_content_hash_mismatch",
+			contentHash: "changed-hash",
+		});
+
+		mockFrom.mockImplementation((table: string) => {
+			if (table === "auto_post_queue") {
+				autoPostQueueCallCount += 1;
+				if (autoPostQueueCallCount === 1) {
+					return createChainMock({ data: queueItem, error: null });
+				}
+				if (autoPostQueueCallCount === 2) {
+					return createChainMock({ data: { id: "q1" }, error: null });
+				}
+				return createChainMock({ data: null, error: null });
+			}
+			if (table === "auto_post_config") {
+				return createChainMock({
+					data: { is_enabled: true, group_mode_enabled: true },
+					error: null,
+				});
+			}
+			if (table === "auto_post_group_config") {
+				return createChainMock({
+					data: {
+						enabled: true,
+						timezone: "UTC",
+						active_hours_start: 0,
+						active_hours_end: 24,
+						post_on_weekends: true,
+						min_interval_minutes: 30,
+						posts_per_account_per_day: 5,
+					},
+					error: null,
+				});
+			}
+			if (table === "auto_post_account_overrides") {
+				return createChainMock({ data: null, error: null });
+			}
+			if (table === "accounts") {
+				return createChainMock({
+					data: {
+						id: "acct-1",
+						username: "publisher",
+						threads_user_id: null,
+						threads_access_token_encrypted: "enc",
+						is_retired: false,
+						needs_reauth: false,
+						is_active: true,
+						is_shadowbanned: false,
+						status: "active",
+					},
+					error: null,
+				});
+			}
+			if (table === "auto_post_group_state") {
+				return createChainMock({ data: { last_reset_date: "today" }, error: null });
+			}
+			return createChainMock({ data: null, error: null });
+		});
+
+		const res = mockRes();
+		await handler(
+			mockAutoPostReq({
+				queueItemId: "q1",
+				workspaceId: "ws1",
+				groupId: "g1",
+				ownerId: "u1",
+				groupName: "G",
+				accountId: "acct-1",
+			}),
+			res,
+		);
+
+		expect(res.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ok: true,
+				result: "dead_letter",
+				reason: "gate_pass_content_hash_mismatch",
+			}),
+		);
+		expect(mockPostToThreads).not.toHaveBeenCalled();
+	});
+
+	it("dead-letters off-platform content at publish even if it reached the queue", async () => {
+		const queueItem = createTestQueueItem({
+			id: "q1",
+			account_id: "acct-1",
+			status: "pending",
+			content: "dm me for the link in bio",
+		} as any);
+		let autoPostQueueCallCount = 0;
+
+		mockFrom.mockImplementation((table: string) => {
+			if (table === "auto_post_queue") {
+				autoPostQueueCallCount += 1;
+				if (autoPostQueueCallCount === 1) {
+					return createChainMock({ data: queueItem, error: null });
+				}
+				if (autoPostQueueCallCount === 2) {
+					return createChainMock({ data: { id: "q1" }, error: null });
+				}
+				return createChainMock({ data: null, error: null });
+			}
+			if (table === "auto_post_config") {
+				return createChainMock({
+					data: { is_enabled: true, group_mode_enabled: true },
+					error: null,
+				});
+			}
+			if (table === "auto_post_group_config") {
+				return createChainMock({
+					data: {
+						enabled: true,
+						timezone: "UTC",
+						active_hours_start: 0,
+						active_hours_end: 24,
+						post_on_weekends: true,
+						min_interval_minutes: 30,
+						posts_per_account_per_day: 5,
+					},
+					error: null,
+				});
+			}
+			if (table === "auto_post_account_overrides") {
+				return createChainMock({ data: null, error: null });
+			}
+			if (table === "accounts") {
+				return createChainMock({
+					data: {
+						id: "acct-1",
+						username: "publisher",
+						threads_user_id: null,
+						threads_access_token_encrypted: "enc",
+						is_retired: false,
+						needs_reauth: false,
+						is_active: true,
+						is_shadowbanned: false,
+						status: "active",
+					},
+					error: null,
+				});
+			}
+			if (table === "auto_post_group_state") {
+				return createChainMock({ data: { last_reset_date: "today" }, error: null });
+			}
+			return createChainMock({ data: null, error: null });
+		});
+
+		const res = mockRes();
+		await handler(
+			mockAutoPostReq({
+				queueItemId: "q1",
+				workspaceId: "ws1",
+				groupId: "g1",
+				ownerId: "u1",
+				groupName: "G",
+				accountId: "acct-1",
+			}),
+			res,
+		);
+
+		expect(res.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ok: true,
+				result: "dead_letter",
+				reason: "discoverability_risk_link_dm_or_off_platform_reference",
+			}),
+		);
+		expect(mockPostToThreads).not.toHaveBeenCalled();
 	});
 
 	it("moves externally published items to reconciliation when finalization fails", async () => {

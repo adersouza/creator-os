@@ -205,7 +205,7 @@ Not allowed:
 - active still aspect ratio is `9:16`
 - Stacey Soul ID is `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`
 - Soul ID owns identity
-- optional body emphasis is append-only
+- no prompt appends/body-emphasis hacks in the active Stacey reference-image path
 - accepted stills use `reel_motion_prompt.py` for Kling prompts
 - Grok/Qwen/Ollama/Florence and grid/cropped-panel workflows remain legacy unless explicitly requested
 - Campaign Factory control brain

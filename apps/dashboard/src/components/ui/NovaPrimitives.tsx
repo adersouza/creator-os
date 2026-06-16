@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardFooter,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/Empty";
 import { Progress } from "@/components/ui/Progress";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Sparkline } from "@/components/ui/Sparkline";
 import { cn } from "@/lib/utils";
 
 export interface NovaHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
@@ -55,7 +57,9 @@ export interface NovaStatProps extends Omit<React.HTMLAttributes<HTMLDivElement>
 	icon?: React.ReactNode | undefined;
 	status?: React.ReactNode | undefined;
 	progress?: number | { value: number; label?: string | undefined } | undefined;
+	sparkline?: { points: number[]; label?: string | undefined } | undefined;
 	action?: React.ReactNode | undefined;
+	footer?: React.ReactNode | undefined;
 	loading?: boolean | undefined;
 	variant?: "default" | "hero" | "compact" | undefined;
 }
@@ -82,8 +86,25 @@ export interface NovaListRowProps extends Omit<React.HTMLAttributes<HTMLDivEleme
 	progressLabel?: string | undefined;
 	tone?: "default" | "primary" | "success" | "warning" | "danger" | undefined;
 }
+export interface NovaUsageItem {
+	label: React.ReactNode;
+	value: React.ReactNode;
+	description?: React.ReactNode | undefined;
+	progress?: number | undefined;
+	limit?: React.ReactNode | undefined;
+	tone?: "default" | "primary" | "success" | "warning" | "danger" | undefined;
+	action?: React.ReactNode | undefined;
+}
+export interface NovaUsageListProps extends React.HTMLAttributes<HTMLDivElement> {
+	items: NovaUsageItem[];
+	empty?: React.ReactNode | undefined;
+	showMeters?: boolean | undefined;
+}
 export interface NovaInsetProps extends React.HTMLAttributes<HTMLDivElement> {
 	tone?: "default" | "primary" | "success" | "warning" | "danger" | undefined;
+}
+export interface NovaBentoGridProps extends React.HTMLAttributes<HTMLDivElement> {
+	gap?: "compact" | "default" | "roomy" | undefined;
 }
 
 export function NovaHeader({
@@ -152,7 +173,24 @@ export function NovaSection({
 }: React.HTMLAttributes<HTMLElement>) {
 	return (
 		<section
-			className={cn("nova-section flex min-w-0 flex-col gap-4", className)}
+			className={cn("nova-section flex min-w-0 flex-col gap-6", className)}
+			{...props}
+		/>
+	);
+}
+
+export function NovaBentoGrid({
+	gap = "default",
+	className,
+	...props
+}: NovaBentoGridProps) {
+	return (
+		<div
+			className={cn(
+				"nova-bento-grid grid min-w-0 items-stretch [&>*]:min-w-0",
+				gap === "compact" ? "gap-4 md:gap-5" : gap === "roomy" ? "gap-6 md:gap-7" : "gap-5 md:gap-6",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -171,29 +209,36 @@ export function NovaToolbar({
 }
 
 const NOVA_CARD_VARIANT_CLASS: Record<NonNullable<NovaCardProps["variant"]>, string> = {
-	default: "shadow-sm",
-	hero: "shadow-sm md:shadow",
-	compact: "shadow-sm",
-	panel: "bg-muted/45 shadow-none",
+	default: "bg-card shadow-sm",
+	hero: "bg-card shadow-sm md:shadow",
+	compact: "bg-card shadow-sm",
+	panel: "bg-muted shadow-none",
 };
 
 const NOVA_CARD_HEADER_CLASS: Record<NonNullable<NovaCardProps["variant"]>, string> = {
-	default: "p-5 pb-4 md:p-6 md:pb-4",
-	hero: "p-5 pb-4 md:p-7 md:pb-4",
-	compact: "p-4 pb-3",
-	panel: "p-4 pb-3",
+	default: "p-5 pb-3 md:p-6 md:pb-4",
+	hero: "p-6 pb-4 md:p-7 md:pb-5",
+	compact: "p-4 pb-2.5 md:p-5 md:pb-3",
+	panel: "p-4 pb-2.5 md:p-5 md:pb-3",
 };
 
 const NOVA_CARD_CONTENT_CLASS: Record<NonNullable<NovaCardProps["variant"]>, string> = {
 	default: "p-5 md:p-6",
-	hero: "p-5 md:p-7",
-	compact: "p-4",
-	panel: "p-4",
+	hero: "p-6 md:p-7",
+	compact: "p-4 md:p-5",
+	panel: "p-4 md:p-5",
+};
+
+const NOVA_CARD_CONTENT_WITH_HEADER_CLASS: Record<NonNullable<NovaCardProps["variant"]>, string> = {
+	default: "px-5 pb-5 pt-0 md:px-6 md:pb-6",
+	hero: "px-6 pb-6 pt-0 md:px-7 md:pb-7",
+	compact: "px-4 pb-4 pt-0 md:px-5 md:pb-5",
+	panel: "px-4 pb-4 pt-0 md:px-5 md:pb-5",
 };
 
 const NOVA_CARD_TITLE_CLASS: Record<NonNullable<NovaCardProps["variant"]>, string> = {
-	default: "text-xl",
-	hero: "text-2xl md:text-3xl",
+	default: "text-lg",
+	hero: "text-xl md:text-2xl",
 	compact: "text-base",
 	panel: "text-base",
 };
@@ -211,21 +256,23 @@ export function NovaCard({
 	...props
 }: NovaCardProps) {
 	const hasHeader = eyebrow || title || description || action;
+	const flushContent = typeof contentClassName === "string" && /\bp-0\b/.test(contentClassName);
 
 	return (
 		<Card
+			data-nova-variant={variant}
 			className={cn(
-				"nova-card min-w-0 overflow-hidden rounded-xl border-border bg-card text-card-foreground",
+				"nova-card min-w-0 overflow-hidden rounded-xl border-border text-card-foreground",
 				NOVA_CARD_VARIANT_CLASS[variant],
 				className,
 			)}
 			{...props}
 		>
 			{hasHeader ? (
-				<CardHeader className={cn("nova-card-header flex flex-row items-start justify-between gap-4", NOVA_CARD_HEADER_CLASS[variant])}>
-					<div className="min-w-0">
+				<CardHeader className={cn("nova-card-header flex flex-row flex-wrap items-start justify-between gap-3", NOVA_CARD_HEADER_CLASS[variant])}>
+					<div className="min-w-0 basis-64 flex-1">
 						{eyebrow ? (
-							<div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</div>
+							<div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-primary">{eyebrow}</div>
 						) : null}
 						{title ? (
 							<CardTitle
@@ -240,33 +287,36 @@ export function NovaCard({
 							</CardTitle>
 						) : null}
 						{description ? (
-							<CardDescription className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+							<CardDescription className="mt-1.5 line-clamp-2 text-sm leading-snug text-muted-foreground">
 								{description}
 							</CardDescription>
 						) : null}
 					</div>
-					{action ? <div className="shrink-0">{action}</div> : null}
+					{action ? <CardAction className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">{action}</CardAction> : null}
 				</CardHeader>
 			) : null}
 			{children ? (
 				<CardContent
 					className={cn(
-						"nova-card-content",
-						hasHeader
-							? variant === "hero"
-								? "px-5 pb-5 pt-0 md:px-7 md:pb-7"
-								: variant === "compact" || variant === "panel"
-									? "px-4 pb-4 pt-0"
-									: "px-5 pb-5 pt-0 md:px-6 md:pb-6"
-							: NOVA_CARD_CONTENT_CLASS[variant],
-						contentClassName,
-					)}
+							"nova-card-content",
+							flushContent
+								? "p-0 md:p-0"
+								: hasHeader
+								? NOVA_CARD_CONTENT_WITH_HEADER_CLASS[variant]
+								: NOVA_CARD_CONTENT_CLASS[variant],
+							contentClassName,
+						)}
 				>
 					{children}
 				</CardContent>
 			) : null}
 			{footer ? (
-				<CardFooter className={cn("nova-card-footer border-t border-border bg-muted/45", variant === "compact" || variant === "panel" ? "p-4" : "p-5 md:p-6")}>
+				<CardFooter
+					className={cn(
+						"nova-card-footer border-t border-border bg-muted/55",
+						variant === "compact" || variant === "panel" ? "p-4 md:p-5" : "p-5 md:p-6",
+					)}
+				>
 					{footer}
 				</CardFooter>
 			) : null}
@@ -282,7 +332,9 @@ export function NovaStat({
 	icon,
 	status,
 	progress,
+	sparkline,
 	action,
+	footer,
 	loading = false,
 	variant = "default",
 	className,
@@ -297,23 +349,39 @@ export function NovaStat({
 			className={cn("nova-stat", className)}
 			contentClassName={cn(
 				"flex h-full flex-col",
-				variant === "compact" ? "gap-2.5" : "gap-4",
+				variant === "hero"
+					? "min-h-[220px] gap-4"
+					: variant === "compact"
+						? "min-h-[112px] gap-2.5"
+						: "min-h-[176px] gap-4",
 			)}
+			footer={footer}
 			{...props}
 		>
 			<div className="flex min-w-0 items-start justify-between gap-3">
 				<div className="min-w-0">
 					<div className="flex min-w-0 items-center gap-2">
-						<span className="truncate text-sm font-medium leading-none text-muted-foreground">{label}</span>
+							<span
+								className={cn(
+									"nova-stat-label text-xs font-semibold uppercase leading-tight tracking-[0.12em] text-muted-foreground",
+									"line-clamp-2",
+								)}
+							>
+							{label}
+						</span>
 						{status ? <Badge tone="outline">{status}</Badge> : null}
 					</div>
 					{loading ? (
-						<Skeleton className="mt-2 h-9 w-28" />
+						<Skeleton className="mt-2 h-8 w-24" />
 					) : (
 						<div
 							className={cn(
-								"mt-2 truncate font-semibold tabular-nums tracking-normal text-foreground",
-								variant === "hero" ? "text-5xl" : variant === "compact" ? "text-2xl" : "text-4xl",
+								"nova-stat-value truncate font-semibold tabular-nums tracking-normal text-foreground",
+								variant === "hero"
+									? "mt-2 text-4xl"
+									: variant === "compact"
+										? "mt-1.5 text-2xl"
+										: "mt-2 text-3xl",
 							)}
 						>
 							{value}
@@ -327,12 +395,24 @@ export function NovaStat({
 				) : null}
 			</div>
 			{description ? (
-				<p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
+				<p className={cn("nova-stat-description text-muted-foreground", variant === "compact" ? "line-clamp-2 text-sm leading-snug" : "line-clamp-2 text-sm leading-relaxed")}>{description}</p>
 			) : null}
 			<div className="mt-auto flex min-w-0 flex-wrap items-center gap-2">
 				{trend ? <NovaTrendBadge trend={trend} /> : null}
 				{action ? <div className="ml-auto">{action}</div> : null}
 			</div>
+			{sparkline?.points && sparkline.points.length > 1 ? (
+				<div className={cn("nova-stat-sparkline overflow-hidden rounded-lg border border-border bg-muted/40 px-2 py-1.5", variant === "compact" ? "h-9" : "h-12")}>
+					<Sparkline
+						points={sparkline.points}
+						color="var(--color-primary)"
+						fillOpacity={0.18}
+						height={variant === "compact" ? 24 : 36}
+						strokeWidth={1.6}
+						ariaLabel={sparkline.label ?? `${String(label)} trend`}
+					/>
+				</div>
+			) : null}
 			{progressValue !== undefined ? (
 				<div className="grid gap-2">
 					<Progress
@@ -375,7 +455,7 @@ export function NovaDataPanel({
 	className,
 	...props
 }: NovaDataPanelProps) {
-	const action = toolbar ? <div className="flex items-center gap-2">{toolbar}</div> : undefined;
+	const action = toolbar ? <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{toolbar}</div> : undefined;
 
 	return (
 		<NovaCard className={cn("nova-data-panel", className)} action={action} {...props}>
@@ -414,7 +494,7 @@ const NOVA_TONE_TEXT_CLASS = {
 } as const;
 
 const NOVA_TONE_PANEL_CLASS = {
-	default: "border-border bg-muted/35",
+	default: "border-border bg-muted/45",
 	primary: "border-primary/25 bg-primary/10",
 	success: "border-success/25 bg-success/10",
 	warning: "border-warning/25 bg-warning/10",
@@ -429,7 +509,7 @@ export function NovaInset({
 	return (
 		<div
 			className={cn(
-				"nova-inset min-w-0 rounded-lg border p-4",
+				"nova-inset min-w-0 rounded-lg border p-3.5",
 				NOVA_TONE_PANEL_CLASS[tone],
 				className,
 			)}
@@ -453,7 +533,7 @@ export function NovaMiniStat({
 		<div
 			className={cn(
 				"nova-mini-stat min-w-0 rounded-lg border",
-				isCompact ? "px-2.5 py-2" : "px-3.5 py-3",
+				isCompact ? "min-h-[92px] px-3 py-2.5" : "min-h-[112px] px-4 py-3.5",
 				NOVA_TONE_PANEL_CLASS[tone],
 				className,
 			)}
@@ -463,7 +543,7 @@ export function NovaMiniStat({
 				<p
 					className={cn(
 						"truncate font-medium uppercase tracking-[0.12em] text-muted-foreground",
-						isCompact ? "text-[10px]" : "text-xs",
+						isCompact ? "text-xs" : "text-xs",
 					)}
 				>
 					{label}
@@ -473,7 +553,7 @@ export function NovaMiniStat({
 			<div
 				className={cn(
 					"truncate font-semibold tracking-normal tabular-nums",
-					isCompact ? "mt-1 text-xl" : "mt-2 text-2xl",
+					isCompact ? "mt-1.5 text-lg" : "mt-2 text-2xl",
 					NOVA_TONE_TEXT_CLASS[tone],
 				)}
 			>
@@ -482,7 +562,7 @@ export function NovaMiniStat({
 			{description ? (
 				<p
 					className={cn(
-						"truncate text-muted-foreground",
+						"line-clamp-2 text-muted-foreground",
 						isCompact ? "mt-0.5 text-[11px]" : "mt-1 text-xs",
 					)}
 				>
@@ -508,7 +588,7 @@ export function NovaListRow({
 	return (
 		<div
 			className={cn(
-				"nova-list-row min-w-0 rounded-lg border px-3.5 py-3.5 transition-colors",
+				"nova-list-row min-w-0 rounded-lg border px-4 py-3.5 transition-colors",
 				NOVA_TONE_PANEL_CLASS[tone],
 				className,
 			)}
@@ -516,24 +596,24 @@ export function NovaListRow({
 		>
 			<div className="flex min-w-0 items-start gap-3">
 				{leading ? (
-					<div className="nova-icon-box flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+					<div className="nova-icon-box flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card text-muted-foreground">
 						{leading}
 					</div>
 				) : null}
 				<div className="min-w-0 flex-1">
 					<div className="flex min-w-0 items-start justify-between gap-3">
 						<div className="min-w-0">
-							<div className="truncate text-sm font-semibold text-foreground">
+							<div className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
 								{title}
 							</div>
 							{description ? (
-								<div className="mt-1 truncate text-sm text-muted-foreground">
+								<div className="mt-1 line-clamp-2 text-sm leading-snug text-muted-foreground">
 									{description}
 								</div>
 							) : null}
 						</div>
 						{meta || action ? (
-							<div className="flex shrink-0 items-center gap-2">
+							<div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
 								{meta ? <div>{meta}</div> : null}
 								{action ? <div>{action}</div> : null}
 							</div>
@@ -547,6 +627,127 @@ export function NovaListRow({
 						/>
 					) : null}
 				</div>
+			</div>
+		</div>
+	);
+}
+
+export function NovaUsageList({
+	items,
+	empty,
+	showMeters = true,
+	className,
+	...props
+}: NovaUsageListProps) {
+	if (items.length === 0) {
+		return empty ?? null;
+	}
+
+	return (
+		<div
+			className={cn("nova-usage-list grid min-w-0 gap-2", className)}
+			{...props}
+		>
+			{items.map((item, index) => (
+				<NovaUsageRow
+					key={index}
+					item={item}
+					showMeter={showMeters}
+				/>
+			))}
+		</div>
+	);
+}
+
+function NovaUsageRow({
+	item,
+	showMeter,
+}: {
+	item: NovaUsageItem;
+	showMeter: boolean;
+}) {
+	const progress = item.progress === undefined ? undefined : Math.max(0, Math.min(100, item.progress));
+	const tone = item.tone ?? "default";
+	const progressLabel = progress === undefined ? undefined : `${String(item.label)} usage`;
+	return (
+		<div className={cn("nova-usage-row min-w-0 rounded-lg border px-3 py-3", NOVA_TONE_PANEL_CLASS[tone])}>
+			<div className="flex min-w-0 items-center gap-3">
+				{showMeter ? (
+					<NovaUsageMeter
+						value={progress}
+						tone={tone}
+						label={progressLabel}
+					/>
+				) : null}
+				<div className="min-w-0 flex-1">
+					<div className="flex min-w-0 items-start justify-between gap-3">
+						<div className="min-w-0">
+							<div className="truncate text-sm font-semibold text-foreground">
+								{item.label}
+							</div>
+							{item.description ? (
+								<div className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
+									{item.description}
+								</div>
+							) : null}
+						</div>
+						<div className="flex min-w-0 shrink-0 items-center justify-end gap-2 text-right">
+							<div className="min-w-0">
+								<div className={cn("truncate text-sm font-semibold tabular-nums", NOVA_TONE_TEXT_CLASS[tone])}>
+									{item.value}
+								</div>
+								{item.limit ? (
+									<div className="truncate text-[11px] text-muted-foreground">
+										{item.limit}
+									</div>
+								) : null}
+							</div>
+							{item.action ? <div className="shrink-0">{item.action}</div> : null}
+						</div>
+					</div>
+					{progress !== undefined ? (
+						<Progress
+							className="mt-2.5"
+							value={progress}
+							aria-label={progressLabel}
+						/>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function NovaUsageMeter({
+	value,
+	tone,
+}: {
+	value?: number | undefined;
+	tone: NonNullable<NovaUsageItem["tone"]>;
+	label?: string | undefined;
+}) {
+	const fill = value === undefined ? 0 : Math.max(0, Math.min(100, value));
+	const color =
+		tone === "danger"
+			? "var(--color-error)"
+			: tone === "warning"
+				? "var(--color-warning)"
+				: tone === "success"
+					? "var(--color-success)"
+					: "var(--color-primary)";
+	return (
+		<div
+			className="relative flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-muted"
+			aria-hidden="true"
+			style={{
+				background:
+					value === undefined
+						? "var(--color-muted)"
+						: `conic-gradient(${color} ${fill * 3.6}deg, var(--color-muted) 0deg)`,
+			}}
+		>
+			<div className="flex size-7 items-center justify-center rounded-full border border-border bg-card text-[10px] font-semibold tabular-nums text-muted-foreground">
+				{value === undefined ? "..." : Math.round(fill)}
 			</div>
 		</div>
 	);

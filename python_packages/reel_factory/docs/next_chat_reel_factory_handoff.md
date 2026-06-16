@@ -7,8 +7,7 @@ single-person reference image
 → Higgsfield direct reference-image still
 → Stacey Soul ID
 → one 9:16 generated still
-→ captured Higgsfield prompt + lineage
-→ optional append-only body emphasis
+→ captured Higgsfield prompt + lineage for audit only
 → human/QC accepted still
 → deterministic Kling motion prompt
 → Kling image-to-video only when explicitly requested
@@ -24,7 +23,6 @@ python3 generate_assets.py reference-image-dry-run \
   --reference <reference-image> \
   --creator Stacey \
   --stem <clip_stem> \
-  --body-emphasis none|bust|bust_hips \
   --wait
 ```
 
@@ -33,7 +31,6 @@ python3 generate_assets.py reference-image \
   --reference <reference-image> \
   --creator Stacey \
   --stem <clip_stem> \
-  --body-emphasis none|bust|bust_hips \
   --wait
 ```
 
@@ -47,17 +44,12 @@ Required active defaults:
 - Reference image passed with `--image`
 - Identity passed with `--custom_reference_id`
 
-## Body Emphasis
+## Prompt Policy
 
-Only append body emphasis. Do not rewrite Higgsfield's own reference-image prompt.
-
-Allowed values:
-
-- `none`
-- `bust`
-- `bust_hips`
-
-The emphasis must preserve the same pose, outfit, setting, lighting, and 9:16 composition.
+Do not append prompt text for Stacey reference generations. Do not feed captured
+Higgsfield prompts back into the active path. Do not use Grok, Qwen, visual
+schema, or body-emphasis wording unless the user explicitly starts a legacy
+experiment.
 
 ## Video Prompts
 
