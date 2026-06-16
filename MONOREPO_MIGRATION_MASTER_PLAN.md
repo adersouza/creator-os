@@ -62,6 +62,39 @@ This is still not production runtime promotion. Split repos remain the current
 deployment baseline until staged operational proof and deployment routing are
 completed.
 
+## Decision: ThreadsDashboard Stays Standalone
+
+ThreadsDashboard/Juno33 is a sold standalone product and remains permanently
+owned by its own repository:
+
+```text
+/Users/aderdesouza/Developer/ThreadsDashboard
+```
+
+It is exempt from Phase 6 runtime promotion. Do not deploy the dashboard from
+`creator-os`, do not relink Vercel to this monorepo, and do not archive or
+freeze the split ThreadsDashboard repo as a monorepo promotion step.
+
+The monorepo may keep a read-only mirror of ThreadsDashboard solely for
+cross-pipeline contract tests. That mirror is synced from the standalone
+ThreadsDashboard repo. It is never hand-edited as runtime source and never
+deployed.
+
+## Process Correction
+
+Until the decision-gate JSON at the end of this plan is all true, monorepo
+app/package copies are not the source of truth. Runtime fixes must land in the
+live split repos first, then the monorepo catches up by mirror/parity sync.
+
+Do not hand-edit `apps/*` or `python_packages/*` copies as if they were already
+promoted runtime owners. PR #15 drift happened because fixes landed in monorepo
+copies while the live split runtimes stayed unfixed; this plan now treats that
+as an explicit process failure to avoid repeating.
+
+`reel_factory`, `campaign_factory`, and `contentforge` may still follow the
+monorepo promotion plan later, but only after Phase 1 proves the contracts are
+canonical.
+
 ## Target Architecture
 
 ### Desired Repository Layout
@@ -69,7 +102,7 @@ completed.
 ```text
 creator-os/
 ├── apps/
-│   ├── dashboard/                # ThreadsDashboard / Juno33 product app
+│   ├── dashboard/                # Read-only ThreadsDashboard/Juno33 mirror for contract tests
 │   └── contentforge/             # Variant/QC app
 ├── packages/
 │   ├── pipeline_contracts/        # Shared schemas and validators
@@ -99,12 +132,12 @@ creator-os/
 
 ### Ownership Map
 
-| Area | Canonical Owner In Monorepo | Notes |
+| Area | Canonical Owner / Runtime Owner | Notes |
 |---|---|---|
 | Creative still/video generation | `python_packages/reel_factory` | Direct reference-image path is active. Grok/Qwen/grid paths are legacy/experimental. |
 | Variant generation and QC | `apps/contentforge` | Resumable variant-pack jobs and similarity/readiness checks live here. |
 | Operational inventory/readiness | `python_packages/campaign_factory` | Campaign Factory remains the control brain. |
-| Platform UI/execution | `apps/dashboard` | ThreadsDashboard/Juno33 owns drafts, scheduling, publishing UI, analytics, smart links. |
+| Platform UI/execution | standalone `ThreadsDashboard` repo | ThreadsDashboard/Juno33 owns drafts, scheduling, publishing UI, analytics, smart links. `apps/dashboard` is only a read-only mirror for cross-pipeline contract tests. |
 | Shared schemas | `packages/pipeline_contracts` | Must become the only source of truth for cross-repo contracts. |
 | Reference/audio intelligence | `python_packages/reference_factory` | Source/reference analysis and audio catalog support. |
 | Architecture/codebase map | Graphify output | Generated locally, not committed by default. |
@@ -233,11 +266,11 @@ no --no-verify needed for contract hooks
 
 ### Phase 2: Promote JavaScript Apps
 
-Goal: `apps/dashboard` and `apps/contentforge` run cleanly under the monorepo `pnpm` workspace.
+Goal: `apps/contentforge` and the read-only `apps/dashboard` mirror run cleanly under the monorepo `pnpm` workspace.
 
 Actions:
 
-1. Keep `apps/dashboard` as the ThreadsDashboard source tree.
+1. Keep `apps/dashboard` as a read-only mirror synced from the standalone ThreadsDashboard source tree.
 2. Keep `apps/contentforge` as the ContentForge source tree.
 3. Remove committed build output and local uploads from the monorepo.
 4. Ensure each app can run tests from both its app folder and root workspace commands.
@@ -372,6 +405,7 @@ Actions:
 5. Decide whether split repos become:
    - archived read-only mirrors, or
    - generated deploy mirrors from monorepo.
+   ThreadsDashboard is excluded from this decision and remains standalone.
 
 Exit criteria:
 
@@ -511,9 +545,9 @@ Recommended order:
 1. Keep current deploys from split repos.
 2. Run monorepo CI in parallel.
 3. Promote `apps/contentforge` deployment from monorepo first.
-4. Promote `apps/dashboard` deployment after contract sync is stable.
+4. Keep ThreadsDashboard deployment on the standalone repo; use the monorepo mirror only for contract and parity checks.
 5. Promote Python package release/dev workflows after local CLI parity is proven.
-6. Archive split repos only after successful staged production operations.
+6. Archive eligible split repos only after successful staged production operations; ThreadsDashboard is not eligible for archive under this plan.
 
 ## Operational Proof Required Before Full Promotion
 
