@@ -184,3 +184,28 @@ def test_metadata_normalization_reports_missing_exiftool_without_spoofing(tmp_pa
     assert "exiftool_unavailable" in result["metadataWarnings"]
     assert result["spoofedDeviceMetadata"] is False
     assert result["spoofedPlatformMetadata"] is False
+
+
+def test_metadata_normalization_strips_mp4_metadata_tags(tmp_path: Path, monkeypatch) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"fake media")
+    calls: list[list[str]] = []
+
+    class Proc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr("media_metadata.shutil.which", lambda name: "/usr/bin/exiftool")
+    monkeypatch.setattr("media_metadata.subprocess.run", fake_run)
+
+    result = normalize_media_metadata(media, dry_run=False)
+
+    assert result["metadataNormalized"] is True
+    assert calls
+    assert "-all=" in calls[0]
+    assert str(media.resolve()) == calls[0][-1]

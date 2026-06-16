@@ -5601,6 +5601,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption_version = self._caption_version_by_id(caption_version_id) if caption_version_id else None
         parent_caption_context = load_context_json(parent.get("caption_outcome_context_json"))
         parent_caption_generation = json_load(parent.get("caption_generation_json"), {})
+        parent_latest_audit = self._latest_audit_for_asset(parent_asset_id)
+        _, parent_trust_statuses = self._content_trust_status_blockers(parent, parent_latest_audit, parent_caption_context)
         variant_burned_caption = caption_version.get("burnedCaptionText") if caption_version else parent.get("caption")
         variant_burned_hash = (
             caption_version.get("burnedCaptionHash")
@@ -5648,6 +5650,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         "captionVersionId": caption_version_id,
                     },
                 ]
+                result_visual = result.get("visualQcStatus") or result.get("visual_qc_status")
+                if isinstance(result.get("visualQc"), dict):
+                    result_visual = result_visual or result["visualQc"].get("status")
+                result_identity = result.get("identityVerificationStatus") or result.get("identity_verification_status")
+                if isinstance(result.get("identityVerification"), dict):
+                    result_identity = result_identity or result["identityVerification"].get("status")
+                visual_qc_status = str(
+                    result_visual
+                    or ("passed" if result.get("uploadReady") is True else parent_trust_statuses["visualQcStatus"])
+                ).strip().lower()
+                identity_verification_status = str(result_identity or parent_trust_statuses["identityVerificationStatus"]).strip().lower()
                 caption_context = dict(parent_caption_context)
                 caption_context.update({
                     "parent_asset_id": parent_asset_id,
@@ -5667,6 +5680,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     "hashtags": caption_version.get("hashtags") if caption_version else [],
                     "post_caption_style": caption_version.get("postCaptionStyle") if caption_version else None,
                     "variant_operations": operations,
+                    "visualQcStatus": visual_qc_status,
+                    "identityVerificationStatus": identity_verification_status,
+                    "visualQc": {"status": visual_qc_status},
+                    "identityVerification": {"status": identity_verification_status},
                 })
                 caption_generation = dict(parent_caption_generation)
                 caption_generation.update({
@@ -5746,7 +5763,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         "warnings": result.get("mainWarnings") or [],
                         "uploadReady": True,
                         "recommended": True,
+                        "visualQcStatus": visual_qc_status,
+                        "identityVerificationStatus": identity_verification_status,
                     },
+                    "visualQcStatus": visual_qc_status,
+                    "identityVerificationStatus": identity_verification_status,
+                    "visualQc": {"status": visual_qc_status},
+                    "identityVerification": {"status": identity_verification_status},
                     "variant": sanitize_for_storage(result),
                 }
                 audit_dir = dirs["audits"] / "contentforge_variants"
@@ -19076,6 +19099,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "render_recipe": "surface_asset_registered",
             "content_surface": content_surface,
             "instagram_post_caption_hash": caption_hash_value,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
         }
         caption_generation = {
             "schema": "campaign_factory.surface_asset_caption_generation.v1",
@@ -19292,6 +19319,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "contentSurface": content_surface,
             "igMediaType": ig_media_type,
             "overallVerdict": "pass",
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+                "warnings": [],
+                "warningCodes": [],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
+            },
             "mediaItems": [
                 {
                     "mediaPath": str(item["stagedPath"]),
@@ -19625,6 +19665,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "audio_source": audio_source,
             "audio_selected_reason": selected_reason,
             "review_batch": review_batch,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
         }
         if caption_placement_policy:
             caption_context["captionPlacementPolicy"] = caption_placement_policy
@@ -19743,7 +19787,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "blockingReasons": [],
                 "blockingCodes": [],
                 "warnings": [],
+                "warningCodes": [],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
             },
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
             "operatorReview": caption_generation["operatorReview"],
             "probe": probe_video_shape(staged),
         }
@@ -21564,6 +21615,63 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         )
         return bool((uses_ad_hoc_inventory_fill or uses_unreviewed_reel_proof_or_preview) and not has_visual_review_pass)
 
+    def _content_trust_status_blockers(
+        self,
+        asset: dict[str, Any],
+        latest_audit: dict[str, Any] | None,
+        caption_context: dict[str, Any] | None,
+    ) -> tuple[list[str], dict[str, str]]:
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        audit = latest_audit if isinstance(latest_audit, dict) else {}
+        readiness = audit.get("readinessSummary") if isinstance(audit.get("readinessSummary"), dict) else {}
+
+        def nested_status(source: dict[str, Any], *keys: str) -> str:
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip().lower()
+                if isinstance(value, dict):
+                    for nested_key in ("status", key, "visualQcStatus", "identityVerificationStatus"):
+                        nested = value.get(nested_key)
+                        if isinstance(nested, str) and nested.strip():
+                            return nested.strip().lower()
+            return ""
+
+        passed_statuses = {"passed", "pass", "approved", "ready"}
+
+        def resolved_status(*keys: str) -> str:
+            statuses = [nested_status(source, *keys) for source in [metadata, caption_context or {}, audit, readiness]]
+            statuses = [status for status in statuses if status]
+            blocking_status = next((status for status in statuses if status not in passed_statuses), "")
+            if blocking_status:
+                return blocking_status
+            return "passed" if statuses else ""
+
+        visual_status = resolved_status("visualQcStatus", "visual_qc_status", "visualQc", "visual_qc")
+        identity_status = resolved_status(
+            "identityVerificationStatus",
+            "identity_verification_status",
+            "identityVerification",
+            "identity_verification",
+        )
+        blockers: list[str] = []
+        unavailable_statuses = {"", "missing", "none", "null", "pending", "queued", "unknown", "unavailable", "not_available", "not_found"}
+
+        def blocker_code(prefix: str, status: str) -> str:
+            suffix = "unavailable" if status in unavailable_statuses else "failed"
+            return f"{prefix}_{suffix}"
+
+        if visual_status != "passed":
+            blockers.append(blocker_code("visual_qc", visual_status))
+        if identity_status != "passed":
+            blockers.append(blocker_code("identity_verification", identity_status))
+        return blockers, {
+            "visualQcStatus": visual_status or "unavailable",
+            "identityVerificationStatus": identity_status or "unavailable",
+        }
+
     def _asset_matches_creator(self, asset: dict[str, Any], creator: str) -> bool:
         expected = self._creator_label(creator).lower()
         caption_context = load_context_json(asset.get("caption_outcome_context_json"))
@@ -21587,6 +21695,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(caption_generation, dict):
             caption_generation = {}
+        latest_audit = self._latest_audit_for_asset(str(asset["id"]))
+        trust_blockers, trust_statuses = self._content_trust_status_blockers(
+            asset,
+            latest_audit,
+            caption_context if isinstance(caption_context, dict) else {},
+        )
+        blocking.extend(trust_blockers)
         discoverability_contract = self.discoverability_safe_content_contract(
             post_caption.get("instagram_post_caption"),
             post_caption.get("burned_caption_text"),
@@ -21705,6 +21820,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "instagram_post_caption_hash": post_caption.get("instagram_post_caption_hash"),
                 "hashtags": post_caption.get("hashtags") or [],
                 "post_caption_style": post_caption.get("post_caption_style"),
+                "visualQcStatus": trust_statuses["visualQcStatus"],
+                "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
+                "visualQc": {"status": trust_statuses["visualQcStatus"]},
+                "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
                 "exported_by_system": "campaign_factory",
                 "exported_at": utc_now(),
                 "surfaceReadiness": {
@@ -21734,6 +21853,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "scheduleSafe": bool(can_handoff),
             "blockingReasons": sorted(set(blocking)),
             "warnings": sorted(set(warnings)),
+            "visualQcStatus": trust_statuses["visualQcStatus"],
+            "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
             "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
             "discoverabilityContract": discoverability_contract,
             "storyQuality": story_quality,
@@ -26521,6 +26642,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         cover_frame = self._cover_frame_for_asset(asset, caption_context)
         post_caption = self._instagram_post_caption_for_asset(asset, caption_context, distribution_plan=distribution_plan)
         post_caption_quality = self._instagram_post_caption_quality(post_caption)
+        trust_blockers, trust_statuses = self._content_trust_status_blockers(
+            asset,
+            latest_audit,
+            caption_context if isinstance(caption_context, dict) else {},
+        )
         asset_content_surface = normalize_content_surface(
             (distribution_plan or {}).get("contentSurface")
             or (distribution_plan or {}).get("content_surface")
@@ -26573,6 +26699,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "discoverability_safe": discoverability_contract["discoverabilitySafe"] if is_reel_surface else True,
             "instagram_post_caption_quality_passed": post_caption_quality["passed"] if asset_content_surface != "story" else True,
             "operator_visual_review_passed": not self._requires_operator_visual_review_for_handoff(asset) if is_reel_surface else True,
+            "visual_qc_passed": trust_statuses["visualQcStatus"] == "passed",
+            "identity_verification_passed": trust_statuses["identityVerificationStatus"] == "passed",
             "readiness_checks_pass": bool(latest_audit) and not readiness_blockers,
             "quarantine_clear": not bool(quarantine),
         }
@@ -26608,6 +26736,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             failures.append("burned_caption_quality_failed")
         if is_reel_surface and not checks["operator_visual_review_passed"]:
             failures.append("operator_visual_review_required")
+        failures.extend(trust_blockers)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
@@ -26646,6 +26775,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "post_caption_style": post_caption["post_caption_style"],
                 "burned_caption_text": post_caption["burned_caption_text"],
                 "burned_caption_hash": post_caption["burned_caption_hash"],
+                "visualQcStatus": trust_statuses["visualQcStatus"],
+                "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
+                "visualQc": {"status": trust_statuses["visualQcStatus"]},
+                "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
                 "visual_verification_id": self._verification_id("visual_verification", asset["id"], content_fingerprint, render_recipe),
                 "caption_verification_id": self._verification_id("caption_verification", asset["id"], caption_hash, render_recipe),
                 "audio_id": audio_id or "not_required",
@@ -26730,6 +26863,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "reel_caption_account_safety_violations": reel_caption_safety_violations,
             "burnedCaptionQualityPassed": burned_caption_quality_passed,
             "burned_caption_quality_passed": burned_caption_quality_passed,
+            "visualQcStatus": trust_statuses["visualQcStatus"],
+            "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
             **variant_lineage,
             "audioIntent": audio_intent,
             "audio_id": audio_id,

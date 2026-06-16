@@ -79,6 +79,19 @@ def test_campaign_draft_payload_accepts_optional_caption_outcome_context():
     validate_campaign_draft_payload(payload)
 
 
+def test_campaign_draft_payload_accepts_content_trust_blockers():
+    payload = load_example("campaign_draft_payload")
+    meta = payload["drafts"][0]["metadata"]["campaign_factory"]
+    meta["publishability_failure_reasons"] = [
+        "visual_qc_unavailable",
+        "visual_qc_failed",
+        "identity_verification_unavailable",
+        "identity_verification_failed",
+    ]
+
+    validate_campaign_draft_payload_strict(payload)
+
+
 def test_caption_outcome_context_rejects_wrong_schema_id():
     context = load_example("caption_outcome_context")
     context["schema"] = "campaign_factory.caption_learning.v1"

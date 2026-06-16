@@ -11,6 +11,7 @@ const INTERNAL_OR_PUBLIC_ROUTES = new Set([
   "auto-reply",
   "auto-reply-harvest",
   "autopilot-replay",
+  "campaign-factory",
   "check-deletion-status",
   "cross-reply-publish",
   "csp-report",

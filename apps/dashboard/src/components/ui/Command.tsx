@@ -1,5 +1,4 @@
 import type * as React from "react";
-import type { DialogProps } from "@radix-ui/react-dialog";
 import {
 	Command as ShadCommand,
 	CommandEmpty as ShadCommandEmpty,
@@ -35,7 +34,7 @@ export function CommandDialog({
 	title = "Command menu",
 	description,
 	...props
-}: DialogProps & {
+}: React.ComponentProps<typeof Dialog> & {
 	title?: React.ReactNode;
 	description?: React.ReactNode;
 }) {

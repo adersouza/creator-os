@@ -1,4 +1,4 @@
-import * as RPopover from '@radix-ui/react-popover';
+import { Popover as RPopover } from 'radix-ui';
 import React from 'react';
 import { cn } from '@/lib/utils';
 

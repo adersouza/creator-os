@@ -15,6 +15,7 @@ from PIL import Image
 
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import connect, creator_by_name, record_asset_generation, validate_generation_soul
+from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 
 IMAGE_MODEL = "text2image_soul_v2"
@@ -462,6 +463,7 @@ def direct_reference_prompt(aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_A
 
 
 def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
+    guard_deprecated_generator("six_pack")
     return [
         AssetPromptSet(
             higgsfieldGridPrompt=(

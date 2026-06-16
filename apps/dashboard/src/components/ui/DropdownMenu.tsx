@@ -1,4 +1,4 @@
-import * as RDM from "@radix-ui/react-dropdown-menu";
+import { DropdownMenu as RDM } from "radix-ui";
 import React from "react";
 import { cn } from "@/lib/utils";
 
