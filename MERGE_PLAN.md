@@ -9,9 +9,10 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `creator-os` | `main` | `codex/mirror-parity-gate` | merged branch tip `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` | merged to `main` as `b6ca0c66ed41d1c8134645cab0de1788f2526edf`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | merged branch tip `e77466edecd1891962b7ebb52047960b1c284e81` | merged to `main` as `7c3757574dd1b3d7b6d0008f1902d1e157c41577`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/audit-port` | branch tip `22a9476890dfebfd8200c15b602c9b7d2139e1c5` | merged to `main` as `bac25a9d213f86d837e07a94559a78f935abffd9`; ancestor proof exit 0 |
-| `campaign_factory` | `main` | `codex/campaign-caption-inventory` | branch tip `99f27208c8664d488fd666e81f685ce31eebf85f` | pre-merge tests green; merge pending from `main@ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3` |
-| `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | pre-merge tests green; merge pending from `main@cc8845be5915484e7fe81d5c419f76d007ddadb3`; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
-| `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | pre-merge tests green; merge pending from `main@c84faa7d478b78cb227eeed3a27f53aedd480ea6` |
+| `campaign_factory` | `main` | `codex/campaign-caption-inventory` | branch tip `99f27208c8664d488fd666e81f685ce31eebf85f` | merged to `main` as `c0912e4cf44fd40216858f75f89d8980a73c1400`; ancestor proof exit 0 |
+| `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | merged to `main` as `49584b77114b6308597a6d9303bf7e8edcfd4c1d`; ancestor proof exit 0; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
+| `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | merged to `main` as `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`; ancestor proof exit 0 |
+| `pipeline_contracts` | `main` | `codex/canonical-campaign-draft-schema-sync` | branch tip `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` | pre-merge tests green; merge pending from `main@b835f52b5eaf4d01652c5e40d13d8063d235bdbf` |
 | `contentforge` | `main` | `main` | `47e1293ce` | Pending only if future changes are made |
 | `reference_factory` | `main` | inventory `main`; fix branch `codex/reference-test-deps` | inventory `2cf59f2a7`; fix branch `2ea2a7f` | Red pytest dependency baseline fixed and pushed; record `main` pre-merge SHA before ordered repo-maturity merge |
 
@@ -34,9 +35,10 @@ For every actual merge, append:
 - `creator-os`: `codex/mirror-parity-gate@e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` is an ancestor of `main` after merge commit `b6ca0c66ed41d1c8134645cab0de1788f2526edf`.
 - `ThreadsDashboard`: `codex/autoposter-hardening@e77466edecd1891962b7ebb52047960b1c284e81` is an ancestor of `main` after merge commit `7c3757574dd1b3d7b6d0008f1902d1e157c41577`.
 - `ThreadsDashboard`: `codex/audit-port@22a9476890dfebfd8200c15b602c9b7d2139e1c5` is an ancestor of `main` after merge commit `bac25a9d213f86d837e07a94559a78f935abffd9`.
-- `campaign_factory`: `codex/campaign-caption-inventory@99f27208c8664d488fd666e81f685ce31eebf85f` is green and pending merge to `main@ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3`.
-- `reel_factory`: `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` is green and pending merge to `main@cc8845be5915484e7fe81d5c419f76d007ddadb3`.
-- `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abeb1c57aa28432b00c0c68ed45328725a` is green and pending merge to `main@c84faa7d478b78cb227eeed3a27f53aedd480ea6`.
+- `campaign_factory`: `codex/campaign-caption-inventory@99f27208c8664d488fd666e81f685ce31eebf85f` is an ancestor of `main` after merge commit `c0912e4cf44fd40216858f75f89d8980a73c1400`.
+- `reel_factory`: `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` is an ancestor of `main` after merge commit `49584b77114b6308597a6d9303bf7e8edcfd4c1d`.
+- `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abeb1c57aa28432b00c0c68ed45328725a` is an ancestor of `main` after merge commit `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`.
+- `pipeline_contracts`: `codex/canonical-campaign-draft-schema-sync@3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` is green and pending merge to `main@b835f52b5eaf4d01652c5e40d13d8063d235bdbf`.
 
 ## Current Red Gates Blocking Merges
 
@@ -111,9 +113,9 @@ For every actual merge, append:
 - Branch: `codex/campaign-caption-inventory`
 - Branch tip SHA: `99f27208c8664d488fd666e81f685ce31eebf85f`
 - Pre-merge integration SHA: `ba8768f9daeb0f8b42ac87bd3a0a7c0f9503fda3`
-- Merge SHA: pending
-- Rollback command: `git revert -m 1 <campaign-factory-step-d-merge-sha>`
-- Ancestor proof command and result: pending.
+- Merge SHA: `c0912e4cf44fd40216858f75f89d8980a73c1400`
+- Rollback command: `git revert -m 1 c0912e4cf44fd40216858f75f89d8980a73c1400`
+- Ancestor proof command and result: `git merge-base --is-ancestor 99f27208c8664d488fd666e81f685ce31eebf85f main; echo $?` returned `0`.
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 383 passed.
@@ -124,9 +126,9 @@ For every actual merge, append:
 - Branch: `codex/split-review-truth`
 - Branch tip SHA: `4bad3acabcef1b128f02f15f16869b28e7830589`
 - Pre-merge integration SHA: `cc8845be5915484e7fe81d5c419f76d007ddadb3`
-- Merge SHA: pending
-- Rollback command: `git revert -m 1 <reel-factory-step-d-merge-sha>`
-- Ancestor proof command and result: pending.
+- Merge SHA: `49584b77114b6308597a6d9303bf7e8edcfd4c1d`
+- Rollback command: `git revert -m 1 49584b77114b6308597a6d9303bf7e8edcfd4c1d`
+- Ancestor proof command and result: `git merge-base --is-ancestor 4bad3acabcef1b128f02f15f16869b28e7830589 main; echo $?` returned `0`.
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 307 passed, 48 warnings.
@@ -138,12 +140,26 @@ For every actual merge, append:
 - Branch: `codex/campaign-draft-contract-sync`
 - Branch tip SHA: `e45374abeb1c57aa28432b00c0c68ed45328725a`
 - Pre-merge integration SHA: `c84faa7d478b78cb227eeed3a27f53aedd480ea6`
+- Merge SHA: `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`
+- Rollback command: `git revert -m 1 b835f52b5eaf4d01652c5e40d13d8063d235bdbf`
+- Ancestor proof command and result: `git merge-base --is-ancestor e45374abeb1c57aa28432b00c0c68ed45328725a main; echo $?` returned `0`.
+- Pre-merge required test evidence:
+  - `git diff --check` pass.
+  - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 9 passed.
+
+### pipeline_contracts Step D Canonical Campaign Draft Schema Sync
+
+- Repo: `pipeline_contracts`
+- Branch: `codex/canonical-campaign-draft-schema-sync`
+- Branch tip SHA: `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd`
+- Pre-merge integration SHA: `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`
 - Merge SHA: pending
-- Rollback command: `git revert -m 1 <pipeline-contracts-step-d-merge-sha>`
+- Rollback command: `git revert -m 1 <pipeline-contracts-canonical-schema-sync-merge-sha>`
 - Ancestor proof command and result: pending.
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 9 passed.
+  - `graphify update .` pass.
 
 ## Deferred Owner-Only Work
 

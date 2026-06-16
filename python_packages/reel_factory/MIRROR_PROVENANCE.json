@@ -1,7 +1,7 @@
 {
   "schema": "creator-os.mirror_provenance.v1",
   "sourceRepo": "../reel_factory",
-  "sourceCommit": "4bad3acabcef1b128f02f15f16869b28e7830589",
+  "sourceCommit": "49584b77114b6308597a6d9303bf7e8edcfd4c1d",
   "mirrorPath": "python_packages/reel_factory",
   "fileCount": 146,
   "note": "GENERATED read-only mirror. Do not hand-edit. Run scripts/sync/mirror-sync.mjs."
