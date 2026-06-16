@@ -1,12 +1,12 @@
 # Merge Plan - 2026-06-16
 
-No integration merges have been performed by this resumed run yet.
+Integration merges performed by this resumed run are recorded below with proof.
 
 ## Integration Branch Registry
 
 | Repo | Integration branch | Current branch at inventory | Inventory HEAD | Required pre-merge action |
 | --- | --- | --- | --- | --- |
-| `creator-os` | `main` | `codex/mirror-parity-gate` | inventory `28846dfc8`; current `a566e25492202aa9bdf18633fe8aedca8d6a4089` | Pre-merge `main` SHA recorded below |
+| `creator-os` | `main` | `codex/mirror-parity-gate` | merged branch tip `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` | merged to `main` as `b6ca0c66ed41d1c8134645cab0de1788f2526edf`; ancestor proof exit 0 |
 | `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | `82f0dc839` | Reconcile branch against current `main`, rerun TD full gate including critical Playwright, then record pre-merge SHA |
 | `campaign_factory` | `main` | `codex/campaign-caption-inventory` | `99f27208c` | Rerun pytest if branch changes; record `main` pre-merge SHA |
 | `reel_factory` | `main` | `codex/split-review-truth` | `4bad3acab` | Push branch upstream if needed; record `main` pre-merge SHA |
@@ -30,7 +30,7 @@ For every actual merge, append:
 
 ## Inventory Ancestry State
 
-- `creator-os`: `codex/mirror-parity-gate@a566e25492202aa9bdf18633fe8aedca8d6a4089` is 3 commits ahead of `main`; merge pending.
+- `creator-os`: `codex/mirror-parity-gate@e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` is an ancestor of `main` after merge commit `b6ca0c66ed41d1c8134645cab0de1788f2526edf`.
 - `ThreadsDashboard`: `codex/autoposter-hardening@82f0dc839` is 10 behind and 4 ahead of `main`; merge pending after reconciliation and fresh gates.
 - `campaign_factory`: `codex/campaign-caption-inventory@99f27208c` is 1 behind and 1 ahead of `main`; merge pending.
 - `reel_factory`: `codex/split-review-truth@4bad3acab` is 2 ahead of `main`; merge pending.
@@ -46,11 +46,13 @@ For every actual merge, append:
 
 - Repo: `creator-os`
 - Branch: `codex/mirror-parity-gate`
-- Branch tip SHA before pre-merge record: `a566e25492202aa9bdf18633fe8aedca8d6a4089`
+- Branch tip SHA: `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9`
 - Pre-merge integration SHA: `c1b70250c26845a8c5629dee7b87d5e3b6d8de28`
-- Planned rollback command after merge SHA is known: `git revert -m 1 <creator-os-ws1-merge-sha>`
+- Merge SHA: `b6ca0c66ed41d1c8134645cab0de1788f2526edf`
+- Rollback command: `git revert -m 1 b6ca0c66ed41d1c8134645cab0de1788f2526edf`
+- Ancestor proof command and result: `git merge-base --is-ancestor e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9 main; echo $?` returned `0`.
 - Pre-merge required test evidence:
-  - `pnpm check:mirror-parity` pass at `a566e25492202aa9bdf18633fe8aedca8d6a4089`.
+  - `pnpm check:mirror-parity` pass at `a566e25492202aa9bdf18633fe8aedca8d6a4089`; pre-merge record commit was docs-only.
   - `pnpm check:contracts` pass.
   - `pnpm check:artifacts` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache pnpm check:arch` pass.
