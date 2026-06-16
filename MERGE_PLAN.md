@@ -7,7 +7,7 @@ Integration merges performed by this resumed run are recorded below with proof.
 | Repo | Integration branch | Current branch at inventory | Inventory HEAD | Required pre-merge action |
 | --- | --- | --- | --- | --- |
 | `creator-os` | `main` | `codex/mirror-parity-gate` | merged branch tip `e73c5bc9b117fdeabba09f3aa84fa79ac7cfd2a9` | merged to `main` as `b6ca0c66ed41d1c8134645cab0de1788f2526edf`; ancestor proof exit 0 |
-| `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | current `e77466edecd1891962b7ebb52047960b1c284e81` | Pre-merge `main` SHA recorded below; final merge pending |
+| `ThreadsDashboard` | `main` | `codex/autoposter-hardening` | merged branch tip `e77466edecd1891962b7ebb52047960b1c284e81` | merged to `main` as `7c3757574dd1b3d7b6d0008f1902d1e157c41577`; ancestor proof exit 0 |
 | `campaign_factory` | `main` | `codex/campaign-caption-inventory` | `99f27208c` | Rerun pytest if branch changes; record `main` pre-merge SHA |
 | `reel_factory` | `main` | `codex/split-review-truth` | `4bad3acab` | Push branch upstream if needed; record `main` pre-merge SHA |
 | `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | `e45374abe` | Rerun pytest if branch changes; record `main` pre-merge SHA |
@@ -66,7 +66,9 @@ For every actual merge, append:
 - Branch: `codex/autoposter-hardening`
 - Branch tip SHA: `e77466edecd1891962b7ebb52047960b1c284e81`
 - Pre-merge integration SHA: `b3d015e5e470e6c157b60d90ebff4c0b51d21897`
-- Planned rollback command after merge SHA is known: `git revert -m 1 <threadsdashboard-autoposter-merge-sha>`
+- Merge SHA: `7c3757574dd1b3d7b6d0008f1902d1e157c41577`
+- Rollback command: `git revert -m 1 7c3757574dd1b3d7b6d0008f1902d1e157c41577`
+- Ancestor proof command and result: `git merge-base --is-ancestor e77466edecd1891962b7ebb52047960b1c284e81 main; echo $?` returned `0`.
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `npm run typecheck` pass.
@@ -76,6 +78,7 @@ For every actual merge, append:
   - `npm run test:e2e:critical` pass with local `npm run dev` server: 5 passed, 1 skipped.
   - `graphify update .` pass.
   - Reconciliation commit `e77466edecd1891962b7ebb52047960b1c284e81` pushed to `origin/codex/autoposter-hardening`.
+- TD deploy note: pushed `ThreadsDashboard/main` from `b3d015e5e470e6c157b60d90ebff4c0b51d21897` to `7c3757574dd1b3d7b6d0008f1902d1e157c41577`; no Vercel relink or deploy-config change was made.
 
 ## Deferred Owner-Only Work
 
