@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 import { logger } from "../../logger.js";
+import {
+	buildOriginalitySignals,
+	perceptualHashSimilarity,
+} from "../../originalitySignals.js";
 import { getSupabaseAny } from "../../supabase.js";
 
 const db = () => getSupabaseAny();
@@ -22,6 +26,13 @@ export interface DuplicateFingerprintMatch {
 	posted_at: string | null;
 	created_at: string | null;
 	publish_fingerprint: string | null;
+	match_type?: string | null;
+	post_id?: string | null;
+}
+
+export interface MediaReuseSignals {
+	mediaUrlHashes: string[];
+	perceptualHashes: string[];
 }
 
 function sha256(value: string): string {
@@ -86,6 +97,28 @@ export function buildPublishFingerprint(values: {
 	};
 }
 
+export async function buildMediaReuseSignals(values: {
+	content?: string | null | undefined;
+	mediaUrls?: string[] | null | undefined;
+	fetchPerceptual?: boolean | undefined;
+	userId?: string | null | undefined;
+}): Promise<MediaReuseSignals> {
+	const signals = await buildOriginalitySignals(
+		{
+			postId: "autoposter-candidate",
+			userId: values.userId || "autoposter",
+			content: values.content ?? "",
+			mediaUrls: values.mediaUrls ?? [],
+			metadata: null,
+		},
+		{ fetchMedia: values.fetchPerceptual === true },
+	);
+	return {
+		mediaUrlHashes: signals.mediaUrlHashes,
+		perceptualHashes: signals.perceptualHashes,
+	};
+}
+
 export async function findRecentDuplicateFingerprint(values: {
 	workspaceId: string;
 	accountId: string;
@@ -139,16 +172,16 @@ export async function findRecentDuplicateFingerprint(values: {
 
 export async function findRecentMediaFingerprintAcrossAccounts(values: {
 	workspaceId: string;
+	userId?: string | null | undefined;
 	accountId: string;
 	platform?: string | null | undefined;
 	mediaFingerprint: string;
+	mediaUrlHashes?: string[] | null | undefined;
+	perceptualHashes?: string[] | null | undefined;
 	duplicateWindowHours?: number | null | undefined;
 	excludeQueueItemId?: string | null | undefined;
 	statuses?: string[] | undefined;
 }): Promise<DuplicateFingerprintMatch | null> {
-	if (!values.mediaFingerprint || values.mediaFingerprint === NO_MEDIA_FINGERPRINT) {
-		return null;
-	}
 	const duplicateWindowHours =
 		values.duplicateWindowHours ?? DEFAULT_DUPLICATE_WINDOW_HOURS;
 	const cutoff = new Date(
@@ -156,31 +189,50 @@ export async function findRecentMediaFingerprintAcrossAccounts(values: {
 	).toISOString();
 
 	try {
-		let query = db()
-			.from("auto_post_queue")
-			.select(
-				"id, status, account_id, threads_post_id, posted_at, created_at, publish_fingerprint",
-			)
-			.eq("workspace_id", values.workspaceId)
-			.eq("platform", values.platform || "threads")
-			.eq("media_fingerprint", values.mediaFingerprint)
-			.not("account_id", "is", null)
-			.neq("account_id", values.accountId)
-			.in(
-				"status",
-				values.statuses ?? ["pending", "queued", "publishing", "published"],
-			)
-			.gte("created_at", cutoff)
-			.order("created_at", { ascending: false })
-			.limit(1);
+		if (
+			values.mediaFingerprint &&
+			values.mediaFingerprint !== NO_MEDIA_FINGERPRINT
+		) {
+			let query = db()
+				.from("auto_post_queue")
+				.select(
+					"id, status, account_id, threads_post_id, posted_at, created_at, publish_fingerprint",
+				)
+				.eq("workspace_id", values.workspaceId)
+				.eq("platform", values.platform || "threads")
+				.eq("media_fingerprint", values.mediaFingerprint)
+				.not("account_id", "is", null)
+				.neq("account_id", values.accountId)
+				.in(
+					"status",
+					values.statuses ?? ["pending", "queued", "publishing", "published"],
+				)
+				.gte("created_at", cutoff)
+				.order("created_at", { ascending: false })
+				.limit(1);
 
-		if (values.excludeQueueItemId) {
-			query = query.neq("id", values.excludeQueueItemId);
+			if (values.excludeQueueItemId) {
+				query = query.neq("id", values.excludeQueueItemId);
+			}
+
+			const { data, error } = await query;
+			if (error) throw error;
+			const exactMatch = ((data ?? []) as DuplicateFingerprintMatch[])[0];
+			if (exactMatch) {
+				return { ...exactMatch, match_type: "media_fingerprint" };
+			}
 		}
 
-		const { data, error } = await query;
-		if (error) throw error;
-		return ((data ?? []) as DuplicateFingerprintMatch[])[0] ?? null;
+		const signalMatch = await findRecentOriginalitySignalAcrossAccounts({
+			userId: values.userId,
+			accountId: values.accountId,
+			platform: values.platform || "threads",
+			mediaUrlHashes: values.mediaUrlHashes,
+			perceptualHashes: values.perceptualHashes,
+			cutoff,
+		});
+		if (signalMatch) return signalMatch;
+		return null;
 	} catch (error) {
 		logger.warn("findRecentMediaFingerprintAcrossAccounts failed", {
 			workspaceId: values.workspaceId,
@@ -189,6 +241,79 @@ export async function findRecentMediaFingerprintAcrossAccounts(values: {
 		});
 		return null;
 	}
+}
+
+async function findRecentOriginalitySignalAcrossAccounts(values: {
+	userId?: string | null | undefined;
+	accountId: string;
+	platform: string;
+	mediaUrlHashes?: string[] | null | undefined;
+	perceptualHashes?: string[] | null | undefined;
+	cutoff: string;
+}): Promise<DuplicateFingerprintMatch | null> {
+	const userId = (values.userId || "").trim();
+	const mediaUrlHashes = Array.from(new Set(values.mediaUrlHashes ?? [])).filter(Boolean);
+	const perceptualHashes = Array.from(new Set(values.perceptualHashes ?? [])).filter(Boolean);
+	if (!userId || (mediaUrlHashes.length === 0 && perceptualHashes.length === 0)) {
+		return null;
+	}
+
+	const { data, error } = await db()
+		.from("post_originality_signals")
+		.select(
+			"post_id, account_id, platform, captured_at, media_url_hashes, perceptual_hashes",
+		)
+		.eq("user_id", userId)
+		.eq("platform", values.platform)
+		.not("account_id", "is", null)
+		.neq("account_id", values.accountId)
+		.gte("captured_at", values.cutoff)
+		.order("captured_at", { ascending: false })
+		.limit(100);
+	if (error) throw error;
+
+	for (const row of (data ?? []) as Array<{
+		post_id: string;
+		account_id: string | null;
+		captured_at: string | null;
+		media_url_hashes: string[] | null;
+		perceptual_hashes: string[] | null;
+	}>) {
+		const rowMediaHashes = new Set(row.media_url_hashes ?? []);
+		if (mediaUrlHashes.some((hash) => rowMediaHashes.has(hash))) {
+			return {
+				id: row.post_id,
+				post_id: row.post_id,
+				status: "published",
+				account_id: row.account_id,
+				threads_post_id: null,
+				posted_at: row.captured_at,
+				created_at: row.captured_at,
+				publish_fingerprint: null,
+				match_type: "media_url_hash",
+			};
+		}
+
+		for (const candidateHash of perceptualHashes) {
+			for (const previousHash of row.perceptual_hashes ?? []) {
+				if (perceptualHashSimilarity(candidateHash, previousHash) >= 0.94) {
+					return {
+						id: row.post_id,
+						post_id: row.post_id,
+						status: "published",
+						account_id: row.account_id,
+						threads_post_id: null,
+						posted_at: row.captured_at,
+						created_at: row.captured_at,
+						publish_fingerprint: null,
+						match_type: "perceptual_hash",
+					};
+				}
+			}
+		}
+	}
+
+	return null;
 }
 
 export async function stampQueueItemFingerprint(

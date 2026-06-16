@@ -30,6 +30,7 @@ import {
 	getGroupAccountStates,
 } from "../auto-post/accountState.js";
 import {
+	buildMediaReuseSignals,
 	buildPublishFingerprint,
 	findRecentDuplicateFingerprint,
 	findRecentMediaFingerprintAcrossAccounts,
@@ -1732,6 +1733,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 			mediaUrls,
 			duplicateWindowHours: item.duplicate_window_hours,
 		});
+		const mediaReuseSignals =
+			mediaUrls.length > 0
+				? await buildMediaReuseSignals({
+						userId: ownerId,
+						content: finalContent,
+						mediaUrls,
+						fetchPerceptual: true,
+					})
+				: null;
 		await stampQueueItemFingerprint(queueItemId, fingerprint);
 		const duplicateMatch = await findRecentDuplicateFingerprint({
 			workspaceId,
@@ -1747,9 +1757,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 			!isManual && mediaUrls.length > 0
 				? await findRecentMediaFingerprintAcrossAccounts({
 						workspaceId,
+						userId: ownerId,
 						accountId: account.id,
 						platform: item.platform || "threads",
 						mediaFingerprint: fingerprint.mediaFingerprint,
+						mediaUrlHashes: mediaReuseSignals?.mediaUrlHashes,
+						perceptualHashes: mediaReuseSignals?.perceptualHashes,
 						duplicateWindowHours: fingerprint.duplicateWindowHours,
 						excludeQueueItemId: queueItemId,
 						statuses: ["published", "publishing", "queued", "pending"],
@@ -1770,6 +1783,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 				metadata: {
 					duplicateQueueItemId: crossAccountMediaDuplicate.id,
 					duplicateStatus: crossAccountMediaDuplicate.status,
+					matchType: crossAccountMediaDuplicate.match_type ?? null,
 					mediaFingerprint: fingerprint.mediaFingerprint,
 				},
 			});

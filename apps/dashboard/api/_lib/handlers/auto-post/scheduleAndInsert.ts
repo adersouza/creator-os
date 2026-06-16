@@ -39,6 +39,7 @@ import { humanizePost } from "./evergreenManager.js";
 import type { FilterSurvivor } from "./pipelineFilters.js";
 import { evaluateQueueProvenance } from "./provenanceGate.js";
 import {
+	buildMediaReuseSignals,
 	buildPublishFingerprint,
 	findRecentDuplicateFingerprint,
 	findRecentMediaFingerprintAcrossAccounts,
@@ -1256,6 +1257,15 @@ export async function insertCandidatesIntoQueue(
 			content: finalQueueContent,
 			mediaUrls,
 		});
+		const mediaReuseUrls = Array.isArray(mediaUrls) ? mediaUrls : [];
+		const mediaReuseSignals =
+			mediaReuseUrls.length > 0
+				? await buildMediaReuseSignals({
+						userId: ctx.ownerId,
+						content: finalQueueContent,
+						mediaUrls: mediaReuseUrls,
+					})
+				: null;
 		const duplicateMatch = plannedSlot?.accountId
 			? await findRecentDuplicateFingerprint({
 					workspaceId: ctx.workspaceId,
@@ -1269,9 +1279,12 @@ export async function insertCandidatesIntoQueue(
 		const crossAccountMediaDuplicate = plannedSlot?.accountId
 			? await findRecentMediaFingerprintAcrossAccounts({
 					workspaceId: ctx.workspaceId,
+					userId: ctx.ownerId,
 					accountId: plannedSlot.accountId,
 					platform: ctx.targetPlatform,
 					mediaFingerprint: fingerprint.mediaFingerprint,
+					mediaUrlHashes: mediaReuseSignals?.mediaUrlHashes,
+					perceptualHashes: mediaReuseSignals?.perceptualHashes,
 					duplicateWindowHours: fingerprint.duplicateWindowHours,
 				})
 			: null;
