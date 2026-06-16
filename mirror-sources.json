@@ -3,6 +3,7 @@
   "excludeDefault": [
     ".git/",
     ".env.example",
+    ".generated/",
     "**/project_data/",
     "node_modules/",
     "**/node_modules/",
@@ -54,8 +55,8 @@
         "**/*"
       ],
       "exclude": [
-        "test/fixtures/campaign-factory/.generated/",
-        "test/fixtures/campaign-factory/feedback/"
+        "test/fixtures/campaign-factory/.generated",
+        "test/fixtures/campaign-factory/feedback"
       ]
     },
     {
