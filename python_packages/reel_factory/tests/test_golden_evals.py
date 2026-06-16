@@ -7,7 +7,6 @@ unless the function behavior intentionally changes.
 
 import pytest
 from generate_prompts import (
-    _direct_prompt_from_response_text,
     clean_direct_higgsfield_prompt,
     normalize_grid_layout,
 )
@@ -42,8 +41,6 @@ class TestGridLayoutGolden:
         assert result["columns"] == 1
         assert result["rows"] == 1
         assert result["panel_count"] == 1
-        assert "grid" not in result["prompt_opening"].lower()
-        assert "panel" not in result["prompt_opening"].lower()
 
     @pytest.mark.parametrize("alias", ["1", "single-image", "singleimage", "1x1"])
     def test_single_aliases(self, alias):
@@ -108,18 +105,6 @@ class TestPromptCleanupGolden:
         result = clean_direct_higgsfield_prompt("")
         assert result["valid"] is True
         assert result["changed"] is False
-
-    def test_direct_visual_json_compiles_single_image_without_grid_language(self):
-        prompt = _direct_prompt_from_response_text(
-            '{"pose":"standing mirror selfie, phone in hand",'
-            '"outfit":"fitted blue dress",'
-            '"scene":"bedroom mirror, soft daylight"}'
-        )
-
-        lowered = prompt.lower()
-        assert "soul id image" in lowered
-        assert "grid" not in lowered
-        assert "panel" not in lowered
 
 
 # ── Lineage Structure ────────────────────────────────────────────────

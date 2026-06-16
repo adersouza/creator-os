@@ -9,6 +9,8 @@ import {
 	classifyWinnerCloneFamily,
 	classifyWinnerCloneFamilyFromContent,
 	extractWinnerPatterns,
+	isProfileCuriosityDeadEndContent,
+	isLowCuriosityAiFormulaContent,
 	scoreCorrelation,
 	summarizePerformanceFacts,
 	type AutoposterPerformanceFact,
@@ -771,6 +773,50 @@ describe("autoposter performance-first attribution", () => {
 			profileCuriosityFrame: "dating_curiosity",
 			curiosityMechanism: "dateability_test",
 		});
+	});
+
+	it("detects low-curiosity AI formula winners before recommendation promotion", () => {
+		expect(
+			isLowCuriosityAiFormulaContent(
+				"hot take: the best pre-workout is just black coffee. on god",
+				"ai",
+			),
+		).toBe(true);
+		expect(
+			isLowCuriosityAiFormulaContent(
+				"would you date a girl who only listens to metal at the gym?",
+				"ai",
+			),
+		).toBe(false);
+		expect(
+			isLowCuriosityAiFormulaContent(
+				"hot take: protein powder should taste like dessert. trust",
+				"competitor_copy",
+			),
+		).toBe(false);
+	});
+
+	it("treats safe aesthetic filler as profile-curiosity dead-end content", () => {
+		expect(
+			isProfileCuriosityDeadEndContent(
+				"girls who love cozy blankets and hot tea > sorry not sorry",
+			),
+		).toBe(true);
+		expect(
+			isProfileCuriosityDeadEndContent(
+				"is it just me or does coffee taste better in a cute mug?",
+			),
+		).toBe(true);
+		expect(
+			isProfileCuriosityDeadEndContent(
+				"best sad girl anthem for a heartbreak playlist? help me",
+			),
+		).toBe(true);
+		expect(
+			isProfileCuriosityDeadEndContent(
+				"would you date a girl who drinks coffee in a crop top after leg day?",
+			),
+		).toBe(false);
 	});
 });
 

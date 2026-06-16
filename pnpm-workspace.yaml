@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+packageExtensions:
+  juno33@*:
+    dependencies:
+      es-toolkit: 1.47.0
 allowBuilds:
   '@google/genai': true
   core-js: true

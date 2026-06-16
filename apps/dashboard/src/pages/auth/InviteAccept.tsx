@@ -2,8 +2,9 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Navigate } from "react-router-dom";
 import { Check, AlertTriangle, Clock, Users } from "lucide-react";
+import { AuthCard } from "@/components/ui/AuthCard";
 import { Button } from "@/components/ui/Button";
-import { NovaCard, NovaEmpty } from "@/components/ui/NovaPrimitives";
+import { NovaCard } from "@/components/ui/NovaPrimitives";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
 	getInviteDetails,
@@ -136,7 +137,7 @@ export function InviteAccept() {
 		return (
 			<Shell>
 				<ErrorCard
-					icon={<AlertTriangle className="w-5 h-5" />}
+					icon={<AlertTriangle data-icon aria-hidden="true" />}
 					title="Invite not found"
 					body="This link is no longer valid. It may have been revoked or the invite code was mistyped. Ask the workspace owner for a fresh link."
 				/>
@@ -147,7 +148,7 @@ export function InviteAccept() {
 		return (
 			<Shell>
 				<ErrorCard
-					icon={<Clock className="w-5 h-5" />}
+					icon={<Clock data-icon aria-hidden="true" />}
 					title="Invite expired"
 					body="Invites last 14 days. Ask the workspace owner to send a new one and we'll add you right up."
 				/>
@@ -157,13 +158,11 @@ export function InviteAccept() {
 	if (state.kind === "done") {
 		return (
 			<Shell>
-				<NovaCard className="w-full max-w-md" contentClassName="p-8">
-					<NovaEmpty
-						icon={<Check data-icon aria-hidden="true" />}
-						title="You're in"
-						description="Taking you to the dashboard."
-					/>
-				</NovaCard>
+				<AuthCard
+					icon={<Check data-icon aria-hidden="true" />}
+					title="You're in"
+					description="Taking you to the dashboard."
+				/>
 			</Shell>
 		);
 	}
@@ -174,24 +173,12 @@ export function InviteAccept() {
 
 	return (
 		<Shell>
-			<NovaCard className="w-full max-w-md" contentClassName="p-8">
-					<div
-						className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl"
-						style={{
-							color: "var(--color-oxblood)",
-							backgroundColor:
-								"color-mix(in srgb, var(--color-oxblood) 10%, transparent)",
-						}}
-					>
-						<Users className="h-5 w-5" />
-					</div>
-					<div className="mb-1 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-						Workspace invite
-					</div>
-					<h1 className="mb-2 text-[1.5rem] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
-						Join {details?.workspaceName}
-					</h1>
-					<p className="mb-5 text-[0.8125rem] leading-relaxed text-muted-foreground">
+			<AuthCard
+				eyebrow="Workspace invite"
+				icon={<Users data-icon aria-hidden="true" />}
+				title={`Join ${details?.workspaceName}`}
+				description={
+					<>
 						{details?.email ? (
 							<>
 								You've been invited as{" "}
@@ -205,7 +192,9 @@ export function InviteAccept() {
 							{labelForRole(details?.role ?? "editor")}
 						</b>{" "}
 						access.
-					</p>
+					</>
+				}
+			>
 					<div className="flex items-center gap-2">
 						<Button
 							onClick={() => void handleAccept()}
@@ -227,7 +216,7 @@ export function InviteAccept() {
 							Not now
 						</Button>
 					</div>
-			</NovaCard>
+			</AuthCard>
 		</Shell>
 	);
 }
@@ -238,7 +227,7 @@ function labelForRole(role: string): string {
 
 function Shell({ children }: { children: React.ReactNode }) {
 	return (
-		<div className=" min-h-[100dvh] flex items-center justify-center px-4 py-10 bg-background">
+		<div className="flex w-full items-center justify-center">
 			{children}
 		</div>
 	);
@@ -268,23 +257,7 @@ function ErrorCard({
 }) {
 	const navigate = useNavigate();
 	return (
-		<NovaCard className="w-full max-w-md" contentClassName="p-8">
-				<div
-					className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl"
-					style={{
-						color: "var(--color-oxblood)",
-						backgroundColor:
-							"color-mix(in srgb, var(--color-oxblood) 10%, transparent)",
-					}}
-				>
-					{icon}
-				</div>
-				<h1 className="mb-1.5 text-[1.25rem] font-medium tracking-[-0.025em] text-foreground">
-					{title}
-				</h1>
-				<p className="mb-5 text-[0.8125rem] leading-relaxed text-muted-foreground">
-					{body}
-				</p>
+		<AuthCard icon={icon} title={title} description={body}>
 				<Button
 					onClick={() => navigate("/login")}
 					variant="secondary"
@@ -292,6 +265,6 @@ function ErrorCard({
 				>
 					Back to sign in
 				</Button>
-		</NovaCard>
+		</AuthCard>
 	);
 }

@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "playwright", "mypy"]
 vision = ["opencv-python", "mediapipe"]
+identity = ["insightface", "onnxruntime", "opencv-python"]
 ai = ["sentence-transformers", "mlx-whisper", "einops", "timm", "torchvision"]
 pango = ["pycairo", "PyGObject"]
 queue = ["redis", "rq"]
@@ -63,8 +64,11 @@ py-modules = [
   "hook_library",
   "hook_spinner",
   "hook_tools",
+  "higgsfield_cost_preflight",
+  "identity_verification",
   "intelligence_store",
   "manifest",
+  "media_metadata",
   "media_qc",
   "metrics_import",
   "metrics_store",
@@ -73,6 +77,7 @@ py-modules = [
   "overnight_grid_worker",
   "placement",
   "placement_scorer",
+  "photo_reel",
   "post_render",
   "posting_ledger",
   "preflight",
@@ -89,6 +94,7 @@ py-modules = [
   "reference_analyzer",
   "render_plan",
   "render_queue",
+  "review_truth",
   "safe_zone",
   "slideshow_factory",
   "sscd_check",

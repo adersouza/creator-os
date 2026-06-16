@@ -1,12 +1,12 @@
 import type React from "react";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { AuthCard } from "@/components/ui/AuthCard";
 import { Button } from "@/components/ui/Button";
-import { Field, FieldGroup } from "@/components/ui/Field";
+import { Field, FieldGroup, FieldSeparator } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Mail, Key, ArrowRight, User } from "lucide-react";
 import { BrandLogo } from "@/components/ui/BrandLogo";
-import { NovaCard } from "@/components/ui/NovaPrimitives";
 import { appToast } from "@/lib/toast";
 import {
 	clearPendingInvite,
@@ -131,40 +131,41 @@ export function Signup() {
 	};
 
 	return (
-		<NovaCard className="w-full max-w-md" contentClassName="p-8">
-			<div className="mb-6 text-center">
-				<h1>Create your Juno33 account</h1>
+		<AuthCard
+			eyebrow="Start free"
+			title="Create your Juno33 account"
+			description="Start your 14-day free trial. No credit card required."
+			footer={
 				<p>
-					Start your 14-day free trial. No credit card required.
+					By signing up, you agree to our{" "}
+					<Link to="/terms" className="font-medium text-foreground underline-offset-4 hover:underline">
+						Terms of Service
+					</Link>{" "}
+					and{" "}
+					<Link to="/privacy" className="font-medium text-foreground underline-offset-4 hover:underline">
+						Privacy Policy
+					</Link>
+					.
 				</p>
-			</div>
-
+			}
+		>
 			{selectedPlan && (
-				<div
-					className="mb-5 flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-[0.78125rem]"
-					style={{
-						backgroundColor:
-							"color-mix(in srgb, var(--color-oxblood) 8%, transparent)",
-						border:
-							"0.5px solid color-mix(in srgb, var(--color-oxblood) 22%, transparent)",
-						color: "var(--color-oxblood)",
-					}}
-				>
+				<div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2.5 text-sm text-primary">
 					<span className="flex items-center gap-2">
-						<span className="w-1.5 h-1.5 rounded-full bg-current" />
+						<span className="size-1.5 rounded-full bg-current" />
 						<span className="font-medium">{PLAN_LABELS[selectedPlan]}</span>
 					</span>
 					<Link
 						to="/juno33_pricing.html"
 						reloadDocument
-						className="text-[0.6875rem] font-medium opacity-80 hover:opacity-100"
+						className="text-xs font-medium opacity-80 hover:opacity-100"
 					>
 						Change
 					</Link>
 				</div>
 			)}
 
-			<div className="mb-6 flex flex-col gap-3">
+			<div className="flex flex-col gap-3">
 				<Button
 					type="button"
 					variant="outline"
@@ -187,14 +188,7 @@ export function Signup() {
 				</Button>
 			</div>
 
-			<div className="relative mb-6">
-				<div className="absolute inset-0 flex items-center">
-					<div className="w-full border-t border-border"></div>
-				</div>
-				<div className="relative flex justify-center text-[0.625rem] uppercase tracking-widest font-bold">
-					<span className="bg-background px-2 text-muted-foreground">Or sign up with email</span>
-				</div>
-			</div>
+			<FieldSeparator className="my-6 text-xs">Or sign up with email</FieldSeparator>
 
 			<form onSubmit={handleSignup}>
 				<FieldGroup>
@@ -258,12 +252,6 @@ export function Signup() {
 					Sign in
 				</Link>
 			</div>
-
-			<p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
-				By signing up, you agree to our{" "}
-				<Link to="/terms">Terms of Service</Link> and{" "}
-				<Link to="/privacy">Privacy Policy</Link>.
-			</p>
-		</NovaCard>
+		</AuthCard>
 	);
 }

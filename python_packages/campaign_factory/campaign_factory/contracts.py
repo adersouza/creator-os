@@ -1,35 +1,11 @@
 from __future__ import annotations
 
 import sys
-import os
 from pathlib import Path
 
 
-def _contract_root_candidates() -> list[Path]:
-    current = Path(__file__).resolve()
-    candidates: list[Path] = []
-    env_root = os.environ.get("PIPELINE_CONTRACTS_ROOT")
-    if env_root:
-        candidates.append(Path(env_root))
-    for ancestor in current.parents:
-        candidates.append(ancestor / "packages" / "pipeline_contracts")
-    for ancestor in current.parents:
-        candidates.append(ancestor / "pipeline_contracts")
-    seen: set[Path] = set()
-    unique: list[Path] = []
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            unique.append(resolved)
-    return unique
-
-
-_CONTRACT_ROOT_CANDIDATES = _contract_root_candidates()
-_SHARED_CONTRACTS_ROOT = next(
-    (candidate for candidate in _CONTRACT_ROOT_CANDIDATES if candidate.exists()),
-    _CONTRACT_ROOT_CANDIDATES[0],
-)
+_PROJECTS_ROOT = Path(__file__).resolve().parents[2]
+_SHARED_CONTRACTS_ROOT = _PROJECTS_ROOT / "pipeline_contracts"
 if _SHARED_CONTRACTS_ROOT.exists() and str(_SHARED_CONTRACTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SHARED_CONTRACTS_ROOT))
 
@@ -49,7 +25,7 @@ from pipeline_contracts import (  # noqa: E402
 )
 
 
-SCHEMA_DIR = schema_path("audio_intent").parent
+SCHEMA_DIR = _SHARED_CONTRACTS_ROOT / "schemas"
 
 __all__ = [
     "ContractValidationError",

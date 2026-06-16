@@ -550,11 +550,18 @@ test("/api/similarity keeps compression review findings as warnings when layer v
     var body = await response.json();
     assert.equal(response.status, 200);
     if (body.verdicts.compression === "warn") {
+      var warningText = body.readinessSummary.warnings.join("\n");
+      var warningCodes = body.readinessSummary.warningCodes;
+      var compressionSummary = body.layers.compression?.summary || {};
       assert.equal(body.overallVerdict, "warn");
       assert.equal(body.readinessSummary.uploadReady, true);
       assert.equal(body.readinessSummary.blockingReasons.length, 0);
-      assert.equal(body.readinessSummary.warningCodes.some((code) => code.startsWith("compression_")), true);
-      assert.match(body.readinessSummary.warnings.join("\n"), /Compression (pattern needs review|check unavailable)/i);
+      assert.equal(warningCodes.some(function (code) { return /^compression_/.test(code); }), true);
+      assert.match(warningText, /compression/i);
+      if ((compressionSummary.failed || 0) > 0) {
+        assert.equal(warningCodes.includes("compression_gop_review"), true);
+        assert.match(warningText, /Compression pattern needs review/i);
+      }
     }
   } finally {
     await cleanupMp4Fixture(files);

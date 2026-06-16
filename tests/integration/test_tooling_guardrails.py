@@ -106,13 +106,19 @@ def test_architecture_guard_configs_are_narrow_and_present() -> None:
 
 
 def test_media_qc_is_read_only_contract() -> None:
-    media_qc = (ROOT / "python_packages/reel_factory/media_qc.py").read_text(encoding="utf-8")
+    active_qc = "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "python_packages/reel_factory/ai_visual_qc.py",
+            "python_packages/reel_factory/qc_check.py",
+        )
+    )
 
-    assert "wouldWrite" in media_qc
-    assert "subprocess.run" in media_qc
-    assert "ffprobe" in media_qc
-    assert "ffmpeg" in media_qc
-    assert ".write_bytes" not in media_qc
+    assert "visualQcStatus" in active_qc
+    assert "subprocess.run" in active_qc
+    assert "ffprobe" in active_qc
+    assert "ffmpeg" in active_qc
+    assert ".write_bytes" not in active_qc
 
 
 def test_governance_docs_cover_runtime_promotion_and_runbooks() -> None:

@@ -182,7 +182,7 @@ describe("pipelineFilters", () => {
 		expect(mockFrom).toHaveBeenCalledWith("auto_post_queue");
 	});
 
-	it("passes through skipped judge verdicts, stamps passing verdicts, and logs rejects", async () => {
+	it("fails closed on skipped judge verdicts, stamps passing verdicts, and logs rejects", async () => {
 		mockJudgeBatch.mockResolvedValue([
 			{ passed: true, score: 87, dimensions: { hook: 9 } },
 			{ skipped: true, reason: "no_api_key" },
@@ -211,13 +211,13 @@ describe("pipelineFilters", () => {
 			],
 			expect.objectContaining({ apiKey: "gemini", minScore: 70 }),
 		);
-		expect(result.survivors.map((s) => s.idea.content)).toEqual([
-			"strong hook",
-			"skip me",
-		]);
+		expect(result.survivors.map((s) => s.idea.content)).toEqual(["strong hook"]);
 		expect((result.survivors[0].idea as any).judgeResult.score).toBe(87);
-		expect(result.rejectedCount).toBe(1);
-		expect(result.rejectionReasons).toEqual({ "judge:unsafe": 1 });
+		expect(result.rejectedCount).toBe(2);
+		expect(result.rejectionReasons).toEqual({
+			"judge:no_api_key": 1,
+			"judge:unsafe": 1,
+		});
 	});
 
 	it("short-circuits the judge when disabled", async () => {

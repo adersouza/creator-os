@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -28,11 +29,9 @@ from ai_visual_qc import record_from_scores
 from ai_visual_qc import sample_positions
 from audio_intent import write_audio_intent
 from embedding_index import duplicate_risk, similar as similar_media, upsert_embedding
-
-
-REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 from generate_assets import (
     AssetGenerationPlan,
+    _six_pack_prompts,
     build_source_lineage,
     build_image_cmd,
     create_image_asset,
@@ -75,8 +74,10 @@ from winner_dna import (
     winner_dna_leaderboard,
 )
 from generate_prompts import (
+    HIGGSFIELD_REFERENCE_PROMPT_MODE,
     REFERENCE_FACTORY_SEXY_REALISTIC_MODE,
     build_direct_higgsfield_prompt_instruction,
+    build_higgsfield_reference_prompt_instruction,
     build_user_instruction,
     build_xai_payload,
     clean_direct_higgsfield_prompt,
@@ -105,6 +106,9 @@ from reel_gui import (
 )
 from readiness_check import evaluate_output, run_readiness
 from safe_zone import score_safe_zone
+
+
+REEL_ROOT = Path(__file__).resolve().parents[1]
 
 
 class AdvancedRoadmapTests(unittest.TestCase):
@@ -234,10 +238,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("Pose fidelity outranks body emphasis", prompt)
         self.assertNotIn("framing, body proportions, and camera feel", prompt)
         self.assertIn("Deterministic compiler only", prompt)
-        self.assertIn("Output exactly one Higgsfield Soul ID 2x3 grid prompt", prompt)
+        self.assertIn("Output exactly one standalone Higgsfield Soul ID prompt", prompt)
         self.assertIn("one shared Kling motion prompt", prompt)
-        self.assertIn("Every cropped panel from the Higgsfield grid is sent to Kling separately", prompt)
-        self.assertIn("No panel-specific Kling prompt is generated in this version", prompt)
+        self.assertIn("accepted 9:16 start image", prompt)
+        self.assertIn("safety boundaries for no text/logos", prompt)
         self.assertNotIn("Animate the best panel", prompt)
         self.assertNotIn("best frame", prompt)
         self.assertNotIn("JSON-style creative brief", prompt)
@@ -273,6 +277,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             err = HiggsfieldCommandError(["higgsfield", "generate", "create"], 1, "", "rejected by provider")
             with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
+                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
                  patch("generate_assets._run_json", side_effect=err):
                 result = create_image_asset(plan)
             self.assertFalse(result["ok"])
@@ -282,6 +287,37 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(lineage["generation"]["status"], "generation_rejected_or_failed")
             self.assertEqual(lineage["generation"]["failure"]["stage"], "image_create")
             self.assertIn("rejected by provider", lineage["generation"]["failure"]["stderrTail"])
+
+    def test_higgsfield_cost_preflight_blocks_paid_image_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_path = root / "prompt.json"
+            prompt_path.write_text(json.dumps({
+                "higgsfieldGridPrompt": "reference image still",
+                "klingMotionPrompt": "motion",
+            }), encoding="utf-8")
+            plan = AssetGenerationPlan(
+                prompt_json=prompt_path,
+                stem="clip_cost",
+                reference=None,
+                soul_id="soul_123",
+                soul_name="Stacey",
+                start_image=None,
+                out_dir=root / "project_data" / "generated_assets",
+                source_dir=root / "00_source_videos",
+            )
+
+            with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
+                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": False, "blockingReason": "budget_policy_missing", "blockingReasons": ["budget_policy_missing"]}), \
+                 patch("generate_assets._run_json") as run_json:
+                result = create_image_asset(plan)
+
+            self.assertFalse(result["ok"])
+            run_json.assert_not_called()
+            lineage = result["lineage"]
+            self.assertEqual(lineage["generation"]["status"], "cost_preflight_blocked")
+            self.assertEqual(lineage["generation"]["failure"]["stage"], "cost_preflight")
+            self.assertEqual(lineage["generation"]["costPreflight"]["blockingReason"], "budget_policy_missing")
 
     def test_first_visible_frame_selector_skips_black_frames(self):
         from PIL import Image, ImageDraw
@@ -377,9 +413,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_grok_api_prompt_instruction_matches_clean_contract(self):
         instruction = build_user_instruction("reference reel frames", "tight blue dress")
-        self.assertIn("Higgsfield Soul ID 2x3 grid prompt", instruction)
+        self.assertIn("standalone Higgsfield Soul ID prompt", instruction)
         self.assertIn("one shared Kling motion prompt", instruction)
-        self.assertIn("No panel-specific Kling prompt is generated in this version", instruction)
+        self.assertIn("accepted 9:16 start image", instruction)
         self.assertIn("deterministic enhancement profile", instruction)
         self.assertIn("tight blue dress", instruction)
         self.assertIn('"higgsfieldGridPrompt"', instruction)
@@ -483,7 +519,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertNotIn("higgsfield upload create", "\n".join(commands))
             self.assertIn("text2image_soul_v2", commands[0])
             self.assertIn("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644", commands[0])
-            self.assertIn("--aspect_ratio 4:3", commands[0])
+            self.assertIn("--aspect_ratio 9:16", commands[0])
             self.assertNotIn("--image", commands[0])
             self.assertIn("kling3_0", commands[1])
             self.assertIn("--wait", commands[1])
@@ -515,6 +551,23 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(len(image_commands), 6)
             self.assertTrue(all("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644" in cmd for cmd in image_commands))
             self.assertIn("Render only outfit variation 6", image_commands[-1])
+
+    def test_deprecated_six_pack_path_raises_when_guard_enabled(self):
+        prompt = AssetPromptSet(
+            higgsfieldGridPrompt="six panel soul id grid",
+            klingMotionPrompt="subtle camera motion",
+            notes="manual review",
+        )
+        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
+                _six_pack_prompts(prompt)
+
+    def test_deprecated_grok4_reference_analysis_raises_when_guard_enabled(self):
+        import reel_gui
+
+        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "grok_4_reference_analysis is deprecated"):
+                reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
 
     def test_generate_assets_image_command_requires_soul_identity_param(self):
         prompt = parse_asset_prompt_response(json.dumps({
@@ -1044,12 +1097,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
         })
 
         image_prompt = prompt.higgsfieldGridPrompt
+        motion_prompt = prompt.klingMotionPrompt
         self.assertIn("Style the subject in", image_prompt)
         self.assertIn("bodycon tight fit with high fabric cling", image_prompt)
-        self.assertIn("Pose and frame each panel around", image_prompt)
-        self.assertIn("head to mid-thigh visible", image_prompt)
+        self.assertIn("Pose and frame the image around", image_prompt)
+        self.assertIn("full head and face visible", image_prompt)
         self.assertIn("Emphasize deep cleavage, prominent breasts", image_prompt)
         self.assertIn("subtle ass curve", image_prompt)
+        self.assertNotIn("2x3", image_prompt)
+        self.assertNotIn("grid", image_prompt.lower())
+        self.assertNotIn("panel", image_prompt.lower())
+        self.assertNotIn("cropped panel", motion_prompt.lower())
         self.assertNotIn("Push the enhanced direction toward", image_prompt)
         self.assertNotIn("Use the reference", image_prompt)
         self.assertNotIn("deep, prominent, accentuated, cinched, visible, high, hourglass", image_prompt)
@@ -1064,18 +1122,72 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("tighter waist cinch", image_prompt)
         self.assertNotIn("higher hip emphasis", image_prompt)
 
-    def test_direct_higgsfield_instruction_requests_structured_visual_json(self):
+    def test_direct_higgsfield_instruction_uses_reference_factory_compiler_voice(self):
         instruction = build_direct_higgsfield_prompt_instruction("make it sexier")
 
         self.assertIn("Reference image/reel attached.", instruction)
-        self.assertIn("Analyze the image and return a JSON object", instruction)
-        self.assertIn('"pose": "..."', instruction)
-        self.assertIn('"outfit": "..."', instruction)
-        self.assertIn('"scene": "..."', instruction)
-        self.assertIn("make it sexier", instruction)
-        self.assertIn("Do NOT mention hair", instruction)
-        self.assertNotIn("six-panel grid", instruction)
-        self.assertNotIn("2x3 grid", instruction)
+        self.assertIn("Create a high-quality image prompt for Higgsfield Soul V2.", instruction)
+        self.assertIn("old structured prompts", instruction)
+        self.assertIn("Create one high-quality native six-panel grid", instruction)
+        self.assertIn("exactly three columns and two rows", instruction)
+        self.assertIn("deep plunging cleavage", instruction)
+        self.assertIn("extreme hourglass", instruction)
+        self.assertIn("massive round plump juicy ass", instruction)
+        self.assertIn("tiny cinched waist", instruction)
+        self.assertIn("wide hips", instruction)
+        self.assertIn("thick thighs", instruction)
+        self.assertIn("vary only outfit color and material", instruction)
+        self.assertIn("keep the same garment style/cut", instruction)
+        self.assertIn("detailed and descriptive like the old structured prompts", instruction)
+        self.assertIn("strong arched back", instruction)
+        self.assertIn("dramatic S-curve posture", instruction)
+        self.assertIn('"image_prompt"', instruction)
+        self.assertIn('"notes"', instruction)
+        self.assertNotIn('"higgsfieldGridPrompt"', instruction)
+        self.assertNotIn('"structured_breakdown"', instruction)
+        self.assertNotIn('"klingMotionPrompt"', instruction)
+        example_block = instruction.split("Example prompt style to imitate:", 1)[1].lower()
+        self.assertNotIn("perfect face", example_block)
+        self.assertNotIn("skin texture", example_block)
+        self.assertNotIn("skin sheen", example_block)
+        self.assertNotIn("natural sheen", example_block)
+        self.assertNotIn("high detail", example_block)
+        self.assertNotIn("sharp focus", example_block)
+        self.assertNotIn("face realism", example_block)
+
+    def test_direct_higgsfield_instruction_supports_operator_grid_layouts_and_age(self):
+        two_by_four = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="2x4")
+
+        self.assertIn("exactly two columns and four rows", two_by_four)
+        self.assertIn("native eight-panel image", two_by_four)
+        self.assertIn("eight variations", two_by_four)
+        self.assertNotIn("exact age", two_by_four)
+
+        single = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="single")
+        self.assertIn("standalone image", single)
+        self.assertIn("one standalone image", single)
+        self.assertNotIn("Outfit variations: 1.", single)
+
+        parsed = normalize_grid_layout("3x2")
+        self.assertEqual(parsed["columns"], 3)
+        self.assertEqual(parsed["rows"], 2)
+        self.assertEqual(parsed["panel_count"], 6)
+
+    def test_higgsfield_reference_instruction_is_simple_single_image_request(self):
+        instruction = build_higgsfield_reference_prompt_instruction("make it more bedroom selfie")
+
+        self.assertIn("Make a prompt similar to this reference image", instruction)
+        self.assertIn("Higgsfield with Soul ID", instruction)
+        self.assertIn("get the pose down correctly", instruction)
+        self.assertIn("Make sure the prompt is sexy", instruction)
+        self.assertIn("Do not mention hair", instruction)
+        self.assertIn("exactly one standalone image", instruction)
+        self.assertIn('"image_prompt"', instruction)
+        self.assertIn("make it more bedroom selfie", instruction)
+        self.assertNotIn("2x3", instruction)
+        self.assertNotIn("3x2", instruction)
+        self.assertNotIn("six-panel", instruction.lower())
+        self.assertNotIn('"higgsfieldGridPrompt"', instruction)
 
     def test_direct_higgsfield_parser_accepts_old_reference_factory_key_and_strips_face_polish(self):
         raw = json.dumps({
@@ -1320,6 +1432,47 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertFalse(result["lineage"]["reference_image_passed_to_higgsfield"])
         self.assertEqual(result["prompt_drift"]["removedConcepts"], [])
         self.assertFalse(result["prompt_drift"]["visualMechanicsLoss"])
+
+    def test_generate_prompt_higgsfield_reference_mode_forces_single_image(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = root / "mirror.png"
+            Image.new("RGB", (1080, 1920), "white").save(ref)
+            raw_prompt = (
+                "Create one standalone image matching the reference bedroom mirror selfie pose, "
+                "front mirror angle, phone held at chest height, fitted white tank, pink shorts, "
+                "warm bedroom lighting, sexy body-forward posture, deep neckline, tight fabric cling."
+            )
+            fake_raw = {
+                "output": [{"content": [{"type": "output_text", "text": json.dumps({
+                    "image_prompt": raw_prompt,
+                    "notes": "simple Higgsfield reference prompt",
+                })}]}]
+            }
+            with patch("generate_prompts.load_xai_api_key", return_value="key"), \
+                 patch("generate_prompts.call_grok", return_value=fake_raw) as grok:
+                result = generate_prompt(
+                    out_path=root / "prompt.json",
+                    root=root,
+                    reference_images=[ref],
+                    dry_run=True,
+                    prompt_mode=HIGGSFIELD_REFERENCE_PROMPT_MODE,
+                    grid_layout="3x2",
+                    creative_direction="make it sexy but keep the exact pose",
+                )
+
+        instruction = grok.call_args.args[0]["input"][0]["content"][0]["text"]
+        self.assertIn("Make a prompt similar to this reference image", instruction)
+        self.assertIn("get the pose down correctly", instruction)
+        self.assertIn("exactly one standalone image", instruction)
+        self.assertEqual(result["prompt_mode"], HIGGSFIELD_REFERENCE_PROMPT_MODE)
+        self.assertEqual(result["prompt_source"], "live_grok_higgsfield_reference_prompt")
+        self.assertEqual(result["lineage"]["grid_layout"]["value"], "single")
+        self.assertIn("bedroom mirror selfie", result["prompt"]["higgsfieldGridPrompt"])
+        self.assertNotIn("2x3", result["prompt"]["higgsfieldGridPrompt"].lower())
+        self.assertNotIn("3x2", result["prompt"]["higgsfieldGridPrompt"].lower())
 
     def test_direct_higgsfield_prompt_parser_still_blocks_caption_overlay(self):
         with self.assertRaisesRegex(ValueError, "rejected v1 language"):
@@ -1627,7 +1780,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         import sys
         result = subprocess.run(
             [sys.executable, "reel_pipeline.py", "--help"],
-            cwd=REEL_FACTORY_ROOT,
+            cwd=REEL_ROOT,
             capture_output=True,
             text=True,
             check=True,
@@ -2221,6 +2374,67 @@ class AdvancedRoadmapTests(unittest.TestCase):
             count = conn.execute("SELECT COUNT(*) AS n FROM prompt_runs").fetchone()["n"]
             self.assertEqual(count, 0)
 
+    def test_gui_active_action_labels_use_direct_reference_language(self):
+        import reel_gui
+
+        payload = json.dumps(reel_gui.next_action_for_status("Needs Soul")).lower()
+        self.assertIn("reference still", payload)
+        self.assertNotIn("grok", payload)
+        self.assertNotIn("2x3", payload)
+        self.assertNotIn("six panel", payload)
+        self.assertNotIn("cropped panel", payload)
+
+    def test_gui_direct_reference_dry_run_uses_active_single_image_path(self):
+        import reel_gui
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = root / "00_source_videos"
+            data = root / "project_data"
+            raw.mkdir()
+            data.mkdir()
+            ref = root / "reference.jpg"
+            ref.write_bytes(b"jpg")
+
+            with patch.object(reel_gui, "ROOT", root), \
+                 patch.object(reel_gui, "RAW_DIR", raw), \
+                 patch.object(reel_gui, "DATA_DIR", data):
+                result = reel_gui.asset_reference_image_dry_run_api({
+                    "reference": str(ref),
+                    "stem": "clip_001",
+                    "creator": "Stacey",
+                    "body_emphasis": "bust_hips",
+                    "wait": True,
+                })
+
+            self.assertEqual(result["workflow"], "higgsfield_direct_reference_image")
+            command_text = " ".join(result["commands"][0])
+            self.assertIn("--image", result["commands"][0])
+            image_arg = result["commands"][0][result["commands"][0].index("--image") + 1]
+            self.assertEqual(Path(image_arg).resolve(), ref.resolve())
+            self.assertIn("--custom_reference_id", result["commands"][0])
+            self.assertIn("d63ea9c7-b2c7-439c-bf0c-edfdf9938a36", result["commands"][0])
+            self.assertIn("--aspect_ratio 3:4", command_text)
+            self.assertNotIn("grid_layout", command_text)
+            self.assertNotIn("2x3", command_text.lower())
+            self.assertNotIn("six panel", command_text.lower())
+            self.assertNotIn("cropped panel", command_text.lower())
+
+    def test_active_docs_describe_direct_reference_not_grok_grid_production(self):
+        docs = [
+            REEL_ROOT / "CURRENT_PRODUCTION_FLOW.md",
+            REEL_ROOT / "PIPELINE_BOUNDARIES.md",
+            REEL_ROOT / "AGENTS.md",
+            REEL_ROOT / "docs/next_chat_reel_factory_handoff.md",
+        ]
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in docs).lower()
+        self.assertIn("direct reference-image", combined)
+        self.assertIn("9:16", combined)
+        self.assertNotIn("current default image grid aspect ratio is `4:3`", combined)
+        self.assertNotIn("reference frames are sent to grok for prompt creation", combined)
+        self.assertNotIn("do not pass reference images into higgsfield image generation", combined)
+        self.assertNotIn("grid layout default", combined)
+
     def test_reel_url_downloader_stages_and_moves_mp4(self):
         import subprocess
 
@@ -2513,7 +2727,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             render_caption_png(
                 "hello world",
                 font_family="Onest",
-                fonts_dir=REEL_FACTORY_ROOT / "fonts",
+                fonts_dir=Path("fonts"),
                 color_scheme="light",
                 band="top",
                 style="classic",

@@ -24,6 +24,7 @@ POST_STATUSES = ("planned", "ready_for_review", "approved", "scheduled", "posted
 TERMINAL_STATUSES = {"metrics_imported", "skipped", "failed"}
 DEFAULT_SLOT_TIMES = {"main": "10:00", "trial_1": "15:00", "trial_2": "20:00"}
 SCHEMA = "campaign_factory.account_posting_ledger.v1"
+DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS = 14
 
 
 def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
@@ -41,10 +42,15 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
         planned_slot_time TEXT NOT NULL,
         source_reference_id TEXT,
         source_reference_path TEXT,
+        source_family_id TEXT,
         reel_factory_asset_id TEXT,
         source_kling_video_path TEXT,
         rendered_output_path TEXT,
         content_fingerprint TEXT,
+        perceptual_fingerprint TEXT,
+        perceptual_cluster_id TEXT,
+        account_group_id TEXT,
+        reuse_cooldown_days INTEGER NOT NULL DEFAULT 14,
         caption TEXT,
         caption_variant_id TEXT,
         audio_track_id TEXT,
@@ -91,10 +97,27 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_posting_slots_campaign ON posting_slots(campaign_id, date, account_id);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_status ON posting_slots(post_status, review_status);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_fingerprint ON posting_slots(account_id, content_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_cluster ON posting_slots(campaign_id, perceptual_cluster_id, date);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_source_family ON posting_slots(campaign_id, source_family_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source ON posting_slots(account_id, source_reference_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_events_slot ON posting_slot_events(posting_slot_id, created_at);
     """)
+    _ensure_posting_columns(conn)
     conn.commit()
+
+
+def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(posting_slots)").fetchall()}
+    columns = {
+        "source_family_id": "TEXT",
+        "perceptual_fingerprint": "TEXT",
+        "perceptual_cluster_id": "TEXT",
+        "account_group_id": "TEXT",
+        "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE posting_slots ADD COLUMN {name} {ddl}")
 
 
 def connect(root: Path) -> sqlite3.Connection:
@@ -202,7 +225,7 @@ def assign_approved_reels(
     campaign_id: str,
     approved_export: Path,
     dry_run: bool = False,
-    source_reuse_window_days: int = 7,
+    source_reuse_window_days: int = DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS,
 ) -> dict[str, Any]:
     conn = connect(root)
     payload = json.loads(Path(approved_export).read_text(encoding="utf-8"))
@@ -232,6 +255,7 @@ def assign_approved_reels(
             conflicts.append({"output_path": str(output_path), "reasons": ["missing_lineage"]})
             continue
         fp = content_fingerprint(output_path)
+        candidate_uniqueness = _uniqueness_values(item, lineage=item_lineage, fingerprint=fp)
         slot_result: tuple[dict[str, Any], list[str]] | None = None
         conflict_accounts_seen: set[str] = set()
         terminal_conflict = False
@@ -244,6 +268,7 @@ def assign_approved_reels(
                 output_path=str(output_path.resolve()),
                 fingerprint=fp,
                 lineage=item_lineage,
+                uniqueness=candidate_uniqueness,
                 source_reuse_window_days=source_reuse_window_days,
             )
             if not reasons:
@@ -273,7 +298,7 @@ def assign_approved_reels(
                 conflicts.append({"output_path": str(output_path.resolve()), "reasons": ["no_available_planned_slot"]})
             continue
         slot, _ = slot_result
-        values = _assignment_values(item, output_path=output_path, lineage=item_lineage, lineage_path=lineage_path, fingerprint=fp)
+        values = _assignment_values(item, output_path=output_path, lineage=item_lineage, lineage_path=lineage_path, fingerprint=fp, reuse_cooldown_days=source_reuse_window_days)
         values.update({
             "posting_slot_id": slot["posting_slot_id"],
             "post_status": "ready_for_review",
@@ -288,10 +313,15 @@ def assign_approved_reels(
             UPDATE posting_slots SET
                 source_reference_id=:source_reference_id,
                 source_reference_path=:source_reference_path,
+                source_family_id=:source_family_id,
                 reel_factory_asset_id=:reel_factory_asset_id,
                 source_kling_video_path=:source_kling_video_path,
                 rendered_output_path=:rendered_output_path,
                 content_fingerprint=:content_fingerprint,
+                perceptual_fingerprint=:perceptual_fingerprint,
+                perceptual_cluster_id=:perceptual_cluster_id,
+                account_group_id=:account_group_id,
+                reuse_cooldown_days=:reuse_cooldown_days,
                 caption=:caption,
                 caption_variant_id=:caption_variant_id,
                 audio_track_id=:audio_track_id,
@@ -537,16 +567,23 @@ def cli_main() -> int:
 
 
 def _assignment_values(item: dict[str, Any], *, output_path: Path, lineage: dict[str, Any],
-                       lineage_path: Path | None, fingerprint: str) -> dict[str, Any]:
+                       lineage_path: Path | None, fingerprint: str,
+                       reuse_cooldown_days: int = DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS) -> dict[str, Any]:
     audio_intent = item.get("audio_intent") if isinstance(item.get("audio_intent"), dict) else read_audio_intent(output_path)
     audio_selection = (audio_intent or {}).get("audio_selection") or {}
+    uniqueness = _uniqueness_values(item, lineage=lineage, fingerprint=fingerprint)
     return {
         "source_reference_id": _lineage_value(lineage, "sourceReferenceId", "reference_id", "source_reference_id"),
         "source_reference_path": _lineage_value(lineage, "sourceReferencePath", "source_path", "source_reference_path"),
+        "source_family_id": uniqueness["source_family_id"],
         "reel_factory_asset_id": _lineage_value(lineage, "assetGenerationId", "asset_generation_id") or ((item.get("campaign") or {}).get("asset_generation_id") if isinstance(item.get("campaign"), dict) else None),
         "source_kling_video_path": _lineage_value(lineage, "klingVideoPath", "video", "local_video_path"),
         "rendered_output_path": str(output_path.resolve()),
         "content_fingerprint": fingerprint,
+        "perceptual_fingerprint": uniqueness["perceptual_fingerprint"],
+        "perceptual_cluster_id": uniqueness["perceptual_cluster_id"],
+        "account_group_id": uniqueness["account_group_id"],
+        "reuse_cooldown_days": reuse_cooldown_days,
         "caption": item.get("hook_text") or item.get("caption") or item.get("caption_text"),
         "caption_variant_id": item.get("caption_variant_id"),
         "audio_track_id": audio_selection.get("track_id") or item.get("audio_track_id"),
@@ -563,7 +600,8 @@ def _assignment_values(item: dict[str, Any], *, output_path: Path, lineage: dict
 
 
 def _assignment_conflicts(conn: sqlite3.Connection, *, slot: dict[str, Any], output_path: str,
-                          fingerprint: str, lineage: dict[str, Any], source_reuse_window_days: int) -> list[str]:
+                          fingerprint: str, lineage: dict[str, Any], uniqueness: dict[str, Any],
+                          source_reuse_window_days: int) -> list[str]:
     reasons = []
     existing_output = conn.execute(
         """
@@ -598,7 +636,73 @@ def _assignment_conflicts(conn: sqlite3.Connection, *, slot: dict[str, Any], out
         probe["source_reference_id"] = source_reference_id
         if _nearby_source_rows(conn, probe, source_reuse_window_days):
             reasons.append("nearby_source_reuse_for_account")
+    if _nearby_cross_account_uniqueness_rows(conn, slot, uniqueness, source_reuse_window_days):
+        reasons.append("cross_account_source_or_perceptual_reuse")
     return reasons
+
+
+def _uniqueness_values(item: dict[str, Any], *, lineage: dict[str, Any], fingerprint: str) -> dict[str, Any]:
+    source_family = (
+        item.get("source_family_id")
+        or item.get("sourceFamilyId")
+        or _lineage_value(lineage, "sourceFamilyId", "source_family_id", "sourceReferenceId", "reference_id", "source_reference_id")
+    )
+    perceptual = (
+        item.get("perceptual_fingerprint")
+        or item.get("perceptualFingerprint")
+        or _lineage_value(lineage, "perceptualFingerprint", "perceptual_fingerprint", "phash", "pHash")
+    )
+    cluster = (
+        item.get("perceptual_cluster_id")
+        or item.get("perceptualClusterId")
+        or _lineage_value(lineage, "perceptualClusterId", "perceptual_cluster_id")
+        or perceptual
+        or source_family
+    )
+    account_group = (
+        item.get("account_group_id")
+        or item.get("accountGroupId")
+        or _lineage_value(lineage, "accountGroupId", "account_group_id", "creator", "model_slug")
+    )
+    return {
+        "source_family_id": str(source_family or ""),
+        "perceptual_fingerprint": str(perceptual or ""),
+        "perceptual_cluster_id": str(cluster or ""),
+        "account_group_id": str(account_group or ""),
+        "content_fingerprint": fingerprint,
+    }
+
+
+def _nearby_cross_account_uniqueness_rows(
+    conn: sqlite3.Connection,
+    slot: dict[str, Any],
+    uniqueness: dict[str, Any],
+    window_days: int,
+) -> list[str]:
+    slot_date = date.fromisoformat(slot["date"])
+    start = (slot_date - timedelta(days=window_days)).isoformat()
+    end = (slot_date + timedelta(days=window_days)).isoformat()
+    account_group = uniqueness.get("account_group_id") or ""
+    checks = [
+        ("source_family_id", uniqueness.get("source_family_id") or ""),
+        ("perceptual_cluster_id", uniqueness.get("perceptual_cluster_id") or ""),
+    ]
+    matches: list[str] = []
+    for column, value in checks:
+        if not value:
+            continue
+        query = f"""
+            SELECT posting_slot_id FROM posting_slots
+            WHERE campaign_id=? AND {column}=? AND date BETWEEN ? AND ?
+              AND account_id<>? AND post_status NOT IN ('planned', 'skipped', 'failed')
+        """
+        params: list[Any] = [slot["campaign_id"], value, start, end, slot["account_id"]]
+        if account_group:
+            query += " AND (account_group_id=? OR account_group_id='' OR account_group_id IS NULL)"
+            params.append(account_group)
+        rows = conn.execute(query, params).fetchall()
+        matches.extend(r["posting_slot_id"] for r in rows)
+    return sorted(set(matches))
 
 
 def _nearby_source_rows(conn: sqlite3.Connection, row: dict[str, Any], window_days: int) -> list[str]:

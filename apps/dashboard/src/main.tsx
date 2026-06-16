@@ -18,6 +18,10 @@ import {
 import { initWebVitals } from './lib/webVitals';
 import { supabase } from './services/supabase';
 import { STRIPE_PRICES, isLiveStripePrice } from './types/team';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
 import './index.css';
 
 // Sentry — fires only if VITE_SENTRY_DSN is set. PII scrubbing happens in

@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Camera } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Form, FormInputField } from '@/components/ui/Form';
 import { Separator } from '@/components/ui/Separator';
 import { appToast } from '@/lib/toast';
 import { supabase } from '@/services/supabase';
@@ -14,12 +17,17 @@ import {
   LocaleSelect,
 } from './shared';
 
+const profileFormSchema = z.object({
+  name: z.string().trim().min(1, 'Name cannot be empty.'),
+  email: z.string(),
+  handle: z.string().trim().min(1, 'Display handle cannot be empty.'),
+});
+
+type ProfileFormValues = z.infer<typeof profileFormSchema>;
+
 export function ProfileTab() {
   const authUser = useAuthUser();
   const defaultHandle = `@${authUser?.firstName?.toLowerCase() ?? 'operator'}`;
-  const [name, setName] = useState(authUser?.name ?? '');
-  const [email] = useState(authUser?.email ?? '');
-  const [handle, setHandle] = useState(defaultHandle);
   const [savedName, setSavedName] = useState(authUser?.name ?? '');
   const [savedHandle, setSavedHandle] = useState(defaultHandle);
   const [saving, setSaving] = useState(false);
@@ -27,10 +35,16 @@ export function ProfileTab() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (authUser && !name) setName(authUser.name);
-  }, [authUser, name]);
+  const profileForm = useForm<ProfileFormValues>({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues: {
+      name: authUser?.name ?? '',
+      email: authUser?.email ?? '',
+      handle: defaultHandle,
+    },
+  });
+  const name = profileForm.watch('name');
+  const email = profileForm.watch('email');
 
   // Hydrate name + handle from auth metadata so edits round-trip across reloads.
   useEffect(() => {
@@ -48,38 +62,43 @@ export function ProfileTab() {
       const canonicalName = meta.full_name || meta.name || authUser?.name || '';
       const canonicalHandle = meta.handle || defaultHandle;
       if (!cancelled) {
-        setName(canonicalName);
+        profileForm.reset({
+          name: canonicalName,
+          email: authUser?.email ?? user.email ?? '',
+          handle: canonicalHandle,
+        });
         setSavedName(canonicalName);
-        setHandle(canonicalHandle);
         setSavedHandle(canonicalHandle);
       }
     })();
     return () => { cancelled = true; };
-  }, [defaultHandle, authUser?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [defaultHandle, authUser?.email, authUser?.name, profileForm]);
 
-  const dirty = name !== savedName || handle !== savedHandle;
+  const dirty = profileForm.formState.isDirty;
 
   const discard = () => {
-    setName(savedName);
-    setHandle(savedHandle);
+    profileForm.reset({
+      name: savedName,
+      email,
+      handle: savedHandle,
+    });
   };
 
-  const save = async () => {
+  const save = async (values: ProfileFormValues) => {
     if (!dirty || saving) return;
-    const trimmedName = name.trim();
-    const trimmedHandle = handle.trim();
-    if (!trimmedName) {
-      appToast.error('Name cannot be empty.');
-      return;
-    }
+    const trimmedName = values.name.trim();
+    const trimmedHandle = values.handle.trim();
     setSaving(true);
     try {
       const { error } = await supabase.auth.updateUser({
         data: { full_name: trimmedName, name: trimmedName, handle: trimmedHandle },
       });
       if (error) throw error;
-      setName(trimmedName);
-      setHandle(trimmedHandle);
+      profileForm.reset({
+        name: trimmedName,
+        email: values.email,
+        handle: trimmedHandle,
+      });
       setSavedName(trimmedName);
       setSavedHandle(trimmedHandle);
       appToast.success('Profile updated');
@@ -173,46 +192,56 @@ export function ProfileTab() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <Field label="Full name">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+        <Form
+          form={profileForm}
+          onSubmit={save}
+          className="mt-6 gap-5"
+        >
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <FormInputField
+              name="name"
+              label="Full name"
               placeholder="Ader Desouza"
+              disabled={saving}
             />
-          </Field>
-          <Field label="Email" hint="Contact support to change your login email.">
-            <Input className="opacity-70 cursor-not-allowed" value={email} readOnly />
-          </Field>
-          <Field label="Display handle" hint="Used internally; not public.">
-            <Input
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
+            <FormInputField
+              name="email"
+              label="Email"
+              hint="Contact support to change your login email."
+              readOnly
+              className="cursor-not-allowed opacity-70"
             />
-          </Field>
-          <Field label="Language" hint="Controls date, time, and number formatting.">
-            <LocaleSelect />
-          </Field>
-        </div>
+            <FormInputField
+              name="handle"
+              label="Display handle"
+              hint="Used internally; not public."
+              disabled={saving}
+            />
+            <Field label="Language" hint="Controls date, time, and number formatting.">
+              <LocaleSelect />
+            </Field>
+          </div>
 
-        <Separator />
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            className="h-9 text-[0.8125rem]"
-            onClick={discard}
-            disabled={!dirty || saving}
-          >
-            Discard
-          </Button>
-          <Button
-            className="h-9 text-[0.8125rem]"
-            onClick={() => void save()}
-            disabled={!dirty || saving}
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </Button>
-        </div>
+          <Separator />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 text-[0.8125rem]"
+              onClick={discard}
+              disabled={!dirty || saving}
+            >
+              Discard
+            </Button>
+            <Button
+              type="submit"
+              className="h-9 text-[0.8125rem]"
+              disabled={!dirty || saving}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
+        </Form>
       </Panel>
     </div>
   );

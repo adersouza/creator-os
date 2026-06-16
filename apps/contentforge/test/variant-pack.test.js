@@ -14,6 +14,7 @@ import {
   buildVariantPackJobId,
   loadVariantPackJob,
   startVariantPackJob,
+  variantPackJobDiagnostics,
 } from "../lib/variant-pack-jobs.js";
 import { buildPhase2Args } from "../lib/ffmpeg.js";
 import { evaluateQualityGate } from "../lib/variant-engine.js";
@@ -408,6 +409,7 @@ test("variant pack job records failed terminal state without rerunning duplicate
     variantCount: 1,
     variationPreset: "caption_safe_v2",
     idempotencyKey: "unit-job-failed-terminal",
+    jobMaxRetries: 0,
   };
   await cleanupVariantPackJob(input);
   var calls = 0;
@@ -434,4 +436,55 @@ test("variant pack job records failed terminal state without rerunning duplicate
     __setVariantPackJobRunnerForTests(null);
     await cleanupVariantPackJob(input);
   }
+});
+
+test("variant pack job retries are bounded and reported", async function () {
+  var input = {
+    source: "uploads/job-retry-sample.mp4",
+    variantCount: 1,
+    variationPreset: "caption_safe_v2",
+    idempotencyKey: "unit-job-retry-terminal",
+    jobMaxRetries: 1,
+  };
+  await cleanupVariantPackJob(input);
+  var calls = 0;
+  __setVariantPackJobRunnerForTests(async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("first attempt failed");
+    return {
+      schema: "contentforge.variant_pack.v2",
+      runId: "inner_retry",
+      outputDir: "/tmp/contentforge-job-retry",
+      results: [{ filename: "variant.mp4", filePath: "/tmp/contentforge-job-retry/variant.mp4", recommended: true, uploadReady: true }],
+    };
+  });
+  try {
+    var started = await startVariantPackJob(input);
+    var terminal = null;
+    for (var index = 0; index < 40; index++) {
+      terminal = await loadVariantPackJob(started.runId);
+      if (terminal.status === "succeeded") break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    assert.equal(terminal.status, "succeeded");
+    assert.equal(calls, 2);
+    assert.equal(terminal.attempts, 2);
+    assert.equal(terminal.retries, 1);
+    assert.equal(terminal.maxRetries, 1);
+    assert.equal(terminal.artifacts.length, 1);
+  } finally {
+    __setVariantPackJobRunnerForTests(null);
+    await cleanupVariantPackJob(input);
+  }
+});
+
+test("variant pack job diagnostics expose queue state", function () {
+  var diagnostics = variantPackJobDiagnostics();
+
+  assert.equal(diagnostics.schema, "contentforge.variant_pack_job_diagnostics.v1");
+  assert.equal(typeof diagnostics.activeJobs, "number");
+  assert.equal(typeof diagnostics.pendingJobs, "number");
+  assert.equal(typeof diagnostics.runningJobs, "number");
+  assert.equal(diagnostics.concurrency >= 1, true);
 });

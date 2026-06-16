@@ -1,5 +1,12 @@
 # Campaign Factory Local Runbook
 
+Current Creator OS note:
+
+- Campaign Factory is the control brain; it does not own active image generation.
+- Reel Factory's current still-image path is direct Higgsfield reference-image generation: reference image → Stacey Soul ID → one `9:16` still.
+- Grok/Qwen/Ollama/Florence visual-schema, grids, cropped panels, and `_grok.json` prompt files are legacy Reel Factory experiments.
+- Do not schedule, publish, export drafts, mutate account health, or mutate production inventory unless the user explicitly asks for that operation.
+
 Copy these commands into separate terminals. Replace the values in `<>` before running.
 
 ## 1. Start services
@@ -7,7 +14,7 @@ Copy these commands into separate terminals. Replace the values in `<>` before r
 Terminal A: ContentForge.
 
 ```bash
-cd /Users/adercialonedesouza/Projects/contentforge
+cd $CREATOR_OS_ROOT/contentforge
 npm install
 npm run dev -- --port 3100
 ```
@@ -15,14 +22,14 @@ npm run dev -- --port 3100
 Terminal B: Campaign Factory.
 
 ```bash
-cd /Users/adercialonedesouza/Projects/campaign_factory
+cd $CREATOR_OS_ROOT/campaign_factory
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 export CONTENTFORGE_BASE_URL=http://127.0.0.1:3100
-export CONTENTFORGE_ROOT=/Users/adercialonedesouza/Projects/contentforge
-export REEL_FACTORY_ROOT=/Users/adercialonedesouza/Projects/reel_factory
-export REFERENCE_FACTORY_ROOT=/Users/adercialonedesouza/Projects/reference_factory
+export CONTENTFORGE_ROOT=$CREATOR_OS_ROOT/contentforge
+export REEL_FACTORY_ROOT=$CREATOR_OS_ROOT/reel_factory
+export REFERENCE_FACTORY_ROOT=$CREATOR_OS_ROOT/reference_factory
 python3 -m campaign_factory.cli doctor --check-http \
   --contentforge-base-url http://127.0.0.1:3100
 python3 -m campaign_factory.cli serve --host 127.0.0.1 --port 8877
@@ -37,7 +44,7 @@ top reference pattern, render variants, audit them in ContentForge, approve
 ready/warning-only outputs, and write a dry-run ThreadsDash export manifest.
 
 ```bash
-cd /Users/adercialonedesouza/Projects/campaign_factory
+cd $CREATOR_OS_ROOT/campaign_factory
 . .venv/bin/activate
 
 campaign-factory make-batch \
@@ -62,7 +69,7 @@ first.
 Use the folder that contains the finished Higgsfield/Juno33 `.mp4` or `.mov` files.
 
 ```bash
-cd /Users/adercialonedesouza/Projects/campaign_factory
+cd $CREATOR_OS_ROOT/campaign_factory
 . .venv/bin/activate
 
 campaign-factory import-folder "<SOURCE_VIDEO_FOLDER>" \

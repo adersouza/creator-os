@@ -66,8 +66,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 						? inputInvalidToneClass
 						: inputDefaultToneClass,
 					inputHeightClass[sizeVariant],
-					leadingIcon && "pl-8",
-					trailing && "pr-8",
+					leadingIcon && "pl-10",
+					trailing && "pr-10",
 					className,
 				)}
 				{...rest}
@@ -80,7 +80,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 			<div className="relative w-full">
 				{leadingIcon && (
 					<span
-						className="pointer-events-none absolute left-3 top-1/2 inline-flex -translate-y-1/2 items-center text-muted-foreground"
+						className="pointer-events-none absolute left-3 top-1/2 inline-flex -translate-y-1/2 items-center text-muted-foreground [&>svg]:size-4"
 						aria-hidden="true"
 					>
 						{leadingIcon}
@@ -88,7 +88,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 				)}
 				{input}
 				{trailing && (
-					<span className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center">
+					<span className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center">
 						{trailing}
 					</span>
 				)}

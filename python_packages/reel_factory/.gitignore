@@ -19,7 +19,6 @@ __pycache__/
 !01_captions/clip_010.json
 02_processed/
 02_processed_fit/
-models/
 03_audio_library/
 project_data/
 prompts/
@@ -34,6 +33,12 @@ manifest.sqlite-*
 render_queue.sqlite
 render_queue.sqlite-*
 04_exports/
+output/
+models/
+identity_references/
+graphify-out/
+.tmp_*/
+caption_placement_qc.json
 reel_factory.toml
 
 # Local account/profile data

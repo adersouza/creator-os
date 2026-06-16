@@ -94,6 +94,48 @@ class PostingLedgerTests(unittest.TestCase):
             self.assertIn("duplicate_content_fingerprint_for_account", assigned["conflicts"][0]["reasons"])
             self.assertIn("duplicate_content_fingerprint_for_campaign", assigned["conflicts"][0]["reasons"])
 
+    def test_assignment_blocks_cross_account_source_family_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a", "stacey_b"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            video_a = root / "a.mp4"
+            video_b = root / "b.mp4"
+            video_a.write_bytes(b"rendered reel a")
+            video_b.write_bytes(b"rendered reel b")
+            lineage_a = {
+                "source": {"sourceReferenceId": "ref_same", "sourceFamilyId": "family_same"},
+                "generation": {"klingJobId": "kling_1"},
+            }
+            lineage_b = {
+                "source": {"sourceReferenceId": "ref_same", "sourceFamilyId": "family_same"},
+                "generation": {"klingJobId": "kling_2"},
+            }
+            video_a.with_suffix(video_a.suffix + ".generated_asset_lineage.json").write_text(json.dumps(lineage_a), encoding="utf-8")
+            video_b.with_suffix(video_b.suffix + ".generated_asset_lineage.json").write_text(json.dumps(lineage_b), encoding="utf-8")
+            approved = {
+                "schema": "reel_factory.approved_export.v1",
+                "items": [
+                    {"output_path": str(video_a), "hook_text": "caption a", "generated_asset_lineage": lineage_a},
+                    {"output_path": str(video_b), "hook_text": "caption b", "generated_asset_lineage": lineage_b},
+                ],
+            }
+            approved_path = root / "approved.json"
+            approved_path.write_text(json.dumps(approved), encoding="utf-8")
+
+            assigned = assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+
+            self.assertEqual(assigned["assigned"], 1)
+            reasons = [reason for conflict in assigned["conflicts"] for reason in conflict["reasons"]]
+            self.assertIn("cross_account_source_or_perceptual_reuse", reasons)
+
     def test_state_transitions_lineage_audio_gate_and_schedule_export(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

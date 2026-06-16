@@ -10,11 +10,14 @@ publishing, QStash, metrics sync, account health, or production inventory.
 - `pnpm security:secrets` runs a local current-tree secret scan when `gitleaks`
   or `trufflehog` is installed.
 - GitHub Actions runs CodeQL for JavaScript/TypeScript and Python.
-- GitHub Actions runs TruffleHog secret scanning on pull requests.
+- GitHub Actions runs current-tree secret hygiene as a blocking check. The
+  TruffleHog full-history scan is report-only until the documented 2026-06-16
+  secret incident is rotated and purged from history.
 - GitHub Actions runs Dependency Review on pull requests with high-risk
-  dependency settings. GitHub Dependency Graph must be enabled before the
-  action can enforce results, so the workflow keeps the step non-blocking until
-  that repository setting is active.
+  dependency settings. It remains report-only until GitHub Dependency Graph is
+  enabled for the repository; after that, promote it to a blocking PR gate for
+  direct high/critical vulnerable dependency changes and denied copyleft
+  licenses.
 - GitHub Actions runs Trivy filesystem scans and uploads SARIF findings. Trivy
   is currently report-only (`--exit-code 0`) so the first baseline does not
   block unrelated migration work.
@@ -82,6 +85,7 @@ OpenTelemetry, verify:
   instrumentation overhead.
 
 OpenTelemetry is deferred until monorepo runtime promotion is complete.
+Use `docs/architecture/sentry_verification.md` as the promotion checklist.
 
 ## Supply-Chain Policy
 
@@ -90,8 +94,9 @@ Security workflows use audit/report mode before hard blocking new checks:
 - StepSecurity Harden-Runner runs in `egress-policy: audit` on security and
   architecture jobs.
 - Trivy uploads SARIF but does not currently fail PRs.
-- Dependency Review is configured for high-severity dependency changes, but it
-  becomes enforceable only after GitHub Dependency Graph is enabled.
+- Dependency Review is report-only until GitHub Dependency Graph is enabled;
+  then it should block direct high/critical vulnerable dependency changes and
+  denied licenses.
 - SBOM artifacts are generated for review; they are not committed.
 - Artifact attestations are generated for SBOMs and Dashboard build outputs;
   they are provenance evidence, not deployment approval.

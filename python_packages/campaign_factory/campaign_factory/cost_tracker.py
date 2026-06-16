@@ -41,6 +41,7 @@ PROVIDER_PRICING: dict[str, dict[str, float]] = {
 CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS ai_cost_events (
     id              TEXT PRIMARY KEY,
+    source_event_key TEXT,
     campaign_id     TEXT,
     provider        TEXT NOT NULL,
     operation       TEXT NOT NULL,
@@ -58,10 +59,23 @@ CREATE INDEX IF NOT EXISTS idx_ai_cost_events_campaign
     ON ai_cost_events (campaign_id, created_at)
 """
 
+CREATE_SOURCE_KEY_INDEX_SQL = """\
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_cost_events_source_key
+    ON ai_cost_events (source_event_key)
+    WHERE source_event_key IS NOT NULL
+"""
+
 
 def ensure_cost_table(conn: sqlite3.Connection) -> None:
     """Create the ai_cost_events table if it doesn't exist."""
     conn.executescript(f"{CREATE_TABLE_SQL};\n{CREATE_INDEX_SQL};")
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(ai_cost_events)").fetchall()
+    }
+    if "source_event_key" not in columns:
+        conn.execute("ALTER TABLE ai_cost_events ADD COLUMN source_event_key TEXT")
+    conn.execute(CREATE_SOURCE_KEY_INDEX_SQL)
 
 
 # ── Cost estimation ──────────────────────────────────────────────────
@@ -101,9 +115,17 @@ def record_ai_cost(
     generations: int | None = None,
     estimated_cost_usd: float | None = None,
     metadata: dict[str, Any] | None = None,
+    source_event_key: str | None = None,
 ) -> str:
     """Record an AI cost event and return the event ID."""
     ensure_cost_table(conn)
+    if source_event_key:
+        existing = conn.execute(
+            "SELECT id FROM ai_cost_events WHERE source_event_key = ?",
+            (source_event_key,),
+        ).fetchone()
+        if existing:
+            return existing[0]
 
     if estimated_cost_usd is None:
         if input_tokens is not None or output_tokens is not None:
@@ -117,17 +139,25 @@ def record_ai_cost(
         else:
             estimated_cost_usd = 0.0
 
-    event_id = f"cost_{uuid.uuid4().hex[:12]}"
+    event_id = (
+        f"cost_{uuid.uuid5(uuid.NAMESPACE_URL, source_event_key).hex[:12]}"
+        if source_event_key
+        else f"cost_{uuid.uuid4().hex[:12]}"
+    )
+    created_at = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
     conn.execute(
         """\
-        INSERT INTO ai_cost_events
-            (id, campaign_id, provider, operation,
+        INSERT OR IGNORE INTO ai_cost_events
+            (id, source_event_key, campaign_id, provider, operation,
              input_tokens, output_tokens, generations,
-             estimated_cost_usd, metadata_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             estimated_cost_usd, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
+            source_event_key,
             campaign_id,
             provider,
             operation,
@@ -136,6 +166,7 @@ def record_ai_cost(
             generations,
             estimated_cost_usd,
             json.dumps(metadata) if metadata else None,
+            created_at,
         ),
     )
     conn.commit()

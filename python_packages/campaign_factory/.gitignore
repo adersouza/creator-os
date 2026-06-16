@@ -6,5 +6,7 @@ __pycache__/
 .cache/
 campaign_factory.sqlite
 campaign_factory.sqlite-*
+campaign_factory.db
+tmp/
 campaigns/
 .DS_Store

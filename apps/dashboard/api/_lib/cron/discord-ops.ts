@@ -22,6 +22,78 @@ const db = (): any => getSupabase();
 
 const LOG_PREFIX = "[discord-ops]";
 
+type ThreadsFleetCounts = {
+	total: number;
+	publishable: number;
+	needsReauth: number;
+	retired: number;
+	suppressed: number;
+	inactive: number;
+	blocked: number;
+};
+
+function isSuppressedStatus(status: unknown): boolean {
+	return typeof status === "string" && status.toLowerCase().includes("suppress");
+}
+
+function isPublishableThreadsAccount(row: Record<string, unknown>): boolean {
+	return (
+		row.is_active === true &&
+		row.is_retired !== true &&
+		row.needs_reauth !== true &&
+		row.is_shadowbanned !== true &&
+		row.status !== "needs_reauth" &&
+		row.status !== "suspended" &&
+		row.status !== "disabled" &&
+		row.status !== "inactive"
+	);
+}
+
+async function getThreadsFleetCounts(): Promise<ThreadsFleetCounts> {
+	const { data: accounts } = await db()
+		.from("accounts")
+		.select(
+			"id, is_active, is_retired, is_shadowbanned, needs_reauth, status, threads_user_id, threads_access_token_encrypted",
+		)
+		.not("threads_user_id", "is", null);
+
+	const rows = (accounts || []) as Record<string, unknown>[];
+	let publishable = 0;
+	let needsReauth = 0;
+	let retired = 0;
+	let suppressed = 0;
+	let inactive = 0;
+	let blocked = 0;
+
+	for (const row of rows) {
+		if (isPublishableThreadsAccount(row)) {
+			publishable++;
+			continue;
+		}
+		if (row.needs_reauth === true || row.status === "needs_reauth") {
+			needsReauth++;
+		} else if (row.is_retired === true) {
+			retired++;
+		} else if (isSuppressedStatus(row.status)) {
+			suppressed++;
+		} else if (row.is_active !== true) {
+			inactive++;
+		} else {
+			blocked++;
+		}
+	}
+
+	return {
+		total: rows.length,
+		publishable,
+		needsReauth,
+		retired,
+		suppressed,
+		inactive,
+		blocked,
+	};
+}
+
 // ============================================================================
 // Discord Webhook Helper
 // ============================================================================
@@ -135,15 +207,7 @@ export async function sendHourlyPing(): Promise<void> {
 			.gte("created_at", oneHourAgo.toISOString());
 		const rejectedCount = rejectedItems?.length || 0;
 
-		// Active/dead accounts
-		const { data: activeAccounts } = await db()
-			.from("accounts")
-			.select("id")
-			.eq("is_active", true);
-		const activeCount = activeAccounts?.length || 0;
-
-		const { data: allAccounts } = await db().from("accounts").select("id");
-		const totalCount = allAccounts?.length || 0;
+		const fleetCounts = await getThreadsFleetCounts();
 
 		// Self-replies published in last hour
 		const { data: selfReplies } = await db()
@@ -186,7 +250,7 @@ export async function sendHourlyPing(): Promise<void> {
 			`Published: **${publishedCount}** | Queue: **${queueCount}** pending | Rejected: **${rejectedCount}** (quality gate)`,
 			`Self-replies: **${selfReplyCount}** | Cross-replies: **${crossReplyCount}**`,
 			`Top post: ${topPostLine}`,
-			`Active: **${activeCount}/${totalCount}** | Dead: **${totalCount - activeCount}/${totalCount}**`,
+			`Publishable: **${fleetCounts.publishable}/${fleetCounts.total}** | Blocked: **${fleetCounts.total - fleetCounts.publishable}/${fleetCounts.total}**`,
 		].join("\n");
 
 		await sendToDiscord(msg);
@@ -302,22 +366,7 @@ export async function sendDailyReport(): Promise<void> {
 			.eq("status", "published")
 			.gte("published_at", yesterday.toISOString());
 
-		// Health tier distribution
-		const { data: healthData } = await db()
-			.from("account_health_snapshots")
-			.select("health_tier")
-			.eq("account_table", "accounts")
-			.eq("period_days", 7);
-
-		const tierCounts: Record<string, number> = {
-			star: 0,
-			healthy: 0,
-			struggling: 0,
-			dead: 0,
-		};
-		for (const h of healthData || []) {
-			if (h.health_tier in tierCounts) tierCounts[h.health_tier]!++;
-		}
+		const fleetCounts = await getThreadsFleetCounts();
 
 		const dateStr = now.toLocaleDateString("en-US", {
 			timeZone: "America/New_York",
@@ -333,8 +382,9 @@ export async function sendDailyReport(): Promise<void> {
 			`Self-replies: **${selfRepliesDay?.length || 0}** | Cross-replies: **${crossRepliesDay?.length || 0}**`,
 			`Quality gate rejections: **${rejectedCount}** (${rejectionRate}%)`,
 			``,
-			`**Health Tiers**`,
-			`Stars: **${tierCounts.star}** | Healthy: **${tierCounts.healthy}** | Struggling: **${tierCounts.struggling}** | Dead: **${tierCounts.dead}**`,
+			`**Threads Fleet**`,
+			`Publishable: **${fleetCounts.publishable}/${fleetCounts.total}** | Blocked: **${fleetCounts.total - fleetCounts.publishable}/${fleetCounts.total}**`,
+			`Needs reauth: **${fleetCounts.needsReauth}** | Retired: **${fleetCounts.retired}** | Suppressed: **${fleetCounts.suppressed}** | Inactive/other: **${fleetCounts.inactive + fleetCounts.blocked}**`,
 			``,
 			`**Group Performance**`,
 		];

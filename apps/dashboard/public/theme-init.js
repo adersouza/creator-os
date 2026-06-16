@@ -1,8 +1,8 @@
 (function () {
-  /* First-paint theme + palette resolve. Runs synchronously before React
-     hydration so users never see a Juno-flash before Neptune kicks in
-     (or a light-flash before dark mode kicks in). Reads from localStorage
-     fast paths; remote sync from user_settings happens later in React. */
+  /* First-paint theme resolve. Runs synchronously before React hydration so
+     users never see a light flash before dark mode kicks in. The brand palette
+     is locked to Nova/zinc + Juno oxblood; legacy data-theme values are removed
+     before CSS can diverge from the shadcn preset. */
   try {
     var stored = localStorage.getItem('juno33-theme');
     var systemDark =
@@ -14,11 +14,7 @@
   } catch (e) {}
 
   try {
-    var palette = localStorage.getItem('juno33-palette');
-    var alts = ['neptune', 'apollo', 'mars', 'diana', 'vulcan', 'minerva'];
-    if (alts.indexOf(palette) !== -1) {
-      document.documentElement.setAttribute('data-theme', palette);
-    }
-    /* juno or unset = no data-theme attribute (matches @theme block in index.css). */
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('juno33-palette');
   } catch (e) {}
 })();

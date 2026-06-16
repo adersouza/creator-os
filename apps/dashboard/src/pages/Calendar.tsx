@@ -14,7 +14,6 @@ import type {
 } from "@fullcalendar/core";
 import {
 	CalendarDays,
-	CheckCircle2,
 	ChevronLeft,
 	ChevronRight,
 	Copy,
@@ -30,11 +29,10 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
 	NovaCard,
+	NovaBentoGrid,
 	NovaDataPanel,
 	NovaEmpty,
 	NovaHeader,
-	NovaSection,
-	NovaStat,
 	NovaToolbar,
 } from "@/components/ui/NovaPrimitives";
 import { Select } from "@/components/ui/Select";
@@ -51,8 +49,10 @@ import { PortfolioMatrix } from "@/components/calendar/PortfolioMatrix";
 import { queryClient } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { appToast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import { deletePost, duplicatePost, updatePost } from "@/services/api/posts";
 import { useAccountScopeStore } from "@/stores/useAccountScopeStore";
+import { haptics } from "@/utils/haptics";
 
 type CalendarView = "week" | "month" | "agenda" | "portfolio";
 type PlatformFilter = "all" | CalendarPlatform;
@@ -176,6 +176,8 @@ export function Calendar() {
 	});
 	const [groupFilter, setGroupFilter] = useState(() => searchParams.get("group") ?? "all");
 	const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(null);
+	const [upcomingOpen, setUpcomingOpen] = useState(false);
+	const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
 	const accountId = searchParams.get("accountId");
 	const accountHandle = searchParams.get("accountHandle");
 
@@ -256,6 +258,22 @@ export function Calendar() {
 		}));
 	}, [filteredPosts]);
 
+	const calendarEventMaxStack = viewMode === "week" ? 2 : 3;
+	const calendarShellClassName = cn(
+		"nova-calendar-shell overflow-auto",
+		draggingPostId && "is-dragging-event",
+		viewMode === "week" &&
+			"min-h-[860px] sm:min-h-[1020px]",
+		viewMode === "month" &&
+			"min-h-[660px] sm:min-h-[820px]",
+		viewMode === "agenda" &&
+			"max-h-[min(76vh,900px)] min-h-[560px] sm:min-h-[640px]",
+	);
+	const calendarCanvasClassName =
+		viewMode === "week"
+			? "min-w-[1120px] min-[1600px]:min-w-[1360px] min-[1920px]:min-w-[1480px]"
+			: "min-w-0";
+
 	const metrics = useMemo(() => {
 		const scheduled = filteredPosts.filter((post) => post.status === "scheduled").length;
 		const published = filteredPosts.filter((post) => post.status === "published").length;
@@ -264,9 +282,9 @@ export function Calendar() {
 			(sum, post) => sum + metricValue(post.viewsCount, post.igViews, post.igReach),
 			0,
 		);
-		const completion = filteredPosts.length > 0 ? Math.round((published / filteredPosts.length) * 100) : 0;
-		return { scheduled, published, failed, reach, completion };
+		return { scheduled, published, failed, reach };
 	}, [filteredPosts]);
+	const attentionCount = calendarState.gapsCount + metrics.failed;
 
 	const groupOptions = useMemo(() => {
 		const all = [{ value: "all", label: "All groups" }];
@@ -275,6 +293,7 @@ export function Calendar() {
 
 	const openComposerForDate = useCallback(
 		(date: Date) => {
+			haptics.selection();
 			const next = new URLSearchParams();
 			next.set("date", formatDateParam(date));
 			next.set("time", formatTimeParam(date));
@@ -286,6 +305,7 @@ export function Calendar() {
 
 	const openComposerForAccountDate = useCallback(
 		(nextAccountId: string, dateKey: string) => {
+			haptics.selection();
 			const next = new URLSearchParams();
 			next.set("date", dateKey);
 			next.set("accountId", nextAccountId);
@@ -334,6 +354,7 @@ export function Calendar() {
 	const handleEventDrop = useCallback(async (info: EventDropArg) => {
 		const post = info.event.extendedProps.post as CalendarPost | undefined;
 		const nextStart = info.event.start;
+		setDraggingPostId(null);
 		if (!post || !nextStart) {
 			info.revert();
 			return;
@@ -344,10 +365,12 @@ export function Calendar() {
 				status: post.status === "draft" || post.status === "review" ? "scheduled" : post.status,
 			});
 			await queryClient.invalidateQueries({ queryKey: queryKeys.calendar.all });
+			haptics.success();
 			appToast.success("Post rescheduled");
 		} catch (error) {
 			void error;
 			info.revert();
+			haptics.error();
 			appToast.error("Could not reschedule that post");
 		}
 	}, []);
@@ -378,21 +401,30 @@ export function Calendar() {
 	const renderEventContent = useCallback((info: EventContentArg) => {
 		const post = info.event.extendedProps.post as CalendarPost | undefined;
 		if (!post) return <span>{info.event.title}</span>;
+		const platformShort = post.account.platform === "instagram" ? "IG" : "TH";
 		return (
 			<div className="nova-calendar-event" style={{ "--event-accent": eventColor(post) } as React.CSSProperties}>
-				<div className="flex min-w-0 items-center gap-1.5">
-					<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--event-accent)]" />
-					<span className="truncate text-[0.6875rem] font-semibold text-foreground">{info.timeText}</span>
-					<span className="truncate text-[0.6875rem] text-muted-foreground">{platformLabel(post.account.platform)}</span>
+				<div className="nova-calendar-event__meta">
+					<span className="size-1.5 shrink-0 rounded-full bg-[var(--event-accent)]" />
+					<span className="nova-calendar-event__time">{info.timeText}</span>
+					<span className="nova-calendar-event__platform" title={platformLabel(post.account.platform)}>
+						{platformShort}
+					</span>
 				</div>
-				<div className="mt-1 truncate text-[0.75rem] font-medium leading-tight text-foreground">{info.event.title}</div>
+				<div className="nova-calendar-event__title">{info.event.title}</div>
+				<div className="nova-calendar-event__account">@{post.account.handle}</div>
 			</div>
 		);
 	}, []);
 
 	return (
-		<NovaScreen width="wide" className="calendar-page calendar-page--nova">
+		<NovaScreen
+			width="full"
+			density="compact"
+			className="calendar-page calendar-page--nova px-3 md:px-5 xl:px-6"
+		>
 			<NovaHeader
+				variant="compact"
 				eyebrow="Calendar"
 				title="Publishing schedule"
 				description="Plan, inspect, and move scheduled content across Threads and Instagram."
@@ -400,11 +432,15 @@ export function Calendar() {
 				actions={
 					<NovaToolbar>
 						<Button variant="outline" size="sm" onClick={refreshCalendar}>
-							<RefreshCw data-icon="start" aria-hidden="true" />
+							<RefreshCw data-icon="inline-start" aria-hidden="true" />
 							Refresh
 						</Button>
+						<Button variant="outline" size="sm" onClick={() => setUpcomingOpen(true)} className="min-[1920px]:hidden">
+							<CalendarDays data-icon="inline-start" aria-hidden="true" />
+							Next posts
+						</Button>
 						<Button size="sm" onClick={() => openComposerForDate(new Date())}>
-							<Plus data-icon="start" aria-hidden="true" />
+							<Plus data-icon="inline-start" aria-hidden="true" />
 							New post
 						</Button>
 					</NovaToolbar>
@@ -414,7 +450,7 @@ export function Calendar() {
 						{scopedAccount ? (
 							<AccountScopeChip
 								handle={scopedAccount.handle}
-								color={scopedAccount.platform === "instagram" ? "#E4405F" : "var(--color-oxblood)"}
+								color={scopedAccount.platform === "instagram" ? "var(--color-primary)" : "var(--color-oxblood)"}
 								onClear={clearScope}
 							/>
 						) : (
@@ -451,43 +487,20 @@ export function Calendar() {
 							options={groupOptions}
 							aria-label="Group filter"
 							sizeVariant="sm"
-							className="w-[180px]"
+							className="w-full sm:w-[180px]"
 						/>
 					</>
 				}
-			/>
-
-			<NovaSection className="grid gap-3 md:grid-cols-4">
-				<NovaStat
-					label="Scheduled"
-					value={metrics.scheduled}
-					description="Ready to publish in this window"
-					icon={<CalendarDays aria-hidden="true" />}
-					loading={calendarState.isLoading}
-				/>
-				<NovaStat
-					label="Published"
-					value={metrics.published}
-					description="Completed posts in view"
-					icon={<CheckCircle2 aria-hidden="true" />}
-					progress={{ value: metrics.completion, label: "Published share" }}
-					loading={calendarState.isLoading}
-				/>
-				<NovaStat
-					label="Reach"
-					value={formatNumber(metrics.reach)}
-					description="Visible post reach and views"
-					trend={metrics.reach > 0 ? { direction: "up", label: "Live data" } : "No data"}
-					loading={calendarState.isLoading}
-				/>
-				<NovaStat
-					label="Needs attention"
-					value={calendarState.gapsCount + metrics.failed}
-					description={`${calendarState.gapsCount} gaps · ${metrics.failed} failed`}
-					status={metrics.failed > 0 ? "Action" : "Clear"}
-					loading={calendarState.isLoading}
-				/>
-			</NovaSection>
+			>
+				<div className="hidden min-w-0 flex-wrap items-center gap-2 md:flex">
+					<Badge tone="outline">{metrics.scheduled} scheduled</Badge>
+					<Badge tone="outline">{metrics.published} published</Badge>
+					<Badge tone="outline">{formatNumber(metrics.reach)} reach</Badge>
+					<Badge tone={attentionCount > 0 ? "danger" : "secondary"}>
+						{attentionCount} need attention
+					</Badge>
+				</div>
+			</NovaHeader>
 
 			{viewMode === 'portfolio' ? (
 				<PortfolioMatrix
@@ -500,11 +513,12 @@ export function Calendar() {
 					onComposeForAccountDate={openComposerForAccountDate}
 				/>
 			) : (
-			<div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+			<div className="grid min-w-0 gap-5 md:gap-6 min-[1920px]:grid-cols-[minmax(0,1fr)_360px]">
 				<NovaDataPanel
 					title="Calendar"
 					description="Drag unpublished posts to reschedule. Click empty time to compose."
 					loading={calendarState.isLoading}
+					contentClassName="px-2 pb-2 pt-0 sm:px-3 sm:pb-3 md:px-4 md:pb-4"
 					toolbar={
 						<NovaToolbar className="gap-1">
 							<Button variant="outline" size="icon" aria-label="Previous range" onClick={() => moveCalendar("prev")}>
@@ -524,19 +538,25 @@ export function Calendar() {
 							title="Calendar could not load"
 							description="Refresh the schedule or try again after the API recovers."
 						/>
-					) : filteredPosts.length === 0 ? (
-						<NovaEmpty
-							title="No posts in this view"
-							description="Select an open slot to create the first scheduled post for this range."
-						>
-							<Button onClick={() => openComposerForDate(anchorDate)}>
-								<Plus data-icon="start" aria-hidden="true" />
-								Create post
-							</Button>
-						</NovaEmpty>
 					) : (
-						<div className="nova-calendar-shell">
-							<FullCalendar
+						<>
+							<div className="mb-2 rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground md:hidden">
+								<span className="font-medium text-foreground">{metrics.scheduled} scheduled</span>
+								<span> · {metrics.published} published · {attentionCount} to review</span>
+							</div>
+							{draggingPostId ? (
+								<div className="mb-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
+									Drop on a new time to reschedule.
+								</div>
+							) : null}
+							<div className={calendarShellClassName}>
+							{viewMode === "week" ? (
+								<div className="sticky left-0 top-0 z-10 mb-2 rounded-lg border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur md:hidden">
+									Swipe the schedule horizontally to inspect the full week.
+								</div>
+							) : null}
+							<div className={calendarCanvasClassName}>
+								<FullCalendar
 								ref={calendarRef}
 								plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
 								initialView={FULL_CALENDAR_VIEW[viewMode]}
@@ -549,13 +569,28 @@ export function Calendar() {
 								selectMirror
 								allDaySlot={false}
 								dayMaxEvents={3}
+								eventMaxStack={calendarEventMaxStack}
+								eventMinHeight={56}
+								slotEventOverlap={false}
 								slotMinTime="05:00:00"
 								slotMaxTime="23:00:00"
-								slotDuration="00:30:00"
+								slotDuration="01:00:00"
+								slotLabelInterval="01:00:00"
+								slotLabelFormat={{
+									hour: "numeric",
+									meridiem: "short",
+								}}
+								snapDuration="00:30:00"
 								height="auto"
+								dayHeaderFormat={{
+									weekday: "short",
+									day: "numeric",
+								}}
 								events={events}
 								eventContent={renderEventContent}
 								eventClick={handleEventClick}
+								eventDragStart={(info) => setDraggingPostId(info.event.id)}
+								eventDragStop={() => setDraggingPostId(null)}
 								eventDrop={handleEventDrop}
 								select={handleSelect}
 								dateClick={(info) => openComposerForDate(info.date)}
@@ -565,16 +600,36 @@ export function Calendar() {
 									minute: "2-digit",
 									meridiem: "short",
 								}}
-							/>
+								/>
+							</div>
 						</div>
+						</>
 					)}
 				</NovaDataPanel>
 
-				<NovaSection className="grid content-start gap-4">
+				<NovaBentoGrid className="hidden min-[1920px]:grid">
 					<UpcomingPanel posts={filteredPosts} onSelect={setSelectedPost} />
-				</NovaSection>
+				</NovaBentoGrid>
 			</div>
 			)}
+
+			<Sheet
+				open={upcomingOpen}
+				onClose={() => setUpcomingOpen(false)}
+				title="Next posts"
+				description="Upcoming scheduled content"
+				widthClass="w-full sm:w-[440px]"
+			>
+				<div className="p-4">
+					<UpcomingPanel
+						posts={filteredPosts}
+						onSelect={(post) => {
+							setSelectedPost(post);
+							setUpcomingOpen(false);
+						}}
+					/>
+				</div>
+			</Sheet>
 
 			<PostDetailSheet
 				post={selectedPost}
@@ -710,25 +765,25 @@ function PostDetailSheet({
 
 					<Separator />
 
-					<div className="flex flex-wrap items-center gap-2">
-						<Button variant="outline" onClick={() => onDuplicate(post)}>
-							<Copy data-icon="start" aria-hidden="true" />
+					<div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+						<Button variant="outline" onClick={() => onDuplicate(post)} className="justify-center">
+							<Copy data-icon="inline-start" aria-hidden="true" />
 							Duplicate
 						</Button>
-						<Button variant="outline" onClick={() => onOpenComposer(post)}>
-							<CalendarDays data-icon="start" aria-hidden="true" />
+						<Button variant="outline" onClick={() => onOpenComposer(post)} className="justify-center">
+							<CalendarDays data-icon="inline-start" aria-hidden="true" />
 							Edit in composer
 						</Button>
 						{post.permalink ? (
-							<Button variant="ghost" asChild>
+							<Button variant="ghost" asChild className="justify-center">
 								<a href={post.permalink} target="_blank" rel="noreferrer">
-									<ExternalLink data-icon="start" aria-hidden="true" />
+									<ExternalLink data-icon="inline-start" aria-hidden="true" />
 									Open
 								</a>
 							</Button>
 						) : null}
-						<Button className="ml-auto" variant="danger" onClick={() => onDelete(post)}>
-							<Trash2 data-icon="start" aria-hidden="true" />
+						<Button className="col-span-2 justify-center sm:ml-auto" variant="danger" onClick={() => onDelete(post)}>
+							<Trash2 data-icon="inline-start" aria-hidden="true" />
 							Delete
 						</Button>
 					</div>

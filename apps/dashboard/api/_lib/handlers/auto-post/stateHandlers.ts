@@ -10,6 +10,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { apiError, apiSuccess } from "../../apiResponse.js";
 import { logger } from "../../logger.js";
 import { getSupabaseAny } from "../../supabase.js";
+import { deriveAutoposterRuntimeModeFromConfig } from "./controlPlane.js";
+import { isAutoposterHardDisabled } from "./killSwitch.js";
 import {
 	type AccountAutoposterStatus,
 	getGroupAccountStates,
@@ -474,6 +476,10 @@ export async function handleGetAutoposterSnapshot(
 			enabled: configResult.data?.is_enabled ?? false,
 			group_mode: configResult.data?.group_mode_enabled ?? false,
 			ai_fill: configResult.data?.enable_ai_queue_fill ?? false,
+			runtime_mode: deriveAutoposterRuntimeModeFromConfig(
+				configResult.data,
+				isAutoposterHardDisabled(),
+			),
 		},
 		account_states: {
 			total: accountIds.length,

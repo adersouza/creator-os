@@ -651,6 +651,41 @@ describe("checkAndFillQueueWithAI", () => {
 				reason: "ai_queue_fill_disabled",
 			});
 		});
+
+		it("skips fill when the workspace runtime is paused", async () => {
+			const result = await checkAndFillQueueWithAI(
+				baseConfig({ is_enabled: false, enable_ai_queue_fill: true }),
+				"ws-1",
+				"owner-1",
+				"group-1",
+			);
+
+			expect(result).toEqual({
+				filled: false,
+				count: 0,
+				reason: "paused",
+			});
+			expect(mockRedisSet).not.toHaveBeenCalled();
+		});
+
+		it("skips fill when group mode is explicitly disabled", async () => {
+			const result = await checkAndFillQueueWithAI(
+				baseConfig({
+					group_mode_enabled: false,
+					enable_ai_queue_fill: true,
+				}),
+				"ws-1",
+				"owner-1",
+				"group-1",
+			);
+
+			expect(result).toEqual({
+				filled: false,
+				count: 0,
+				reason: "group_mode_disabled",
+			});
+			expect(mockRedisSet).not.toHaveBeenCalled();
+		});
 	});
 
 	// =========================================================================

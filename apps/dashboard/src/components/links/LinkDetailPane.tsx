@@ -307,7 +307,7 @@ export function LinkDetail({
 
       <div className="flex-1 min-h-0">
         {detailTab === "editor" && (
-          <div className="p-4 grid grid-cols-1 gap-5 sm:p-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-6">
+          <div className="p-4 grid grid-cols-1 gap-5 sm:p-5 2xl:grid-cols-[minmax(0,1fr)_300px] 2xl:gap-6">
             {/* Editor form */}
             <div className="min-w-0">
               {/* Mobile preview launcher — desktop shows inline phone, mobile shows a button */}
@@ -318,11 +318,11 @@ export function LinkDetail({
                   size="lg"
                   onClick={onOpenMobilePreview}
                   aria-label={`Open live preview for ${link.title || link.slug}`}
-                  className="mb-4 w-full justify-between text-left xl:hidden"
+                  className="mb-4 w-full justify-between text-left 2xl:hidden"
                 >
                   <span className="inline-flex items-center gap-2.5 min-w-0">
                     <span
-                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-semibold text-white"
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-semibold text-primary-foreground"
                       style={{
                         background: `linear-gradient(135deg, ${accentColor}, color-mix(in srgb, var(--color-oxblood) 55%, var(--color-background)))`,
                       }}
@@ -697,7 +697,7 @@ export function LinkDetail({
             </div>
 
             {/* Smart-link interstitial preview — desktop only; mobile uses a launcher button + overlay */}
-            <aside className="hidden xl:block justify-self-stretch">
+            <aside className="hidden 2xl:block justify-self-stretch">
               <div className="sticky top-5">
                 <div className="mb-3 flex items-end justify-between gap-3">
                   <div>
@@ -936,17 +936,17 @@ function SmartLinkInterstitialPreview({
     .slice(0, 3);
 
   return (
-    <div className="w-full max-w-[280px] rounded-[30px] border border-border bg-[#09090b] p-3 shadow-sm">
-      <div className="min-h-[430px] rounded-[22px] border border-white/10 bg-[#09090b] px-4 py-5 text-center text-white">
+    <div className="w-full max-w-[280px] rounded-[30px] border border-border bg-card p-3 shadow-sm">
+      <div className="min-h-[430px] rounded-[22px] border border-border bg-popover px-4 py-5 text-center text-popover-foreground">
         {avatarUrl ? (
           <img
             src={avatarUrl}
             alt=""
-            className="mx-auto mb-3 h-16 w-16 rounded-full border border-white/15 object-cover"
+            className="mx-auto mb-3 h-16 w-16 rounded-full border border-border object-cover"
             loading="lazy"
           />
         ) : (
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-white/10 text-xl font-semibold">
+          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-full border border-border bg-muted text-xl font-semibold text-foreground">
             {title[0]?.toUpperCase() || "J"}
           </div>
         )}
@@ -962,25 +962,25 @@ function SmartLinkInterstitialPreview({
                 key={`${url}-${index}`}
                 src={url}
                 alt=""
-                className="aspect-square w-full rounded-lg border border-white/10 object-cover"
+                className="aspect-square w-full rounded-lg border border-border object-cover"
                 loading="lazy"
               />
             ))}
           </div>
         )}
-        <h3 className="mb-2 text-[1rem] font-semibold leading-tight text-white">
+        <h3 className="mb-2 text-[1rem] font-semibold leading-tight text-popover-foreground">
           {title}
         </h3>
-        <p className="mb-5 text-[0.75rem] leading-relaxed text-zinc-400">
+        <p className="mb-5 text-[0.75rem] leading-relaxed text-muted-foreground">
           {subtitle}
         </p>
-        <div className="mb-2 rounded-xl bg-white px-4 py-3 text-[0.8125rem] font-semibold text-zinc-950">
+        <div className="mb-2 rounded-xl bg-primary px-4 py-3 text-[0.8125rem] font-semibold text-primary-foreground">
           {ctaLabel}
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-[0.8125rem] font-semibold text-zinc-400">
+        <div className="rounded-xl border border-border bg-muted px-4 py-3 text-[0.8125rem] font-semibold text-muted-foreground">
           Copy Link
         </div>
-        <p className="mt-4 text-[0.625rem] leading-relaxed text-zinc-600">
+        <p className="mt-4 text-[0.625rem] leading-relaxed text-muted-foreground">
           If Instagram keeps this inside the app, tap ... then Open in Browser.
           No hidden redirects or auto-launches.
         </p>

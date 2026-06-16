@@ -32,6 +32,8 @@ from campaign_store import link_campaign_output
 from graph_builder import ENCODER_PROFILES, build_ffmpeg_cmd as build_graph_ffmpeg_cmd
 from graph_builder import build_video_filter as build_graph_video_filter
 from graph_builder import target_dimensions
+from identity_verification import get_identity_provider
+from media_metadata import normalize_media_metadata
 from preflight import check_clip_readiness
 from project_config import load_config
 from placement import (
@@ -40,9 +42,10 @@ from placement import (
     probe_duration, probe_source_bitrate, resolve_segment_bands,
 )
 from recipe_loader import load_recipes
-from render_plan import RenderPlan
+from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 from caption_bank import CaptionBankStore, caption_static_metadata, load_or_build_caption_bank_store
+from discoverability_safety import discoverability_safe_content_contract
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     caption_text_for_scene,
@@ -205,6 +208,7 @@ class CaptionSet:
                 raise ValueError(f"hooks must be a list in {path}")
             parsed: list[str | dict] = []
             for h in hooks:
+                _ensure_discoverability_safe_caption(h, source=str(path))
                 if isinstance(h, dict):
                     if "segments" not in h:
                         raise ValueError(f"hook dict missing 'segments' key in {path}")
@@ -241,9 +245,37 @@ def find_caption_for(video: Path, cap_dir: Path) -> CaptionSet | None:
     return None
 
 
+def _caption_contract_text(caption: str | dict) -> str:
+    if isinstance(caption, str):
+        return caption.strip()
+    if isinstance(caption, dict):
+        if isinstance(caption.get("text"), str):
+            return caption["text"].strip()
+        segments = caption.get("segments")
+        if isinstance(segments, list):
+            return "\n".join(
+                str(segment.get("text") or "").strip()
+                for segment in segments
+                if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+            ).strip()
+    return str(caption).strip()
+
+
+def _ensure_discoverability_safe_caption(caption: str | dict, *, source: str) -> None:
+    text = _caption_contract_text(caption)
+    contract = discoverability_safe_content_contract(text)
+    if contract["discoverabilitySafe"]:
+        return
+    raise ValueError(
+        "discoverability unsafe caption blocked "
+        f"source={source} terms={','.join(contract['blockedTerms'])}: {text}"
+    )
+
+
 def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
                        fonts_dir: Path, src_hash: str = "",
-                       src_w: int = 1080, src_h: int = 1920) -> str:
+                       src_w: int = 1080, src_h: int = 1920,
+                       account_scope: str = "local_review") -> str:
     plan = RenderPlan(
         src=Path("input.mp4"),
         caption_pngs=[],
@@ -253,6 +285,7 @@ def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
         fonts_dir=fonts_dir,
         src_hash=src_hash,
         src_dims=(src_w, src_h),
+        account_scope=account_scope,
     )
     return build_graph_video_filter(plan)
 
@@ -266,7 +299,8 @@ def build_ffmpeg_cmd(src: Path,
                      bitrate_mbps: int = 14,
                      src_bitrate_mbps: int | None = None,
                      output_profile: str = "mac_h264_videotoolbox",
-                     target_ratio: str = "9:16") -> list[str]:
+                     target_ratio: str = "9:16",
+                     account_scope: str = "local_review") -> list[str]:
     plan = RenderPlan(
         src=src,
         caption_pngs=caption_pngs,
@@ -280,6 +314,7 @@ def build_ffmpeg_cmd(src: Path,
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile=output_profile,
         target_ratio=target_ratio,
+        account_scope=account_scope,
     )
     return build_graph_ffmpeg_cmd(plan, FFMPEG)
 
@@ -323,6 +358,29 @@ def build_avconvert_finalize_cmd(src: Path, out: Path, avconvert: str = AVCONVER
     ]
 
 
+def normalize_rendered_mp4_metadata(path: Path) -> dict:
+    if path.suffix.lower() != ".mp4":
+        return {"metadataNormalized": True, "metadataWarnings": [], "skipped": "non_mp4"}
+    result = normalize_media_metadata(path, dry_run=False)
+    if not result.get("metadataNormalized"):
+        warnings = result.get("metadataWarnings") or ["metadata_not_normalized"]
+        raise RuntimeError(f"metadata_normalization_failed:{','.join(str(item) for item in warnings)}")
+    return result
+
+
+def enforce_production_identity_provider(production_render: bool) -> dict:
+    if not production_render:
+        return {"required": False, "provider": "", "providerAvailable": None}
+    executable = Path(sys.executable).resolve()
+    if ".venv" not in executable.parts:
+        raise RuntimeError("production_render_requires_venv_python")
+    provider = get_identity_provider()
+    ok, reason = provider.available()
+    if not ok or provider.name != "insightface_arcface":
+        raise RuntimeError(f"production_render_identity_provider_unavailable:{provider.name}:{reason}")
+    return {"required": True, "provider": provider.name, "providerAvailable": True}
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Hashing — content-addressed job keys
 # ────────────────────────────────────────────────────────────────────────────
@@ -348,7 +406,8 @@ def effective_placement_mode_for_caption(caption: str | dict, placement_mode: st
 def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
                     placement_mode: str = "source",
                     target_ratio: str = "9:16",
-                    caption_placement_policy: str = "focal-safe") -> str:
+                    caption_placement_policy: str = "focal-safe",
+                    account_scope: str = "local_review") -> str:
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     cap_str = json.dumps(caption, sort_keys=True, ensure_ascii=False) if isinstance(caption, dict) else caption
     cap_h = sha256_str(cap_str)
@@ -361,6 +420,9 @@ def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
         rec_params["_placement_mode"] = placement_mode
     if target_ratio != "9:16":
         rec_params["_target_ratio"] = target_ratio
+    scope = (account_scope or "local_review").strip() or "local_review"
+    if scope != "local_review":
+        rec_params["_account_scope"] = scope
     rec_h = sha256_str(json.dumps(rec_params, sort_keys=True))
     return hashlib.sha256(f"{video_hash}|{cap_h}|{rec_h}".encode()).hexdigest()
 
@@ -618,6 +680,9 @@ def build_single_job_enqueue_cmd(
         cmd.append("--no-phone-finalize")
     if args.rerender_all:
         cmd.append("--rerender-all")
+    account_scope = getattr(args, "account", None)
+    if account_scope:
+        cmd += ["--account", account_scope]
     if args.strict_preflight:
         cmd.append("--strict-preflight")
     if args.asset_prompt_json:
@@ -657,12 +722,14 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                       phone_finalize: bool = True,
                       rerender_all: bool = False,
                       asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
-                      caption_lineage: dict | None = None) -> dict:
+                      caption_lineage: dict | None = None,
+                      account_scope: str = "local_review") -> dict:
     """Render one (video, caption_variant, recipe) combo."""
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     key = compute_job_key(src_hash, caption, recipe, placement_mode=placement_mode,
                           target_ratio=target_ratio,
-                          caption_placement_policy=caption_placement_policy)
+                          caption_placement_policy=caption_placement_policy,
+                          account_scope=account_scope)
 
     if not preview and not rerender_all and manifest.has_job(key):
         materialized = manifest.materialize_cached_job(src.stem, key)
@@ -822,7 +889,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                             fonts_dir, src_hash=src_hash, src_dims=src_dims,
                             src_bitrate_mbps=src_bitrate_mbps,
                             output_profile=output_profile,
-                            target_ratio=target_ratio)
+                            target_ratio=target_ratio,
+                            account_scope=account_scope)
     mezz_out_path = out_dir / f"{src.stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
     mezz_tmp_path = tmp_dir / mezz_out_path.name
     mezz_cmd = build_ffmpeg_cmd(
@@ -831,6 +899,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         src_bitrate_mbps=src_bitrate_mbps,
         output_profile="prores_lt",
         target_ratio=target_ratio,
+        account_scope=account_scope,
     ) if mezzanine else None
 
     if dry_run:
@@ -895,6 +964,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             src_hash=src_hash,
             src_dims=src_dims,
             target_ratio=target_ratio,
+            account_scope=account_scope,
         ))
         fc_parts = [f"[0:v]{vf}[vs0]"]
         inputs = ["-ss", f"{mid_t:.3f}", "-i", str(src)]
@@ -1104,6 +1174,22 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 log.warning(f"phone finalize failed {src.stem} h{hook_idx} {recipe.name}; using encoded output: {msg}")
 
         final_tmp_path.replace(out_path)
+        try:
+            metadata_normalization = normalize_rendered_mp4_metadata(out_path)
+        except RuntimeError as e:
+            msg = str(e)
+            log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
+            manifest.add_failure(
+                src.stem, recipe, caption_for_manifest, out_path, key, duration,
+                msg, render_time_sec=round(elapsed, 3),
+                encoder=output_profile,
+                target_ratio=target_ratio,
+            )
+            try:
+                out_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return {"status": "failed", "key": key}
         caption_hash = sha256_str(caption_for_manifest)
         write_caption_lineage_sidecar(
             out_path,
@@ -1223,6 +1309,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             "captionPosition": caption_position,
             "captionPlacementPolicy": placement_policy,
             "captionPlacementDecision": placement_lineage["captionPlacementDecision"],
+            "metadataNormalization": metadata_normalization,
             "generationId": generation_id,
             "renderJobKey": key,
         },
@@ -1264,6 +1351,18 @@ def caption_set_from_bank_selection(
         raise ValueError("caption_mix or caption_banks is required")
     if not selected:
         raise ValueError("caption bank selection produced no hooks")
+    unsafe_items = []
+    for item in selected:
+        contract = discoverability_safe_content_contract(item.get("text") or "")
+        if not contract["discoverabilitySafe"]:
+            unsafe_items.append((item, contract))
+    if unsafe_items:
+        item, contract = unsafe_items[0]
+        raise ValueError(
+            "caption bank selection contains discoverability unsafe caption "
+            f"source={item.get('source_file')} terms={','.join(contract['blockedTerms'])}: "
+            f"{item.get('text')}"
+        )
     hooks = [item["text"] for item in selected]
     lineage = {
         idx: store.lineage_for(
@@ -1620,6 +1719,16 @@ async def amain(args):
             )
         else:
             log.warning(f"account profile not found: {acc_path}")
+    try:
+        account_scope = validate_account_scope(args.account, production_render=bool(getattr(args, "production_render", False)))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    try:
+        identity_provider_check = enforce_production_identity_provider(bool(getattr(args, "production_render", False)))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    if identity_provider_check.get("required"):
+        log.info("identity_provider_check " + json.dumps(identity_provider_check, ensure_ascii=False))
 
     if args.caption_mix or args.caption_banks:
         try:
@@ -1856,6 +1965,7 @@ async def amain(args):
                         placement_mode=args.placement_mode,
                         target_ratio=target_ratio,
                         caption_placement_policy=args.caption_placement_policy,
+                        account_scope=account_scope,
                     )
                     if key in queued_keys:
                         duplicate_jobs += 1
@@ -1897,6 +2007,7 @@ async def amain(args):
                         rerender_all=args.rerender_all,
                         asset_prompt_info=asset_prompt_info,
                         caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
+                        account_scope=account_scope,
                     ))
 
     if duplicate_jobs:
@@ -2027,6 +2138,8 @@ def main():
     ap.add_argument("--account", default=None,
                     help="apply preferences from accounts/<NAME>.json — biases auto-pick "
                          "of font/style/color toward that account's voice")
+    ap.add_argument("--production-render", action="store_true",
+                    help="require an explicit --account scope so production variants are account-aware")
     ap.add_argument("--caption-mix", choices=["Larissa", "Stacey", "Lola"], default=None,
                     help="select hooks from a creator-weighted caption bank mix")
     ap.add_argument("--caption-banks", nargs="+", default=None,

@@ -11,7 +11,6 @@ Allowed:
 - Use Stacey Soul ID for Stacey identity.
 - Default active stills to `9:16`.
 - Capture Higgsfield raw JSON, generated prompt, local output path, and lineage.
-- Append optional body emphasis only when requested.
 - Compile deterministic Kling motion prompts for accepted stills.
 - Run Kling only when explicitly requested.
 - Write local prompt, generation, motion, QC, and export lineage.
@@ -20,6 +19,7 @@ Allowed:
 Not allowed:
 
 - Do not use Grok, Qwen, Ollama, Florence, or visual-schema extraction as the normal operator path.
+- Do not append body-emphasis or rewritten prompt text to the active Stacey reference-image path.
 - Do not make prompt-json or grid/fanout workflows the default production path.
 - Do not use stale `2x3`, six-panel, cropped-panel, or `_grok.json` language in active operator surfaces.
 - Do not automate Instagram/TikTok/Threads logins, private APIs, or publishing.

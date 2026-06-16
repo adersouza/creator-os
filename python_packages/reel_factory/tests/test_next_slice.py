@@ -59,6 +59,49 @@ class NextSliceTests(unittest.TestCase):
             row = manifest.to_json_data()["videos"]["clip_001"]["variations"][0]
             self.assertEqual(row["review_state"], "approved")
 
+    def test_review_decision_history_undo_and_integrity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = Manifest(root / "manifest.json")
+            src = root / "clip_001.mp4"
+            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            src.write_bytes(b"source")
+            out.write_bytes(b"output")
+            recipe = Recipe("v01_original")
+            key = compute_job_key("src-hash", "caption", recipe)
+            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
+            manifest.add_variation("clip_001", recipe, "caption", out, key, 2.5)
+
+            self.assertTrue(manifest.record_review_decision(
+                out.name,
+                "maybe",
+                reviewer="ader",
+                reason="needs second look",
+                deck_id="deck_1",
+                reference_hash="reference_hash_1",
+                soul_id="stacey",
+                aspect_ratio="3:4",
+                visual_qc_status="passed",
+                identity_verification_status="passed",
+            ))
+            self.assertTrue(manifest.record_review_decision(out.name, "approved", reviewer="ader", deck_id="deck_1"))
+            history_count = manifest.conn.execute("SELECT COUNT(*) AS n FROM review_decision_history").fetchone()["n"]
+            self.assertEqual(history_count, 2)
+            self.assertTrue(manifest.undo_review_decision(out.name, reviewer="ader"))
+            row = manifest.conn.execute("SELECT decision FROM review_decisions WHERE filename = ?", (out.name,)).fetchone()
+            self.assertEqual(row["decision"], "maybe")
+
+            review_root = root / "review_views"
+            counts = manifest.regenerate_review_folders(review_root, deck_id="deck_1")
+            self.assertEqual(counts["maybe"], 1)
+            self.assertTrue((review_root / "maybe" / out.name).exists())
+            self.assertTrue(manifest.review_integrity_check(deck_id="deck_1", folder_root=review_root)["ok"])
+
+            out.write_bytes(b"tampered")
+            integrity = manifest.review_integrity_check(deck_id="deck_1", folder_root=review_root)
+            self.assertFalse(integrity["ok"])
+            self.assertIn("hash_mismatch", {issue["type"] for issue in integrity["issues"]})
+
     def test_segment_mode_keeps_single_segment_on_source_band(self):
         async def fake_probe(*args, **kwargs):
             return PlacementSummary("right", {"side_right": 1.0}, 3, "right")

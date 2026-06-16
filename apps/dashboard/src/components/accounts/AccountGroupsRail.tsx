@@ -9,10 +9,12 @@ import {
 	Users,
 	X,
 } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NovaCard, NovaEmpty } from "@/components/ui/NovaPrimitives";
 import { Input } from "@/components/ui/Input";
+import { Separator } from "@/components/ui/Separator";
 import type { AccountGroup } from "@/hooks/useAccountGroups";
 import type { FleetAccount, FleetGroupMeta } from "@/hooks/useFleetAccounts";
 import { appToast } from "@/lib/toast";
@@ -159,23 +161,26 @@ export function AccountGroupsRail({
 	return (
 		<NovaCard className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-hidden p-0">
 			<div className="flex h-full max-h-[calc(100dvh-2rem)] flex-col">
-				<div className="border-b border-border px-4 py-3">
-					<div className="flex items-center justify-between gap-3">
+				<div className="border-b border-border px-4 py-4">
+					<div className="flex items-start justify-between gap-3">
 						<div className="min-w-0">
 							<div className="text-[0.6875rem] font-semibold uppercase tracking-[0.11em] text-muted-foreground">
 								Groups
 							</div>
-							<div className="mt-0.5 text-[0.875rem] font-semibold text-foreground">
+							<div className="mt-1 text-[0.9375rem] font-semibold text-foreground">
 								Account sets
 							</div>
+							<p className="mt-1 text-[0.75rem] leading-snug text-muted-foreground">
+								Filter and move accounts by group.
+							</p>
 						</div>
-						<span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-							<Users className="h-4 w-4" aria-hidden="true" />
+						<span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+							<Users className="size-4" aria-hidden="true" />
 						</span>
 					</div>
 					{selectedIds.length > 0 && (
-						<div className="mt-3 rounded-xl border border-border bg-muted/50 px-3 py-2">
-							<div className="text-[0.75rem] font-medium text-foreground tabular-nums">
+						<div className="mt-3 rounded-lg border border-border bg-muted/50 px-3 py-2">
+							<div className="text-[0.75rem] font-semibold text-foreground tabular-nums">
 								{selectedIds.length} selected
 							</div>
 							<div className="mt-1 text-[0.6875rem] leading-snug text-muted-foreground">
@@ -185,7 +190,7 @@ export function AccountGroupsRail({
 					)}
 				</div>
 
-				<div className="flex-1 overflow-y-auto px-2 py-2">
+				<div className="flex-1 overflow-y-auto px-2.5 py-2.5">
 					<RailButton
 						active={activeGroup === "all"}
 						label="All accounts"
@@ -204,13 +209,13 @@ export function AccountGroupsRail({
 									label="Unassign selected"
 									onClick={() => void onUnassignSelected()}
 								>
-									<X className="h-3.5 w-3.5" />
+									<X data-icon="icon" />
 								</MiniAction>
 							) : null
 						}
 					/>
 
-					<div className="my-2 h-px bg-border" />
+					<Separator className="my-2" />
 
 					{groups.length === 0 ? (
 						<NovaEmpty
@@ -227,7 +232,7 @@ export function AccountGroupsRail({
 									return (
 										<div
 											key={group.id}
-											className="rounded-xl border border-border bg-background p-2"
+											className="rounded-lg border border-border bg-background p-2"
 										>
 											<Input
 												value={editingName}
@@ -247,13 +252,13 @@ export function AccountGroupsRail({
 													label="Save group"
 													onClick={() => void submitEdit()}
 												>
-													<Check className="h-3.5 w-3.5" />
+													<Check data-icon="icon" />
 												</MiniAction>
 												<MiniAction
 													label="Cancel edit"
 													onClick={() => setEditingId(null)}
 												>
-													<X className="h-3.5 w-3.5" />
+													<X data-icon="icon" />
 												</MiniAction>
 											</div>
 										</div>
@@ -274,21 +279,21 @@ export function AccountGroupsRail({
 														label={`Move selected to ${group.name}`}
 														onClick={() => void onMoveSelectedToGroup(group)}
 													>
-														<FolderInput className="h-3.5 w-3.5" />
+														<FolderInput data-icon="icon" />
 													</MiniAction>
 												)}
 												<MiniAction
 													label={`Edit ${group.name}`}
 													onClick={() => startEditing(group)}
 												>
-													<Edit3 className="h-3.5 w-3.5" />
+													<Edit3 data-icon="icon" />
 												</MiniAction>
 												<MiniAction
 													label={`Delete ${group.name}`}
 													destructive
 													onClick={() => setDeleteTarget(group)}
 												>
-													<Trash2 className="h-3.5 w-3.5" />
+													<Trash2 data-icon="icon" />
 												</MiniAction>
 											</div>
 										}
@@ -299,10 +304,10 @@ export function AccountGroupsRail({
 					)}
 				</div>
 
-				<div className="border-t border-border p-3">
+				<div className="border-t border-border bg-card p-3">
 					<label
 						htmlFor="account-groups-rail-name"
-						className="grid gap-1 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+						className="grid gap-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
 					>
 						New group
 						<Input
@@ -369,27 +374,30 @@ function RailButton({
 	onClick: () => void;
 }) {
 	return (
-		<div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl">
+		<div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-lg">
 			<Button
 				type="button"
 				onClick={onClick}
 				aria-pressed={active}
-				variant={active ? "default" : "ghost"}
-				className="min-w-0 justify-start rounded-xl px-2.5 py-2 text-left"
+				variant="ghost"
+				className={`h-11 min-w-0 justify-start rounded-lg px-3 text-left ${active ? "bg-muted text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
 			>
-				<span className="flex min-w-0 items-center gap-2">
+				<span className="flex min-w-0 flex-1 items-center gap-2">
 					{color && (
 						<span
-							className="h-2 w-2 shrink-0 rounded-full"
+							className="size-2 shrink-0 rounded-full"
 							style={{ backgroundColor: active ? "currentColor" : color }}
 						/>
 					)}
 					<span className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium">
 						{label}
 					</span>
-					<span className="shrink-0 text-[0.6875rem] tabular-nums opacity-70">
+					<Badge
+						tone={active ? "secondary" : "outline"}
+						className="h-5 min-w-6 justify-center px-1.5 text-[0.6875rem] tabular-nums"
+					>
 						{count}
-					</span>
+					</Badge>
 				</span>
 			</Button>
 			{trailing}
@@ -405,7 +413,7 @@ function ColorPicker({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<div className="flex flex-wrap gap-1" role="group" aria-label="Group color">
+		<div className="flex flex-wrap gap-1.5" role="group" aria-label="Group color">
 			{GROUP_COLORS.map((hex) => (
 				<Button
 					key={hex}
@@ -414,7 +422,7 @@ function ColorPicker({
 					aria-label={`Use ${hex}`}
 					variant="ghost"
 					size="icon"
-					className="h-9 w-9 rounded-full p-0"
+					className="size-8 rounded-full p-0"
 					style={{
 						backgroundColor: hex,
 						boxShadow:
@@ -450,7 +458,7 @@ function MiniAction({
 			}}
 			variant="ghost"
 			size="icon"
-			className="h-9 w-9 rounded-lg text-muted-foreground"
+			className="size-8 rounded-lg text-muted-foreground"
 			style={destructive ? { color: "var(--color-danger)" } : undefined}
 		>
 			{children}

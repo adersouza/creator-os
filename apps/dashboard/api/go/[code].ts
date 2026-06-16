@@ -184,6 +184,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 			destinationHost,
 			appOrigin,
 		);
+		const destinationBadgeHtml = renderDestinationBadge(destinationHost);
+		const handleHtml = renderHandle(appearance.handle);
 		const requiresCreatorInterstitial = shouldUseCreatorInterstitial(finalUrl);
 		const publicOrigin = getPublicLinkOrigin(req);
 		const canonicalSmartLinkUrl = publicOrigin
@@ -294,39 +296,60 @@ ${appBannerMeta}
 ${pixelScripts}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#09090b;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px}
-.escape{display:${shouldEscapeInApp ? "block" : "none"};position:fixed;left:12px;right:12px;top:12px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);font-size:13px;color:#fafafa}
-.c{padding:32px;max-width:380px}
-.avatar{width:76px;height:76px;border-radius:50%;object-fit:cover;margin:0 auto 16px;border:1px solid rgba(255,255,255,.18);background:#18181b}
-	.hero{display:grid;grid-template-columns:repeat(${Math.min(appearance.imageUrls.length, 3) || 1},1fr);gap:8px;margin:0 0 18px}
-	.hero img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:#18181b}
-	h2{font-size:18px;font-weight:600;margin-bottom:8px}
-	p{color:#a1a1aa;font-size:14px;line-height:1.5;margin-bottom:24px}
-	.dest{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:7px 10px;margin:0 0 16px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#d4d4d8;font-size:12px;overflow-wrap:anywhere}
-	.btn{display:block;width:100%;padding:14px 24px;border-radius:12px;font-size:15px;font-weight:600;text-decoration:none;text-align:center;margin-bottom:12px;transition:transform 0.1s}
-	.btn:active{transform:scale(0.97)}
-	.btn-primary{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff}
-.btn-secondary{background:rgba(255,255,255,0.06);color:#a1a1aa;border:1px solid rgba(255,255,255,0.1)}
-.hint{color:#52525b;font-size:11px;margin-top:20px;line-height:1.5}
+html{height:100%}
+body{min-height:100%;background:linear-gradient(145deg,#0f0f0f 0%,#1a1025 30%,#0d1117 60%,#0f0f0f 100%);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px 16px;position:relative;overflow-x:hidden}
+body::before{content:'';position:fixed;top:-40%;left:-20%;width:80%;height:80%;background:radial-gradient(circle,rgba(139,92,246,.08) 0%,transparent 70%);pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;bottom:-30%;right:-20%;width:70%;height:70%;background:radial-gradient(circle,rgba(236,72,153,.06) 0%,transparent 70%);pointer-events:none;z-index:0}
+.escape{display:${shouldEscapeInApp ? "flex" : "none"};position:fixed;left:12px;right:12px;top:12px;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.06);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.1);font-size:13px;color:#e4e4e7;z-index:10;align-items:center;justify-content:center;gap:6px}
+.c{position:relative;z-index:1;padding:40px 28px 32px;max-width:400px;width:100%;background:rgba(255,255,255,.04);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,.08);border-radius:28px;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.05) inset}
+.avatar-wrap{position:relative;width:140px;height:140px;margin:0 auto 20px;border-radius:50%;padding:3px;background:linear-gradient(135deg,#8b5cf6,#ec4899,#f97316);animation:avatar-glow 3s ease-in-out infinite alternate}
+.avatar-wrap img{width:100%;height:100%;border-radius:50%;object-fit:cover;border:3px solid #0f0f0f}
+@keyframes avatar-glow{0%{box-shadow:0 0 20px rgba(139,92,246,.3),0 0 40px rgba(139,92,246,.1)}100%{box-shadow:0 0 25px rgba(236,72,153,.3),0 0 50px rgba(236,72,153,.1)}}
+.hero{display:grid;grid-template-columns:repeat(${Math.min(appearance.imageUrls.length, 3) || 1},1fr);gap:8px;margin:0 0 20px}
+.hero img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.1)}
+h2{font-size:22px;font-weight:700;margin-bottom:6px;letter-spacing:-.01em;background:linear-gradient(to right,#fff,#d4d4d8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.handle{color:#8b5cf6;font-size:13px;font-weight:500;margin-bottom:12px;letter-spacing:.02em}
+p.bio{color:#a1a1aa;font-size:14px;line-height:1.6;margin-bottom:24px;max-width:320px;margin-left:auto;margin-right:auto}
+.links-section{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px 24px;border-radius:14px;font-size:15px;font-weight:600;text-decoration:none;text-align:center;transition:all .2s ease;cursor:pointer;border:none;position:relative;overflow:hidden}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:linear-gradient(135deg,#8b5cf6 0%,#ec4899 100%);color:#fff;box-shadow:0 4px 15px rgba(139,92,246,.3),0 0 0 1px rgba(255,255,255,.1) inset}
+.btn-primary:hover{box-shadow:0 6px 25px rgba(139,92,246,.4);transform:translateY(-1px)}
+.btn-secondary{background:rgba(255,255,255,.06);color:#e4e4e7;border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.btn-secondary:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
+.btn-icon{font-size:18px;flex-shrink:0}
+.badges-container{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 16px;flex-wrap:wrap}
+.dest-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;margin:0;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#71717a;font-size:11px;letter-spacing:.02em}
+.footer{color:#3f3f46;font-size:11px;margin-top:20px;line-height:1.6}
+.footer a{color:#52525b;text-decoration:none}
+@media(prefers-reduced-motion:reduce){.avatar-wrap{animation:none}}
 </style>
 </head>
 <body>
-<div class="escape">Open in Safari or Chrome for the best checkout experience.</div>
+<div class="escape">Open in Safari or Chrome for the best experience.</div>
 <div class="c">
-	${appearance.avatarUrl ? `<img class="avatar" src="${escapeHtml(appearance.avatarUrl)}" alt="">` : ""}
+	${appearance.avatarUrl ? `<div class="avatar-wrap"><img src="${escapeHtml(appearance.avatarUrl)}" alt="${escapeHtml(appearance.title)}"></div>` : ""}
 	${renderHeroImages(appearance.imageUrls)}
 	<h2>${escapeHtml(appearance.title)}</h2>
-	<p>${escapeHtml(appearance.subtitle)}</p>
-	${destinationHost ? `<div class="dest">Destination: ${escapeHtml(destinationHost)}</div>` : ""}
+	${handleHtml}
+	<p class="bio">${escapeHtml(appearance.subtitle)}</p>
+	${destinationBadgeHtml}
+	<div class="links-section">
 	<a class="btn btn-primary" data-track-destination href="${escapeHtml(browserUrl)}">${escapeHtml(appearance.ctaLabel)}</a>
-	<a class="btn btn-secondary" id="copy" href="#">Copy Link</a>
-	<div class="hint">${interstitialHint}</div>
+	<button class="btn btn-secondary" type="button" data-copy-link data-copy-url="${escapeHtml(browserUrl)}">Copy Link</button>
+	</div>
+	<div class="footer">${interstitialHint}</div>
 	</div>
 <script nonce="${nonce}">
-document.getElementById("copy").addEventListener("click",function(e){
-  e.preventDefault();
-  var url=${JSON.stringify(browserUrl)};
-  if(navigator.clipboard){navigator.clipboard.writeText(url).then(function(){e.target.textContent="Copied!"}).catch(function(){});}
+document.querySelectorAll("[data-copy-link]").forEach(function(button){
+  button.addEventListener("click",function(){
+    var url=button.getAttribute("data-copy-url")||"";
+    if(!url)return;
+    var setLabel=function(text){button.textContent=text;};
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(function(){setLabel("Copied");},function(){setLabel(url);});
+    }else{setLabel(url);}
+  });
 });
 document.querySelectorAll("[data-track-destination]").forEach(function(link){
   link.addEventListener("click",function(){
@@ -342,7 +365,7 @@ document.querySelectorAll("[data-track-destination]").forEach(function(link){
 </body>
 </html>`;
 			res.setHeader("Content-Type", "text/html; charset=utf-8");
-			setSmartRedirectCsp(res, nonce);
+			setSmartRedirectCsp(res, nonce, appearance);
 			res.setHeader("Cache-Control", "private, no-cache");
 			if (isHead) return res.status(200).end();
 			return res.status(200).send(deepviewHtml);
@@ -384,32 +407,61 @@ ${appBannerMeta}
 ${pixelScripts}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#09090b;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px}
-.c{padding:32px;max-width:380px}
-.avatar{width:76px;height:76px;border-radius:50%;object-fit:cover;margin:0 auto 16px;border:1px solid rgba(255,255,255,.18);background:#18181b}
-.hero{display:grid;grid-template-columns:repeat(${Math.min(appearance.imageUrls.length, 3) || 1},1fr);gap:8px;margin:0 0 18px}
-.hero img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:#18181b}
-h2{font-size:18px;font-weight:600;margin-bottom:8px}
-p{color:#a1a1aa;font-size:14px;line-height:1.5;margin-bottom:24px}
-.btn{display:block;width:100%;padding:14px 24px;border-radius:12px;font-size:15px;font-weight:600;text-decoration:none;text-align:center;margin-bottom:12px;transition:transform 0.1s}
+html{height:100%}
+body{min-height:100%;background:linear-gradient(145deg,#0f0f0f 0%,#1a1025 30%,#0d1117 60%,#0f0f0f 100%);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px 16px;position:relative;overflow-x:hidden}
+body::before{content:'';position:fixed;top:-40%;left:-20%;width:80%;height:80%;background:radial-gradient(circle,rgba(139,92,246,.08) 0%,transparent 70%);pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;bottom:-30%;right:-20%;width:70%;height:70%;background:radial-gradient(circle,rgba(236,72,153,.06) 0%,transparent 70%);pointer-events:none;z-index:0}
+.c{position:relative;z-index:1;padding:40px 28px 32px;max-width:400px;width:100%;background:rgba(255,255,255,.04);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,.08);border-radius:28px;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.05) inset}
+.avatar-wrap{position:relative;width:140px;height:140px;margin:0 auto 20px;border-radius:50%;padding:3px;background:linear-gradient(135deg,#8b5cf6,#ec4899,#f97316);animation:avatar-glow 3s ease-in-out infinite alternate}
+.avatar-wrap img{width:100%;height:100%;border-radius:50%;object-fit:cover;border:3px solid #0f0f0f}
+@keyframes avatar-glow{0%{box-shadow:0 0 20px rgba(139,92,246,.3),0 0 40px rgba(139,92,246,.1)}100%{box-shadow:0 0 25px rgba(236,72,153,.3),0 0 50px rgba(236,72,153,.1)}}
+.hero{display:grid;grid-template-columns:repeat(${Math.min(appearance.imageUrls.length, 3) || 1},1fr);gap:8px;margin:0 0 20px}
+.hero img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.1)}
+h2{font-size:22px;font-weight:700;margin-bottom:6px;letter-spacing:-.01em;background:linear-gradient(to right,#fff,#d4d4d8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.handle{color:#8b5cf6;font-size:13px;font-weight:500;margin-bottom:12px;letter-spacing:.02em}
+p.bio{color:#a1a1aa;font-size:14px;line-height:1.6;margin-bottom:24px}
+.links-section{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px 24px;border-radius:14px;font-size:15px;font-weight:600;text-decoration:none;text-align:center;transition:all .2s ease;cursor:pointer;border:none;position:relative;overflow:hidden}
 .btn:active{transform:scale(0.97)}
-.btn-primary{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff}
-.btn-secondary{background:rgba(255,255,255,0.06);color:#a1a1aa;border:1px solid rgba(255,255,255,0.1)}
-.hint{color:#52525b;font-size:11px;margin-top:20px;line-height:1.5}
+.btn-primary{background:linear-gradient(135deg,#8b5cf6 0%,#ec4899 100%);color:#fff;box-shadow:0 4px 15px rgba(139,92,246,.3),0 0 0 1px rgba(255,255,255,.1) inset}
+.btn-primary:hover{box-shadow:0 6px 25px rgba(139,92,246,.4);transform:translateY(-1px)}
+.btn-secondary{background:rgba(255,255,255,.06);color:#e4e4e7;border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.btn-secondary:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
+.btn-icon{font-size:18px;flex-shrink:0}
+.badges-container{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 16px;flex-wrap:wrap}
+.dest-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;margin:0;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#71717a;font-size:11px;letter-spacing:.02em}
+.footer{color:#3f3f46;font-size:11px;margin-top:20px;line-height:1.6}
+@media(prefers-reduced-motion:reduce){.avatar-wrap{animation:none}}
 </style>
 </head>
 <body>
 <div class="c">
-${appearance.avatarUrl ? `<img class="avatar" src="${escapeHtml(appearance.avatarUrl)}" alt="">` : ""}
+${appearance.avatarUrl ? `<div class="avatar-wrap"><img src="${escapeHtml(appearance.avatarUrl)}" alt="${escapeHtml(appearance.title)}"></div>` : ""}
 ${renderHeroImages(appearance.imageUrls)}
 <h2>${escapeHtml(appearance.title)}</h2>
-<p>${escapeHtml(appearance.subtitle)}</p>
-<a class="btn btn-primary" data-track-destination href="${escapeHtml(deepLink || finalUrl)}">Open in ${escapeHtml(appLabel)}</a>
-<a class="btn btn-secondary" data-track-destination href="${escapeHtml(finalUrl)}">${escapeHtml(appearance.ctaLabel)}</a>
-<div class="hint">This page waits for your tap before opening another app. No hidden redirects or auto-launches.</div>
+${handleHtml}
+<p class="bio">${escapeHtml(appearance.subtitle)}</p>
+${destinationBadgeHtml}
+<div class="links-section">
+${deepLink ? `<a class="btn btn-primary" data-track-destination href="${escapeHtml(deepLink)}"><span class="btn-icon">📱</span>Open in ${escapeHtml(appLabel)}</a>` : ""}
+<a class="btn ${deepLink ? 'btn-secondary' : 'btn-primary'}" data-track-destination href="${escapeHtml(finalUrl)}">${escapeHtml(appearance.ctaLabel)}</a>
+<button class="btn btn-secondary" type="button" data-copy-link data-copy-url="${escapeHtml(finalUrl)}">Copy Link</button>
+</div>
+<div class="footer">This page waits for your tap before opening. No hidden redirects.</div>
 </div>
 <script nonce="${nonce}">
-document.querySelector(".btn-primary").addEventListener("click",function(){this.textContent="Opening...";});
+var primary=document.querySelector(".btn-primary");
+if(primary)primary.addEventListener("click",function(){this.innerHTML='<span class="btn-icon">⏳</span>Opening...';});
+document.querySelectorAll("[data-copy-link]").forEach(function(button){
+  button.addEventListener("click",function(){
+    var url=button.getAttribute("data-copy-url")||"";
+    if(!url)return;
+    var setLabel=function(text){button.textContent=text;};
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(function(){setLabel("Copied");},function(){setLabel(url);});
+    }else{setLabel(url);}
+  });
+});
 document.querySelectorAll("[data-track-destination]").forEach(function(link){
   link.addEventListener("click",function(){
     try{
@@ -425,7 +477,7 @@ document.querySelectorAll("[data-track-destination]").forEach(function(link){
 </html>`;
 
 		res.setHeader("Content-Type", "text/html; charset=utf-8");
-		setSmartRedirectCsp(res, nonce);
+		setSmartRedirectCsp(res, nonce, appearance);
 		res.setHeader("Cache-Control", "private, no-cache");
 		if (isHead) return res.status(200).end();
 		return res.status(200).send(deepLinkHtml);
@@ -622,21 +674,24 @@ function safeHttpsImageUrl(value: unknown): string {
 	}
 }
 
-function getSmartLinkAppearance(
-	metadata: Record<string, unknown> | null | undefined,
-	fallbackTitle: string | null,
-	destinationHost: string,
-	appOrigin: string,
-): {
+type SmartLinkAppearance = {
 	title: string;
 	subtitle: string;
 	previewTitle: string;
 	previewDescription: string;
 	ctaLabel: string;
+	handle: string;
 	avatarUrl: string;
 	imageUrls: string[];
 	ogImage: string;
-} {
+};
+
+function getSmartLinkAppearance(
+	metadata: Record<string, unknown> | null | undefined,
+	fallbackTitle: string | null,
+	destinationHost: string,
+	appOrigin: string,
+): SmartLinkAppearance {
 	const appearance = metadataObject(metadata, "appearance");
 	const title =
 		metadataText(appearance, "displayTitle", 90) ||
@@ -648,6 +703,10 @@ function getSmartLinkAppearance(
 			? `Choose how to open ${destinationHost}.`
 			: "Choose how to open this link.");
 	const ctaLabel = metadataText(appearance, "ctaLabel", 40) || "Open Link";
+	const handle = normalizePublicHandle(
+		metadataText(appearance, "handle", 40) ||
+			metadataText(appearance, "username", 40),
+	);
 	const avatarUrl = safeHttpsImageUrl(appearance.avatarUrl);
 	const imageUrls = Array.isArray(appearance.imageUrls)
 		? appearance.imageUrls.map(safeHttpsImageUrl).filter(Boolean).slice(0, 3)
@@ -666,10 +725,28 @@ function getSmartLinkAppearance(
 		previewTitle,
 		previewDescription,
 		ctaLabel,
+		handle,
 		avatarUrl,
 		imageUrls,
 		ogImage,
 	};
+}
+
+function normalizePublicHandle(value: string): string {
+	const handle = value.trim().replace(/^@+/, "");
+	if (!handle || handle.length > 40) return "";
+	if (!/^[a-zA-Z0-9._]+$/.test(handle)) return "";
+	return handle;
+}
+
+function renderHandle(handle: string): string {
+	if (!handle) return "";
+	return `<div class="handle">@${escapeHtml(handle)}</div>`;
+}
+
+function renderDestinationBadge(destinationHost: string): string {
+	if (!destinationHost) return "";
+	return `<div class="badges-container"><div class="dest-badge">Destination: ${escapeHtml(destinationHost)}</div></div>`;
 }
 
 function renderHeroImages(imageUrls: string[]): string {
@@ -745,14 +822,37 @@ function renderPixelScripts(
 	return script.join("\n");
 }
 
-function setSmartRedirectCsp(res: VercelResponse, nonce: string): void {
+function collectImageCspOrigins(appearance: SmartLinkAppearance): string[] {
+	const origins = new Set<string>();
+	for (const value of [
+		appearance.avatarUrl,
+		appearance.ogImage,
+		...appearance.imageUrls,
+	]) {
+		if (!value) continue;
+		try {
+			const parsed = new URL(value);
+			if (parsed.protocol === "https:") origins.add(parsed.origin);
+		} catch {
+			// Appearance image URLs are already sanitized; ignore any invalid value.
+		}
+	}
+	return Array.from(origins).sort();
+}
+
+function setSmartRedirectCsp(
+	res: VercelResponse,
+	nonce: string,
+	appearance: SmartLinkAppearance,
+): void {
+	const imageOrigins = collectImageCspOrigins(appearance);
 	res.setHeader(
 		"Content-Security-Policy",
 		[
 			"default-src 'self'",
 			`script-src 'nonce-${nonce}' https://connect.facebook.net https://analytics.tiktok.com https://s.pinimg.com https://www.googletagmanager.com`,
 			"style-src 'unsafe-inline'",
-			"img-src 'self' data: https://www.facebook.com https://analytics.tiktok.com https://ct.pinterest.com https://www.google-analytics.com",
+			`img-src 'self' data: https://www.facebook.com https://analytics.tiktok.com https://ct.pinterest.com https://www.google-analytics.com ${imageOrigins.join(" ")}`.trim(),
 			"connect-src 'self' https://www.google-analytics.com",
 			"frame-ancestors 'none'",
 			"base-uri 'self'",

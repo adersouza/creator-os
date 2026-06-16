@@ -55,7 +55,6 @@ coverage/
 
 # Screenshots
 screenshots/
-output/
 
 # Supabase
 supabase/.temp/
@@ -67,6 +66,7 @@ supabase/.temp/
 .codex/
 .env*.local
 .env.vercel-production
+graphify-out/
 
 # Generated prompt/audit docs (session artifacts)
 BACKEND_FIXES.md

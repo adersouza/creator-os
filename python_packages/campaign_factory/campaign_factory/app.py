@@ -25,7 +25,6 @@ from .adapters.threadsdash import (
 )
 from .config import PROJECT_ROOT, get_settings
 from .core import CampaignFactory
-from .cost_tracker import cost_summary
 
 settings = get_settings()
 app = FastAPI(title="campaign_factory")
@@ -51,17 +50,6 @@ def dashboard(campaign: str | None = None):
     cf = factory()
     try:
         return cf.dashboard(campaign)
-    finally:
-        cf.close()
-
-
-@app.get("/api/cost-summary")
-def get_cost_summary(campaign_id: str | None = None, days: int | None = None):
-    cf = factory()
-    try:
-        return cost_summary(cf.conn, campaign_id=campaign_id, days=days)
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
     finally:
         cf.close()
 
@@ -1066,6 +1054,8 @@ def export_td(body: dict[str, Any] = Body(...)):
             max_drafts=int(body["maxDrafts"]) if body.get("maxDrafts") is not None else None,
             rendered_asset_ids=body.get("renderedAssetIds") or None,
             schedule_mode=body.get("scheduleMode") or "draft",
+            threadsdash_ingest_url=body.get("threadsdashIngestUrl") or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL") or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+            threadsdash_ingest_secret=body.get("threadsdashIngestSecret") or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

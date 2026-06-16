@@ -60,7 +60,9 @@
                   "captionOutcomeContext",
                   "audio_intent",
                   "handoff_manifest",
-                  "readiness_checks_pass"
+                  "readiness_checks_pass",
+                  "visualQcStatus",
+                  "identityVerificationStatus"
                 ],
                 "properties": {
                   "asset_state": {
@@ -107,7 +109,13 @@
                         "missing_audio",
                         "readiness_failed",
                         "not_approved",
-                        "caption_placement_qc_failed"
+                        "caption_placement_qc_failed",
+                        "missing_instagram_post_caption",
+                        "instagram_post_caption_quality_failed",
+                        "visual_qc_unavailable",
+                        "visual_qc_failed",
+                        "identity_verification_unavailable",
+                        "identity_verification_failed"
                       ]
                     }
                   },
@@ -202,6 +210,30 @@
                       },
                       "variant_operations": {
                         "type": "array"
+                      },
+                      "visualQcStatus": {
+                        "type": "string",
+                        "enum": [
+                          "passed",
+                          "failed",
+                          "unavailable"
+                        ]
+                      },
+                      "identityVerificationStatus": {
+                        "type": "string",
+                        "enum": [
+                          "passed",
+                          "failed",
+                          "unavailable"
+                        ]
+                      },
+                      "visualQc": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "identityVerification": {
+                        "type": "object",
+                        "additionalProperties": true
                       }
                     },
                     "additionalProperties": true
@@ -289,6 +321,22 @@
                   },
                   "audio_intent": {
                     "$ref": "audio_intent.v1.schema.json"
+                  },
+                  "visualQcStatus": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "unavailable"
+                    ]
+                  },
+                  "identityVerificationStatus": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed",
+                      "unavailable"
+                    ]
                   }
                 },
                 "additionalProperties": true

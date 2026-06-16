@@ -26,6 +26,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CommandMenuActionRow } from "@/components/ui/CommandMenuShell";
 import { Kbd } from "@/components/ui/Kbd";
 import { Z } from "@/components/ui/overlayZ";
 import { useConnectedAccounts } from "@/hooks/useConnectedAccounts";
@@ -703,7 +704,7 @@ export function CommandPalette({
 					role="dialog"
 					aria-modal="true"
 					aria-label="Command palette"
-					className="pointer-events-auto flex w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-border bg-popover/95 shadow-[0_32px_64px_-12px_color-mix(in_srgb,var(--color-foreground)_36%,transparent)]"
+					className="command-menu-shell pointer-events-auto flex w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-border bg-popover/95 shadow-[0_32px_64px_-12px_color-mix(in_srgb,var(--color-foreground)_36%,transparent)]"
 					style={{
 						WebkitBackdropFilter: "blur(20px) saturate(150%)",
 						backdropFilter: "blur(20px) saturate(150%)",
@@ -768,7 +769,7 @@ export function CommandPalette({
 														key={cmd.id}
 														value={cmd.id}
 														className={cn(
-															"grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 rounded-lg cursor-default transition-all duration-100",
+															"px-2 py-2 rounded-lg cursor-default transition-all duration-100",
 															isSelected
 																? "bg-[color-mix(in_srgb,var(--color-oxblood)_13%,transparent)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-oxblood)_34%,transparent)]"
 																: "hover:bg-muted",
@@ -778,44 +779,18 @@ export function CommandPalette({
 														}
 														onSelect={() => runCommand(cmd)}
 													>
-														<span
-															className={cn(
-																"h-6 w-6 rounded-md border border-border bg-card inline-flex items-center justify-center",
-																isSelected &&
-																	"border-[color-mix(in_srgb,var(--color-oxblood)_28%,var(--color-border))]",
-															)}
-														>
-															<cmd.icon
-																className={cn(
-																	"w-3.5 h-3.5",
-																	isSelected
-																		? "text-foreground"
-																		: "text-label-tertiary",
-																)}
-															/>
-														</span>
-														<div className="min-w-0">
-															<div
-																className={cn(
-																	"truncate text-[0.8125rem] font-semibold",
-																	isSelected
-																		? "text-foreground"
-																		: "text-label-secondary",
-																)}
-															>
-																{cmd.label}
-															</div>
-															{cmd.subtitle ? (
-																<div className="mt-0.5 truncate font-mono text-[0.625rem] text-label-quaternary">
-																	{cmd.subtitle}
-																</div>
-															) : null}
-														</div>
-														{cmd.shortcut && (
-															<Badge tone={isSelected ? "oxblood" : "secondary"}>
-																{cmd.shortcut}
-															</Badge>
-														)}
+														<CommandMenuActionRow
+															icon={<cmd.icon data-icon="stacked" aria-hidden="true" />}
+															label={cmd.label}
+															description={cmd.subtitle}
+															shortcut={
+																cmd.shortcut ? (
+																	<Badge tone={isSelected ? "oxblood" : "secondary"}>
+																		{cmd.shortcut}
+																	</Badge>
+																) : null
+															}
+														/>
 													</CommandPrimitiveItem>
 												);
 											})}

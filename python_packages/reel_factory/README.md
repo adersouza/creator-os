@@ -11,8 +11,7 @@ single-person reference image
 → Higgsfield direct reference-image generation
 → Stacey Soul ID
 → one 9:16 still
-→ captured Higgsfield prompt + lineage
-→ optional append-only body emphasis
+→ captured Higgsfield prompt + lineage for audit only
 → accepted still
 → deterministic Kling motion prompt
 ```
@@ -20,8 +19,8 @@ single-person reference image
 Use:
 
 ```bash
-python3 generate_assets.py reference-image-dry-run --reference <image> --creator Stacey --stem <clip_stem> --body-emphasis none --wait
-python3 generate_assets.py reference-image --reference <image> --creator Stacey --stem <clip_stem> --body-emphasis none --wait
+python3 generate_assets.py reference-image-dry-run --reference <image> --creator Stacey --stem <clip_stem> --wait
+python3 generate_assets.py reference-image --reference <image> --creator Stacey --stem <clip_stem> --wait
 ```
 
 Stacey Soul ID: `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
@@ -162,7 +161,8 @@ For a concise handoff to the next chat, start with
 
 The active image path no longer asks Grok/Qwen/Ollama/Florence to write the
 production prompt. Higgsfield receives the reference image directly, Soul ID
-owns identity, and Reel Factory records the returned prompt/lineage.
+owns identity, and Reel Factory records the returned prompt/lineage for audit
+only.
 
 Dry-run a direct reference still with:
 
@@ -171,7 +171,6 @@ python3 generate_assets.py reference-image-dry-run \
   --reference /path/to/reference.jpg \
   --creator Stacey \
   --stem clip_001 \
-  --body-emphasis none \
   --wait
 ```
 
@@ -182,7 +181,6 @@ python3 generate_assets.py reference-image \
   --reference /path/to/reference.jpg \
   --creator Stacey \
   --stem clip_001 \
-  --body-emphasis bust_hips \
   --wait
 ```
 
@@ -275,8 +273,8 @@ workflow remains manual, but the relevant CLI shape is:
 
 ```bash
 python3 generate_assets.py capabilities --root .
-python3 generate_assets.py reference-image-dry-run --reference reference.jpg --creator Stacey --stem clip_001 --body-emphasis none --wait
-python3 generate_assets.py reference-image --reference reference.jpg --creator Stacey --stem clip_001 --body-emphasis bust_hips --wait
+python3 generate_assets.py reference-image-dry-run --reference reference.jpg --creator Stacey --stem clip_001 --wait
+python3 generate_assets.py reference-image --reference reference.jpg --creator Stacey --stem clip_001 --wait
 higgsfield model list --image --json
 higgsfield model list --video --json
 higgsfield generate create kling3_0 --prompt "<motion prompt>" --start-image <accepted_still> --aspect_ratio 9:16 --duration 5 --wait

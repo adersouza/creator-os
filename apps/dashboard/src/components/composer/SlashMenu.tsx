@@ -7,6 +7,7 @@ import {
 	CommandList,
 	CommandShortcut,
 } from "@/components/ui/Command";
+import { CommandMenuActionRow } from "@/components/ui/CommandMenuShell";
 import { cn } from "@/lib/utils";
 
 export interface SlashCommand {
@@ -85,7 +86,7 @@ export function SlashMenu({
 		<Command
 			aria-label="Slash commands"
 			shouldFilter={false}
-			className="fixed z-[120] h-auto w-72 max-w-[calc(100vw-24px)] rounded-lg border border-border bg-card p-1 shadow-lg"
+			className="command-menu-shell fixed z-[120] h-auto w-80 max-w-[calc(100vw-24px)] rounded-xl border border-border bg-card p-1 shadow-lg"
 			style={{ left: anchor.x, top: anchor.y }}
 			onPointerDown={(event) => event.stopPropagation()}
 		>
@@ -116,16 +117,15 @@ export function SlashMenu({
 									onClose();
 								}}
 								className={cn(
-									"flex-col items-start gap-0 rounded-md px-2 py-2",
+									"rounded-lg px-2 py-2",
 									selected === index && "bg-muted text-foreground",
 								)}
 							>
-								<span className="block text-[0.8125rem] font-medium text-foreground">
-									{command.label}
-								</span>
-								<span className="block text-[0.6875rem] leading-snug text-muted-foreground">
-									{command.hint}
-								</span>
+								<CommandMenuActionRow
+									label={command.label}
+									description={command.hint}
+									shortcut={`/${command.id}`}
+								/>
 							</CommandItem>
 						))}
 					</CommandGroup>

@@ -18,6 +18,7 @@ import {
 	prioritizeStrategyRecommendations,
 	type StrategyRecommendation,
 } from "./strategyRecommendations.js";
+import { getAutoposterRejectionReason } from "./rejectionReason.js";
 import {
 	classifyContentArchetype,
 	detectIdentityShapeId,
@@ -46,6 +47,7 @@ import {
 	classifyProfileCuriosityFrame,
 	classifyWinnerCloneFamilyFromContent,
 	isHighValueProfileCuriosityContent,
+	isLowCuriosityAiFormulaContent,
 	isProfileCuriosityDeadEndContent,
 	profileCuriosityPriorityScore,
 	winnerCloneFrameAlignmentScore,
@@ -806,6 +808,12 @@ function classifyGenerationCandidate(input: {
 	const genericTopicPenalty = hasGenericTopicEngagementCue(input.idea.content)
 		? 70
 		: 0;
+	const lowCuriosityFormulaPenalty = isLowCuriosityAiFormulaContent(
+		input.idea.content,
+		input.idea.sourceCompetitorId ? "competitor_copy" : "ai",
+	)
+		? 140
+		: 0;
 	const frameAlignmentScore =
 		input.idea.winnerClone && input.idea.sourceContent
 			? winnerCloneFrameAlignmentScore({
@@ -828,7 +836,8 @@ function classifyGenerationCandidate(input: {
 		flirtAttractionBonus -
 		profileDeadEndPenalty -
 		genericTopicPenalty +
-		frameAlignmentScore;
+		frameAlignmentScore -
+		lowCuriosityFormulaPenalty;
 	return {
 		idea: input.idea,
 		index: input.index,
@@ -1924,7 +1933,7 @@ const HOOK_TEMPLATES: HookTemplate[] = [
 		type: "identity_statement",
 	},
 	{
-		template: "tiny confession: [specific motif] fixes my mood too fast",
+		template: "[specific motif] fixes my mood too fast and i hate that",
 		type: "confession",
 	},
 	{
@@ -2011,7 +2020,7 @@ const HOOK_TEMPLATES: HookTemplate[] = [
 	{ template: "I'll never apologize for [bold stance].", type: "hot_take" },
 	{ template: "[Thing] is dead. [Alternative] won.", type: "hot_take" },
 	{ template: "Overrated: [thing]. Underrated: [thing].", type: "hot_take" },
-	{ template: "Unpopular opinion: [bold claim].", type: "hot_take" },
+	{ template: "[bold claim] and i will not apologize for it.", type: "hot_take" },
 	{ template: "The algorithm favors [observation].", type: "hot_take" },
 	// GFE / INTIMACY hooks (optimize for: PROFILE VISITS + DMs)
 	{ template: "just thinking out loud at [time]...", type: "gfe_bait" },
@@ -2215,7 +2224,7 @@ const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
 	question:
 		"RARE QUESTION — only use when it has concrete stakes or a specific recommendation frame. Prefer fill-in-blank or specific taste checks. Never broad audience polls, generic awake-now bait, or unsupported date-me hypotheticals.",
 	hot_take:
-		"UNPOPULAR OPINION or DEBATE STARTER — take a strong side on something people debate, or frame as X vs Y. 'girls who lift heavy > girls who lift to look cute at the gym' (575v, 27L), 'controller or keyboard? prove me wrong', 'unpopular opinion: controller players are better than keyboard warriors' (307v). Works for gym, gaming, dating, school — ANY topic people feel strongly about.",
+		"DEBATE STARTER — take a strong side without a label prefix, or frame as X vs Y. 'girls who lift heavy > girls who lift to look cute at the gym' (575v, 27L), 'controller or keyboard? prove me wrong', 'controller players are better than keyboard warriors'. Works only when it reveals standards, attraction, identity, or creator taste.",
 	gfe_bait:
 		"EMOTIONAL STATEMENT or VULNERABLE WITH CONTEXT — say how you feel directly, no question mark needed. ULTRA-SHORT wins: 'i miss you more than I like to admit' (36 chars), 'i am a little sad today ngl' (27 chars), 'I need some sick😩' (18 chars). Or specific scenario: 'everybody celebrating easter with their loved ones and I'm basically alone and 600km away from home', 'parents won't be home for 3 hours. who's free?'. The statement version (no question) gets MORE engagement than asking 'do you miss someone?' — it feels like she's talking TO YOU.",
 	snap_conversion:
@@ -3317,10 +3326,9 @@ NEVER: explicit sexual language (gets accounts banned), generic awake-now bait, 
 					generationTargets[0]?.dna?.group_id;
 				let recentRejectsQuery = db()
 					.from("auto_post_queue")
-					.select("content, rejection_reason")
+					.select("content, rejection_reason, last_error, metadata")
 					.eq("workspace_id", workspaceId)
 					.eq("status", "rejected")
-					.not("rejection_reason", "is", null)
 					.gte(
 						"created_at",
 						new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
@@ -3338,18 +3346,24 @@ NEVER: explicit sexual language (gets accounts banned), generic awake-now bait, 
 					const rejectExamples = (
 						recentRejects as Array<{
 							content: string;
-							rejection_reason: string;
+							rejection_reason?: string | null;
+							last_error?: string | null;
+							metadata?: Record<string, unknown> | null;
 						}>
-					).filter((row) => {
-						const reason = row.rejection_reason.toLowerCase();
-						return !/taxonomy|trigram|semantic-dedup|duplicate|stale_warmup|too-short|safety-blacklist|banned/.test(
-							reason,
-						);
-					})
+					).map((row) => ({
+						content: row.content,
+						reason: getAutoposterRejectionReason(row),
+					}))
+						.filter((row) => {
+							const reason = row.reason.toLowerCase();
+							return !/taxonomy|trigram|semantic-dedup|duplicate|stale_warmup|too-short|safety-blacklist|banned/.test(
+								reason,
+							);
+						})
 						.slice(0, 5)
 						.map(
 							(r) =>
-								`❌ "${escapeForPrompt(stripInternalTaxonomyPrefix(r.content)).substring(0, 140)}" — ${escapeForPrompt(r.rejection_reason)}`,
+								`❌ "${escapeForPrompt(stripInternalTaxonomyPrefix(r.content)).substring(0, 140)}" — ${escapeForPrompt(r.reason)}`,
 						)
 						.join("\n");
 					if (rejectExamples) {
@@ -3452,6 +3466,7 @@ Rules:
 - This is for creator-growth Threads accounts. Every post should create attraction, flirt tension, validation, dating curiosity, or "who is this girl?" profile curiosity.
 - Do not output wholesome generic topic engagement: no favorite snacks, comfort shows, cozy movies, podcasts, books, rainy-day recommendations, study snacks, or generic "best ___?" prompts unless the creator herself is the reason someone would care.
 - The content value must be user-facing text only. Never prefix content with internal labels such as "${bucket.archetype}:", "specific topical question:", "recommendation request:", "observation winner:", "hot take:", "opinion:", or clone-family names.
+- Do not end multiple posts with interchangeable slogan tags like "trust", "on god", "no cap", "that's tuff", "bruh", or "based". One natural slang tag is allowed only when it fits the creator.
 - Do not mix other creators into this bucket.
 - Creator fit is mandatory: every post must sound like this creator and fit the account flavor.
 - If a post could belong to a different creator, rewrite it before output.
@@ -3613,6 +3628,7 @@ Rules:
 - This is for creator-growth Threads accounts. Every post should create attraction, flirt tension, validation, dating curiosity, or "who is this girl?" profile curiosity.
 - Do not output wholesome generic topic engagement: no favorite snacks, comfort shows, cozy movies, podcasts, books, rainy-day recommendations, study snacks, or generic "best ___?" prompts unless the creator herself is the reason someone would care.
 - The content value must be user-facing text only. Never prefix content with internal labels such as "${fallbackArchetype}:", "specific topical question:", "recommendation request:", "observation winner:", "hot take:", "opinion:", or clone-family names.
+- Do not end multiple posts with interchangeable slogan tags like "trust", "on god", "no cap", "that's tuff", "bruh", or "based". One natural slang tag is allowed only when it fits the creator.
 - Do not use question bait.
 - Do not use generic awake-now microcopy.
 - Do not repeat LOWKEY_JUST_WANNA_X, IM_A_X_BUT_Y, DROP_YOUR_TOP_3_X, ASKING_FOR_A_FRIEND, or ANYBODY_ELSE_X.

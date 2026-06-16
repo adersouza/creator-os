@@ -133,7 +133,7 @@ export function UnifiedPublishingReadinessCard({
 				</Badge>
 			}
 		>
-			<div className="flex flex-col gap-4">
+			<div className="flex flex-col gap-3">
 				<div>
 					<div className="mb-2 flex items-center justify-between gap-3">
 						<div className="text-[0.8125rem] font-medium text-foreground">
@@ -157,7 +157,7 @@ export function UnifiedPublishingReadinessCard({
 						description="No obvious blockers. Server preflight still verifies the final publish path."
 					/>
 				) : (
-					<div className="overflow-hidden rounded-md border border-border">
+					<div className="max-h-[390px] overflow-auto rounded-md border border-border xl:max-h-[420px]">
 						{checks.map((check) => (
 							<ListRow key={check.id} density="compact">
 								<div className="flex items-start gap-2">

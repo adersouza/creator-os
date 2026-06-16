@@ -19,8 +19,10 @@ from .config import get_settings
 from .core import CampaignFactory
 
 
-DEFAULT_STACEY_PROMPT_PATH = Path(
-    "/Users/adercialonedesouza/Projects/reel_factory/prompts/stacey_examples_notsasha_pink_4x2_16x9.json"
+DEFAULT_STACEY_PROMPT_PATH = (
+    get_settings().reel_factory_root
+    / "prompts"
+    / "stacey_examples_notsasha_pink_4x2_16x9.json"
 )
 
 CREATOR_USERNAME_TOKENS = {

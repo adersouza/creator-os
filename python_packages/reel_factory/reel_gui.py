@@ -36,7 +36,20 @@ from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
-from generate_assets import AssetGenerationPlan, DEFAULT_GRID_IMAGE_ASPECT_RATIO, HiggsfieldCommandError, create_image_asset, create_video_asset, dry_run as asset_dry_run, load_prompt, probe_higgsfield_capabilities  # noqa
+from deprecated_generators import guard_deprecated_generator  # noqa
+from generate_assets import (  # noqa
+    AssetGenerationPlan,
+    DEFAULT_GRID_IMAGE_ASPECT_RATIO,
+    DirectReferenceImagePlan,
+    HiggsfieldCommandError,
+    create_direct_reference_image_asset,
+    create_image_asset,
+    create_video_asset,
+    dry_run as asset_dry_run,
+    dry_run_direct_reference_image,
+    load_prompt,
+    probe_higgsfield_capabilities,
+)
 from generate_prompts import generate_prompt  # noqa
 from reference_analyzer import analyze_reference  # noqa
 from embedding_index import duplicate_risk, similar as similar_media  # noqa
@@ -275,7 +288,10 @@ def _asset_state_by_stem() -> dict[str, dict[str, Any]]:
 
 
 def _prompt_stems() -> set[str]:
-    stems = {p.name.removesuffix("_grok.json") for p in (ROOT / "prompts").glob("*_grok.json")}
+    # Legacy prompt files still count for older clips, but new operator flows
+    # should use direct reference-image generation rather than prompt-json prep.
+    stems = {p.name.removesuffix("_legacy_prompt.json") for p in (ROOT / "prompts").glob("*_legacy_prompt.json")}
+    stems |= {p.name.removesuffix("_grok.json") for p in (ROOT / "prompts").glob("*_grok.json")}
     stems |= {p.stem for p in (ROOT / "prompts").glob("clip_*.json")}
     return stems
 
@@ -329,8 +345,7 @@ def clip_status_from_evidence(*, stem: str, output_count: int, review_states: li
 def next_action_for_status(status: str) -> dict[str, str]:
     return {
         "Needs Captions": {"label": "Auto-caption + render", "action": "autoCaptionAndRender()", "mode": "Render"},
-        "Needs Grok": {"label": "Build prompt preview", "action": "generateGrokPrompt()", "mode": "Create"},
-        "Needs Soul": {"label": "Create Soul image", "action": "createSoulImage()", "mode": "Create"},
+        "Needs Soul": {"label": "Create reference still", "action": "createReferenceStill()", "mode": "Create"},
         "Needs Kling": {"label": "Create Kling video", "action": "createKlingVideo()", "mode": "Create"},
         "Ready to Render": {"label": "Run pipeline", "action": "startRun()", "mode": "Render"},
         "Needs Review": {"label": "Review outputs", "action": "setCockpitMode('Review')", "mode": "Review"},
@@ -371,7 +386,7 @@ def _clip_cards_data() -> list[dict[str, Any]]:
             output_count=len(outputs),
             review_states=review_states,
             outcome_count=outcome_count,
-            has_prompt=stem in prompt_stems or (ROOT / "prompts" / f"{stem}_grok.json").exists(),
+            has_prompt=stem in prompt_stems,
             hook_count=cap_count,
             asset_state=asset_states.get(stem),
         )
@@ -605,6 +620,32 @@ def _resolve_project_path(value: str | None) -> str | None:
     if not path.is_absolute():
         path = ROOT / path
     return str(path.resolve())
+
+
+def _direct_reference_plan_from_body(body: dict[str, Any]) -> DirectReferenceImagePlan:
+    reference = (
+        body.get("reference")
+        or body.get("reference_image")
+        or body.get("referenceImage")
+        or body.get("image")
+    )
+    if not reference:
+        raise HTTPException(400, "reference image is required")
+    reference_path = _resolve_project_path(str(reference))
+    if not reference_path or not Path(reference_path).exists():
+        raise HTTPException(404, "reference image not found")
+    return DirectReferenceImagePlan(
+        reference_image=reference_path,
+        stem=str(body.get("stem") or _next_clip_id()),
+        soul_id=body.get("soul_id"),
+        soul_name=body.get("soul_name") or body.get("creator") or "Stacey",
+        out_dir=DATA_DIR / "generated_assets",
+        source_dir=RAW_DIR,
+        creator=body.get("creator") or "Stacey",
+        image_aspect_ratio=str(body.get("image_aspect_ratio") or body.get("imageAspectRatio") or "3:4"),
+        image_quality=str(body.get("image_quality") or body.get("imageQuality") or "2k"),
+        image_model=str(body.get("image_model") or body.get("imageModel") or "text2image_soul_v2"),
+    )
 
 
 def _crop_grid_panel(image_path: Path, panel: str, out_path: Path,
@@ -1114,7 +1155,19 @@ def update_output_review(filename: str, body: dict = Body(...)):
     state = body.get("review_state", "draft")
     manifest = _manifest()
     try:
-        found = manifest.set_review_state(filename, state)
+        found = manifest.record_review_decision(
+            filename,
+            state,
+            reviewer=str(body.get("reviewer") or body.get("operator") or "operator"),
+            reason=str(body.get("reason") or ""),
+            deck_id=body.get("deckId") or body.get("deck_id"),
+            reference_hash=body.get("referenceHash") or body.get("reference_hash"),
+            generated_asset_hash=body.get("generatedAssetHash") or body.get("generated_asset_hash"),
+            soul_id=body.get("soulId") or body.get("soul_id"),
+            aspect_ratio=body.get("aspectRatio") or body.get("aspect_ratio"),
+            visual_qc_status=body.get("visualQcStatus") or body.get("visual_qc_status"),
+            identity_verification_status=body.get("identityVerificationStatus") or body.get("identity_verification_status"),
+        )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if not found:
@@ -1205,8 +1258,8 @@ def import_reel_url_api(body: dict = Body(...)):
         )
 
     prompt_result = None
-    if body.get("generate_prompt", True):
-        prompt_path = Path(body.get("prompt_out") or ROOT / "prompts" / f"{stem}_grok.json")
+    if body.get("generate_prompt", False):
+        prompt_path = Path(body.get("prompt_out") or ROOT / "prompts" / f"{stem}_legacy_prompt.json")
         try:
             prompt_result = generate_prompt(
                 out_path=prompt_path.expanduser().resolve(),
@@ -1221,8 +1274,9 @@ def import_reel_url_api(body: dict = Body(...)):
                 reference_context=str(body.get("reference_context") or ""),
                 operator_notes=str(body.get("operator_notes") or f"Imported from URL: {url}"),
                 dry_run=True,
-                grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "3x2"),
+                grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "single"),
             )
+            prompt_result["legacy"] = True
         except Exception as exc:
             prompt_result = {"ok": False, "error": str(exc), "prompt_json_path": str(prompt_path)}
 
@@ -1282,6 +1336,7 @@ def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
 
 @app.get("/api/grid-crop/{stem}/frame")
 def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
+    guard_deprecated_generator("grid_crop")
     source = _source_video_for_stem(stem)
     info_raw = subprocess.check_output([
         FFPROBE, "-v", "error", "-select_streams", "v:0",
@@ -1309,6 +1364,7 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
 
 @app.post("/api/grid-crop/{stem}/suggest")
 def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
+    guard_deprecated_generator("grid_crop")
     source = _source_video_for_stem(stem)
     info_raw = subprocess.check_output([
         FFPROBE, "-v", "error", "-select_streams", "v:0",
@@ -1337,6 +1393,7 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
 
 @app.put("/api/grid-crop/{stem}/plan")
 def grid_crop_save_plan_api(stem: str, body: dict = Body(...)):
+    guard_deprecated_generator("grid_crop")
     source = _source_video_for_stem(stem)
     columns = body.get("columns") or (body.get("grid_preset") or {}).get("columns")
     rows = body.get("rows") or (body.get("grid_preset") or {}).get("rows")
@@ -1359,6 +1416,7 @@ def grid_crop_save_plan_api(stem: str, body: dict = Body(...)):
 
 @app.post("/api/grid-crop/{stem}/preview")
 def grid_crop_preview_api(stem: str, body: dict = Body(...)):
+    guard_deprecated_generator("grid_crop")
     _source_video_for_stem(stem)
     panel_id = int(body.get("panel_id") or body.get("panel") or 1)
     try:
@@ -1372,6 +1430,7 @@ def grid_crop_preview_api(stem: str, body: dict = Body(...)):
 
 @app.post("/api/grid-crop/{stem}/render")
 def grid_crop_render_api(stem: str, body: dict = Body(default={})):
+    guard_deprecated_generator("grid_crop")
     _source_video_for_stem(stem)
     try:
         result = render_grid_crop_plan(
@@ -1391,6 +1450,43 @@ def higgsfield_capabilities_api(force: bool = False):
         return probe_higgsfield_capabilities(ROOT, force=force)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/assets/reference-image/dry-run")
+def asset_reference_image_dry_run_api(body: dict = Body(...)):
+    plan = _direct_reference_plan_from_body(body)
+    return dry_run_direct_reference_image(plan, wait=bool(body.get("wait")))
+
+
+@app.post("/api/assets/reference-image/create")
+def asset_reference_image_create_api(body: dict = Body(...)):
+    plan = _direct_reference_plan_from_body(body)
+    try:
+        result = create_direct_reference_image_asset(
+            plan,
+            wait=bool(body.get("wait", True)),
+            download=bool(body.get("download", True)),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except HiggsfieldCommandError as exc:
+        return _higgsfield_cli_error(exc)
+    lineage = result.get("lineage") or {}
+    generation = lineage.get("generation") or {}
+    assets = (lineage.get("assets") or {}).get("localPaths") or {}
+    image_path = assets.get("image")
+    result.update({
+        "workflow": "higgsfield_direct_reference_image",
+        "image_job_id": generation.get("imageJobId"),
+        "image_result_url": generation.get("imageResultUrl"),
+        "captured_higgsfield_prompt": generation.get("capturedHiggsfieldPrompt"),
+        "local_image_path": image_path,
+        "lineage_path": result.get("path"),
+    })
+    if image_path:
+        result["image_url"] = _file_url(Path(image_path))
+        result["local_image_url"] = result["image_url"]
+    return result
 
 
 @app.post("/api/assets/dry-run")
@@ -1428,7 +1524,7 @@ def asset_dry_run_api(body: dict = Body(...)):
 @app.post("/api/prompts/generate")
 def prompt_generate_api(body: dict = Body(...)):
     stem = str(body.get("stem") or _next_clip_id())
-    out_path = Path(body.get("out") or ROOT / "prompts" / f"{stem}_grok.json")
+    out_path = Path(body.get("out") or ROOT / "prompts" / f"{stem}_legacy_prompt.json")
     reference_reel = body.get("reference_reel")
     reference_image = body.get("reference_image")
     if not reference_reel and not reference_image:
@@ -1445,9 +1541,10 @@ def prompt_generate_api(body: dict = Body(...)):
         reference_context=str(body.get("reference_context") or ""),
         operator_notes=str(body.get("operator_notes") or ""),
         dry_run=True,
-        grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "3x2"),
+        grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "single"),
         image_aspect_ratio=str(body.get("image_aspect_ratio") or body.get("imageAspectRatio") or DEFAULT_GRID_IMAGE_ASPECT_RATIO),
     )
+    result["legacy"] = True
     return result
 
 
@@ -1872,8 +1969,8 @@ def batch_output_review(body: dict = Body(...)):
     hook = body.get("hook")
     recipe = body.get("recipe")
     stem = body.get("stem")
-    if state not in {"draft", "approved", "rejected"}:
-        raise HTTPException(400, "review_state must be draft, approved, or rejected")
+    if state not in {"draft", "maybe", "approved", "rejected"}:
+        raise HTTPException(400, "review_state must be draft, maybe, approved, or rejected")
     if not filenames:
         clip = get_clip(_safe_stem(stem)) if stem else None
         if clip:
@@ -1886,7 +1983,13 @@ def batch_output_review(body: dict = Body(...)):
     manifest = _manifest()
     changed = 0
     for filename in filenames:
-        if manifest.set_review_state(str(filename), state):
+        if manifest.record_review_decision(
+            str(filename),
+            state,
+            reviewer=str(body.get("reviewer") or body.get("operator") or "operator"),
+            reason=str(body.get("reason") or ""),
+            deck_id=body.get("deckId") or body.get("deck_id"),
+        ):
             changed += 1
     manifest.save()
     return {"ok": True, "changed": changed, "review_state": state}
@@ -1936,10 +2039,13 @@ def analyze_reference_api(body: dict = Body(...)):
     reference = body.get("reference") or body.get("path")
     if not reference:
         raise HTTPException(400, "reference is required")
+    model = str(body.get("model") or "grok-4.3")
+    if model.startswith("grok-4"):
+        guard_deprecated_generator("grok_4_reference_analysis")
     return analyze_reference(
         ROOT,
         Path(_resolve_project_path(reference)),
-        model=str(body.get("model") or "grok-4.3"),
+        model=model,
         dry_run=bool(body.get("dry_run")),
     )
 

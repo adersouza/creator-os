@@ -66,7 +66,7 @@ export function ContextRail({
 }) {
 	const c = conversation;
 	return (
-		<aside className="hidden lg:flex w-64 xl:w-72 shrink-0 flex-col gap-3">
+		<aside className="hidden min-w-0 flex-col gap-3 lg:flex">
 			<NovaCard
 				eyebrow="Contact"
 				variant="compact"
@@ -178,6 +178,16 @@ export function ContextRail({
 				contentClassName="p-3.5 pt-0"
 			>
 				<div className="flex flex-col gap-2">
+					{suggestion ? (
+						<div className="rounded-lg border border-border bg-muted/45 p-3">
+							<div className="mb-1 text-[0.625rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+								AI draft
+							</div>
+							<p className="line-clamp-4 text-[0.75rem] leading-[1.45] text-foreground">
+								{suggestion.suggestion_text}
+							</p>
+						</div>
+					) : null}
 					{suggestion && onUseSuggestion ? (
 						<Button
 							type="button"

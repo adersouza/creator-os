@@ -23,6 +23,10 @@ class AiQcRecord:
     warnings: list[str]
     scores: dict[str, float | int | None]
     frame_details: list[dict[str, Any]]
+    visualQcStatus: str
+    visualQcDependencyStatus: dict[str, str]
+    visualQcWarnings: list[str]
+    identityVerificationStatus: str | None = None
 
 
 def record_from_scores(filename: str, path: str, scores: dict[str, float | int | None]) -> AiQcRecord:
@@ -41,7 +45,28 @@ def record_from_scores(filename: str, path: str, scores: dict[str, float | int |
         warnings.append("face_count_inconsistent")
     if scores.get("opencv_available") == 0:
         warnings.append("opencv_unavailable")
-    return AiQcRecord(filename=filename, path=path, warnings=warnings, scores=scores, frame_details=[])
+    dependency_status = {
+        "opencv": "available" if scores.get("opencv_available") == 1 else "unavailable",
+        "frames": "available" if int(scores.get("frame_count") or 0) > 0 else "unavailable",
+        "ocr": "available" if scores.get("ocr_available") == 1 else "unavailable",
+        "faceDetection": "available" if scores.get("face_detection_available") == 1 else "unavailable",
+    }
+    if dependency_status["opencv"] == "unavailable" or dependency_status["frames"] == "unavailable":
+        status = "unavailable"
+    elif warnings:
+        status = "failed"
+    else:
+        status = "passed"
+    return AiQcRecord(
+        filename=filename,
+        path=path,
+        warnings=warnings,
+        scores=scores,
+        frame_details=[],
+        visualQcStatus=status,
+        visualQcDependencyStatus=dependency_status,
+        visualQcWarnings=warnings,
+    )
 
 
 def sample_positions(count: int = 6) -> list[float]:
@@ -182,6 +207,7 @@ def analyze_video(video: Path) -> AiQcRecord:
             "text_edge_score": max(text_scores) if text_scores else None,
             "ocr_available": 1 if ocr_available else 0,
             "ocr_text_frames": ocr_hits,
+            "face_detection_available": 1 if face_counts else 0,
             "face_count_variance": face_variance,
         }
         record = record_from_scores(video.name, str(video), scores)
@@ -191,7 +217,7 @@ def analyze_video(video: Path) -> AiQcRecord:
         return record
 
 
-def run_ai_qc(root: Path, *, clip: str | None = None) -> dict[str, Any]:
+def run_ai_qc(root: Path, *, clip: str | None = None, strict: bool = False) -> dict[str, Any]:
     root = Path(root).resolve()
     proc = root / "02_processed"
     clip_dirs = [proc / clip] if clip else [p for p in sorted(proc.iterdir()) if p.is_dir() and not p.name.startswith("_")]
@@ -208,9 +234,13 @@ def run_ai_qc(root: Path, *, clip: str | None = None) -> dict[str, Any]:
         payload = {
             "schema": "reel_factory.ai_visual_qc.v1",
             "clip": clip_dir.name,
+            "strict": bool(strict),
             "summary": {
                 "total": len(records),
                 "warned": sum(1 for rec in records if rec.warnings),
+                "passed": sum(1 for rec in records if rec.visualQcStatus == "passed"),
+                "failed": sum(1 for rec in records if rec.visualQcStatus == "failed"),
+                "unavailable": sum(1 for rec in records if rec.visualQcStatus == "unavailable"),
             },
             "records": [asdict(rec) for rec in records],
         }
@@ -220,9 +250,13 @@ def run_ai_qc(root: Path, *, clip: str | None = None) -> dict[str, Any]:
         all_records.extend(payload["records"])
     return {
         "schema": "reel_factory.ai_visual_qc_summary.v1",
+        "strict": bool(strict),
         "summary": {
             "total": len(all_records),
             "warned": sum(1 for rec in all_records if rec.get("warnings")),
+            "passed": sum(1 for rec in all_records if rec.get("visualQcStatus") == "passed"),
+            "failed": sum(1 for rec in all_records if rec.get("visualQcStatus") == "failed"),
+            "unavailable": sum(1 for rec in all_records if rec.get("visualQcStatus") == "unavailable"),
         },
         "reports": reports,
         "records": all_records,
@@ -233,8 +267,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
     ap.add_argument("--clip")
+    ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(run_ai_qc(Path(args.root), clip=args.clip), indent=2, ensure_ascii=False))
+    print(json.dumps(run_ai_qc(Path(args.root), clip=args.clip, strict=args.strict), indent=2, ensure_ascii=False))
     return 0
 
 

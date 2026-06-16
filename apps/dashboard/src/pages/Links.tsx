@@ -811,7 +811,7 @@ export function Links() {
           </NovaSection>
 
           {/* Two-pane */}
-          <NovaSection className="links-editor-grid grid grid-cols-1 items-start gap-3 sm:gap-4 xl:gap-5 2xl:grid-cols-[minmax(520px,0.95fr)_minmax(0,1.25fr)] 2xl:gap-6 [&>*]:min-w-0">
+          <NovaSection className="links-editor-grid grid grid-cols-1 items-start gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)] xl:gap-5 2xl:grid-cols-[minmax(0,1.45fr)_minmax(420px,0.55fr)] 2xl:gap-6 [&>*]:min-w-0">
             {/* LEFT — link list */}
             <NovaDataPanel
               title="Links"

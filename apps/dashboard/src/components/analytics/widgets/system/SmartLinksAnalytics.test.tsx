@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SmartLinksAnalytics } from "./SmartLinksAnalytics";
 
@@ -16,6 +17,14 @@ vi.mock("@/hooks/useSmartLinks", () => ({
 	useSmartLinks: () => smartLinksState,
 }));
 
+function renderWidget() {
+	return render(
+		<MemoryRouter>
+			<SmartLinksAnalytics />
+		</MemoryRouter>,
+	);
+}
+
 describe("SmartLinksAnalytics", () => {
 	beforeEach(() => {
 		smartLinksState.links = [];
@@ -25,7 +34,7 @@ describe("SmartLinksAnalytics", () => {
 	it("renders loading skeleton rows", () => {
 		smartLinksState.isLoading = true;
 
-		const { container } = render(<SmartLinksAnalytics />);
+		const { container } = renderWidget();
 
 		expect(screen.getByText("Top clicked links")).toBeInTheDocument();
 		expect(container.querySelectorAll(".td-surface-subtle").length).toBeGreaterThan(0);
@@ -38,21 +47,21 @@ describe("SmartLinksAnalytics", () => {
 			{ id: "c", code: "inactive", clickCount: 22, isActive: false },
 		];
 
-		render(<SmartLinksAnalytics />);
+		renderWidget();
 
-		expect(screen.getByText("/alpha")).toBeInTheDocument();
+		expect(screen.getAllByText("/alpha").length).toBeGreaterThan(0);
 		expect(screen.getByText("/beta")).toBeInTheDocument();
 		expect(screen.queryByText("/inactive")).not.toBeInTheDocument();
 		expect(screen.getByText("Top performer")).toBeInTheDocument();
 	});
 
-	it("stays hidden when loaded with no clicked active links", () => {
+	it("shows an empty state when loaded with no clicked active links", () => {
 		smartLinksState.links = [
 			{ id: "a", code: "alpha", clickCount: 0, isActive: true },
 		];
 
-		const { container } = render(<SmartLinksAnalytics />);
+		renderWidget();
 
-		expect(container).toBeEmptyDOMElement();
+		expect(screen.getAllByText("No clicked links yet").length).toBeGreaterThan(0);
 	});
 });

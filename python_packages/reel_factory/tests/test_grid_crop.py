@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -231,6 +232,13 @@ class GridCropTests(unittest.TestCase):
             self.assertEqual(len(suggestion["boxes"]), 6)
             self.assertTrue(Path(saved["plan_path"]).exists())
             self.assertEqual(saved["plan"]["renderMode"], "fit_nocrop")
+
+    def test_gui_grid_crop_raises_when_deprecation_guard_enabled(self):
+        import reel_gui
+
+        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "grid_crop is deprecated"):
+                reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
 
 
 if __name__ == "__main__":

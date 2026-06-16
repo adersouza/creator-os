@@ -55,8 +55,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="dns-prefetch" href="https://supabase.co" />
 
-    <!-- Self-hosted Satoshi — core UI weights preloaded so widget labels,
-         headings, and metrics render in the intended family on first paint. -->
+    <!-- Self-hosted Satoshi fallback — Inter is bundled through @fontsource in
+         src/index.css; these local weights keep first paint stable if Inter is
+         unavailable. -->
     <link rel="preload" href="/fonts/Satoshi-Regular.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/Satoshi-Medium.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/Satoshi-Bold.woff2" as="font" type="font/woff2" crossorigin />

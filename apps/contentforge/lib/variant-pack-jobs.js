@@ -1,7 +1,8 @@
 import crypto from "crypto";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { mkdir } from "fs/promises";
 import path from "path";
+import PQueue from "p-queue";
 import { OUTPUT_DIR } from "./paths.js";
 import { runVariantPack } from "./variant-pack.js";
 
@@ -9,6 +10,19 @@ var JOB_DIR = path.join(OUTPUT_DIR, "variant-pack-jobs");
 var TERMINAL_STATUSES = new Set(["succeeded", "failed", "timed_out", "aborted", "cancelled"]);
 var activeJobs = new Map();
 var variantPackRunner = runVariantPack;
+function positiveNumber(value, fallback) {
+  var parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeNumber(value, fallback) {
+  var parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+var variantPackQueue = new PQueue({
+  concurrency: positiveNumber(process.env.CONTENTFORGE_VARIANT_PACK_CONCURRENCY, 2),
+});
 
 function nowIso() {
   return new Date().toISOString();
@@ -41,6 +55,11 @@ function publicJob(job) {
     report: job.report || null,
     artifacts: job.artifacts || [],
     idempotencyKey: job.idempotencyKey,
+    attempts: Number(job.attempts || 0),
+    retries: Number(job.retries || 0),
+    maxRetries: Number(job.maxRetries || 0),
+    lastTransitionAt: job.lastTransitionAt || job.updatedAt,
+    queueDiagnostics: variantPackJobDiagnostics(),
   };
 }
 
@@ -55,7 +74,10 @@ function readJob(runId) {
 }
 
 function writeJob(job) {
-  writeFileSync(jobPath(job.runId), JSON.stringify(job, null, 2));
+  var file = jobPath(job.runId);
+  var tmp = file + "." + process.pid + "." + crypto.randomBytes(4).toString("hex") + ".tmp";
+  writeFileSync(tmp, JSON.stringify(job, null, 2));
+  renameSync(tmp, file);
   return job;
 }
 
@@ -112,13 +134,17 @@ export async function startVariantPackJob(input = {}) {
     terminalAt: null,
     idempotencyKey,
     request: input,
-    timeoutMs: Math.max(1, Number(input.jobTimeoutMs || 30 * 60 * 1000)),
+    timeoutMs: positiveNumber(input.jobTimeoutMs || 30 * 60 * 1000, 30 * 60 * 1000),
+    maxRetries: nonNegativeNumber(input.jobMaxRetries ?? process.env.CONTENTFORGE_VARIANT_PACK_MAX_RETRIES ?? 1, 1),
+    attempts: 0,
+    retries: 0,
+    lastTransitionAt: createdAt,
     report: null,
     artifacts: [],
     error: null,
   });
 
-  var promise = runVariantPackJob(runId);
+  var promise = scheduleVariantPackJob(runId);
   activeJobs.set(runId, promise);
   promise.finally(() => activeJobs.delete(runId));
   return publicJob(job);
@@ -138,30 +164,65 @@ export async function runVariantPackJob(runId) {
   await ensureJobDir();
   var job = readJob(runId);
   if (!job || TERMINAL_STATUSES.has(job.status)) return job;
-  job = writeJob({
-    ...job,
-    status: "running",
-    startedAt: job.startedAt || nowIso(),
-    updatedAt: nowIso(),
-  });
-  try {
-    var report = await variantPackRunner(job.request);
-    var latest = readJob(runId) || job;
-    if (TERMINAL_STATUSES.has(latest.status)) return latest;
-    var artifacts = (report.results || [])
-      .filter((item) => item && item.filePath)
-      .map((item) => ({
-        filename: item.filename || item.file,
-        filePath: item.filePath,
-        recommended: item.recommended === true,
-        uploadReady: item.uploadReady === true,
-      }));
-    return terminalJob(latest, "succeeded", { report, artifacts, error: null });
-  } catch (error) {
-    var latest = readJob(runId) || job;
-    if (TERMINAL_STATUSES.has(latest.status)) return latest;
-    return terminalJob(latest, "failed", { error: error?.message || String(error) });
+  while (true) {
+    var current = readJob(runId) || job;
+    if (TERMINAL_STATUSES.has(current.status)) return current;
+    var attempt = Number(current.attempts || 0) + 1;
+    current = writeJob({
+      ...current,
+      status: "running",
+      startedAt: current.startedAt || nowIso(),
+      updatedAt: nowIso(),
+      lastTransitionAt: nowIso(),
+      attempts: attempt,
+    });
+    try {
+      var report = await variantPackRunner(current.request);
+      var latest = readJob(runId) || current;
+      if (TERMINAL_STATUSES.has(latest.status)) return latest;
+      var artifacts = (report.results || [])
+        .filter((item) => item && item.filePath)
+        .map((item) => ({
+          filename: item.filename || item.file,
+          filePath: item.filePath,
+          recommended: item.recommended === true,
+          uploadReady: item.uploadReady === true,
+        }));
+      return terminalJob(latest, "succeeded", { report, artifacts, error: null });
+    } catch (error) {
+      var latest = readJob(runId) || current;
+      if (TERMINAL_STATUSES.has(latest.status)) return latest;
+      var message = error?.message || String(error);
+      var maxRetries = Math.max(0, Number(latest.maxRetries || 0));
+      var retries = Math.max(0, attempt - 1);
+      if (attempt <= maxRetries) {
+        writeJob({
+          ...latest,
+          status: "retrying",
+          retries: attempt,
+          error: message,
+          updatedAt: nowIso(),
+          lastTransitionAt: nowIso(),
+        });
+        continue;
+      }
+      return terminalJob(latest, "failed", { error: message, retries });
+    }
   }
+}
+
+function scheduleVariantPackJob(runId) {
+  return variantPackQueue.add(() => runVariantPackJob(runId));
+}
+
+export function variantPackJobDiagnostics() {
+  return {
+    schema: "contentforge.variant_pack_job_diagnostics.v1",
+    activeJobs: activeJobs.size,
+    pendingJobs: variantPackQueue.size,
+    runningJobs: variantPackQueue.pending,
+    concurrency: variantPackQueue.concurrency,
+  };
 }
 
 export function __setVariantPackJobRunnerForTests(runner) {

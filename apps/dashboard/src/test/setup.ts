@@ -35,15 +35,14 @@ if (!('IntersectionObserver' in window)) {
 }
 
 // ResizeObserver: Radix uses it for popover positioning.
-if (!('ResizeObserver' in window)) {
-  class MockResizeObserver {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-  // @ts-expect-error jsdom doesn't type this slot
-  window.ResizeObserver = MockResizeObserver;
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
 }
+const ResizeObserverCtor = window.ResizeObserver ?? MockResizeObserver;
+window.ResizeObserver = ResizeObserverCtor;
+globalThis.ResizeObserver = ResizeObserverCtor as unknown as typeof ResizeObserver;
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {

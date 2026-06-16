@@ -76,7 +76,8 @@ def empty_performance_payload() -> dict[str, Any]:
     return {
         "schema": "reel_factory.caption_performance.v1",
         "updated_at": None,
-        "notes": "Manual-ready caption performance metadata keyed by caption_hash. No automatic learning is implemented.",
+        "notes": "Manual-ready caption performance metadata keyed by caption_hash. Selection uses approvedWeights only when an operator writes them.",
+        "approvedWeights": {"captionHashes": {}},
         "captions": {},
     }
 
@@ -344,6 +345,8 @@ class CaptionBankStore:
             "lengthClass": item.get("length_class"),
             "formatClass": item.get("format_class"),
             "performanceSnapshot": (self.performance.get("captions") or {}).get(h),
+            "weightSource": item.get("caption_weight_source") or "static",
+            "outcomeWeight": item.get("outcome_weight"),
         }
 
     def _weighted_select(self, weights: dict[str, int], *, limit: int | None, seed: int) -> list[dict[str, Any]]:
@@ -380,7 +383,7 @@ class CaptionBankStore:
         while len(selected) < target and attempts < target * 100:
             attempts += 1
             bank = rng.choices(bank_names, weights=bank_weights, k=1)[0]
-            item = rng.choice(self.banks[bank])
+            item = self._weighted_bank_item(bank, rng)
             h = item["caption_hash"]
             if h in seen:
                 continue
@@ -399,6 +402,31 @@ class CaptionBankStore:
                 if len(selected) >= target:
                     break
         return selected
+
+    def _approved_caption_weights(self) -> dict[str, float]:
+        approved = self.performance.get("approvedWeights") if isinstance(self.performance, dict) else {}
+        caption_hashes = approved.get("captionHashes") if isinstance(approved, dict) else {}
+        if not isinstance(caption_hashes, dict):
+            return {}
+        out: dict[str, float] = {}
+        for key, value in caption_hashes.items():
+            try:
+                out[str(key)] = max(0.05, float(value))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def _weighted_bank_item(self, bank: str, rng: random.Random) -> dict[str, Any]:
+        items = self.banks[bank]
+        approved_weights = self._approved_caption_weights()
+        if not approved_weights:
+            return rng.choice(items)
+        weights = [approved_weights.get(str(item.get("caption_hash")), 1.0) for item in items]
+        item = rng.choices(items, weights=weights, k=1)[0]
+        weight = approved_weights.get(str(item.get("caption_hash")))
+        if weight is None:
+            return item
+        return {**item, "caption_weight_source": "approved_outcome_weights", "outcome_weight": weight}
 
 
 def load_or_build_caption_bank_store(root: Path) -> CaptionBankStore:

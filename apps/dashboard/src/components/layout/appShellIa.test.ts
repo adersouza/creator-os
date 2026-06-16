@@ -84,10 +84,9 @@ describe("app shell IA contract", () => {
 		expect(labels(SECONDARY_NAV)).toEqual([
 			"Links",
 			"Ideas",
-			"Autopilot",
+			"Automation",
 			"Listening",
 			"Reports",
-			"Attribution",
 		]);
 
 		expect(paths([...PRIMARY_NAV, ...SECONDARY_NAV])).not.toContain("/billing");
@@ -121,16 +120,15 @@ describe("app shell IA contract", () => {
 				title: "Publishing",
 				items: [
 					["Ideas", "/ideas"],
-					["Autopilot", "/autopilot"],
+					["Automation", "/autopilot"],
 				],
 			},
 			{
 				title: "Growth",
 				items: [
-					["Smart Links", "/links"],
+					["Links", "/links"],
 					["Listening", "/listening"],
 					["Reports", "/reports"],
-					["Attribution", "/attribution"],
 				],
 			},
 			{
@@ -161,16 +159,12 @@ describe("app shell IA contract", () => {
 			"nav-links",
 			"nav-listening",
 			"nav-reports",
-			"nav-attribution",
 		]) {
 			expect(byId.get(id)?.category).toBe("More");
 		}
 
-		expect(byId.get("nav-content-assets")).toMatchObject({
-			label: "Media assets",
-			route: "content-library",
-			category: "Content",
-		});
+		expect(byId.get("nav-content-assets")).toBeUndefined();
+		expect(byId.get("nav-attribution")).toBeUndefined();
 		expect(byId.get("nav-billing")).toMatchObject({
 			label: "Billing & plans",
 			route: "billing",
@@ -211,8 +205,8 @@ describe("app shell IA contract", () => {
 		});
 
 		expect(breadcrumbForPathname("/autopilot/queue")).toEqual({
-			root: "Autopilot",
-			current: "Queue",
+			root: "Automation",
+			current: "Plan",
 			rootPath: "/autopilot",
 		});
 		expect(breadcrumbForPathname("/settings/security")).toEqual({
@@ -256,6 +250,8 @@ describe("app shell IA contract", () => {
 			"/handoff/:postId",
 			"/setup/publishing",
 			"/reliability",
+			"/attribution",
+			"/content-library",
 		]) {
 			expect(shellPaths.has(directLinkPath)).toBe(false);
 		}

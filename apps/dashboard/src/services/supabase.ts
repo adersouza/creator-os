@@ -12,6 +12,8 @@ import { queryClient, queryPersister } from "@/lib/queryClient";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseClientUrl = supabaseUrl || "https://placeholder.supabase.co";
+const supabaseClientAnonKey = supabaseAnonKey || "test-anon-key";
 const AUTH_BOOT_TIMEOUT_MS = 3500;
 const AUTH_PASSWORD_TOKEN_TIMEOUT_MS = 15_000;
 const AUTH_PASSWORD_TOKEN_RETRIES = 2;
@@ -151,7 +153,7 @@ const sessionAwareFetch: typeof globalThis.fetch = async (input, init) => {
 	return globalThis.fetch(input, init);
 };
 
-export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
+export const supabase = createClient(supabaseClientUrl, supabaseClientAnonKey, {
 	auth: {
 		autoRefreshToken: true,
 		persistSession: true,

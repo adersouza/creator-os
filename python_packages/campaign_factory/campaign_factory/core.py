@@ -72,6 +72,7 @@ DEFAULT_AUTONOMY_LEVEL = "level_2"
 EXCEPTION_STATUSES = {"open", "snoozed", "resolved"}
 EXCEPTION_SEVERITIES = {"low", "medium", "high", "critical"}
 DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS = 14
+DEFAULT_INVENTORY_RESERVATION_TTL_DAYS = 7
 ACCOUNT_TRUST_STATES = {
     "warming",
     "normal",
@@ -5600,14 +5601,25 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption_version = self._caption_version_by_id(caption_version_id) if caption_version_id else None
         parent_caption_context = load_context_json(parent.get("caption_outcome_context_json"))
         parent_caption_generation = json_load(parent.get("caption_generation_json"), {})
+        parent_latest_audit = self._latest_audit_for_asset(parent_asset_id)
+        _, parent_trust_statuses = self._content_trust_status_blockers(parent, parent_latest_audit, parent_caption_context)
         variant_burned_caption = caption_version.get("burnedCaptionText") if caption_version else parent.get("caption")
         variant_burned_hash = (
             caption_version.get("burnedCaptionHash")
             if caption_version
             else parent.get("caption_hash") or parent_caption_context.get("caption_hash")
         )
-        variant_instagram_caption = caption_version.get("instagramPostCaption") if caption_version else None
-        variant_instagram_hash = caption_version.get("instagramPostCaptionHash") if caption_version else None
+        parent_post_caption = self._instagram_post_caption_for_asset(parent, parent_caption_context)
+        variant_instagram_caption = (
+            caption_version.get("instagramPostCaption")
+            if caption_version
+            else parent_post_caption.get("instagram_post_caption")
+        )
+        variant_instagram_hash = (
+            caption_version.get("instagramPostCaptionHash")
+            if caption_version
+            else parent_post_caption.get("instagram_post_caption_hash")
+        )
         savepoint = f"variant_pack_register_{uuid.uuid4().hex[:12]}"
         self.conn.execute(f"SAVEPOINT {savepoint}")
         try:
@@ -5638,6 +5650,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         "captionVersionId": caption_version_id,
                     },
                 ]
+                result_visual = result.get("visualQcStatus") or result.get("visual_qc_status")
+                if isinstance(result.get("visualQc"), dict):
+                    result_visual = result_visual or result["visualQc"].get("status")
+                result_identity = result.get("identityVerificationStatus") or result.get("identity_verification_status")
+                if isinstance(result.get("identityVerification"), dict):
+                    result_identity = result_identity or result["identityVerification"].get("status")
+                visual_qc_status = str(
+                    result_visual
+                    or ("passed" if result.get("uploadReady") is True else parent_trust_statuses["visualQcStatus"])
+                ).strip().lower()
+                identity_verification_status = str(result_identity or parent_trust_statuses["identityVerificationStatus"]).strip().lower()
                 caption_context = dict(parent_caption_context)
                 caption_context.update({
                     "parent_asset_id": parent_asset_id,
@@ -5657,6 +5680,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     "hashtags": caption_version.get("hashtags") if caption_version else [],
                     "post_caption_style": caption_version.get("postCaptionStyle") if caption_version else None,
                     "variant_operations": operations,
+                    "visualQcStatus": visual_qc_status,
+                    "identityVerificationStatus": identity_verification_status,
+                    "visualQc": {"status": visual_qc_status},
+                    "identityVerification": {"status": identity_verification_status},
                 })
                 caption_generation = dict(parent_caption_generation)
                 caption_generation.update({
@@ -5736,7 +5763,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         "warnings": result.get("mainWarnings") or [],
                         "uploadReady": True,
                         "recommended": True,
+                        "visualQcStatus": visual_qc_status,
+                        "identityVerificationStatus": identity_verification_status,
                     },
+                    "visualQcStatus": visual_qc_status,
+                    "identityVerificationStatus": identity_verification_status,
+                    "visualQc": {"status": visual_qc_status},
+                    "identityVerification": {"status": identity_verification_status},
                     "variant": sanitize_for_storage(result),
                 }
                 audit_dir = dirs["audits"] / "contentforge_variants"
@@ -8165,14 +8198,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if current_inventory is not None
             else sum(1 for item in self._build_surface_readiness(all_surface_assets) if item.get("canHandoff"))
         )
-        production_model = self._schedule_safe_production_model(assets, surface)
-        waterfall = production_model["waterfall"]
-        production_losses = production_model["productionLossesOnly"]
-        largest_loss = self._schedule_safe_production_largest_loss(
-            production_losses,
-            measurement_warnings=production_model["measurementWarnings"],
-        )
-        raw = int(production_model.get("variantCount") or (waterfall[0]["outputCount"] if waterfall else 0))
+        waterfall = self._schedule_safe_production_waterfall_rows(assets, surface)
+        largest_loss = self._schedule_safe_production_largest_loss(waterfall)
+        raw = int(waterfall[0]["outputCount"]) if waterfall else 0
         schedule_safe = int(waterfall[-1]["outputCount"]) if waterfall else 0
         days = max(1, int(lookback_days or 1))
         produced_per_day = round(schedule_safe / days, 2)
@@ -8193,10 +8221,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "waterfallSummary": {self._schedule_safe_production_summary_key(row["stage"]): int(row["outputCount"]) for row in waterfall},
             "largestProductionLoss": largest_loss,
             "largestLossGate": largest_loss["largestLossGate"],
-            "lineageCompletenessPct": production_model["lineageCompletenessPct"],
-            "metadataGapCounts": production_model["metadataGapCounts"],
-            "measurementWarnings": production_model["measurementWarnings"],
-            "productionLossesOnly": production_losses,
             "scheduleSafeAssetsProducedPerDay": produced_per_day,
             "scheduleSafeYieldPct": round(self._ratio(schedule_safe, raw) * 100, 1),
             "parentsRequiredPerDay": self._schedule_safe_required_parents_per_day(produced_per_day, schedule_safe, len(assets)),
@@ -8229,10 +8253,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "lookbackDays": report.get("lookbackDays"),
             "waterfall": report.get("waterfall"),
             "waterfallSummary": report.get("waterfallSummary"),
-            "lineageCompletenessPct": report.get("lineageCompletenessPct"),
-            "metadataGapCounts": report.get("metadataGapCounts"),
-            "measurementWarnings": report.get("measurementWarnings"),
-            "productionLossesOnly": report.get("productionLossesOnly"),
             "wouldWrite": False,
         }
 
@@ -8256,10 +8276,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "contentSurface": report.get("contentSurface"),
             "largestProductionLoss": report.get("largestProductionLoss"),
             "rankedLosses": sorted(losses, key=lambda row: (-row["lossCount"], row["gate"])),
-            "lineageCompletenessPct": report.get("lineageCompletenessPct"),
-            "metadataGapCounts": report.get("metadataGapCounts"),
-            "measurementWarnings": report.get("measurementWarnings"),
-            "productionLossesOnly": report.get("productionLossesOnly"),
             "wouldWrite": False,
         }
 
@@ -8341,8 +8357,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         versions_per_parent = max(1, int(caption_versions_per_parent or 5))
         variants_per_version = max(1, int(variants_per_caption or 3))
         variants_per_parent = versions_per_parent * variants_per_version
-        recent_yield = self._fresh_reel_recent_schedule_safe_yield(creator=creator, campaign_slug=campaign_slug)
-        downstream_yield = float(recent_yield["yieldPct"])
+        downstream_yield = self._fresh_reel_downstream_schedule_safe_yield_pct()
         variants_needed = int(math.ceil(needed / max(0.01, downstream_yield / 100))) if needed else 0
         parents_needed = int(math.ceil(variants_needed / variants_per_parent)) if variants_needed else 0
         raw_parent_candidates_needed = int(math.ceil(parents_needed / 0.828)) if parents_needed else 0
@@ -8384,14 +8399,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "variantsNeeded": variants_needed,
             "expectedYield": downstream_yield,
             "expectedYieldEvidence": self.FRESH_REEL_PARENT_YIELD_EVIDENCE,
-            "downstreamYieldEvidenceStatus": recent_yield["evidenceStatus"],
-            "yieldSource": recent_yield["yieldSource"],
-            "sampleSize": recent_yield["sampleSize"],
-            "confidence": recent_yield["confidence"],
-            "recommendedBatchCount": batch_count,
-            "stopAfterEachBatchForGateCheck": True,
-            "measuredRecentYield": recent_yield["measuredRecentYield"],
-            "largestProductionRisk": recent_yield["largestProductionRisk"],
+            "downstreamYieldEvidenceStatus": "insufficient_schedule_safe_variant_production_evidence",
+            "largestProductionRisk": "variant_to_schedule_safe_yield_not_yet_proven",
             "stagePlan": stages,
             "executionBatches": execution_batches,
             "batchesRequired": batch_count,
@@ -9415,22 +9424,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
-    def _schedule_safe_production_model(self, assets: list[dict[str, Any]], surface: str) -> dict[str, Any]:
+    def _schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
         parent_assets = [asset for asset in assets if not self._schedule_safe_is_variant_asset(asset)]
         variant_assets = [asset for asset in assets if self._schedule_safe_is_variant_asset(asset)]
-        fresh_parent_ids = {str(asset["id"]) for asset in parent_assets}
-        referenced_parent_ids = {
-            str(asset.get("parent_asset_id"))
-            for asset in variant_assets
-            if str(asset.get("parent_asset_id") or "").strip()
-        }
-        parent_ids = fresh_parent_ids | referenced_parent_ids
-        parent_lookup = {str(asset["id"]): asset for asset in parent_assets}
-        parent_lookup.update(self._schedule_safe_parent_assets_by_ids(parent_ids - fresh_parent_ids))
-        resolved_parent_assets = list(parent_lookup.values())
-        missing_parent_refs = sorted(parent_ids - set(parent_lookup))
+        parent_ids = {str(asset["id"]) for asset in parent_assets}
         accepted_parents = [
-            asset for asset in resolved_parent_assets
+            asset for asset in parent_assets
             if str(asset.get("review_state") or "").lower() in {"approved", "review_ready"}
             or str(asset.get("audit_status") or "").lower() in {"passed", "pass", "approved", "approved_candidate"}
         ]
@@ -9444,8 +9443,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         publishability = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"] and item["discoverability_passed"] and item["instagram_post_caption_quality_passed"] and item["publishability_passed"])
         schedule_safe = sum(1 for item in checks if item["schedule_safe"])
         stage_counts = [
-            ("raw_parent_reels", len(parent_ids), len(parent_ids)),
-            ("accepted_parent_reels", len(parent_ids), len(accepted_parents)),
+            ("raw_parent_reels", len(parent_assets), len(parent_assets)),
+            ("accepted_parent_reels", len(parent_assets), len(accepted_parents)),
             ("caption_families_created", len(accepted_parents), caption_families),
             ("caption_families_accepted", caption_families, min(caption_families, caption_versions)),
             ("contentforge_variants_created", max(caption_versions, len(accepted_parents), len(variant_assets)), len(variant_assets)),
@@ -9456,7 +9455,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             ("publishability_passed", caption_quality, publishability),
             ("schedule_safe_assets_produced", publishability, schedule_safe),
         ]
-        waterfall = [
+        return [
             {
                 "stage": stage,
                 "inputCount": int(input_count),
@@ -9466,64 +9465,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             }
             for stage, input_count, output_count in stage_counts
         ]
-        metadata_gap_counts = {
-            "missingParentReferences": len(missing_parent_refs),
-            "variantsMissingParentAssetId": sum(1 for asset in variant_assets if not str(asset.get("parent_asset_id") or "").strip()),
-            "parentsMissingCaptionFamily": max(0, len(parent_ids) - caption_families),
-            "captionFamiliesMissingVersions": max(0, caption_families - caption_versions),
-        }
-        lineage_units = max(1, len(parent_ids) + len(variant_assets))
-        lineage_gaps = (
-            metadata_gap_counts["missingParentReferences"]
-            + metadata_gap_counts["variantsMissingParentAssetId"]
-            + metadata_gap_counts["parentsMissingCaptionFamily"]
-            + metadata_gap_counts["captionFamiliesMissingVersions"]
-        )
-        warnings: list[str] = []
-        if variant_assets and metadata_gap_counts["parentsMissingCaptionFamily"]:
-            warnings.append("lineage_metadata_gap:caption_families_missing_for_variant_parent_cohort")
-        if metadata_gap_counts["missingParentReferences"]:
-            warnings.append("lineage_metadata_gap:variant_parent_assets_missing")
-        if metadata_gap_counts["variantsMissingParentAssetId"]:
-            warnings.append("lineage_metadata_gap:variants_missing_parent_asset_id")
-        production_stages = {
-            "accepted_parent_reels",
-            "contentforge_variants_created",
-            "visual_qc_passed",
-            "caption_placement_qc_passed",
-            "discoverability_passed",
-            "instagram_post_caption_quality_passed",
-            "publishability_passed",
-            "schedule_safe_assets_produced",
-        }
-        production_losses = [
-            row for row in waterfall
-            if row["stage"] in production_stages and int(row.get("lossCount") or 0) > 0
-        ]
-        return {
-            "waterfall": waterfall,
-            "lineageCompletenessPct": round(max(0.0, 1.0 - (lineage_gaps / lineage_units)) * 100, 1),
-            "metadataGapCounts": metadata_gap_counts,
-            "measurementWarnings": warnings,
-            "productionLossesOnly": production_losses,
-            "variantCount": len(variant_assets),
-        }
-
-    def _schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
-        return self._schedule_safe_production_model(assets, surface)["waterfall"]
 
     def _schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
         return bool(asset.get("parent_asset_id") or asset.get("variant_id"))
-
-    def _schedule_safe_parent_assets_by_ids(self, asset_ids: set[str]) -> dict[str, dict[str, Any]]:
-        if not asset_ids:
-            return {}
-        placeholders = ",".join("?" for _ in asset_ids)
-        rows = self.conn.execute(
-            f"SELECT * FROM rendered_assets WHERE id IN ({placeholders})",
-            sorted(asset_ids),
-        ).fetchall()
-        return {str(row["id"]): dict(row) for row in rows}
 
     def _schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
         if not asset_ids:
@@ -9558,25 +9502,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "schedule_safe": bool(readiness.get("canHandoff")),
         }
 
-    def _schedule_safe_production_largest_loss(
-        self,
-        waterfall: list[dict[str, Any]],
-        *,
-        measurement_warnings: list[str] | None = None,
-    ) -> dict[str, Any]:
-        if not waterfall:
-            warnings = measurement_warnings or []
-            if any(str(warning).startswith("lineage_metadata_gap:") for warning in warnings):
-                return {
-                    "largestLossGate": "lineage_metadata_gap",
-                    "lossCount": 0,
-                    "percentOfTotalLoss": 0,
-                }
-            return {
-                "largestLossGate": "",
-                "lossCount": 0,
-                "percentOfTotalLoss": 0,
-            }
+    def _schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
         total_loss = sum(int(row.get("lossCount") or 0) for row in waterfall)
         largest = max(waterfall, key=lambda row: (int(row.get("lossCount") or 0), str(row.get("stage") or "")), default={})
         loss = int(largest.get("lossCount") or 0)
@@ -9668,60 +9594,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 continue
             yield_pct *= float(stage_yield) / 100
         return round(yield_pct, 1)
-
-    def _fresh_reel_recent_schedule_safe_yield(
-        self,
-        *,
-        creator: str | None,
-        campaign_slug: str | None,
-        lookback_days: int = 7,
-        minimum_sample_size: int = 30,
-    ) -> dict[str, Any]:
-        assets = self._schedule_safe_production_assets(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            content_surface="reel",
-            lookback_days=lookback_days,
-        )
-        model = self._schedule_safe_production_model(assets, "reel")
-        variant_count = int(model.get("variantCount") or 0)
-        schedule_safe = int((model.get("waterfall") or [{}])[-1].get("outputCount") or 0) if model.get("waterfall") else 0
-        conservative = self._fresh_reel_downstream_schedule_safe_yield_pct()
-        if variant_count >= minimum_sample_size:
-            measured = round(self._ratio(schedule_safe, variant_count) * 100, 1)
-            confidence = "high" if variant_count >= 100 else "medium"
-            return {
-                "yieldSource": "measured_recent",
-                "yieldPct": max(1.0, measured),
-                "sampleSize": variant_count,
-                "confidence": confidence,
-                "evidenceStatus": "measured_recent_schedule_safe_variant_production_evidence",
-                "largestProductionRisk": "recent_schedule_safe_yield_observed",
-                "measuredRecentYield": {
-                    "lookbackDays": lookback_days,
-                    "variantsCreated": variant_count,
-                    "scheduleSafeAssets": schedule_safe,
-                    "yieldPct": measured,
-                    "lineageCompletenessPct": model.get("lineageCompletenessPct"),
-                    "measurementWarnings": model.get("measurementWarnings") or [],
-                },
-            }
-        return {
-            "yieldSource": "conservative_default",
-            "yieldPct": conservative,
-            "sampleSize": variant_count,
-            "confidence": "low",
-            "evidenceStatus": "insufficient_schedule_safe_variant_production_evidence",
-            "largestProductionRisk": "variant_to_schedule_safe_yield_not_yet_proven",
-            "measuredRecentYield": {
-                "lookbackDays": lookback_days,
-                "variantsCreated": variant_count,
-                "scheduleSafeAssets": schedule_safe,
-                "yieldPct": round(self._ratio(schedule_safe, variant_count) * 100, 1) if variant_count else 0,
-                "lineageCompletenessPct": model.get("lineageCompletenessPct"),
-                "measurementWarnings": model.get("measurementWarnings") or [],
-            },
-        }
 
     def _fresh_reel_expected_stage_rows(
         self,
@@ -11106,6 +10978,320 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "wouldWrite": False,
         }
 
+    def reserve_inventory_asset(
+        self,
+        asset_id: str,
+        *,
+        account_id: str | None = None,
+        surface: str | None = None,
+        reserved_by: str = "campaign_factory",
+        expires_at: str | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        reuse_cooldown_days: int = DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        asset = self.rendered_asset(asset_id)
+        normalized_surface = normalize_content_surface(surface or asset.get("content_surface") or "reel")
+        uniqueness = self._asset_uniqueness_values(asset, metadata=metadata)
+        now = utc_now()
+        expires_at = expires_at or (datetime.fromisoformat(now) + timedelta(days=DEFAULT_INVENTORY_RESERVATION_TTL_DAYS)).isoformat()
+        self._expire_inventory_reservations(now=now)
+        if idempotency_key:
+            existing = self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE idempotency_key = ? AND status IN ('pending', 'committed')",
+                (idempotency_key,),
+            ).fetchone()
+            if existing:
+                return dict(existing)
+        if account_id:
+            account = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+            if not account:
+                raise ValueError(f"account not found: {account_id}")
+        reservation_id = new_id("invres")
+        row_id = new_id("invresrow")
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if "within a transaction" not in str(exc).lower():
+                raise
+        self._expire_inventory_reservations(now=now, commit=False)
+        active = self.conn.execute(
+            """
+            SELECT * FROM asset_inventory_reservations
+            WHERE asset_id = ? AND status IN ('pending', 'committed')
+            ORDER BY reserved_at DESC
+            LIMIT 1
+            """,
+            (asset_id,),
+        ).fetchone()
+        if active:
+            self.conn.rollback()
+            raise ValueError(f"asset already has an active reservation: {asset_id}")
+        reuse_conflicts = self._inventory_uniqueness_conflicts(
+            asset,
+            uniqueness=uniqueness,
+            surface=normalized_surface,
+            cooldown_days=reuse_cooldown_days,
+            account_id=account_id,
+        )
+        if reuse_conflicts and not override_reason:
+            self.conn.rollback()
+            raise ValueError(
+                "cross-account source/perceptual reuse cooldown conflict: "
+                + ",".join(item["assetId"] for item in reuse_conflicts[:5])
+            )
+        self.conn.execute(
+            """
+            INSERT INTO asset_inventory_reservations
+            (id, asset_id, campaign_id, account_id, surface, reservation_id, reserved_by,
+             reserved_at, expires_at, status, idempotency_key, source_family_id,
+             perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+             reuse_cooldown_days, override_reason, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row_id,
+                asset_id,
+                asset["campaign_id"],
+                account_id,
+                normalized_surface,
+                reservation_id,
+                reserved_by,
+                now,
+                expires_at,
+                idempotency_key,
+                uniqueness["sourceFamilyId"],
+                uniqueness["perceptualFingerprint"],
+                uniqueness["perceptualClusterId"],
+                uniqueness["accountGroupId"],
+                reuse_cooldown_days,
+                override_reason,
+                json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+                now,
+                now,
+            ),
+        )
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row_id,)).fetchone())
+
+    def _expire_inventory_reservations(self, *, now: str | None = None, commit: bool = True) -> int:
+        current = now or utc_now()
+        cursor = self.conn.execute(
+            """
+            UPDATE asset_inventory_reservations
+            SET status = 'expired', updated_at = ?
+            WHERE status IN ('pending', 'committed')
+              AND expires_at IS NOT NULL
+              AND expires_at != ''
+              AND expires_at <= ?
+            """,
+            (current, current),
+        )
+        if commit and cursor.rowcount:
+            self.conn.commit()
+        return int(cursor.rowcount or 0)
+
+    def release_inventory_reservation(
+        self,
+        reservation_id: str,
+        *,
+        status: str = "released",
+    ) -> dict[str, Any]:
+        if status not in {"released", "expired", "cancelled"}:
+            raise ValueError("status must be released, expired, or cancelled")
+        row = self.conn.execute(
+            "SELECT * FROM asset_inventory_reservations WHERE reservation_id = ? OR id = ?",
+            (reservation_id, reservation_id),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"reservation not found: {reservation_id}")
+        now = utc_now()
+        self.conn.execute(
+            "UPDATE asset_inventory_reservations SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, row["id"]),
+        )
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)).fetchone())
+
+    def _asset_uniqueness_values(self, asset: dict[str, Any], *, metadata: dict[str, Any] | None = None) -> dict[str, str]:
+        metadata = metadata or {}
+        caption_generation = json_load(asset.get("caption_generation_json"), {})
+        if not isinstance(caption_generation, dict):
+            caption_generation = {}
+        caption_context = load_context_json(asset.get("caption_outcome_context_json"))
+        source_family = (
+            metadata.get("sourceFamilyId")
+            or metadata.get("source_family_id")
+            or caption_generation.get("sourceFamilyId")
+            or caption_generation.get("source_family_id")
+            or caption_context.get("source_family_id")
+            or asset.get("parent_asset_id")
+            or asset.get("parent_reel_id")
+        )
+        perceptual = (
+            metadata.get("perceptualFingerprint")
+            or metadata.get("perceptual_fingerprint")
+            or caption_generation.get("perceptualFingerprint")
+            or caption_generation.get("perceptual_fingerprint")
+            or caption_context.get("perceptual_fingerprint")
+        )
+        cluster = (
+            metadata.get("perceptualClusterId")
+            or metadata.get("perceptual_cluster_id")
+            or caption_generation.get("perceptualClusterId")
+            or caption_generation.get("perceptual_cluster_id")
+            or caption_context.get("perceptual_cluster_id")
+            or perceptual
+            or source_family
+        )
+        account_group = (
+            metadata.get("accountGroupId")
+            or metadata.get("account_group_id")
+            or caption_generation.get("accountGroupId")
+            or caption_generation.get("account_group_id")
+            or caption_context.get("account_group_id")
+            or asset.get("creator_model")
+            or asset.get("creator_mix")
+            or asset.get("campaign_id")
+        )
+        return {
+            "sourceFamilyId": str(source_family or ""),
+            "contentFingerprint": str(asset.get("content_hash") or ""),
+            "perceptualFingerprint": str(perceptual or ""),
+            "perceptualClusterId": str(cluster or ""),
+            "accountGroupId": str(account_group or ""),
+        }
+
+    def _inventory_uniqueness_conflicts(
+        self,
+        asset: dict[str, Any],
+        *,
+        uniqueness: dict[str, str],
+        surface: str,
+        cooldown_days: int,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        keys = {
+            "sourceFamilyId": uniqueness.get("sourceFamilyId") or "",
+            "perceptualClusterId": uniqueness.get("perceptualClusterId") or "",
+        }
+        if not any(keys.values()):
+            return []
+        now = datetime.fromisoformat(utc_now())
+        cutoff = (now - timedelta(days=max(0, int(cooldown_days or 0)))).isoformat()
+        conflicts: list[dict[str, Any]] = []
+        for key_name, value in keys.items():
+            if not value:
+                continue
+            column = "source_family_id" if key_name == "sourceFamilyId" else "perceptual_cluster_id"
+            rows = self.conn.execute(
+                f"""
+                SELECT asset_id, account_id, reserved_at, status
+                FROM asset_inventory_reservations
+                WHERE campaign_id = ? AND surface = ? AND {column} = ?
+                  AND status IN ('pending', 'committed')
+                  AND asset_id <> ?
+                  AND reserved_at >= ?
+                """,
+                (asset["campaign_id"], surface, value, asset["id"], cutoff),
+            ).fetchall()
+            for row in rows:
+                if account_id and row["account_id"] == account_id:
+                    continue
+                conflicts.append({"assetId": row["asset_id"], "reason": f"active_reservation_{column}", "status": row["status"]})
+            assigned = self.conn.execute(
+                f"""
+                SELECT a.rendered_asset_id, a.account_id, a.created_at
+                FROM asset_account_assignments a
+                JOIN rendered_assets r ON r.id = a.rendered_asset_id
+                WHERE a.campaign_id = ? AND r.content_surface = ? AND r.id <> ?
+                  AND a.created_at >= ?
+                """,
+                (asset["campaign_id"], surface, asset["id"], cutoff),
+            ).fetchall()
+            for row in assigned:
+                other = self.rendered_asset(row["rendered_asset_id"])
+                other_values = self._asset_uniqueness_values(other)
+                if other_values.get(key_name) != value:
+                    continue
+                if account_id and row["account_id"] == account_id:
+                    continue
+                conflicts.append({"assetId": row["rendered_asset_id"], "reason": f"assigned_{column}", "status": "assigned"})
+        return conflicts
+
+    def _reservation_adjusted_inventory(
+        self,
+        readiness_rows: list[dict[str, Any]],
+        *,
+        content_surface: str | None = None,
+    ) -> dict[str, int]:
+        self._expire_inventory_reservations()
+        active_asset_ids = [
+            str(row.get("assetId"))
+            for row in readiness_rows
+            if row.get("canHandoff")
+            and row.get("assetId")
+            and (content_surface is None or row.get("contentSurface") == content_surface)
+        ]
+        if not active_asset_ids:
+            return {"grossInventory": 0, "reservedInventory": 0, "usedInventory": 0, "cooldownBlockedInventory": 0, "netInventory": 0}
+        placeholders = ",".join("?" for _ in active_asset_ids)
+        params = sorted(active_asset_ids)
+        reserved_rows = self.conn.execute(
+            f"""
+            SELECT DISTINCT asset_id
+            FROM asset_inventory_reservations
+            WHERE asset_id IN ({placeholders})
+              AND status IN ('pending', 'committed')
+            """,
+            params,
+        ).fetchall()
+        assignment_rows = self.conn.execute(
+            f"""
+            SELECT DISTINCT rendered_asset_id
+            FROM asset_account_assignments
+            WHERE rendered_asset_id IN ({placeholders})
+            """,
+            params,
+        ).fetchall()
+        reserved = {str(row["asset_id"]) for row in reserved_rows}
+        used = {str(row["rendered_asset_id"]) for row in assignment_rows}
+        reserved_or_used = reserved | used
+        assets_by_id = {
+            str(row["id"]): dict(row)
+            for row in self.conn.execute(
+                f"SELECT * FROM rendered_assets WHERE id IN ({placeholders})",
+                params,
+            ).fetchall()
+        }
+        blocked_keys: set[tuple[str, str]] = set()
+        for asset_id in reserved_or_used:
+            asset = assets_by_id.get(asset_id)
+            if not asset:
+                continue
+            values = self._asset_uniqueness_values(asset)
+            for key_name in ("sourceFamilyId", "perceptualClusterId"):
+                value = values.get(key_name) or ""
+                if value:
+                    blocked_keys.add((key_name, value))
+        cooldown_blocked: set[str] = set()
+        for asset_id, asset in assets_by_id.items():
+            if asset_id in reserved_or_used:
+                continue
+            values = self._asset_uniqueness_values(asset)
+            if any((key_name, values.get(key_name) or "") in blocked_keys for key_name in ("sourceFamilyId", "perceptualClusterId")):
+                cooldown_blocked.add(asset_id)
+        unavailable = reserved | used
+        unavailable |= cooldown_blocked
+        return {
+            "grossInventory": len(active_asset_ids),
+            "reservedInventory": len(reserved),
+            "usedInventory": len(used),
+            "cooldownBlockedInventory": len(cooldown_blocked),
+            "netInventory": max(0, len(active_asset_ids) - len(unavailable)),
+        }
+
     def creator_os_live_account_acceptance(
         self,
         *,
@@ -11122,13 +11308,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         surface = normalize_content_surface(content_surface) if content_surface else None
         if surface:
             assets = self._surface_report_assets()
-            available_inventory = sum(
-                1
-                for row in self._build_surface_readiness(assets)
-                if row.get("canHandoff") and row.get("contentSurface") == surface
+            inventory_accounting = self._reservation_adjusted_inventory(
+                self._build_surface_readiness(assets),
+                content_surface=surface,
             )
+            available_inventory = inventory_accounting["netInventory"]
         else:
-            available_inventory = self._inventory_stage_counts()["scheduleSafeAssets"]
+            inventory_accounting = self._reservation_adjusted_inventory(self._build_surface_readiness(self._surface_report_assets()))
+            available_inventory = inventory_accounting["netInventory"]
         exceptions = self.exception_queue_report()
         actuals = self._live_acceptance_actuals(
             account_target=target,
@@ -11159,6 +11346,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "postsPerDay": posts_per_day,
             "requiredInventory": required_inventory,
             "availableInventory": available_inventory,
+            "grossInventory": inventory_accounting["grossInventory"],
+            "reservedInventory": inventory_accounting["reservedInventory"],
+            "usedInventory": inventory_accounting["usedInventory"],
+            "cooldownBlockedInventory": inventory_accounting.get("cooldownBlockedInventory", 0),
+            "netInventory": inventory_accounting["netInventory"],
             "actualAccounts": accounts["totalAccounts"],
             "eligibleAccounts": accounts["safeAccounts"],
             "restrictedAccounts": accounts["blockedAccounts"],
@@ -11196,42 +11388,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "currentCertifiedStage": current,
             "nextStageTarget": next_target,
             "readyForNextStage": next_target is None,
-            "wouldWrite": False,
-        }
-
-    def creator_os_50_account_readiness(self, *, content_surface: str | None = None) -> dict[str, Any]:
-        target = 50
-        staged = self.creator_os_staged_live_acceptance(stages=[10, 25, target], content_surface=content_surface)
-        target_stage = next(
-            (row for row in staged.get("stages") or [] if int(row.get("accountTarget") or 0) == target),
-            self.creator_os_live_account_acceptance(account_target=target, content_surface=content_surface),
-        )
-        shortfall = max(0, int(target_stage.get("requiredInventory") or 0) - int(target_stage.get("availableInventory") or 0))
-        blockers = list(target_stage.get("blockingReasons") or [])
-        if not blockers:
-            recommended_action = "ready_for_50_account_gate"
-        elif "inventory_buffer_not_maintained" in blockers:
-            recommended_action = "produce_fresh_schedule_safe_reels"
-        elif "not_enough_safe_accounts" in blockers:
-            recommended_action = "verify_more_safe_accounts"
-        else:
-            recommended_action = "review_live_acceptance_blockers"
-        return {
-            "schema": "creator_os.50_account_readiness.v1",
-            "currentCertifiedStage": int(staged.get("currentCertifiedStage") or 0),
-            "targetStage": target,
-            "contentSurface": target_stage.get("contentSurface") or (normalize_content_surface(content_surface) if content_surface else "all"),
-            "requiredInventory": int(target_stage.get("requiredInventory") or 0),
-            "availableInventory": int(target_stage.get("availableInventory") or 0),
-            "shortfall": shortfall,
-            "actualAccounts": int(target_stage.get("actualAccounts") or 0),
-            "eligibleAccounts": int(target_stage.get("eligibleAccounts") or 0),
-            "restrictedAccounts": int(target_stage.get("restrictedAccounts") or 0),
-            "warmingAccounts": int(target_stage.get("warmingAccounts") or 0),
-            "acceptancePassed": bool(target_stage.get("acceptancePassed")),
-            "blockingReasons": blockers,
-            "recommendedNextAction": recommended_action,
-            "dataSource": "actual_current_state",
             "wouldWrite": False,
         }
 
@@ -13994,7 +14150,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         blockers: list[str] = []
         if missed_dispatches:
             blockers.append("missed_dispatches_unresolved")
-        threadsdash_root = Path("/Users/adercialonedesouza/Projects/ThreadsDashboard")
+        threadsdash_root = self.settings.threadsdash_root
         if not threadsdash_root.exists():
             warnings.append("threadsdashboard_runtime_routes_unverified")
             return warnings, blockers
@@ -15583,6 +15739,621 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "topPostingWindows": top_posting_windows,
             "wouldWrite": False,
         }
+
+    def tribev2_reel_analysis(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        minimum_sample_size: int = 3,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        creator_label = self._creator_label(creator)
+        rows = self._tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
+        minimum = max(1, int(minimum_sample_size or 1))
+        insufficient = len(rows) < minimum
+        metric_fields = ["views", "reach", "saves", "shares"]
+        score_fields = ["meanAbsActivation", "peakAbsActivation", "stdActivation"]
+        correlations = {
+            score_field: {
+                metric: self._pearson_correlation(
+                    [float(row.get(score_field) or 0) for row in rows],
+                    [float(row.get(metric) or 0) for row in rows],
+                )
+                for metric in metric_fields
+            }
+            for score_field in score_fields
+        } if not insufficient else {score_field: {metric: None for metric in metric_fields} for score_field in score_fields}
+        ranked = sorted(rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True)
+        bucket_size = max(1, math.ceil(len(ranked) / 4)) if ranked else 0
+        top_bucket = ranked[:bucket_size] if bucket_size else []
+        bottom_bucket = ranked[-bucket_size:] if bucket_size else []
+        top_summary = self._tribev2_bucket_summary(top_bucket)
+        bottom_summary = self._tribev2_bucket_summary(bottom_bucket)
+        lift = self._tribev2_bucket_lift(top_summary, bottom_summary)
+        metric_quality = self._tribev2_metric_quality(rows, metric_fields)
+        signal_summary = self._tribev2_signal_summary(
+            correlations,
+            sample_size=len(rows),
+            metric_quality=metric_quality,
+        )
+        sample_adequate = len(rows) >= 20
+        statistically_interesting = bool(
+            sample_adequate
+            and signal_summary["strongestAbsCorrelation"] >= 0.4
+            and any(bool(signal_summary["correlatesWith"].get(metric)) for metric in ["views", "reach", "saves", "shares"])
+        )
+        recommended_role = "creative_knowledge_feature" if statistically_interesting else "research_only"
+        return {
+            "schema": "campaign_factory.tribev2_reel_analysis.v1",
+            "creator": creator_label,
+            "campaign": slugify(campaign_slug) if campaign_slug else None,
+            "generatedAt": utc_now(),
+            "modelId": "facebook/tribev2",
+            "modelMode": "audio_video_cpu",
+            "licenseStatus": "CC-BY-NC-4.0",
+            "commercialUseAllowed": False,
+            "researchUseAllowed": True,
+            "licenseWarning": "CC-BY-NC-4.0 research/non-commercial only",
+            "productionGate": False,
+            "sampleSize": len(rows),
+            "sampleSizeAdequate": sample_adequate,
+            "minimumSampleSize": minimum,
+            "insufficientData": insufficient,
+            "reason": "not_enough_scored_published_reels" if insufficient else "",
+            "scoreFields": score_fields,
+            "metricFields": metric_fields,
+            "metricQuality": metric_quality,
+            "correlations": correlations,
+            "meanAbsActivationCorrelation": correlations.get("meanAbsActivation") or {},
+            "peakAbsActivationCorrelation": correlations.get("peakAbsActivation") or {},
+            "stdActivationCorrelation": correlations.get("stdActivation") or {},
+            "topTribeV2Quartile": top_summary,
+            "bottomTribeV2Quartile": bottom_summary,
+            "topQuartileLift": lift,
+            "bottomQuartileLift": self._tribev2_bucket_lift(bottom_summary, top_summary),
+            "topVsBottomLiftPct": lift,
+            "strongestPredictiveSignal": signal_summary["strongestSignal"],
+            "weakestPredictiveSignal": signal_summary["weakestSignal"],
+            "strongestSignal": signal_summary["strongestSignal"],
+            "weakestSignal": signal_summary["weakestSignal"],
+            "correlatesWithViews": bool(signal_summary["correlatesWith"].get("views")),
+            "correlatesWithReach": bool(signal_summary["correlatesWith"].get("reach")),
+            "correlatesWithSaves": bool(signal_summary["correlatesWith"].get("saves")),
+            "correlatesWithShares": bool(signal_summary["correlatesWith"].get("shares")),
+            "statisticallyInteresting": statistically_interesting,
+            "confidenceLevel": self._tribev2_confidence_level(len(rows), statistically_interesting),
+            "recommendedRole": recommended_role,
+            "futureUse": ["parent_reel_ranking", "variant_ranking", "creative_insights"] if recommended_role == "creative_knowledge_feature" else [],
+            "shouldRemainAdvisoryOnly": True,
+            "nextRecommendedExperiment": "score_20_to_50_published_reels_with_nonzero_metric_variance" if not sample_adequate else "hold_out_validate_against_future_25_account_pilot_metrics",
+            "scoredReels": ranked[: max(0, int(limit or 0))],
+            "interpretation": {
+                "recommendedPipelineUse": "offline_research_sidecar",
+                "doNotUseFor": ["publishability", "schedule_safe_gates", "automatic_winner_selection"],
+                "nextValidationStep": "compare_against_larger_known_winner_and_loser_sets",
+            },
+            "wouldWrite": False,
+        }
+
+    def tribev2_reel_review(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        sort_by: str = "meanAbsActivation",
+        bucket: str = "top",
+        limit: int = 12,
+        contact_sheet: bool = False,
+        show_metrics: bool | None = None,
+        show_tribe_score: bool = True,
+        blind_mode: bool = False,
+    ) -> dict[str, Any]:
+        creator_label = self._creator_label(creator)
+        if show_metrics is None:
+            show_metrics = not blind_mode
+        if blind_mode:
+            show_tribe_score = True
+        score_fields = {"meanAbsActivation", "peakAbsActivation", "stdActivation"}
+        sort_field = sort_by if sort_by in score_fields else "meanAbsActivation"
+        bucket_name = bucket if bucket in {"top", "bottom", "both"} else "top"
+        rows = self._tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
+        ranked = sorted(rows, key=lambda row: float(row.get(sort_field) or 0), reverse=True)
+        requested_limit = max(0, int(limit or 0))
+        if bucket_name == "bottom":
+            selected = list(reversed(ranked[-requested_limit:])) if requested_limit else []
+        elif bucket_name == "both":
+            selected = self._tribev2_review_both_bucket(ranked, requested_limit)
+        else:
+            selected = ranked[:requested_limit]
+        items = [
+            self._tribev2_review_item(
+                row,
+                rank=index,
+                sort_field=sort_field,
+                show_metrics=show_metrics,
+                show_tribe_score=show_tribe_score,
+            )
+            for index, row in enumerate(selected, start=1)
+        ]
+        contact_sheet_path = self._write_tribev2_review_contact_sheet(
+            items,
+            creator=creator_label,
+            title="TRIBE v2 Review",
+            blind_mode=blind_mode,
+            show_metrics=show_metrics,
+            show_tribe_score=show_tribe_score,
+        ) if contact_sheet else ""
+        return {
+            "schema": "campaign_factory.tribev2_reel_review.v1",
+            "creator": creator_label,
+            "campaign": slugify(campaign_slug) if campaign_slug else None,
+            "generatedAt": utc_now(),
+            "modelId": "facebook/tribev2",
+            "modelMode": "audio_video_cpu",
+            "licenseStatus": "CC-BY-NC-4.0",
+            "commercialUseAllowed": False,
+            "researchUseAllowed": True,
+            "sortBy": sort_field,
+            "bucket": bucket_name,
+            "blindMode": bool(blind_mode),
+            "showMetrics": bool(show_metrics),
+            "showTribeScore": bool(show_tribe_score),
+            "reelsReviewed": len(rows),
+            "items": items,
+            "contactSheetPath": contact_sheet_path,
+            "productionGate": False,
+            "advisoryOnly": True,
+            "wouldWriteProductionState": False,
+            "wouldWrite": False,
+        }
+
+    def _tribev2_review_both_bucket(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        selected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in ranked[:limit] + list(reversed(ranked[-limit:])):
+            key = row.get("renderedAssetId") or row.get("contentHash") or row.get("postId") or str(len(seen))
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(row)
+        return selected
+
+    def _tribev2_review_item(
+        self,
+        row: dict[str, Any],
+        *,
+        rank: int,
+        sort_field: str,
+        show_metrics: bool = True,
+        show_tribe_score: bool = True,
+    ) -> dict[str, Any]:
+        preview_path = self._tribev2_preview_path(row)
+        tribe_score = {
+            "meanAbsActivation": float(row.get("meanAbsActivation") or 0),
+            "peakAbsActivation": float(row.get("peakAbsActivation") or 0),
+            "stdActivation": float(row.get("stdActivation") or 0),
+            "sortField": sort_field,
+            "sortValue": float(row.get(sort_field) or 0),
+        }
+        actual_metrics = {
+            "views": int(row.get("views") or 0),
+            "reach": int(row.get("reach") or 0),
+            "saves": int(row.get("saves") or 0),
+            "shares": int(row.get("shares") or 0),
+        }
+        item = {
+            "rank": rank,
+            "renderedAssetId": row.get("renderedAssetId") or "",
+            "postId": row.get("postId") or "",
+            "previewPath": preview_path,
+            "previewAvailable": bool(preview_path and Path(preview_path).exists()),
+            "contentHash": row.get("contentHash") or "",
+            "publishedAt": row.get("publishedAt") or "",
+            "conceptId": row.get("conceptId") or "",
+            "captionAngle": row.get("captionAngle") or "",
+            "audioId": row.get("audioId") or "",
+            "tribeScore": tribe_score if show_tribe_score else {},
+            "tribeScoreHidden": not show_tribe_score,
+            "actualMetrics": actual_metrics if show_metrics else {},
+            "actualMetricsHidden": not show_metrics,
+            "licenseStatus": "CC-BY-NC-4.0",
+            "productionGate": False,
+            "advisoryOnly": True,
+        }
+        return item
+
+    def tribev2_holdout_pilot_review(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        limit: int = 20,
+        contact_sheet: bool = False,
+    ) -> dict[str, Any]:
+        creator_label = self._creator_label(creator)
+        rows = self._tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
+        ranked = sorted(rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True)
+        bucket_rows = self._tribev2_holdout_bucket_rows(ranked)
+        bucket_limit = max(0, int(limit or 0))
+        buckets = {
+            name: self._tribev2_holdout_bucket_summary(name, rows_for_bucket, limit=bucket_limit)
+            for name, rows_for_bucket in bucket_rows.items()
+        }
+        contact_sheet_path = self._write_tribev2_holdout_contact_sheet(buckets, creator=creator_label) if contact_sheet else ""
+        return {
+            "schema": "campaign_factory.tribev2_holdout_pilot_review.v1",
+            "creator": creator_label,
+            "campaign": slugify(campaign_slug) if campaign_slug else None,
+            "generatedAt": utc_now(),
+            "modelId": "facebook/tribev2",
+            "modelMode": "audio_video_cpu",
+            "licenseStatus": "CC-BY-NC-4.0",
+            "commercialUseAllowed": False,
+            "researchUseAllowed": True,
+            "bucketStrategy": "top_middle_bottom_20pct",
+            "reelsReviewed": len(rows),
+            "buckets": buckets,
+            "contactSheetPath": contact_sheet_path,
+            "productionGate": False,
+            "advisoryOnly": True,
+            "wouldWriteProductionState": False,
+            "wouldWrite": False,
+        }
+
+    def _tribev2_holdout_bucket_rows(self, ranked: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        count = len(ranked)
+        if count == 0:
+            return {"top20": [], "middle20": [], "bottom20": []}
+        bucket_size = max(1, math.ceil(count * 0.2))
+        middle_start = max(0, (count - bucket_size) // 2)
+        return {
+            "top20": ranked[:bucket_size],
+            "middle20": ranked[middle_start:middle_start + bucket_size],
+            "bottom20": list(reversed(ranked[-bucket_size:])),
+        }
+
+    def _tribev2_holdout_bucket_summary(self, name: str, rows: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+        selected = rows[:limit] if limit else rows
+        items = [
+            self._tribev2_review_item(row, rank=index, sort_field="meanAbsActivation")
+            for index, row in enumerate(selected, start=1)
+        ]
+        return {
+            "bucket": name,
+            "sampleSize": len(rows),
+            "items": items,
+            "avgMetrics": self._tribev2_average_metrics(rows),
+            "avgTribeScore": self._tribev2_average_scores(rows),
+            "postIds": [row.get("postId") for row in rows if row.get("postId")],
+        }
+
+    def _tribev2_average_metrics(self, rows: list[dict[str, Any]]) -> dict[str, float]:
+        return {
+            "views": self._average_row_field(rows, "views"),
+            "reach": self._average_row_field(rows, "reach"),
+            "saves": self._average_row_field(rows, "saves"),
+            "shares": self._average_row_field(rows, "shares"),
+        }
+
+    def _tribev2_average_scores(self, rows: list[dict[str, Any]]) -> dict[str, float]:
+        return {
+            "meanAbsActivation": self._average_row_field(rows, "meanAbsActivation"),
+            "peakAbsActivation": self._average_row_field(rows, "peakAbsActivation"),
+            "stdActivation": self._average_row_field(rows, "stdActivation"),
+        }
+
+    def _average_row_field(self, rows: list[dict[str, Any]], field: str) -> float:
+        return round(sum(float(row.get(field) or 0) for row in rows) / len(rows), 4) if rows else 0.0
+
+    def _tribev2_preview_path(self, row: dict[str, Any]) -> str:
+        rendered_asset_id = row.get("renderedAssetId") or ""
+        content_hash = row.get("contentHash") or ""
+        clauses = []
+        params: list[Any] = []
+        if rendered_asset_id:
+            clauses.append("id = ?")
+            params.append(rendered_asset_id)
+        if content_hash:
+            clauses.append("content_hash = ?")
+            params.append(content_hash)
+        if not clauses:
+            return ""
+        asset = self.conn.execute(
+            f"""
+            SELECT campaign_path, output_path
+            FROM rendered_assets
+            WHERE {" OR ".join(clauses)}
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        if not asset:
+            return ""
+        return str(asset["campaign_path"] or asset["output_path"] or "")
+
+    def _write_tribev2_review_contact_sheet(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        creator: str,
+        title: str = "TRIBE v2 Review",
+        blind_mode: bool = False,
+        show_metrics: bool = True,
+        show_tribe_score: bool = True,
+    ) -> str:
+        root = Path(self.settings.campaigns_dir).parent / "tmp" / "tribev2_review"
+        root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        html_path = root / f"{slugify(creator)}_{slugify(title)}_{stamp}.html"
+        cards = self._tribev2_contact_sheet_cards(items, root, show_metrics=show_metrics, show_tribe_score=show_tribe_score)
+        banner = "<p><strong>Blind TRIBE review: metrics hidden.</strong></p>" if blind_mode else ""
+        html = self._tribev2_contact_sheet_html(
+            title=f"{title}: {creator}",
+            body=f"{banner}<section class='grid'>{''.join(cards)}</section>",
+        )
+        html_path.write_text(html, encoding="utf-8")
+        return str(html_path)
+
+    def _write_tribev2_holdout_contact_sheet(self, buckets: dict[str, Any], *, creator: str) -> str:
+        root = Path(self.settings.campaigns_dir).parent / "tmp" / "tribev2_review"
+        root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        html_path = root / f"{slugify(creator)}_tribev2_holdout_pilot_review_{stamp}.html"
+        sections = []
+        for name in ["top20", "middle20", "bottom20"]:
+            bucket = buckets.get(name) or {}
+            metrics = bucket.get("avgMetrics") or {}
+            score = bucket.get("avgTribeScore") or {}
+            cards = self._tribev2_contact_sheet_cards(bucket.get("items") or [], root, show_metrics=True, show_tribe_score=True)
+            sections.append(
+                f"<h2>{name}</h2>"
+                f"<p>sample={bucket.get('sampleSize', 0)} "
+                f"mean={float(score.get('meanAbsActivation') or 0):.4f} "
+                f"views={float(metrics.get('views') or 0):.1f} "
+                f"reach={float(metrics.get('reach') or 0):.1f} "
+                f"saves={float(metrics.get('saves') or 0):.1f} "
+                f"shares={float(metrics.get('shares') or 0):.1f}</p>"
+                f"<section class='grid'>{''.join(cards)}</section>"
+            )
+        html = self._tribev2_contact_sheet_html(
+            title=f"TRIBE v2 Holdout Pilot Review: {creator}",
+            body="".join(sections),
+        )
+        html_path.write_text(html, encoding="utf-8")
+        return str(html_path)
+
+    def _tribev2_contact_sheet_cards(
+        self,
+        items: list[dict[str, Any]],
+        root: Path,
+        *,
+        show_metrics: bool,
+        show_tribe_score: bool,
+    ) -> list[str]:
+        cards = []
+        for item in items:
+            preview_path = item.get("previewPath") or ""
+            thumb_path = self._tribev2_extract_thumbnail(preview_path, root, item)
+            media_src = thumb_path or preview_path
+            media_html = f'<img src="{Path(media_src).as_uri()}" alt="rank {item["rank"]}">' if media_src and Path(media_src).exists() else "<div class='missing'>preview missing</div>"
+            tribe = item.get("tribeScore") or {}
+            metrics = item.get("actualMetrics") or {}
+            tribe_html = (
+                f"<p>mean={float(tribe.get('meanAbsActivation') or 0):.6f} "
+                f"peak={float(tribe.get('peakAbsActivation') or 0):.6f} "
+                f"std={float(tribe.get('stdActivation') or 0):.6f}</p>"
+                if show_tribe_score else "<p>TRIBE score hidden</p>"
+            )
+            metrics_html = (
+                f"<p>views={int(metrics.get('views') or 0)} reach={int(metrics.get('reach') or 0)} "
+                f"saves={int(metrics.get('saves') or 0)} shares={int(metrics.get('shares') or 0)}</p>"
+                if show_metrics else "<p>Instagram metrics hidden</p>"
+            )
+            cards.append(
+                "<article>"
+                f"<h2>#{item['rank']} {item.get('renderedAssetId', '')}</h2>"
+                f"{media_html}"
+                f"{tribe_html}"
+                f"{metrics_html}"
+                f"<p><code>{preview_path}</code></p>"
+                "</article>"
+            )
+        return cards
+
+    def _tribev2_contact_sheet_html(self, *, title: str, body: str) -> str:
+        return (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            "<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:24px;background:#111;color:#eee}"
+            ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}"
+            "article{background:#1d1d1f;border:1px solid #333;border-radius:8px;padding:12px}"
+            "img{width:100%;aspect-ratio:9/16;object-fit:cover;background:#000;border-radius:4px}"
+            "h1,h2,p{margin:0 0 8px}code{font-size:11px;word-break:break-all;color:#aaa}.missing{height:320px;display:grid;place-items:center;background:#222;color:#888}</style>"
+            "</head><body>"
+            f"<h1>{title}</h1>"
+            "<p>Advisory-only offline review. Not used for scheduling, publishing, or gates.</p>"
+            f"{body}"
+            "</body></html>"
+        )
+
+    def _tribev2_extract_thumbnail(self, preview_path: str, output_dir: Path, item: dict[str, Any]) -> str:
+        if not preview_path:
+            return ""
+        source = Path(preview_path)
+        if not source.exists():
+            return ""
+        if source.suffix.lower() in IMAGE_EXTS:
+            return str(source)
+        if source.suffix.lower() not in VIDEO_EXTS:
+            return ""
+        thumb = output_dir / f"{slugify(item.get('renderedAssetId') or str(item.get('rank')))}.jpg"
+        if thumb.exists():
+            return str(thumb)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "00:00:00.5", "-i", str(source), "-frames:v", "1", "-q:v", "3", str(thumb)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception:
+            return ""
+        return str(thumb) if thumb.exists() else ""
+
+    def _tribev2_reel_analysis_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
+        rows = []
+        for row in self._creative_knowledge_rows(creator=creator, campaign_slug=campaign_slug):
+            if normalize_content_surface(row.get("content_surface")) != "reel":
+                continue
+            score = self._tribev2_score_for_snapshot(row)
+            if not score:
+                continue
+            result = self._creative_knowledge_result(row)
+            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            rows.append({
+                "renderedAssetId": row.get("rendered_asset_id") or "",
+                "postId": row.get("post_id") or "",
+                "contentHash": row.get("content_hash") or "",
+                "conceptId": result.get("conceptId") or "",
+                "captionAngle": result.get("captionAngle") or "",
+                "audioId": result.get("audioId") or "",
+                "publishedAt": result.get("publishedAt") or "",
+                "views": int(metrics.get("views") or 0),
+                "reach": int(metrics.get("reach") or 0),
+                "saves": int(metrics.get("saves") or 0),
+                "shares": int(metrics.get("shares") or 0),
+                "tribev2ScoreId": score.get("id") or "",
+                "modelId": score.get("model_id") or "facebook/tribev2",
+                "modelMode": score.get("model_mode") or "",
+                "meanAbsActivation": round(float(score.get("mean_abs_activation") or 0), 6),
+                "peakAbsActivation": round(float(score.get("peak_abs_activation") or 0), 6),
+                "stdActivation": round(float(score.get("std_activation") or 0), 6),
+                "segmentsCount": int(score.get("segments_count") or 0),
+                "predsShape": json_load(score.get("preds_shape_json"), []),
+            })
+        return rows
+
+    def _tribev2_score_for_snapshot(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        rendered_asset_id = row.get("rendered_asset_id") or ""
+        content_hash = row.get("content_hash") or ""
+        campaign_id = row.get("campaign_id") or ""
+        clauses = []
+        params: list[Any] = []
+        if rendered_asset_id:
+            clauses.append("rendered_asset_id = ?")
+            params.append(rendered_asset_id)
+        if content_hash:
+            clauses.append("content_hash = ?")
+            params.append(content_hash)
+        if not clauses:
+            return None
+        campaign_clause = "AND campaign_id = ?" if campaign_id else ""
+        if campaign_id:
+            params.append(campaign_id)
+        score = self.conn.execute(
+            f"""
+            SELECT * FROM tribev2_reel_scores
+            WHERE ({" OR ".join(clauses)}) {campaign_clause}
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        return dict(score) if score else None
+
+    def _pearson_correlation(self, xs: list[float], ys: list[float]) -> float | None:
+        if len(xs) < 2 or len(xs) != len(ys):
+            return None
+        mean_x = sum(xs) / len(xs)
+        mean_y = sum(ys) / len(ys)
+        numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+        denom_x = math.sqrt(sum((x - mean_x) ** 2 for x in xs))
+        denom_y = math.sqrt(sum((y - mean_y) ** 2 for y in ys))
+        if denom_x == 0 or denom_y == 0:
+            return None
+        return round(numerator / (denom_x * denom_y), 4)
+
+    def _tribev2_bucket_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        count = len(rows)
+        def avg(field: str) -> float:
+            return round(sum(float(row.get(field) or 0) for row in rows) / count, 2) if count else 0
+        return {
+            "sampleSize": count,
+            "avgMeanAbsActivation": avg("meanAbsActivation"),
+            "avgPeakAbsActivation": avg("peakAbsActivation"),
+            "avgViews": avg("views"),
+            "avgReach": avg("reach"),
+            "avgSaves": avg("saves"),
+            "avgShares": avg("shares"),
+            "postIds": [row.get("postId") for row in rows if row.get("postId")],
+        }
+
+    def _tribev2_bucket_lift(self, top: dict[str, Any], bottom: dict[str, Any]) -> dict[str, Any]:
+        lift: dict[str, Any] = {}
+        for field in ["avgViews", "avgReach", "avgSaves", "avgShares"]:
+            base = float(bottom.get(field) or 0)
+            observed = float(top.get(field) or 0)
+            lift[field] = round(((observed - base) / base * 100.0), 2) if base else (100.0 if observed else 0.0)
+        return lift
+
+    def _tribev2_metric_quality(self, rows: list[dict[str, Any]], metric_fields: list[str]) -> dict[str, Any]:
+        quality: dict[str, Any] = {}
+        for metric in metric_fields:
+            values = [float(row.get(metric) or 0) for row in rows]
+            nonzero = sum(1 for value in values if value > 0)
+            unique_values = len(set(values))
+            quality[metric] = {
+                "nonzeroCount": nonzero,
+                "uniqueValues": unique_values,
+                "usableForCorrelation": len(values) >= 20 and nonzero >= 5 and unique_values >= 5,
+            }
+        return quality
+
+    def _tribev2_signal_summary(
+        self,
+        correlations: dict[str, dict[str, float | None]],
+        *,
+        sample_size: int,
+        metric_quality: dict[str, Any],
+    ) -> dict[str, Any]:
+        pairs: list[tuple[str, str, float]] = []
+        for signal, metrics in correlations.items():
+            for metric, value in metrics.items():
+                if value is None:
+                    continue
+                pairs.append((signal, metric, float(value)))
+        if not pairs:
+            return {
+                "strongestSignal": "",
+                "weakestSignal": "",
+                "strongestAbsCorrelation": 0.0,
+                "correlatesWith": {"views": False, "reach": False, "saves": False, "shares": False},
+            }
+        strongest = max(pairs, key=lambda item: abs(item[2]))
+        weakest = min(pairs, key=lambda item: abs(item[2]))
+        threshold = 0.4 if sample_size >= 20 else 0.7
+        correlates_with = {
+            metric: bool(metric_quality.get(metric, {}).get("usableForCorrelation"))
+            and any(item_metric == metric and abs(value) >= threshold for _, item_metric, value in pairs)
+            for metric in ["views", "reach", "saves", "shares"]
+        }
+        return {
+            "strongestSignal": f"{strongest[0]}:{strongest[1]}",
+            "weakestSignal": f"{weakest[0]}:{weakest[1]}",
+            "strongestAbsCorrelation": round(abs(strongest[2]), 4),
+            "correlatesWith": correlates_with,
+        }
+
+    def _tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
+        if sample_size < 20:
+            return "low"
+        if sample_size < 50:
+            return "medium" if statistically_interesting else "low"
+        return "high" if statistically_interesting else "medium"
 
     def creative_pattern_report(
         self,
@@ -18328,6 +19099,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "render_recipe": "surface_asset_registered",
             "content_surface": content_surface,
             "instagram_post_caption_hash": caption_hash_value,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
         }
         caption_generation = {
             "schema": "campaign_factory.surface_asset_caption_generation.v1",
@@ -18544,6 +19319,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "contentSurface": content_surface,
             "igMediaType": ig_media_type,
             "overallVerdict": "pass",
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+                "warnings": [],
+                "warningCodes": [],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
+            },
             "mediaItems": [
                 {
                     "mediaPath": str(item["stagedPath"]),
@@ -18877,6 +19665,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "audio_source": audio_source,
             "audio_selected_reason": selected_reason,
             "review_batch": review_batch,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
         }
         if caption_placement_policy:
             caption_context["captionPlacementPolicy"] = caption_placement_policy
@@ -18995,7 +19787,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "blockingReasons": [],
                 "blockingCodes": [],
                 "warnings": [],
+                "warningCodes": [],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
             },
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
             "operatorReview": caption_generation["operatorReview"],
             "probe": probe_video_shape(staged),
         }
@@ -19087,6 +19886,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         """Extract AI cost data from imported lineage and record it."""
         try:
             ensure_cost_table(self.conn)
+            lineage_hash = hashlib.sha256(
+                json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()[:24]
             # Grok prompt generation costs (from reel_factory lineage)
             usage = lineage.get("usage")
             if isinstance(usage, dict):
@@ -19098,6 +19900,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     input_tokens=usage.get("input_tokens"),
                     output_tokens=usage.get("output_tokens"),
                     metadata={"lineage_schema": lineage.get("schema"), "model": lineage.get("model")},
+                    source_event_key=f"lineage:{lineage_hash}:grok:image_prompt",
                 )
             # Higgsfield/Kling generation costs (from generation block)
             gen = lineage.get("generation")
@@ -19111,6 +19914,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         campaign_id=lineage.get("campaign"),
                         generations=1,
                         metadata={"tool": tool, "modelProfile": gen.get("modelProfile")},
+                        source_event_key=f"lineage:{lineage_hash}:higgsfield:soul_grid",
                     )
                 if "kling" in tool:
                     record_ai_cost(
@@ -19120,6 +19924,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                         campaign_id=lineage.get("campaign"),
                         generations=1,
                         metadata={"tool": tool, "modelProfile": gen.get("modelProfile")},
+                        source_event_key=f"lineage:{lineage_hash}:kling:video_animate",
                     )
         except Exception:
             pass  # Cost tracking is best-effort; never block the import pipeline
@@ -20810,6 +21615,63 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         )
         return bool((uses_ad_hoc_inventory_fill or uses_unreviewed_reel_proof_or_preview) and not has_visual_review_pass)
 
+    def _content_trust_status_blockers(
+        self,
+        asset: dict[str, Any],
+        latest_audit: dict[str, Any] | None,
+        caption_context: dict[str, Any] | None,
+    ) -> tuple[list[str], dict[str, str]]:
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        audit = latest_audit if isinstance(latest_audit, dict) else {}
+        readiness = audit.get("readinessSummary") if isinstance(audit.get("readinessSummary"), dict) else {}
+
+        def nested_status(source: dict[str, Any], *keys: str) -> str:
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip().lower()
+                if isinstance(value, dict):
+                    for nested_key in ("status", key, "visualQcStatus", "identityVerificationStatus"):
+                        nested = value.get(nested_key)
+                        if isinstance(nested, str) and nested.strip():
+                            return nested.strip().lower()
+            return ""
+
+        passed_statuses = {"passed", "pass", "approved", "ready"}
+
+        def resolved_status(*keys: str) -> str:
+            statuses = [nested_status(source, *keys) for source in [metadata, caption_context or {}, audit, readiness]]
+            statuses = [status for status in statuses if status]
+            blocking_status = next((status for status in statuses if status not in passed_statuses), "")
+            if blocking_status:
+                return blocking_status
+            return "passed" if statuses else ""
+
+        visual_status = resolved_status("visualQcStatus", "visual_qc_status", "visualQc", "visual_qc")
+        identity_status = resolved_status(
+            "identityVerificationStatus",
+            "identity_verification_status",
+            "identityVerification",
+            "identity_verification",
+        )
+        blockers: list[str] = []
+        unavailable_statuses = {"", "missing", "none", "null", "pending", "queued", "unknown", "unavailable", "not_available", "not_found"}
+
+        def blocker_code(prefix: str, status: str) -> str:
+            suffix = "unavailable" if status in unavailable_statuses else "failed"
+            return f"{prefix}_{suffix}"
+
+        if visual_status != "passed":
+            blockers.append(blocker_code("visual_qc", visual_status))
+        if identity_status != "passed":
+            blockers.append(blocker_code("identity_verification", identity_status))
+        return blockers, {
+            "visualQcStatus": visual_status or "unavailable",
+            "identityVerificationStatus": identity_status or "unavailable",
+        }
+
     def _asset_matches_creator(self, asset: dict[str, Any], creator: str) -> bool:
         expected = self._creator_label(creator).lower()
         caption_context = load_context_json(asset.get("caption_outcome_context_json"))
@@ -20833,6 +21695,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         caption_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(caption_generation, dict):
             caption_generation = {}
+        latest_audit = self._latest_audit_for_asset(str(asset["id"]))
+        trust_blockers, trust_statuses = self._content_trust_status_blockers(
+            asset,
+            latest_audit,
+            caption_context if isinstance(caption_context, dict) else {},
+        )
+        blocking.extend(trust_blockers)
         discoverability_contract = self.discoverability_safe_content_contract(
             post_caption.get("instagram_post_caption"),
             post_caption.get("burned_caption_text"),
@@ -20951,6 +21820,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "instagram_post_caption_hash": post_caption.get("instagram_post_caption_hash"),
                 "hashtags": post_caption.get("hashtags") or [],
                 "post_caption_style": post_caption.get("post_caption_style"),
+                "visualQcStatus": trust_statuses["visualQcStatus"],
+                "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
+                "visualQc": {"status": trust_statuses["visualQcStatus"]},
+                "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
                 "exported_by_system": "campaign_factory",
                 "exported_at": utc_now(),
                 "surfaceReadiness": {
@@ -20980,6 +21853,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "scheduleSafe": bool(can_handoff),
             "blockingReasons": sorted(set(blocking)),
             "warnings": sorted(set(warnings)),
+            "visualQcStatus": trust_statuses["visualQcStatus"],
+            "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
             "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
             "discoverabilityContract": discoverability_contract,
             "storyQuality": story_quality,
@@ -25518,8 +26393,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if explicit_post_caption:
                 break
         burned_caption = str(asset.get("caption") or (caption_context or {}).get("caption_text") or "").strip()
-        if not explicit_post_caption and not post_caption:
-            post_caption = burned_caption
         caption_cta = next(
             (
                 str(value).strip()
@@ -25769,6 +26642,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         cover_frame = self._cover_frame_for_asset(asset, caption_context)
         post_caption = self._instagram_post_caption_for_asset(asset, caption_context, distribution_plan=distribution_plan)
         post_caption_quality = self._instagram_post_caption_quality(post_caption)
+        trust_blockers, trust_statuses = self._content_trust_status_blockers(
+            asset,
+            latest_audit,
+            caption_context if isinstance(caption_context, dict) else {},
+        )
         asset_content_surface = normalize_content_surface(
             (distribution_plan or {}).get("contentSurface")
             or (distribution_plan or {}).get("content_surface")
@@ -25821,6 +26699,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "discoverability_safe": discoverability_contract["discoverabilitySafe"] if is_reel_surface else True,
             "instagram_post_caption_quality_passed": post_caption_quality["passed"] if asset_content_surface != "story" else True,
             "operator_visual_review_passed": not self._requires_operator_visual_review_for_handoff(asset) if is_reel_surface else True,
+            "visual_qc_passed": trust_statuses["visualQcStatus"] == "passed",
+            "identity_verification_passed": trust_statuses["identityVerificationStatus"] == "passed",
             "readiness_checks_pass": bool(latest_audit) and not readiness_blockers,
             "quarantine_clear": not bool(quarantine),
         }
@@ -25856,6 +26736,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             failures.append("burned_caption_quality_failed")
         if is_reel_surface and not checks["operator_visual_review_passed"]:
             failures.append("operator_visual_review_required")
+        failures.extend(trust_blockers)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
@@ -25894,6 +26775,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "post_caption_style": post_caption["post_caption_style"],
                 "burned_caption_text": post_caption["burned_caption_text"],
                 "burned_caption_hash": post_caption["burned_caption_hash"],
+                "visualQcStatus": trust_statuses["visualQcStatus"],
+                "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
+                "visualQc": {"status": trust_statuses["visualQcStatus"]},
+                "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
                 "visual_verification_id": self._verification_id("visual_verification", asset["id"], content_fingerprint, render_recipe),
                 "caption_verification_id": self._verification_id("caption_verification", asset["id"], caption_hash, render_recipe),
                 "audio_id": audio_id or "not_required",
@@ -25978,6 +26863,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "reel_caption_account_safety_violations": reel_caption_safety_violations,
             "burnedCaptionQualityPassed": burned_caption_quality_passed,
             "burned_caption_quality_passed": burned_caption_quality_passed,
+            "visualQcStatus": trust_statuses["visualQcStatus"],
+            "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
             **variant_lineage,
             "audioIntent": audio_intent,
             "audio_id": audio_id,

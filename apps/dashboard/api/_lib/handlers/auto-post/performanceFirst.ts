@@ -1692,6 +1692,19 @@ export function isProfileCuriosityDeadEndContent(
 			text,
 		);
 	if (lowEffortDirectProfileBait) return true;
+	const aestheticComfortFiller =
+		/\b(cozy blankets?|blankets?|hot tea|tea|coffee|cute mug|quiet mornings?|morning coffee|sad girl anthem|heartbreak playlist|night light|rainy day|comfort show|comfort movie|comfort book|podcast|study snack|lazy sunday|soft playlist)\b/.test(
+			text,
+		);
+	const strongProfileIntent =
+		/\b(would you date|date a girl|am i (still )?(pretty|cute|hot)|still cute|crop top|gym gains?|red flag|toxic|lose interest|single|sexy|flirty|thirsty?|kiss|late night text|good morning text|check my profile|talk to me)\b/.test(
+			text,
+		) ||
+		(/\bgirls? who\b/.test(text) &&
+			/\b(pretty|sexy|date|dating|red flag|toxic|single|clingy|needy|jealous|kiss|crop top|gym gains?)\b/.test(
+				text,
+			));
+	if (aestheticComfortFiller && !strongProfileIntent) return true;
 	if (isHighValueProfileCuriosityContent(text)) return false;
 	const hasCreatorCuriosityCue =
 		/\b(girl|girls|would you date|date a girl|am i|cute|pretty|single|red flag|toxic|lose interest|crop top|headset|hot|sexy|flirty|thirst|clingy|needy|jealous|kiss|cuddle|late night text|good morning text|check my profile|talk to me|handle)\b/.test(
@@ -1717,6 +1730,41 @@ export function isProfileCuriosityDeadEndContent(
 			text,
 		)
 	);
+}
+
+const FORMULA_PREFIX_RE =
+	/^\s*(?:hot\s+take|unpopular\s+opinion|opinion|confession|asking\s+for\s+(?:a\s+)?friend)\s*:/i;
+const FORMULA_SLOGAN_RE =
+	/\b(?:trust|on god|no cap|that'?s tuff|bruh|based|fr fr|lowkey|deadass|sheesh)\b/i;
+
+export function isLowCuriosityAiFormulaContent(
+	content: string | null | undefined,
+	sourceType?: string | null | undefined,
+): boolean {
+	if (sourceType && sourceType !== "ai") return false;
+	const text = normalizedFrameText(content);
+	if (!text) return false;
+	if (!FORMULA_PREFIX_RE.test(text) && !FORMULA_SLOGAN_RE.test(text)) {
+		return false;
+	}
+	const frame = classifyProfileCuriosityFrame(text);
+	const highValue =
+		frame.profileCuriosityFrame === "direct_profile_curiosity" ||
+		frame.profileCuriosityFrame === "dating_curiosity" ||
+		frame.profileCuriosityFrame === "dating_validation" ||
+		frame.profileCuriosityFrame === "validation_attraction" ||
+		frame.curiosityMechanism === "dateability_test" ||
+		frame.curiosityMechanism === "validation_prompt" ||
+		frame.curiosityMechanism === "relationship_standards_identity";
+	if (highValue) return false;
+	const genericDebate =
+		/\b(pre-?workout|protein|cardio|lifting|workout|gym|coffee|playlist|anime|game|gaming|movie|show|song)\b/.test(
+			text,
+		) &&
+		/\b(best|better|overrated|underrated|superior|essential|should|must|hits different|therapy|valid)\b/.test(
+			text,
+		);
+	return FORMULA_PREFIX_RE.test(text) || genericDebate;
 }
 
 export function winnerCloneFrameAlignmentScore(input: {
@@ -1905,6 +1953,11 @@ export function buildPerformanceFirstRecommendations(
 	for (const winner of (input.winnerPatterns || []).slice(0, 12)) {
 		if (!winner.workspace_id) continue;
 		if (detectTaxonomyLabelLeak(winner.source_text)) continue;
+		if (
+			isLowCuriosityAiFormulaContent(winner.source_text, winner.source_type)
+		) {
+			continue;
+		}
 		const frame = classifyProfileCuriosityFrame(winner.source_text);
 		if (
 			frame.profileCuriosityFrame === "generic_topic" &&

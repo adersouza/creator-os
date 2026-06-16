@@ -5,13 +5,13 @@ import json
 from argparse import Namespace
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-REEL_FACTORY_ROOT = Path(__file__).resolve().parents[1]
 
 from caption_render import render_caption_png
 from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
-from graph_builder import build_ffmpeg_cmd
+from graph_builder import build_ffmpeg_cmd, build_video_filter
 from recipe_loader import load_recipes
 from reel_pipeline import (
     CaptionSet,
@@ -30,6 +30,8 @@ from reel_pipeline import (
     ensure_source_asset_lineage,
     limit_render_pool,
     load_asset_prompt_set,
+    enforce_production_identity_provider,
+    normalize_rendered_mp4_metadata,
     phone_creation_time,
     reconcile_interrupted_temp_outputs,
     source_lineage_path_for,
@@ -89,7 +91,7 @@ class ReelPipelineTests(unittest.TestCase):
             (cap_dir / "clip_001.json").write_text(
                 json.dumps({
                     "hooks": [
-                        "account so small that if you follow me I will message you",
+                        "mirror selfie after the light hit different",
                         "gym mirror selfie after the coach said front or back",
                     ]
                 }),
@@ -110,6 +112,36 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(lineage["schema"], "reel_factory.caption_lineage.v1")
             self.assertEqual(lineage["selectedMix"], "Lola")
             self.assertIn("captionBankSourceHash", lineage)
+
+    def test_caption_bank_selection_blocks_discoverability_unsafe_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cap_dir = root / "01_captions"
+            cap_dir.mkdir()
+            (cap_dir / "clip_001.json").write_text(
+                json.dumps({"hooks": ["I respond to DMs. I just don't respond to basic ones"]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "discoverability unsafe caption"):
+                caption_set_from_bank_selection(
+                    root,
+                    caption_mix="Stacey",
+                    caption_banks=None,
+                    limit=1,
+                    seed=1,
+                )
+
+    def test_caption_sidecar_blocks_discoverability_unsafe_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip_001.json"
+            path.write_text(
+                json.dumps({"hooks": [{"segments": [{"text": "link in bio", "end": 1.0}]}]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "discoverability unsafe caption"):
+                CaptionSet.from_path(path)
 
     def test_caption_fit_filters_long_hooks_for_mirror_fullbody(self):
         cap_set = CaptionSet(
@@ -731,7 +763,7 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertIn("encoder busy", row["error_message"])
 
     def test_default_recipe_config_loads_and_validates(self):
-        recipes = load_recipes(REEL_FACTORY_ROOT / "recipes" / "default.json", Recipe)
+        recipes = load_recipes(Path("recipes/default.json"), Recipe)
         by_name = {recipe.name: recipe for recipe in recipes}
         names = [recipe.name for recipe in recipes]
         self.assertIn("v00_passthrough", names)
@@ -781,6 +813,45 @@ class ReelPipelineTests(unittest.TestCase):
         cmd = build_ffmpeg_cmd(plan, "ffmpeg")
         self.assertEqual(cmd[-1], "tmp/out.mp4")
         self.assertIn("-filter_complex", cmd)
+
+    def test_camera_variation_seed_is_account_scoped(self):
+        recipe = Recipe("v_seeded", camera_variation=True)
+        base = {
+            "src": Path("in.mp4"),
+            "caption_pngs": [],
+            "recipe": recipe,
+            "out": Path("tmp/out.mp4"),
+            "duration": 3.0,
+            "fonts_dir": Path("fonts"),
+            "src_hash": "same-source",
+            "src_dims": (1080, 1920),
+        }
+        account_a = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
+        account_a_again = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
+        account_b = build_video_filter(RenderPlan(**base, account_scope="stacey_b"))
+
+        self.assertEqual(account_a, account_a_again)
+        self.assertNotEqual(account_a, account_b)
+
+    def test_production_render_requires_explicit_account_scope(self):
+        from render_plan import validate_account_scope
+
+        self.assertEqual(validate_account_scope(None), "local_review")
+        self.assertEqual(validate_account_scope("stacey_a", production_render=True), "stacey_a")
+        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+            validate_account_scope(None, production_render=True)
+        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+            validate_account_scope("local_review", production_render=True)
+
+    def test_job_key_includes_account_scope_for_production_accounts(self):
+        recipe = Recipe("v_seeded", camera_variation=True)
+        account_a = compute_job_key("video", "caption", recipe, account_scope="stacey_a")
+        account_b = compute_job_key("video", "caption", recipe, account_scope="stacey_b")
+        local_a = compute_job_key("video", "caption", recipe)
+        local_b = compute_job_key("video", "caption", recipe, account_scope="local_review")
+
+        self.assertNotEqual(account_a, account_b)
+        self.assertEqual(local_a, local_b)
 
     def test_graph_builder_supports_prores_mezzanine_profile(self):
         plan = RenderPlan(
@@ -839,7 +910,7 @@ class ReelPipelineTests(unittest.TestCase):
             render_caption_png(
                 "hello world",
                 font_family="Instagram Sans Condensed",
-                fonts_dir=REEL_FACTORY_ROOT / "fonts",
+                fonts_dir=Path("fonts"),
                 color_scheme="light",
                 band="center",
                 style="ig",
@@ -1000,6 +1071,51 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertIn("--source tmp/in.mp4", joined)
         self.assertIn("--output tmp/out.mp4", joined)
         self.assertIn("--replace", cmd)
+
+    def test_rendered_mp4_metadata_normalization_is_required(self):
+        with patch("reel_pipeline.normalize_media_metadata", return_value={
+            "metadataNormalized": True,
+            "metadataWarnings": [],
+        }) as normalize:
+            result = normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
+
+        normalize.assert_called_once_with(Path("tmp/out.mp4"), dry_run=False)
+        self.assertTrue(result["metadataNormalized"])
+
+        with patch("reel_pipeline.normalize_media_metadata", return_value={
+            "metadataNormalized": False,
+            "metadataWarnings": ["exiftool_unavailable"],
+        }):
+            with self.assertRaisesRegex(RuntimeError, "metadata_normalization_failed:exiftool_unavailable"):
+                normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
+
+    def test_production_render_requires_venv_and_insightface_provider(self):
+        class FakeInsightFaceProvider:
+            name = "insightface_arcface"
+
+            def available(self):
+                return True, "ok"
+
+        class FakeUnavailableProvider:
+            name = "unavailable"
+
+            def available(self):
+                return False, "missing"
+
+        with patch("reel_pipeline.sys.executable", "/usr/bin/python3"):
+            with self.assertRaisesRegex(RuntimeError, "production_render_requires_venv_python"):
+                enforce_production_identity_provider(True)
+
+        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
+             patch("reel_pipeline.get_identity_provider", return_value=FakeUnavailableProvider()):
+            with self.assertRaisesRegex(RuntimeError, "production_render_identity_provider_unavailable"):
+                enforce_production_identity_provider(True)
+
+        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
+             patch("reel_pipeline.get_identity_provider", return_value=FakeInsightFaceProvider()):
+            result = enforce_production_identity_provider(True)
+
+        self.assertEqual(result["provider"], "insightface_arcface")
 
     def test_phone_creation_time_uses_utc_mp4_timestamp_shape(self):
         created_at = phone_creation_time()

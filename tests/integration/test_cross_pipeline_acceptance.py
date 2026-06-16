@@ -112,6 +112,8 @@ def _campaign_draft_payload() -> dict:
         "captioned_render_present": True,
         "visible_caption_verification": "pass",
         "expected_visual_verification": "pass",
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
         "content_fingerprint": "sha256-content-acceptance-reel-1",
         "caption_hash": caption["caption_hash"],
         "instagram_post_caption": "mirror check",
@@ -153,6 +155,10 @@ def _campaign_draft_payload() -> dict:
         "instagram_post_caption_hash": campaign_factory["instagram_post_caption_hash"],
         "content_surface": "reel",
         "ig_media_type": "REELS",
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.91},
     }
     return {
         "schema": "campaign_factory.threadsdash_drafts.v1",

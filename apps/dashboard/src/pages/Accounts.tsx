@@ -51,7 +51,6 @@ import {
 	type FleetGroupMeta,
 } from "@/hooks/useFleetAccounts";
 import { useOnboardingState } from "@/hooks/useOnboardingState";
-import { usePhoneChrome } from "@/hooks/usePhoneChrome";
 import { resetFleetMetricsCache } from "@/hooks/useFleetMetrics";
 import { resetTopPostsCache } from "@/hooks/useTopPosts";
 import { initiateInstagramLogin, initiateLogin } from "@/services/api/accounts";
@@ -203,7 +202,6 @@ export function Accounts() {
 	const selectedGroupId = useWorkspaceStore((s) => s.selectedGroupId);
 	const setSelectedGroupId = useWorkspaceStore((s) => s.setSelectedGroupId);
 	const onboarding = useOnboardingState();
-	const phoneChrome = usePhoneChrome();
 	const {
 		accounts: rawAccounts,
 		groups: fleetGroups,
@@ -1140,46 +1138,44 @@ export function Accounts() {
 
 	return (
 		<>
-			{phoneChrome && (
-				<MobileAccounts
-					accounts={filtered}
-					allAccounts={accounts}
-					totals={totals}
-					groups={groups}
-					groupsCount={groups.length}
-					isLoading={isLoading}
-					status={status}
-					selected={selected}
-					selectedRows={selectedRows}
-					onToggleSelect={toggleSelect}
-					onClearSelect={clearSelection}
-					onStatusChange={setStatus}
-					onCreateGroup={createAccountGroup}
-					onUpdateGroup={updateAccountGroup}
-					onDeleteGroup={deleteAccountGroup}
-					onFilterGroup={(id) => applyGroupFilter(id as GroupFilter)}
-					onMoveSelectedToGroup={moveSelectedToGroup}
-					onUnassignSelected={unassignSelected}
-					onOpen={setOpenAccount}
-					onPause={(account) => void pauseAccount(account)}
-					onViewScheduler={viewScheduler}
-					onViewAnalytics={viewAnalytics}
-					onMoveGroup={(account) => {
-						setSelected(new Set([account.id]));
-						setMoveGroupSelection(account.groupId ?? null);
-						setMoveGroupPickerOpen(true);
-					}}
-					onSync={(account) => void syncAccounts([account])}
-					onHealthCheck={(account) => void healthCheckAccounts([account])}
-					onReconnect={reconnectAccount}
-					onRemove={(account) => setPendingRemoval([account])}
-					onAddAccount={() => navigate("/welcome")}
-				/>
-			)}
+			<MobileAccounts
+				accounts={filtered}
+				allAccounts={accounts}
+				totals={totals}
+				groups={groups}
+				groupsCount={groups.length}
+				isLoading={isLoading}
+				status={status}
+				selected={selected}
+				selectedRows={selectedRows}
+				onToggleSelect={toggleSelect}
+				onClearSelect={clearSelection}
+				onStatusChange={setStatus}
+				onCreateGroup={createAccountGroup}
+				onUpdateGroup={updateAccountGroup}
+				onDeleteGroup={deleteAccountGroup}
+				onFilterGroup={(id) => applyGroupFilter(id as GroupFilter)}
+				onMoveSelectedToGroup={moveSelectedToGroup}
+				onUnassignSelected={unassignSelected}
+				onOpen={setOpenAccount}
+				onPause={(account) => void pauseAccount(account)}
+				onViewScheduler={viewScheduler}
+				onViewAnalytics={viewAnalytics}
+				onMoveGroup={(account) => {
+					setSelected(new Set([account.id]));
+					setMoveGroupSelection(account.groupId ?? null);
+					setMoveGroupPickerOpen(true);
+				}}
+				onSync={(account) => void syncAccounts([account])}
+				onHealthCheck={(account) => void healthCheckAccounts([account])}
+				onReconnect={reconnectAccount}
+				onRemove={(account) => setPendingRemoval([account])}
+				onAddAccount={() => navigate("/welcome")}
+			/>
 			<NovaScreen
 				width="full"
 				density="compact"
-				className={phoneChrome ? "hidden" : undefined}
+				className="hidden md:block"
 			>
 				{showEmpty ? (
 					<div className="flex flex-col gap-3">

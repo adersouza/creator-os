@@ -5,11 +5,14 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import struct
 import shutil
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,7 +46,7 @@ from campaign_factory.adapters.threadsdash import (
     sync_performance_snapshots,
     verify_threadsdash_export,
 )
-from campaign_factory.config import Settings
+from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_audio_catalog_export,
     validate_audio_intent,
@@ -55,6 +58,7 @@ from campaign_factory.contracts import (
 )
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
+from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
 from campaign_factory.db import _repair_source_asset_fk_references
 from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.readiness_report import build_mass_production_readiness_report
@@ -62,10 +66,18 @@ from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
 
 
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+MONOREPO_ROOT = Path(__file__).resolve().parents[3]
+CLI_PYTHONPATH = os.pathsep.join([
+    str(PACKAGE_ROOT),
+    str(MONOREPO_ROOT / "packages" / "pipeline_contracts"),
+])
+
+
 def make_factory(tmp_path: Path) -> CampaignFactory:
     reel_root = tmp_path / "reel_factory"
-    (reel_root / "00_source_videos").mkdir(parents=True)
-    (reel_root / "01_captions").mkdir(parents=True)
+    (reel_root / "00_source_videos").mkdir(parents=True, exist_ok=True)
+    (reel_root / "01_captions").mkdir(parents=True, exist_ok=True)
     return CampaignFactory(Settings(
         root=tmp_path,
         db_path=tmp_path / "campaign_factory.sqlite",
@@ -74,6 +86,74 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
         threadsdash_root=tmp_path / "ThreadsDashboard",
         campaigns_dir=tmp_path / "campaigns",
     ))
+
+
+def test_ai_cost_source_event_key_is_idempotent(tmp_path: Path):
+    conn = sqlite3.connect(tmp_path / "costs.sqlite")
+    try:
+        first_id = record_ai_cost(
+            conn,
+            provider="grok",
+            operation="image_prompt",
+            campaign_id="campaign_1",
+            input_tokens=100,
+            output_tokens=25,
+            source_event_key="lineage:abc:grok:image_prompt",
+        )
+        second_id = record_ai_cost(
+            conn,
+            provider="grok",
+            operation="image_prompt",
+            campaign_id="campaign_1",
+            input_tokens=100,
+            output_tokens=25,
+            source_event_key="lineage:abc:grok:image_prompt",
+        )
+        count = conn.execute("SELECT COUNT(*) FROM ai_cost_events").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert second_id == first_id
+    assert count == 1
+
+
+def test_ai_cost_table_migrates_source_event_key(tmp_path: Path):
+    conn = sqlite3.connect(tmp_path / "legacy_costs.sqlite")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE ai_cost_events (
+                id TEXT PRIMARY KEY,
+                campaign_id TEXT,
+                provider TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                generations INTEGER,
+                estimated_cost_usd REAL NOT NULL,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        ensure_cost_table(conn)
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(ai_cost_events)").fetchall()
+        }
+        record_ai_cost(
+            conn,
+            provider="higgsfield",
+            operation="soul_grid",
+            generations=1,
+            source_event_key="lineage:def:higgsfield:soul_grid",
+        )
+        count = conn.execute("SELECT COUNT(*) FROM ai_cost_events").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert "source_event_key" in columns
+    assert count == 1
 
 
 def test_caption_outcome_context_preserves_additive_scene_fields():
@@ -192,6 +272,10 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "make-batch" in result["commands"]["makeBatch"]
+    assert result["commands"]["startContentForge"] == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3100"
+    assert result["commands"]["startCampaignFactory"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory"))
+    assert result["commands"]["exportReferencePatterns"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory"))
+    assert "cd " not in "\n".join(result["commands"].values())
 
 
 def test_contract_schema_examples_validate():
@@ -207,9 +291,9 @@ def test_contract_schema_examples_validate():
         "kling_3_video_prompt.v1.example.json",
         "performance_sync.v1.example.json",
         "pattern_card.v1.example.json",
+        "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
-        "repurposing_plan.v1.example.json",
         "video_analysis.v1.example.json",
     }
 
@@ -1937,6 +2021,8 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": "caption_hash_1",
         "caption_text": "caption",
+        "instagram_post_caption": "new post",
+        "instagram_post_caption_hash": threadsdash_adapter._text_hash("new post"),
         "caption_bank": "test_bank",
         "caption_banks": ["test_bank"],
         "creator_mix": "Test",
@@ -1949,13 +2035,17 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             "reason": "test fixture placement passed",
         },
     }
+    content_trust_metadata = {
+        "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+    }
     cf.conn.execute(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-         caption_generation_json, created_at, updated_at)
-        VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?)
+         caption_generation_json, metadata_json, created_at, updated_at)
+        VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
         """,
         (
             source["campaign_id"],
@@ -1965,6 +2055,7 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             filename,
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
             json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -1972,6 +2063,7 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
                     "status": "not_required",
                 }
             }),
+            json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             now,
             now,
         ),
@@ -2717,7 +2809,13 @@ def add_audit_report(
             "warnings": warnings,
             "blockingCodes": [],
             "warningCodes": warning_codes,
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
         },
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
         "overallVerdict": overall_verdict,
         "warnings": warnings,
         "failedChecks": failed,
@@ -3095,10 +3193,74 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         cf.close()
 
 
+def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"success": True, "postIds": ["post_ingest_1"], "writtenDrafts": 1}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "new post is up",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": False,
+                    "status": "not_required",
+                },
+            }),),
+        )
+        cf.conn.commit()
+        ensure_exportable_distribution_plan(cf)
+        result = export_threadsdash(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            dry_run=False,
+            threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+            threadsdash_ingest_secret="ingest-secret",
+        )
+
+        assert result["dashboardIngest"]["attempted"] is True
+        assert result["dashboardIngest"]["postIds"] == ["post_ingest_1"]
+        assert result["supabase"]["attempted"] is False
+        assert result["supabase"]["disabled"] is True
+        assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
+        assert captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        assert captured["body"]["dryRun"] is False
+        assert captured["body"]["drafts"][0]["instagramPostCaption"]
+    finally:
+        cf.close()
+
+
 def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     upserted: list[tuple[str, dict, str]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -3669,6 +3831,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
             cf.conn.execute(
                 "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
                 (json.dumps({
+                    "instagram_post_caption": "new post",
                     "audioIntent": {
                         "schema": "pipeline.audio_intent.v1",
                         "mode": "native_platform_audio",
@@ -3681,7 +3844,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
                                 **({"attached_at": "2026-05-22T12:05:00+00:00"} if status == "attached" else {"verified_at": "2026-05-22T12:10:00+00:00"}),
                             }
                         } if status in {"attached", "verified"} else {}),
-                    }
+                    },
                 }),),
             )
             cf.conn.commit()
@@ -3718,12 +3881,13 @@ def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path,
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
                     "required": True,
                     "status": "attached",
-                }
+                },
             }),),
         )
         cf.conn.commit()
@@ -3762,12 +3926,13 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
                     "required": True,
                     "status": "needs_operator_selection",
-                }
+                },
             }),),
         )
         cf.conn.commit()
@@ -3836,6 +4001,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
             (json.dumps({
+                "instagram_post_caption": "new post",
                 "audioIntent": {
                     "schema": "pipeline.audio_intent.v1",
                     "mode": "native_platform_audio",
@@ -4085,6 +4251,8 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                         "schema": "campaign_factory.caption_outcome_context.v1",
                         "caption_hash": f"caption_hash_{i}",
                         "caption_text": f"caption {i}",
+                        "instagram_post_caption": f"new post {i}",
+                        "instagram_post_caption_hash": threadsdash_adapter._text_hash(f"new post {i}"),
                         "caption_bank": "test_bank",
                         "caption_banks": ["test_bank"],
                         "creator_mix": "Test",
@@ -4093,6 +4261,7 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                         "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
                     }),
                     json.dumps({
+                        "instagram_post_caption": f"new post {i}",
                         "audioIntent": {
                             "schema": "pipeline.audio_intent.v1",
                             "mode": "native_platform_audio",
@@ -4851,6 +5020,61 @@ def test_publishability_blocks_blank_instagram_post_caption(tmp_path: Path):
         cf.close()
 
 
+def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        audit = add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        audit_path = Path(audit["path"])
+        payload = json.loads(audit_path.read_text(encoding="utf-8"))
+        payload["readinessSummary"]["visualQcStatus"] = "unavailable"
+        payload["readinessSummary"]["identityVerificationStatus"] = "failed"
+        payload["visualQcStatus"] = "unavailable"
+        payload["identityVerificationStatus"] = "failed"
+        payload["visualQc"] = {"status": "unavailable"}
+        payload["identityVerification"] = {"status": "failed"}
+        audit_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+
+        assert explanation["publishableCandidate"] is False
+        assert explanation["checks"]["visual_qc_passed"] is False
+        assert explanation["checks"]["identity_verification_passed"] is False
+        assert explanation["visualQcStatus"] == "unavailable"
+        assert explanation["identityVerificationStatus"] == "failed"
+        assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
+        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert explanation["handoff_manifest"] is None
+    finally:
+        cf.close()
+
+
+def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        audit = add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        audit_path = Path(audit["path"])
+        payload = json.loads(audit_path.read_text(encoding="utf-8"))
+        payload["readinessSummary"]["visualQcStatus"] = "pending"
+        payload["readinessSummary"]["identityVerificationStatus"] = "provider_error"
+        audit_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        explanation = cf.explain_publishability("asset_1")
+
+        assert explanation["visualQcStatus"] == "pending"
+        assert explanation["identityVerificationStatus"] == "provider_error"
+        assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
+        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert "visual_qc_pending" not in explanation["publishability_failure_reasons"]
+        assert "identity_verification_provider_error" not in explanation["publishability_failure_reasons"]
+    finally:
+        cf.close()
+
+
 def test_publishability_blocks_reel_captions_with_dm_or_link_references(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -5148,7 +5372,7 @@ def test_caption_quality_repair_plan_cli_outputs_json(tmp_path: Path):
             "Test",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5274,7 +5498,7 @@ def test_inventory_recovery_report_cli_outputs_json(tmp_path: Path):
             "3",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5467,118 +5691,6 @@ def test_schedule_safe_production_report_measures_fresh_waterfall_without_writin
         cf.close()
 
 
-def test_schedule_safe_production_report_uses_variant_parent_cohort_for_old_parent_lineage(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        source, _ = add_rendered_asset(cf, tmp_path)
-        cf.conn.execute("DELETE FROM rendered_assets")
-        cf.conn.commit()
-        old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
-        parent = add_schedule_safe_production_asset(
-            cf,
-            tmp_path,
-            asset_id="parent_old",
-            source=source,
-            created_at=old_time,
-        )
-        now = datetime.now(timezone.utc).isoformat()
-        cf.conn.execute(
-            """
-            INSERT INTO concepts
-            (id, campaign_id, creator, parent_reel_id, parent_asset_id, source_asset_id,
-             source_fingerprint, content_fingerprint, caption_hash, audio_id, status, metadata_json, created_at, updated_at)
-            VALUES ('concept_old_lineage', ?, 'Test', 'parent_reel_old', 'parent_old', ?,
-                    'source_hash_old', 'hash_parent_old', 'caption_hash_parent_old', 'audio_old', 'active', '{}', ?, ?)
-            """,
-            (parent["campaign_id"], source["id"], old_time, old_time),
-        )
-        cf.conn.execute(
-            """
-            INSERT INTO caption_families
-            (id, campaign_id, concept_id, parent_reel_id, parent_asset_id, creator, requested_count, style, status, metadata_json, created_at, updated_at)
-            VALUES ('cfam_old_lineage', ?, 'concept_old_lineage', 'parent_reel_old', 'parent_old', 'Test', 3, 'ig_short', 'active', '{}', ?, ?)
-            """,
-            (parent["campaign_id"], old_time, old_time),
-        )
-        cf.conn.execute(
-            """
-            INSERT INTO caption_versions
-            (id, caption_family_id, campaign_id, concept_id, parent_reel_id, parent_asset_id,
-             caption_family_index, burned_caption_text, burned_caption_hash, instagram_post_caption,
-             instagram_post_caption_hash, caption_angle, status, created_at, updated_at)
-            VALUES ('cver_old_lineage', 'cfam_old_lineage', ?, 'concept_old_lineage', 'parent_reel_old',
-                    'parent_old', 0, 'caption', 'caption_hash_old', 'new fit today', 'post_hash_old',
-                    'soft_cta', 'active', ?, ?)
-            """,
-            (parent["campaign_id"], old_time, old_time),
-        )
-        add_schedule_safe_production_asset(cf, tmp_path, asset_id="variant_fresh_from_old_parent", source=source, parent_asset_id="parent_old", created_at=now)
-        ensure_exportable_distribution_plan(cf, "variant_fresh_from_old_parent")
-        cf.conn.commit()
-        before = cf.conn.total_changes
-
-        report = cf.schedule_safe_production_report(
-            creator="Test",
-            content_surface="reel",
-            lookback_days=1,
-            required_inventory=225,
-            current_inventory=11,
-        )
-
-        assert cf.conn.total_changes == before
-        assert report["waterfallSummary"]["rawParents"] == 1
-        assert report["waterfallSummary"]["captionFamilies"] == 1
-        assert report["metadataGapCounts"]["parentsMissingCaptionFamily"] == 0
-        assert report["measurementWarnings"] == []
-        assert report["largestProductionLoss"]["largestLossGate"] != "caption_families_created"
-        assert "productionLossesOnly" in report
-        assert report["wouldWrite"] is False
-    finally:
-        cf.close()
-
-
-def test_schedule_safe_production_report_classifies_missing_caption_family_as_lineage_gap(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        source, _ = add_rendered_asset(cf, tmp_path)
-        cf.conn.execute("DELETE FROM rendered_assets")
-        cf.conn.commit()
-        old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
-        add_schedule_safe_production_asset(
-            cf,
-            tmp_path,
-            asset_id="parent_without_family",
-            source=source,
-            created_at=old_time,
-        )
-        add_schedule_safe_production_asset(
-            cf,
-            tmp_path,
-            asset_id="variant_fresh_without_family",
-            source=source,
-            parent_asset_id="parent_without_family",
-        )
-        ensure_exportable_distribution_plan(cf, "variant_fresh_without_family")
-        cf.conn.commit()
-
-        report = cf.schedule_safe_production_report(
-            creator="Test",
-            content_surface="reel",
-            lookback_days=1,
-            required_inventory=225,
-            current_inventory=11,
-        )
-
-        assert report["metadataGapCounts"]["parentsMissingCaptionFamily"] == 1
-        assert "lineage_metadata_gap:caption_families_missing_for_variant_parent_cohort" in report["measurementWarnings"]
-        assert report["largestProductionLoss"]["largestLossGate"] != "caption_families_created"
-        assert all(row["stage"] != "caption_families_created" for row in report["productionLossesOnly"])
-        assert report["lineageCompletenessPct"] < 100
-        assert report["wouldWrite"] is False
-    finally:
-        cf.close()
-
-
 def test_schedule_safe_production_capacity_zero_production_is_blocked(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -5616,7 +5728,7 @@ def test_schedule_safe_production_report_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5708,7 +5820,7 @@ def test_contentforge_visual_qc_cli_outputs_json(tmp_path: Path):
             "225",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5803,7 +5915,7 @@ def test_multi_blocker_inventory_unlock_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5888,7 +6000,7 @@ def test_operator_inventory_review_batch_cli_outputs_json(tmp_path: Path):
             "10",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -5967,7 +6079,7 @@ def test_operator_review_simulator_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -6013,92 +6125,6 @@ def test_fresh_schedule_safe_production_plan_calculates_reel_only_buffer_without
         ]
         assert report["largestProductionRisk"] == "variant_to_schedule_safe_yield_not_yet_proven"
         assert report["downstreamYieldEvidenceStatus"] == "insufficient_schedule_safe_variant_production_evidence"
-        assert report["yieldSource"] == "conservative_default"
-        assert report["sampleSize"] == 0
-        assert report["confidence"] == "low"
-        assert report["recommendedBatchCount"] == report["batchesRequired"]
-        assert report["stopAfterEachBatchForGateCheck"] is True
-        assert report["wouldWrite"] is False
-    finally:
-        cf.close()
-
-
-def test_fresh_schedule_safe_production_plan_uses_measured_recent_yield_when_sample_is_adequate(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        source, _ = add_rendered_asset(cf, tmp_path)
-        cf.conn.execute("DELETE FROM rendered_assets")
-        cf.conn.commit()
-        parent = add_schedule_safe_production_asset(cf, tmp_path, asset_id="parent_measured_recent", source=source)
-        now = datetime.now(timezone.utc).isoformat()
-        cf.conn.execute(
-            """
-            INSERT INTO concepts
-            (id, campaign_id, creator, parent_reel_id, parent_asset_id, source_asset_id,
-             source_fingerprint, content_fingerprint, caption_hash, audio_id, status, metadata_json, created_at, updated_at)
-            VALUES ('concept_measured_recent', ?, 'Stacey', 'parent_reel_measured_recent',
-                    'parent_measured_recent', ?, 'source_hash_measured_recent',
-                    'hash_parent_measured_recent', 'caption_hash_parent_measured_recent',
-                    'audio_measured_recent', 'active', '{}', ?, ?)
-            """,
-            (parent["campaign_id"], source["id"], now, now),
-        )
-        cf.conn.execute(
-            """
-            INSERT INTO caption_families
-            (id, campaign_id, concept_id, parent_reel_id, parent_asset_id, creator, requested_count, style, status, metadata_json, created_at, updated_at)
-            VALUES ('cfam_measured_recent', ?, 'concept_measured_recent',
-                    'parent_reel_measured_recent', 'parent_measured_recent',
-                    'Stacey', 3, 'ig_short', 'active', '{}', ?, ?)
-            """,
-            (parent["campaign_id"], now, now),
-        )
-        cf.conn.execute(
-            """
-            INSERT INTO caption_versions
-            (id, caption_family_id, campaign_id, concept_id, parent_reel_id, parent_asset_id,
-             caption_family_index, burned_caption_text, burned_caption_hash, instagram_post_caption,
-             instagram_post_caption_hash, caption_angle, status, created_at, updated_at)
-            VALUES ('cver_measured_recent', 'cfam_measured_recent', ?,
-                    'concept_measured_recent', 'parent_reel_measured_recent',
-                    'parent_measured_recent', 0, 'caption', 'caption_hash_measured_recent',
-                    'new fit today', 'post_hash_measured_recent', 'soft_cta',
-                    'active', ?, ?)
-            """,
-            (parent["campaign_id"], now, now),
-        )
-        for index in range(30):
-            asset_id = f"variant_measured_recent_{index}"
-            add_schedule_safe_production_asset(
-                cf,
-                tmp_path,
-                asset_id=asset_id,
-                source=source,
-                parent_asset_id="parent_measured_recent",
-            )
-            if index < 15:
-                ensure_exportable_distribution_plan(cf, asset_id)
-        cf.conn.commit()
-        before = cf.conn.total_changes
-
-        report = cf.fresh_schedule_safe_production_plan(
-            creator="Test",
-            target_schedule_safe_inventory=111,
-            current_inventory=11,
-        )
-
-        assert cf.conn.total_changes == before
-        assert report["yieldSource"] == "measured_recent"
-        assert report["sampleSize"] == 30
-        assert report["confidence"] == "medium"
-        assert report["expectedYield"] == 50.0
-        assert report["freshScheduleSafeAssetsNeeded"] == 100
-        assert report["variantsNeeded"] == 200
-        assert report["parentsNeeded"] == 14
-        assert report["recommendedBatchCount"] == report["batchesRequired"]
-        assert report["stopAfterEachBatchForGateCheck"] is True
-        assert report["measuredRecentYield"]["variantsCreated"] == 30
-        assert report["measuredRecentYield"]["scheduleSafeAssets"] == 15
         assert report["wouldWrite"] is False
     finally:
         cf.close()
@@ -6141,7 +6167,7 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
             "270",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -6151,50 +6177,6 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
     assert payload["schema"] == "creator_os.fresh_schedule_safe_production_plan.v1"
     assert payload["freshScheduleSafeAssetsNeeded"] == 259
     assert payload["parentsNeeded"] == 26
-    assert payload["wouldWrite"] is False
-
-
-def test_creator_os_50_account_readiness_alias_is_read_only(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        before = cf.conn.total_changes
-
-        report = cf.creator_os_50_account_readiness(content_surface="reel")
-
-        assert cf.conn.total_changes == before
-        assert report["schema"] == "creator_os.50_account_readiness.v1"
-        assert report["targetStage"] == 50
-        assert report["contentSurface"] == "reel"
-        assert report["requiredInventory"] == 450
-        assert report["shortfall"] == max(0, report["requiredInventory"] - report["availableInventory"])
-        assert "inventory_buffer_not_maintained" in report["blockingReasons"]
-        assert report["recommendedNextAction"] == "produce_fresh_schedule_safe_reels"
-        assert report["wouldWrite"] is False
-    finally:
-        cf.close()
-
-
-def test_creator_os_50_account_readiness_cli_outputs_json(tmp_path: Path):
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "campaign_factory.creator_os_cli",
-            "50-account-readiness",
-            "--content-surface",
-            "reel",
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    payload = json.loads(result.stdout)
-    assert payload["schema"] == "creator_os.50_account_readiness.v1"
-    assert payload["targetStage"] == 50
-    assert payload["contentSurface"] == "reel"
     assert payload["wouldWrite"] is False
 
 
@@ -6232,6 +6214,78 @@ def test_handoff_manifest_preserves_distinct_instagram_post_caption(tmp_path: Pa
         assert manifest["post_caption_style"] == "short_natural"
     finally:
         cf.close()
+
+
+def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_caption(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ?, caption_outcome_context_json = ? WHERE id = 'asset_1'",
+            (
+                json.dumps({
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    },
+                }),
+                json.dumps({
+                    "schema": "campaign_factory.caption_outcome_context.v1",
+                    "caption_hash": "caption_hash_1",
+                    "caption_text": "caption",
+                    "caption_bank": "test_bank",
+                    "caption_banks": ["test_bank"],
+                    "captionPlacementDecision": {"status": "passed"},
+                }),
+            ),
+        )
+        cf.conn.commit()
+        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+
+        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        manifest = explanation["handoff_manifest"]
+
+        assert explanation["burned_caption_text"] == "caption"
+        assert explanation["instagram_post_caption"] == ""
+        assert manifest is None
+        assert "missing_instagram_post_caption" in explanation["publishability_failure_reasons"]
+        assert explanation["publishableCandidate"] is False
+    finally:
+        cf.close()
+
+
+def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_caption():
+    metadata = threadsdash_adapter._draft_metadata({
+        "campaignId": "campaign_1",
+        "renderedAssetId": "asset_1",
+        "sourceAssetId": "source_1",
+        "content": "visible overlay text should stay separate",
+        "captionHash": "caption_hash_1",
+        "burnedCaptionText": "visible overlay text should stay separate",
+        "publishability": {
+            "asset_state": "approved_but_not_publishable",
+            "publishability_failure_reasons": ["missing_instagram_post_caption"],
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+        },
+        "audioIntent": {
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "native_platform_audio",
+            "required": False,
+            "status": "not_required",
+            "platform": "instagram",
+            "recommendations": [],
+            "gates": {"allow_draft_export": False, "allow_publish": False},
+        },
+    })
+
+    campaign_meta = metadata["campaign_factory"]
+    assert campaign_meta["instagram_post_caption"] == ""
+    assert campaign_meta["burned_caption_text"] == "visible overlay text should stay separate"
 
 
 def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_path: Path, monkeypatch):
@@ -6652,7 +6706,7 @@ def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(tmp_pat
         cf.close()
 
 
-def test_threadsdash_insert_preserves_variant_first_class_columns():
+def test_threadsdash_insert_preserves_variant_first_class_columns(monkeypatch):
     inserted: list[tuple[str, dict]] = []
 
     class FakeClient:
@@ -6682,6 +6736,11 @@ def test_threadsdash_insert_preserves_variant_first_class_columns():
         },
     }
 
+    monkeypatch.delenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", raising=False)
+    with pytest.raises(ValueError, match="raw ThreadsDashboard Supabase post writes are disabled"):
+        threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
+
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
     threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
 
     post_row = inserted[0][1]
@@ -6692,7 +6751,7 @@ def test_threadsdash_insert_preserves_variant_first_class_columns():
     assert post_row["campaign_factory_variant_id"] == "var_1"
 
 
-def test_threadsdash_insert_preserves_feed_single_surface():
+def test_threadsdash_insert_preserves_feed_single_surface(monkeypatch):
     inserted: list[tuple[str, dict]] = []
 
     class FakeClient:
@@ -6721,6 +6780,7 @@ def test_threadsdash_insert_preserves_feed_single_surface():
         },
     }
 
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
     threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/feed.jpg"})
 
     post_row = inserted[0][1]
@@ -6985,7 +7045,11 @@ def add_variant_fixture(
         contentforge_preset="caption_safe_v2",
     )
     audit_path = rendered_path.with_suffix(".audit.json")
-    audit_path.write_text(json.dumps({"readinessSummary": {"uploadReady": True}, "variant": {
+    audit_path.write_text(json.dumps({"readinessSummary": {
+        "uploadReady": True,
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+    }, "visualQcStatus": "passed", "identityVerificationStatus": "passed", "variant": {
         "familyName": family_name,
         "uploadReady": True,
         "qualityScore": quality_score,
@@ -7039,6 +7103,10 @@ def add_inventory_parent_fixture(
         "creator_mix": creator,
         "render_recipe": "v01_original",
         "rendered_output": str(rendered_path),
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
     }
     if caption_placement_qc:
         caption_context["captionPlacementPolicy"] = "focal_safe_v1"
@@ -7643,6 +7711,10 @@ def add_surface_asset_fixture(
         "caption_text": "burned caption",
         "creator_mix": creator,
         "render_recipe": "surface_fixture",
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
     }
     caption_generation = {}
     if instagram_post_caption is not None:
@@ -7782,6 +7854,41 @@ def test_surface_handoff_readiness_blocks_discoverability_unsafe_feed_caption(tm
         cf.close()
 
 
+def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        asset = add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_missing_trust",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="new post",
+        )
+        caption_context = json.loads(asset["caption_outcome_context_json"])
+        caption_context["visualQcStatus"] = "unavailable"
+        caption_context["identityVerificationStatus"] = "failed"
+        caption_context["visualQc"] = {"status": "unavailable"}
+        caption_context["identityVerification"] = {"status": "failed"}
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_outcome_context_json = ? WHERE id = ?",
+            (json.dumps(caption_context, ensure_ascii=False, sort_keys=True), asset["id"]),
+        )
+        cf.conn.commit()
+
+        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id=asset["id"])
+        readiness = report["assets"][0]
+
+        assert readiness["canHandoff"] is False
+        assert readiness["visualQcStatus"] == "unavailable"
+        assert readiness["identityVerificationStatus"] == "failed"
+        assert "visual_qc_unavailable" in readiness["blockingReasons"]
+        assert "identity_verification_failed" in readiness["blockingReasons"]
+        assert readiness["handoffManifestV2"] is None
+    finally:
+        cf.close()
+
+
 def test_multi_surface_inventory_audit_cli_outputs_json(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -7791,7 +7898,7 @@ def test_multi_surface_inventory_audit_cli_outputs_json(tmp_path: Path):
 
     env = {
         **os.environ,
-        "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+        "PYTHONPATH": CLI_PYTHONPATH,
         "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
         "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
         "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
@@ -9415,6 +9522,7 @@ def test_live_export_requires_explicit_confirmation_for_warnings(tmp_path: Path,
     cf = make_factory(tmp_path)
     rows = []
     inserted: list[tuple[str, dict]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -9488,6 +9596,7 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     uploads: list[tuple[str, str]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -9528,6 +9637,8 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
                     "schema": "campaign_factory.caption_outcome_context.v1",
                     "caption_hash": "caption_hash_1",
                     "caption_text": "caption",
+                    "instagram_post_caption": "new post",
+                    "instagram_post_caption_hash": threadsdash_adapter._text_hash("new post"),
                     "caption_bank": "test_bank",
                     "caption_banks": ["test_bank"],
                     "creator_mix": "Test",
@@ -9536,6 +9647,7 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
                     "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
                 }),
                 json.dumps({
+                    "instagram_post_caption": "new post",
                     "audioIntent": {
                         "schema": "pipeline.audio_intent.v1",
                         "mode": "native_platform_audio",
@@ -10583,7 +10695,7 @@ def test_creator_os_lifecycle_dashboard_cli_outputs_json(tmp_path: Path):
             "off",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -10604,7 +10716,7 @@ def test_lifecycle_report_cli_outputs_json_and_filters_state(tmp_path: Path):
 
     env = {
         **os.environ,
-        "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+        "PYTHONPATH": CLI_PYTHONPATH,
         "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
         "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
         "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
@@ -10900,6 +11012,7 @@ def test_safe_live_smoke_exports_one_draft_and_verifies(tmp_path: Path, monkeypa
     cf = make_factory(tmp_path)
     media_rows = {}
     post_rows = {}
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11095,6 +11208,7 @@ def test_export_live_job_redacts_secrets_and_records_ids(tmp_path: Path, monkeyp
     cf = make_factory(tmp_path)
     media_rows = {}
     post_rows = {}
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11251,6 +11365,7 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
 def test_account_assignment_drives_draft_destinations_and_metadata(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -11580,7 +11695,7 @@ def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -11873,7 +11988,7 @@ def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
             str(inventory_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -12104,7 +12219,7 @@ def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -12134,7 +12249,7 @@ def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -12612,7 +12727,7 @@ def test_creator_os_surface_report_cli_outputs_json(tmp_path: Path):
             "2026-06-06",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -12756,7 +12871,7 @@ def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -13239,7 +13354,7 @@ def test_creative_knowledge_base_cli_outputs_read_only_report(tmp_path: Path):
         text=True,
         env={
             **os.environ,
-            "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+            "PYTHONPATH": CLI_PYTHONPATH,
             "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
             "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
         },
@@ -13524,6 +13639,485 @@ def test_learning_confidence_fatigue_and_surface_comparison_reports_are_read_onl
         cf.close()
 
 
+def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_writing(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_analysis", "stacey")
+        samples = [
+            ("high_1", 0.09, 0.70, 1000, 900, 20, 12),
+            ("high_2", 0.08, 0.65, 900, 820, 18, 10),
+            ("low_1", 0.03, 0.40, 100, 90, 2, 1),
+            ("low_2", 0.02, 0.35, 120, 100, 1, 0),
+        ]
+        for asset_id, mean_abs, peak_abs, views, reach, saves, shares in samples:
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_{asset_id}",
+                campaign_id=campaign["id"],
+                post_id=f"post_{asset_id}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                concept_id="mirror_selfie" if asset_id.startswith("high") else "generic_reel",
+                published_at="2026-06-06T18:00:00+00:00",
+                views=views,
+                reach=reach,
+                saves=saves,
+                shares=shares,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, content_hash, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', '2026-06-10T17:00:00+00:00')
+                """,
+                (
+                    f"tribe_{asset_id}",
+                    asset_id,
+                    campaign["id"],
+                    f"hash_perf_{asset_id}",
+                    mean_abs,
+                    peak_abs,
+                    mean_abs / 2,
+                ),
+            )
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        report = cf.tribev2_reel_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+
+        assert cf.conn.total_changes == before
+        assert report["schema"] == "campaign_factory.tribev2_reel_analysis.v1"
+        assert report["creator"] == "Stacey"
+        assert report["modelId"] == "facebook/tribev2"
+        assert report["licenseStatus"] == "CC-BY-NC-4.0"
+        assert report["commercialUseAllowed"] is False
+        assert report["researchUseAllowed"] is True
+        assert report["productionGate"] is False
+        assert report["sampleSizeAdequate"] is False
+        assert report["licenseWarning"] == "CC-BY-NC-4.0 research/non-commercial only"
+        assert report["sampleSize"] == 4
+        assert report["insufficientData"] is False
+        assert report["correlations"]["meanAbsActivation"]["views"] > 0.9
+        assert report["topTribeV2Quartile"]["avgViews"] > report["bottomTribeV2Quartile"]["avgViews"]
+        assert report["strongestPredictiveSignal"]
+        assert report["weakestPredictiveSignal"]
+        assert report["recommendedRole"] in {"research_only", "creative_knowledge_feature"}
+        assert report["shouldRemainAdvisoryOnly"] is True
+        assert report["interpretation"]["recommendedPipelineUse"] == "offline_research_sidecar"
+        assert report["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
+def test_tribev2_reel_analysis_cli_outputs_read_only_report(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_cli", "stacey")
+        for idx, mean_abs in enumerate([0.05, 0.06, 0.07], start=1):
+            asset_id = f"asset_tribe_cli_{idx}"
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_tribe_cli_{idx}",
+                campaign_id=campaign["id"],
+                post_id=f"post_tribe_cli_{idx}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=idx * 100,
+                reach=idx * 90,
+                saves=idx,
+                shares=idx,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', '2026-06-10T17:00:00+00:00')
+                """,
+                (f"tribe_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2),
+            )
+        cf.conn.commit()
+    finally:
+        cf.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.creator_os_cli",
+            "tribev2-reel-analysis",
+            "--creator",
+            "Stacey",
+            "--campaign",
+            campaign["slug"],
+            "--minimum-sample-size",
+            "3",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+        },
+    )
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "campaign_factory.tribev2_reel_analysis.v1"
+    assert payload["sampleSize"] == 3
+    assert payload["productionGate"] is False
+    assert payload["wouldWrite"] is False
+
+
+def test_tribev2_reel_review_ranks_scores_and_resolves_preview_paths_without_writing(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", "Stacey")
+        campaign = cf.upsert_campaign("stacey_tribev2_review", "stacey")
+        rendered_dir = tmp_path / "rendered"
+        rendered_dir.mkdir()
+        now = "2026-06-10T17:00:00+00:00"
+        samples = [
+            ("asset_review_high", 0.09, 300, True),
+            ("asset_review_mid", 0.06, 200, True),
+            ("asset_review_missing", 0.04, 100, False),
+        ]
+        for asset_id, mean_abs, views, has_preview in samples:
+            if has_preview:
+                preview = rendered_dir / f"{asset_id}.mp4"
+                preview.write_bytes(b"preview")
+                cf.conn.execute(
+                    """
+                    INSERT INTO source_assets
+                    (id, campaign_id, model_id, content_hash, original_path, stored_path, filename,
+                     content_surface, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'reel', ?, ?)
+                    """,
+                    (
+                        f"source_{asset_id}",
+                        campaign["id"],
+                        model["id"],
+                        f"source_hash_{asset_id}",
+                        str(preview),
+                        str(preview),
+                        preview.name,
+                        now,
+                        now,
+                    ),
+                )
+                cf.conn.execute(
+                    """
+                    INSERT INTO rendered_assets
+                    (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path,
+                     filename, content_surface, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'reel', ?, ?)
+                    """,
+                    (
+                        asset_id,
+                        campaign["id"],
+                        f"source_{asset_id}",
+                        f"hash_perf_{asset_id}",
+                        str(preview),
+                        str(preview),
+                        preview.name,
+                        now,
+                        now,
+                    ),
+                )
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_{asset_id}",
+                campaign_id=campaign["id"],
+                post_id=f"post_{asset_id}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=views,
+                reach=views // 2,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, content_hash, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', ?)
+                """,
+                (
+                    f"tribe_{asset_id}",
+                    asset_id,
+                    campaign["id"],
+                    f"hash_perf_{asset_id}",
+                    mean_abs,
+                    mean_abs * 7,
+                    mean_abs / 2,
+                    now,
+                ),
+            )
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        report = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=3)
+
+        assert cf.conn.total_changes == before
+        assert report["schema"] == "campaign_factory.tribev2_reel_review.v1"
+        assert report["creator"] == "Stacey"
+        assert report["sortBy"] == "meanAbsActivation"
+        assert report["bucket"] == "top"
+        assert report["reelsReviewed"] == 3
+        assert report["productionGate"] is False
+        assert report["advisoryOnly"] is True
+        assert report["wouldWriteProductionState"] is False
+        assert [item["renderedAssetId"] for item in report["items"]] == [
+            "asset_review_high",
+            "asset_review_mid",
+            "asset_review_missing",
+        ]
+        assert report["items"][0]["previewAvailable"] is True
+        assert report["items"][0]["previewPath"].endswith("asset_review_high.mp4")
+        assert report["items"][2]["previewPath"] == ""
+        assert report["items"][2]["previewAvailable"] is False
+        assert all(item["advisoryOnly"] is True and item["productionGate"] is False for item in report["items"])
+    finally:
+        cf.close()
+
+
+def test_tribev2_reel_review_cli_outputs_advisory_only_payload(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_review_cli", "stacey")
+        now = "2026-06-10T17:00:00+00:00"
+        for idx, mean_abs in enumerate([0.05, 0.08], start=1):
+            asset_id = f"asset_tribe_review_cli_{idx}"
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_tribe_review_cli_{idx}",
+                campaign_id=campaign["id"],
+                post_id=f"post_tribe_review_cli_{idx}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=idx * 100,
+                reach=idx * 90,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', ?)
+                """,
+                (f"tribe_review_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+            )
+        cf.conn.commit()
+    finally:
+        cf.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.creator_os_cli",
+            "tribev2-reel-review",
+            "--creator",
+            "Stacey",
+            "--campaign",
+            campaign["slug"],
+            "--limit",
+            "1",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+        },
+    )
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "campaign_factory.tribev2_reel_review.v1"
+    assert payload["reelsReviewed"] == 2
+    assert payload["items"][0]["renderedAssetId"] == "asset_tribe_review_cli_2"
+    assert payload["advisoryOnly"] is True
+    assert payload["productionGate"] is False
+    assert payload["wouldWriteProductionState"] is False
+
+
+def test_tribev2_reel_review_blind_mode_hides_metrics_but_keeps_ranking(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_blind", "stacey")
+        now = "2026-06-10T17:00:00+00:00"
+        for asset_id, mean_abs, views in [("asset_blind_low", 0.04, 100), ("asset_blind_high", 0.09, 900)]:
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_{asset_id}",
+                campaign_id=campaign["id"],
+                post_id=f"post_{asset_id}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=views,
+                reach=views // 2,
+                saves=views // 100,
+                shares=views // 200,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', ?)
+                """,
+                (f"tribe_{asset_id}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+            )
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        blind = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=2, blind_mode=True)
+        normal = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=2)
+
+        assert cf.conn.total_changes == before
+        assert [item["renderedAssetId"] for item in blind["items"]] == ["asset_blind_high", "asset_blind_low"]
+        assert [item["renderedAssetId"] for item in normal["items"]] == ["asset_blind_high", "asset_blind_low"]
+        assert blind["blindMode"] is True
+        assert blind["showMetrics"] is False
+        assert blind["showTribeScore"] is True
+        assert blind["items"][0]["actualMetrics"] == {}
+        assert blind["items"][0]["actualMetricsHidden"] is True
+        assert blind["items"][0]["tribeScore"]["meanAbsActivation"] == 0.09
+        assert normal["items"][0]["actualMetrics"]["views"] == 900
+        assert normal["items"][0]["actualMetricsHidden"] is False
+    finally:
+        cf.close()
+
+
+def test_tribev2_holdout_pilot_review_buckets_top_middle_bottom_without_writing(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_holdout", "stacey")
+        now = "2026-06-10T17:00:00+00:00"
+        for idx in range(10):
+            mean_abs = 0.1 - (idx * 0.01)
+            asset_id = f"asset_holdout_{idx}"
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_holdout_{idx}",
+                campaign_id=campaign["id"],
+                post_id=f"post_holdout_{idx}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=1000 - idx * 50,
+                reach=800 - idx * 40,
+                saves=20 - idx,
+                shares=10 - idx,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', ?)
+                """,
+                (f"tribe_holdout_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+            )
+        cf.conn.commit()
+        before = cf.conn.total_changes
+
+        report = cf.tribev2_holdout_pilot_review(creator="Stacey", campaign_slug=campaign["slug"], limit=3)
+
+        assert cf.conn.total_changes == before
+        assert report["schema"] == "campaign_factory.tribev2_holdout_pilot_review.v1"
+        assert report["bucketStrategy"] == "top_middle_bottom_20pct"
+        assert report["reelsReviewed"] == 10
+        assert report["buckets"]["top20"]["sampleSize"] == 2
+        assert report["buckets"]["middle20"]["sampleSize"] == 2
+        assert report["buckets"]["bottom20"]["sampleSize"] == 2
+        assert [item["renderedAssetId"] for item in report["buckets"]["top20"]["items"]] == ["asset_holdout_0", "asset_holdout_1"]
+        assert [item["renderedAssetId"] for item in report["buckets"]["middle20"]["items"]] == ["asset_holdout_4", "asset_holdout_5"]
+        assert [item["renderedAssetId"] for item in report["buckets"]["bottom20"]["items"]] == ["asset_holdout_9", "asset_holdout_8"]
+        assert report["buckets"]["top20"]["avgTribeScore"]["meanAbsActivation"] == 0.095
+        assert report["buckets"]["top20"]["avgMetrics"]["views"] == 975
+        assert report["advisoryOnly"] is True
+        assert report["productionGate"] is False
+        assert report["wouldWriteProductionState"] is False
+    finally:
+        cf.close()
+
+
+def test_tribev2_holdout_pilot_review_cli_outputs_advisory_payload(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_tribev2_holdout_cli", "stacey")
+        now = "2026-06-10T17:00:00+00:00"
+        for idx, mean_abs in enumerate([0.03, 0.06, 0.09], start=1):
+            asset_id = f"asset_holdout_cli_{idx}"
+            _insert_creative_kb_snapshot(
+                cf,
+                snapshot_id=f"perf_holdout_cli_{idx}",
+                campaign_id=campaign["id"],
+                post_id=f"post_holdout_cli_{idx}",
+                campaign_asset_id=asset_id,
+                content_surface="reel",
+                views=idx * 100,
+                reach=idx * 80,
+            )
+            cf.conn.execute(
+                """
+                INSERT INTO tribev2_reel_scores
+                (id, rendered_asset_id, campaign_id, model_id, model_mode,
+                 mean_abs_activation, peak_abs_activation, std_activation, segments_count,
+                 preds_shape_json, metrics_json, created_at)
+                VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
+                 ?, ?, ?, 5, '[5, 20484]', '{}', ?)
+                """,
+                (f"tribe_holdout_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+            )
+        cf.conn.commit()
+    finally:
+        cf.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.creator_os_cli",
+            "tribev2-holdout-pilot-review",
+            "--creator",
+            "Stacey",
+            "--campaign",
+            campaign["slug"],
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+        },
+    )
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "campaign_factory.tribev2_holdout_pilot_review.v1"
+    assert payload["reelsReviewed"] == 3
+    assert payload["advisoryOnly"] is True
+    assert payload["productionGate"] is False
+    assert payload["wouldWriteProductionState"] is False
+
+
 def test_phase2_learning_reports_share_creative_knowledge_helper(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     try:
@@ -13789,7 +14383,7 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
             str(time_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -14165,6 +14759,215 @@ def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_sta
         cf.close()
 
 
+def test_live_account_acceptance_counts_net_inventory_after_reservations_and_assignments(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        for index in range(10):
+            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+        for index in range(90):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_net_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="schedule safe",
+            )
+        reservation = cf.reserve_inventory_asset(
+            "asset_net_inventory_0",
+            account_id=None,
+            surface="feed_single",
+            reserved_by="test",
+            idempotency_key="net_inventory_asset_0",
+        )
+        same_reservation = cf.reserve_inventory_asset(
+            "asset_net_inventory_0",
+            surface="feed_single",
+            reserved_by="test",
+            idempotency_key="net_inventory_asset_0",
+        )
+        cf.assign_asset_account("asset_net_inventory_1", instagram_account_id="ig_1")
+
+        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+
+        assert reservation["id"] == same_reservation["id"]
+        assert result["grossInventory"] == 90
+        assert result["reservedInventory"] == 1
+        assert result["usedInventory"] == 1
+        assert result["netInventory"] == 88
+        assert result["availableInventory"] == 88
+        assert result["actuals"]["inventoryBufferMaintained"] is False
+        assert "inventory_buffer_not_maintained" in result["blockingReasons"]
+        released = cf.release_inventory_reservation(reservation["reservation_id"])
+        assert released["status"] == "released"
+        after_release = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        assert after_release["reservedInventory"] == 0
+        assert after_release["netInventory"] == 89
+    finally:
+        cf.close()
+
+
+def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
+        for index in range(3):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_uniqueness_{index}",
+                content_surface="reel",
+                media_type="video",
+                instagram_post_caption="lmk",
+            )
+
+        first = cf.reserve_inventory_asset(
+            "asset_uniqueness_0",
+            account_id=account_a["id"],
+            surface="reel",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+        )
+        with pytest.raises(ValueError, match="cross-account source/perceptual reuse cooldown conflict"):
+            cf.reserve_inventory_asset(
+                "asset_uniqueness_1",
+                account_id=account_b["id"],
+                surface="reel",
+                reserved_by="test",
+                metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            )
+        override = cf.reserve_inventory_asset(
+            "asset_uniqueness_1",
+            account_id=account_b["id"],
+            surface="reel",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            override_reason="manual operator approved source reuse",
+        )
+        assert first["source_family_id"] == "family_same"
+        assert override["override_reason"] == "manual operator approved source reuse"
+    finally:
+        cf.close()
+
+
+def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        for index in range(90):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_cooldown_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="lmk",
+            )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id IN ('asset_cooldown_inventory_0', 'asset_cooldown_inventory_1')",
+            (json.dumps({"instagram_post_caption": "lmk", "sourceFamilyId": "family_cooldown"}),),
+        )
+        cf.conn.commit()
+        cf.reserve_inventory_asset(
+            "asset_cooldown_inventory_0",
+            account_id=account["id"],
+            surface="feed_single",
+            reserved_by="test",
+            metadata={"sourceFamilyId": "family_cooldown"},
+        )
+
+        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+
+        assert result["grossInventory"] == 90
+        assert result["reservedInventory"] == 1
+        assert result["cooldownBlockedInventory"] == 1
+        assert result["netInventory"] == 88
+    finally:
+        cf.close()
+
+
+def test_inventory_reservation_expired_ttl_is_released_from_net_inventory(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        for index in range(10):
+            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+        for index in range(90):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_ttl_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="schedule safe",
+            )
+        expired = cf.reserve_inventory_asset(
+            "asset_ttl_inventory_0",
+            surface="feed_single",
+            reserved_by="test",
+            expires_at="2026-01-01T00:00:00+00:00",
+        )
+
+        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        row = cf.conn.execute("SELECT status FROM asset_inventory_reservations WHERE id = ?", (expired["id"],)).fetchone()
+
+        assert row["status"] == "expired"
+        assert result["reservedInventory"] == 0
+        assert result["netInventory"] == 90
+    finally:
+        cf.close()
+
+
+def test_inventory_reservation_concurrent_claim_cannot_double_claim(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_concurrent_claim",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="schedule safe",
+        )
+    finally:
+        cf.close()
+
+    barrier = threading.Barrier(2)
+
+    def claim(label: str) -> tuple[str, str]:
+        worker = make_factory(tmp_path)
+        try:
+            barrier.wait(timeout=5)
+            reservation = worker.reserve_inventory_asset(
+                "asset_concurrent_claim",
+                surface="feed_single",
+                reserved_by=label,
+            )
+            return ("reserved", reservation["asset_id"])
+        except ValueError as exc:
+            return ("blocked", str(exc))
+        finally:
+            worker.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = [future.result() for future in [executor.submit(claim, "first"), executor.submit(claim, "second")]]
+
+    first = make_factory(tmp_path)
+    try:
+        assert [status for status, _ in outcomes].count("reserved") == 1
+        assert [status for status, _ in outcomes].count("blocked") == 1
+        assert first.conn.execute(
+            "SELECT COUNT(*) AS c FROM asset_inventory_reservations WHERE asset_id = ? AND status IN ('pending', 'committed')",
+            ("asset_concurrent_claim",),
+        ).fetchone()["c"] == 1
+    finally:
+        first.close()
+
+
 def test_story_certification_requires_actual_publish_and_metrics_evidence(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -14339,7 +15142,7 @@ def test_creator_os_9_5_readiness_report_cli_outputs_json(tmp_path: Path):
             "creator-os-9.5-readiness-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -14514,7 +15317,7 @@ def test_inventory_factory_master_report_cli_outputs_json(tmp_path: Path):
             "1800",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -14622,7 +15425,7 @@ def test_reel_factory_master_report_cli_outputs_json(tmp_path: Path):
             "reel-factory-master-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -14747,7 +15550,8 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
             UPDATE rendered_assets
             SET review_state = 'approved',
                 caption = ?,
-                caption_outcome_context_json = ?
+                caption_outcome_context_json = ?,
+                caption_generation_json = ?
             WHERE id = 'asset_1'
             """,
             (
@@ -14757,6 +15561,15 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
                     "burned_caption_text": "DM me",
                     "instagram_post_caption": "link in bio",
                     "captionPlacementDecision": {"status": "passed"},
+                }),
+                json.dumps({
+                    "instagram_post_caption": "link in bio",
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    },
                 }),
             ),
         )
@@ -15021,7 +15834,7 @@ def test_parent_factory_53_parent_trial_cli_outputs_json(tmp_path: Path):
             "parent-factory-53-parent-trial",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -15087,7 +15900,7 @@ def test_parent_factory_post_gate_fresh_batch_proof_cli_outputs_json(tmp_path: P
             "parent-factory-post-gate-fresh-batch-proof",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH},
         capture_output=True,
         text=True,
         check=True,
@@ -15112,7 +15925,7 @@ def test_parent_factory_master_optimization_report_cli_outputs_json(tmp_path: Pa
             "parent-factory-master-optimization-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -15133,7 +15946,7 @@ def test_parent_factory_discoverability_loss_analysis_cli_outputs_json(tmp_path:
             "parent-factory-discoverability-loss-analysis",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
         capture_output=True,
         text=True,
         check=True,
@@ -15180,7 +15993,7 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
             "asset_1",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
         capture_output=True,
         text=True,
         check=True,

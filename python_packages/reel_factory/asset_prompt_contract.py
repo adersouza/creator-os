@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Deterministic Prompt Builder output contract.
 
-The Prompt Builder is a compiler stage, not an LLM stage. It consumes validated
-visual formula and motion timeline data, then emits exactly one Higgsfield Soul
-ID grid prompt and one shared Kling motion prompt. Six cropped panels all reuse
-the same Kling motion prompt.
+The active Reel Factory path now treats Higgsfield stills and Kling motion as
+separate compiler outputs. Legacy field names are kept for compatibility, but
+new operator workflows should generate one standalone image prompt and one
+start-image Kling motion prompt.
 """
 from __future__ import annotations
 
@@ -67,6 +67,15 @@ _FINAL_PROMPT_RE = re.compile(
     r"|\busername\b|\bcomment\b|\bbutton\b|\bwatermark\b",
     flags=re.IGNORECASE,
 )
+_MOTION_PROMPT_RE = re.compile(
+    r"\bbad\s+hands\b|\bextra\s+limbs\b|\bwarped\s+face\b"
+    r"|\bidentity\b"
+    r"|\bhair\s+color\b|\beye\s+color\b|\bethnicity\b|\btattoos?\b"
+    r"|\bperfect\s+face\b|\bhigh\s+detail\b|\bsharp\s+focus\b"
+    r"|\bui\b|\binterface\b|\binstagram\b|\bsocial-media\b|\bcreator-reel\b"
+    r"|\busername\b|\bcomment\b|\bbutton\b|\bwatermark\b",
+    flags=re.IGNORECASE,
+)
 
 
 PROMPT_BUILDER_SPEC = """Prompt Builder contract:
@@ -77,16 +86,17 @@ Runtime behavior:
 - No randomness unless an explicit seed is supplied.
 - Same normalized visual formula, motion timeline, enhancement profile, and seed must produce identical output.
 - Normalized visual formula may include Grok's structured sexierVisualDirection, visualEmphasisSignals, and enhancementSuggestions.
-- Output exactly one Higgsfield Soul ID 2x3 grid prompt and one shared Kling motion prompt.
+- Output exactly one standalone Higgsfield Soul ID prompt and one shared Kling motion prompt.
 
-Higgsfield/Soul ID grid prompt:
+Higgsfield/Soul ID still prompt:
 - One prompt only.
-- The prompt requests one native 2x3 grid/contact sheet with six visual variants.
-- Six variants share the externally provided Soul ID identity.
+- The active prompt requests one standalone 9:16 image.
+- Legacy grid/fanout tooling must be explicitly selected and is not the default operator path.
+- The externally provided Soul ID handles identity.
 - The prompt describes the desired visible result: outfit, garment fit, garment placement, pose, framing, camera, lighting, environment, style, and generic panel consistency.
 - The prompt can apply the selected deterministic enhancement profile to body emphasis and garment fit.
 - The prompt does not describe detailed reference identity traits such as hair, ethnicity, or tattoos. Adult age wording is allowed when useful; Soul ID handles identity externally.
-- Generic consistency language such as same adult woman and consistent body proportions is allowed when it helps the 2x3 grid stay coherent.
+- Generic consistency language such as same adult woman and consistent body proportions is allowed when it helps the image stay coherent.
 - The prompt does not spend budget on face polish such as perfect face, freckles, skin texture, skin sheen, natural sheen, high detail, or sharp focus.
 - The prompt has no negative prompt field.
 - The prompt uses positive desired-result language only.
@@ -96,16 +106,14 @@ Higgsfield/Soul ID grid prompt:
 
 Kling motion prompt:
 - One shared motion prompt only.
-- The shared motion prompt is derived from the validated Gemini motion timeline.
-- Every cropped panel from the Higgsfield grid is sent to Kling separately using this exact same shared motion prompt.
-- No panel-specific Kling prompt is generated in this version.
+- The shared motion prompt is applied to the accepted 9:16 start image.
 - The shared prompt describes camera movement, body movement, transition behavior, pacing, and loop feel using positive desired-motion language.
-- The shared prompt contains only camera movement, body movement, timing, pacing, and loop-feel details.
+- The shared prompt may include explicit safety boundaries for no text/logos, no outfit change, and no head/face crop.
 
 Required output contract:
 {
-  "higgsfieldGridPrompt": "One prompt for the 2x3 Higgsfield Soul ID grid...",
-  "klingMotionPrompt": "One shared Kling motion prompt for every cropped panel...",
+  "higgsfieldGridPrompt": "One prompt for the standalone Higgsfield Soul ID still...",
+  "klingMotionPrompt": "One shared Kling motion prompt for the accepted start image...",
   "notes": "Short operator note, optional but useful."
 }
 """
@@ -142,7 +150,7 @@ def validate_higgsfield_grid_prompt_text(text: str) -> None:
 
 
 def validate_kling_motion_prompt_text(text: str) -> None:
-    match = _FINAL_PROMPT_RE.search(text)
+    match = _MOTION_PROMPT_RE.search(text)
     if match:
         raise ValueError(f"klingMotionPrompt contains rejected v1 language: {match.group(0)!r}")
 
