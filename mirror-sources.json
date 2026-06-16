@@ -1,0 +1,66 @@
+{
+  "_doc": "Maps each monorepo read-only mirror to its source split repo at a pinned commit. Source of truth = the split repo (live runtime). The monorepo mirror is GENERATED, never hand-edited. pipeline_contracts is intentionally excluded (canonical in monorepo, opposite direction). See scripts/sync/README.md and REMEDIATION_MASTER_PLAN.md WS1.",
+  "excludeDefault": [
+    ".git/",
+    "node_modules/",
+    ".venv/",
+    ".next/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".mypy_cache/",
+    "**/output/",
+    "**/uploads/",
+    "**/campaigns/",
+    "**/models/",
+    "**/00_source_videos/",
+    "**/02_processed/",
+    "graphify-out/",
+    "identity_references/",
+    "*.sqlite*",
+    "*.db",
+    "*.mp4",
+    "*.mov",
+    ".DS_Store"
+  ],
+  "mirrors": [
+    {
+      "mirrorPath": "apps/dashboard",
+      "sourceRepoPath": "../ThreadsDashboard",
+      "sourceCommit": "b3d015e5e470e6c157b60d90ebff4c0b51d21897",
+      "include": ["**/*"],
+      "exclude": []
+    },
+    {
+      "mirrorPath": "apps/contentforge",
+      "sourceRepoPath": "../contentforge",
+      "sourceCommit": "47e1293ce35175ba0082a78de5f091a73fab9226",
+      "include": ["**/*"],
+      "exclude": []
+    },
+    {
+      "mirrorPath": "python_packages/reel_factory",
+      "sourceRepoPath": "../reel_factory",
+      "sourceCommit": "cc8845be5915484e7fe81d5c419f76d007ddadb3",
+      "include": ["**/*"],
+      "exclude": []
+    },
+    {
+      "mirrorPath": "python_packages/campaign_factory",
+      "sourceRepoPath": "../campaign_factory",
+      "sourceCommit": "d1b7ae3cac5914e3db02b94dc4bd8556ea2fb3af",
+      "include": ["**/*"],
+      "exclude": []
+    },
+    {
+      "mirrorPath": "python_packages/reference_factory",
+      "sourceRepoPath": "../reference_factory",
+      "sourceCommit": "2cf59f2a7a59413202f6520cf59d29b4e443472a",
+      "include": ["**/*"],
+      "exclude": []
+    }
+  ]
+}
