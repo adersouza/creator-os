@@ -300,7 +300,7 @@ def _campaign_factory_manifest_blockers(payload: dict[str, Any]) -> list[str]:
         caption_hash = meta.get("caption_hash") or draft.get("captionHash")
         if content_surface != "story" and caption_hash and manifest.get("caption_hash") != caption_hash:
             blockers.append(f"{rendered_asset_id}:handoff_manifest.caption_hash_mismatch")
-        post_caption = meta.get("instagram_post_caption") or draft.get("instagramPostCaption") or draft.get("content")
+        post_caption = meta.get("instagram_post_caption") or draft.get("instagramPostCaption")
         post_caption_hash = meta.get("instagram_post_caption_hash") or draft.get("instagramPostCaptionHash")
         if content_surface != "story" and (not isinstance(post_caption, str) or not post_caption.strip()):
             blockers.append(f"{rendered_asset_id}:instagram_post_caption_missing")
@@ -1847,7 +1847,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "caption_family_id": publishability.get("caption_family_id") or publishability.get("captionFamilyId") or caption_context.get("caption_family_id") or caption_context.get("captionFamilyId"),
             "caption_version_id": publishability.get("caption_version_id") or publishability.get("captionVersionId") or caption_context.get("caption_version_id") or caption_context.get("captionVersionId"),
             "caption_hash": draft.get("captionHash"),
-            "instagram_post_caption": draft.get("instagramPostCaption") or draft.get("content") or "",
+            "instagram_post_caption": draft.get("instagramPostCaption") or "",
             "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
             "caption_cta": draft.get("captionCta"),
             "hashtags": draft.get("hashtags") or draft.get("topics") or [],

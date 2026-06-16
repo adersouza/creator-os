@@ -99,6 +99,64 @@ function hasExplicitInstagramPostCaption(
 	);
 }
 
+function statusValue(...values: unknown[]): string {
+	for (const value of values) {
+		const text = stringValue(value).toLowerCase();
+		if (text) return text;
+	}
+	return "";
+}
+
+function proofObject(...values: unknown[]): Record<string, unknown> {
+	for (const value of values) {
+		const record = recordValue(value);
+		if (record) return record;
+	}
+	return {};
+}
+
+function visualQcStatus(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string {
+	const visualQc = proofObject(
+		campaignFactory.visualQc,
+		campaignFactory.visual_qc,
+		manifest?.visualQc,
+		manifest?.visual_qc,
+	);
+	return statusValue(
+		campaignFactory.visualQcStatus,
+		campaignFactory.visual_qc_status,
+		manifest?.visualQcStatus,
+		manifest?.visual_qc_status,
+		visualQc.visualQcStatus,
+		visualQc.visual_qc_status,
+		visualQc.status,
+	);
+}
+
+function identityVerificationStatus(
+	campaignFactory: Record<string, unknown>,
+	manifest: Record<string, unknown> | null,
+): string {
+	const identity = proofObject(
+		campaignFactory.identityVerification,
+		campaignFactory.identity_verification,
+		manifest?.identityVerification,
+		manifest?.identity_verification,
+	);
+	return statusValue(
+		campaignFactory.identityVerificationStatus,
+		campaignFactory.identity_verification_status,
+		manifest?.identityVerificationStatus,
+		manifest?.identity_verification_status,
+		identity.identityVerificationStatus,
+		identity.identity_verification_status,
+		identity.status,
+	);
+}
+
 function surfaceReadiness(campaignFactory: Record<string, unknown>, manifest: Record<string, unknown> | null): Record<string, unknown> | null {
 	return recordValue(campaignFactory.surfaceReadiness) || recordValue(manifest?.surfaceReadiness);
 }
@@ -223,6 +281,14 @@ export function validateCampaignFactoryDraftIngest(value: unknown): CampaignFact
 		if (!hasScheduleSafeProof(campaignFactory, manifest)) blockers.push("schedule_safe_readiness_missing_or_blocked");
 		if (contentSurface !== "story" && !hasExplicitInstagramPostCaption(campaignFactory, manifest)) {
 			blockers.push("instagram_post_caption_missing");
+		}
+		const visualStatus = visualQcStatus(campaignFactory, manifest);
+		if (visualStatus !== "passed") {
+			blockers.push(visualStatus ? `visual_qc_${visualStatus}` : "visual_qc_unavailable");
+		}
+		const identityStatus = identityVerificationStatus(campaignFactory, manifest);
+		if (identityStatus !== "passed") {
+			blockers.push(identityStatus ? `identity_verification_${identityStatus}` : "identity_verification_unavailable");
 		}
 
 		let igMediaType = "";

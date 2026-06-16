@@ -6387,6 +6387,36 @@ def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_cap
         cf.close()
 
 
+def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_caption():
+    metadata = threadsdash_adapter._draft_metadata({
+        "campaignId": "campaign_1",
+        "renderedAssetId": "asset_1",
+        "sourceAssetId": "source_1",
+        "content": "visible overlay text should stay separate",
+        "captionHash": "caption_hash_1",
+        "burnedCaptionText": "visible overlay text should stay separate",
+        "publishability": {
+            "asset_state": "approved_but_not_publishable",
+            "publishability_failure_reasons": ["missing_instagram_post_caption"],
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+        },
+        "audioIntent": {
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "native_platform_audio",
+            "required": False,
+            "status": "not_required",
+            "platform": "instagram",
+            "recommendations": [],
+            "gates": {"allow_draft_export": False, "allow_publish": False},
+        },
+    })
+
+    campaign_meta = metadata["campaign_factory"]
+    assert campaign_meta["instagram_post_caption"] == ""
+    assert campaign_meta["burned_caption_text"] == "visible overlay text should stay separate"
+
+
 def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     try:

@@ -32,6 +32,8 @@ tmp/
 models/
 00_source_videos/
 02_processed/
+identity_references/
+python_packages/reel_factory/identity_references/
 
 # Node
 node_modules/
