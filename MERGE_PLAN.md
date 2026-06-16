@@ -12,7 +12,7 @@ Integration merges performed by this resumed run are recorded below with proof.
 | `campaign_factory` | `main` | `codex/campaign-caption-inventory` | branch tip `99f27208c8664d488fd666e81f685ce31eebf85f` | merged to `main` as `c0912e4cf44fd40216858f75f89d8980a73c1400`; ancestor proof exit 0 |
 | `reel_factory` | `main` | `codex/split-review-truth` | branch tip `4bad3acabcef1b128f02f15f16869b28e7830589` | merged to `main` as `49584b77114b6308597a6d9303bf7e8edcfd4c1d`; ancestor proof exit 0; `codex/review-truth-port@9b7f61afe76bceaa46bb3b93100730fe06620607` is red and not mergeable |
 | `pipeline_contracts` | `main` | `codex/campaign-draft-contract-sync` | branch tip `e45374abeb1c57aa28432b00c0c68ed45328725a` | merged to `main` as `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`; ancestor proof exit 0 |
-| `pipeline_contracts` | `main` | `codex/canonical-campaign-draft-schema-sync` | branch tip `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` | pre-merge tests green; merge pending from `main@b835f52b5eaf4d01652c5e40d13d8063d235bdbf` |
+| `pipeline_contracts` | `main` | `codex/canonical-campaign-draft-schema-sync` | branch tip `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` | merged to `main` as `94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`; ancestor proof exit 0 |
 | `contentforge` | `main` | `main` | `47e1293ce` | Pending only if future changes are made |
 | `reference_factory` | `main` | inventory `main`; fix branch `codex/reference-test-deps` | inventory `2cf59f2a7`; fix branch `2ea2a7f` | Red pytest dependency baseline fixed and pushed; record `main` pre-merge SHA before ordered repo-maturity merge |
 
@@ -38,7 +38,7 @@ For every actual merge, append:
 - `campaign_factory`: `codex/campaign-caption-inventory@99f27208c8664d488fd666e81f685ce31eebf85f` is an ancestor of `main` after merge commit `c0912e4cf44fd40216858f75f89d8980a73c1400`.
 - `reel_factory`: `codex/split-review-truth@4bad3acabcef1b128f02f15f16869b28e7830589` is an ancestor of `main` after merge commit `49584b77114b6308597a6d9303bf7e8edcfd4c1d`.
 - `pipeline_contracts`: `codex/campaign-draft-contract-sync@e45374abeb1c57aa28432b00c0c68ed45328725a` is an ancestor of `main` after merge commit `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`.
-- `pipeline_contracts`: `codex/canonical-campaign-draft-schema-sync@3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` is green and pending merge to `main@b835f52b5eaf4d01652c5e40d13d8063d235bdbf`.
+- `pipeline_contracts`: `codex/canonical-campaign-draft-schema-sync@3f6e43a2ede15fbbb9bef854e45ee0173947e5bd` is an ancestor of `main` after merge commit `94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`.
 
 ## Current Red Gates Blocking Merges
 
@@ -153,9 +153,9 @@ For every actual merge, append:
 - Branch: `codex/canonical-campaign-draft-schema-sync`
 - Branch tip SHA: `3f6e43a2ede15fbbb9bef854e45ee0173947e5bd`
 - Pre-merge integration SHA: `b835f52b5eaf4d01652c5e40d13d8063d235bdbf`
-- Merge SHA: pending
-- Rollback command: `git revert -m 1 <pipeline-contracts-canonical-schema-sync-merge-sha>`
-- Ancestor proof command and result: pending.
+- Merge SHA: `94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`
+- Rollback command: `git revert -m 1 94a768d10d9bb62ef3d44b4f0114a6145a5bdd71`
+- Ancestor proof command and result: `git merge-base --is-ancestor 3f6e43a2ede15fbbb9bef854e45ee0173947e5bd main; echo $?` returned `0`.
 - Pre-merge required test evidence:
   - `git diff --check` pass.
   - `env UV_CACHE_DIR=/private/tmp/codex-uv-cache uv run --extra dev python -m pytest tests` pass: 9 passed.
