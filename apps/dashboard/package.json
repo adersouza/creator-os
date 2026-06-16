@@ -75,7 +75,7 @@
     "@fullcalendar/list": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
-    "@google/genai": "^1.52.0",
+    "@google/genai": "^2.8.0",
     "@hookform/resolvers": "^5.4.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
