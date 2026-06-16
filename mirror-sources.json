@@ -34,8 +34,10 @@
       "mirrorPath": "apps/dashboard",
       "sourceRepoPath": "../ThreadsDashboard",
       "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
-      "sourceCommit": "82f0dc839019f2967bfd8a7623e10a541206366a",
-      "include": ["**/*"],
+      "sourceCommit": "bac25a9d213f86d837e07a94559a78f935abffd9",
+      "include": [
+        "**/*"
+      ],
       "exclude": [
         "pipeline_contracts/",
         "schemas/"
@@ -46,7 +48,9 @@
       "sourceRepoPath": "../contentforge",
       "sourceRepoUrl": "https://github.com/adersouza/contentforge.git",
       "sourceCommit": "47e1293ce35175ba0082a78de5f091a73fab9226",
-      "include": ["**/*"],
+      "include": [
+        "**/*"
+      ],
       "exclude": [
         "test/fixtures/campaign-factory/.generated/",
         "test/fixtures/campaign-factory/feedback/"
@@ -57,7 +61,9 @@
       "sourceRepoPath": "../reel_factory",
       "sourceRepoUrl": "https://github.com/adersouza/reel_factory.git",
       "sourceCommit": "4bad3acabcef1b128f02f15f16869b28e7830589",
-      "include": ["**/*"],
+      "include": [
+        "**/*"
+      ],
       "exclude": [
         "pyproject.toml"
       ]
@@ -67,7 +73,9 @@
       "sourceRepoPath": "../campaign_factory",
       "sourceRepoUrl": "https://github.com/adersouza/campaign_factory.git",
       "sourceCommit": "99f27208c8664d488fd666e81f685ce31eebf85f",
-      "include": ["**/*"],
+      "include": [
+        "**/*"
+      ],
       "exclude": [
         "pyproject.toml",
         "schemas/"
@@ -78,7 +86,9 @@
       "sourceRepoPath": "../reference_factory",
       "sourceRepoUrl": "https://github.com/adersouza/reference_factory.git",
       "sourceCommit": "2cf59f2a7a59413202f6520cf59d29b4e443472a",
-      "include": ["**/*"],
+      "include": [
+        "**/*"
+      ],
       "exclude": [
         "pyproject.toml"
       ]
