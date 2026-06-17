@@ -1078,7 +1078,9 @@ function DailyDashboardAllView({
 	onCompose: () => void;
 }) {
 	const isMetricLoading = kpiData.isLoading || fleetMetrics.isLoading;
-	const primaryViews = kpiData.reach || fleetMetrics.totalReach;
+	// Views = post-level views/impressions; falls back to reach only when no
+	// post views are available (the daily rollup has no views column).
+	const primaryViews = kpiData.views || kpiData.reach || fleetMetrics.totalReach;
 	const attentionCount =
 		needsAttention.totalCount +
 		needsAttention.gapsCount +
@@ -1102,7 +1104,7 @@ function DailyDashboardAllView({
 						label={KPI_PRESENTATION.views.label}
 						value={formatCompact(primaryViews)}
 						description={KPI_PRESENTATION.views.description}
-						trendValue={kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
+						trendValue={kpiData.viewsDelta ?? kpiData.reachDelta ?? fleetMetrics.reachDeltaPct}
 						icon={Eye}
 						footerLabel="Window"
 						footerValue={timeframe.toUpperCase()}
@@ -1275,7 +1277,7 @@ function DailyDashboardAllView({
 							<span className="min-w-0">
 								Daily movement rolls up synced account and post signals.
 							</span>
-							<Badge tone="outline">{formatCompact(primaryViews)} total views signal</Badge>
+							<Badge tone="outline">{formatCompact(kpiData.reach || fleetMetrics.totalReach)} total reach signal</Badge>
 						</div>
 					}
 				>
@@ -1289,10 +1291,10 @@ function DailyDashboardAllView({
 						<>
 							<div className="min-h-0 overflow-hidden rounded-lg border border-border bg-muted/25 p-3">
 								<JunoBarChart
-									ariaLabel={KPI_PRESENTATION.views.chartTitle ?? KPI_PRESENTATION.views.label}
+									ariaLabel={`${KPI_PRESENTATION.peopleReached.label} trend`}
 									data={dashboardTrend}
 									height={180}
-									valueLabel={KPI_PRESENTATION.views.label}
+									valueLabel={KPI_PRESENTATION.peopleReached.label}
 									valueFormatter={formatCompact}
 								/>
 							</div>
