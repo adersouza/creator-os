@@ -4,6 +4,10 @@ import { execFile } from "child_process";
 import { mkdtemp, readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
+import { generateCampaignFactoryFixtures } from "../scripts/generate-campaign-fixtures.mjs";
+import { skipWhenMissingTools } from "./tool-availability.js";
+
+var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
 
 function runReport(env) {
   return new Promise(function (resolve, reject) {
@@ -43,7 +47,8 @@ function runNode(args, env) {
   });
 }
 
-test("Campaign Factory calibration report includes metrics and skips missing real media", async function () {
+test("Campaign Factory calibration report includes metrics and skips missing real media", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var dir = await mkdtemp(path.join(tmpdir(), "contentforge-real-manifest-"));
   var manifestPath = path.join(dir, "real_samples.json");
   await writeFile(manifestPath, JSON.stringify({
@@ -78,7 +83,8 @@ test("Campaign Factory calibration report includes metrics and skips missing rea
   assert.equal(typeof report.history, "object");
 });
 
-test("Campaign Factory calibration report can record ignored drift history", async function () {
+test("Campaign Factory calibration report can record ignored drift history", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var dir = await mkdtemp(path.join(tmpdir(), "contentforge-history-"));
   var env = {
     ...process.env,
@@ -110,7 +116,8 @@ test("Campaign Factory calibration report can record ignored drift history", asy
   assert.equal(typeof latest.summary.audited, "number");
 });
 
-test("Campaign Factory report can render HTML", async function () {
+test("Campaign Factory report can render HTML", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var html = await runNode(["scripts/campaign-audit-report.mjs", "--html", "--no-generate"], {
     ...process.env,
     CONTENTFORGE_OCR_ENGINE: "tesseract",
@@ -120,7 +127,9 @@ test("Campaign Factory report can render HTML", async function () {
   assert.match(html, /<table>/);
 });
 
-test("Campaign Factory corpus discovery summarizes local videos", async function () {
+test("Campaign Factory corpus discovery summarizes local videos", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
+  await generateCampaignFactoryFixtures();
   var output = await runNode(["scripts/campaign-corpus-discover.mjs", "--dir=test/fixtures/campaign-factory/good", "--maxDepth=0", "--limit=2"], process.env);
   var body = JSON.parse(output);
   assert.equal(body.schema, "contentforge.campaign_factory_corpus_discovery.v1");

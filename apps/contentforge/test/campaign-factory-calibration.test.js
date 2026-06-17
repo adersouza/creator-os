@@ -5,6 +5,7 @@ import path from "path";
 import { POST } from "../app/api/similarity/route.js";
 import { generateCampaignFactoryFixtures } from "../scripts/generate-campaign-fixtures.mjs";
 import { LEGACY_FINAL_DIR, UPLOADS_DIR } from "../lib/paths.js";
+import { skipWhenMissingTools } from "./tool-availability.js";
 
 const FIXTURE_ROOT = path.resolve("test/fixtures/campaign-factory");
 const MANIFEST_PATH = path.join(FIXTURE_ROOT, "manifests", "expected_verdicts.json");
@@ -13,6 +14,8 @@ const SOURCE_NAME = "cf_calibration_source.mp4";
 if (!process.env.CONTENTFORGE_OCR_ENGINE) {
   process.env.CONTENTFORGE_OCR_ENGINE = "tesseract";
 }
+
+var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
 
 function similarityRequest(body) {
   return new Request("http://localhost/api/similarity", {
@@ -89,7 +92,8 @@ function assertCodesAbsent(actual, expectedCodes, label) {
   }
 }
 
-test("Campaign Factory fixture manifest calibrates /api/similarity response contract", async function () {
+test("Campaign Factory fixture manifest calibrates /api/similarity response contract", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   await generateCampaignFactoryFixtures();
   var manifest = await loadManifest();
   assert.equal(manifest.schema, "contentforge.campaign_factory_calibration.v1");
