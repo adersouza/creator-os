@@ -2,9 +2,11 @@
 
 **A contract-driven content pipeline for Instagram/Threads creators.**
 
-Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content through six coordinated local repositories. Each repo owns one concern. Data flows between them via shared JSON schemas defined in `packages/pipeline_contracts`.
+Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content. The four pipeline tools (reel_factory, campaign_factory, contentforge, reference_factory) are now **canonical in this monorepo**; ThreadsDashboard remains a separate standalone product (juno33.com). Data flows via shared JSON schemas in `packages/pipeline_contracts`.
 
 🔗 **Live Product:** [juno33.com](https://juno33.com)
+
+📋 **Current state & open work:** see [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
 
 ---
 
