@@ -10,7 +10,19 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "env": ["CONTENTFORGE_OCR_ENGINE", "CONTENTFORGE_APPLE_VISION_SCRIPT"],
+      "passThroughEnv": [
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "HOMEBREW_PREFIX",
+        "HOMEBREW_CELLAR",
+        "HOMEBREW_REPOSITORY"
+      ]
     },
     "lint": {}
   }
