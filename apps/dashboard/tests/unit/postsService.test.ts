@@ -183,6 +183,29 @@ describe("posts API service", () => {
 		expect(onPublishStage).toHaveBeenCalledWith("published");
 	});
 
+	it("forwards a manual media reuse override token when publishing", async () => {
+		(global.fetch as any)
+			.mockResolvedValueOnce(jsonResponse({ ok: true, issues: [], summary: { errors: 0, warnings: 0, infos: 0 } }))
+			.mockResolvedValueOnce(jsonResponse({ id: "published-1" }));
+
+		await createPost({
+			status: "published",
+			platform: "instagram",
+			instagramAccountId: "ig-1",
+			content: "publish me",
+			mediaUrls: ["image.jpg"],
+			igMediaType: "IMAGE",
+			crossAccountMediaReuseOverrideToken: "override-token-1",
+		});
+
+		const [, init] = (global.fetch as any).mock.calls[1];
+		expect(JSON.parse(init.body)).toMatchObject({
+			platform: "instagram",
+			instagramAccountId: "ig-1",
+			crossAccountMediaReuseOverrideToken: "override-token-1",
+		});
+	});
+
 	it("schedules through the backend API so exact dispatch is registered", async () => {
 		const onPublishStage = vi.fn();
 		(global.fetch as any)

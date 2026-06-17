@@ -5,6 +5,10 @@ import {
 	runPublishPreflight,
 } from "../../publishPreflight.js";
 import { PublishPostSchema, parseBodyOrError } from "../../validation.js";
+import {
+	evaluateManualMediaReuse,
+	withManualMediaReuseIssue,
+} from "./manualMediaReuse.js";
 import { db, resolveMediaUrls } from "./shared.js";
 
 async function fetchPreflightAccount(
@@ -98,12 +102,10 @@ export async function handlePreflight(
 		media = items;
 	}
 
-	const account = await fetchPreflightAccount(
-		userId,
-		platform,
-		platform === "instagram" ? parsed.instagramAccountId : parsed.accountId,
-	);
-	const result = await runPublishPreflight(
+	const targetAccountId =
+		platform === "instagram" ? parsed.instagramAccountId : parsed.accountId;
+	const account = await fetchPreflightAccount(userId, platform, targetAccountId);
+	const baseResult = await runPublishPreflight(
 		{
 			...parsed,
 			platform,
@@ -115,6 +117,14 @@ export async function handlePreflight(
 		},
 		{ account, checkMediaUrls: true },
 	);
+	const reuse = await evaluateManualMediaReuse({
+		userId,
+		platform,
+		accountId: targetAccountId,
+		content: parsed.content,
+		media,
+	});
+	const result = withManualMediaReuseIssue(baseResult, reuse.issue);
 
 	if (!result.ok) {
 		return apiError(res, 422, "Publish preflight failed", {

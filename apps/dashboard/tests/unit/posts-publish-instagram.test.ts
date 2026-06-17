@@ -6,6 +6,13 @@ import {
 	interceptPostsInsert,
 	createTestInstagramAccount,
 } from "../helpers/mockFactories";
+import { mediaUrlFingerprint } from "../../api/_lib/originalitySignals.js";
+import {
+	buildPublishFingerprint,
+} from "../../api/_lib/handlers/auto-post/publishFingerprint.js";
+import {
+	createManualMediaReuseOverrideToken,
+} from "../../api/_lib/handlers/posts/manualMediaReuse.js";
 
 /**
  * Unit tests for Instagram publish handler.
@@ -27,6 +34,7 @@ let currentSupabase: ReturnType<typeof createPublishSupabaseMock>;
 
 vi.mock("@/api/_lib/supabase.js", () => ({
 	getSupabase: () => currentSupabase,
+	getSupabaseAny: () => currentSupabase,
 }));
 
 vi.mock("@/api/_lib/logger.js", () => ({
@@ -197,6 +205,140 @@ describe("Instagram publish handler", () => {
 				}),
 			}),
 		);
+	});
+
+	it("requires confirmation before manual Instagram publish reuses media from another account", async () => {
+		const mediaUrl = "https://example.com/photo.jpg";
+		const sb = createPublishSupabaseMock({
+			profile: { subscription_tier: "pro" },
+			igAccount: DEFAULT_IG_ACCOUNT,
+			rateLimit: [{ allowed: true, daily_limit: 25, daily_used: 2 }],
+			postInsert: { id: "post-ig-dup" },
+			postOriginalitySignals: [{
+				post_id: "previous-ig-post",
+				account_id: null,
+				instagram_account_id: "ig-acc-2",
+				platform: "instagram",
+				captured_at: new Date().toISOString(),
+				media_url_hashes: [mediaUrlFingerprint(mediaUrl)],
+				perceptual_hashes: [],
+			}],
+		});
+		const insertCapture = interceptPostsInsert(sb, "post-ig-dup");
+		currentSupabase = sb;
+		mockOrchestrateIGPublish.mockResolvedValue({
+			success: true,
+			mediaId: "ig-media-dup",
+			permalink: "https://instagram.com/p/dup",
+			timestamp: new Date(),
+		});
+
+		const { handlePublish } = await import("@/api/_lib/handlers/posts/publish.js");
+		const res = mockRes();
+		const req = mockPublishReq({
+			instagramAccountId: "ig-acc-1",
+			content: "Manual reuse",
+			media: [{ type: "image", url: mediaUrl }],
+			igMediaType: "IMAGE",
+			platform: "instagram",
+		});
+
+		await handlePublish(req as any, res as any, "user-1");
+
+		expect(res.status).toHaveBeenCalledWith(409);
+		expect(res.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				code: "MANUAL_MEDIA_REUSE_CONFIRMATION_REQUIRED",
+				extra: expect.objectContaining({
+					preflight: expect.objectContaining({
+						ok: true,
+						issues: expect.arrayContaining([
+							expect.objectContaining({
+								code: "cross_account_media_reuse_warning",
+								details: expect.objectContaining({
+									overrideToken: expect.any(String),
+									matchedAccountId: "ig-acc-2",
+								}),
+							}),
+						]),
+					}),
+				}),
+			}),
+		);
+		expect(insertCapture.data).toBeNull();
+		expect(mockOrchestrateIGPublish).not.toHaveBeenCalled();
+	});
+
+	it("publishes confirmed Instagram media reuse and records an audit object", async () => {
+		const mediaUrl = "https://example.com/photo.jpg";
+		const content = "Manual reuse";
+		const fingerprint = buildPublishFingerprint({
+			workspaceId: "user-1",
+			accountId: "ig-acc-1",
+			platform: "instagram",
+			content,
+			mediaUrls: [mediaUrl],
+		});
+		const { token } = createManualMediaReuseOverrideToken({
+			userId: "user-1",
+			platform: "instagram",
+			accountId: "ig-acc-1",
+			normalizedTextHash: fingerprint.normalizedTextHash,
+			mediaFingerprint: fingerprint.mediaFingerprint,
+			matchId: "previous-ig-post",
+			matchType: "media_url_hash",
+			matchedAccountId: "ig-acc-2",
+		});
+		const sb = createPublishSupabaseMock({
+			profile: { subscription_tier: "pro" },
+			igAccount: DEFAULT_IG_ACCOUNT,
+			rateLimit: [{ allowed: true, daily_limit: 25, daily_used: 2 }],
+			postInsert: { id: "post-ig-confirmed" },
+			postOriginalitySignals: [{
+				post_id: "previous-ig-post",
+				account_id: null,
+				instagram_account_id: "ig-acc-2",
+				platform: "instagram",
+				captured_at: new Date().toISOString(),
+				media_url_hashes: [mediaUrlFingerprint(mediaUrl)],
+				perceptual_hashes: [],
+			}],
+		});
+		const insertCapture = interceptPostsInsert(sb, "post-ig-confirmed");
+		currentSupabase = sb;
+		mockOrchestrateIGPublish.mockResolvedValue({
+			success: true,
+			mediaId: "ig-media-confirmed",
+			permalink: "https://instagram.com/p/confirmed",
+			timestamp: new Date(),
+		});
+		mockGetInstagramPostMetrics.mockResolvedValue({
+			success: true,
+			metrics: {},
+		});
+
+		const { handlePublish } = await import("@/api/_lib/handlers/posts/publish.js");
+		const res = mockRes();
+		const req = mockPublishReq({
+			instagramAccountId: "ig-acc-1",
+			content,
+			media: [{ type: "image", url: mediaUrl }],
+			igMediaType: "IMAGE",
+			platform: "instagram",
+			crossAccountMediaReuseOverrideToken: token,
+		});
+
+		await handlePublish(req as any, res as any, "user-1");
+
+		expect(res.status).toHaveBeenCalledWith(200);
+		expect(mockOrchestrateIGPublish).toHaveBeenCalled();
+		expect(insertCapture.data.metadata.manual_media_reuse_override).toMatchObject({
+			match_type: "media_url_hash",
+			matched_post_id: "previous-ig-post",
+			matched_queue_id: null,
+			matched_account_id: "ig-acc-2",
+			matched_platform: "instagram",
+		});
 	});
 
 	it("returns 400 when instagramAccountId is missing", async () => {

@@ -270,6 +270,7 @@ export const PublishPostSchema = z
 			})
 			.optional(),
 		metadata: zRecord(z.string(), zUnknown()).optional(),
+		crossAccountMediaReuseOverrideToken: z.string().max(4096).optional(),
 	})
 	.openapi("PublishPostRequest");
 

@@ -294,6 +294,8 @@ export type PublishPreflightIssue = {
 	severity: "error" | "warning" | "info";
 	category:
 		| "account"
+		| "audio"
+		| "campaign_factory"
 		| "caption"
 		| "instagram"
 		| "media"
@@ -301,6 +303,7 @@ export type PublishPreflightIssue = {
 		| "token";
 	code: string;
 	message: string;
+	details?: Record<string, unknown>;
 };
 
 export type PublishPreflightResult = {
@@ -798,6 +801,8 @@ export async function createPost(post: any): Promise<any> {
 				threadChain: post.threadChain || undefined,
 				ghostDuration: post.ghostDuration || undefined,
 				replyToId: post.replyToId || undefined,
+				crossAccountMediaReuseOverrideToken:
+					post.crossAccountMediaReuseOverrideToken || undefined,
 			}),
 		});
 

@@ -116,6 +116,25 @@ describe("publish preflight", () => {
 		);
 	});
 
+	it("does not apply Reels discoverability blocking to Instagram Feed or Stories", async () => {
+		for (const igMediaType of ["IMAGE", "STORIES"] as const) {
+			const result = await runPublishPreflight(
+				{
+					platform: "instagram",
+					instagramAccountId: "ig-1",
+					content: "DM me for the link in bio and subscribe here",
+					igMediaType,
+					media: [{ type: "image", url: "https://cdn.example.com/post.jpg" }],
+				},
+				{ account: healthyAccount },
+			);
+
+			expect(result.issues.map((issue) => issue.code)).not.toContain(
+				"ig_reel_caption_link_or_dm_reference",
+			);
+		}
+	});
+
 	it("does not block harmless captions that use the normal word of", async () => {
 		const result = await runPublishPreflight(
 			{

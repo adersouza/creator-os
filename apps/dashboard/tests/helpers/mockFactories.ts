@@ -73,6 +73,8 @@ export interface PublishSupabaseOverrides {
 	account?: Record<string, unknown> | null;
 	igAccount?: Record<string, unknown> | null;
 	igAccountError?: unknown;
+	autoPostQueueRows?: Record<string, unknown>[];
+	postOriginalitySignals?: Record<string, unknown>[];
 	rateLimit?: { allowed: boolean; daily_limit: number; daily_used: number }[];
 	rateLimitError?: unknown;
 	postInsert?: { id: string } | null;
@@ -232,6 +234,49 @@ export function createPublishSupabaseMock(
 						}),
 					}),
 				};
+			}
+
+			if (table === "auto_post_queue") {
+				const chain: any = {};
+				for (const method of [
+					"select",
+					"eq",
+					"neq",
+					"not",
+					"in",
+					"gte",
+					"order",
+					"limit",
+				]) {
+					chain[method] = vi.fn().mockReturnValue(chain);
+				}
+				chain.then = (resolve: (value: unknown) => unknown) =>
+					Promise.resolve({
+						data: overrides.autoPostQueueRows ?? [],
+						error: null,
+					}).then(resolve);
+				return chain;
+			}
+
+			if (table === "post_originality_signals") {
+				const chain: any = {};
+				for (const method of [
+					"select",
+					"eq",
+					"neq",
+					"not",
+					"gte",
+					"order",
+					"limit",
+				]) {
+					chain[method] = vi.fn().mockReturnValue(chain);
+				}
+				chain.then = (resolve: (value: unknown) => unknown) =>
+					Promise.resolve({
+						data: overrides.postOriginalitySignals ?? [],
+						error: null,
+					}).then(resolve);
+				return chain;
 			}
 
 			// Fallback for any other table
