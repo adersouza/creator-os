@@ -1,7 +1,8 @@
 """Cross-repo integration test for the Creator OS pipeline.
 
 Validates that data contracts are honored across all factory boundaries.
-This test imports real modules from each sibling repo and verifies:
+This test imports real modules from the monorepo packages, with legacy
+split-repo fallback support, and verifies:
 
 1. pipeline_contracts schemas are loadable and valid
 2. campaign_factory can validate draft payloads
@@ -12,8 +13,8 @@ This test imports real modules from each sibling repo and verifies:
 Run from the creator-os directory:
     python3 test_integration.py
 
-Requires sibling repos at ../pipeline_contracts, ../campaign_factory,
-../reference_factory, ../reel_factory.
+Uses packages/pipeline_contracts and python_packages/* in this monorepo when
+present. Legacy split-repo fallback paths are kept only for older checkouts.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-# ── Resolve sibling repo paths ───────────────────────────────────────
+# ── Resolve monorepo package paths, with legacy split-repo fallback ───
 
 CREATOR_OS_ROOT = Path(__file__).parent
 PROJECTS_ROOT = CREATOR_OS_ROOT.parent

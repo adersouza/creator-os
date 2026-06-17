@@ -1,8 +1,8 @@
 {
   "schema": "creator-os.mirror_provenance.v1",
   "sourceRepo": "../ThreadsDashboard",
-  "sourceCommit": "64e29055da6258ed870c31cf6389d24c8e5e65a9",
+  "sourceCommit": "ec3683f33b85e2598db26e9e5cbeb738fea80257",
   "mirrorPath": "apps/dashboard",
-  "fileCount": 3218,
+  "fileCount": 3217,
   "note": "GENERATED read-only mirror. Do not hand-edit. Run scripts/sync/mirror-sync.mjs."
 }

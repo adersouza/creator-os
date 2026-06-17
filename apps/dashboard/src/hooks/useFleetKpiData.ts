@@ -38,6 +38,9 @@ export interface FleetKpiState {
   /** Sum of `total_reach` across all in-scope accounts in window. */
   reach: number;
   reachDelta: number | null;
+  /** Post-level views/impressions (views_count / ig_views) — distinct from reach. */
+  views: number;
+  viewsDelta: number | null;
   /** Sum of likes + comments/replies + reposts/quotes + saves + sends/shares. */
   totalInteractions: number;
   totalInteractionsDelta: number | null;
@@ -87,6 +90,7 @@ const EMPTY: FleetKpiState = {
   igWebsiteClicksAvailable: false,
   igNonFollowerReachAvailable: false,
   reach: 0, reachDelta: null,
+  views: 0, viewsDelta: null,
   totalInteractions: 0, totalInteractionsDelta: null,
   saves: 0, savesDelta: null,
   shares: 0, sharesDelta: null,
@@ -309,6 +313,7 @@ function aggregatePosts(
   accountIds?: string[] | null,
 ) {
   let reach = 0,
+    views = 0,
     likes = 0,
     replies = 0,
     reposts = 0,
@@ -337,6 +342,13 @@ function aggregatePosts(
       ? row.ig_reach ?? row.ig_views ?? row.views_count ?? 0
       : row.views_count ?? 0;
     reach += rowReach;
+    // True views/impressions (distinct from reach): IG video/reel views, else
+    // post view counts. This is the only views source — the daily analytics
+    // rollup has no views column.
+    const rowViews = isIg
+      ? row.ig_views ?? row.views_count ?? 0
+      : row.views_count ?? 0;
+    views += rowViews;
     likes += row.likes_count ?? 0;
     replies += isIg ? row.ig_comment_count ?? row.replies_count ?? 0 : row.replies_count ?? 0;
     reposts += isIg ? 0 : row.reposts_count ?? 0;
@@ -348,6 +360,7 @@ function aggregatePosts(
   const totalInteractions = likes + replies + reposts + quotes + saves + shares;
   return {
     reach,
+    views,
     likes,
     replies,
     reposts,
@@ -654,6 +667,9 @@ export function useFleetKpiData(
         igNonFollowerReachAvailable,
         reach: c.reach,
         reachDelta: pctDelta(c.reach, p.reach),
+        // Views always come from post-level data (the daily rollup has none).
+        views: postCurrent.views,
+        viewsDelta: pctDelta(postCurrent.views, postPrior.views),
         totalInteractions: c.totalInteractions,
         totalInteractionsDelta: pctDelta(c.totalInteractions, p.totalInteractions),
         saves: c.saves,

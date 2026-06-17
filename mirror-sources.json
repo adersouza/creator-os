@@ -37,12 +37,13 @@
       "mirrorPath": "apps/dashboard",
       "sourceRepoPath": "../ThreadsDashboard",
       "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
-      "sourceCommit": "64e29055da6258ed870c31cf6389d24c8e5e65a9",
+      "sourceCommit": "ec3683f33b85e2598db26e9e5cbeb738fea80257",
       "include": [
         "**/*"
       ],
       "exclude": [
         "pipeline_contracts/",
+        "scripts/check-pipeline-contracts-sync.mjs",
         "schemas/"
       ]
     }

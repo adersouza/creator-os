@@ -18,7 +18,7 @@ intentional and reviewed.
 
 - `reel_factory`: active creative generation path is direct Higgsfield reference-image generation, not Grok/grid.
 - `campaign_factory`: campaign control brain, readiness, inventory, learning, draft export.
-- `contentforge`: variant generation, FFmpeg processing, similarity/readiness/forensics audits.
+- `contentforge`: content spoofer — generates FFmpeg variants that defeat perceptual-hash duplicate detection (PDQ/SSCD) and rewrite capture metadata so re-used content reads as an original device capture. Similarity/variation scores measure evasion; quality/readability/safe-zone scores enforce a quality floor (spoofing must not visibly degrade output).
 - `ThreadsDashboard`: product UI, Supabase data, drafts, scheduling, publishing infrastructure, analytics.
 - `pipeline_contracts`: shared schemas and validators.
 - `reference_factory`: reference review, gold learning set, pattern/audio exports.
