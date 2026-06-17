@@ -319,6 +319,42 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(lineage["generation"]["failure"]["stage"], "cost_preflight")
             self.assertEqual(lineage["generation"]["costPreflight"]["blockingReason"], "budget_policy_missing")
 
+    def test_active_image_asset_lineage_does_not_call_deprecated_grid_detection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_path = root / "prompt.json"
+            prompt_path.write_text(json.dumps({
+                "higgsfieldGridPrompt": "reference image still",
+                "klingMotionPrompt": "motion",
+            }), encoding="utf-8")
+            plan = AssetGenerationPlan(
+                prompt_json=prompt_path,
+                stem="clip_single",
+                reference=None,
+                soul_id="5828d958-91dd-4d6d-8909-934503f47644",
+                soul_name="Stacey",
+                start_image=None,
+                out_dir=root / "project_data" / "generated_assets",
+                source_dir=root / "00_source_videos",
+            )
+            capabilities = {
+                "schema": "cap",
+                "createdAt": 1,
+                "imageModels": [{"job_set_type": "soul_2", "parameters": [{"name": "soul_id"}]}],
+                "videoModels": [{"job_set_type": "kling3_0"}],
+            }
+
+            with patch("generate_assets.ensure_required_capabilities", return_value=capabilities), \
+                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
+                 patch("generate_assets._run_json", return_value={"id": "img_1", "url": "https://example.test/img.png"}), \
+                 patch("generate_assets.validate_generation_soul", return_value={"status": "valid"}), \
+                 patch("generate_assets.detect_grid_status", side_effect=AssertionError("deprecated grid detection called")):
+                result = create_image_asset(plan, wait=True, download=False)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["lineage"]["generation"]["grid"]["status"], "single_image_layout")
+            self.assertFalse(result["lineage"]["generation"]["grid"]["isGrid"])
+
     def test_first_visible_frame_selector_skips_black_frames(self):
         from PIL import Image, ImageDraw
 
@@ -356,8 +392,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (1344, 2016), "white").save(single)
             Image.new("RGB", (1800, 1800), "white").save(grid)
 
-            self.assertEqual(detect_grid_status(single)["status"], "single_image_or_invalid_grid")
-            self.assertEqual(detect_grid_status(grid)["status"], "native_2x3_grid")
+            with patch.dict(os.environ, {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "test",
+            }, clear=True):
+                self.assertEqual(detect_grid_status(single)["status"], "single_image_or_invalid_grid")
+                self.assertEqual(detect_grid_status(grid)["status"], "native_2x3_grid")
 
     def test_capability_probe_validates_required_models(self):
         payload = {
@@ -545,29 +585,96 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 image_mode="six-pack",
             )
 
-            commands = [" ".join(cmd) for cmd in dry_run(plan, wait=True)["commands"]]
+            with patch.dict(os.environ, {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "test",
+            }, clear=True):
+                commands = [" ".join(cmd) for cmd in dry_run(plan, wait=True)["commands"]]
             image_commands = [cmd for cmd in commands if "text2image_soul_v2" in cmd]
 
             self.assertEqual(len(image_commands), 6)
             self.assertTrue(all("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644" in cmd for cmd in image_commands))
             self.assertIn("Render only outfit variation 6", image_commands[-1])
 
-    def test_deprecated_six_pack_path_raises_when_guard_enabled(self):
+    def test_deprecated_six_pack_path_raises_by_default(self):
         prompt = AssetPromptSet(
             higgsfieldGridPrompt="six panel soul id grid",
             klingMotionPrompt="subtle camera motion",
             notes="manual review",
         )
-        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
+        with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
                 _six_pack_prompts(prompt)
 
-    def test_deprecated_grok4_reference_analysis_raises_when_guard_enabled(self):
+    def test_deprecated_six_pack_path_allows_explicit_local_test_override(self):
+        prompt = AssetPromptSet(
+            higgsfieldGridPrompt="six panel soul id grid",
+            klingMotionPrompt="subtle camera motion",
+            notes="manual review",
+        )
+        with patch.dict(os.environ, {
+            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+            "REEL_FACTORY_ENV": "test",
+        }, clear=True):
+            self.assertEqual(len(_six_pack_prompts(prompt)), 6)
+
+    def test_prod_env_blocks_deprecated_generators_even_with_allow_flag(self):
+        prompt = AssetPromptSet(
+            higgsfieldGridPrompt="six panel soul id grid",
+            klingMotionPrompt="subtle camera motion",
+            notes="manual review",
+        )
+        with patch.dict(os.environ, {
+            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+            "REEL_FACTORY_ENV": "production",
+        }, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
+                _six_pack_prompts(prompt)
+
+    def test_deprecated_raise_flag_still_blocks_generators(self):
+        prompt = AssetPromptSet(
+            higgsfieldGridPrompt="six panel soul id grid",
+            klingMotionPrompt="subtle camera motion",
+            notes="manual review",
+        )
+        with patch.dict(os.environ, {
+            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+            "REEL_FACTORY_ENV": "test",
+            "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1",
+        }, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
+                _six_pack_prompts(prompt)
+
+    def test_deprecated_grok_reference_analysis_returns_controlled_api_error_by_default(self):
         import reel_gui
 
-        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
-            with self.assertRaisesRegex(RuntimeError, "grok_4_reference_analysis is deprecated"):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(Exception) as ctx:
                 reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
+        self.assertEqual(ctx.exception.status_code, 410)
+        self.assertIn("grok_reference_analysis is deprecated", str(ctx.exception.detail))
+
+    def test_reference_analysis_requires_explicit_model(self):
+        import reel_gui
+
+        with self.assertRaises(Exception) as ctx:
+            reel_gui.analyze_reference_api({"reference": "ref.png"})
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.detail, "model is required")
+
+    def test_deprecated_grok_reference_analysis_allows_explicit_local_test_override(self):
+        import reel_gui
+
+        with patch.dict(os.environ, {
+            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+            "REEL_FACTORY_ENV": "test",
+        }, clear=True), \
+             patch.object(reel_gui, "_resolve_project_path", return_value="ref.png"), \
+             patch.object(reel_gui, "analyze_reference", return_value={"ok": True}) as analyze:
+            result = reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
+
+        self.assertEqual(result, {"ok": True})
+        analyze.assert_called_once()
 
     def test_generate_assets_image_command_requires_soul_identity_param(self):
         prompt = parse_asset_prompt_response(json.dumps({

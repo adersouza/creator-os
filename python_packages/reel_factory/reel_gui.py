@@ -36,7 +36,7 @@ from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
-from deprecated_generators import guard_deprecated_generator  # noqa
+from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
 from generate_assets import (  # noqa
     AssetGenerationPlan,
     DEFAULT_GRID_IMAGE_ASPECT_RATIO,
@@ -122,6 +122,14 @@ for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
 
 app = FastAPI(title="reel_factory")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+def guard_deprecated_generator_api(feature: str) -> None:
+    try:
+        guard_deprecated_generator(feature)
+    except DeprecatedGeneratorError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+
 
 _run_state: dict[str, Any] = {
     "running":  False,
@@ -1336,7 +1344,7 @@ def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
 
 @app.get("/api/grid-crop/{stem}/frame")
 def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
-    guard_deprecated_generator("grid_crop")
+    guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
     info_raw = subprocess.check_output([
         FFPROBE, "-v", "error", "-select_streams", "v:0",
@@ -1364,7 +1372,7 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
 
 @app.post("/api/grid-crop/{stem}/suggest")
 def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
-    guard_deprecated_generator("grid_crop")
+    guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
     info_raw = subprocess.check_output([
         FFPROBE, "-v", "error", "-select_streams", "v:0",
@@ -1393,7 +1401,7 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
 
 @app.put("/api/grid-crop/{stem}/plan")
 def grid_crop_save_plan_api(stem: str, body: dict = Body(...)):
-    guard_deprecated_generator("grid_crop")
+    guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
     columns = body.get("columns") or (body.get("grid_preset") or {}).get("columns")
     rows = body.get("rows") or (body.get("grid_preset") or {}).get("rows")
@@ -1416,7 +1424,7 @@ def grid_crop_save_plan_api(stem: str, body: dict = Body(...)):
 
 @app.post("/api/grid-crop/{stem}/preview")
 def grid_crop_preview_api(stem: str, body: dict = Body(...)):
-    guard_deprecated_generator("grid_crop")
+    guard_deprecated_generator_api("grid_crop")
     _source_video_for_stem(stem)
     panel_id = int(body.get("panel_id") or body.get("panel") or 1)
     try:
@@ -1430,7 +1438,7 @@ def grid_crop_preview_api(stem: str, body: dict = Body(...)):
 
 @app.post("/api/grid-crop/{stem}/render")
 def grid_crop_render_api(stem: str, body: dict = Body(default={})):
-    guard_deprecated_generator("grid_crop")
+    guard_deprecated_generator_api("grid_crop")
     _source_video_for_stem(stem)
     try:
         result = render_grid_crop_plan(
@@ -2039,9 +2047,11 @@ def analyze_reference_api(body: dict = Body(...)):
     reference = body.get("reference") or body.get("path")
     if not reference:
         raise HTTPException(400, "reference is required")
-    model = str(body.get("model") or "grok-4.3")
-    if model.startswith("grok-4"):
-        guard_deprecated_generator("grok_4_reference_analysis")
+    model = str(body.get("model") or "").strip()
+    if not model:
+        raise HTTPException(400, "model is required")
+    if model.lower().startswith("grok"):
+        guard_deprecated_generator_api("grok_reference_analysis")
     return analyze_reference(
         ROOT,
         Path(_resolve_project_path(reference)),

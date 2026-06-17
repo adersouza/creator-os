@@ -218,7 +218,11 @@ class GridCropTests(unittest.TestCase):
             (raw / "clip_001.mp4").write_bytes(b"mp4")
             fake_probe = json.dumps({"streams": [{"width": 1200, "height": 800, "duration": "5.0"}]})
 
-            with patch.object(reel_gui, "ROOT", root), \
+            with patch.dict(os.environ, {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "test",
+            }, clear=True), \
+                 patch.object(reel_gui, "ROOT", root), \
                  patch.object(reel_gui, "RAW_DIR", raw), \
                  patch.object(reel_gui.subprocess, "check_output", return_value=fake_probe), \
                  patch("grid_crop.probe_video", return_value={"width": 1200, "height": 800, "duration": 5.0}):
@@ -233,12 +237,26 @@ class GridCropTests(unittest.TestCase):
             self.assertTrue(Path(saved["plan_path"]).exists())
             self.assertEqual(saved["plan"]["renderMode"], "fit_nocrop")
 
-    def test_gui_grid_crop_raises_when_deprecation_guard_enabled(self):
+    def test_gui_grid_crop_returns_controlled_error_by_default(self):
         import reel_gui
 
-        with patch.dict(os.environ, {"REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1"}):
-            with self.assertRaisesRegex(RuntimeError, "grid_crop is deprecated"):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(Exception) as ctx:
                 reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
+        self.assertEqual(ctx.exception.status_code, 410)
+        self.assertIn("grid_crop is deprecated", str(ctx.exception.detail))
+
+    def test_gui_grid_crop_blocks_prod_even_with_allow_flag(self):
+        import reel_gui
+
+        with patch.dict(os.environ, {
+            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+            "REEL_FACTORY_ENV": "production",
+        }, clear=True):
+            with self.assertRaises(Exception) as ctx:
+                reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
+        self.assertEqual(ctx.exception.status_code, 410)
+        self.assertIn("grid_crop is deprecated", str(ctx.exception.detail))
 
 
 if __name__ == "__main__":

@@ -484,6 +484,7 @@ def download_result(url: str, out_path: Path) -> Path:
 
 
 def detect_grid_status(image_path: str | Path | None) -> dict[str, Any]:
+    guard_deprecated_generator("grid_status_detection")
     if not image_path:
         return {"status": "missing", "isGrid": False}
     path = Path(image_path)
@@ -501,6 +502,23 @@ def detect_grid_status(image_path: str | Path | None) -> dict[str, Any]:
         "height": height,
         "ratio": ratio,
     }
+
+
+def single_image_layout_status(image_path: str | Path | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"status": "single_image_layout", "isGrid": False}
+    if not image_path:
+        return payload
+    try:
+        with Image.open(Path(image_path)) as im:
+            width, height = im.size
+    except Exception:
+        return payload
+    payload.update({
+        "width": width,
+        "height": height,
+        "ratio": width / height if height else 0.0,
+    })
+    return payload
 
 
 def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
@@ -881,7 +899,7 @@ def create_image_asset(plan: AssetGenerationPlan, *, wait: bool = False,
         "createdAt": capabilities.get("createdAt"),
         "validation": validate_required_capabilities(capabilities, plan.image_model, plan.video_model),
     }
-    payload["generation"]["grid"] = detect_grid_status(local_paths.get("image")) if plan.image_mode != "six-pack" else {
+    payload["generation"]["grid"] = single_image_layout_status(local_paths.get("image")) if plan.image_mode != "six-pack" else {
         "status": "six_pack_separate_images",
         "isGrid": False,
         "count": len([k for k in local_paths if k.startswith("variation_")]),
