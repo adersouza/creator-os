@@ -88,7 +88,7 @@ Grok/Qwen/Ollama/Florence visual-schema extraction, grids, cropped panels, and `
 **Campaign Factory** acts as the control brain:
 - Imports finished videos with full lineage
 - Sends them to **ContentForge**, which generates FFmpeg variants engineered to defeat perceptual-hash duplicate detection (PDQ/SSCD) and rewrites capture metadata (`creation_time`, `handler_name`, device-matched x264 params) so re-used content reads as an original device capture
-- The "forensics/readiness/similarity" checks score how convincing each spoofed variant is, not content quality
+- Two check families: **spoof meters** (`sourceSimilarity`, `variantToVariantSimilarity`, `variationScore`) score how well a variant evades duplicate detection; **quality guards** (`creativeQualityScore`, `readabilityScore`, `safeZoneScore`) enforce a quality floor so spoofing never visibly degrades the output
 - Only `overallVerdict: pass` maps to `approved_candidate`; warnings require human review
 - Maintains local SQLite campaign database (48 tables), activity logs, and durable job records
 

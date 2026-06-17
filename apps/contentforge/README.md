@@ -7,9 +7,12 @@ ContentForge runs on your machine with Next.js, FFmpeg, and Python helper script
 - **Defeat perceptual-hash duplicate detection** (PDQ/SSCD — the same class of algorithms platforms use to flag re-used content).
 - **Rewrite capture metadata** (`creation_time`, `handler_name`, device-matched x264 params/filenames) so a re-used file reads as an original device capture.
 
-The "quality / forensics / readiness / similarity" checks are not quality audits — they score how convincing each spoofed variant is and flag variants that would still trip duplicate or forensic detection.
+Two families of checks:
 
-> **Note:** This defeats platform duplicate-detection and capture-forensics. That is a Terms-of-Service-evasion capability — see the project owner before extending it.
+- **Spoof meters** — `sourceSimilarity`, `variantToVariantSimilarity`, `variationScore` measure how well a variant evades duplicate/forensic detection.
+- **Quality guards** — `creativeQualityScore`, `readabilityScore`, `safeZoneScore` enforce a **quality floor**: spoofing must never visibly degrade the delivered video. A variant that evades detection but looks worse is a failure.
+
+> **Note:** This defeats platform duplicate-detection and capture-forensics — a Terms-of-Service-evasion capability. Two standing rules: (1) the quality floor is non-negotiable — no spoof change may worsen perceptible output quality; (2) extending or strengthening the evasion capability requires explicit owner instruction.
 
 ## Variation Lab
 

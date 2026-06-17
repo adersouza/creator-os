@@ -171,7 +171,14 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 
 Docs updated to state this plainly (root `README.md`, `AGENTS.md`, `apps/contentforge/README.md`). No longer treated as a mismatch to resolve.
 
-**Standing constraint:** this is Terms-of-Service-evasion tooling. Agents must not extend or "improve" the evasion capability without an explicit owner instruction. Account-ban / takedown risk is the owner's accepted trade-off, not an agent's to expand.
+**Score taxonomy (matters for the constraints below):**
+- **Spoof/evasion meters:** `sourceSimilarity`, `variantToVariantSimilarity`, `variationScore` — how well the variant defeats duplicate detection.
+- **Output-quality guards:** `creativeQualityScore`, `readabilityScore`, `safeZoneScore` — perceptible quality of the delivered video. These are the **quality floor**.
+
+**Constraints for any ContentForge work:**
+1. **Quality floor is non-negotiable.** Spoof transforms (noise injection, recompression, crops, geometric warps, metadata rewrites) must **not worsen perceptible video quality**. Any change that lowers `creativeQualityScore`/`readabilityScore`/`safeZoneScore` for equivalent inputs, or visibly degrades output, is a regression — block it. Spoof strength may only increase by means that hold quality constant or improve it.
+2. **Spoof improvement is allowed — but owner-directed.** The owner will direct spoof-capability work explicitly (planned, not now). Agents must not unilaterally extend/strengthen evasion outside an explicit owner instruction. When directed, constraint #1 still binds.
+3. This is Terms-of-Service-evasion tooling; account-ban / takedown risk is the owner's accepted trade-off.
 
 ---
 
