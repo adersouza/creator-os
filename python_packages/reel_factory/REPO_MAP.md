@@ -70,14 +70,14 @@ Important areas:
 - `src/services/autoPost/`: auto-post services.
 - `api/go/[code].ts`: smart-link redirect/interstitial route.
 
-## `/Users/aderdesouza/Developer/pipeline_contracts`
+## `/Users/aderdesouza/Developer/creator-os/packages/pipeline_contracts`
 
 Primary role: shared schemas and validators.
 
 Important areas:
 
-- `pipeline_contracts/schemas/`
-- `schemas/`
+- `packages/pipeline_contracts/pipeline_contracts/schemas/`
+- `packages/pipeline_contracts/schemas/`
 - `pipeline_contracts/validator.py`
 - `typescript/index.ts`
 

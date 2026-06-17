@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 import { get } from "node:https";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const localContractsRoot = resolve(root, "..", "pipeline_contracts");
 const vendoredRoot = join(root, "pipeline_contracts");
+const localContractsRoot = resolve(root, "..", "..", "packages", "pipeline_contracts");
 const remoteBase =
-	"https://raw.githubusercontent.com/adersouza/pipeline_contracts/main";
+	"https://raw.githubusercontent.com/adersouza/creator-os/main/packages/pipeline_contracts";
 
 const files = [
 	"schemas/audio_catalog_export.v1.example.json",
@@ -34,6 +34,8 @@ const files = [
 	"schemas/recommendation_accuracy_report.v1.schema.json",
 	"schemas/recommendation_next_batch.v1.example.json",
 	"schemas/recommendation_next_batch.v1.schema.json",
+	"schemas/repurposing_plan.v1.example.json",
+	"schemas/repurposing_plan.v1.schema.json",
 	"schemas/video_analysis.v1.example.json",
 	"schemas/video_analysis.v1.schema.json",
 	["typescript/index.ts", "typescript.ts"],
@@ -82,10 +84,10 @@ for (const entry of files) {
 
 if (mismatches.length > 0) {
 	console.error("ERROR: ThreadsDashboard pipeline_contracts snapshot is stale.");
-	console.error("Sync from the local sibling ../pipeline_contracts checkout or from:");
-	console.error("https://github.com/adersouza/pipeline_contracts");
+	console.error("Sync from ../../packages/pipeline_contracts or from:");
+	console.error("https://github.com/adersouza/creator-os/tree/main/packages/pipeline_contracts");
 	for (const mismatch of mismatches) console.error(`- ${mismatch}`);
 	process.exit(1);
 }
 
-console.log(`Pipeline contracts snapshot is in sync with ${useLocal ? "local sibling checkout" : "GitHub main"}.`);
+console.log(`Pipeline contracts snapshot is in sync with ${useLocal ? "creator-os package" : "GitHub main"}.`);

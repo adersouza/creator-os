@@ -93,7 +93,7 @@ Not allowed:
 
 - Do not put business logic in schemas.
 - Do not silently change schema IDs for breaking changes.
-- Do not treat stale vendored copies as authoritative over `$CREATOR_OS_ROOT/pipeline_contracts`.
+- Do not treat stale vendored copies as authoritative over `$CREATOR_OS_ROOT/packages/pipeline_contracts`.
 
 ## Things Future Codex Sessions Must Not Break
 
