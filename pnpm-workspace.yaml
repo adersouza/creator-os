@@ -5,6 +5,11 @@ packageExtensions:
   juno33@*:
     dependencies:
       es-toolkit: 1.47.0
+      # sparkles.tsx imports a type from @tsparticles/engine (a transitive dep
+      # of @tsparticles/react/slim). npm's flat hoist resolves it in TD, but
+      # pnpm's strict layout doesn't expose a transitive dep to the package —
+      # inject it so `tsc --noEmit` finds the type declarations here too.
+      "@tsparticles/engine": 3.9.1
 overrides:
   # Dashboard dependabot bumped @playwright/test to 1.61 but left `playwright`
   # at ^1.58.2; @vitest/browser-playwright (peer `playwright: *`) then resolved a

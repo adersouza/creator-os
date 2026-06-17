@@ -8,7 +8,7 @@ overrides:
   playwright: 1.61.0
   playwright-core: 1.61.0
 
-packageExtensionsChecksum: sha256-En63S4cQ0WuA9sfCMtavf1omSzkUEwP6Xv+H6YtXpkc=
+packageExtensionsChecksum: sha256-dAT475K7F8nCHj6c5PVaRQJwQ11UYxEvPZVYwJUView=
 
 importers:
 
@@ -126,6 +126,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.3
         version: 3.14.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@tsparticles/engine':
+        specifier: 3.9.1
+        version: 3.9.1
       '@tsparticles/react':
         specifier: ^3.0.0
         version: 3.0.0(@tsparticles/engine@3.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
