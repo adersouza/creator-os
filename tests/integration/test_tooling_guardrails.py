@@ -134,6 +134,23 @@ def test_dependabot_excludes_read_only_dashboard_mirror() -> None:
     assert "apps/dashboard/**" in npm_updates[0].get("exclude-paths", [])
 
 
+def test_dependabot_ignores_known_incompatible_eslint_major() -> None:
+    config = _workflow(".github/dependabot.yml")
+    npm_update = next(
+        update
+        for update in config["updates"]
+        if update["package-ecosystem"] == "npm" and update["directory"] == "/"
+    )
+    eslint_ignores = [
+        ignore
+        for ignore in npm_update.get("ignore", [])
+        if ignore["dependency-name"] == "eslint"
+    ]
+
+    assert len(eslint_ignores) == 1
+    assert "version-update:semver-major" in eslint_ignores[0]["update-types"]
+
+
 def test_architecture_guard_configs_are_narrow_and_present() -> None:
     depcruise = (ROOT / ".dependency-cruiser.cjs").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
