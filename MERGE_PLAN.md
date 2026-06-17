@@ -320,7 +320,6 @@ For every actual merge, append:
 
 - Secret rotation and git-history purge.
 - 50/100/200 scale proof and QStash outage/reconciliation-drain proof.
-- Account graph certification.
 
 ## PR Merge Records
 

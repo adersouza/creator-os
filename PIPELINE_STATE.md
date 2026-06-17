@@ -47,7 +47,6 @@ reel_factory / campaign_factory / contentforge / reference_factory  ──▶ AR
 
 - Secret rotation / OAuth re-encryption / git-history purge (P0) — provider consoles. See `docs/security/`.
 - Scale proof (50/100/200 load, QStash-outage/reconciliation-drain).
-- Account-graph certification.
 
 ## Rollback references (keep until soak ends)
 
