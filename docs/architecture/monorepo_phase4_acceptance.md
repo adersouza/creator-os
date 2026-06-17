@@ -37,6 +37,9 @@ completed:
 
 ## Current Promotion Rule
 
-`creator-os` can replace the split repos only after the decision gate in
-`MONOREPO_MIGRATION_MASTER_PLAN.md` is true. Until then, monorepo tests improve
-confidence, but runtime operations should continue from the verified split repos.
+`creator-os` can replace any remaining split-repo runtime path only after the
+current promotion criteria in `docs/architecture/monorepo_deployment_promotion.md`
+are satisfied. The historical phased plan is archived at
+`docs/archive/MONOREPO_MIGRATION_MASTER_PLAN.md`. Until promotion is explicit,
+monorepo tests improve confidence, but runtime operations should continue from
+the verified deployment source for that component.

@@ -1,6 +1,15 @@
 {
   "name": "pipeline-contracts-ts",
   "version": "1.0.0",
+  "scripts": {
+    "test": "vitest run"
+  },
   "main": "typescript/index.ts",
-  "types": "typescript/index.ts"
+  "types": "typescript/index.ts",
+  "dependencies": {
+    "ajv": "^8.18.0"
+  },
+  "devDependencies": {
+    "vitest": "4.1.9"
+  }
 }

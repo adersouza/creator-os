@@ -6,6 +6,7 @@ Reference Factory owns reference review, gold learning sets, pattern cards, audi
 
 - It does not own active Higgsfield generation.
 - Reel Factory active generation is direct reference-image Higgsfield stills, not Grok/grid prompt generation.
+- Grok/xAI prompt compilation and Ollama pattern labeling are active but experimental Reference Factory analysis paths. They can enrich reference-learning outputs when explicitly invoked; they are not the production Reel Factory generation baseline.
 - Reference Factory outputs can inspire Campaign Factory and Reel Factory, but must not schedule, publish, export drafts, or mutate production inventory.
 
 ## Do Not Do
@@ -13,4 +14,4 @@ Reference Factory owns reference review, gold learning sets, pattern cards, audi
 - Do not scrape logged-in/private platform surfaces.
 - Do not automate Instagram/TikTok logins.
 - Do not make reference learning overwrite operator labels unless explicitly requested.
-- Do not assume old Grok/grid prompt packs are current production guidance.
+- Do not assume Grok/grid prompt packs are current production generation guidance unless the user explicitly promotes that workflow.

@@ -4,7 +4,7 @@ Current Creator OS note:
 
 - Reference Factory owns reference review, learning sets, pattern cards, audio snapshots, and campaign reference-bank exports.
 - Reel Factory's active generation path is direct Higgsfield reference-image stills, not Grok/grid prompt generation.
-- Treat old prompt packs as learning/legacy context unless the user explicitly asks to use them.
+- Grok/xAI prompt compilation and Ollama pattern labeling are active experimental Reference Factory analysis paths. Treat Grok/grid prompt packs as learning or research context unless the user explicitly asks to use them.
 - Do not schedule, publish, export drafts, mutate account health, or mutate production inventory from Reference Factory.
 
 ## Start Review

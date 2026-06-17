@@ -1630,6 +1630,27 @@ def test_reference_local_analysis_creates_pattern_card_and_export(tmp_path: Path
     assert analysis["signals"]["frameSamples"]
 
 
+def test_public_prompt_card_handles_shared_choice_caption_archetype() -> None:
+    from reference_factory.public_metrics import _prompt_card_from_post
+
+    card = _prompt_card_from_post({
+        "id": "post_1",
+        "rank": 1,
+        "ownerUsername": "creator",
+        "url": "https://example.com/p/post_1",
+        "videoPlayCount": 1000,
+        "videoViewCount": 1100,
+        "likesCount": 100,
+        "commentsCount": 10,
+        "matchType": "external_only",
+        "referenceId": "ref_1",
+        "caption": "pick one",
+    })
+
+    assert card["learnedPattern"]["captionArchetype"] == "choice_bait"
+    assert card["learnedPattern"]["structureNotes"]
+
+
 def test_thumbnail_batch_skips_existing_and_creates_missing(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"

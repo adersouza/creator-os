@@ -8,7 +8,7 @@ overrides:
   playwright: 1.61.0
   playwright-core: 1.61.0
 
-packageExtensionsChecksum: sha256-dAT475K7F8nCHj6c5PVaRQJwQ11UYxEvPZVYwJUView=
+packageExtensionsChecksum: sha256-m0sB5B88p6JWut2Q/kPz+Y/W2FlzcUQ7qUcLV2GsX74=
 
 importers:
 
@@ -147,6 +147,9 @@ importers:
       ai:
         specifier: ^6.0.206
         version: 6.0.206(zod@4.4.3)
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -392,7 +395,15 @@ importers:
         specifier: ^7.4.0
         version: 7.4.1
 
-  packages/pipeline_contracts: {}
+  packages/pipeline_contracts:
+    dependencies:
+      ajv:
+        specifier: ^8.18.0
+        version: 8.20.0
+    devDependencies:
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/browser-playwright@4.1.9)(@vitest/coverage-v8@4.1.9)(jsdom@29.1.1(@noble/hashes@1.8.0))(msw@2.14.6(@types/node@25.9.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))
 
 packages:
 

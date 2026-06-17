@@ -30,13 +30,11 @@ def _assert_action_major_allowed(steps: list[dict], action: str, allowed: set[in
     assert set(majors).issubset(allowed), f"{action} majors {majors} must be in {sorted(allowed)}"
 
 
-def test_security_workflow_contains_dependency_review_and_trivy() -> None:
+def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
 
-    assert "dependency-review" in jobs
-    dependency_steps = jobs["dependency-review"]["steps"]
-    _assert_action_major_allowed(dependency_steps, "actions/dependency-review-action", {4, 5})
+    assert "dependency-review" not in jobs
 
     assert "trivy" in jobs
     trivy_steps = jobs["trivy"]["steps"]
@@ -44,8 +42,24 @@ def test_security_workflow_contains_dependency_review_and_trivy() -> None:
     assert trivy_step["uses"] == "docker://aquasec/trivy:0.65.0"
     assert "--format sarif" in trivy_step["with"]["args"]
     assert "--output trivy-results.sarif" in trivy_step["with"]["args"]
-    assert "--exit-code 0" in trivy_step["with"]["args"]
+    assert "--exit-code 1" in trivy_step["with"]["args"]
+    assert "--skip-dirs apps/dashboard" in trivy_step["with"]["args"]
     assert any(step.get("uses") == "github/codeql-action/upload-sarif@v4" for step in trivy_steps)
+    assert any(
+        step.get("name") == "Gate Trivy HIGH/CRITICAL findings"
+        and "exit 1" in step.get("run", "")
+        for step in trivy_steps
+    )
+
+    secret_steps = jobs["secrets"]["steps"]
+    trufflehog_step = next(
+        step
+        for step in secret_steps
+        if step.get("name") == "TruffleHog full-history secret scan"
+    )
+    assert trufflehog_step["uses"] == "trufflesecurity/trufflehog@main"
+    assert trufflehog_step["with"]["extra_args"] == "--only-verified"
+    assert "continue-on-error" not in trufflehog_step
 
 
 def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:

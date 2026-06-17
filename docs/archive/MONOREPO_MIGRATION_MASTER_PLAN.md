@@ -1,5 +1,11 @@
 # Creator OS Monorepo Migration Master Plan
 
+> Historical archive, moved 2026-06-17. This plan describes the migration
+> program that produced the current `creator-os/main` source integration
+> baseline. It is retained for provenance only. For current runtime promotion
+> boundaries, use `AGENTS.md`, `PIPELINE_STATE.md`, and
+> `docs/architecture/monorepo_deployment_promotion.md`.
+
 ## Purpose
 
 This document defines the long-term plan for making `creator-os` the unified source-of-truth repository for the full Creator OS pipeline.

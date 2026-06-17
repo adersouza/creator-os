@@ -3,7 +3,7 @@ name = "pipeline-contracts"
 version = "0.1.0"
 description = "Shared JSON schemas and validators for the local content pipeline"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]

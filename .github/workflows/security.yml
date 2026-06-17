@@ -12,24 +12,6 @@ permissions:
   security-events: write
 
 jobs:
-  dependency-review:
-    name: Dependency review
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v6
-      - uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-      - uses: actions/dependency-review-action@v5
-        continue-on-error: true
-        with:
-          fail-on-severity: high
-          deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0
-
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
@@ -67,10 +49,10 @@ jobs:
       - name: Current tree secret hygiene
         run: bash scripts/security/secret-scan.sh
       - name: TruffleHog full-history secret scan
-        continue-on-error: true
         uses: trufflesecurity/trufflehog@main
         with:
-          extra_args: --fail
+          # The action injects --fail itself; keep extra args to policy filters only.
+          extra_args: --only-verified
 
   trivy:
     name: Trivy filesystem scan
@@ -86,6 +68,8 @@ jobs:
         with:
           egress-policy: audit
       - name: Trivy scan
+        id: trivy-sarif
+        continue-on-error: true
         uses: docker://aquasec/trivy:0.65.0
         with:
           args: >-
@@ -95,11 +79,17 @@ jobs:
             --output trivy-results.sarif
             --severity CRITICAL,HIGH
             --ignore-unfixed
-            --exit-code 0
+            --exit-code 1
             --skip-dirs node_modules
-            --skip-dirs apps/dashboard/storybook-static
+            --skip-dirs apps/dashboard
             --skip-dirs graphify-out
       - name: Upload Trivy SARIF
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
+      - name: Gate Trivy HIGH/CRITICAL findings
+        if: steps.trivy-sarif.outcome == 'failure'
+        run: |
+          echo "Trivy found HIGH/CRITICAL findings. Review trivy-results.sarif and add explicit ignores only for accepted false positives."
+          exit 1

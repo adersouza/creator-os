@@ -131,3 +131,36 @@ def test_repurposing_plan_contract_requires_known_preset():
 
     with pytest.raises(ContractValidationError, match="preset_name"):
         validate_repurposing_plan(payload)
+
+
+def test_repurposing_plan_contract_rejects_out_of_range_target_count():
+    payload = load_example("repurposing_plan")
+    payload["target_count"] = 0
+
+    with pytest.raises(ContractValidationError, match="target_count"):
+        validate_repurposing_plan(payload)
+
+
+def test_repurposing_plan_contract_rejects_extra_top_level_properties():
+    payload = load_example("repurposing_plan")
+    payload["unexpected"] = True
+
+    with pytest.raises(ContractValidationError, match="unexpected"):
+        validate_repurposing_plan(payload)
+
+
+def test_repurposing_plan_contract_rejects_bad_master_asset_id_pattern():
+    payload = load_example("repurposing_plan")
+    payload["master_asset_id"] = "asset id with spaces"
+
+    with pytest.raises(ContractValidationError, match="master_asset_id"):
+        validate_repurposing_plan(payload)
+
+
+def test_campaign_draft_payload_validates_nested_ref_constraints():
+    payload = load_example("campaign_draft_payload")
+    context = payload["drafts"][0]["metadata"]["campaign_factory"]["captionOutcomeContext"]
+    context["schema"] = "wrong.schema"
+
+    with pytest.raises(ContractValidationError, match="captionOutcomeContext"):
+        validate_campaign_draft_payload(payload)
