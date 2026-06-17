@@ -43,6 +43,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: uv sync --dev
       - run: pnpm check:arch
+      - run: pnpm check:arch:fixtures
 
   javascript:
     runs-on: macos-latest
