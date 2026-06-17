@@ -12,13 +12,31 @@ def _workflow(path: str) -> dict:
     return yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
 
 
+def _action_major(uses: str, action: str) -> int | None:
+    prefix = f"{action}@v"
+    if not uses.startswith(prefix):
+        return None
+    version = uses.removeprefix(prefix).split(".", maxsplit=1)[0]
+    return int(version) if version.isdigit() else None
+
+
+def _assert_action_major_allowed(steps: list[dict], action: str, allowed: set[int]) -> None:
+    majors = [
+        major
+        for step in steps
+        if (major := _action_major(step.get("uses", ""), action)) is not None
+    ]
+    assert majors, f"{action} must be present"
+    assert set(majors).issubset(allowed), f"{action} majors {majors} must be in {sorted(allowed)}"
+
+
 def test_security_workflow_contains_dependency_review_and_trivy() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
 
     assert "dependency-review" in jobs
     dependency_steps = jobs["dependency-review"]["steps"]
-    assert any(step.get("uses") == "actions/dependency-review-action@v4" for step in dependency_steps)
+    _assert_action_major_allowed(dependency_steps, "actions/dependency-review-action", {4, 5})
 
     assert "trivy" in jobs
     trivy_steps = jobs["trivy"]["steps"]
@@ -44,7 +62,7 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     assert "-t js" in sbom_runs
     assert "uv export" in sbom_runs
     assert "--all-extras" not in sbom_runs
-    assert any(step.get("uses") == "actions/upload-artifact@v4" for step in jobs["sbom"]["steps"])
+    _assert_action_major_allowed(jobs["sbom"]["steps"], "actions/upload-artifact", {4, 7})
     assert jobs["sbom"]["permissions"]["attestations"] == "write"
     assert jobs["sbom"]["permissions"]["id-token"] == "write"
     assert any(
@@ -76,11 +94,12 @@ def test_scorecard_workflow_is_report_mode() -> None:
     assert scorecard_step["continue-on-error"] is True
     assert scorecard_step["with"]["results_format"] == "sarif"
     assert scorecard_step["with"]["publish_results"] is False
-    assert any(
-        step.get("uses") == "actions/upload-artifact@v4"
-        and step.get("name") == "Upload Scorecard report artifact"
+    scorecard_artifact_steps = [
+        step
         for step in scorecard_steps
-    )
+        if step.get("name") == "Upload Scorecard report artifact"
+    ]
+    _assert_action_major_allowed(scorecard_artifact_steps, "actions/upload-artifact", {4, 7})
     sarif_upload = next(
         step
         for step in scorecard_steps
