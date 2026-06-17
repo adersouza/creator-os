@@ -112,6 +112,18 @@ def test_scorecard_workflow_is_report_mode() -> None:
     )
 
 
+def test_dependabot_excludes_read_only_dashboard_mirror() -> None:
+    config = _workflow(".github/dependabot.yml")
+    npm_updates = [
+        update
+        for update in config["updates"]
+        if update["package-ecosystem"] == "npm" and update["directory"] == "/"
+    ]
+
+    assert len(npm_updates) == 1
+    assert "apps/dashboard/**" in npm_updates[0].get("exclude-paths", [])
+
+
 def test_architecture_guard_configs_are_narrow_and_present() -> None:
     depcruise = (ROOT / ".dependency-cruiser.cjs").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
