@@ -1230,9 +1230,9 @@ function DailyDashboardAllView({
 							size="compact"
 						/>
 						<NovaMiniStat
-							label="Scheduled"
-							value={formatCompact(nextUp.totalQueue)}
-							description="This week"
+							label="Runway"
+							value={nextUp.totalQueue > 0 ? "Ready" : "Cold"}
+							description={`${formatCompact(nextUp.totalQueue)} queued this week`}
 							tone={nextUp.totalQueue > 0 ? "success" : "warning"}
 							size="compact"
 						/>
@@ -1267,35 +1267,15 @@ function DailyDashboardAllView({
 
 				<NovaCard
 					title="What changed"
-					description={`Views, engagement rate, follower growth, and link clicks across the current ${timeframe.toUpperCase()} window.`}
+					description={`Movement context for the current ${timeframe.toUpperCase()} window.`}
 					action={<Badge tone="outline">{timeframe.toUpperCase()}</Badge>}
 					contentClassName="grid gap-4"
 					footer={
-						<div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-							<NovaMiniStat
-								label={KPI_PRESENTATION.views.label}
-								value={formatCompact(primaryViews)}
-								trend={formatDelta(kpiData.reachDelta ?? fleetMetrics.reachDeltaPct)}
-								size="compact"
-							/>
-							<NovaMiniStat
-								label={KPI_PRESENTATION.engagementRate.label}
-								value={formatPercent(kpiData.engagementRate)}
-								trend={formatDelta(kpiData.engagementRateDelta)}
-								size="compact"
-							/>
-							<NovaMiniStat
-								label={KPI_PRESENTATION.followerGrowth.label}
-								value={formatPercent(fleetMetrics.followerGrowthPct)}
-								trend={formatDelta(fleetMetrics.followerGrowthDeltaPct)}
-								size="compact"
-							/>
-							<NovaMiniStat
-								label={KPI_PRESENTATION.linkClicks.label}
-								value={formatCompact(kpiData.totalClicks)}
-								trend={formatDelta(kpiData.totalClicksDelta)}
-								size="compact"
-							/>
+						<div className="flex w-full flex-col gap-2 text-sm leading-snug text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+							<span className="min-w-0">
+								Daily movement rolls up synced account and post signals.
+							</span>
+							<Badge tone="outline">{formatCompact(primaryViews)} total views signal</Badge>
 						</div>
 					}
 				>

@@ -1085,41 +1085,16 @@ export function Analytics() {
 							action={<Badge tone="outline">{dateRangeLabel(state.dateRange)}</Badge>}
 							contentClassName="grid gap-3"
 							footer={
-								<div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
-										<NovaMiniStat
-											label={KPI_PRESENTATION.views.label}
-											value={formatCompact(views)}
-											description="prior"
-											trend={formatDelta(viewsDelta)}
-											tone={
-												viewsDelta == null
-													? "default"
-													: viewsDelta >= 0
-														? "success"
-														: "danger"
-											}
-											size="compact"
-									/>
-									<NovaMiniStat
-										label="Engmt."
-										value={formatCompact(kpiData.totalInteractions)}
-										description="prior"
-										trend={formatDelta(kpiData.totalInteractionsDelta)}
-										tone={
-											kpiData.totalInteractionsDelta == null
-												? "default"
-												: kpiData.totalInteractionsDelta >= 0
-													? "success"
-													: "danger"
-										}
-										size="compact"
-									/>
-									<NovaMiniStat
-										label="Peak"
-										value={formatCompact(maxReach)}
-										description="day"
-										size="compact"
-									/>
+								<div className="flex w-full flex-col gap-2 text-sm leading-snug text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+									<span className="min-w-0">
+										Daily movement rolls up synced account and post signals.
+									</span>
+									<div className="flex flex-wrap items-center gap-2">
+										<Badge tone={viewsDelta == null ? "outline" : viewsDelta >= 0 ? "secondary" : "danger"}>
+											{formatDelta(viewsDelta)}
+										</Badge>
+										<Badge tone="outline">{formatCompact(maxReach)} peak day</Badge>
+									</div>
 								</div>
 							}
 						>
