@@ -1,12 +1,26 @@
 // biome-ignore-all lint/style/noNonNullAssertion: Existing strict-index and invariant assertions predate this rule promotion; new files are checked at error level.
 import { useEffect, useMemo, useState } from "react";
+import {
+	Activity,
+	Bookmark,
+	Eye,
+	FileText,
+	Ghost,
+	Heart,
+	type LucideIcon,
+	MessageCircle,
+	Repeat2,
+	Send,
+	Film,
+	Users,
+} from "lucide-react";
+import { NovaStat } from "@/components/ui/NovaPrimitives";
 import { useFleetMetrics } from "@/hooks/useFleetMetrics";
 import { useFollowerAttribution } from "@/hooks/useFollowerAttribution";
 import { useQuoteReplyRatio } from "@/hooks/useQuoteReplyRatio";
 import { useGhostPostCount } from "@/hooks/useGhostPostCount";
 import { useStoryActivity } from "@/hooks/useStoryActivity";
 import { useFollowerTotals } from "@/hooks/useFollowerTotals";
-import { Skeleton } from "@/components/ui/Skeleton";
 import {
 	EMPTY_THREAD_TOTALS,
 	useThreadsPostTotals,
@@ -35,6 +49,8 @@ interface Props extends DashboardScopeProps {
 interface RibbonCard {
 	label: string;
 	value: string;
+	/** Icon shown in the card (matches the All-view KPI card chrome). */
+	icon: LucideIcon;
 	/** Optional secondary line — short delta or status hint. */
 	hint: string;
 	/** When set, the hint renders in success/warning/error tone. */
@@ -220,6 +236,7 @@ export function FundamentalsRibbon({
 						: "neutral";
 
 		const reachCard: RibbonCard = {
+			icon: Eye,
 			label:
 				platform === "threads"
 					? `Views ${timeframeLabel}`
@@ -244,6 +261,7 @@ export function FundamentalsRibbon({
 			followerTotals.hasError ||
 			(cumulativeFollowers <= 0 && todaysFollows === 0);
 		const followsCard: RibbonCard = {
+			icon: Users,
 			label: "Followers",
 			value:
 				cumulativeFollowers > 0
@@ -273,6 +291,7 @@ export function FundamentalsRibbon({
 				reachCard,
 				followsCard,
 				{
+					icon: MessageCircle,
 					label: "Avg replies / post",
 					value: replyDepth != null ? replyDepth.toFixed(1) : "0.0",
 					hint: "replies ÷ posts",
@@ -282,6 +301,7 @@ export function FundamentalsRibbon({
 					emptyHint: "no replies yet",
 				},
 				{
+					icon: Repeat2,
 					label: "Quote/reply",
 					value: qr.fleetRatio != null ? `${qr.fleetRatio.toFixed(2)}×` : "0.00×",
 					hint: "quotes ÷ replies",
@@ -292,6 +312,7 @@ export function FundamentalsRibbon({
 				},
 				{
 					// Positive-zero: ghosts.total === 0 is "fleet clean", NOT empty.
+					icon: Ghost,
 					label: "Ghosts",
 					value: ghosts.isLoading ? "Sync" : ghosts.total.toString(),
 					hint:
@@ -320,6 +341,7 @@ export function FundamentalsRibbon({
 				reachCard,
 				followsCard,
 				{
+					icon: Send,
 					label: "Share rate",
 					value: pct(sendsPerReach, 2),
 					hint:
@@ -337,6 +359,7 @@ export function FundamentalsRibbon({
 					emptyHint: "no sends yet",
 				},
 				{
+					icon: Bookmark,
 					label: "Saves/reach",
 					value: pct(saveRate, 2),
 					hint:
@@ -353,6 +376,7 @@ export function FundamentalsRibbon({
 					emptyHint: "no saves yet",
 				},
 				{
+					icon: Film,
 					label: "Story views",
 					value:
 						story.totalImpressions > 0
@@ -374,6 +398,7 @@ export function FundamentalsRibbon({
 			effectiveTotals.sends;
 		return [
 			{
+				icon: Activity,
 				label: "Engagements",
 				value: engagementTotal > 0 ? formatCompact(engagementTotal) : "0",
 				hint: "likes + replies + saves + sends",
@@ -385,6 +410,7 @@ export function FundamentalsRibbon({
 			},
 			followsCard,
 			{
+				icon: FileText,
 				label: "Posts",
 				value: effectiveTotals.posts > 0 ? formatCompact(effectiveTotals.posts) : "0",
 				hint: `${timeframeLabel} sample size`,
@@ -394,6 +420,7 @@ export function FundamentalsRibbon({
 				emptyHint: metrics.hasError ? "metrics retry needed" : `${timeframeLabel} sample size`,
 			},
 			{
+				icon: Send,
 				label: "Share rate",
 				value: pct(sendsPerReach, 2),
 				hint:
@@ -411,6 +438,7 @@ export function FundamentalsRibbon({
 				emptyHint: "no sends yet",
 			},
 			{
+				icon: Heart,
 				label: "Reactions",
 				value: effectiveTotals.likes > 0 ? formatCompact(effectiveTotals.likes) : "0",
 				hint: "likes captured",
@@ -465,76 +493,81 @@ export function FundamentalsRibbon({
 				!hasPrimaryMetrics) ||
 			(platform === "ig" && story.isLoading && story.totalImpressions === 0));
 
-	if (ribbonHydrating) {
-		return (
-			<div
-				className="grid overflow-hidden rounded-lg border border-border bg-card shadow-sm sm:grid-cols-2 xl:grid-cols-5"
-				role="status"
-				aria-busy="true"
-				aria-label={`${platform} fundamentals loading`}
-			>
-				{cards.map((card, i) => (
-					<RibbonStatSkeleton key={`${card.label}-${i}`} lead={i === 0} />
-				))}
-			</div>
-		);
-	}
-
 	return (
-		<div className="grid overflow-hidden rounded-lg border border-border bg-card shadow-sm sm:grid-cols-2 xl:grid-cols-5">
+		<div
+			className="grid auto-rows-auto grid-cols-1 gap-5 sm:auto-rows-fr sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 xl:gap-6"
+			aria-label={`${platform} fundamentals`}
+		>
 			{cards.map((card, i) => (
-				<RibbonStat key={`${card.label}-${i}`} card={card} />
+				<RibbonStat
+					key={`${card.label}-${i}`}
+					card={card}
+					loading={ribbonHydrating}
+				/>
 			))}
 		</div>
 	);
 }
 
-function RibbonStatSkeleton({ lead }: { lead?: boolean | undefined }) {
-	return (
-		<div className="relative min-w-0 border-b border-border p-5 last:border-b-0 xl:border-b-0 xl:border-r xl:last:border-r-0">
-			{lead ? <span className="absolute inset-x-0 top-0 h-1 bg-primary" aria-hidden="true" /> : null}
-			<Skeleton className="h-3 w-24 rounded" />
-			<Skeleton className="mt-3 h-9 w-20 rounded" />
-			<Skeleton className="mt-2 h-3 w-32 rounded" />
-		</div>
-	);
+function ribbonTrendDirection(
+	tone: RibbonCard["hintTone"],
+): "up" | "down" | "flat" {
+	return tone === "pos" ? "up" : tone === "bad" ? "down" : "flat";
 }
 
-function RibbonStat({ card }: { card: RibbonCard }) {
-	// Empty cells stay visibly informative. A bare em dash made the 30d ribbon
-	// look broken when a window had no usable rows or a metrics retry was needed.
+/**
+ * Short explanatory line per metric so the fundamentals cards carry the same
+ * description + status-pill density as the All-view KPI cards (instead of just
+ * a bare label + value).
+ */
+function ribbonDescription(label: string): string {
+	if (label.includes("Views") || label.includes("Reach"))
+		return "Best available reach across the selected scope.";
+	if (label.includes("Followers"))
+		return "Audience following across the active accounts.";
+	if (label.includes("Avg replies")) return "Conversation depth per post.";
+	if (label.includes("Quote/reply")) return "Amplification vs direct replies.";
+	if (label.includes("Ghosts")) return "Posts landing with suppressed reach.";
+	if (label.includes("Share rate")) return "Sends relative to total reach.";
+	if (label.includes("Saves")) return "Saves relative to total reach.";
+	if (label.includes("Story views")) return "Story impressions in this window.";
+	if (label.includes("Engagements")) return "Likes, replies, saves, and sends.";
+	if (label.includes("Posts")) return "Posts published in this window.";
+	if (label.includes("Reactions")) return "Likes captured in this window.";
+	return "Across the selected scope and window.";
+}
+
+function RibbonStat({
+	card,
+	loading,
+}: {
+	card: RibbonCard;
+	loading?: boolean | undefined;
+}) {
+	const Icon = card.icon;
+	// Empty cells stay visibly informative. A bare em dash made the ribbon look
+	// broken when a window had no usable rows or a metrics retry was needed.
 	const isEmpty = card.isEmpty === true;
 	const displayValue = isEmpty ? (card.emptyValue ?? card.value) : card.value;
 	const displayHint = isEmpty ? (card.emptyHint ?? card.hint) : card.hint;
-	const title =
-		!isEmpty &&
-		card.label === "Share rate" &&
-		card.hint.includes("cross-platform")
-			? "Cross-platform share rate: Threads views are used as the reach proxy."
-			: undefined;
-	const hintClass = isEmpty
-		? "text-muted-foreground"
-		: card.hintTone === "pos"
-			? "text-[color:var(--color-success)]"
-			: card.hintTone === "warn"
-				? "text-[color:var(--color-warning)]"
-				: card.hintTone === "bad"
-					? "text-destructive"
-					: "text-muted-foreground";
+	// Match the All-view card density: always a description line AND a status
+	// pill (direction from tone, label = the metric hint/delta).
 	return (
-		<div
+		<NovaStat
+			variant="compact"
+			label={card.label}
+			value={displayValue}
+			description={ribbonDescription(card.label)}
+			icon={<Icon aria-hidden="true" />}
+			loading={loading}
+			trend={{
+				direction: isEmpty ? "flat" : ribbonTrendDirection(card.hintTone),
+				label: displayHint,
+			}}
 			className={cn(
-				"relative min-w-0 border-b border-border p-5 last:border-b-0 xl:border-b-0 xl:border-r xl:last:border-r-0",
+				"h-full sm:[&_.nova-stat-description]:line-clamp-2 max-sm:[&_.nova-icon-box]:size-8",
 				isEmpty && "opacity-70",
 			)}
-			title={title}
-		>
-			{card.lead ? <span className="absolute inset-x-0 top-0 h-1 bg-primary" aria-hidden="true" /> : null}
-			<div className="truncate text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{card.label}</div>
-			<div className="mt-3 truncate text-4xl font-semibold tracking-[-0.045em] text-foreground tabular-nums">{displayValue}</div>
-			<div className={cn("mt-2 truncate text-sm", hintClass)}>
-				{displayHint}
-			</div>
-		</div>
+		/>
 	);
 }

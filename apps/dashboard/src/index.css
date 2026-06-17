@@ -6347,7 +6347,54 @@ html:not(.dark) .card::before {
   }
 
   .landing-shell {
-    color-scheme: light dark;
+    color-scheme: light;
+    --color-background: oklch(1 0 0);
+    --color-foreground: oklch(0.141 0.005 285.823);
+    --color-card: oklch(1 0 0);
+    --color-card-elevated: oklch(1 0 0);
+    --color-card-foreground: oklch(0.141 0.005 285.823);
+    --color-popover: oklch(1 0 0);
+    --color-popover-foreground: oklch(0.141 0.005 285.823);
+    --color-surface-app: oklch(0.967 0.001 286.375);
+    --color-surface-frame: oklch(0.967 0.001 286.375);
+    --color-surface-base: oklch(1 0 0);
+    --color-surface-raised: oklch(1 0 0);
+    --color-surface-dense: color-mix(in srgb, oklch(0.967 0.001 286.375) 64%, oklch(1 0 0));
+    --color-surface-popover: oklch(1 0 0);
+    --color-surface-overlay: rgba(10, 10, 11, 0.58);
+    --color-surface-stroke: oklch(0.92 0.004 286.32);
+    --color-surface-stroke-strong: color-mix(in srgb, oklch(0.141 0.005 285.823) 14%, oklch(0.92 0.004 286.32));
+    --color-primary: oklch(0.505 0.213 27.518);
+    --color-primary-foreground: oklch(0.971 0.013 17.38);
+    --color-secondary: oklch(0.967 0.001 286.375);
+    --color-secondary-foreground: oklch(0.21 0.006 285.885);
+    --color-muted: oklch(0.967 0.001 286.375);
+    --color-muted-foreground: oklch(0.552 0.016 285.938);
+    --color-accent: oklch(0.967 0.001 286.375);
+    --color-accent-foreground: oklch(0.21 0.006 285.885);
+    --color-border: oklch(0.92 0.004 286.32);
+    --color-input: oklch(0.92 0.004 286.32);
+    --color-ring: oklch(0.705 0.015 286.067);
+    --color-success: #4F7661;
+    --color-chart-3: oklch(0.442 0.017 285.786);
+    --color-chart-5: oklch(0.274 0.006 286.033);
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.141 0.005 285.823);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.141 0.005 285.823);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.141 0.005 285.823);
+    --primary: oklch(0.505 0.213 27.518);
+    --primary-foreground: oklch(0.971 0.013 17.38);
+    --secondary: oklch(0.967 0.001 286.375);
+    --secondary-foreground: oklch(0.21 0.006 285.885);
+    --muted: oklch(0.967 0.001 286.375);
+    --muted-foreground: oklch(0.552 0.016 285.938);
+    --accent: oklch(0.967 0.001 286.375);
+    --accent-foreground: oklch(0.21 0.006 285.885);
+    --border: oklch(0.92 0.004 286.32);
+    --input: oklch(0.92 0.004 286.32);
+    --ring: oklch(0.705 0.015 286.067);
   }
 
   .landing-grid {
@@ -6417,6 +6464,17 @@ html:not(.dark) .card::before {
     animation: landing-flow 7s linear infinite;
   }
 
+  .infinite-cards-track.is-animated {
+    animation: infinite-cards-scroll
+      var(--infinite-cards-duration, 70s) linear infinite;
+    animation-direction: var(--infinite-cards-direction, forwards);
+    width: max-content;
+  }
+
+  .infinite-cards:hover .infinite-cards-track.is-animated {
+    animation-play-state: paused;
+  }
+
   .landing-mockup {
     transform: perspective(1400px) rotateX(0deg) rotateY(-4deg);
     transform-origin: center;
@@ -6433,9 +6491,16 @@ html:not(.dark) .card::before {
     .landing-beam-b,
     .landing-border-beam::before,
     .landing-marquee,
-    .landing-flow-path {
+    .landing-flow-path,
+    .infinite-cards-track.is-animated {
       animation: none;
     }
+  }
+}
+
+@keyframes infinite-cards-scroll {
+  to {
+    transform: translate3d(calc(-50% - 0.5rem), 0, 0);
   }
 }
 

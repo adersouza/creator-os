@@ -16,6 +16,7 @@ overrides:
   playwright-core: 1.61.0
 allowBuilds:
   '@google/genai': true
+  '@tsparticles/engine': false
   core-js: true
   esbuild: true
   msw: true
