@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockDispatchPostPublish = vi.fn().mockResolvedValue("msg-campaign-1");
 const mockRunPublishPreflight = vi.fn().mockResolvedValue({
@@ -252,6 +252,12 @@ function seedDraft(meta = validCampaignMeta()) {
 describe("Campaign schedule manager", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// Freeze the clock (Date only — leave timers real so async still runs) to a
+		// fixed midday inside the test fixtures' 2026-06-07→2026-07-07 campaign window.
+		// Relative fixtures (futureIso = now+30m, now±Nh) and the "today"/recent-window
+		// bucketing then resolve deterministically regardless of when the suite runs.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-06-16T12:00:00.000Z"));
 		state.posts = [];
 		state.accounts = [];
 		state.groups = [];
@@ -261,6 +267,10 @@ describe("Campaign schedule manager", () => {
 		state.updates = [];
 		mockDispatchPostPublish.mockResolvedValue("msg-campaign-1");
 		mockRunPublishPreflight.mockResolvedValue({ ok: true, issues: [], summary: { errors: 0, warnings: 0, infos: 0 } });
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it("validates campaign drafts in dry-run without scheduling or dispatching", async () => {

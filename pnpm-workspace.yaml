@@ -5,6 +5,15 @@ packageExtensions:
   juno33@*:
     dependencies:
       es-toolkit: 1.47.0
+overrides:
+  # Dashboard dependabot bumped @playwright/test to 1.61 but left `playwright`
+  # at ^1.58.2; @vitest/browser-playwright (peer `playwright: *`) then resolved a
+  # second playwright/playwright-core (1.60). pnpm's strict nesting loads both,
+  # tripping Playwright's "two different versions of @playwright/test" guard in
+  # the storybook visual runner. npm hoists flat so TD's own CI never saw it.
+  # Force a single version to match @playwright/test.
+  playwright: 1.61.0
+  playwright-core: 1.61.0
 allowBuilds:
   '@google/genai': true
   core-js: true
@@ -13,3 +22,21 @@ allowBuilds:
   protobufjs: true
   sharp: true
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@posthog/core@1.33.0'
+  - '@posthog/types@1.387.0'
+  - '@storybook/addon-a11y@10.4.6'
+  - '@storybook/addon-docs@10.4.6'
+  - '@storybook/addon-onboarding@10.4.6'
+  - '@storybook/addon-vitest@10.4.6'
+  - '@storybook/builder-vite@10.4.6'
+  - '@storybook/csf-plugin@10.4.6'
+  - '@storybook/react-dom-shim@10.4.6'
+  - '@storybook/react-vite@10.4.6'
+  - '@storybook/react@10.4.6'
+  - '@upstash/qstash@2.11.1'
+  - lucide-react@1.20.0
+  - posthog-js@1.387.0
+  - react-router-dom@7.18.0
+  - react-router@7.18.0
+  - storybook@10.4.6
