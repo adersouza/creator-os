@@ -2,8 +2,6 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
-    exclude-paths:
-      - "apps/dashboard/**"
     schedule:
       interval: "weekly"
       day: "monday"

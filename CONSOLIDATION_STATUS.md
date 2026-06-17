@@ -10,7 +10,7 @@ Date: 2026-06-16
   - Campaign Factory default roots now point at creator-os pipeline paths.
   - Campaign Factory operator command output now uses `/Users/aderdesouza/Developer/creator-os/scripts/run/*`.
 - Step 4 flipped source-of-truth for `apps/contentforge`, `python_packages/reel_factory`, `python_packages/campaign_factory`, and `python_packages/reference_factory`; they are canonical creator-os source trees.
-- `apps/dashboard` remains the only read-only mirror. ThreadsDashboard remains standalone and is not consolidated.
+- No committed read-only mirrors remain. ThreadsDashboard remains standalone and is not consolidated.
 - Step 5 archive is complete for the four pipeline split repos. No repositories were deleted.
 - PR #20 merge commit `85d4977fd488db46147b194eb74d23ccd43e4f36` is on `origin/main`; `git merge-base --is-ancestor 85d4977fd488db46147b194eb74d23ccd43e4f36 origin/main` returned `0`.
 - Soak started on 2026-06-16. Delete remains owner-gated after the 7-day soak.
@@ -46,7 +46,7 @@ Confirmed non-target repositories remain unarchived:
 - `scripts/run/campaign-factory doctor`: pass, `ok: true`, `blockingCount: 0`, `warningCount: 2`; emitted commands all use `/Users/aderdesouza/Developer/creator-os/scripts/run/*`.
 - `uv run pytest python_packages/reel_factory/tests python_packages/campaign_factory/tests python_packages/reference_factory/tests tests/integration`: pass, 795 passed, 48 warnings.
 - `pnpm --filter contentforge test`: pass, 81 passed.
-- `pnpm check:mirror-parity`: pass, only `apps/dashboard` checked, missing=0 changed=0 extra=0.
+- `pnpm check:mirror-parity`: pass; no committed mirrors configured.
 - `git diff --check`: pass.
 - `graphify update .`: pass, rebuilt 26330 nodes, 60403 edges, 1376 communities.
 

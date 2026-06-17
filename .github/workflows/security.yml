@@ -81,7 +81,6 @@ jobs:
             --ignore-unfixed
             --exit-code 1
             --skip-dirs node_modules
-            --skip-dirs apps/dashboard
             --skip-dirs graphify-out
       - name: Upload Trivy SARIF
         if: always()

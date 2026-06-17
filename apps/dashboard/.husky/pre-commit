@@ -1,1 +1,0 @@
-npm run scan:secrets && npm run compat:check && npm run lint

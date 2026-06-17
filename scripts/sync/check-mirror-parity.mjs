@@ -15,6 +15,10 @@ import { loadConfig, materialize, diffMirror } from "./mirror-lib.mjs";
 
 const reportOnly = process.argv.includes("--report");
 const cfg = loadConfig();
+if (!cfg.mirrors.length) {
+  console.log("No committed mirrors configured; parity check is satisfied.");
+  process.exit(0);
+}
 const temp = mkdtempSync(join(tmpdir(), "mirror-parity-"));
 
 let drift = 0;

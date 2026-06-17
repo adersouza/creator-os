@@ -20,12 +20,10 @@ from pipeline_contracts import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_MIRRORS = [
     REPO_ROOT / "pipeline_contracts" / "schemas",
-    REPO_ROOT / "apps" / "dashboard" / "pipeline_contracts" / "schemas",
     REPO_ROOT / "python_packages" / "campaign_factory" / "schemas",
 ]
 TS_MIRRORS = [
     REPO_ROOT / "pipeline_contracts" / "typescript" / "index.ts",
-    REPO_ROOT / "apps" / "dashboard" / "pipeline_contracts" / "typescript.ts",
 ]
 
 
@@ -367,10 +365,7 @@ def test_campaign_handoff_manifest_v2_matches_dashboard_surface_draft_expectatio
     assert manifest["mediaItems"] == [{"type": "image", "url": "https://cdn.example/acceptance-feed.jpg"}]
     assert manifest["surfaceReadiness"]["canHandoff"] is True
 
-    dashboard_schema = REPO_ROOT / "apps" / "dashboard" / "pipeline_contracts" / "schemas" / "campaign_draft_payload.v1.schema.json"
-    assert json.loads(dashboard_schema.read_text(encoding="utf-8")) == json.loads(
-        schema_path("campaign_draft_payload").read_text(encoding="utf-8")
-    )
+    assert json.loads(schema_path("campaign_draft_payload").read_text(encoding="utf-8"))["$id"] == "campaign_factory.threadsdash_drafts.v1"
 
 
 def test_integration_fixtures_do_not_require_runtime_artifacts() -> None:

@@ -1,5 +1,5 @@
 {
-  "_doc": "Maps each remaining monorepo read-only mirror to its source split repo at a pinned commit. ThreadsDashboard is the only remaining mirror and stays standalone. reel_factory, campaign_factory, contentforge, and reference_factory are canonical in this monorepo. pipeline_contracts is intentionally excluded because it is canonical in the monorepo.",
+  "_doc": "No committed split-repo mirrors remain. ThreadsDashboard is external and stays in /Users/aderdesouza/Developer/ThreadsDashboard or THREADSDASH_ROOT. reel_factory, campaign_factory, contentforge, reference_factory, and pipeline_contracts are canonical in this monorepo.",
   "excludeDefault": [
     ".git/",
     ".env.example",
@@ -32,20 +32,5 @@
     "*.mov",
     ".DS_Store"
   ],
-  "mirrors": [
-    {
-      "mirrorPath": "apps/dashboard",
-      "sourceRepoPath": "../ThreadsDashboard",
-      "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
-      "sourceCommit": "ec3683f33b85e2598db26e9e5cbeb738fea80257",
-      "include": [
-        "**/*"
-      ],
-      "exclude": [
-        "pipeline_contracts/",
-        "scripts/check-pipeline-contracts-sync.mjs",
-        "schemas/"
-      ]
-    }
-  ]
+  "mirrors": []
 }

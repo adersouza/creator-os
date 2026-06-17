@@ -20,8 +20,7 @@
     "check:mirror-parity:report": "node scripts/sync/check-mirror-parity.mjs --report",
     "lint": "turbo run lint",
     "security:codeql-note": "node scripts/security/codeql-note.mjs",
-    "security:secrets": "bash scripts/security/secret-scan.sh",
-    "test:visual": "pnpm --filter juno33 test:visual"
+    "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
     "dependency-cruiser": "^17.4.3",

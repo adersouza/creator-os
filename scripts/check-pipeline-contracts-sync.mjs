@@ -18,10 +18,6 @@ const schemaMirrors = [
 		path: join(repoRoot, "pipeline_contracts", "schemas"),
 	},
 	{
-		name: "dashboard vendored schemas",
-		path: join(repoRoot, "apps", "dashboard", "pipeline_contracts", "schemas"),
-	},
-	{
 		name: "campaign factory compatibility schemas",
 		path: join(repoRoot, "python_packages", "campaign_factory", "schemas"),
 	},
@@ -32,11 +28,6 @@ const fileMirrors = [
 		name: "root compatibility TypeScript exports",
 		canonical: canonicalTypescript,
 		path: join(repoRoot, "pipeline_contracts", "typescript", "index.ts"),
-	},
-	{
-		name: "dashboard vendored TypeScript exports",
-		canonical: canonicalTypescript,
-		path: join(repoRoot, "apps", "dashboard", "pipeline_contracts", "typescript.ts"),
 	},
 ];
 

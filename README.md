@@ -2,7 +2,7 @@
 
 **A contract-driven content pipeline for Instagram/Threads creators.**
 
-Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content. The four pipeline tools (`reel_factory`, `campaign_factory`, `contentforge`, `reference_factory`) are source-integrated in this monorepo; ThreadsDashboard remains a separate standalone product (juno33.com) mirrored here for parity and contract checks. Production runtime promotion from this repo is explicit, not automatic. Data flows via shared JSON schemas in `packages/pipeline_contracts`.
+Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content. The four pipeline tools (`reel_factory`, `campaign_factory`, `contentforge`, `reference_factory`) are source-integrated in this monorepo; ThreadsDashboard remains a separate standalone product repo for juno33.com and is not mirrored here. Production runtime promotion from this repo is explicit, not automatic. Data flows via shared JSON schemas in `packages/pipeline_contracts`.
 
 🔗 **Live Product:** [juno33.com](https://juno33.com)
 
@@ -109,7 +109,7 @@ Campaign Factory ingests posted performance data to influence:
 
 ## Pipeline Contracts
 
-The **single source of truth** for data moving between packages is `packages/pipeline_contracts`. Dashboard, Campaign Factory, and legacy root contract folders may keep compatibility mirrors during migration, but those mirrors must be byte-for-byte synchronized with the package source.
+The **single source of truth** for data moving between packages is `packages/pipeline_contracts`. Campaign Factory and legacy root contract folders may keep compatibility mirrors during migration, but those mirrors must be byte-for-byte synchronized with the package source. ThreadsDashboard validates the same contract shape from its external repo, not from a committed Creator OS mirror.
 
 Run the monorepo contract drift check before merging contract or payload work:
 
@@ -186,7 +186,7 @@ Projects/
 └── creator-os/          ← you are here
 ```
 
-Campaign Factory discovers siblings automatically via relative paths (`../reel_factory`, `../contentforge`, etc.) or environment variable overrides.
+Campaign Factory uses the Creator OS package paths for pipeline tools. Dashboard integration requires the external ThreadsDashboard checkout at `/Users/aderdesouza/Developer/ThreadsDashboard` or an explicit `THREADSDASH_ROOT`.
 
 ### Quick Health Check
 

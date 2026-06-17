@@ -1,3 +1,0 @@
--- Historical production migration marker.
--- FK/index hardening from this audit pass is preserved in later idempotent
--- migration files and in supabase/schema.sql.

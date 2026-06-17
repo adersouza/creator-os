@@ -14,12 +14,13 @@ Compatibility mirrors may exist for consumers that still import local snapshots:
 ```text
 packages/pipeline_contracts/pipeline_contracts/schemas
 pipeline_contracts/schemas
-apps/dashboard/pipeline_contracts
 python_packages/campaign_factory/schemas
 ```
 
 Those mirrors are not authoritative. Keep them byte-for-byte synchronized with
-`packages/pipeline_contracts` and run the root drift check before merging:
+`packages/pipeline_contracts` and run the root drift check before merging.
+ThreadsDashboard is external and does not receive a vendored copy through
+`creator-os/apps/dashboard`.
 
 ```bash
 pnpm check:contracts

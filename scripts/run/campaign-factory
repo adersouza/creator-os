@@ -7,7 +7,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export REEL_FACTORY_ROOT="${REEL_FACTORY_ROOT:-$REPO_ROOT/python_packages/reel_factory}"
 export CONTENTFORGE_ROOT="${CONTENTFORGE_ROOT:-$REPO_ROOT/apps/contentforge}"
 export REFERENCE_FACTORY_ROOT="${REFERENCE_FACTORY_ROOT:-$REPO_ROOT/python_packages/reference_factory}"
-export THREADSDASH_ROOT="${THREADSDASH_ROOT:-$REPO_ROOT/apps/dashboard}"
+export THREADSDASH_ROOT="${THREADSDASH_ROOT:-/Users/aderdesouza/Developer/ThreadsDashboard}"
+
+if [[ ! -d "$THREADSDASH_ROOT" ]]; then
+  echo "THREADSDASH_ROOT must point to the external ThreadsDashboard checkout." >&2
+  echo "Set THREADSDASH_ROOT or create /Users/aderdesouza/Developer/ThreadsDashboard." >&2
+  exit 2
+fi
 
 cd "$REPO_ROOT"
 exec uv run --package campaign-factory campaign-factory "$@"

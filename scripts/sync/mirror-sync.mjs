@@ -23,6 +23,10 @@ const cfg = loadConfig();
 let mirrors = cfg.mirrors;
 if (only) mirrors = mirrors.filter((m) => m.mirrorPath === only);
 if (mirrors.length === 0) {
+  if (!only) {
+    console.log("No committed mirrors configured; nothing to sync.");
+    process.exit(0);
+  }
   console.error(`No mirror matched --only ${only}`);
   process.exit(2);
 }
