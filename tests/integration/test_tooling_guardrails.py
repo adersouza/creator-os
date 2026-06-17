@@ -52,6 +52,16 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
     jobs = workflow["jobs"]
 
+    for job_name in (
+        "contracts",
+        "architecture",
+        "javascript",
+        "visual-regression",
+        "sbom",
+        "dashboard-build-provenance",
+    ):
+        _assert_action_major_allowed(jobs[job_name]["steps"], "pnpm/action-setup", {6})
+
     assert "architecture" in jobs
     arch_runs = [step.get("run", "") for step in jobs["architecture"]["steps"]]
     assert "pnpm check:arch" in arch_runs
