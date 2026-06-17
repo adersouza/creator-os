@@ -71,7 +71,6 @@ py-modules = [
   "metrics_import",
   "metrics_store",
   "next_batch",
-  "old_new_reference_factory_experiment",
   "overnight_grid_worker",
   "placement",
   "placement_scorer",

@@ -26,6 +26,7 @@ from .caption_outcome import build_caption_outcome_context, column_values, load_
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .db import connect, init_db
+from .persistence import json_load, row_to_dict, utc_now
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
@@ -263,10 +264,6 @@ OFM_AUDIO_CONTEXT_TAGS = {
 }
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
@@ -289,19 +286,6 @@ def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
         for chunk in iter(lambda: f.read(chunk_size), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def json_load(value: str | None, fallback: Any = None) -> Any:
-    if value is None:
-        return fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return fallback
-
-
-def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
-    return dict(row) if row else None
 
 
 def media_type_for_path(path: Path | str) -> str:

@@ -28,6 +28,11 @@ from campaign_store import rate_output
 from generate_assets import AssetGenerationPlan, create_video_asset
 
 
+def _flattened_pixels(image: Image.Image):
+    getter = getattr(image, "get_flattened_data", None)
+    return getter() if getter else image.getdata()
+
+
 STACEY_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
 DEFAULT_GRID_NAMES = [
     "iitsivyblake_v2_trimmed_bgfix_soul_image.png",
@@ -234,7 +239,7 @@ def detect_visible_content_box(image: Path, *, threshold: int = 18) -> tuple[int
         ]
         pixels = []
         for corner in corners:
-            pixels.extend(corner.getdata())
+            pixels.extend(_flattened_pixels(corner))
         bg = tuple(sum(px[i] for px in pixels) // len(pixels) for i in range(3))
         diff = Image.new("RGB", im.size, bg)
         mask = Image.eval(
