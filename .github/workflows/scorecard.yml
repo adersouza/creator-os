@@ -36,7 +36,7 @@ jobs:
           publish_results: false
       - name: Upload Scorecard report artifact
         if: always() && hashFiles('scorecard-results.sarif') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scorecard-sarif
           path: scorecard-results.sarif
