@@ -22,20 +22,6 @@
   "menuColor": "default",
   "menuAccent": "subtle",
   "registries": {
-    "@uitripled": {
-      "url": "https://ui.tripled.work/r/{name}.json"
-    },
-    "@kibo-ui": {
-      "url": "https://www.kibo-ui.com/r/{name}.json"
-    },
-    "@magicui": {
-      "url": "https://magicui.design/r/{name}.json"
-    },
-    "@motion-primitives": {
-      "url": "https://motion-primitives.com/r/{name}.json"
-    },
-    "@blocks-so": {
-      "url": "https://blocks.so/r/{name}.json"
-    }
+    "@aceternity": "https://ui.aceternity.com/registry/{name}.json"
   }
 }
