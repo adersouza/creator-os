@@ -6,6 +6,7 @@ import {
 	createTestThreadsAccount,
 	type PublishSupabaseOverrides,
 } from "../helpers/mockFactories";
+import { mediaUrlFingerprint } from "../../api/_lib/originalitySignals.js";
 
 /**
  * Unit tests for Threads publish handler.
@@ -28,6 +29,7 @@ let currentSupabase: ReturnType<typeof createPublishSupabaseMock>;
 
 vi.mock("@/api/_lib/supabase.js", () => ({
 	getSupabase: () => currentSupabase,
+	getSupabaseAny: () => currentSupabase,
 }));
 
 vi.mock("@/api/_lib/logger.js", () => ({
@@ -103,6 +105,14 @@ vi.mock("@/api/_lib/qstash.js", () => ({
 	}),
 }));
 
+vi.mock("@/api/_lib/ssrfProtection.js", () => ({
+	validateUrlNotPrivate: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/api/_lib/cron/scheduled-posts/mediaValidation.js", () => ({
+	checkMediaUrlAccessible: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -167,6 +177,64 @@ describe("Threads publish handler", () => {
 				}),
 			}),
 		);
+	});
+
+	it("requires confirmation before manual Threads publish reuses media from another account", async () => {
+		const mediaUrl = "https://example.com/thread-photo.jpg";
+		setupSupabase({
+			profile: { subscription_tier: "pro" },
+			account: DEFAULT_ACCOUNT,
+			rateLimit: [{ allowed: true, daily_limit: 250, daily_used: 5 }],
+			postInsert: { id: "post-dup" },
+			postCount: 2,
+			postOriginalitySignals: [{
+				post_id: "previous-thread-post",
+				account_id: "acc-2",
+				instagram_account_id: null,
+				platform: "threads",
+				captured_at: new Date().toISOString(),
+				media_url_hashes: [mediaUrlFingerprint(mediaUrl)],
+				perceptual_hashes: [],
+			}],
+		});
+
+		mockPostToThreads.mockResolvedValue({
+			success: true,
+			threadId: "thread-dup",
+		});
+
+		const { handlePublish } = await import("@/api/_lib/handlers/posts/publish.js");
+		const res = mockRes();
+		const req = mockPublishReq({
+			accountId: "acc-1",
+			content: "Manual reuse",
+			media: [{ type: "image", url: mediaUrl }],
+			platform: "threads",
+		});
+
+		await handlePublish(req as any, res as any, "user-1");
+
+		expect(res.status).toHaveBeenCalledWith(409);
+		expect(res.json).toHaveBeenCalledWith(
+			expect.objectContaining({
+				code: "MANUAL_MEDIA_REUSE_CONFIRMATION_REQUIRED",
+				extra: expect.objectContaining({
+					preflight: expect.objectContaining({
+						ok: true,
+						issues: expect.arrayContaining([
+							expect.objectContaining({
+								code: "cross_account_media_reuse_warning",
+								details: expect.objectContaining({
+									overrideToken: expect.any(String),
+									matchedAccountId: "acc-2",
+								}),
+							}),
+						]),
+					}),
+				}),
+			}),
+		);
+		expect(mockPostToThreads).not.toHaveBeenCalled();
 	});
 
 	it("returns 400 when accountId is missing for Threads", async () => {

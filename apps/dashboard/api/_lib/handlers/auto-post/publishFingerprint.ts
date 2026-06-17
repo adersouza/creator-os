@@ -22,6 +22,8 @@ export interface DuplicateFingerprintMatch {
 	id: string;
 	status: string;
 	account_id: string | null;
+	instagram_account_id?: string | null | undefined;
+	matched_account_id?: string | null | undefined;
 	threads_post_id: string | null;
 	posted_at: string | null;
 	created_at: string | null;
@@ -219,7 +221,11 @@ export async function findRecentMediaFingerprintAcrossAccounts(values: {
 			if (error) throw error;
 			const exactMatch = ((data ?? []) as DuplicateFingerprintMatch[])[0];
 			if (exactMatch) {
-				return { ...exactMatch, match_type: "media_fingerprint" };
+				return {
+					...exactMatch,
+					matched_account_id: exactMatch.account_id,
+					match_type: "media_fingerprint",
+				};
 			}
 		}
 
@@ -261,12 +267,19 @@ async function findRecentOriginalitySignalAcrossAccounts(values: {
 	const { data, error } = await db()
 		.from("post_originality_signals")
 		.select(
-			"post_id, account_id, platform, captured_at, media_url_hashes, perceptual_hashes",
+			"post_id, account_id, instagram_account_id, platform, captured_at, media_url_hashes, perceptual_hashes",
 		)
 		.eq("user_id", userId)
 		.eq("platform", values.platform)
-		.not("account_id", "is", null)
-		.neq("account_id", values.accountId)
+		.not(
+			values.platform === "instagram" ? "instagram_account_id" : "account_id",
+			"is",
+			null,
+		)
+		.neq(
+			values.platform === "instagram" ? "instagram_account_id" : "account_id",
+			values.accountId,
+		)
 		.gte("captured_at", values.cutoff)
 		.order("captured_at", { ascending: false })
 		.limit(100);
@@ -275,10 +288,17 @@ async function findRecentOriginalitySignalAcrossAccounts(values: {
 	for (const row of (data ?? []) as Array<{
 		post_id: string;
 		account_id: string | null;
+		instagram_account_id?: string | null;
 		captured_at: string | null;
 		media_url_hashes: string[] | null;
 		perceptual_hashes: string[] | null;
 	}>) {
+		const matchedAccountId =
+			values.platform === "instagram"
+				? row.instagram_account_id
+				: row.account_id;
+		if (!matchedAccountId || matchedAccountId === values.accountId) continue;
+
 		const rowMediaHashes = new Set(row.media_url_hashes ?? []);
 		if (mediaUrlHashes.some((hash) => rowMediaHashes.has(hash))) {
 			return {
@@ -286,6 +306,8 @@ async function findRecentOriginalitySignalAcrossAccounts(values: {
 				post_id: row.post_id,
 				status: "published",
 				account_id: row.account_id,
+				instagram_account_id: row.instagram_account_id,
+				matched_account_id: matchedAccountId,
 				threads_post_id: null,
 				posted_at: row.captured_at,
 				created_at: row.captured_at,
@@ -302,6 +324,8 @@ async function findRecentOriginalitySignalAcrossAccounts(values: {
 						post_id: row.post_id,
 						status: "published",
 						account_id: row.account_id,
+						instagram_account_id: row.instagram_account_id,
+						matched_account_id: matchedAccountId,
 						threads_post_id: null,
 						posted_at: row.captured_at,
 						created_at: row.captured_at,

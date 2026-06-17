@@ -17,6 +17,10 @@ import { postToThreads } from "../../threadsApi.js";
 import { PublishPostSchema, parseBodyOrError } from "../../validation.js";
 import { dispatchWebhook } from "../../webhookDispatcher.js";
 import {
+	evaluateManualMediaReuse,
+	MANUAL_MEDIA_REUSE_CONFIRMATION_REQUIRED_CODE,
+} from "./manualMediaReuse.js";
+import {
 	type AccountIdRow,
 	type AccountRow,
 	checkSubscriptionPostLimit,
@@ -81,6 +85,7 @@ export async function handlePublish(
 		commentEnabled,
 		graduation,
 		firstComment,
+		crossAccountMediaReuseOverrideToken,
 		// biome-ignore lint/suspicious/noExplicitAny: Zod inferred union is too wide for destructuring
 	} = parsed as any;
 
@@ -340,6 +345,26 @@ export async function handlePublish(
 			});
 		}
 
+		const manualMediaReuse = await evaluateManualMediaReuse({
+			userId,
+			platform: "instagram",
+			accountId: instagramAccountId,
+			content,
+			media,
+			overrideToken: crossAccountMediaReuseOverrideToken,
+		});
+		if (manualMediaReuse.match && !manualMediaReuse.overrideValid) {
+			return apiError(
+				res,
+				409,
+				"Cross-account media reuse requires confirmation before publishing.",
+				{
+					code: MANUAL_MEDIA_REUSE_CONFIRMATION_REQUIRED_CODE,
+					extra: { preflight: manualMediaReuse.preflight },
+				},
+			);
+		}
+
 		let instagramPublishingQuota:
 			| { usage: number; limit: number; remaining: number; windowHours: number }
 			| undefined;
@@ -463,6 +488,9 @@ export async function handlePublish(
 			...(isPaidPartnership ? { isPaidPartnership: true } : {}),
 			...(commentEnabled !== undefined ? { commentEnabled } : {}),
 			...(firstComment ? { firstComment } : {}),
+			...(manualMediaReuse.audit
+				? { manual_media_reuse_override: manualMediaReuse.audit }
+				: {}),
 		};
 
 		// Create post record
@@ -787,6 +815,26 @@ export async function handlePublish(
 		});
 	}
 
+	const manualMediaReuse = await evaluateManualMediaReuse({
+		userId,
+		platform: "threads",
+		accountId,
+		content,
+		media,
+		overrideToken: crossAccountMediaReuseOverrideToken,
+	});
+	if (manualMediaReuse.match && !manualMediaReuse.overrideValid) {
+		return apiError(
+			res,
+			409,
+			"Cross-account media reuse requires confirmation before publishing.",
+			{
+				code: MANUAL_MEDIA_REUSE_CONFIRMATION_REQUIRED_CODE,
+				extra: { preflight: manualMediaReuse.preflight },
+			},
+		);
+	}
+
 	// Check rate limit before publishing (fail-closed: block on error)
 	try {
 		const { data: rateLimit, error: rlError } = await db().rpc(
@@ -870,6 +918,9 @@ export async function handlePublish(
 			platform: "threads",
 			cross_post_group_id: crossPostGroupId || null,
 			status: "publishing",
+			...(manualMediaReuse.audit
+				? { metadata: { manual_media_reuse_override: manualMediaReuse.audit } }
+				: {}),
 			// biome-ignore lint/suspicious/noExplicitAny: Supabase insert type workaround for extra columns
 		} as any)
 		.select()

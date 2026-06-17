@@ -29,6 +29,7 @@ export interface PreflightIssue {
 	category: PreflightCategory;
 	code: string;
 	message: string;
+	details?: Record<string, unknown> | undefined;
 }
 
 export interface PreflightMediaItem {

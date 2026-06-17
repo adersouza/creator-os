@@ -54,7 +54,9 @@ import {
 import { compressImage } from "@/utils/imageCompress";
 import {
 	createPost,
+	preflightPost,
 	resumePendingPublishJobs,
+	type PublishPreflightIssue,
 	type PublishStage,
 } from "@/services/api/posts";
 import { haptics } from "@/utils/haptics";
@@ -126,6 +128,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { CommandMenuShell } from "@/components/ui/CommandMenuShell";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
 	NovaCard,
 	NovaEmpty,
@@ -157,9 +160,36 @@ import {
 import { deriveComposerPresentation } from "@/lib/composerPresentation";
 import { detectPwaInstallState } from "@/lib/pwaSetup";
 import type { PwaInstallState } from "@/types/publishingReadiness";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 type Account = ConnectedAccount;
 type AccountPlatform = ConnectedAccount["platform"];
+type ComposerSubmitPayload = Record<string, unknown> & {
+	crossAccountMediaReuseOverrideToken?: string | undefined;
+};
+
+const CROSS_ACCOUNT_MEDIA_REUSE_WARNING_CODE =
+	"cross_account_media_reuse_warning";
+
+function crossAccountMediaReuseIssue(
+	issues: PublishPreflightIssue[] | undefined,
+): PublishPreflightIssue | null {
+	return (
+		issues?.find(
+			(issue) =>
+				issue.code === CROSS_ACCOUNT_MEDIA_REUSE_WARNING_CODE &&
+				issue.severity === "warning",
+		) ?? null
+	);
+}
+
+function stringDetail(
+	issue: PublishPreflightIssue,
+	key: string,
+): string | null {
+	const value = issue.details?.[key];
+	return typeof value === "string" && value.trim() ? value : null;
+}
 
 const VoiceContextFile = lazy(() =>
 	import("@/components/composer/VoiceContextFile").then((m) => ({
@@ -1187,6 +1217,7 @@ export function Composer() {
 	const [isSavingDraft, setIsSavingDraft] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [publishStage, setPublishStage] = useState<PublishStage | null>(null);
+	const mediaReuseConfirm = useConfirmDialog();
 	const [commandOpen, setCommandOpen] = useState(false);
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [activity, setActivity] = useState<ComposerActivity[]>([]);
@@ -3548,8 +3579,7 @@ export function Composer() {
 				.map((issue) => issue.id),
 		};
 
-		const results = await Promise.allSettled(
-			targets.map((target, targetIndex) => {
+		const submitPayloads = targets.map((target, targetIndex) => {
 				const igMediaType =
 					target.platform === "instagram"
 						? igType === "reels"
@@ -3561,7 +3591,7 @@ export function Composer() {
 									: "IMAGE"
 						: undefined;
 
-				return createPost({
+				const payload: ComposerSubmitPayload = {
 					idempotencyKey: `composer:${submitId}:${target.id}:${targetIndex}`,
 					asyncPublish: scheduleMode === "now",
 					onPublishStage: setPublishStage,
@@ -3689,8 +3719,55 @@ export function Composer() {
 							? replyApprovalMode
 							: undefined,
 					metadata: composerMetadata,
+				};
+				return { target, payload };
+			});
+
+		if (status === "published") {
+			try {
+				for (const { target, payload } of submitPayloads) {
+					const preflight = await preflightPost(payload);
+					const reuseIssue = crossAccountMediaReuseIssue(preflight.issues);
+					if (reuseIssue) {
+						const overrideToken = stringDetail(reuseIssue, "overrideToken");
+						const matchedAccountId =
+							stringDetail(reuseIssue, "matchedAccountId") ||
+							"another account";
+						const confirmed = await mediaReuseConfirm.confirm({
+							title: "Media used on another account",
+							description: `This media appears to have been used recently on ${matchedAccountId}. Publish it to ${target.handle || target.id} anyway?`,
+							confirmLabel: "Publish anyway",
+							cancelLabel: "Cancel",
+						});
+						if (!confirmed || !overrideToken) {
+							setIsSubmitting(false);
+							setPublishStage(null);
+							appToast.info("Publish canceled");
+							return;
+						}
+						payload.crossAccountMediaReuseOverrideToken = overrideToken;
+					}
+					if (!preflight.ok) {
+						throw new Error(
+							preflight.issues?.find((issue) => issue.severity === "error")
+								?.message || "Publish preflight failed",
+						);
+					}
+				}
+			} catch (error) {
+				setIsSubmitting(false);
+				setPublishStage(null);
+				haptics.error();
+				appToast.error("Publish failed", {
+					description:
+						error instanceof Error ? error.message : "Publish preflight failed",
 				});
-			}),
+				return;
+			}
+		}
+
+		const results = await Promise.allSettled(
+			submitPayloads.map(({ payload }) => createPost(payload)),
 		);
 
 		const failures = results.filter((r) => r.status === "rejected");
@@ -5158,6 +5235,17 @@ export function Composer() {
 					setCustomPromptSelection(null);
 				}}
 				onRun={() => void runCustomPrompt()}
+			/>
+			<ConfirmDialog
+				open={mediaReuseConfirm.open}
+				onClose={mediaReuseConfirm.onCancel}
+				onConfirm={mediaReuseConfirm.onConfirm}
+				title={mediaReuseConfirm.options.title}
+				description={mediaReuseConfirm.options.description}
+				confirmLabel={
+					mediaReuseConfirm.options.confirmLabel || "Publish anyway"
+				}
+				cancelLabel={mediaReuseConfirm.options.cancelLabel || "Cancel"}
 			/>
 		</NovaScreen>
 	);

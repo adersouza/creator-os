@@ -12,6 +12,7 @@ const mockDbState = vi.hoisted(() => ({
 	signalRows: [] as Array<{
 		post_id: string;
 		account_id: string | null;
+		instagram_account_id?: string | null;
 		captured_at: string;
 		media_url_hashes: string[] | null;
 		perceptual_hashes: string[] | null;
@@ -138,6 +139,53 @@ describe("autoposter publish fingerprints", () => {
 
 		expect(match?.id).toBe("post-dup");
 		expect(match?.match_type).toBe("media_url_hash");
+	});
+
+	it("matches Instagram originality signals against instagram_account_id", async () => {
+		mockDbState.signalRows = [{
+			post_id: "ig-post-dup",
+			account_id: null,
+			instagram_account_id: "ig-account-2",
+			captured_at: new Date().toISOString(),
+			media_url_hashes: ["media-url-hash"],
+			perceptual_hashes: [],
+		}];
+
+		const match = await findRecentMediaFingerprintAcrossAccounts({
+			workspaceId: "workspace-1",
+			userId: "user-1",
+			accountId: "ig-account-1",
+			platform: "instagram",
+			mediaFingerprint: "no_media",
+			mediaUrlHashes: ["media-url-hash"],
+		});
+
+		expect(match?.id).toBe("ig-post-dup");
+		expect(match?.match_type).toBe("media_url_hash");
+		expect(match?.matched_account_id).toBe("ig-account-2");
+		expect(match?.instagram_account_id).toBe("ig-account-2");
+	});
+
+	it("does not match Instagram originality signals from the same account", async () => {
+		mockDbState.signalRows = [{
+			post_id: "ig-self-post",
+			account_id: null,
+			instagram_account_id: "ig-account-1",
+			captured_at: new Date().toISOString(),
+			media_url_hashes: ["media-url-hash"],
+			perceptual_hashes: [],
+		}];
+
+		const match = await findRecentMediaFingerprintAcrossAccounts({
+			workspaceId: "workspace-1",
+			userId: "user-1",
+			accountId: "ig-account-1",
+			platform: "instagram",
+			mediaFingerprint: "no_media",
+			mediaUrlHashes: ["media-url-hash"],
+		});
+
+		expect(match).toBeNull();
 	});
 
 	it("finds cross-account perceptual media reuse from originality signals", async () => {
