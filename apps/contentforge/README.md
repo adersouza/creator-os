@@ -1,8 +1,15 @@
 # ContentForge
 
-Local media variant generation and pre-publish quality auditing for images and short videos.
+Local content spoofer for images and short videos.
 
-ContentForge runs on your machine with Next.js, FFmpeg, and Python helper scripts. It uploads a source file, generates run-scoped output variants, and audits the generated files for quality, metadata, and similarity signals.
+ContentForge runs on your machine with Next.js, FFmpeg, and Python helper scripts. It uploads a source file and generates run-scoped output variants engineered to:
+
+- **Defeat perceptual-hash duplicate detection** (PDQ/SSCD — the same class of algorithms platforms use to flag re-used content).
+- **Rewrite capture metadata** (`creation_time`, `handler_name`, device-matched x264 params/filenames) so a re-used file reads as an original device capture.
+
+The "quality / forensics / readiness / similarity" checks are not quality audits — they score how convincing each spoofed variant is and flag variants that would still trip duplicate or forensic detection.
+
+> **Note:** This defeats platform duplicate-detection and capture-forensics. That is a Terms-of-Service-evasion capability — see the project owner before extending it.
 
 ## Variation Lab
 
