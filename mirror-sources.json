@@ -37,7 +37,7 @@
       "mirrorPath": "apps/dashboard",
       "sourceRepoPath": "../ThreadsDashboard",
       "sourceRepoUrl": "https://github.com/adersouza/ThreadsDashboard.git",
-      "sourceCommit": "22cf7b959b6058475b0f8590d9597ce81b8c2960",
+      "sourceCommit": "b22aa3e5a2869cb01d686b9846167596286eadb4",
       "include": [
         "**/*"
       ],
