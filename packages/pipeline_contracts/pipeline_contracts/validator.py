@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
 
 _PACKAGE_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 _REPO_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
@@ -75,10 +79,10 @@ def example_names() -> list[str]:
 
 
 def validate_contract(value: Any, schema_name: str) -> None:
-    schema = load_schema(schema_name)
-    errors = list(_validate(value, schema, path="$"))
+    validator = _validator_for(schema_name)
+    errors = sorted(validator.iter_errors(value), key=lambda error: [str(part) for part in error.path])
     if errors:
-        raise ContractValidationError("; ".join(errors))
+        raise ContractValidationError("; ".join(_format_error(error) for error in errors))
 
 
 def validate_audio_intent(value: Any) -> None:
@@ -221,53 +225,29 @@ def _schema_filename(name: str) -> str:
     return name
 
 
-def _validate(value: Any, schema: dict[str, Any], *, path: str) -> Iterator[str]:
-    if "$ref" in schema:
-        ref = str(schema["$ref"])
-        schema = load_schema(Path(ref).name)
-
-    if "const" in schema and value != schema["const"]:
-        yield f"{path} expected {schema['const']!r}, got {value!r}"
-
-    if "enum" in schema and value not in schema["enum"]:
-        yield f"{path} expected one of {schema['enum']!r}, got {value!r}"
-
-    allowed_types = schema.get("type")
-    if allowed_types is not None and not _matches_type(value, allowed_types):
-        yield f"{path} expected type {allowed_types!r}, got {type(value).__name__}"
-        return
-
-    if isinstance(value, dict):
-        required = schema.get("required") or []
-        for key in required:
-            if key not in value:
-                yield f"{path}.{key} is required"
-        properties = schema.get("properties") or {}
-        for key, child_schema in properties.items():
-            if key in value:
-                yield from _validate(value[key], child_schema, path=f"{path}.{key}")
-    elif isinstance(value, list):
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                yield from _validate(item, item_schema, path=f"{path}[{index}]")
+@lru_cache(maxsize=None)
+def _schema_registry() -> Registry:
+    resources: list[tuple[str, Resource[Any]]] = []
+    for path in SCHEMA_DIR.glob("*.schema.json"):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        resource = Resource.from_contents(schema, default_specification=DRAFT202012)
+        resources.append((path.name, resource))
+        resources.append((path.resolve().as_uri(), resource))
+        schema_id = schema.get("$id")
+        if isinstance(schema_id, str):
+            resources.append((schema_id, resource))
+    return Registry().with_resources(resources)
 
 
-def _matches_type(value: Any, allowed_types: str | list[str]) -> bool:
-    names = [allowed_types] if isinstance(allowed_types, str) else allowed_types
-    for name in names:
-        if name == "null" and value is None:
-            return True
-        if name == "object" and isinstance(value, dict):
-            return True
-        if name == "array" and isinstance(value, list):
-            return True
-        if name == "string" and isinstance(value, str):
-            return True
-        if name == "boolean" and isinstance(value, bool):
-            return True
-        if name == "integer" and isinstance(value, int) and not isinstance(value, bool):
-            return True
-        if name == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
-            return True
-    return False
+@lru_cache(maxsize=None)
+def _validator_for(schema_name: str) -> Draft202012Validator:
+    schema = load_schema(schema_name)
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema, registry=_schema_registry())
+
+
+def _format_error(error: Any) -> str:
+    path = "$"
+    for part in error.path:
+        path += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return f"{path}: {error.message}"

@@ -201,6 +201,12 @@ pattern, and reasons. It uses local heuristics by default. If Ollama is running
 with an installed model, `--provider auto` upgrades to local LLM labeling; use
 `--provider heuristic` for deterministic output.
 
+Grok/xAI prompt compilation and Ollama labeling are experimental
+Reference Factory analysis paths. They are useful for reference-learning and
+prompt-pack research when explicitly invoked, but Reel Factory's active
+production generation baseline remains direct Higgsfield reference-image stills,
+not Grok/grid generation.
+
 `build-learning-system` clusters the analyzed winners into reusable formats,
 writes the operator playbook, creates a Higgsfield/Kling-style prompt pack,
 exports caption formulas, and writes a Campaign Factory reference bank. The

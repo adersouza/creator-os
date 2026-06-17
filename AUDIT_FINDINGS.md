@@ -82,10 +82,12 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 - **Note:** Do not edit the mirror directly.
 
 ### P1-2. Contract validators are incomplete and duplicated
+- **Status:** Fixed on branch `codex/audit-remediation-core-p1`. Python validation now uses `jsonschema` Draft 2020-12 with local `$ref` resolution; TypeScript validators now run an AJV 2020 baseline while retaining the existing business-rule checks and exported function names.
 - **Locations:** `packages/pipeline_contracts/__init__.py` (Python validator), `packages/pipeline_contracts/typescript/` (TS validators, ~12 hand-coded functions).
 - **Problem:** Both are hand-rolled (not `jsonschema`/`ajv`). They ignore `additionalProperties`, `min`/`max`, `pattern`, and `$ref`. Non-conforming payloads pass validation. The Python and TS implementations can silently diverge. (Note: `pnpm check:contracts` validates *drift/sync between mirrors*, not schema-constraint rigor — so its green status does not cover this.)
 - **Fix:** Replace Python validator with `jsonschema` (Draft 2020-12) and TS with `ajv`, both compiling the same schema files in `packages/pipeline_contracts/schemas/`. Add negative-path tests: invalid enum, out-of-range, extra property, missing required, bad pattern — per schema.
 - **Verify:** `pnpm check:contracts` green; new negative tests fail the old validators and pass the new ones.
+- **Verified 2026-06-17:** `uv run pytest packages/pipeline_contracts/tests/test_validator.py -q`, `pnpm --filter pipeline-contracts-ts test`, `pnpm check:contracts`, and `pnpm --filter juno33 exec vitest run tests/pipelineContracts.test.ts` passed.
 
 ### P1-3. campaign_factory `core.py` god-class (27k lines, 847 methods)
 - **Location:** `python_packages/campaign_factory/.../core.py`
@@ -94,12 +96,14 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 - **Constraint:** No behavior change. Each extraction is its own commit with the full test suite green.
 
 ### P1-4. reference_factory: doc/code drift on legacy providers + latent bug
+- **Status:** Fixed on branch `codex/audit-remediation-core-p1`. Docs now describe Grok/xAI and Ollama as active experimental Reference Factory analysis paths, `_caption_archetype` is shared, `_structure_notes` covers the shared label set, and direct dependencies are declared.
 - **Locations:**
   - Drift: `python_packages/reference_factory/AGENTS.md:8` says Grok is not active, but `grok_image` is the **default** `--variation-model`, and `analyze-/compile-prompts-with-grok-api` + Ollama (`--provider auto`) are live CLI subcommands (~600 lines).
   - Latent bug: `_caption_archetype` is duplicated with **divergent** logic at `patterns.py:469` and `public_metrics.py:383`; can raise `KeyError` in `_structure_notes`.
   - Dep gap: `google.genai` imported at `intake.py:524` but undeclared in `pyproject.toml`; `pydantic` used directly but only present transitively via fastapi.
 - **Fix:** (a) Reconcile docs with reality — either re-document Grok/Ollama as active, or demote them in code to match docs. Decide intent. (b) Deduplicate `_caption_archetype` into one shared function; add a test covering the `KeyError` path. (c) Declare `google-genai` (optional extra) and `pydantic` explicitly in `pyproject`.
 - **Verify:** 84 tests green; new caption-archetype test covers both call sites.
+- **Verified 2026-06-17:** `uv run pytest python_packages/reference_factory/tests -q` passed (`85 passed`).
 
 ### P1-5. contentforge: large untested surface
 - **Location:** `apps/contentforge` — `pipeline.js` (~800 lines), `app/api/.../similarity/route.js` (1827 lines), 27/29 API routes, `campaign-originality-audit.js`, ~2,255 LOC of Python forensics scripts.
@@ -108,16 +112,20 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 - **Verify:** `npm test` passes with and without ffmpeg installed; coverage rises on `pipeline.js` and routes.
 
 ### P1-6. Stale / contradictory planning docs
+- **Status:** Fixed on branch `codex/audit-remediation-core-p1`. The migration master plan is archived under `docs/archive/` with a historical header, and README/current architecture docs now point at explicit runtime-promotion boundaries.
 - **Locations:** `MONOREPO_MIGRATION_MASTER_PLAN.md` (describes a *finished* migration as future "planned" phases), `AGENTS.md` (claims split repos are still the runtime — contradicts the monorepo reality).
 - **Problem:** A new contributor (or agent) is actively misled. Documentation Hygiene scored 4/10.
 - **Fix:** Archive `MONOREPO_MIGRATION_MASTER_PLAN.md` to `docs/archive/` with a header noting it's historical. Update `AGENTS.md` and root `README.md` to state the monorepo is canonical and the four tools live in `python_packages/` + `apps/`. Cross-check `CONSOLIDATION_STATUS.md` / `PIPELINE_STATE.md` are current (they are, per audit).
 - **Verify:** No doc claims the migration is pending or that runtime tools are external repos.
+- **Verified 2026-06-17:** Root README no longer links the archived plan as current guidance; `docs/architecture/monorepo_phase4_acceptance.md` points at `docs/architecture/monorepo_deployment_promotion.md`.
 
 ### P1-7. Security scans are broad but non-blocking
+- **Status:** Fixed on branch `codex/audit-remediation-core-p1`. Trivy HIGH/CRITICAL findings now fail after SARIF upload, and TruffleHog gates verified secrets. GitHub Dependency Review was removed from the gate because this private repo does not have the required Dependency Graph/GHAS support enabled; Trivy remains the platform-independent dependency vulnerability gate.
 - **Location:** `.github/workflows/security.yml` (and related).
 - **Problem:** TruffleHog, Trivy, and dependency-review all run with `continue-on-error` / `--exit-code 0`. Only gitleaks + `scripts/security/secret-scan.sh` actually gate. Visibility without enforcement.
-- **Fix:** Make Trivy (HIGH/CRITICAL) and dependency-review gating on PRs. Keep TruffleHog gating for verified secrets. Where false-positive noise is the reason for `continue-on-error`, add an explicit allowlist instead of disabling the gate.
+- **Fix:** Make Trivy (HIGH/CRITICAL) gating on PRs. Keep TruffleHog gating for verified secrets. Where false-positive noise is the reason for `continue-on-error`, add an explicit allowlist instead of disabling the gate.
 - **Verify:** A PR introducing a known-vulnerable dep or a planted secret fails CI.
+- **Verified 2026-06-17:** Static workflow review: removed the unsupported Dependency Review job, set Trivy `--exit-code 1` with SARIF upload preserved, and kept TruffleHog at `--only-verified` with no `continue-on-error`. The TruffleHog action injects `--fail` itself, so duplicating it in `extra_args` breaks the workflow.
 
 ---
 

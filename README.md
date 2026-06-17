@@ -2,7 +2,7 @@
 
 **A contract-driven content pipeline for Instagram/Threads creators.**
 
-Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content. The four pipeline tools (reel_factory, campaign_factory, contentforge, reference_factory) are now **canonical in this monorepo**; ThreadsDashboard remains a separate standalone product (juno33.com). Data flows via shared JSON schemas in `packages/pipeline_contracts`.
+Creator OS turns reference reels into campaign-ready, audited, dashboard-managed content. The four pipeline tools (`reel_factory`, `campaign_factory`, `contentforge`, `reference_factory`) are source-integrated in this monorepo; ThreadsDashboard remains a separate standalone product (juno33.com) mirrored here for parity and contract checks. Production runtime promotion from this repo is explicit, not automatic. Data flows via shared JSON schemas in `packages/pipeline_contracts`.
 
 🔗 **Live Product:** [juno33.com](https://juno33.com)
 
@@ -212,11 +212,11 @@ cd pipeline_contracts && python -m pytest -q
 
 Use `campaign-factory doctor` for a full cross-repo health check including HTTP service availability.
 
-## Monorepo Migration
+## Source Integration Status
 
-`creator-os` is moving toward becoming the unified source-code monorepo for the pipeline, while large runtime media, model weights, uploads, local databases, and generated artifacts stay outside git.
+`creator-os/main` is the CI-green source integration baseline for the pipeline. Large runtime media, model weights, uploads, local databases, and generated artifacts stay outside git. Production deployment routing remains an explicit promotion step; see `AGENTS.md` and `docs/architecture/monorepo_deployment_promotion.md`.
 
-See [MONOREPO_MIGRATION_MASTER_PLAN.md](./MONOREPO_MIGRATION_MASTER_PLAN.md) for the full phased plan, ownership model, test gates, and promotion criteria.
+The old phased migration plan is archived at [docs/archive/MONOREPO_MIGRATION_MASTER_PLAN.md](./docs/archive/MONOREPO_MIGRATION_MASTER_PLAN.md) for provenance.
 
 ---
 

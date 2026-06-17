@@ -11,6 +11,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from .db import json_dump, json_load
+from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
 from .timeutil import now_iso
@@ -314,7 +315,7 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             str((item.get("sourceFile") or {}).get("path") or ""),
         ]
     ).lower()
-    caption_archetype = _caption_archetype(caption_text)
+    caption_archetype = classify_caption_archetype(caption_text)
     hook_type = _hook_type(caption_text, caption_archetype)
     visual_format = _visual_format(text_blob, caption_archetype, item)
     review_tags = _review_tags(text_blob, caption_archetype, visual_format, caption_text)
@@ -464,29 +465,6 @@ def _merge_llm_pattern(heuristic: dict[str, Any], llm: dict[str, Any]) -> dict[s
         merged["suggestedLabel"] = heuristic["suggestedLabel"]
     merged["reviewTags"] = sorted(set(str(tag) for tag in merged.get("reviewTags") or []))
     return merged
-
-
-def _caption_archetype(caption: str) -> str:
-    lowered = caption.lower().strip()
-    if not lowered:
-        return "captionless_visual"
-    if re.search(r"\b(99\.9|find all|spot the|can.t find)\b", lowered):
-        return "challenge_or_puzzle"
-    if lowered.startswith("pov") or " pov " in f" {lowered} ":
-        return "pov_scenario"
-    if lowered.startswith(("when ", "me when", "how it feels")):
-        return "relatable_scenario"
-    if lowered.startswith(("pick one", "choose one")):
-        return "choice_bait"
-    if "?" in caption:
-        return "question_hook"
-    if len(lowered) <= 12:
-        return "minimal_bait"
-    if "#" in lowered:
-        return "hashtag_context"
-    if re.search(r"\bfollow\b|\bclaim\b|\bsend\b|\btag\b", lowered):
-        return "cta_bait"
-    return "short_meme_caption"
 
 
 def _hook_type(caption: str, archetype: str) -> str:

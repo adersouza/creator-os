@@ -1,6 +1,8 @@
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "campaign_factory.repurposing_plan.v1",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema",
     "master_asset_id",
@@ -13,14 +15,17 @@
       "const": "campaign_factory.repurposing_plan.v1"
     },
     "master_asset_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]+$"
     },
     "preset_name": {
       "type": "string",
       "enum": ["tiktok_aggressive", "ig_subtle", "custom"]
     },
     "target_count": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
     },
     "platform": {
       "type": "string"

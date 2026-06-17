@@ -1,3 +1,5 @@
+import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+
 export const AUDIO_INTENT_SCHEMA_ID = "pipeline.audio_intent.v1" as const;
 export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
 	"campaign_factory.threadsdash_drafts.v1" as const;
@@ -144,14 +146,16 @@ export const campaignDraftPayloadSchema = {
 } as const;
 
 export const repurposingPlanSchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$id: REPURPOSING_PLAN_SCHEMA_ID,
 	type: "object",
+	additionalProperties: false,
 	required: ["schema", "master_asset_id", "preset_name", "target_count", "platform"],
 	properties: {
 		schema: { const: REPURPOSING_PLAN_SCHEMA_ID },
-		master_asset_id: { type: "string" },
+		master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
 		preset_name: { type: "string", enum: ["tiktok_aggressive", "ig_subtle", "custom"] },
-		target_count: { type: "integer" },
+		target_count: { type: "integer", minimum: 1, maximum: 500 },
 		platform: { type: "string" },
 		custom_config: { type: "object" },
 	},
@@ -383,6 +387,39 @@ const ASSIGNED_NATIVE_AUDIO_STATUSES = new Set([
 ]);
 
 const EXPORTABLE_ASSET_STATE_SET = new Set<string>(EXPORTABLE_ASSET_STATES);
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+const ajvCache = new WeakMap<object, ValidateFunction>();
+
+function schemaErrors(schema: object, value: unknown, label: string): string[] {
+	let validate = ajvCache.get(schema);
+	if (!validate) {
+		validate = ajv.compile(schema);
+		ajvCache.set(schema, validate);
+	}
+	if (validate(value)) return [];
+	return (validate.errors || []).map((error) => formatAjvError(error, label));
+}
+
+function formatAjvError(error: ErrorObject, label: string): string {
+	const path = ajvPath(error.instancePath, label);
+	if (error.keyword === "additionalProperties") {
+		const property = String(error.params.additionalProperty || "");
+		return `${path}.${property} is not allowed`;
+	}
+	return `${path} ${error.message || "is invalid"}`;
+}
+
+function ajvPath(instancePath: string, label: string): string {
+	if (!instancePath) return label;
+	return `${label}${instancePath
+		.split("/")
+		.slice(1)
+		.map((part) => {
+			const decoded = part.replace(/~1/g, "/").replace(/~0/g, "~");
+			return /^\d+$/.test(decoded) ? `[${decoded}]` : `.${decoded}`;
+		})
+		.join("")}`;
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
@@ -835,7 +872,7 @@ export function validateHandoffManifestContract(
 }
 
 export function validateAudioIntentContract(value: unknown): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(audioIntentSchema, value, "audio_intent");
 	if (!isRecord(value)) return ["audio_intent must be an object"];
 	if (value.schema !== AUDIO_INTENT_SCHEMA_ID) {
 		errors.push("audio_intent.schema must be pipeline.audio_intent.v1");
@@ -870,7 +907,7 @@ export function validateAudioIntentContract(value: unknown): string[] {
 }
 
 export function validateCaptionOutcomeContextContract(value: unknown): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(pipelineContractSchemas.captionOutcomeContext, value, "captionOutcomeContext");
 	if (!isRecord(value)) return ["captionOutcomeContext must be an object"];
 	if (value.schema !== CAPTION_OUTCOME_CONTEXT_SCHEMA_ID) {
 		errors.push("captionOutcomeContext.schema must be campaign_factory.caption_outcome_context.v1");
@@ -927,7 +964,7 @@ export function validateCampaignFactoryDraftPayload(
 	value: unknown,
 	options: { strictGraphIds?: boolean } = {},
 ): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(campaignDraftPayloadSchema, value, "draft payload");
 	if (!isRecord(value)) return ["draft payload must be an object"];
 	if (value.schema !== CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID) {
 		errors.push("draft payload schema mismatch");
@@ -1005,7 +1042,7 @@ export function validateCampaignFactoryDraftPayload(
 }
 
 export function validateAudioCatalogExport(value: unknown): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(audioCatalogExportSchema, value, "audio catalog export");
 	if (!isRecord(value)) return ["audio catalog export must be an object"];
 	if (value.schema !== AUDIO_CATALOG_EXPORT_SCHEMA_ID) {
 		errors.push("audio catalog export schema mismatch");
@@ -1030,7 +1067,7 @@ export function validateAudioCatalogExport(value: unknown): string[] {
 }
 
 export function validateRepurposingPlan(value: unknown): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(repurposingPlanSchema, value, "repurposing plan");
 	if (!isRecord(value)) return ["repurposing plan must be an object"];
 	if (value.schema !== REPURPOSING_PLAN_SCHEMA_ID) {
 		errors.push("repurposing plan schema mismatch");
@@ -1051,7 +1088,7 @@ export function validateRepurposingPlan(value: unknown): string[] {
 }
 
 export function validatePerformanceSync(value: unknown): string[] {
-	const errors: string[] = [];
+	const errors = schemaErrors(performanceSyncSchema, value, "performance sync");
 	if (!isRecord(value)) return ["performance sync must be an object"];
 	if (value.schema !== PERFORMANCE_SYNC_SCHEMA_ID) {
 		errors.push("performance sync schema mismatch");

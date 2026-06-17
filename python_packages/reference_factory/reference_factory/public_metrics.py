@@ -8,6 +8,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from .db import json_dump, json_load
+from .caption_archetypes import caption_archetype
 from .identity import stable_id, text_hash
 from .timeutil import now_iso
 
@@ -331,7 +332,7 @@ def _compact_raw_json(raw_json: dict[str, Any]) -> dict[str, object]:
 
 def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:
     caption = str(item.get("caption") or "").strip()
-    archetype = _caption_archetype(caption)
+    archetype = caption_archetype(caption)
     return {
         "schema": "reference_factory.prompt_card.v1",
         "source": {
@@ -380,33 +381,19 @@ def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _caption_archetype(caption: str) -> str:
-    lowered = caption.lower().strip()
-    if not caption:
-        return "captionless_visual"
-    if len(caption) <= 4 or all(not ch.isalnum() for ch in caption):
-        return "emoji_or_minimal_bait"
-    if lowered.startswith("pov"):
-        return "pov_scenario"
-    if "?" in caption:
-        return "question_hook"
-    if lowered.startswith(("when ", "me when", "how it feels")):
-        return "relatable_scenario"
-    if "#" in caption:
-        return "hashtag_context_caption"
-    return "short_tease"
-
-
 def _structure_notes(archetype: str) -> str:
     return {
         "captionless_visual": "The visual has to carry the hook without text.",
-        "emoji_or_minimal_bait": "Very short caption relies on curiosity and visual context.",
+        "challenge_or_puzzle": "Caption challenges the viewer to complete or solve a simple prompt.",
         "pov_scenario": "Caption frames the viewer inside a simple scenario.",
         "question_hook": "Caption invites direct response or self-identification.",
         "relatable_scenario": "Caption sets up a familiar situation before the visual payoff.",
-        "hashtag_context_caption": "Caption uses broad context and discoverability tags.",
-        "short_tease": "Caption is brief, suggestive, and leaves context open.",
-    }[archetype]
+        "choice_bait": "Caption forces a quick choice that encourages comments.",
+        "minimal_bait": "Very short caption relies on curiosity and visual context.",
+        "hashtag_context": "Caption uses broad context and discoverability tags.",
+        "cta_bait": "Caption uses a direct call to action to trigger response.",
+        "short_meme_caption": "Caption is brief, suggestive, and leaves context open.",
+    }.get(archetype, "Caption structure is broad; keep the variation original and visually legible.")
 
 
 def _visual_prompt(archetype: str) -> str:

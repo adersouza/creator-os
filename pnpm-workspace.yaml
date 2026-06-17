@@ -10,6 +10,10 @@ packageExtensions:
       # pnpm's strict layout doesn't expose a transitive dep to the package —
       # inject it so `tsc --noEmit` finds the type declarations here too.
       "@tsparticles/engine": 3.9.1
+      # The vendored pipeline contract validators import AJV directly. The
+      # mirror source should not hand-edit apps/dashboard/package.json, so
+      # expose the dependency here under pnpm's strict node_modules layout.
+      ajv: 8.20.0
 overrides:
   # Dashboard dependabot bumped @playwright/test to 1.61 but left `playwright`
   # at ^1.58.2; @vitest/browser-playwright (peer `playwright: *`) then resolved a
