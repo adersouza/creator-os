@@ -15,7 +15,7 @@ import asyncio, hashlib, json, re, shutil, subprocess, sys, threading, time, url
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File
+from fastapi import Body, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -35,6 +35,7 @@ from whisper_sync import transcribe_clip  # noqa
 from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
+from local_api_auth import install_local_api_auth_middleware, require_local_api_auth  # noqa
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
 from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
 from generate_assets import (  # noqa
@@ -120,7 +121,8 @@ STEM_RE   = re.compile(r"^clip_\d{3,}$")
 for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="reel_factory")
+app = FastAPI(title="reel_factory", dependencies=[Depends(require_local_api_auth)])
+install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 

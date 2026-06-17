@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,9 +25,11 @@ from .adapters.threadsdash import (
 )
 from .config import PROJECT_ROOT, get_settings
 from .core import CampaignFactory
+from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
 
 settings = get_settings()
-app = FastAPI(title="campaign_factory")
+app = FastAPI(title="campaign_factory", dependencies=[Depends(require_local_api_auth)])
+install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 

@@ -1,14 +1,1 @@
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-python-multipart>=0.0.9,<1
-Pillow>=10,<12
-pilmoji>=2.0,<3
-opencv-python>=4.9,<5
-watchdog>=4,<7
-rapidfuzz>=3.9,<4
-imagehash>=4.3,<5
-yt-dlp>=2024.8.6
-# Optional heavier features:
-# sentence-transformers>=3,<6   # real hook semantic embeddings
-# mediapipe>=0.10,<1            # pose-aware caption placement
-# mlx-whisper>=0.4,<1           # Apple Silicon speech timing
+-e .[vision]

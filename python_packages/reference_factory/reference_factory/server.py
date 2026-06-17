@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from .config import DEFAULT_DB_PATH
 from .audio import audio_catalog_health, audio_resolution_shortlist, list_audio_catalog, list_audio_trend_snapshots, recommend_audio, resolve_audio_record, review_audio_catalog, upsert_audio_record, upsert_audio_trend_snapshot
 from .db import connect
+from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
 from .reference_intake import export_analysis_queue, export_video_prompts, generate_video_prompts, import_reference_analysis, queue_reference_analysis
 from .review import reference_detail, reference_query, review_batch, review_stats, set_reference_label
 
@@ -71,7 +72,12 @@ class GenerateVideoPromptsPayload(BaseModel):
 
 
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
-    app = FastAPI(title="Reference Factory Review", version="0.1.0")
+    app = FastAPI(
+        title="Reference Factory Review",
+        version="0.1.0",
+        dependencies=[Depends(require_local_api_auth)],
+    )
+    install_local_api_auth_middleware(app)
 
     def conn():
         return connect(db_path)
