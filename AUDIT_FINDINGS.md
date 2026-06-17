@@ -53,18 +53,22 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 ## P0 — Blocking
 
 ### P0-1. reel_factory packaging is broken (install fails)
+- **Status:** Fixed on branch `codex/audit-remediation-p0`. `pyproject.toml` no longer lists missing modules, dependencies are version-bounded, the dead workspace-only `pipeline-contracts` dependency was removed, and `requirements.txt` delegates to the pyproject install path.
 - **Location:** `python_packages/reel_factory/pyproject.toml`
 - **Problem:** `[tool.setuptools] py-modules` lists four modules that do not exist: `media_qc`, `photo_reel`, `vlm_florence`, `vlm_ollama`. A clean build/install breaks. (CI does not run `pip install -e .`, so green gates do not cover this.)
 - **Also:** `requirements.txt` (opencv, watchdog, yt-dlp) disagrees with `pyproject` dependencies — installs differ by path. No version pins in `pyproject`.
 - **Fix:** Remove the four nonexistent entries from `py-modules`. Reconcile `requirements.txt` ↔ `pyproject` into one source of truth (prefer `pyproject`). Add version pins.
 - **Verify:** `cd python_packages/reel_factory && pip install -e .` succeeds; `python -m pytest -q tests/` (320 tests) stays green.
+- **Verified 2026-06-17:** Fresh venv `pip install -e python_packages/reel_factory` succeeded; `cd python_packages/reel_factory && uv run pytest tests` passed (`326 passed, 48 warnings`).
 
 ### P0-2. No auth on any local FastAPI surface
+- **Status:** Fixed on branch `codex/audit-remediation-p0`. `campaign_factory`, `reel_factory`, and `reference_factory` now require `CREATOR_OS_API_TOKEN` bearer auth unless `ALLOW_INSECURE_LOCAL=1` is explicitly set for loopback/test-local development.
 - **Locations:** `python_packages/campaign_factory` (73 endpoints), `python_packages/reel_factory` (server module), `python_packages/reference_factory` (frame endpoint).
 - **Problem:** Endpoints expose full read/write plus ffmpeg/subprocess execution surface. Only protection is `127.0.0.1` bind. A single misconfig (`--host 0.0.0.0`, container port-forward, reverse proxy) exposes the entire surface unauthenticated.
 - **Why it matters:** Highest blast radius in the system.
-- **Fix:** Add a shared auth dependency (bearer token from env, e.g. `CREATOR_OS_API_TOKEN`) as a FastAPI `Depends` on all routers. Reject when token unset AND bind is non-loopback (fail-closed). Keep localhost dev ergonomic: allow loopback without token only if an explicit `ALLOW_INSECURE_LOCAL=1` is set.
+- **Fix:** Add a shared auth dependency plus app-level HTTP middleware (bearer token from env, e.g. `CREATOR_OS_API_TOKEN`). Reject when token unset AND bind is non-loopback (fail-closed), including FastAPI docs/OpenAPI and mounted static UI assets. Keep localhost dev ergonomic: allow loopback without token only if an explicit `ALLOW_INSECURE_LOCAL=1` is set.
 - **Verify:** New tests — request without token on non-loopback bind returns 401; loopback dev path still works.
+- **Verified 2026-06-17:** New auth tests cover non-loopback unauthenticated `401`, valid bearer acceptance, explicit insecure loopback allowance, and docs/OpenAPI/static rejection for all three apps where applicable. A route sweep checked 185 app routes/paths with zero unauthenticated non-loopback bypasses. `uv run pytest python_packages/campaign_factory/tests python_packages/reel_factory/tests python_packages/reference_factory/tests` passed (`805 passed, 48 warnings`).
 
 ---
 
