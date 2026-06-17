@@ -5,10 +5,13 @@ import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import { POST } from "../app/api/similarity/route.js";
 import { LEGACY_FINAL_DIR, UPLOADS_DIR } from "../lib/paths.js";
+import { skipWhenMissingTools } from "./tool-availability.js";
 
 if (!process.env.CONTENTFORGE_OCR_ENGINE) {
   process.env.CONTENTFORGE_OCR_ENGINE = "tesseract";
 }
+
+var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
 
 async function seedCampaignFactoryFiles() {
   await mkdir(UPLOADS_DIR, { recursive: true });
@@ -119,7 +122,8 @@ test("/api/similarity returns 200 for Campaign Factory staged source and output/
   }
 });
 
-test("/api/similarity warns but does not fail an upload-ready Campaign Factory FFmpeg render", async function () {
+test("/api/similarity warns but does not fail an upload-ready Campaign Factory FFmpeg render", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_ready_source.mp4",
     variantName: "000_cf_ready_variant.mp4",
@@ -169,7 +173,8 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
   }
 });
 
-test("/api/similarity adds advisory caption safe-zone warnings for Campaign Factory reels", async function () {
+test("/api/similarity adds advisory caption safe-zone warnings for Campaign Factory reels", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_caption_source.mp4",
     variantName: "000_cf_caption_variant.mp4",
@@ -202,7 +207,8 @@ test("/api/similarity adds advisory caption safe-zone warnings for Campaign Fact
   }
 });
 
-test("/api/similarity reports hook and cover advisory signals without blocking", async function () {
+test("/api/similarity reports hook and cover advisory signals without blocking", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_static_source.mp4",
     variantName: "000_cf_static_variant.mp4",
@@ -229,7 +235,8 @@ test("/api/similarity reports hook and cover advisory signals without blocking",
   }
 });
 
-test("/api/similarity reports creative-quality warnings for weak openings", async function () {
+test("/api/similarity reports creative-quality warnings for weak openings", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_creative_source.mp4",
     variantName: "000_cf_creative_variant.mp4",
@@ -262,7 +269,8 @@ test("/api/similarity reports creative-quality warnings for weak openings", asyn
   }
 });
 
-test("/api/similarity reports explicit reference matches as a non-blocking variation meter", async function () {
+test("/api/similarity reports explicit reference matches as a non-blocking variation meter", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_originality_source.mp4",
     variantName: "000_cf_originality_target.mp4",
@@ -314,7 +322,8 @@ test("/api/similarity reports explicit reference matches as a non-blocking varia
   }
 });
 
-test("/api/similarity preserves forced Tesseract OCR metadata", async function () {
+test("/api/similarity preserves forced Tesseract OCR metadata", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var originalEngine = process.env.CONTENTFORGE_OCR_ENGINE;
   process.env.CONTENTFORGE_OCR_ENGINE = "tesseract";
   var files = await seedMp4Fixture({
@@ -346,7 +355,8 @@ test("/api/similarity preserves forced Tesseract OCR metadata", async function (
   }
 });
 
-test("/api/similarity keeps unavailable forced OCR engine advisory-only", async function () {
+test("/api/similarity keeps unavailable forced OCR engine advisory-only", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var originalEngine = process.env.CONTENTFORGE_OCR_ENGINE;
   var originalVisionScript = process.env.CONTENTFORGE_APPLE_VISION_SCRIPT;
   process.env.CONTENTFORGE_OCR_ENGINE = "apple_vision";
@@ -378,7 +388,8 @@ test("/api/similarity keeps unavailable forced OCR engine advisory-only", async 
   }
 });
 
-test("/api/similarity auto OCR falls back from Apple Vision to Tesseract", async function () {
+test("/api/similarity auto OCR falls back from Apple Vision to Tesseract", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var originalEngine = process.env.CONTENTFORGE_OCR_ENGINE;
   var originalVisionScript = process.env.CONTENTFORGE_APPLE_VISION_SCRIPT;
   process.env.CONTENTFORGE_OCR_ENGINE = "auto";
@@ -412,7 +423,8 @@ test("/api/similarity auto OCR falls back from Apple Vision to Tesseract", async
   }
 });
 
-test("/api/similarity warns on legacy FFmpeg metadata when the media is otherwise compatible", async function () {
+test("/api/similarity warns on legacy FFmpeg metadata when the media is otherwise compatible", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_legacy_source.mp4",
     variantName: "000_cf_legacy_variant.mp4",
@@ -442,7 +454,8 @@ test("/api/similarity warns on legacy FFmpeg metadata when the media is otherwis
   }
 });
 
-test("/api/similarity fails a Campaign Factory render with invalid social dimensions", async function () {
+test("/api/similarity fails a Campaign Factory render with invalid social dimensions", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_bad_source.mp4",
     variantName: "000_cf_bad_variant.mp4",
@@ -470,7 +483,8 @@ test("/api/similarity fails a Campaign Factory render with invalid social dimens
   }
 });
 
-test("/api/similarity keeps Campaign Factory profile explicit", async function () {
+test("/api/similarity keeps Campaign Factory profile explicit", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_default_source.mp4",
     variantName: "000_cf_default_variant.mp4",
@@ -534,7 +548,8 @@ test("/api/similarity keeps optional c2pa unavailability as a warning", async fu
   }
 });
 
-test("/api/similarity keeps compression review findings as warnings when layer verdict is warn", async function () {
+test("/api/similarity keeps compression review findings as warnings when layer verdict is warn", async function (t) {
+  if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_compression_source.mp4",
     variantName: "000_cf_compression_variant.mp4",

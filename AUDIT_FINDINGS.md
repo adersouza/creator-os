@@ -106,6 +106,7 @@ Infra sub-scores: Contracts 6 · CI/CD 8 · Arch-guards 8 · Monorepo-config 7 �
 - **Verified 2026-06-17:** `uv run pytest python_packages/reference_factory/tests -q` passed (`85 passed`).
 
 ### P1-5. contentforge: large untested surface
+- **Status:** Partially fixed on `codex/audit-remediation-contentforge-tests`: added route orchestration tests with injected pipeline/lock boundaries for `app/api/forge` and `app/api/variant-pack`; converted FFmpeg/FFprobe/Tesseract-dependent Campaign Factory/similarity tests to probe-and-skip; added a deterministic `CONTENTFORGE_FORCE_MISSING_TOOLS` no-tool simulation. Remaining broad coverage expansion for `similarity/route.js`, `campaign-originality-audit.js`, and Python forensics branches should stay refactor/test-only.
 - **Location:** `apps/contentforge` — `pipeline.js` (~800 lines), `app/api/.../similarity/route.js` (1827 lines), 27/29 API routes, `campaign-originality-audit.js`, ~2,255 LOC of Python forensics scripts.
 - **Problem:** Core orchestration and most routes have no direct tests. FFmpeg integration tests **hard-fail** instead of skipping when the binary is absent. (Related to the now-fixed turbo env issue, but the skip-vs-fail behavior remains.)
 - **Fix:** Add route-level tests (mock subprocess boundary) for `pipeline.js`, `buildPhase1Args`, and the API routes. Make FFmpeg-dependent tests **skip** (not fail) when `ffmpeg`/`ffprobe` are unavailable (probe-and-skip pattern). Add tests for the Python forensics branches.
