@@ -425,7 +425,7 @@ const ROADMAP=[
     {k:'✅',id:'D',t:'Variation → export',n:'per-account drafts; master fallback',ref:'PR #44'},
     {k:'✅',id:'E2',t:'Still → MP4 (free)',n:'WIRED: motion_edit_render.v1 + motion_edit_stage.py (265L) — zero-AI render engine on main',ref:'PR #45'},
     {k:'✅',id:'E',t:'Front auto-link Soul-2+Kling',n:'WIRED: front_generation_plan.v1 + front_generation_stage.py (539L); paid Kling cost-preflighted/dry-run by default',ref:'PR #46/#47'},
-    {k:'✅',id:'F',t:'Learning-loop seam (v1)',n:'WIRED: ranks by perf with confidence (recommendation_next_batch.v1). v2 reward = median+decay+Thompson → Intelligence track',ref:'PR #48'},
+    {k:'✅',id:'F',t:'Learning-loop seam (v1)',n:'WIRED: ranks by normalized, recency-decayed, confidence-shrunk performance (recommendation_next_batch.v1). Thompson/reffactory feedback remain Intelligence-track follow-up',ref:'PR #48/#60+'},
     {k:'✅',id:'G',t:'Proactive autonomous cycles',n:'WIRED: proactive_cycle_stage.py (347L) — budget-governed, draft-first, kill-switch',ref:'PR #49'},
   ]},
   {track:'Autoposter Hardening (AP0–AP3)',goal:'make the publish path race-safe, reliable, observable — lives in ThreadsDashboard repo · ✓ SHIPPED to TD main (ec2190b5e, 379 tests pass)',items:[
@@ -441,9 +441,9 @@ const ROADMAP=[
   {track:'Smart / Great / Safe (INTELLIGENCE_AUDIT.md)',goal:'turn computed-but-ignored signals into real intelligence, quality, and anti-collision safety',items:[
     {k:'✅',id:'S',t:'Gate on PDQ/SSCD, not SSIM',n:'SHIPPED: variation batches now gate on real PDQ + SSCD collisions (blocking) — forces genuinely-distinct content, no spoof/evasion',ref:'PR #54'},
     {k:'◻',id:'I-bugs',t:'Fix 3 metric-capture bugs',n:'clean training data at source + port AP0-2',ref:'pending'},
-    {k:'◻',id:'I-lineage',t:'Require lineage IDs in contracts',n:'precondition for Workstream F',ref:'pending'},
+    {k:'✅',id:'I-lineage',t:'Require lineage IDs in contracts',n:'generated lineage, recommendation accuracy, and performance sync reject omitted causal IDs',ref:'PR #60'},
     {k:'◻',id:'Q',t:'Real quality floor + Higgsfield virality',n:'VMAF/audio/crop gate; wire virality_predictor',ref:'pending'},
-    {k:'◻',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'turn ranking into learning',ref:'pending'},
+    {k:'✅',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'Campaign Factory scoring uses account-median reward, 21d decay, shrinkage, explicit unmeasured state',ref:'current slice'},
   ]},
   {track:'Production-grade — path to ≥9/10 (INTELLIGENCE_AUDIT.md · Track 9)',goal:'after capability tracks land each part at ~7–8, the jump to ≥9 is tests + decomposition + drift-proofing — rigor, not features',items:[
     {k:'◻',id:'9-codegen',t:'Contract codegen (do FIRST)',n:'generate validators from JSON schemas (py+ts) so the two sides cannot drift; round-trip tests + CI byte-sync. Contracts 6.7→7.5',ref:'pending'},
@@ -473,12 +473,13 @@ function renderRoadmap(){
   });
 }
 const INTEL=[
-  {track:'Intelligence / Learning loop',score:4,verdict:'PARTIALLY CLOSED — performance drives 3 real decisions, but human-gated, statistically naive, leaks at capture + contract.',findings:[
-    {s:'High',t:'No account-size normalization or recency decay',w:'core.py:14732 (max views) · patterns.py:569',f:'Big accounts always win; a 2-yr-old post weights like a fresh one. Normalize + exp-decay.'},
+  {track:'Intelligence / Learning loop',score:5,verdict:'PARTIALLY CLOSED — Campaign Factory scoring is normalized/decayed/shrunk now, but capture, Reference Factory feedback, and dashboard upstream work remain open.',findings:[
+    {s:'Done',t:'Campaign Factory normalized learning score',w:'learning_score.py · core.py aggregation seam',f:'FIXED: latest-snapshot replacement, account-median reward normalization, 21d recency decay, Bayesian shrinkage, explicit unmeasured state.'},
+    {s:'High',t:'Reference Factory still lacks outcome-normalized feedback',w:'patterns.py:569 · public_metrics.py:99',f:'Competitor plays still rank by raw public volume; add follower/account normalization and our measured outcomes.'},
     {s:'Done',t:'Export contracts require causal lineage IDs',w:'generated_asset_lineage.v1 / recommendation_accuracy_report.v1 / performance_sync.v1',f:'FIXED: generated lineage requires pipelineTraceId; recommendation reports require campaign/report graph IDs; performance sync requires pipelineJobId + pipelineTraceId. Python/TS negative tests prove omitted IDs fail.'},
     {s:'High',t:'3 capture bugs corrupt training data at source',w:'monotonic_metric_updates.sql:36 · analyticsSync.ts:716 · post-engagement.ts:130',f:'Broken monotonic guard, dead retention delete, Threads reach/saves always 0.'},
-    {s:'Med',t:'Learned signals dead-end',w:'core.py:23197 trust · winner_dna.py',f:'Trust score + Winner-DNA computed, never fed back into generation/ranking. No self-correction.'},
-    {s:'Fix',t:'Buildable: Thompson-sampling loop (Workstream F)',w:'research/05',f:'reward = engagement_rate / account_trailing_MEDIAN; Bayesian shrinkage (prior 1.0, strength 5); 21d recency half-life; per-dimension arms; ≥15% explore floor; 1h→24h surrogate. SQLite, ~few hundred lines. Fix 3 capture bugs first.'},
+    {s:'Med',t:'Learned signals still partially dead-end',w:'core.py trust · winner_dna.py',f:'Campaign Factory ranking uses normalized outcomes now; trust score self-correction and Winner-DNA generation feedback remain open.'},
+    {s:'Next',t:'Buildable: Thompson-sampling loop (Workstream F v2)',w:'research/05',f:'Campaign Factory v1 reward is now normalized/decayed/shrunk. Next: Thompson sampling, explore floor, 1h→24h surrogate, after upstream capture repair lands.'},
   ]},
   {track:'Content quality / virality',score:3,verdict:'Technical-validity machine, not a quality engine. Real scores exist but gate nothing.',findings:[
     {s:'Crit',t:'"Quality floor" is one resolution check',w:'repurposer/qa/quality.py',f:'if width<720 AND height<720 — both must fail. Ignores compression/audio/framing/legibility. Add VMAF/LUFS/crop (VMAF machinery already in contentforge, unused).'},

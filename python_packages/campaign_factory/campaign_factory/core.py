@@ -26,6 +26,7 @@ from .caption_outcome import build_caption_outcome_context, column_values, load_
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .db import connect, init_db
+from .learning_score import account_reward_baselines, aggregate_performance, performance_score
 from .persistence import json_load, row_to_dict, utc_now
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
@@ -1395,13 +1396,26 @@ class CampaignFactory:
             account_id = snapshot.get("instagramAccountId") or snapshot.get("accountId") or "unassigned"
             by_account.setdefault(str(account_id), []).append(snapshot)
         accounts = sorted(by_account)
+        account_baselines = account_reward_baselines(snapshots)
         now = utc_now()
         for account_id in accounts:
             account_snapshots = by_account[account_id]
-            aggregate = self._aggregate_performance(account_snapshots)
+            aggregate = self._aggregate_performance(account_snapshots, account_baselines=account_baselines)
             performance_score = self._performance_quality_score(aggregate)
-            pattern_stats = self._account_pattern_stats_from_snapshots(campaign["id"], account_id, account_snapshots, now)
-            posting_windows = self._account_posting_windows_from_snapshots(campaign["id"], account_id, account_snapshots, now)
+            pattern_stats = self._account_pattern_stats_from_snapshots(
+                campaign["id"],
+                account_id,
+                account_snapshots,
+                now,
+                account_baselines=account_baselines,
+            )
+            posting_windows = self._account_posting_windows_from_snapshots(
+                campaign["id"],
+                account_id,
+                account_snapshots,
+                now,
+                account_baselines=account_baselines,
+            )
             fatigue = self._account_fatigue_from_pattern_stats(pattern_stats)
             outcomes = self._account_recommendation_outcomes(campaign["id"], account_id, now)
             confidence = self._account_memory_confidence(len(account_snapshots), outcomes)
@@ -22196,9 +22210,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             """,
             (campaign_id,),
         ).fetchall()
+        all_snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
+        account_baselines = account_reward_baselines(all_snapshots)
         buckets: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            snapshot = self._performance_snapshot_payload(dict(row))
+        for snapshot in all_snapshots:
             dimensions = snapshot.get("dimensions") or {}
             candidate_keys: set[str] = set()
             for dimension_key in ("promptPattern", "patternCard", "hook"):
@@ -22221,7 +22236,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         rankings = []
         for bucket in buckets.values():
             snapshots = list(bucket["snapshots"].values())
-            performance = self._aggregate_performance(snapshots)
+            performance = self._aggregate_performance(snapshots, account_baselines=account_baselines)
             rankings.append({
                 "pattern": bucket["pattern"],
                 "patternId": bucket["pattern"].get("id"),
@@ -22250,9 +22265,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             """,
             (campaign_id,),
         ).fetchall()
+        all_snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
+        account_baselines = account_reward_baselines(all_snapshots)
         buckets: dict[str, list[dict[str, Any]]] = {}
-        for row in rows:
-            snapshot = self._performance_snapshot_payload(dict(row))
+        for snapshot in all_snapshots:
             if account and account not in {snapshot.get("instagramAccountId"), snapshot.get("accountId")}:
                 continue
             preset = (snapshot.get("dimensions") or {}).get("variationPreset")
@@ -22261,7 +22277,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             buckets.setdefault(str(preset["key"]), []).append(snapshot)
         rankings = []
         for preset_name, snapshots in buckets.items():
-            performance = self._aggregate_performance(snapshots)
+            performance = self._aggregate_performance(snapshots, account_baselines=account_baselines)
             latest = snapshots[0]
             preset = (latest.get("dimensions") or {}).get("variationPreset") or {}
             rankings.append({
@@ -23031,8 +23047,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         if not perf_rows:
             raise ValueError("recommendation has no linked or matching performance snapshots")
         snapshots = [self._performance_snapshot_payload(dict(perf)) for perf in perf_rows]
-        outcome_summary = self._aggregate_performance(snapshots)
-        outcome_score = self._performance_quality_score(outcome_summary)
         baseline_rows = self.conn.execute(
             """
             SELECT * FROM performance_snapshots
@@ -23042,7 +23056,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             (campaign["id"], row.get("rendered_asset_id") or ""),
         ).fetchall()
         baseline_snapshots = [self._performance_snapshot_payload(dict(perf)) for perf in baseline_rows]
-        baseline_summary = self._aggregate_performance(baseline_snapshots)
+        account_baselines = account_reward_baselines(snapshots + baseline_snapshots)
+        outcome_summary = self._aggregate_performance(snapshots, account_baselines=account_baselines)
+        outcome_score = self._performance_quality_score(outcome_summary)
+        baseline_summary = self._aggregate_performance(baseline_snapshots, account_baselines=account_baselines)
         baseline_score = self._performance_quality_score(baseline_summary)
         status = "measured"
         baseline = self._recommendation_baseline_payload(
@@ -24631,18 +24648,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             (campaign["id"],),
         ).fetchall()
         snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
+        account_baselines = account_reward_baselines(snapshots)
         return {
             "schema": "campaign_factory.performance_summary.v1",
             "campaign": campaign["slug"],
             "snapshotCount": len(snapshots),
             "generatedAt": utc_now(),
-            "renderedAssets": self._group_performance(snapshots, "renderedAssetId"),
-            "sourceAssets": self._group_performance(snapshots, "sourceAssetId"),
-            "captionHashes": self._group_performance(snapshots, "captionHash"),
-            "recipes": self._group_performance(snapshots, "recipe"),
-            "accounts": self._group_performance(snapshots, "instagramAccountId"),
-            "surfaces": self._group_performance(snapshots, "contentSurface"),
-            "leaderboards": self._performance_leaderboards(snapshots),
+            "renderedAssets": self._group_performance(snapshots, "renderedAssetId", account_baselines=account_baselines),
+            "sourceAssets": self._group_performance(snapshots, "sourceAssetId", account_baselines=account_baselines),
+            "captionHashes": self._group_performance(snapshots, "captionHash", account_baselines=account_baselines),
+            "recipes": self._group_performance(snapshots, "recipe", account_baselines=account_baselines),
+            "accounts": self._group_performance(snapshots, "instagramAccountId", account_baselines=account_baselines),
+            "surfaces": self._group_performance(snapshots, "contentSurface", account_baselines=account_baselines),
+            "leaderboards": self._performance_leaderboards(snapshots, account_baselines=account_baselines),
             "captionOutcomeReview": self._caption_outcome_manual_review(snapshots),
             "snapshots": snapshots[:100],
         }
@@ -24673,9 +24691,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "SELECT * FROM performance_snapshots WHERE recipe = ? ORDER BY snapshot_at DESC, created_at DESC",
             (asset.get("recipe"),),
         ).fetchall() if asset.get("recipe") else []
-        source = self._aggregate_performance([self._performance_snapshot_payload(dict(row)) for row in source_rows])
-        caption = self._aggregate_performance([self._performance_snapshot_payload(dict(row)) for row in caption_rows])
-        recipe = self._aggregate_performance([self._performance_snapshot_payload(dict(row)) for row in recipe_rows])
+        source_snapshots = [self._performance_snapshot_payload(dict(row)) for row in source_rows]
+        caption_snapshots = [self._performance_snapshot_payload(dict(row)) for row in caption_rows]
+        recipe_snapshots = [self._performance_snapshot_payload(dict(row)) for row in recipe_rows]
+        account_baselines = account_reward_baselines(source_snapshots + caption_snapshots + recipe_snapshots)
+        source = self._aggregate_performance(source_snapshots, account_baselines=account_baselines)
+        caption = self._aggregate_performance(caption_snapshots, account_baselines=account_baselines)
+        recipe = self._aggregate_performance(recipe_snapshots, account_baselines=account_baselines)
         score = self._performance_score(source=source, caption=caption, recipe=recipe)
         return {
             "latestPerformance": self._performance_snapshot_payload(dict(latest)) if latest else None,
@@ -24761,6 +24783,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_id: str,
         snapshots: list[dict[str, Any]],
         updated_at: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
     ) -> list[dict[str, Any]]:
         buckets: dict[tuple[str, str], dict[str, Any]] = {}
         for snapshot in snapshots:
@@ -24777,7 +24801,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 bucket["snapshots"].append(snapshot)
         stats = []
         for (pattern_type, pattern_key), bucket in buckets.items():
-            aggregate = self._aggregate_performance(bucket["snapshots"])
+            aggregate = self._aggregate_performance(bucket["snapshots"], account_baselines=account_baselines)
             sample_size = int(aggregate.get("count") or 0)
             performance_score = self._performance_quality_score(aggregate)
             fatigue_score = min(100, round((sample_size / max(1, len(snapshots))) * 100))
@@ -24830,6 +24854,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_id: str,
         snapshots: list[dict[str, Any]],
         updated_at: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
     ) -> list[dict[str, Any]]:
         buckets: dict[tuple[int, int], list[dict[str, Any]]] = {}
         for snapshot in snapshots:
@@ -24843,7 +24869,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             buckets.setdefault((dt.weekday(), dt.hour), []).append(snapshot)
         windows = []
         for (weekday, hour), rows in buckets.items():
-            aggregate = self._aggregate_performance(rows)
+            aggregate = self._aggregate_performance(rows, account_baselines=account_baselines)
             score = self._performance_quality_score(aggregate)
             payload = {"weekday": weekday, "hour": hour, "sampleSize": len(rows), "performanceScore": score, "performance": aggregate}
             windows.append(payload)
@@ -24963,44 +24989,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return "medium"
         return "low"
 
-    def _group_performance(self, snapshots: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    def _group_performance(self, snapshots: list[dict[str, Any]], key: str, *, account_baselines: dict[str, float] | None = None) -> dict[str, Any]:
         groups: dict[str, list[dict[str, Any]]] = {}
         for snapshot in snapshots:
             value = snapshot.get(key)
             if value:
                 groups.setdefault(str(value), []).append(snapshot)
-        return {key: self._aggregate_performance(group) for key, group in groups.items()}
+        return {key: self._aggregate_performance(group, account_baselines=account_baselines) for key, group in groups.items()}
 
-    def _aggregate_performance(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
-        totals = {
-            "views": 0,
-            "likes": 0,
-            "comments": 0,
-            "shares": 0,
-            "saves": 0,
-            "impressions": 0,
-            "reach": 0,
-            "watchTimeSeconds": 0.0,
-        }
-        latest = None
-        for snapshot in snapshots:
-            latest = latest or snapshot
-            metrics = snapshot.get("metrics") or {}
-            for key in totals:
-                value = metrics.get(key)
-                if isinstance(value, (int, float)):
-                    totals[key] += value
-        count = len(snapshots)
-        averages = {key: (value / count if count else None) for key, value in totals.items()}
-        engagement_total = totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
-        exposure_total = totals["impressions"] or totals["reach"] or totals["views"]
-        rates = {
-            "engagementRate": (engagement_total / exposure_total if exposure_total else None),
-            "saveRate": (totals["saves"] / exposure_total if exposure_total else None),
-            "shareRate": (totals["shares"] / exposure_total if exposure_total else None),
-            "viewThroughRate": (totals["views"] / totals["impressions"] if totals["impressions"] else None),
-        }
-        return {"count": count, "totals": totals, "averages": averages, "rates": rates, "latest": latest}
+    def _aggregate_performance(self, snapshots: list[dict[str, Any]], *, account_baselines: dict[str, float] | None = None) -> dict[str, Any]:
+        return aggregate_performance(snapshots, account_baselines=account_baselines)
 
     def _performance_metric_contract(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row.get("raw_json"), {})
@@ -25023,7 +25021,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return ["views", "reach", "likes", "comments", "shares", "saved", "ig_reels_avg_watch_time", "reels_skip_rate", "ig_reels_video_view_total_time"]
         return ["views", "reach", "likes", "comments", "shares", "saved"]
 
-    def _performance_leaderboards(self, snapshots: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    def _performance_leaderboards(self, snapshots: list[dict[str, Any]], *, account_baselines: dict[str, float] | None = None) -> dict[str, list[dict[str, Any]]]:
         boards: dict[str, dict[str, dict[str, Any]]] = {
             "hooks": {},
             "recipes": {},
@@ -25112,7 +25110,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     snapshot,
                     {"hook": hook, "recipe": str(recipe), "audio": audio},
                 )
-        return {name: self._rank_leaderboard_entries(items) for name, items in boards.items()}
+        return {name: self._rank_leaderboard_entries(items, account_baselines=account_baselines) for name, items in boards.items()}
 
     def _caption_outcome_manual_review(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         with_context = [
@@ -25211,11 +25209,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         item = items.setdefault(key, {"key": key, **dimensions, "snapshots": []})
         item["snapshots"].append(snapshot)
 
-    def _rank_leaderboard_entries(self, items: dict[str, dict[str, Any]], *, limit: int = 20) -> list[dict[str, Any]]:
+    def _rank_leaderboard_entries(
+        self,
+        items: dict[str, dict[str, Any]],
+        *,
+        limit: int = 20,
+        account_baselines: dict[str, float] | None = None,
+    ) -> list[dict[str, Any]]:
         entries = []
         for item in items.values():
             snapshots = item["snapshots"]
-            summary = self._aggregate_performance(snapshots)
+            summary = self._aggregate_performance(snapshots, account_baselines=account_baselines)
             entries.append({
                 **{key: value for key, value in item.items() if key != "snapshots"},
                 "performance": summary,
@@ -25251,33 +25255,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return "needs_more_data"
 
     def _performance_quality_score(self, summary: dict[str, Any]) -> int | None:
-        if not summary.get("count"):
-            return None
-        avg = summary.get("averages") or {}
-        views = float(avg.get("views") or 0)
-        impressions = float(avg.get("impressions") or 0)
-        reach = float(avg.get("reach") or 0)
-        shares = float(avg.get("shares") or 0)
-        saves = float(avg.get("saves") or 0)
-        likes = float(avg.get("likes") or 0)
-        comments = float(avg.get("comments") or 0)
-        rates = summary.get("rates") or {}
-        engagement_rate = float(rates.get("engagementRate") or 0)
-        save_rate = float(rates.get("saveRate") or 0)
-        share_rate = float(rates.get("shareRate") or 0)
-        quality = (
-            views * 0.45
-            + reach * 0.25
-            + impressions * 0.10
-            + shares * 30
-            + saves * 26
-            + comments * 12
-            + likes * 1.5
-            + engagement_rate * 2500
-            + save_rate * 3500
-            + share_rate * 3500
-        )
-        return int(round(50 + min(50, quality / 100)))
+        return performance_score(summary)
 
     def _performance_snapshot_dimensions(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row.get("raw_json"), {})
