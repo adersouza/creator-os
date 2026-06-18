@@ -24,7 +24,7 @@ instagram,ig_runway_pop,2026-05-22T11:00:00+00:00,trending,140000,0.33,0.82,manu
 """
 
 CONTENTFORGE_SMOKE_RESPONSE = {
-    "contractVersion": "campaign_factory_audit.v1.5",
+    "contractVersion": "campaign_factory_audit.v1.6",
     "auditProfile": "campaign_factory_v1",
     "targetFile": "rendered_smoke.mp4",
     "layers": {},

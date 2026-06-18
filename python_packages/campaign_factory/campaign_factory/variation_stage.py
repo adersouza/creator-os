@@ -73,7 +73,7 @@ def run_variation_stage(
                 verdicts = audit.get("verdicts") or {}
                 blocking_codes = [str(code) for code in readiness.get("blockingCodes") or []]
                 if (
-                    audit.get("contractVersion") != "campaign_factory_audit.v1.5"
+                    audit.get("contractVersion") != "campaign_factory_audit.v1.6"
                     or readiness.get("uploadReady") is not True
                     or verdicts.get("pdq") != "pass"
                     or verdicts.get("sscd") != "pass"

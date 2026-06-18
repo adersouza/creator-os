@@ -201,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.5");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.6");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);
@@ -264,7 +264,7 @@ test("/api/similarity blocks caption safe-zone warnings for Campaign Factory ree
   }
 });
 
-test("/api/similarity reports hook and cover advisory signals without blocking", async function (t) {
+test("/api/similarity blocks hook watchability warnings for Campaign Factory", async function (t) {
   if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_static_source.mp4",
@@ -285,8 +285,9 @@ test("/api/similarity reports hook and cover advisory signals without blocking",
     assert.equal(body.coverCandidates.length > 0, true);
     assert.equal(Object.hasOwn(body.verdictCodes, "hookVisibility"), true);
     assert.equal(Object.hasOwn(body.hookVisibility.metrics, "avgFrameDelta"), true);
-    assert.equal(body.readinessSummary.uploadReady, true);
-    assert.notEqual(body.overallVerdict, "fail");
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.readinessSummary.blockingCodes.includes("hook_text_missing_first_3_seconds"), true);
+    assert.equal(body.overallVerdict, "fail");
   } finally {
     await cleanupMp4Fixture(files);
   }
@@ -318,9 +319,9 @@ test("/api/similarity reports creative-quality warnings for weak openings", asyn
     assert.equal(Object.hasOwn(body.creativeQuality, "visualClarity"), true);
     assert.equal(Object.hasOwn(body.creativeQuality, "openingStrength"), true);
     assert.equal(creativeCodes.includes("creative_hook_missing"), true);
-    assert.equal(body.readinessSummary.warningCodes.includes("creative_hook_missing"), true);
-    assert.equal(body.readinessSummary.uploadReady, true);
-    assert.notEqual(body.overallVerdict, "fail");
+    assert.equal(body.readinessSummary.blockingCodes.includes("creative_hook_missing"), true);
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.overallVerdict, "fail");
   } finally {
     await cleanupMp4Fixture(files);
   }
@@ -598,7 +599,11 @@ test("/api/similarity keeps optional c2pa unavailability advisory while detector
     assert.equal(body.overallVerdict, "fail");
     assert.equal(body.readinessSummary.uploadReady, false);
     assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), true);
-    assert.equal(body.readinessSummary.warningCodes.includes("provenance_c2pa_unavailable"), true);
+    assert.equal(
+      body.readinessSummary.warningCodes.includes("provenance_c2pa_unavailable") ||
+        body.readinessSummary.warningCodes.includes("provenance_unavailable"),
+      true
+    );
     assert.match(body.readinessSummary.warnings.join("\n"), /c2pa|provenance/i);
   } finally {
     await cleanupCampaignFactoryFiles(files);
