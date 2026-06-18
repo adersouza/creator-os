@@ -4346,6 +4346,7 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
 def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     captured: dict[str, Any] = {}
+    monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
 
     class FakeResponse:
         status = 200
@@ -4432,6 +4433,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
 def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     calls: list[dict[str, Any]] = []
+    monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
 
     class EmptyPostIdsResponse:
         status = 200
@@ -4505,6 +4507,37 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
         assert failed_events
     finally:
         cf.close()
+
+
+def test_threadsdash_dashboard_ingest_rejects_unallowed_url_before_request(monkeypatch):
+    calls = 0
+
+    def fake_urlopen(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("urlopen should not be called for an unsafe ingest URL")
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+
+    with pytest.raises(ValueError, match="private or reserved IP"):
+        threadsdash_adapter._post_threadsdash_draft_ingest(
+            {"drafts": []},
+            ingest_url="https://169.254.169.254/api/campaign-factory/drafts/ingest",
+            ingest_secret="ingest-secret",
+        )
+
+    assert calls == 0
+
+
+def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch):
+    monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
+
+    with pytest.raises(ValueError, match="/api/campaign-factory/drafts/ingest"):
+        threadsdash_adapter._post_threadsdash_draft_ingest(
+            {"drafts": []},
+            ingest_url="https://dashboard.example.com/api/internal/proxy",
+            ingest_secret="ingest-secret",
+        )
 
 
 def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: Path, monkeypatch):

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import ipaddress
+import json
 import mimetypes
 import os
 import re
@@ -10,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 from ..caption_outcome import build_caption_outcome_context, column_values, load_context_json
@@ -22,6 +23,8 @@ UNRESOLVED_NATIVE_AUDIO_STATUSES = {"recommended", "needs_operator_selection", "
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
 DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
+THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
+DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 
 
 def build_draft_payloads(
@@ -1245,6 +1248,63 @@ def _is_retryable_dashboard_ingest_http_status(status: int) -> bool:
     return status in {408, 409, 425, 429} or status >= 500
 
 
+def _threadsdash_allowed_ingest_hosts() -> set[str]:
+    configured = {
+        host.strip().lower().rstrip(".")
+        for host in os.environ.get("THREADSDASH_ALLOWED_INGEST_HOSTS", "").split(",")
+        if host.strip()
+    }
+    return set(DEFAULT_THREADSDASH_INGEST_HOSTS) | configured
+
+
+def _is_local_dashboard_ingest_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback
+
+
+def _is_blocked_dashboard_ingest_ip(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+
+
+def _validate_threadsdash_ingest_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not parsed.scheme or not host:
+        raise ValueError("ThreadsDashboard ingest URL must include an https scheme and hostname")
+    allow_local = os.environ.get("CAMPAIGN_FACTORY_ALLOW_LOCAL_THREADSDASH_INGEST") == "1"
+    if parsed.username or parsed.password:
+        raise ValueError("ThreadsDashboard ingest URL must not include credentials")
+    if parsed.fragment:
+        raise ValueError("ThreadsDashboard ingest URL must not include a fragment")
+    if parsed.query:
+        raise ValueError("ThreadsDashboard ingest URL must not include query parameters")
+    if parsed.path.rstrip("/") != THREADSDASH_INGEST_PATH:
+        raise ValueError(f"ThreadsDashboard ingest URL path must be {THREADSDASH_INGEST_PATH}")
+    if parsed.scheme != "https":
+        if not (allow_local and parsed.scheme == "http" and _is_local_dashboard_ingest_host(host)):
+            raise ValueError("ThreadsDashboard ingest URL must use https")
+    if _is_local_dashboard_ingest_host(host):
+        if not allow_local:
+            raise ValueError("ThreadsDashboard ingest URL cannot target localhost unless local ingest is explicitly enabled")
+    elif _is_blocked_dashboard_ingest_ip(host):
+        raise ValueError("ThreadsDashboard ingest URL cannot target private or reserved IP addresses")
+    elif host not in _threadsdash_allowed_ingest_hosts():
+        raise ValueError("ThreadsDashboard ingest URL host is not allowed")
+    netloc = host
+    if parsed.port:
+        netloc = f"{host}:{parsed.port}"
+    return urlunparse((parsed.scheme, netloc, THREADSDASH_INGEST_PATH, "", "", ""))
+
+
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
@@ -1261,6 +1321,7 @@ def _post_threadsdash_draft_ingest(
         raise ValueError("threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL is required when dry_run is false")
     if not secret:
         raise ValueError("threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false")
+    safe_url = _validate_threadsdash_ingest_url(url)
     body = dict(payload)
     body["dryRun"] = False
     idempotency_key = _threadsdash_ingest_idempotency_key(body)
@@ -1268,7 +1329,7 @@ def _post_threadsdash_draft_ingest(
     last_empty_response: dict[str, Any] | None = None
     for attempt in range(1, DASHBOARD_INGEST_MAX_ATTEMPTS + 1):
         request = Request(
-            url,
+            safe_url,
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             method="POST",
             headers={
