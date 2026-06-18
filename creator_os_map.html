@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Creator OS — System Map</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131822; --panel2:#1a2130; --line:#273043;
+    --txt:#e6edf3; --dim:#8b97a8; --accent:#5aa9ff;
+    --works:#3fb950; --half:#d29922; --orphan:#db6d28; --gap:#f85149; --primitive:#a371f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:20px 28px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+  header h1{margin:0;font-size:20px;letter-spacing:.3px}
+  header .meta{color:var(--dim);font-size:12px}
+  header .score{margin-left:auto;font-size:13px;color:var(--dim)}
+  header .score b{color:var(--works);font-size:18px}
+  nav{display:flex;gap:4px;padding:10px 28px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:20;flex-wrap:wrap}
+  nav button{background:none;border:1px solid transparent;color:var(--dim);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+  nav button:hover{color:var(--txt)}
+  nav button.active{background:var(--panel2);color:var(--txt);border-color:var(--line)}
+  main{padding:22px 28px;max-width:1400px;margin:0 auto}
+  section{display:none}
+  section.active{display:block}
+  h2{font-size:16px;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 18px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 16px;font-size:12px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .works{background:var(--works)} .half{background:var(--half)} .orphan{background:var(--orphan)}
+  .gap{background:var(--gap)} .primitive{background:var(--primitive)}
+  /* flow diagram */
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;overflow-x:auto}
+  svg{display:block;min-width:920px}
+  .node rect{cursor:pointer;transition:filter .15s}
+  .node:hover rect{filter:brightness(1.25)}
+  .node text{pointer-events:none;font-size:12px;fill:var(--txt)}
+  .node .role{font-size:10px;fill:var(--dim)}
+  .node .sc{font-size:10px;font-weight:700}
+  .edgelbl{font-size:9.5px;fill:var(--dim)}
+  .flowlbl{font-size:9px;fill:var(--dim)}
+  /* cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;cursor:pointer;transition:border-color .15s}
+  .card:hover{border-color:var(--accent)}
+  .card h3{margin:0 0 2px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .card .lang{font-size:11px;color:var(--dim);font-weight:400}
+  .card .role{color:var(--dim);font-size:12.5px;margin:6px 0 10px}
+  .scorebar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:8px 0}
+  .scorebar i{display:block;height:100%}
+  .card .stats{display:flex;gap:14px;font-size:11.5px;color:var(--dim);margin-top:8px}
+  .pill{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+  /* handoff table */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  td code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:11.5px;color:#9ecbff}
+  .mech{font-size:11px;color:var(--dim)}
+  .st{font-weight:600;font-size:11px;white-space:nowrap}
+  /* workstreams */
+  .ws{background:var(--panel);border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:13px 16px;margin-bottom:10px}
+  .ws h3{margin:0 0 4px;font-size:13.5px;display:flex;align-items:center;gap:8px}
+  .ws .seq{margin-left:auto;font-size:10px;color:var(--dim)}
+  .ws p{margin:4px 0;font-size:12.5px;color:var(--dim)}
+  .ws p b{color:var(--txt)}
+  .matrix{font-size:12px}
+  .matrix td{font-variant-numeric:tabular-nums}
+  .note{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--dim);margin:14px 0}
+  .note b{color:var(--txt)}
+  /* detail drawer */
+  #drawer{position:fixed;top:0;right:-460px;width:440px;height:100vh;background:var(--panel);border-left:1px solid var(--line);transition:right .22s;z-index:50;overflow-y:auto;padding:22px 24px}
+  #drawer.open{right:0}
+  #drawer h2{font-size:17px}
+  #drawer .x{position:absolute;top:16px;right:18px;cursor:pointer;color:var(--dim);font-size:20px;background:none;border:none}
+  #drawer dt{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:14px}
+  #drawer dd{margin:3px 0 0;font-size:13px}
+  #drawer code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:11.5px;color:#9ecbff}
+  #drawer ul{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:var(--dim)}
+  #overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;display:none}
+  #overlay.open{display:block}
+  .kf{font-family:ui-monospace,Menlo,monospace;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Creator OS — System Map</h1>
+  <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
+  <span class="score">system <b id="hsys">7.0</b>/10</span>
+</header>
+<nav>
+  <button data-tab="flow" class="active">Pipeline Flow</button>
+  <button data-tab="roadmap">Roadmap</button>
+  <button data-tab="intel">Intelligence Audit</button>
+  <button data-tab="components">Components</button>
+  <button data-tab="handoffs">Handoffs</button>
+  <button data-tab="improve">Make It Better (A–G)</button>
+  <button data-tab="coupling">Static Coupling</button>
+</nav>
+<main>
+
+<!-- ============ FLOW ============ -->
+<section id="flow" class="active">
+  <h2>End-to-end pipeline</h2>
+  <p class="sub">The spine. Boxes = components &amp; generation primitives. Arrows = real data/handoff flows, colored by <b>verified</b> status (read from audit + code, not static analysis). Click any box for detail.</p>
+  <div class="legend">
+    <span><i class="dot works"></i> works (real &amp; tested)</span>
+    <span><i class="dot" style="background:#2ea043"></i> shipped ✓ (A–D, PR #44)</span>
+    <span><i class="dot half"></i> half-manual (exists, not auto-triggered)</span>
+    <span><i class="dot orphan"></i> orphan / stubbed</span>
+    <span><i class="dot gap"></i> gap (not built)</span>
+    <span><i class="dot primitive"></i> generation primitive</span>
+  </div>
+  <div class="diagram">
+    <svg id="svg" viewBox="0 0 960 640" width="100%">
+      <defs>
+        <marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5d6b82"/></marker>
+        <marker id="arwG" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f85149"/></marker>
+      </defs>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </svg>
+  </div>
+  <div class="note">
+    <b>Reading the map (updated PR #44):</b> the BACK half (export → schedule → publish → feedback) is <span style="color:var(--works)">real and working</span>.
+    The MIDDLE (per-account variation / repurposer) is now <span style="color:var(--works)">WIRED ✓</span> — un-orphaned into the control brain, real editorial edits, per-account distinct with a sibling-vs-sibling gate, quality floor enforced, micro spoof off. <b>Workstreams A–D shipped.</b>
+    The FRONT (image → Soul-2 → Kling generation) is now <span style="color:var(--half)">being wired in — contract seams landed</span>: E2 zero-cost motion edit (<code>motion_edit_render.v1</code>, PR #45) and E front generation (<code>front_generation_plan.v1</code> + <code>front_generation_stage.py</code>, PR #46/#47). Contracts + stage registration in; render engines still pending.
+    Now in progress (yellow): E2/E render engines, F learning loop (v1 ranking landed PR #48), G autonomy runner (PR #49). Front + intelligence + autonomy all moving from primitive → wired this cycle.
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section id="roadmap">
+  <h2>Roadmap — where the whole system is</h2>
+  <p class="sub">Three tracks of work, one view. Build order is dependency-driven: connect → make reliable → make intelligent → make autonomous. ✅ shipped · ⏳ next · ◻ pending.</p>
+  <div id="roadmap-board"></div>
+  <div class="note" style="border-left:3px solid var(--accent)">
+    <b>The thesis:</b> shipped work so far is the <b>nervous system</b> — distinct content per account, quality-gated, reliably scheduled, with feedback that returns. "Smart" arrives at <b>F</b> (learning loop) and <b>G</b> (autonomy), sequenced last <i>on purpose</i> — they can't learn until the lower layers produce real, complete cycles. AP0-2 (reliable feedback) + A–D (real per-account variation to measure) are F's preconditions, now in place.
+  </div>
+</section>
+
+<!-- ============ INTELLIGENCE AUDIT ============ -->
+<section id="intel">
+  <h2>Intelligence / Quality / Safety Audit <span style="color:var(--dim);font-weight:400;font-size:12px">(2026-06-18 · full detail in INTELLIGENCE_AUDIT.md)</span></h2>
+  <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code + reconciled for PR #44.</p>
+  <div class="note" style="border-left:3px solid var(--accent)">
+    <b>Root pattern across all three:</b> the right signals already EXIST in the code but are computed-and-ignored. PDQ/SSCD detectors → advisory-only. VMAF quality → unused. Higgsfield virality → unwired. Winner-DNA → dead-ends as an operator note. <b>The fixes are mostly wiring, not building.</b>
+  </div>
+  <div class="note" style="border-left:3px solid #2ea043">
+    <b>Now research-backed (see <code>research/01–05</code> + INTELLIGENCE_AUDIT.md).</b> Real detector thresholds (PDQ ≤31, SSCD ≥0.75, TMK ≥0.7), a buildable 100-point pre-post Reel score, and a concrete Thompson-sampling learning-loop design.
+    <b>One correction the research forced:</b> PR #44's editorial deltas (speed/saturation/color) are <b>proven not to move perceptual hashes at all</b> — only crop does, and SSCD survives crop. SSIM-distinct ≠ hash-distinct. Real distinctness must come from different <i>content</i> per account (generation path), measured by the real PDQ/SSCD detectors used as blocking gates — not pixel nudges.
+  </div>
+  <div id="intel-board"></div>
+</section>
+
+<!-- ============ COMPONENTS ============ -->
+<section id="components">
+  <h2>Components</h2>
+  <p class="sub">Six parts. Score = audit baseline (code · tests · docs · maintainability · security). Click for detail.</p>
+  <div class="grid" id="cardgrid"></div>
+</section>
+
+<!-- ============ HANDOFFS ============ -->
+<section id="handoffs">
+  <h2>Handoffs — how the pieces actually communicate</h2>
+  <p class="sub">Each row is a real cross-component data flow. <b>Mechanism</b> matters: most handoffs are HTTP / file / subprocess — invisible to static code analysis but real. Status is verified from code.</p>
+  <table>
+    <thead><tr><th>From → To</th><th>Carries</th><th>Mechanism</th><th>Status</th><th>Evidence</th></tr></thead>
+    <tbody id="handoffrows"></tbody>
+  </table>
+</section>
+
+<!-- ============ IMPROVE ============ -->
+<section id="improve">
+  <h2>Make it better &amp; more connected — workstreams A–G</h2>
+  <p class="sub">The verified build order to connect front → middle → back into one intelligent, proactive pipeline. From <code>PIPELINE_WIRING_PLAN.md</code>. Suggested sequence shown on the right of each.</p>
+  <div class="note" style="border-left:3px solid var(--accent)">
+    <b>Cheapest first win:</b> A + C + D = a working "distinct-content-per-account → scheduled multi-account post" slice with <b>zero generation cost</b>. Then E2 (free still→MP4) before any paid Kling.
+  </div>
+  <div id="wslist"></div>
+</section>
+
+<!-- ============ COUPLING ============ -->
+<section id="coupling">
+  <h2>Static code coupling <span style="color:var(--dim);font-weight:400;font-size:12px">(secondary view)</span></h2>
+  <div class="note">
+    <b>⚠ Read this before trusting the numbers.</b> This is Graphify AST analysis — it sees <b>static imports only</b>.
+    It is <b>blind</b> to HTTP calls (campaign→contentforge), file/DB handoffs (campaign→dashboard drafts), and subprocess CLI (reel→Higgsfield).
+    So <code>campaign_factory → contentforge = 0</code> does <b>not</b> mean disconnected — that handoff works today over HTTP.
+    Use this view only for Python-internal coupling and orphan confirmation, not as the connectivity story (that's the Handoffs tab).
+  </div>
+  <h2 style="font-size:14px">Node / file rollup (26,281 nodes, 60,455 edges → 6 components)</h2>
+  <table class="matrix"><thead><tr><th>Component</th><th>Nodes</th><th>Files</th></tr></thead><tbody id="rollrows"></tbody></table>
+  <h2 style="font-size:14px;margin-top:24px">Cross-component static imports (top, directed)</h2>
+  <table class="matrix"><thead><tr><th>From</th><th>To</th><th>Edges</th><th>Meaning</th></tr></thead><tbody id="crossrows"></tbody></table>
+</section>
+
+</main>
+
+<div id="overlay"></div>
+<aside id="drawer"><button class="x" onclick="closeDrawer()">×</button><div id="drawerbody"></div></aside>
+
+<script>
+/* ---------- DATA (verified from audit + code; graphify rollup for coupling) ---------- */
+const STATUS={works:'var(--works)',half:'var(--half)',orphan:'var(--orphan)',gap:'var(--gap)',primitive:'var(--primitive)',done:'#2ea043'};
+const STLABEL={works:'works',half:'half-manual',orphan:'orphan/stub',gap:'gap',primitive:'primitive',done:'shipped ✓'};
+
+const COMPONENTS=[
+  {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:6.6,sub:[6,7,6,6,8],files:29,nodes:615,status:'works',
+   keyfiles:['learning.py:460 — writes higgsfield_prompt_pack_top*.json','reference_intake.py (2858 lines)','patterns.py / public_metrics.py (dup _caption_archetype bug)'],
+   notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','P1-4: doc/code drift on Grok/Ollama; latent KeyError bug']},
+  {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:7.4,sub:[7,8,8,6,8],files:107,nodes:2512,status:'half',
+   keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
+   notes:['Generation primitive is REAL','But only called by overnight_grid_worker / reel_gui — NOT the control brain (GAP 2)','P0-1: pyproject lists 4 nonexistent modules — install fails']},
+  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, learning',score:5.4,sub:[4,7,6,3,7],files:60,nodes:2622,status:'works',
+   keyfiles:['core.py — 27k-line god-class, 847 methods (P1-3)','adapters/threadsdash.py:369 — export','repurposer/ — ORPHAN + stubbed engines'],
+   notes:['Back-half export/schedule/feedback is real','Never triggers generation (front gap)','Repurposer middle is orphaned','Lowest maintainability score in repo (3/10)']},
+  {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Content spoofer — FFmpeg variants that defeat PDQ/SSCD + rewrite capture metadata',score:6.8,sub:[7,6,8,6,7],files:113,nodes:779,status:'works',
+   keyfiles:['app/api/.../similarity/route.js (1827 lines)','pipeline.js (~800 lines)','forensics_check.py'],
+   notes:['Invoked by campaign over HTTP /api/similarity','Spoof meters + quality-floor guards','Quality floor non-negotiable; evasion only owner-directed','P1-5: large untested surface']},
+  {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.2,sub:[8,9,9,7,8],files:2102,nodes:16975,status:'works',
+   keyfiles:['Separate product repo (ThreadsDashboard) — dashboard work is upstream','draftIngest.ts:449 — upsert posts as draft','publishing.ts:199 — Meta Graph media_publish'],
+   notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Autoposter AP0-1/2/3 hardened (dup-index, metrics reconcile, chain preflight)','Schedule/publish/feedback all real & working']},
+  {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:6.7,sub:[6,null,4,null,7],files:32,nodes:1620,status:'works',
+   keyfiles:['packages/pipeline_contracts/__init__.py — hand-rolled validator','typescript/ — ~12 hand-coded validators','schemas/*.json — 16 contracts'],
+   notes:['Canonical source; compatibility copies must stay byte-synced','Validators use canonical schema-backed checks']},
+];
+
+const HANDOFFS=[
+  {from:'reference_factory',to:'campaign_factory',carry:['pattern_card.v1','audio_catalog_export.v1','campaign_reference_bank.json'],mech:'file / import',status:'works',ev:'learning.py:460 writes packs · core.py:2278 import_reference_bank reads'},
+  {from:'reference_factory',to:'reel_factory',carry:['higgsfield prompt packs'],mech:'file',status:'works',ev:'prompt packs consumed by generation path'},
+  {from:'reel_factory',to:'reel_factory',carry:['reference image → Soul-2 still → Kling video'],mech:'subprocess CLI (higgsfield)',status:'half',ev:'generate_assets.py:101/123 — REAL, but only called by overnight_grid_worker:204 / reel_gui — NOT control brain (GAP 2)',self:true,label:'GENERATION primitive'},
+  {from:'reel_factory',to:'campaign_factory',carry:['generated_asset_lineage.v1','audio_intent.v1','rendered assets'],mech:'subprocess + sqlite manifest',status:'works',ev:'core.py:17906 runs reel_pipeline · sync_reel_outputs:17973'},
+  {from:'campaign_factory',to:'contentforge',carry:['source + rendered file → spoof & verify'],mech:'HTTP POST /api/similarity',status:'works',ev:'works today; HTTP — invisible to graphify (0 static edges ≠ disconnected)'},
+  {from:'campaign_factory',to:'campaign_factory',carry:['per-account variation (repurposer)'],mech:'in-process',status:'done',ev:'PR #44: variation_stage seam wired to control brain (C); real editorial edits (A); per-account distinct + sibling-vs-sibling gate (B); QualityGate + SSIM fix enforced; micro spoof default OFF',self:true,label:'VARIATION ✓ (A–D)'},
+  {from:'campaign_factory',to:'dashboard',carry:['campaign_draft_payload.v1','variant_assignment.v1'],mech:'HTTP ingest (X-Campaign-Factory-Ingest-Secret)',status:'done',ev:'PR #44 (D): each account draft gets its OWN variant when variation enabled; falls back to master when off. Opt-in flag.'},
+  {from:'dashboard',to:'dashboard',carry:['QStash schedule → Meta Graph publish'],mech:'QStash → Graph API',status:'works',ev:'campaignSchedule.ts:596 → publishing.ts:199 media_publish · per-account spacing real',self:true,label:'SCHEDULE → PUBLISH'},
+  {from:'dashboard',to:'campaign_factory',carry:['performance_sync.v1'],mech:'HTTP sync',status:'works',ev:'sync_performance_snapshots:2668 → performanceScore into ranking core.py:24675'},
+];
+
+const WORKSTREAMS=[
+  {id:'A',title:'Finish repurposer legit engines',status:'done',seq:'1 — ✓ PR #44',
+   what:'Replace stubs: editorial passthrough → real scene-detect recuts; visual raise → cost-gated generative; audio gated → fallback library; demote micro spoof to off-by-default; fix SimilarityGate false-distinct bug.',
+   why:'Genuine creative variation is the durable cross-account-safety answer — not hash evasion. Quality floor stays a hard gate.'},
+  {id:'C',title:'Un-orphan repurposer → control brain',status:'done',seq:'1 — ✓ PR #44',
+   what:'New variation_stage.py seam the control brain calls after asset readiness, before export. Runs VariantPipeline per account, records variant_assignment.v1.',
+   why:'Today the variation engine has no production caller. This makes it run automatically in the pipeline.'},
+  {id:'D',title:'Connect variation → export',status:'done',seq:'1 — ✓ PR #44',
+   what:'In threadsdash.py build_draft_payloads:25 / _draft_destinations_for_asset:309, attach each account its OWN variant from variant_assignment.v1. Fall back to master only if variation disabled (log loudly).',
+   why:'Closes variation into the working back half. Each account gets distinct media → no shared-content shadowban risk.'},
+  {id:'B',title:'Per-account distinctness',status:'done',seq:'2 — ✓ PR #44 (sibling gate)',
+   what:'VariantPipeline takes account context (persona/preset per account). Variants must clear SimilarityGate against EACH OTHER, not just the master. New variant_assignment.v1 contract.',
+   why:'Cross-account distinctness is the actual safety property. Creative distinctness, not noise.'},
+  {id:'E2',title:'Still → MP4 without AI (the "Edits-app" path)',status:'done',seq:'3 — ✓ PR #45',
+   what:'LANDED (PR #45): motion_edit_render.v1 schema + validator (py+ts) plus the still_to_reel render engine — loop still → zoompan motion → caption PNG overlay → mux audio → 9:16 MP4. Zero AI cost. Mode B alongside Kling Mode A. Default when no budget.',
+   why:'High-volume hands-off generation for $0. All building blocks (polish zoompan, caption_render, audio) already exist — assemble, don’t reinvent.'},
+  {id:'E',title:'Front auto-link (image → Soul-2 → Kling)',status:'done',seq:'4 — ✓ PR #46/#47',
+   what:'LANDED (PR #46/#47): front_generation_plan.v1 schema + front_generation_stage.py registers live front-gen reels via campaign_factory cli. Reference image + Soul ID → Soul-2 still planning → accept-gate → Kling animate path remains cost-preflighted, budget-capped, dry-run by default, and can chain into variation.',
+   why:'Wires the existing generation primitive (GAP 2) into the brain. The canonical image-driven flow — NOT the legacy Grok text translator.'},
+  {id:'F',title:'Intelligence layer — close the learning loop',status:'half',seq:'6 — v1 landed (PR #48)',
+   what:'LANDED (PR #48): ranks reference-patterns + variation-presets by _performance_quality_score with sampleSize + confidence, sourced from performance_snapshots (static fallback); wires recommendation_next_batch.v1. This is the doc\'s v1 "ranking-with-confidence." STILL TODO: trailing-MEDIAN-normalized reward + 21d recency decay + Thompson sampling (v2) per INTELLIGENCE_AUDIT.',
+   why:'Feedback is stored (performance_snapshots) but didn’t steer the next cycle. Now it ranks; next make the reward normalized + decayed + explore-aware.'},
+  {id:'G',title:'Proactive autonomous cycles',status:'done',seq:'7 — ✓ PR #49',
+   what:'Draft-first proactive cycle runner: pick target (F-driven) → select generation mode (Mode A/B per budget) → plan variation/export/schedule intent → write guarded run report. Budget governor, kill-switch, idempotency, and safe dry-run sub-actions are in place.',
+   why:'Makes the pipeline initiate work itself within hard budget + safety gates. Last — it orchestrates everything above.'},
+];
+
+const ROLLUP=[['dashboard (external)',16975,2102],['campaign_factory',2622,60],['reel_factory',2512,107],['contracts',1620,32],['contentforge',779,113],['reference_factory',615,29]];
+const CROSS=[
+  ['campaign_factory','reference_factory',9,'Python import — real intelligence handoff'],
+  ['campaign_factory','contracts',8,'Python import — schema validation'],
+  ['campaign_factory','reel_factory',4,'Python import — render orchestration'],
+  ['reel_factory','dashboard',3,'shared types / external handoff artifacts'],
+  ['contentforge','dashboard',1,'shared reference'],
+  ['campaign_factory','contentforge',0,'⚠ HTTP only — works, but invisible to AST'],
+  ['campaign_factory','dashboard',0,'⚠ HTTP ingest — works, invisible to AST'],
+];
+
+/* ---------- FLOW DIAGRAM LAYOUT ---------- */
+const POS={
+  reference_factory:{x:40,y:40,w:200,h:64},
+  reel_factory:{x:40,y:170,w:200,h:64},
+  gen:{x:300,y:170,w:180,h:54,kind:'primitive',title:'Soul-2 + Kling',sub:'generation primitive',st:'half'},
+  campaign_factory:{x:40,y:320,w:200,h:64},
+  variation:{x:300,y:320,w:180,h:54,kind:'works',title:'Variation / Repurposer',sub:'per-account · WIRED ✓',st:'works'},
+  contentforge:{x:540,y:320,w:200,h:64},
+  dashboard:{x:40,y:470,w:200,h:64},
+  schedule:{x:300,y:470,w:180,h:54,kind:'works',title:'Schedule → Publish',sub:'QStash · Meta Graph',st:'works'},
+  e2:{x:540,y:170,w:180,h:54,kind:'half',title:'Still → MP4 (free)',sub:'contract seam ✓ (E2) · engine pending',st:'half'},
+  proactive:{x:540,y:470,w:200,h:54,kind:'half',title:'Proactive cycle runner',sub:'runner landing (G) · PR #49',st:'half'},
+};
+const FLOWS=[
+  ['reference_factory','reel_factory','works','prompt packs'],
+  ['reference_factory','campaign_factory','works','reference bank'],
+  ['reel_factory','gen','half','triggers'],
+  ['gen','e2','half','still (E2) · seam ✓'],
+  ['gen','campaign_factory','works','lineage'],
+  ['campaign_factory','gen','half','front-gen stage landing (E)'],
+  ['campaign_factory','variation','works','variation ✓ (C)'],
+  ['variation','contentforge','works','spoof+verify'],
+  ['campaign_factory','contentforge','works','/api/similarity'],
+  ['variation','dashboard','works','per-acct draft ✓ (D)'],
+  ['campaign_factory','dashboard','half','draft payload'],
+  ['dashboard','schedule','works','publish'],
+  ['dashboard','campaign_factory','works','performance↩'],
+  ['campaign_factory','proactive','gap','autonomy (G)'],
+];
+
+/* ---------- RENDER ---------- */
+function center(p){return {x:p.x+p.w/2,y:p.y+p.h/2}}
+function renderFlow(){
+  const N=document.getElementById('nodes'),E=document.getElementById('edges');
+  // edges
+  FLOWS.forEach(([a,b,st,lbl])=>{
+    const pa=POS[a],pb=POS[b];if(!pa||!pb)return;
+    const ca=center(pa),cb=center(pb);
+    // anchor on box edges (simple: connect centers, offset by half-size along axis)
+    let x1=ca.x,y1=ca.y,x2=cb.x,y2=cb.y;
+    const dx=cb.x-ca.x,dy=cb.y-ca.y;
+    if(Math.abs(dx)>Math.abs(dy)){x1=ca.x+Math.sign(dx)*pa.w/2;x2=cb.x-Math.sign(dx)*pb.w/2;}
+    else{y1=ca.y+Math.sign(dy)*pa.h/2;y2=cb.y-Math.sign(dy)*pb.h/2;}
+    const col=STATUS[st],dash=(st==='gap'||st==='half')?'5,4':'0';
+    const mx=(x1+x2)/2,my=(y1+y2)/2;
+    E.insertAdjacentHTML('beforeend',
+      `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="2" stroke-dasharray="${dash}" marker-end="url(#${st==='gap'?'arwG':'arw'})" opacity="${st==='gap'?.85:.7}"/>`+
+      `<text class="flowlbl" x="${mx}" y="${my-3}" text-anchor="middle">${lbl}</text>`);
+  });
+  // nodes (components + pseudo)
+  Object.entries(POS).forEach(([id,p])=>{
+    const comp=COMPONENTS.find(c=>c.id===id);
+    const st=comp?comp.status:p.st;
+    const col=STATUS[st];
+    const title=comp?comp.name:p.title;
+    const sub=comp?comp.lang:p.sub;
+    const score=comp?comp.score.toFixed(1):'';
+    const fill=comp?'#1a2130':'#161b27';
+    N.insertAdjacentHTML('beforeend',
+      `<g class="node" onclick="${comp?`openComp('${id}')`:''}">
+        <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="9" fill="${fill}" stroke="${col}" stroke-width="2"/>
+        <rect x="${p.x}" y="${p.y}" width="5" height="${p.h}" rx="2" fill="${col}"/>
+        <text x="${p.x+16}" y="${p.y+24}" font-weight="600">${title}</text>
+        <text class="role" x="${p.x+16}" y="${p.y+42}">${sub}</text>
+        ${score?`<text class="sc" x="${p.x+p.w-14}" y="${p.y+24}" text-anchor="end" fill="${col}">${score}</text>`:''}
+      </g>`);
+  });
+}
+function renderCards(){
+  const g=document.getElementById('cardgrid');
+  COMPONENTS.forEach(c=>{
+    const pct=c.score*10, col=c.score>=8?'var(--works)':c.score>=6.5?'#6cb6ff':c.score>=5?'var(--half)':'var(--gap)';
+    g.insertAdjacentHTML('beforeend',
+     `<div class="card" onclick="openComp('${c.id}')">
+        <h3>${c.name} <span class="pill" style="background:${STATUS[c.status]}22;color:${STATUS[c.status]}">${STLABEL[c.status]}</span></h3>
+        <div class="lang">${c.lang}</div>
+        <div class="role">${c.role}</div>
+        <div class="scorebar"><i style="width:${pct}%;background:${col}"></i></div>
+        <div class="stats"><span><b style="color:${col}">${c.score.toFixed(1)}</b>/10</span><span>${c.files} files</span><span>${c.nodes.toLocaleString()} nodes</span></div>
+      </div>`);
+  });
+}
+function renderHandoffs(){
+  const t=document.getElementById('handoffrows');
+  HANDOFFS.forEach(h=>{
+    const fn=COMPONENTS.find(c=>c.id===h.from), tn=COMPONENTS.find(c=>c.id===h.to);
+    const arrow=h.self?`<b>${fn?fn.name:h.from}</b> ↻ ${h.label||''}`:`<b>${fn.name}</b> → <b>${tn.name}</b>`;
+    t.insertAdjacentHTML('beforeend',
+     `<tr>
+        <td>${arrow}</td>
+        <td>${h.carry.map(c=>/\.v1$|\.json$/.test(c)?`<code>${c}</code>`:c).join('<br>')}</td>
+        <td class="mech">${h.mech}</td>
+        <td class="st" style="color:${STATUS[h.status]}">● ${STLABEL[h.status]}</td>
+        <td class="mech">${h.ev}</td>
+      </tr>`);
+  });
+}
+function renderWS(){
+  const w=document.getElementById('wslist');
+  WORKSTREAMS.forEach(s=>{
+    w.insertAdjacentHTML('beforeend',
+     `<div class="ws" style="border-left-color:${STATUS[s.status]}">
+        <h3><span style="color:${STATUS[s.status]}">${s.id}</span> · ${s.title}<span class="seq">seq ${s.seq}</span></h3>
+        <p><b>What:</b> ${s.what}</p>
+        <p><b>Why:</b> ${s.why}</p>
+      </div>`);
+  });
+}
+function renderCoupling(){
+  const r=document.getElementById('rollrows');
+  ROLLUP.forEach(([c,n,f])=>r.insertAdjacentHTML('beforeend',`<tr><td>${c}</td><td>${n.toLocaleString()}</td><td>${f}</td></tr>`));
+  const x=document.getElementById('crossrows');
+  CROSS.forEach(([a,b,n,m])=>x.insertAdjacentHTML('beforeend',`<tr><td>${a}</td><td>${b}</td><td style="color:${n===0?'var(--gap)':'var(--txt)'}">${n}</td><td class="mech">${m}</td></tr>`));
+}
+/* ---------- DRAWER ---------- */
+function openComp(id){
+  const c=COMPONENTS.find(x=>x.id===id);if(!c)return;
+  const labels=['Code','Tests','Docs','Maint','Security'];
+  const subs=c.sub.map((v,i)=>`${labels[i]} ${v??'—'}`).join(' · ');
+  document.getElementById('drawerbody').innerHTML=
+    `<h2>${c.name}</h2>
+     <span class="pill" style="background:${STATUS[c.status]}22;color:${STATUS[c.status]}">${STLABEL[c.status]}</span>
+     <dt>Role</dt><dd>${c.role}</dd>
+     <dt>Language</dt><dd>${c.lang}</dd>
+     <dt>Score</dt><dd><b style="font-size:18px;color:${c.score>=8?'var(--works)':c.score>=5?'var(--half)':'var(--gap)'}">${c.score.toFixed(1)}</b>/10 &nbsp; <span style="color:var(--dim);font-size:11.5px">${subs}</span></dd>
+     <dt>Size</dt><dd>${c.files} files · ${c.nodes.toLocaleString()} graph nodes</dd>
+     <dt>Key files</dt><dd><ul>${c.keyfiles.map(k=>`<li class="kf">${k}</li>`).join('')}</ul></dd>
+     <dt>Notes</dt><dd><ul>${c.notes.map(n=>`<li>${n}</li>`).join('')}</ul></dd>`;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('overlay').classList.remove('open');}
+document.getElementById('overlay').onclick=closeDrawer;
+/* ---------- TABS ---------- */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('section').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active');
+});
+/* ---------- INIT ---------- */
+const ROADMAP=[
+  {track:'Pipeline Wiring (A–G)',goal:'connect references → distinct content → multi-account posting → feedback that drives the next cycle',items:[
+    {k:'✅',id:'A',t:'Repurposer legit engines',n:'real editorial edits, quality-gated',ref:'PR #44'},
+    {k:'✅',id:'B',t:'Per-account distinctness',n:'sibling-vs-sibling gate',ref:'PR #44'},
+    {k:'✅',id:'C',t:'Un-orphan → control brain',n:'variation_stage.py seam',ref:'PR #44'},
+    {k:'✅',id:'D',t:'Variation → export',n:'per-account drafts; master fallback',ref:'PR #44'},
+    {k:'⏳',id:'E2',t:'Still → MP4 (free)',n:'contract seam ✓; render engine next',ref:'PR #45'},
+    {k:'⏳',id:'E',t:'Front auto-link Soul-2+Kling',n:'contract + stage landing; control-brain chain next',ref:'PR #46/#47'},
+    {k:'⏳',id:'F',t:'Intelligence / learning loop',n:'v1 rank-with-confidence ✓; median+decay+Thompson next',ref:'PR #48'},
+    {k:'⏳',id:'G',t:'Proactive autonomous cycles',n:'cycle runner landing; budget-governed, draft-first',ref:'PR #49'},
+  ]},
+  {track:'Autoposter Hardening (AP0–AP2)',goal:'make the publish path race-safe, reliable, and observable',items:[
+    {k:'✅',id:'AP0-1',t:'Duplicate-schedule race',n:'partial unique index',ref:'TD done'},
+    {k:'✅',id:'AP0-2',t:'Metrics reconciliation',n:'no fire-and-forget data loss',ref:'TD done'},
+    {k:'✅',id:'AP0-3',t:'Thread-chain preflight',n:'segment size-checked pre-publish',ref:'TD done'},
+    {k:'◻',id:'AP1',t:'Robustness/security tier',n:'backoff, cron fairness, secret rotation, RLS scope',ref:'pending'},
+    {k:'◻',id:'AP2',t:'Cleanliness tier',n:'state-machine consolidation, run reports',ref:'pending'},
+  ]},
+  {track:'Audit Backlog (P0–P2)',goal:'every quality finding terminal',items:[
+    {k:'✅',id:'P0–P2',t:'All findings closed',n:'Fixed / Upstream / Accepted deferred',ref:'PR #43'},
+  ]},
+  {track:'Smart / Great / Safe (INTELLIGENCE_AUDIT.md)',goal:'turn computed-but-ignored signals into real intelligence, quality, and anti-collision safety',items:[
+    {k:'⏳',id:'S',t:'Gate on PDQ/SSCD, not SSIM',n:'un-review-only the real detectors; cross-account perceptual pass',ref:'NEXT (risk $)'},
+    {k:'◻',id:'I-bugs',t:'Fix 3 metric-capture bugs',n:'clean training data at source + port AP0-2',ref:'pending'},
+    {k:'◻',id:'I-lineage',t:'Require lineage IDs in contracts',n:'precondition for Workstream F',ref:'pending'},
+    {k:'◻',id:'Q',t:'Real quality floor + Higgsfield virality',n:'VMAF/audio/crop gate; wire virality_predictor',ref:'pending'},
+    {k:'◻',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'turn ranking into learning',ref:'pending'},
+  ]},
+];
+function renderRoadmap(){
+  const b=document.getElementById('roadmap-board');if(!b)return;
+  ROADMAP.forEach(tr=>{
+    const done=tr.items.filter(i=>i.k==='✅').length,tot=tr.items.length;
+    let rows=tr.items.map(i=>{
+      const col=i.k==='✅'?'#2ea043':i.k==='⏳'?'var(--accent)':'var(--dim)';
+      return `<tr><td style="color:${col};font-size:15px;width:24px">${i.k}</td><td><b style="color:${col}">${i.id}</b></td><td>${i.t}<div style="color:var(--dim);font-size:11.5px">${i.n}</div></td><td style="color:var(--dim);font-size:11px;white-space:nowrap">${i.ref}</td></tr>`;
+    }).join('');
+    b.insertAdjacentHTML('beforeend',
+     `<div style="margin-bottom:22px">
+        <h3 style="font-size:14px;margin:0 0 2px">${tr.track} <span style="color:var(--dim);font-weight:400;font-size:12px">— ${done}/${tot} shipped</span></h3>
+        <div style="color:var(--dim);font-size:12px;margin-bottom:8px">${tr.goal}</div>
+        <div class="scorebar" style="margin-bottom:8px"><i style="width:${Math.round(done/tot*100)}%;background:#2ea043"></i></div>
+        <table>${rows}</table>
+      </div>`);
+  });
+}
+const INTEL=[
+  {track:'Intelligence / Learning loop',score:4,verdict:'PARTIALLY CLOSED — performance drives 3 real decisions, but human-gated, statistically naive, leaks at capture + contract.',findings:[
+    {s:'High',t:'No account-size normalization or recency decay',w:'core.py:14732 (max views) · patterns.py:569',f:'Big accounts always win; a 2-yr-old post weights like a fresh one. Normalize + exp-decay.'},
+    {s:'High',t:'Export contracts don\'t require lineage IDs',w:'generated_asset_lineage.v1 / recommendation_accuracy_report.v1',f:'SQLite HAS post_id/variant_id; contracts drop them → F can\'t attribute. Make IDs required.'},
+    {s:'High',t:'3 capture bugs corrupt training data at source',w:'monotonic_metric_updates.sql:36 · analyticsSync.ts:716 · post-engagement.ts:130',f:'Broken monotonic guard, dead retention delete, Threads reach/saves always 0.'},
+    {s:'Med',t:'Learned signals dead-end',w:'core.py:23197 trust · winner_dna.py',f:'Trust score + Winner-DNA computed, never fed back into generation/ranking. No self-correction.'},
+    {s:'Fix',t:'Buildable: Thompson-sampling loop (Workstream F)',w:'research/05',f:'reward = engagement_rate / account_trailing_MEDIAN; Bayesian shrinkage (prior 1.0, strength 5); 21d recency half-life; per-dimension arms; ≥15% explore floor; 1h→24h surrogate. SQLite, ~few hundred lines. Fix 3 capture bugs first.'},
+  ]},
+  {track:'Content quality / virality',score:3,verdict:'Technical-validity machine, not a quality engine. Real scores exist but gate nothing.',findings:[
+    {s:'Crit',t:'"Quality floor" is one resolution check',w:'repurposer/qa/quality.py',f:'if width<720 AND height<720 — both must fail. Ignores compression/audio/framing/legibility. Add VMAF/LUFS/crop (VMAF machinery already in contentforge, unused).'},
+    {s:'Crit',t:'All creative scores advisory-only',w:'contentforge route.js:16,343',f:'creativeQuality/hook/safeZone/readability excluded from blocking. README "quality floor" claim false in code.'},
+    {s:'Crit',t:'Creative scoring is heuristic_v1 decoration',w:'creative-quality-audit.js:237',f:'modelBacked:false keyword bags. Replace with VLM/Higgsfield video_analysis judge.'},
+    {s:'High',t:'Higgsfield virality_predictor unused',w:'(grep: wired into no gate)',f:'Available in-environment. Plug as blocking virality layer + post-render QC. Lowest-effort high-leverage win.'},
+    {s:'Fix',t:'Buildable: 100-pt Reel Prediction Score',w:'research/04',f:'Pre-post gate (hook 20 / 3s-clarity 20 / pacing 20 / shareability 20 / quality 10 / caption+audio 10). <70 don\'t post, 90+ best slot. Optimize for watch-time → 3s-hold → sends/reach. Score via Higgsfield video_analysis + VLM hook judge.'},
+  ]},
+  {track:'Anti-shadowban safety',score:4,verdict:'INSUFFICIENT — variation is real (PR #44) but gates on SSIM. Research proves the editorial deltas don\'t move perceptual hashes at all.',findings:[
+    {s:'Crit',t:'Editorial deltas don\'t move the hash (proven)',w:'research/03 · repurposer/engines/editorial.py',f:'Speed/saturation/color = 0 PDQ effect; only crop breaks PDQ, and SSCD survives crop. Pixel nudges are theater. Real distinctness = different content per account (generation path) + different caption/audio.'},
+    {s:'Crit',t:'Gate measures SSIM, not perceptual-hash',w:'repurposer/qa/similarity.py',f:'Targets: PDQ Hamming >40 (match ≤31), SSCD cosine <0.5 (copy ≥0.75), TMK <0.7. Wire calculate_phash_distance (dead today) + ContentForge PDQ/SSCD, sibling-vs-sibling.'},
+    {s:'Crit',t:'Real detectors (PDQ/SSCD) never block',w:'contentforge route.js:16 REVIEW_ONLY',f:'pdq_check.py + sscd_check.py (=SimSearchNet++ family, deployed on IG) exist & correct but a fail = non-blocking warning. Un-review-only for campaign_factory_v1.'},
+    {s:'High',t:'Account clustering is the binding constraint',w:'research/02',f:'Meta links accounts by device/IP/payment/timing; same audio+caption = independent flags; 10 unoriginal/30d = non-recommendable. Spread cadence across days; genuinely-distinct per account.'},
+    {s:'Med',t:'Shared audio + uncomputed fingerprint cooldown',w:'config.py:58 · core.py:11117 · originalitySignals.ts:81',f:'IG variants keep master audio (Chromaprint match); perceptual cooldown reads never-computed fields; dashboard uses weak aHash, video gets none.'},
+  ]},
+];
+function renderIntel(){
+  const b=document.getElementById('intel-board');if(!b)return;
+  const SC={Crit:'var(--gap)',High:'var(--orphan)',Med:'var(--half)',Low:'var(--dim)',Fix:'#2ea043'};
+  INTEL.forEach(tr=>{
+    const col=tr.score>=6?'#2ea043':tr.score>=4?'var(--half)':'var(--gap)';
+    let rows=tr.findings.map(x=>
+      `<tr><td><span class="pill" style="background:${SC[x.s]}22;color:${SC[x.s]};white-space:nowrap">${x.s}</span></td>
+        <td><b>${x.t}</b><div style="color:var(--dim);font-size:11.5px;margin-top:2px">${x.f}</div></td>
+        <td class="kf" style="font-size:10.5px;color:#6cb6ff;white-space:nowrap">${x.w}</td></tr>`).join('');
+    b.insertAdjacentHTML('beforeend',
+     `<div style="margin-bottom:24px">
+        <h3 style="font-size:14.5px;margin:0 0 3px;display:flex;align-items:center;gap:10px">${tr.track}
+          <span style="color:${col};font-weight:700">${tr.score}/10</span></h3>
+        <div style="color:var(--dim);font-size:12px;margin-bottom:8px">${tr.verdict}</div>
+        <div class="scorebar" style="margin-bottom:10px"><i style="width:${tr.score*10}%;background:${col}"></i></div>
+        <table>${rows}</table>
+      </div>`);
+  });
+}
+renderFlow();renderCards();renderHandoffs();renderWS();renderCoupling();renderRoadmap();renderIntel();
+</script>
+</body>
+</html>
