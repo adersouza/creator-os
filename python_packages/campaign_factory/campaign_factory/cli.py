@@ -31,6 +31,7 @@ from .closed_loop_proof import (
 )
 from .readiness_report import build_mass_production_readiness_report
 from .reel_ledger_promotion import promote_reel_ledger
+from .variation_stage import run_variation_stage
 
 
 def print_json(value) -> None:
@@ -118,6 +119,15 @@ def main() -> int:
 
     sync = sub.add_parser("sync-reel")
     sync.add_argument("--campaign", required=True)
+
+    variation = sub.add_parser("variation")
+    variation_sub = variation.add_subparsers(dest="variation_cmd", required=True)
+    variation_run = variation_sub.add_parser("run")
+    variation_run.add_argument("--campaign", required=True)
+    variation_run.add_argument("--preset", default="ig_subtle")
+    variation_run.add_argument("--rendered-asset-id", action="append", default=[])
+    variation_run.add_argument("--dry-run", action="store_true")
+    variation_run.add_argument("--apply", action="store_true")
 
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
@@ -207,6 +217,8 @@ def main() -> int:
     export.add_argument("--max-drafts", type=int)
     export.add_argument("--rendered-asset-id", action="append", default=[])
     export.add_argument("--schedule-mode", choices=["draft", "preview", "live"], default="draft")
+    export.add_argument("--enable-variation", action="store_true")
+    export.add_argument("--variation-preset", default="ig_subtle")
 
     preflight = sub.add_parser("supabase-preflight")
     preflight.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
@@ -1077,6 +1089,15 @@ def main() -> int:
             ))
         elif args.cmd == "sync-reel":
             print_json(cf.sync_reel_outputs(campaign_slug=args.campaign))
+        elif args.cmd == "variation":
+            if args.variation_cmd == "run":
+                print_json(run_variation_stage(
+                    cf,
+                    campaign_slug=args.campaign,
+                    preset_name=args.preset,
+                    rendered_asset_ids=args.rendered_asset_id or None,
+                    dry_run=not args.apply or args.dry_run,
+                ))
         elif args.cmd == "audit":
             print_json(audit_campaign(
                 cf,
@@ -1189,6 +1210,8 @@ def main() -> int:
                 max_drafts=args.max_drafts,
                 rendered_asset_ids=args.rendered_asset_id or None,
                 schedule_mode=args.schedule_mode,
+                enable_variation=args.enable_variation,
+                variation_preset=args.variation_preset,
             ))
         elif args.cmd == "supabase-preflight":
             pipeline_job = cf.create_pipeline_job(

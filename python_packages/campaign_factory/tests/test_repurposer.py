@@ -7,11 +7,14 @@ import pytest
 
 from repurposer.config import RepurposeConfig
 from repurposer.engines.audio import AudioEngine
+from repurposer.engines.editorial import EditorialEngine
 from repurposer.engines.micro import MicroEngine
 from repurposer.engines.polish import PolishEngine
 from repurposer.engines.visual import VisualEngine
 from repurposer.pipeline import RepurposeError, VariantPipeline
+from repurposer.qa.quality import QualityGate
 from repurposer.qa.similarity import SimilarityGate
+from pipeline_contracts import validate_variant_assignment
 
 
 def _tiny_mp4(path: Path) -> Path:
@@ -84,6 +87,22 @@ def test_variant_pipeline_returns_real_existing_outputs(tmp_path: Path, monkeypa
     assert master.read_bytes() == (tmp_path / "master.mp4").read_bytes()
 
 
+def test_repurpose_presets_keep_micro_off_by_default():
+    assert RepurposeConfig.from_preset("ig_subtle").enable_micro is False
+    assert RepurposeConfig.from_preset("tiktok_aggressive").enable_micro is False
+    assert RepurposeConfig.from_preset("custom").enable_micro is False
+
+
+def test_editorial_engine_makes_real_quality_passing_transform(tmp_path: Path):
+    master = _tiny_mp4(tmp_path / "master.mp4")
+
+    output = EditorialEngine.apply(master, tmp_path / "editorial.mp4", index=2)
+
+    assert output.exists()
+    assert output.read_bytes() != master.read_bytes()
+    assert QualityGate.is_quality_acceptable(output)
+
+
 def test_variant_pipeline_fails_without_partial_fake_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     master = _tiny_mp4(tmp_path / "master.mp4")
 
@@ -135,13 +154,12 @@ def test_ffmpeg_engines_raise_when_command_fails(tmp_path: Path, monkeypatch: py
         AudioEngine.apply(source, tmp_path / "audio.mp4", music_track=track)
 
 
-def test_visual_engine_fails_cleanly_when_video_to_video_is_unsupported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_visual_engine_skips_cleanly_when_video_to_video_is_unsupported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"media")
     monkeypatch.setattr("repurposer.engines.visual.AssetGenerationPlan", None)
 
-    with pytest.raises(RuntimeError, match="video-to-video generation is unavailable"):
-        VisualEngine.apply(source, tmp_path / "visual.mp4", prompt="make a safe visual variant")
+    assert VisualEngine.apply(source, tmp_path / "visual.mp4", prompt="make a safe visual variant") == source
 
 
 def test_similarity_gate_extracts_keyframes_and_compares_phash(tmp_path: Path):
@@ -153,3 +171,57 @@ def test_similarity_gate_extracts_keyframes_and_compares_phash(tmp_path: Path):
 
     assert SimilarityGate.calculate_phash_distance(master, variant) >= 0
     assert SimilarityGate.calculate_ssim(master, variant) <= 1.0
+
+
+def test_similarity_gate_raises_on_unparseable_ssim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    master = _tiny_mp4(tmp_path / "master.mp4")
+    variant = _tiny_mp4(tmp_path / "variant.mp4")
+
+    def no_ssim(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 0, stdout="", stderr="no score here")
+
+    monkeypatch.setattr(subprocess, "run", no_ssim)
+
+    with pytest.raises(RuntimeError, match="All score"):
+        SimilarityGate.calculate_ssim(master, variant)
+
+
+def test_variant_pipeline_generates_account_bound_assignment_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    master = _tiny_mp4(tmp_path / "master.mp4")
+    accounts = [
+        {"account_id": "acct_a", "instagram_account_id": "ig_a", "preset_name": "ig_subtle"},
+        {"account_id": "acct_b", "instagram_account_id": "ig_b", "preset_name": "ig_subtle"},
+        {"account_id": "acct_c", "instagram_account_id": "ig_c", "preset_name": "ig_subtle"},
+    ]
+
+    monkeypatch.setattr(
+        RepurposeConfig,
+        "from_preset",
+        classmethod(
+            lambda cls, name: cls(
+                target_platform="reels",
+                aggressiveness=0.1,
+                enable_editorial=False,
+                enable_audio=False,
+                enable_generative=False,
+                enable_polish=True,
+                enable_micro=False,
+            )
+        ),
+    )
+    monkeypatch.setattr("repurposer.pipeline.QualityGate.is_quality_acceptable", lambda path: True)
+    ssim_values = iter([0.72, 0.7, 0.63, 0.69, 0.64, 0.65])
+    monkeypatch.setattr("repurposer.pipeline.SimilarityGate.calculate_ssim", lambda left, right: next(ssim_values))
+
+    pipeline = VariantPipeline(master, accounts=accounts, platform="reels", output_dir=tmp_path / "variants")
+    manifest = pipeline.generate_assignment_manifest(
+        preset_name="ig_subtle",
+        campaign_slug="may",
+        master_asset_id="asset_master",
+    )
+
+    validate_variant_assignment(manifest)
+    assert len(manifest["assignments"]) == 3
+    assert {item["account_id"] for item in manifest["assignments"]} == {"acct_a", "acct_b", "acct_c"}
+    assert all("acct_" in Path(item["variant_path"]).name for item in manifest["assignments"])
+    assert (tmp_path / "variants" / "asset_master.variant_assignment.v1.json").exists()

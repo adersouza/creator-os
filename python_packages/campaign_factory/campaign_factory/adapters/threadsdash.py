@@ -33,9 +33,15 @@ def build_draft_payloads(
     language: str | None = None,
     rendered_asset_ids: list[str] | None = None,
     schedule_mode: str = "draft",
+    enable_variation: bool = False,
 ) -> dict[str, Any]:
     manifest = factory.export_manifest(campaign_slug=campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
+    variation_index: dict[str, dict[str, Any]] = {}
+    if enable_variation:
+        from ..variation_stage import load_variant_assignment_index
+
+        variation_index = load_variant_assignment_index(factory, campaign_slug=campaign_slug)
     distribution_plans_by_asset: dict[str, list[dict[str, Any]]] = {}
     require_distribution_plan = False
     if normalized_schedule_mode in {"preview", "live"}:
@@ -52,16 +58,6 @@ def build_draft_payloads(
         caption = asset.get("caption") or ""
         caption_context = _caption_context_for_export(asset, caption=caption, file_path=file_path)
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)
-        media_id = f"media_{uuid.uuid4().hex[:12]}"
-        media_item = {
-            "id": media_id,
-            "type": "video",
-            "url": None,
-            "thumbnailUrl": None,
-            "fileName": file_path.name,
-            "size": file_path.stat().st_size if file_path.exists() else 0,
-            "uploadedAt": utc_now(),
-        }
         destinations = _draft_destinations_for_asset(
             factory,
             asset,
@@ -71,6 +67,24 @@ def build_draft_payloads(
         for destination in destinations:
             account_id = destination.get("accountId")
             instagram_account_id = destination.get("instagramAccountId")
+            variation_assignment = _variant_assignment_for_destination(
+                variation_index,
+                rendered_asset_id=asset["renderedAssetId"],
+                account_id=account_id,
+                instagram_account_id=instagram_account_id,
+                required=enable_variation,
+            )
+            destination_file_path = Path(variation_assignment["variant_path"]) if variation_assignment else file_path
+            media_id = f"media_{uuid.uuid4().hex[:12]}"
+            media_item = {
+                "id": media_id,
+                "type": "video",
+                "url": None,
+                "thumbnailUrl": None,
+                "fileName": destination_file_path.name,
+                "size": destination_file_path.stat().st_size if destination_file_path.exists() else 0,
+                "uploadedAt": utc_now(),
+            }
             distribution_surface = _normalize_distribution_surface(destination.get("distributionSurface"))
             post_caption = _instagram_post_caption_for_export(
                 asset,
@@ -112,8 +126,8 @@ def build_draft_payloads(
             media_key = _stable_export_key(
                 "media",
                 campaign_slug,
-                asset.get("renderedAssetGraphId") or asset.get("graphId") or asset["renderedAssetId"],
-                asset.get("contentHash") or "",
+                (variation_assignment or {}).get("variant_asset_id") or asset.get("renderedAssetGraphId") or asset.get("graphId") or asset["renderedAssetId"],
+                (variation_assignment or {}).get("variant_path") or asset.get("contentHash") or "",
             )
             post_key = _stable_export_key("post", draft_key)
             draft = {
@@ -191,9 +205,10 @@ def build_draft_payloads(
                 "auditStatus": asset.get("auditStatus"),
                 "publishability": publishability,
                 "handoffManifest": publishability.get("handoff_manifest"),
+                "variantAssignment": variation_assignment,
                 "createdAt": utc_now(),
                 "updatedAt": utc_now(),
-                "_localFilePath": str(file_path),
+                "_localFilePath": str(destination_file_path),
                 "_tags": asset.get("tags") or [],
             }
             if normalized_schedule_mode == "draft":
@@ -214,6 +229,33 @@ def _draft_status_for_schedule_mode(schedule_mode: str, planned_window_start: st
     # schedule row transitions and QStash dispatch. Never create scheduled rows
     # directly from Campaign Factory.
     return "draft"
+
+
+def _variant_assignment_for_destination(
+    assignment_index: dict[str, dict[str, Any]],
+    *,
+    rendered_asset_id: str,
+    account_id: str | None,
+    instagram_account_id: str | None,
+    required: bool,
+) -> dict[str, Any] | None:
+    if not required:
+        return None
+    from ..variation_stage import variant_for_destination
+
+    assignment = variant_for_destination(
+        assignment_index,
+        rendered_asset_id=rendered_asset_id,
+        account_id=account_id,
+        instagram_account_id=instagram_account_id,
+    )
+    if assignment is None:
+        raise ValueError(
+            "variation assignment missing for "
+            f"rendered_asset_id={rendered_asset_id} account_id={account_id or ''} "
+            f"instagram_account_id={instagram_account_id or ''}"
+        )
+    return assignment
 
 
 def _campaign_factory_manifest_blockers(payload: dict[str, Any]) -> list[str]:
@@ -384,6 +426,8 @@ def export_threadsdash(
     schedule_mode: str = "draft",
     threadsdash_ingest_url: str | None = None,
     threadsdash_ingest_secret: str | None = None,
+    enable_variation: bool = False,
+    variation_preset: str = "ig_subtle",
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -405,6 +449,8 @@ def export_threadsdash(
             "renderedAssetIds": rendered_asset_ids or [],
             "scheduleMode": normalized_schedule_mode,
             "hasThreadsdashIngestUrl": bool(threadsdash_ingest_url or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL") or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")),
+            "enableVariation": enable_variation,
+            "variationPreset": variation_preset,
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -412,6 +458,17 @@ def export_threadsdash(
     dirs = factory.campaign_dirs(model_slug, campaign["slug"])
     try:
         export_id = new_id("tdexp")
+        variation_result = None
+        if enable_variation:
+            from ..variation_stage import run_variation_stage
+
+            variation_result = run_variation_stage(
+                factory,
+                campaign_slug=campaign_slug,
+                preset_name=variation_preset,
+                rendered_asset_ids=rendered_asset_ids,
+                dry_run=dry_run,
+            )
         payload = build_draft_payloads(
             factory,
             campaign_slug=campaign_slug,
@@ -422,6 +479,7 @@ def export_threadsdash(
             language=language,
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
+            enable_variation=enable_variation,
         )
         if max_drafts is not None:
             payload["drafts"] = payload["drafts"][:max(0, max_drafts)]
@@ -458,6 +516,7 @@ def export_threadsdash(
             "schema": "campaign_factory.supabase_export.v1",
             "campaign": campaign["slug"],
             "userId": user_id,
+            "variation": variation_result,
             "dryRun": dry_run,
             "createdAt": utc_now(),
             "draftCount": len(payload["drafts"]),
@@ -1926,6 +1985,19 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "variant_id": publishability.get("variant_id") or publishability.get("variantId"),
             "variant_index": publishability.get("variant_index") or publishability.get("variantIndex"),
             "variant_operations": publishability.get("variant_operations") or publishability.get("variantOperations") or [],
+            "variant_assignment": draft.get("variantAssignment"),
+            "variant_asset_id": (draft.get("variantAssignment") or {}).get("variant_asset_id")
+            if isinstance(draft.get("variantAssignment"), dict)
+            else None,
+            "variant_path": (draft.get("variantAssignment") or {}).get("variant_path")
+            if isinstance(draft.get("variantAssignment"), dict)
+            else None,
+            "parent_master_asset_id": (draft.get("variantAssignment") or {}).get("parent_master_asset_id")
+            if isinstance(draft.get("variantAssignment"), dict)
+            else None,
+            "variant_distinctness_scores": (draft.get("variantAssignment") or {}).get("distinctness_scores")
+            if isinstance(draft.get("variantAssignment"), dict)
+            else None,
             "caption_family_id": publishability.get("caption_family_id") or publishability.get("captionFamilyId") or caption_context.get("caption_family_id") or caption_context.get("captionFamilyId"),
             "caption_version_id": publishability.get("caption_version_id") or publishability.get("captionVersionId") or caption_context.get("caption_version_id") or caption_context.get("captionVersionId"),
             "caption_hash": draft.get("captionHash"),

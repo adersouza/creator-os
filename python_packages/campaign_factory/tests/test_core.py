@@ -55,6 +55,7 @@ from campaign_factory.contracts import (
     validate_recommendation_next_batch,
     validate_schema_examples,
     validate_threadsdash_draft_payload,
+    validate_variant_assignment,
 )
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
@@ -64,6 +65,7 @@ from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.readiness_report import build_mass_production_readiness_report
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
+from campaign_factory.variation_stage import run_variation_stage
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -294,6 +296,7 @@ def test_contract_schema_examples_validate():
         "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
+        "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
     }
 
@@ -2143,6 +2146,117 @@ def ensure_exportable_distribution_plan(
         planned_window_start=planned_window_start,
         planned_window_end=planned_window_end,
     )
+
+
+def test_variation_stage_dry_run_creates_valid_assignment_manifest(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_3")
+
+        result = run_variation_stage(cf, campaign_slug="may", dry_run=True)
+
+        assert result["dryRun"] is True
+        assert result["assignments"][0]["assignmentCount"] == 3
+        assignment_path = Path(result["assignments"][0]["assignmentPath"])
+        payload = json.loads(assignment_path.read_text(encoding="utf-8"))
+        validate_variant_assignment(payload)
+        assert {item["instagram_account_id"] for item in payload["assignments"]} == {"ig_1", "ig_2", "ig_3"}
+    finally:
+        cf.close()
+
+
+def test_variation_cli_dry_run_creates_assignment_manifest(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+    finally:
+        cf.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.cli",
+            "variation",
+            "run",
+            "--campaign",
+            "may",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assignment_path = Path(payload["assignments"][0]["assignmentPath"])
+    validate_variant_assignment(json.loads(assignment_path.read_text(encoding="utf-8")))
+
+
+def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        _, rendered_path = add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        draft = payload["drafts"][0]
+
+        assert draft["_localFilePath"] == str(rendered_path)
+        assert draft["media"][0]["fileName"] == rendered_path.name
+        assert draft["metadata"]["campaign_factory"]["variant_assignment"] is None
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        _, rendered_path = add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
+        run_variation_stage(cf, campaign_slug="may", dry_run=True)
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", enable_variation=True)
+
+        drafts_by_ig = {draft["instagramAccountId"]: draft for draft in payload["drafts"]}
+        assert set(drafts_by_ig) == {"ig_1", "ig_2"}
+        assert drafts_by_ig["ig_1"]["_localFilePath"] != str(rendered_path)
+        assert drafts_by_ig["ig_1"]["_localFilePath"] != drafts_by_ig["ig_2"]["_localFilePath"]
+        meta = drafts_by_ig["ig_1"]["metadata"]["campaign_factory"]
+        assert meta["parent_master_asset_id"] == "asset_1"
+        assert meta["variant_asset_id"].startswith("asset_1_")
+        assert meta["variant_assignment"]["lineage"]["paid_generation"] is False
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_enabled_variation_blocks_missing_assignment(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+
+        with pytest.raises(ValueError, match="variation assignment missing"):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1", enable_variation=True)
+    finally:
+        cf.close()
 
 
 def test_mass_production_readiness_report_flags_blockers(tmp_path: Path):

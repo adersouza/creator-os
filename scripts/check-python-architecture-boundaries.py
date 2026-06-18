@@ -14,28 +14,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-BOUNDARIES: tuple[tuple[Path, str, tuple[str, ...]], ...] = (
+BOUNDARIES: tuple[tuple[Path, str, tuple[str, ...], dict[str, tuple[Path, ...]]], ...] = (
     (
         ROOT / "packages/pipeline_contracts/pipeline_contracts",
         "pipeline_contracts",
         ("campaign_factory", "reference_factory", "repurposer"),
+        {},
     ),
     (
         ROOT / "python_packages/reference_factory/reference_factory",
         "reference_factory",
         ("campaign_factory", "repurposer"),
+        {},
     ),
     (
         ROOT / "python_packages/campaign_factory/campaign_factory",
         "campaign_factory",
-        ("reference_factory",),
+        ("reference_factory", "repurposer"),
+        {
+            "repurposer": (ROOT / "python_packages/campaign_factory/campaign_factory/variation_stage.py",),
+        },
     ),
 )
 
 
 def main() -> int:
     violations: list[str] = []
-    for root, source_name, forbidden in BOUNDARIES:
+    for root, source_name, forbidden, allowlist in BOUNDARIES:
         if not root.exists():
             continue
         for path in root.rglob("*.py"):
@@ -47,7 +52,7 @@ def main() -> int:
                 violations.append(f"{path.relative_to(ROOT)}:{exc.lineno}: syntax error blocks boundary scan")
                 continue
             for line, imported in _imports(tree):
-                if imported in forbidden:
+                if imported in forbidden and path not in allowlist.get(imported, ()):
                     rel = path.relative_to(ROOT)
                     violations.append(
                         f"{rel}:{line}: {source_name} must not import {imported}"

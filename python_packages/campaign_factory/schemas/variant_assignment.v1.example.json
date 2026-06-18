@@ -1,0 +1,29 @@
+{
+  "schema": "campaign_factory.variant_assignment.v1",
+  "campaign_slug": "spring_drop",
+  "master_asset_id": "asset_master_001",
+  "master_asset_path": "/tmp/spring_drop/master.mp4",
+  "platform": "reels",
+  "generated_at": "2026-06-18T00:00:00Z",
+  "variation_enabled": true,
+  "assignments": [
+    {
+      "account_id": "acct_001",
+      "instagram_account_id": "ig_001",
+      "persona": "editorial_fast_hook",
+      "variant_asset_id": "asset_master_001_acct_001",
+      "variant_path": "/tmp/spring_drop/asset_master_001_acct_001.mp4",
+      "parent_master_asset_id": "asset_master_001",
+      "preset_name": "ig_subtle",
+      "distinctness_scores": {
+        "master_ssim": 0.72,
+        "sibling_max_ssim": 0.61,
+        "threshold": 0.85
+      },
+      "lineage": {
+        "mode": "zero_cost_variation",
+        "paid_generation": false
+      }
+    }
+  ]
+}

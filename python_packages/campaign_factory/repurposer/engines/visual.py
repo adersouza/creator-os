@@ -20,9 +20,8 @@ class VisualEngine:
         if not prompt:
             return video_path
         if AssetGenerationPlan is None or create_video_asset is None:
-            raise RuntimeError("video-to-video generation is unavailable: reel_factory.generate_assets could not be imported")
+            print("[VisualEngine] skipped: reel_factory.generate_assets is unavailable")
+            return video_path
 
-        raise RuntimeError(
-            "video-to-video generation is unavailable: reel_factory.create_video_asset requires "
-            "a real start_image and this repurposer path only has a source video"
-        )
+        print("[VisualEngine] skipped: paid visual generation is disabled for zero-cost variation")
+        return video_path

@@ -24,6 +24,7 @@ from .validator import (
     validate_schema_examples,
     validate_threadsdash_draft_payload,
     validate_threadsdash_draft_payload_strict,
+    validate_variant_assignment,
     validate_video_analysis,
 )
 
@@ -53,5 +54,6 @@ __all__ = [
     "validate_schema_examples",
     "validate_threadsdash_draft_payload",
     "validate_threadsdash_draft_payload_strict",
+    "validate_variant_assignment",
     "validate_video_analysis",
 ]

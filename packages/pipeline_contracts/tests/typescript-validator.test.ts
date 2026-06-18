@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
 	validateAudioIntentContract,
 	validateRepurposingPlan,
+	validateVariantAssignment,
 } from "../typescript/index";
 
 const schemaRoot = resolve(__dirname, "../schemas");
@@ -67,6 +68,28 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateRepurposingPlan(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("master_asset_id"),
+			]),
+		);
+	});
+
+	it("validates variant assignment account bindings through AJV", () => {
+		const payload = example("variant_assignment");
+		delete payload.assignments[0].account_id;
+
+		expect(validateVariantAssignment(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("account_id"),
+			]),
+		);
+	});
+
+	it("rejects invalid variant assignment scores through AJV", () => {
+		const payload = example("variant_assignment");
+		payload.assignments[0].distinctness_scores.master_ssim = 1.2;
+
+		expect(validateVariantAssignment(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("master_ssim"),
 			]),
 		);
 	});

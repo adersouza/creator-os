@@ -20,6 +20,7 @@ from pipeline_contracts import (
     validate_repurposing_plan,
     validate_recommendation_next_batch,
     validate_schema_examples,
+    validate_variant_assignment,
     validate_video_analysis,
 )
 
@@ -44,6 +45,7 @@ def test_named_validators_accept_examples():
     validate_kling_3_video_prompt(load_example("kling_3_video_prompt"))
     validate_generated_asset_lineage(load_example("generated_asset_lineage"))
     validate_creative_plan(load_example("creative_plan"))
+    validate_variant_assignment(load_example("variant_assignment"))
 
 
 def test_validator_reports_nested_required_field():
@@ -155,6 +157,30 @@ def test_repurposing_plan_contract_rejects_bad_master_asset_id_pattern():
 
     with pytest.raises(ContractValidationError, match="master_asset_id"):
         validate_repurposing_plan(payload)
+
+
+def test_variant_assignment_contract_requires_account_binding():
+    payload = load_example("variant_assignment")
+    del payload["assignments"][0]["account_id"]
+
+    with pytest.raises(ContractValidationError, match="account_id"):
+        validate_variant_assignment(payload)
+
+
+def test_variant_assignment_contract_rejects_extra_assignment_properties():
+    payload = load_example("variant_assignment")
+    payload["assignments"][0]["unexpected"] = True
+
+    with pytest.raises(ContractValidationError, match="unexpected"):
+        validate_variant_assignment(payload)
+
+
+def test_variant_assignment_contract_rejects_bad_scores():
+    payload = load_example("variant_assignment")
+    payload["assignments"][0]["distinctness_scores"]["master_ssim"] = 1.2
+
+    with pytest.raises(ContractValidationError, match="master_ssim"):
+        validate_variant_assignment(payload)
 
 
 def test_campaign_draft_payload_validates_nested_ref_constraints():
