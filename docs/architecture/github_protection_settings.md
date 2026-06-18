@@ -26,21 +26,19 @@ Require these checks before merge:
 - `Creator OS Monorepo CI / javascript`
 - `Creator OS Monorepo CI / python`
 - `Creator OS Monorepo CI / hygiene`
-- `Creator OS Monorepo CI / dashboard-build-provenance`
-- `Security / Dependency review` after GitHub Dependency Graph is enabled.
 - `Security / CodeQL (javascript-typescript)`
 - `Security / CodeQL (python)`
 - `Security / Secret scan` after the current-tree hygiene step is confirmed
   blocking and the full-history incident scan is either clean or explicitly
   kept report-only during the documented secret incident.
+- `Security / Trivy filesystem scan`
 - `OpenSSF Scorecard / Scorecard report` after the first SARIF baseline is
   reviewed. Scorecard starts in report mode so baseline findings do not block
   unrelated migration work.
 
-The visual-regression, Trivy, and SBOM provenance jobs should be required after
-their first baseline has been reviewed for runtime and CI cost. Trivy is
-intentionally report-only in the workflow for now (`--exit-code 0`) so SARIF
-findings can be reviewed before changing it into a blocking gate.
+Trivy and SBOM provenance jobs should be required after their first baseline has
+been reviewed for runtime and CI cost. Dashboard visual regression and build
+provenance belong to the external ThreadsDashboard repository, not Creator OS.
 
 ## Merge Queue
 

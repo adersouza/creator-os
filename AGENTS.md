@@ -10,9 +10,8 @@ monorepo path against a copied Campaign Factory SQLite database certified the
 25-account gate and blocked the 50-account gate on inventory buffer only.
 
 Do not promote production deployments from this repo without an explicit
-deployment instruction. In particular, `apps/dashboard/vercel.json` includes
-scheduler and publishing cron entries, so Dashboard runtime promotion must be
-intentional and reviewed.
+deployment instruction. ThreadsDashboard is external to this repo and remains
+the dashboard production source unless the user explicitly changes that.
 
 ## Current Runtime Truth
 
@@ -27,9 +26,10 @@ intentional and reviewed.
 
 `packages/pipeline_contracts` is the canonical source for shared schemas,
 Python validators, and TypeScript exports inside this monorepo. Compatibility
-copies under `pipeline_contracts/`, `apps/dashboard/pipeline_contracts/`, and
-`python_packages/campaign_factory/schemas/` must stay byte-for-byte synced with
-the package source. Run `pnpm check:contracts` after any contract or payload
+copies under `pipeline_contracts/` and `python_packages/campaign_factory/schemas/`
+must stay byte-for-byte synced with the package source. ThreadsDashboard
+consumes contracts from its own external checkout/package path, not from a
+Creator OS mirror path. Run `pnpm check:contracts` after any contract or payload
 change.
 
 ## Tooling And PR Safety
@@ -38,14 +38,14 @@ change.
 - CodeQL and TruffleHog run from `.github/workflows/security.yml`.
 - Use `pnpm security:secrets` for local secret scanning when `gitleaks` or
   `trufflehog` is installed.
-- Use `pnpm test:visual` for Dashboard Storybook visual regression checks.
 - Use `pnpm check:artifacts` before committing tooling or generated-output
   changes.
 - Use `pnpm check:arch` before merging changes that cross app/package
   boundaries. It runs dependency-cruiser for TypeScript and import-linter for
   Python.
-- See `docs/architecture/tooling_hardening.md` for dependency-update,
-  visual-regression, Sentry, and Graphify operating rules.
+- See `docs/architecture/tooling_hardening.md` for dependency-update, Sentry,
+  and Graphify operating rules. Dashboard visual regression belongs upstream in
+  ThreadsDashboard.
 - See `docs/architecture/github_protection_settings.md` for GitHub rulesets,
   merge queue, protected environments, and Secret Protection settings that must
   be configured outside the repo.

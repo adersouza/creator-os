@@ -7236,144 +7236,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         time_plan: dict[str, Any] | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        requested = max(1, int(requested_count or 1))
-        creator_label = self._creator_label(creator)
-        report = threadsdash_report or {}
-        schedule = schedule_plan or {}
-        time_report = time_plan or {}
-        daily = self.creator_os_daily_plan(
-            creators=[creator_label],
-            threadsdash_report=report,
-            schedule_plan=schedule,
-            time_plan=time_report,
+        from . import readiness as _readiness
+
+        return _readiness.creator_os_execution_readiness(
+            self,
+            creator=creator,
+            requested_count=requested_count,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
             generated_at=generated_at,
         )
-        creator_row = daily["creators"][0] if daily.get("creators") else {}
-        missed_dispatches = [item for item in report.get("missedDispatches") or [] if isinstance(item, dict)]
-        draft_items = self._creator_os_draft_items([item for item in (time_report, schedule) if isinstance(item, dict)])
-        schedule_safe_drafts = self._creator_os_schedule_safe_drafts(creator_label, draft_items)
-        account_health = self.creator_os_account_health_report(
-            creator=creator_label,
-            threadsdash_report=report,
-            generated_at=generated_at,
-        )
-        safe_accounts = int(creator_row.get("safeAccounts") or 0)
-        blockers: list[str] = []
-        warnings: list[str] = []
-
-        if safe_accounts < requested:
-            blockers.append("insufficient_safe_accounts")
-        if missed_dispatches:
-            blockers.append("missed_dispatches_unresolved")
-        if len(schedule_safe_drafts) < requested:
-            blockers.append("insufficient_schedule_safe_drafts")
-
-        blockers.extend(self._creator_os_execution_draft_blockers(creator_label, draft_items))
-        blockers.extend(self._creator_os_execution_account_health_blockers(account_health))
-        warnings.extend(self._creator_os_execution_account_health_warnings(account_health))
-
-        schedule_status = str(schedule.get("status") or "").lower()
-        schedule_items = [item for item in schedule.get("items") or [] if isinstance(item, dict)]
-        if schedule_status != "ready":
-            reason = str(schedule.get("blockingReason") or "schedule_plan_not_ready")
-            blockers.append(f"schedule_plan_not_ready:{reason}")
-        elif len(schedule_items) < requested:
-            blockers.append("insufficient_schedule_plan_items")
-
-        time_status = str(time_report.get("status") or "").lower()
-        time_items = [item for item in time_report.get("items") or [] if isinstance(item, dict)]
-        if time_status != "ready":
-            reason = str(time_report.get("blockingReason") or "time_plan_not_ready")
-            blockers.append(f"time_plan_not_ready:{reason}")
-        elif len(time_items) < requested:
-            blockers.append("insufficient_time_plan_items")
-        if self._creator_os_has_time_collision(time_items):
-            blockers.append("timestamp_collision")
-
-        runtime_warnings, runtime_blockers = self._creator_os_publish_runtime_findings(missed_dispatches)
-        warnings.extend(runtime_warnings)
-        blockers.extend(runtime_blockers)
-
-        unique_blockers = sorted(set(blockers))
-        account_readiness = "pass" if safe_accounts >= requested and not missed_dispatches else "fail"
-        draft_readiness = "pass" if len(schedule_safe_drafts) >= requested and not any(
-            blocker in unique_blockers
-            for blocker in {
-                "missing_handoff_manifest",
-                "platform_draft_not_validated",
-                "quarantined_draft_present",
-                "publishability_failed_draft_present",
-                "missing_campaign_factory_asset_id",
-                "missing_campaign_factory_distribution_plan_id",
-                "embedded_audio_invalid",
-                "insufficient_schedule_safe_drafts",
-            }
-        ) else "fail"
-        schedule_readiness = "pass" if schedule_status == "ready" and len(schedule_items) >= requested and not any(
-            blocker in unique_blockers for blocker in {"variant_cooldown_violation", "duplicate_schedule_risk"}
-        ) else "fail"
-        time_readiness = "pass" if time_status == "ready" and len(time_items) >= requested and "timestamp_collision" not in unique_blockers else "fail"
-        publish_readiness = "pass" if not missed_dispatches and not runtime_blockers else "fail"
-        caption_readiness = "pass" if not any(
-            blocker in unique_blockers
-            for blocker in {"missing_instagram_post_caption", "missing_burned_caption_text", "caption_placement_qc_failed"}
-        ) else "fail"
-        checklist = {
-            "accountReadiness": account_readiness,
-            "accountHealthReadiness": "pass" if not self._creator_os_execution_account_health_blockers(account_health) else "fail",
-            "draftReadiness": draft_readiness,
-            "schedulePlanReadiness": schedule_readiness,
-            "timePlanReadiness": time_readiness,
-            "publishRuntimeReadiness": publish_readiness,
-            "captionContractReadiness": caption_readiness,
-        }
-
-        if all(value == "pass" for value in checklist.values()) and not unique_blockers:
-            decision = "ready_to_schedule"
-            reason = "all_precommit_checks_passed"
-            execution_ready = True
-            next_actions = ["commit_campaign_schedule_batch"]
-        elif len(schedule_safe_drafts) < requested and account_readiness == "pass" and publish_readiness == "pass":
-            decision = "needs_inventory"
-            reason = "schedule_safe_draft_inventory_short"
-            execution_ready = False
-            next_actions = ["create_or_export_schedule_safe_drafts", "rerun_campaign_schedule_plan"]
-        else:
-            decision = "blocked"
-            reason = unique_blockers[0] if unique_blockers else "precommit_check_failed"
-            execution_ready = False
-            next_actions = []
-            if missed_dispatches:
-                next_actions.append("resolve_missed_dispatches_before_scheduling")
-            if schedule_readiness == "fail":
-                next_actions.append("rerun_campaign_schedule_plan")
-            if time_readiness == "fail":
-                next_actions.append("rerun_campaign_schedule_time_plan")
-            if draft_readiness == "fail":
-                next_actions.append("create_or_export_schedule_safe_drafts")
-
-        return {
-            "schema": "creator_os.execution_readiness.v1",
-            "generatedAt": generated_at or utc_now(),
-            "creator": creator_label,
-            "requestedCount": requested,
-            "managerDecision": decision,
-            "managerReason": reason,
-            "executionReady": execution_ready,
-            "safeAccountsAvailable": safe_accounts,
-            "scheduleSafeDraftsAvailable": len(schedule_safe_drafts),
-            "accountHealthSummary": account_health.get("summary") or {},
-            "blockers": unique_blockers,
-            "warnings": sorted(set(warnings)),
-            "preCommitChecklist": checklist,
-            "nextSafeActions": list(dict.fromkeys(next_actions)),
-            "wouldWrite": False,
-            "inputs": {
-                "threadsdashReportSchema": report.get("schema"),
-                "schedulePlanSchema": schedule.get("schema"),
-                "timePlanSchema": time_report.get("schema"),
-            },
-        }
 
     def decision_ledger_preview(
         self,
@@ -17598,20 +17471,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return sorted(rows, key=lambda item: (-(item["performance"]["totals"].get("views") or 0), str(item.get(output_key) or "")))
 
     def audit_report(self, audit_report_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM audit_reports WHERE id = ?", (audit_report_id,)).fetchone()
-        if not row:
-            raise ValueError(f"audit report not found: {audit_report_id}")
-        row_dict = dict(row)
-        report = self._audit_report_payload(row_dict)
-        report["id"] = audit_report_id
-        path = Path(row_dict["report_path"])
-        if path.exists():
-            raw = json_load(path.read_text(encoding="utf-8"), {})
-            if isinstance(raw, dict):
-                raw["id"] = audit_report_id
-                raw["database"] = report
-                return raw
-        return report
+        from . import audit_payload as _audit_payload
+
+        return _audit_payload.audit_report(self, audit_report_id)
 
     def prepare_reel_inputs(
         self,
@@ -20543,205 +20405,24 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return formats
 
     def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
-        dashboard = self.dashboard(campaign_slug)
-        rendered = dashboard.get("rendered") or []
-        counts = {
-            "sourcesImported": len(dashboard.get("sources") or []),
-            "variantsGenerated": len(rendered),
-            "auditedAssets": sum(1 for asset in rendered if asset.get("latest_audit")),
-            "ready": sum(1 for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "ready"),
-            "review": sum(1 for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "warning" or asset.get("review_state") == "review_ready"),
-            "fix": sum(1 for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "blocked"),
-            "failed": sum(1 for asset in rendered if asset.get("audit_status") == "failed"),
-            "approved": sum(1 for asset in rendered if asset.get("review_state") == "approved"),
-            "rejected": sum(1 for asset in rendered if asset.get("review_state") == "rejected"),
-        }
-        audio_workflow = dashboard.get("audioWorkflow") or self.audio_workflow_summary(rendered)
-        counts["needsAudio"] = audio_workflow["counts"]["needs_audio"]
-        counts["audioReady"] = audio_workflow["counts"]["ready"]
-        counts["audioBlocked"] = audio_workflow["counts"]["blocked"]
-        daily_production = self.daily_production_counters(campaign_slug, dashboard=dashboard)
-        creative_plan = dashboard.get("creativePlan") or self.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
-        return {
-            "schema": "campaign_factory.batch_summary.v1",
-            "campaign": campaign_slug,
-            "generatedAt": utc_now(),
-            "counts": counts,
-            "health": dashboard.get("health"),
-            "audioWorkflow": audio_workflow,
-            "dailyProduction": daily_production,
-            "creativePlan": creative_plan,
-            "topRecommended": (dashboard.get("ranking") or [])[:10],
-            "variantPacks": self._variant_pack_groups(rendered),
-        }
+        from . import exports as _exports
+
+        return _exports.batch_summary(self, campaign_slug)
 
     def daily_production_counters(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
-        dashboard = dashboard or self.dashboard(campaign_slug)
-        sources = dashboard.get("sources") or []
-        rendered = dashboard.get("rendered") or []
-        prompt_ready = 0
-        generated = 0
-        for source in sources:
-            prompt = source.get("source_prompt") or source.get("sourcePrompt")
-            payload = json_load(prompt, {}) if isinstance(prompt, str) else (prompt if isinstance(prompt, dict) else {})
-            if payload.get("schema") == "campaign_factory.finished_video_intake.v1":
-                prompt_ready += 1
-                generated += 1
-        reviewed_states = {"approved", "rejected", "review_ready"}
-        posted_states = {"exported", "scheduled", "posted", "published"}
-        return {
-            "schema": "campaign_factory.daily_production_counters.v1",
-            "targetBaseVideos": 10,
-            "promptReady": prompt_ready,
-            "generated": generated,
-            "sentToPipeline": len(rendered),
-            "reviewed": sum(1 for asset in rendered if asset.get("review_state") in reviewed_states),
-            "postedOrScheduled": sum(
-                1
-                for asset in rendered
-                if (asset.get("export_state") or asset.get("exportState") or "").lower() in posted_states
-            ),
-            "remainingBaseVideos": max(0, 10 - generated),
-            "primaryMetric": "views_reach",
-        }
+        from . import exports as _exports
+
+        return _exports.daily_production_counters(self, campaign_slug, dashboard=dashboard)
 
     def _variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for asset in rendered:
-            groups.setdefault(asset.get("source_asset_id") or "unknown", []).append(asset)
-        packs = []
-        for source_id, assets in groups.items():
-            ranked = sorted(
-                assets,
-                key=lambda asset: asset.get("performanceScore") or (asset.get("export_readiness") or {}).get("operatorScore") or 0,
-                reverse=True,
-            )
-            packs.append({
-                "sourceAssetId": source_id,
-                "variantCount": len(assets),
-                "approvedCount": sum(1 for asset in assets if asset.get("review_state") == "approved"),
-                "reviewReadyCount": sum(1 for asset in assets if asset.get("review_state") == "review_ready"),
-                "topVariant": {
-                    "renderedAssetId": ranked[0]["id"],
-                    "filename": ranked[0]["filename"],
-                    "recipe": ranked[0].get("recipe"),
-                    "score": ranked[0].get("performanceScore") or (ranked[0].get("export_readiness") or {}).get("operatorScore"),
-                } if ranked else None,
-            })
-        return packs
+        from . import exports as _exports
+
+        return _exports._variant_pack_groups(self, rendered)
 
     def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            """
-            SELECT r.*, s.account_ids_json, s.content_hash AS source_content_hash, s.source_prompt, m.slug AS model_slug
-            FROM rendered_assets r
-            JOIN source_assets s ON s.id = r.source_asset_id
-            JOIN models m ON m.id = s.model_id
-            WHERE r.campaign_id = ? AND r.review_state = 'approved'
-            ORDER BY r.created_at
-            """,
-            (campaign["id"],),
-        ).fetchall()
-        assets = []
-        campaign_graph_id = self.graph_id_for("campaigns", campaign["id"], entity_type="campaign", payload={"slug": campaign["slug"]})
-        for row in rows:
-            row = dict(row)
-            latest_audit = self.conn.execute(
-                "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
-                (row["id"],),
-            ).fetchone()
-            audit_summary = {}
-            if latest_audit and latest_audit["report_path"]:
-                try:
-                    audit_report = json_load(Path(latest_audit["report_path"]).read_text(encoding="utf-8"), {})
-                    creative = audit_report.get("creativeQuality") or {}
-                    reference_match = audit_report.get("referenceMatch") or {}
-                    audit_summary = {
-                        "overallVerdict": audit_report.get("overallVerdict"),
-                        "readinessSummary": audit_report.get("readinessSummary") or {},
-                        "creativeScore": creative.get("score") or creative.get("overallScore"),
-                        "variationScore": reference_match.get("variationScore") or reference_match.get("differenceScore"),
-                        "referenceMatchLevel": reference_match.get("referenceMatchLevel"),
-                        "warningCount": len(audit_report.get("warnings") or []),
-                    }
-                except OSError:
-                    audit_summary = {}
-            caption_generation = json_load(row["caption_generation_json"], {})
-            reference_pattern = self.active_reference_pattern_for_campaign(campaign["id"])
-            source_prompt = json_load(row["source_prompt"], {}) if row["source_prompt"] else {}
-            generated_lineage = self._generated_asset_lineage(source_prompt, reference_pattern)
-            caption_outcome_context = load_context_json(row.get("caption_outcome_context_json"))
-            if not caption_outcome_context:
-                caption_outcome_context = build_caption_outcome_context(
-                    caption_text=row["caption"] or "",
-                    caption_hash=row.get("caption_hash"),
-                    render_recipe=row["recipe"],
-                    source_clip=row.get("source_clip"),
-                    rendered_output=row["output_path"],
-                    creator_model=row["model_slug"],
-                    lineage=caption_generation.get("generatedAssetLineage") if isinstance(caption_generation.get("generatedAssetLineage"), dict) else caption_generation,
-                )
-            creative_plan = None
-            creative_plan_id = source_prompt.get("creativePlanId") or source_prompt.get("creative_plan_id")
-            if creative_plan_id:
-                plan_row = self.conn.execute("SELECT * FROM creative_plans WHERE id = ?", (creative_plan_id,)).fetchone()
-                if plan_row:
-                    creative_plan = self._creative_plan_payload(dict(plan_row))
-            audio_recommendations = self._audio_recommendations_for_asset(
-                caption_generation=caption_generation,
-                reference_pattern=reference_pattern,
-                recipe=row["recipe"],
-                account_tags=json_load(row["account_ids_json"], []),
-            )
-            source_graph_id = self.graph_id_for("source_assets", row["source_asset_id"], entity_type="source_asset")
-            rendered_graph_id = self.graph_id_for("rendered_assets", row["id"], entity_type="rendered_asset")
-            audit_graph_id = self.graph_id_for("audit_reports", latest_audit["id"], entity_type="audit_report") if latest_audit else None
-            if audit_graph_id:
-                self.ensure_graph_edge(
-                    rendered_graph_id,
-                    audit_graph_id,
-                    "rendered_asset_to_audit_report",
-                    evidence={"source": "export_manifest", "auditReportId": latest_audit["id"]},
-                )
-            assets.append({
-                "graphId": rendered_graph_id,
-                "campaignGraphId": campaign_graph_id,
-                "sourceAssetGraphId": source_graph_id,
-                "renderedAssetGraphId": rendered_graph_id,
-                "auditGraphId": audit_graph_id,
-                "sourceAssetId": row["source_asset_id"],
-                "renderedAssetId": row["id"],
-                "contentHash": row["content_hash"],
-                "sourceContentHash": row["source_content_hash"],
-                "filePath": row["campaign_path"],
-                "caption": row["caption"] or "",
-                "captionHash": caption_outcome_context.get("caption_hash")
-                or hashlib.sha256(" ".join((row["caption"] or "").strip().lower().split()).encode("utf-8")).hexdigest(),
-                "captionOutcomeContext": caption_outcome_context,
-                "captionGeneration": caption_generation,
-                "modelId": row["model_slug"],
-                "accountIds": json_load(row["account_ids_json"], []),
-                "recipe": row["recipe"],
-                "auditStatus": row["audit_status"],
-                "auditSummary": audit_summary,
-                "referencePattern": reference_pattern,
-                "sourcePrompt": source_prompt,
-                "generatedAssetLineage": generated_lineage,
-                "creativePlan": creative_plan,
-                "audioRecommendations": audio_recommendations,
-                "contentForgeRunId": latest_audit["contentforge_run_id"] if latest_audit else None,
-                "tags": [f"campaign:{campaign['slug']}", f"recipe:{row['recipe']}"],
-            })
-        payload = {
-            "schema": "campaign_factory.export.v1",
-            "campaignId": campaign["slug"],
-            "campaignGraphId": campaign_graph_id,
-            "platform": campaign["platform"],
-            "createdAt": utc_now(),
-            "assets": assets,
-        }
-        return payload
+        from . import exports as _exports
+
+        return _exports.export_manifest(self, campaign_slug=campaign_slug)
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
         campaigns = self.list_campaigns()
@@ -25607,43 +25288,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return int(round(weighted / total_weight)) if total_weight else None
 
     def _audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        report = {
-            "id": row["id"],
-            "contentForgeRunId": row["contentforge_run_id"],
-            "reportPath": row["report_path"],
-            "score": row["score"],
-            "status": row["status"],
-            "layers": json_load(row["layers_json"], {}),
-            "verdicts": json_load(row["verdicts_json"], {}),
-            "overallVerdict": row["overall_verdict"],
-            "filesAnalyzed": row["files_analyzed"],
-            "failedChecks": json_load(row["failed_checks_json"], []),
-            "warnings": json_load(row["warnings_json"], []),
-            "createdAt": row["created_at"],
-            "readinessSummary": None,
-        }
-        path = Path(row["report_path"])
-        if path.exists():
-            payload = json_load(path.read_text(encoding="utf-8"), {})
-            if isinstance(payload, dict):
-                report["readinessSummary"] = payload.get("readinessSummary")
-                report["contractVersion"] = payload.get("contractVersion")
-                report["auditProfile"] = payload.get("auditProfile")
-                report["targetFile"] = payload.get("targetFile")
-                report["verdictCodes"] = payload.get("verdictCodes") or {}
-                report["ocr"] = payload.get("ocr")
-                report["captionBoxes"] = payload.get("captionBoxes") or []
-                report["safeZoneScore"] = payload.get("safeZoneScore")
-                report["readabilityScore"] = payload.get("readabilityScore")
-                report["hookVisibilityScore"] = payload.get("hookVisibilityScore")
-                report["safeZone"] = payload.get("safeZone")
-                report["readability"] = payload.get("readability")
-                report["hookVisibility"] = payload.get("hookVisibility")
-                report["creativeQuality"] = payload.get("creativeQuality")
-                report["timings"] = payload.get("timings")
-                report["error"] = payload.get("error")
-        return report
+        from . import audit_payload as _audit_payload
 
+        return _audit_payload._audit_report_payload(self, row)
     def _local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
         blocking = []
         warnings = []

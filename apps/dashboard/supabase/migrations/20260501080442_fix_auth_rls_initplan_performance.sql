@@ -1,3 +1,0 @@
--- Historical production migration marker.
--- Auth initplan performance fixes are preserved in later idempotent RLS
--- hardening migrations.

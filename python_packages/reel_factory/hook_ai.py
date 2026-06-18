@@ -45,7 +45,7 @@ class OllamaHookProvider:
         try:
             with urllib.request.urlopen(f"{self.base_url}/api/tags", timeout=2.0) as res:
                 data = json.loads(res.read().decode("utf-8"))
-        except Exception as e:
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
             return False, f"Ollama is not reachable: {e}"
         models = [m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)]
         if not models:
@@ -249,7 +249,7 @@ def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
             min_similarity=min_similarity,
             embedding_model=embedding_model,
         )
-    except Exception as e:
+    except (RuntimeError, ValueError, urllib.error.URLError, OSError) as e:
         return {"ok": False, "error": str(e), "hooks": []}
     generation_id = new_generation_id()
     quality = [

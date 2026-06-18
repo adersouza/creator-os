@@ -1,4 +1,4 @@
-// Prepare sibling source repos for the mirror parity gate in CI.
+// Legacy helper for preparing sibling source repos when committed mirrors exist.
 //
 // Local development already has ../ThreadsDashboard, ../campaign_factory, etc.
 // GitHub Actions checks out only creator-os, so this script clones each source
@@ -12,6 +12,11 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cfg = JSON.parse(readFileSync(join(REPO_ROOT, "mirror-sources.json"), "utf8"));
 const token = process.env.MIRROR_SYNC_TOKEN || "";
+
+if (!(cfg.mirrors || []).length) {
+  console.log("No committed mirrors configured; no source repos to prepare.");
+  process.exit(0);
+}
 
 function authedUrl(url) {
   if (!token || !url.startsWith("https://github.com/")) return url;

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TS_FIXTURE="$ROOT/apps/dashboard/src/components/__arch_guard_violation__.ts"
+TS_FIXTURE="$ROOT/packages/pipeline_contracts/__arch_guard_violation__.ts"
 PY_FIXTURE="$ROOT/packages/pipeline_contracts/pipeline_contracts/__arch_guard_violation__.py"
 
 cleanup() {
@@ -12,14 +12,14 @@ cleanup() {
 trap cleanup EXIT
 
 cat > "$TS_FIXTURE" <<'FIXTURE'
-import { getQStashClient } from "../../api/_lib/qstash";
+import { runPipeline } from "../../apps/contentforge/lib/pipeline.js";
 
-export const forbiddenArchitectureFixture = getQStashClient;
+export const forbiddenArchitectureFixture = runPipeline;
 FIXTURE
 
 if (cd "$ROOT" && pnpm check:arch:ts >/tmp/creator-os-arch-guard-ts.log 2>&1); then
   cat /tmp/creator-os-arch-guard-ts.log
-  echo "ERROR: dependency-cruiser did not reject dashboard UI -> QStash runtime import" >&2
+  echo "ERROR: dependency-cruiser did not reject pipeline_contracts -> app runtime import" >&2
   exit 1
 fi
 

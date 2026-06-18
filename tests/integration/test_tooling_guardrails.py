@@ -43,7 +43,7 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     assert "--format sarif" in trivy_step["with"]["args"]
     assert "--output trivy-results.sarif" in trivy_step["with"]["args"]
     assert "--exit-code 1" in trivy_step["with"]["args"]
-    assert "--skip-dirs apps/dashboard" in trivy_step["with"]["args"]
+    assert "--skip-dirs apps/dashboard" not in trivy_step["with"]["args"]
     assert any(step.get("uses") == "github/codeql-action/upload-sarif@v4" for step in trivy_steps)
     assert any(
         step.get("name") == "Gate Trivy HIGH/CRITICAL findings"
@@ -70,11 +70,11 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
         "contracts",
         "architecture",
         "javascript",
-        "visual-regression",
         "sbom",
-        "dashboard-build-provenance",
     ):
         _assert_action_major_allowed(jobs[job_name]["steps"], "pnpm/action-setup", {6})
+    assert "visual-regression" not in jobs
+    assert "dashboard-build-provenance" not in jobs
 
     assert "architecture" in jobs
     arch_runs = [step.get("run", "") for step in jobs["architecture"]["steps"]]
@@ -92,18 +92,6 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     assert any(
         step.get("uses") == "actions/attest-build-provenance@v4.1.0"
         for step in jobs["sbom"]["steps"]
-    )
-
-    assert "dashboard-build-provenance" in jobs
-    dashboard_runs = "\n".join(
-        step.get("run", "") for step in jobs["dashboard-build-provenance"]["steps"]
-    )
-    assert "pnpm --filter juno33 build" in dashboard_runs
-    assert jobs["dashboard-build-provenance"]["permissions"]["attestations"] == "write"
-    assert jobs["dashboard-build-provenance"]["permissions"]["id-token"] == "write"
-    assert any(
-        step.get("uses") == "actions/attest-build-provenance@v4.1.0"
-        for step in jobs["dashboard-build-provenance"]["steps"]
     )
 
 
@@ -136,7 +124,7 @@ def test_scorecard_workflow_is_report_mode() -> None:
     )
 
 
-def test_dependabot_excludes_read_only_dashboard_mirror() -> None:
+def test_dependabot_no_longer_excludes_deleted_dashboard_mirror() -> None:
     config = _workflow(".github/dependabot.yml")
     npm_updates = [
         update
@@ -145,7 +133,7 @@ def test_dependabot_excludes_read_only_dashboard_mirror() -> None:
     ]
 
     assert len(npm_updates) == 1
-    assert "apps/dashboard/**" in npm_updates[0].get("exclude-paths", [])
+    assert "apps/dashboard/**" not in npm_updates[0].get("exclude-paths", [])
 
 
 def test_dependabot_ignores_known_incompatible_eslint_major() -> None:
@@ -170,7 +158,7 @@ def test_architecture_guard_configs_are_narrow_and_present() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     python_checker = (ROOT / "scripts/check-python-architecture-boundaries.py").read_text(encoding="utf-8")
 
-    assert "dashboard-ui-no-live-publish-runtime" in depcruise
+    assert "pipeline-contracts-remain-foundational" in depcruise
     assert "tribe-research-not-operational-gate" in depcruise
     assert "pipeline_contracts remains foundational" in pyproject
     assert "campaign_factory core does not import reference_factory directly" in pyproject
@@ -205,7 +193,7 @@ def test_governance_docs_cover_runtime_promotion_and_runbooks() -> None:
     )
 
     assert "Production Promotion Checklist" in promotion
-    assert "split `ThreadsDashboard` remains rollback mirror" in promotion
+    assert "Dashboard production deployment must stay on the external ThreadsDashboard" in promotion
     assert "schema\": \"creator_os.media_provenance.v1" in media_provenance
     assert "Do not use provenance alone as a publishability" in media_provenance
     for heading in [

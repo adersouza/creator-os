@@ -71,10 +71,14 @@ export function buildFramesArgs(inputPath, outputPattern, everySeconds, maxFrame
   return ["-i", inputPath, "-vf", "fps=1/" + everySeconds, "-frames:v", String(maxFrames), "-y", outputPattern];
 }
 
-function escapeDrawtext(value) {
+export function escapeDrawtext(value) {
   return String(value || "")
     .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;")
+    .replace(/%/g, "\\%")
     .replace(/'/g, "\\'")
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]");

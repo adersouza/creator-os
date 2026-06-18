@@ -85,8 +85,6 @@ The monorepo CI workflow at `.github/workflows/monorepo-ci.yml` runs:
 
 - `pnpm check:contracts`
 - `pnpm --filter contentforge test`
-- `pnpm --filter juno33 test`
-- `pnpm --filter juno33 typecheck`
 - `uv sync --all-extras --all-packages`
 - `uv run pytest packages/pipeline_contracts/tests`
 - `uv run pytest python_packages/campaign_factory/tests`
@@ -103,9 +101,9 @@ Do not switch all runtime surfaces at once.
 1. Keep all current deployments running from split repos.
 2. Run monorepo CI in parallel on every migration branch.
 3. Promote `apps/contentforge` first because it has no publishing authority.
-4. Promote `apps/dashboard` only after contract sync and publish preflight tests pass in CI.
+4. Keep ThreadsDashboard deployed from `/Users/aderdesouza/Developer/ThreadsDashboard`.
 5. Promote Python package workflows after CLI parity is documented for each package.
-6. Keep split repos available as rollback mirrors until staged operations prove no drift.
+6. Keep split repos available as rollback paths until staged operations prove no drift.
 
 ## Production Promotion Checklist
 
@@ -122,13 +120,12 @@ the current `creator-os/main` commit.
 
 ### Dashboard
 
-- Run contract sync, unit tests, typecheck, and visual regression.
-- Run publish preflight tests from monorepo Dashboard code.
-- Confirm cron entries in `apps/dashboard/vercel.json` are reviewed before any
-  Vercel production project points at the monorepo.
-- Confirm split `ThreadsDashboard` remains rollback mirror. The active split
-  ThreadsDashboard checkout is out of scope while another Codex instance is
-  working on frontend/autoposter changes.
+- Run contract sync, unit tests, typecheck, visual regression, and publish
+  preflight tests in the external ThreadsDashboard repository.
+- Do not point a Dashboard Vercel production project at Creator OS; there is no
+  committed dashboard runtime here.
+- Campaign Factory commands that need dashboard context must use
+  `/Users/aderdesouza/Developer/ThreadsDashboard` or `THREADSDASH_ROOT`.
 
 ### Python CLIs
 
@@ -174,9 +171,8 @@ The staged proof must show:
 
 - Deployment configuration still points at split repos.
 - Production runtime has not been switched to the monorepo.
-- Dashboard production deployment must not be moved blindly because
-  `apps/dashboard/vercel.json` includes cron entries for scheduler and publish
-  workers.
+- Dashboard production deployment must stay on the external ThreadsDashboard
+  repository unless the owner explicitly changes deployment routing.
 - The next scale gate is 50 accounts, blocked by inventory buffer
   (`273 available` vs `450 required` in the latest copied-DB check).
 

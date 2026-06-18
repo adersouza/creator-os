@@ -1,12 +1,12 @@
 # Dashboard Sentry Verification
 
-Sentry is already the Dashboard error-reporting layer. This checklist verifies
-configuration before runtime promotion; it does not add OpenTelemetry or change
-serverless instrumentation.
+Sentry is already the Dashboard error-reporting layer. This checklist applies
+to the external ThreadsDashboard repository; Creator OS no longer commits a
+dashboard mirror or dashboard build artifact.
 
 ## Current Client Release
 
-`apps/dashboard/config/sentry.ts` sets the browser release as:
+ThreadsDashboard `config/sentry.ts` sets the browser release as:
 
 ```text
 juno33@<VITE_APP_VERSION or 0.0.0-dev>
@@ -36,7 +36,7 @@ upload production artifacts.
 
 ## Tunnel And Project
 
-`apps/dashboard/config/sentry.ts` leaves `tunnel` commented by default. If a
+ThreadsDashboard `config/sentry.ts` leaves `tunnel` commented by default. If a
 Sentry tunnel is later enabled, document:
 
 - the route path;
@@ -46,7 +46,7 @@ Sentry tunnel is later enabled, document:
 
 ## Promotion Gate
 
-Before Dashboard runtime promotion from the monorepo:
+Before any Dashboard deployment-routing change:
 
 1. Confirm `VITE_APP_VERSION` is set in preview/staging/prod builds.
 2. Confirm Sentry receives one non-production test event for the exact release.

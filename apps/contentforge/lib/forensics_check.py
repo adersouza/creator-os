@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Compression forensics checker for ContentForge.
-Detects double compression artifacts, encoder fingerprints, and GOP anomalies.
-Research-backed: DCT histogram periodicity, Benford's law on DCT coefficients,
-GOP periodicity via DFT, quantization table fingerprinting.
+Reports advisory double-compression, encoder-fingerprint, and GOP signals.
+These heuristics are useful operator-review signals, not deterministic proof.
 """
 
 import sys
@@ -20,6 +19,27 @@ else:
     NUMPY_IMPORT_ERROR = None
 
 # ─── JPEG Forensics ───
+
+def first_significant_digits(values):
+    """Return first significant base-10 digits for non-zero numeric values."""
+    digits = []
+    for value in values:
+        try:
+            numeric = abs(int(value))
+        except (TypeError, ValueError):
+            continue
+        if numeric == 0:
+            continue
+        while numeric >= 10:
+            numeric //= 10
+        digits.append(numeric)
+    return digits
+
+
+def advisory_check(payload):
+    payload["advisory"] = True
+    payload.setdefault("confidence", "heuristic")
+    return payload
 
 def analyze_jpeg(image_path):
     """Analyze a JPEG image for double compression artifacts."""
@@ -47,20 +67,19 @@ def analyze_jpeg(image_path):
             mean = float(np.mean(spectrum[2:20]))
             periodicity_score = peak / mean if mean > 0 else 0
 
-            results["checks"].append({
+            results["checks"].append(advisory_check({
                 "name": "dct_periodicity",
-                "label": "DCT Histogram Periodicity",
+                "label": "Advisory DCT Histogram Periodicity",
                 "score": round(periodicity_score, 2),
                 "threshold": 3.0,
                 "pass": periodicity_score < 3.0,
-                "detail": "Score < 3.0 = normal, > 3.0 = possible double compression"
-            })
+                "detail": "Heuristic score < 3.0 is typical; > 3.0 may warrant double-compression review"
+            }))
 
         # 2. Benford's law on AC DCT coefficients
         ac_coeffs = dct_y[dct_y != 0]  # Exclude zeros
         if len(ac_coeffs) > 100:
-            first_digits = np.abs(ac_coeffs) % 10
-            first_digits = first_digits[first_digits > 0]
+            first_digits = np.array(first_significant_digits(ac_coeffs))
             if len(first_digits) > 100:
                 # Expected Benford distribution
                 expected = np.array([np.log10(1 + 1/d) for d in range(1, 10)])
@@ -73,14 +92,14 @@ def analyze_jpeg(image_path):
 
                 # Threshold calibrated empirically: normal single-compress JPEG scores 0.2-0.5
                 # Double compression shifts to 0.4-0.8. Only flag extreme outliers (>1.0)
-                results["checks"].append({
+                results["checks"].append(advisory_check({
                     "name": "benford_law",
-                    "label": "Benford's Law (DCT first digits)",
+                    "label": "Advisory Benford Leading-Digit Check",
                     "score": round(chi_sq, 4),
                     "threshold": 1.0,
                     "pass": chi_sq < 1.0,
-                    "detail": "Chi-sq < 1.0 = normal range, > 1.0 = significant manipulation artifact"
-                })
+                    "detail": "Chi-sq < 1.0 is typical; > 1.0 is an advisory manipulation-review signal"
+                }))
 
         # 3. Quantization table analysis
         qt = jpg.quant_tables[0] if len(jpg.quant_tables) > 0 else None
@@ -101,30 +120,30 @@ def analyze_jpeg(image_path):
                 is_standard = ratio_std < 0.15  # Low variance = scaled standard table
                 estimated_quality = max(1, min(100, int(100 - np.mean(qt_flat) * 0.8)))
 
-                results["checks"].append({
+                results["checks"].append(advisory_check({
                     "name": "quantization_table",
-                    "label": "Quantization Table",
+                    "label": "Advisory Quantization Table",
                     "isStandard": is_standard,
                     "estimatedQuality": estimated_quality,
                     "pass": True,  # Informational
                     "detail": ("Standard scaled table" if is_standard else "Custom table") +
                               ", est. quality " + str(estimated_quality)
-                })
+                }))
 
     except ImportError:
-        results["checks"].append({
+        results["checks"].append(advisory_check({
             "name": "dct_periodicity",
-            "label": "DCT Analysis",
+            "label": "Advisory DCT Analysis",
             "pass": None,
             "detail": "jpegio not installed"
-        })
+        }))
     except Exception as e:
-        results["checks"].append({
+        results["checks"].append(advisory_check({
             "name": "dct_error",
-            "label": "DCT Analysis",
+            "label": "Advisory DCT Analysis",
             "pass": None,
             "detail": "Error: " + str(e)
-        })
+        }))
 
     return results
 
@@ -158,9 +177,9 @@ def analyze_video(video_path):
             avg_gop = float(np.mean(gop_sizes)) if gop_sizes else 0
             gop_std = float(np.std(gop_sizes)) if gop_sizes else 0
 
-            results["checks"].append({
+            results["checks"].append(advisory_check({
                 "name": "gop_structure",
-                "label": "GOP Structure",
+                "label": "Advisory GOP Structure",
                 "avgGop": round(avg_gop, 1),
                 "gopStd": round(gop_std, 1),
                 "isFixed": gop_std < 2.0,
@@ -168,7 +187,7 @@ def analyze_video(video_path):
                 "detail": "Avg GOP: " + str(round(avg_gop, 1)) +
                           " (std: " + str(round(gop_std, 1)) + ")" +
                           (" — fixed interval (device-like)" if gop_std < 2.0 else " — variable (software encoder)")
-            })
+            }))
 
             # DFT of frame sizes to detect original GOP periodicity
             sizes = np.array([int(f.get("pkt_size", 0)) for f in frames], dtype=float)
@@ -186,19 +205,19 @@ def analyze_video(video_path):
                     # If implied GOP differs significantly from actual, suggests re-encoding
                     gop_mismatch = implied_gop > 0 and len(gop_sizes) > 0 and abs(implied_gop - avg_gop) > 3
 
-                    results["checks"].append({
+                    results["checks"].append(advisory_check({
                         "name": "gop_periodicity",
-                        "label": "GOP Periodicity (DFT)",
+                        "label": "Advisory GOP Periodicity",
                         "impliedOriginalGop": implied_gop,
                         "currentGop": round(avg_gop, 1),
                         "peakStrength": round(peak_strength, 2),
                         "mismatch": gop_mismatch,
                         "pass": not gop_mismatch,
-                        "detail": ("GOP mismatch detected: implied original=" + str(implied_gop) +
-                                   ", current=" + str(round(avg_gop, 1)) + " — possible re-encoding")
+                        "detail": ("Heuristic GOP mismatch signal: implied original=" + str(implied_gop) +
+                                   ", current=" + str(round(avg_gop, 1)) + " — review for possible re-encoding")
                                   if gop_mismatch else
-                                  "No GOP mismatch detected"
-                    })
+                                  "No advisory GOP mismatch signal"
+                    }))
 
             # Frame type distribution
             pict_types = [f.get("pict_type", "?") for f in frames]
@@ -208,9 +227,9 @@ def analyze_video(video_path):
 
             has_b_frames = type_counts.get("B", 0) > 0
 
-            results["checks"].append({
+            results["checks"].append(advisory_check({
                 "name": "frame_types",
-                "label": "Frame Type Distribution",
+                "label": "Advisory Frame Type Distribution",
                 "distribution": type_counts,
                 "hasBFrames": has_b_frames,
                 "pass": True,  # Informational
@@ -218,15 +237,15 @@ def analyze_video(video_path):
                           " P:" + str(type_counts.get("P", 0)) +
                           " B:" + str(type_counts.get("B", 0)) +
                           (" — B-frames present (iPhone-like)" if has_b_frames else " — No B-frames (Android-like)")
-            })
+            }))
 
     except Exception as e:
-        results["checks"].append({
+        results["checks"].append(advisory_check({
             "name": "gop_error",
-            "label": "GOP Analysis",
+            "label": "Advisory GOP Analysis",
             "pass": None,
             "detail": "Error: " + str(e)
-        })
+        }))
 
     # 2. Encoder identification via mediainfo
     try:
@@ -245,47 +264,47 @@ def analyze_video(video_path):
                     has_x264 = "x264" in all_encoder_info
                     has_ffmpeg = "lavf" in all_encoder_info or "lavc" in all_encoder_info or "ffmpeg" in all_encoder_info
 
-                    results["checks"].append({
+                    results["checks"].append(advisory_check({
                         "name": "encoder_id",
-                        "label": "Encoder Identification",
+                        "label": "Advisory Encoder Identification",
                         "encoder": encoder or "Unknown",
                         "hasX264Sig": has_x264,
                         "hasFFmpegSig": has_ffmpeg,
                         "pass": not has_x264 and not has_ffmpeg,
-                        "detail": ("x264/FFmpeg encoder detected: " + (encoder or writing_lib)) if (has_x264 or has_ffmpeg)
+                        "detail": ("x264/FFmpeg encoder signal detected: " + (encoder or writing_lib)) if (has_x264 or has_ffmpeg)
                                   else ("Encoder: " + (encoder or "Unknown/Hardware"))
-                    })
+                    }))
 
                     # Check encoding settings for x264 parameter string
                     if encoder_settings:
-                        results["checks"].append({
+                        results["checks"].append(advisory_check({
                             "name": "encoder_settings",
-                            "label": "Encoder Settings Leak",
+                            "label": "Advisory Encoder Settings",
                             "settings": encoder_settings[:200],  # Truncate for readability
                             "pass": False,
-                            "detail": "Full x264 parameter string exposed via SEI — forensic fingerprint"
-                        })
+                            "detail": "x264 parameter string exposed via SEI; review as an encoder fingerprint signal"
+                        }))
                     break
 
                 if track.get("@type") == "Audio":
                     audio_rate = track.get("SamplingRate", "")
                     audio_codec = track.get("Format", "")
-                    results["checks"].append({
+                    results["checks"].append(advisory_check({
                         "name": "audio_format",
-                        "label": "Audio Format",
+                        "label": "Advisory Audio Format",
                         "sampleRate": audio_rate,
                         "codec": audio_codec,
                         "pass": True,
                         "detail": audio_codec + " @ " + str(audio_rate) + " Hz"
-                    })
+                    }))
 
     except Exception as e:
-        results["checks"].append({
+        results["checks"].append(advisory_check({
             "name": "mediainfo_error",
-            "label": "MediaInfo Analysis",
+            "label": "Advisory MediaInfo Analysis",
             "pass": None,
             "detail": "Error: " + str(e)
-        })
+        }))
 
     # 3. Check for x264 UUID SEI in binary
     try:
@@ -297,21 +316,21 @@ def analyze_video(video_path):
                                0x96, 0x2c, 0xd8, 0x20, 0xd9, 0x23, 0xee, 0xef])
             has_sei_uuid = x264_uuid in data
 
-            results["checks"].append({
+            results["checks"].append(advisory_check({
                 "name": "x264_sei",
-                "label": "x264 SEI UUID",
+                "label": "Advisory x264 SEI UUID",
                 "found": has_sei_uuid,
                 "pass": not has_sei_uuid,
-                "detail": ("x264 UUID SEI found in bitstream — signed confession of software encoding")
+                "detail": ("x264 UUID SEI found in bitstream; review as a software-encoding signal")
                           if has_sei_uuid else "No x264 SEI UUID detected"
-            })
+            }))
     except Exception as e:
-        results["checks"].append({
+        results["checks"].append(advisory_check({
             "name": "sei_error",
-            "label": "SEI Analysis",
+            "label": "Advisory SEI Analysis",
             "pass": None,
             "detail": "Error: " + str(e)
-        })
+        }))
 
     return results
 

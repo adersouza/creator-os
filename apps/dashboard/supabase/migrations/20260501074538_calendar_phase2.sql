@@ -1,3 +1,0 @@
--- Historical production migration marker.
--- The idempotent calendar phase 2 schema is represented in
--- 20260501192051_calendar_phase2.sql.
