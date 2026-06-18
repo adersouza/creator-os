@@ -14,7 +14,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from ..caption_outcome import build_caption_outcome_context, column_values, load_context_json
-from ..contracts import validate_threadsdash_draft_payload_strict
+from ..contracts import validate_post_metric_history_read, validate_threadsdash_draft_payload_strict
 from ..core import CampaignFactory, new_id, normalize_content_surface, utc_now, _normalize_distribution_surface, _normalize_schedule_mode
 
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -3158,7 +3158,7 @@ def _select_threadsdash_post_metric_history(
         "views_count,likes_count,replies_count,reposts_count,quotes_count,shares_count,"
         "saves_count,reach,engagement_rate,created_at"
     )
-    return client.select(
+    rows = client.select(
         "post_metric_history",
         {
             "select": select_columns,
@@ -3167,6 +3167,12 @@ def _select_threadsdash_post_metric_history(
             "limit": str(max(limit, len(ids) * 24)),
         },
     )
+    validate_post_metric_history_read({
+        "schema": "threadsdash.post_metric_history.read.v1",
+        "sourceTable": "post_metric_history",
+        "rows": rows,
+    })
+    return rows
 
 
 def _group_metric_history_by_post(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

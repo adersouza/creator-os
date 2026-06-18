@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "threadsdash.post_metric_history.read.v1",
+  "title": "ThreadsDashboard Post Metric History Read",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "sourceTable",
+    "rows"
+  ],
+  "properties": {
+    "schema": {
+      "const": "threadsdash.post_metric_history.read.v1"
+    },
+    "sourceTable": {
+      "const": "post_metric_history"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "post_id",
+          "account_id",
+          "platform",
+          "snapshot_at",
+          "hours_since_publish",
+          "views_count",
+          "likes_count",
+          "replies_count",
+          "reposts_count",
+          "quotes_count",
+          "shares_count",
+          "saves_count",
+          "reach",
+          "engagement_rate",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "post_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "account_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hours_since_publish": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "views_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "likes_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "replies_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reposts_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "quotes_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "shares_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "saves_count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reach": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "engagement_rate": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
