@@ -89,7 +89,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **5.9/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
+| **Intelligence / learning loop** | **6.2/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ranks arms with decayed Beta-Bernoulli planning stats, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
 | **Content quality / virality** | **5.6/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, heuristic creative warnings, configured Higgsfield virality reports, supplied model-backed video-analysis reports, and Reel Factory post-render virality sidecars can now block readiness/fan-out; live/operator report generation and Winner-DNA feedback remain open. |
 | **Anti-shadowban safety** | **~7/10** (was ~4; **+3 for Track S shipped + cooldown follow-through**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM; rendered assets persist Campaign Factory PDQ clusters for cross-account cooldowns; and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: dashboard aHash/video PDQ upstream work. |
 
@@ -101,7 +101,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/deterministic watchability/heuristic creative warnings plus supplied virality and video-analysis reports now block Campaign Factory upload readiness. Reel Factory readiness can also require supplied post-render virality evidence. Live generation of those model-backed reports is still not automated. The fix is often *wiring*, not *building*.
 2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, and Campaign Factory watchability now blocks on deterministic OCR/hook/quality/model-report evidence. Quality still lacks automated model-report generation and Winner-DNA feedback.
-3. **Learned intelligence dead-ends as an operator note.** Winner-DNA, recommendation trust score, creative recommendations — all computed, none auto-fed back into generation or ranking.
+3. **Learned intelligence dead-ends as an operator note.** Recommendation arms now rank with explicit decayed Beta-Bernoulli planning stats, but Winner-DNA and some creative recommendations still need automatic prompt feedback.
 4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs and Campaign Factory imports metric history curves; remaining gaps are trust-score self-correction, Winner-DNA prompt feedback, and dashboard video-PDQ upstream work.
 5. **In-environment AI is underused.** Higgsfield `virality_predictor` can now feed a default-off ContentForge gate and a Reel Factory post-render readiness gate when a report is supplied, and supplied Higgsfield `video_analysis` / VLM reports can block Campaign Factory fan-out. Live/operator report generation and automatic prompt feedback are still not wired into generation decisions.
 
@@ -119,6 +119,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
 | Upstream-fixed | ThreadsDashboard PR #129 (`supabase/migrations`, `analyticsSync.ts`, `post-engagement.ts`) | Track I capture repair is merged upstream: monotonic metric guards compare full metric totals, metric history retention uses `snapshot_at`, Threads reach is policy-backed as `views`, unavailable Threads saves are `null`, and tests cover those semantics. |
 | Partial | `core.py:23197` trust score; `_history_score` | Campaign Factory learning summaries now carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. Trust score self-correction is still not read back. |
+| Fixed for current volume | `learning_score.py`, `core.py` recommendation arm rankings | Reference-pattern and variation-preset arms now carry decayed Beta-Bernoulli stats (`alpha`, `beta`, posterior mean, effective trials), an explicit 15% exploration floor, and a deterministic planning score used ahead of raw performance for rankings. This implements the audit's v2 estimator without randomizing operator-visible recommendation order; stochastic Thompson sampling is deferred until post volume warrants exploration loss. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
 | Upstream-fixed | ThreadsDashboard PR #129 `postMetricSnapshotReconciliation.ts` | AP0-2 metric snapshot reconciliation is now in the running sync-orchestrator path as a non-fatal metrics phase; it re-dispatches missing 1h/24h metric fetches without publishing, scheduling, or mutating post status. |
 
@@ -166,7 +167,7 @@ PR #44 made variation real (per-index edits, sibling gate). **But the gate still
 - **PDQ** (`facebook/ThreatExchange`) + **SSCD** (`facebookresearch/sscd-copy-detection`, model already referenced) → real distinctness metric (Track S); both detectors already in `contentforge/lib`.
 - **OpenCLIP / SigLIP** → semantic creative/hook scoring vs winning references (Track Q).
 - **PySceneDetect** → real scene-aware editorial variation (Tracks Q+S).
-- **Thompson-sampling bandit** or **River** (online ML) → turn ranking into actual learning (Track I).
+- **Thompson-sampling bandit** or **River** (online ML) → decayed Beta-Bernoulli arm stats and deterministic planning score are wired; stochastic sampling is deferred until volume warrants it (Track I).
 - **VMAF/CAMBI + loudnorm/cropdetect** → wired into deterministic Campaign Factory watchability blocking when local FFmpeg evidence is available (Track Q); supplied model-backed virality/video-analysis evidence can block, but automated report generation remains open.
 
 ## Research prompts (external 2026 knowledge — give to Claude/ChatGPT deep-research)
@@ -237,7 +238,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
 4. **Track Q quality floor** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative and supplied model-backed video-analysis blocking are fixed; live/operator report generation remains.
 5. **Higgsfield virality wiring** (Track Q) — ContentForge report-ingestion and Reel Factory post-render sidecar gates are fixed; live/operator report generation remains.
-6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
+6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, explicit unmeasured state, decayed Beta-Bernoulli arm stats, and an exploration-floor planning score are in the Campaign Factory scoring/ranking seam.
 7. ~~**Track S rendered PDQ cluster cooldown**~~ ✓ **FIXED** — rendered asset metadata now carries real PDQ fingerprints/clusters and cross-account inventory cooldowns consume the cluster.
 8. Winner-DNA → generation auto-feedback; reference_factory return path.
 

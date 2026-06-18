@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from campaign_factory.learning_score import account_reward_baselines, aggregate_performance, performance_score
+from campaign_factory.learning_score import account_reward_baselines, aggregate_performance, performance_planning_score, performance_score
 
 
 def _snapshot(
@@ -88,3 +88,31 @@ def test_unmeasured_is_explicit_not_fake_average():
 
     assert summary["learning"]["status"] == "unmeasured"
     assert performance_score(summary) is None
+
+
+def test_bandit_planning_score_prefers_baseline_beating_arm():
+    snapshots = [
+        _snapshot(post_id="baseline_a", account="ig_1", views=1000, likes=50),
+        _snapshot(post_id="baseline_b", account="ig_1", views=1000, likes=50),
+        _snapshot(post_id="winner", account="ig_1", views=1000, likes=130, shares=20, saves=20),
+        _snapshot(post_id="loser", account="ig_1", views=1000, likes=8, shares=0, saves=0),
+    ]
+    baselines = account_reward_baselines(snapshots)
+
+    winner = aggregate_performance([snapshots[2]], account_baselines=baselines)
+    loser = aggregate_performance([snapshots[3]], account_baselines=baselines)
+
+    assert winner["learning"]["bandit"]["algorithm"] == "beta_bernoulli_decayed_v1"
+    assert winner["learning"]["bandit"]["posteriorMean"] > loser["learning"]["bandit"]["posteriorMean"]
+    assert performance_planning_score(winner) > performance_planning_score(loser)
+
+
+def test_sparse_arm_carries_explicit_exploration_floor():
+    summary = aggregate_performance([
+        _snapshot(post_id="single", views=1000, likes=55),
+    ])
+
+    bandit = summary["learning"]["bandit"]
+    assert bandit["explorationFloor"] == 0.15
+    assert bandit["explorationPriority"] == "explore"
+    assert bandit["effectiveTrials"] == summary["learning"]["effectiveSampleSize"]

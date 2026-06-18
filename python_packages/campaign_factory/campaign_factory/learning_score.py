@@ -10,6 +10,8 @@ PRIOR_STRENGTH = 5.0
 RECENCY_HALF_LIFE_DAYS = 21.0
 DEFAULT_REWARD_BASELINE = 0.35
 MIN_ACCOUNT_BASELINE_SAMPLES = 2
+EXPLORATION_FLOOR = 0.15
+EXPLORATION_MIN_EFFECTIVE_TRIALS = 5.0
 
 
 def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float]:
@@ -76,6 +78,17 @@ def performance_score(summary: dict[str, Any]) -> int | None:
     return None
 
 
+def performance_planning_score(summary: dict[str, Any]) -> int | None:
+    if not summary.get("count"):
+        return None
+    learning = summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
+    bandit = learning.get("bandit") if isinstance(learning.get("bandit"), dict) else {}
+    score = bandit.get("planningScore")
+    if isinstance(score, (int, float)):
+        return int(max(0, min(100, round(score))))
+    return performance_score(summary)
+
+
 def learning_summary(
     snapshots: list[dict[str, Any]],
     *,
@@ -98,6 +111,8 @@ def learning_summary(
     weight_total = 0.0
     measured = 0
     unmeasured = 0
+    beat_weight = 0.0
+    miss_weight = 0.0
     baseline_source_counts = {"account_median": 0, "default_prior": 0}
     for snapshot in snapshots:
         reward = snapshot_reward(snapshot)
@@ -115,6 +130,10 @@ def learning_summary(
         weight = recency_weight(snapshot.get("snapshotAt"), now=now)
         weighted_total += relative_reward * weight
         weight_total += weight
+        if relative_reward >= PRIOR_RELATIVE_REWARD:
+            beat_weight += weight
+        else:
+            miss_weight += weight
         measured += 1
     if measured == 0 or weight_total <= 0:
         return {
@@ -133,6 +152,7 @@ def learning_summary(
     weighted_mean = weighted_total / weight_total
     shrunk = ((PRIOR_STRENGTH * PRIOR_RELATIVE_REWARD) + (weight_total * weighted_mean)) / (PRIOR_STRENGTH + weight_total)
     score = 50 + ((shrunk - 1.0) * 30)
+    bandit = bandit_summary(beat_weight=beat_weight, miss_weight=miss_weight, effective_trials=weight_total)
     return {
         "status": "measured",
         "scoringVersion": "account_normalized_decay_shrinkage.v1",
@@ -147,6 +167,31 @@ def learning_summary(
         "recencyHalfLifeDays": RECENCY_HALF_LIFE_DAYS,
         "defaultRewardBaseline": DEFAULT_REWARD_BASELINE,
         "baselineSourceCounts": baseline_source_counts,
+        "bandit": bandit,
+    }
+
+
+def bandit_summary(*, beat_weight: float, miss_weight: float, effective_trials: float) -> dict[str, Any]:
+    alpha = 1.0 + max(0.0, beat_weight)
+    beta = 1.0 + max(0.0, miss_weight)
+    posterior_mean = alpha / (alpha + beta)
+    exploration_priority = "explore" if effective_trials < EXPLORATION_MIN_EFFECTIVE_TRIALS else "exploit"
+    # Deterministic Thompson-ready planning score: posterior expectation plus a
+    # bounded cold-start floor. The random sampler can be introduced later
+    # without changing stored arm statistics.
+    exploration_bonus = EXPLORATION_FLOOR * max(0.0, 1.0 - min(1.0, effective_trials / EXPLORATION_MIN_EFFECTIVE_TRIALS))
+    planning_score = min(1.0, posterior_mean + exploration_bonus) * 100.0
+    return {
+        "algorithm": "beta_bernoulli_decayed_v1",
+        "rewardEvent": "relative_reward_beats_account_baseline",
+        "alpha": round(alpha, 4),
+        "beta": round(beta, 4),
+        "posteriorMean": round(posterior_mean, 4),
+        "planningScore": int(round(planning_score)),
+        "effectiveTrials": round(effective_trials, 4),
+        "explorationFloor": EXPLORATION_FLOOR,
+        "explorationPriority": exploration_priority,
+        "explorationMinEffectiveTrials": EXPLORATION_MIN_EFFECTIVE_TRIALS,
     }
 
 

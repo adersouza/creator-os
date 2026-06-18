@@ -4578,6 +4578,8 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_p
         rankings = item["referencePatternEvidence"]["rankings"]
         assert [ranking["patternId"] for ranking in rankings[:2]] == ["refpat_winner", "refpat_static"]
         assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
+        assert rankings[0]["planningScore"] > rankings[1]["planningScore"]
+        assert rankings[0]["bandit"]["algorithm"] == "beta_bernoulli_decayed_v1"
     finally:
         cf.close()
 
@@ -4644,6 +4646,8 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
         rankings = item["variationPresetEvidence"]["rankings"]
         assert [ranking["presetName"] for ranking in rankings[:2]] == ["ig_bold", "ig_subtle"]
         assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
+        assert rankings[0]["planningScore"] > rankings[1]["planningScore"]
+        assert rankings[0]["bandit"]["rewardEvent"] == "relative_reward_beats_account_baseline"
     finally:
         cf.close()
 
