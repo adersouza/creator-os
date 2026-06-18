@@ -14,7 +14,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from ..caption_outcome import build_caption_outcome_context, column_values, load_context_json
-from ..contracts import validate_threadsdash_draft_payload_strict
+from ..contracts import validate_performance_sync, validate_threadsdash_draft_payload_strict
 from ..core import CampaignFactory, new_id, normalize_content_surface, utc_now, _normalize_distribution_surface, _normalize_schedule_mode
 
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -3071,6 +3071,7 @@ def sync_performance_snapshots(
             "pipelineJobId": pipeline_job["id"],
             "pipelineTraceId": f"trace_performance_sync_{pipeline_job['id']}",
         }
+        validate_performance_sync(result)
         factory.record_event(
             "performance_synced",
             campaign_id=campaign["id"],

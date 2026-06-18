@@ -11452,6 +11452,62 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         cf.close()
 
 
+def test_sync_performance_snapshots_validates_contract_before_return(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    rows = []
+    validated: list[dict[str, Any]] = []
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            if table == "post_metric_history":
+                return []
+            assert table == "posts"
+            return rows
+
+    def spy_validate_performance_sync(value: dict[str, Any]) -> None:
+        validated.append(dict(value))
+        validate_performance_sync(value)
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_adapter, "validate_performance_sync", spy_validate_performance_sync)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        rows.append({
+            "id": "post_validate_sync",
+            "status": "published",
+            "platform": "instagram",
+            "account_id": None,
+            "instagram_account_id": "ig_1",
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "updated_at": "2026-01-03T00:00:00+00:00",
+            "published_at": "2026-01-02T01:00:00+00:00",
+            "permalink": "https://instagram.test/p/validate-sync",
+            "views": 1200,
+            "likes_count": 80,
+            "metadata": {
+                "campaign_factory": threadsdash_campaign_factory_metadata(source),
+            },
+        })
+
+        result = sync_performance_snapshots(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        assert len(validated) == 1
+        assert validated[0]["schema"] == "campaign_factory.performance_sync.v1"
+        assert validated[0]["pipelineJobId"] == result["pipelineJobId"]
+        assert validated[0]["pipelineTraceId"] == result["pipelineTraceId"]
+    finally:
+        cf.close()
+
+
 def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     post_rows = []
