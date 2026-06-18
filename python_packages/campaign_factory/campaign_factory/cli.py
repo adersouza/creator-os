@@ -162,6 +162,10 @@ def main() -> int:
     front_link.add_argument("--estimated-video-cost-usd", type=float, default=0.10)
     front_link.add_argument("--budget-cap-usd", type=float)
     front_link.add_argument("--enable-paid-generation", action="store_true")
+    front_link.add_argument("--wait", action="store_true")
+    front_link.add_argument("--download", action="store_true")
+    front_link.add_argument("--enable-variation", action="store_true")
+    front_link.add_argument("--variation-preset", default="ig_subtle")
     front_link.add_argument("--dry-run", action="store_true")
     front_link.add_argument("--apply", action="store_true")
 
@@ -1165,6 +1169,10 @@ def main() -> int:
                     estimated_video_cost_usd=args.estimated_video_cost_usd,
                     budget_cap_usd=args.budget_cap_usd,
                     enable_paid_generation=args.enable_paid_generation,
+                    wait=args.wait,
+                    download=args.download,
+                    enable_variation=args.enable_variation,
+                    variation_preset=args.variation_preset,
                     dry_run=not args.apply or args.dry_run,
                     apply=args.apply,
                 ))

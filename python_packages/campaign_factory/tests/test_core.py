@@ -2160,6 +2160,25 @@ def fake_front_generation_result(args: list[str]) -> dict:
     raise AssertionError(f"unexpected generate_assets mode: {mode}")
 
 
+def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "workflow": "kling3_0_video_from_accepted_still",
+        "commands": [["higgsfield", "generate", "create", "kling3_0"]],
+        "path": str(video_path.with_suffix(".generated_asset_lineage.json")),
+        "lineage": {
+            "schema": "campaign_factory.generated_asset_lineage.v2",
+            "generation": {
+                "workflow": "kling3_0_video_from_selected_panel",
+                "models": {"video": "kling3_0"},
+            },
+            "assets": {"localPaths": {"video": str(video_path)}},
+            "review": {"humanReviewRequired": True},
+        },
+    }
+
+
 def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cf = make_factory(tmp_path)
     try:
@@ -2340,6 +2359,140 @@ def test_front_generation_accepted_still_dry_run_plans_video_only(tmp_path: Path
         assert str(accepted.resolve()) in calls[0]
         assert plan["stages"][0]["status"] == "skipped"
         assert plan["stages"][2]["name"] == "kling_video"
+    finally:
+        cf.close()
+
+
+def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        accepted = tmp_path / "accepted.png"
+        accepted.write_bytes(b"still")
+        video = tmp_path / "kling.mp4"
+        video.write_bytes(b"kling-video")
+        calls: list[list[str]] = []
+
+        def fake_invoke(_factory, args, *, budget_cap_usd):
+            calls.append(args)
+            assert budget_cap_usd == 0.15
+            return fake_kling_video_result(video)
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            accepted_still_path=accepted,
+            creator="Stacey",
+            dry_run=False,
+            apply=True,
+            enable_paid_generation=True,
+            budget_cap_usd=0.15,
+            wait=True,
+            download=True,
+        )
+
+        validate_front_generation_plan(result["plan"])
+        assert calls[0][0] == "video"
+        assert "--wait" in calls[0]
+        assert "--download" in calls[0]
+        registered = result["registeredAsset"]
+        assert registered["recipe"] == "kling_front_generation"
+        assert registered["media_type"] == "video"
+        assert registered["content_surface"] == "reel"
+        assert registered["review_state"] == "review_ready"
+        assert registered["audit_status"] == "pending"
+        caption_generation = json.loads(registered["caption_generation_json"])
+        metadata = json.loads(registered["metadata_json"])
+        assert caption_generation["animationMode"] == "kling"
+        assert caption_generation["paidGeneration"] is True
+        assert caption_generation["humanReviewRequired"] is True
+        assert metadata["humanReviewRequired"] is True
+        assert result["variation"] is None
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
+def test_front_generation_apply_enable_variation_targets_registered_kling_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        accepted = tmp_path / "accepted.png"
+        accepted.write_bytes(b"still")
+        video = tmp_path / "kling.mp4"
+        video.write_bytes(b"kling-video")
+        captured: dict[str, Any] = {}
+
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            lambda *_args, **_kwargs: fake_kling_video_result(video),
+        )
+
+        def fake_variation(factory, **kwargs):
+            captured.update(kwargs)
+            return {"schema": "campaign_factory.variation_stage_run.v1", "dryRun": kwargs["dry_run"]}
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage.run_variation_stage", fake_variation)
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            accepted_still_path=accepted,
+            creator="Stacey",
+            dry_run=False,
+            apply=True,
+            enable_paid_generation=True,
+            budget_cap_usd=0.15,
+            wait=True,
+            download=True,
+            enable_variation=True,
+            variation_preset="ig_bold",
+        )
+
+        assert captured["campaign_slug"] == "may"
+        assert captured["preset_name"] == "ig_bold"
+        assert captured["rendered_asset_ids"] == [result["registeredAsset"]["id"]]
+        assert captured["dry_run"] is True
+        assert result["variation"]["dryRun"] is True
+    finally:
+        cf.close()
+
+
+def test_front_generation_enable_variation_requires_downloaded_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        accepted = tmp_path / "accepted.png"
+        accepted.write_bytes(b"still")
+
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(args),
+        )
+
+        with pytest.raises(ValueError, match="downloaded local Kling video"):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                accepted_still_path=accepted,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                enable_paid_generation=True,
+                budget_cap_usd=0.15,
+                enable_variation=True,
+            )
     finally:
         cf.close()
 

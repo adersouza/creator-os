@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import validate_front_generation_plan
-from .core import reel_factory_python, sanitize_for_storage, slugify
+from .core import new_id, reel_factory_python, sanitize_for_storage, sha256_file, slugify
 from .cost_tracker import PROVIDER_PRICING
+from .persistence import utc_now
+from .variation_stage import run_variation_stage
 
 
 SCHEMA = "campaign_factory.front_generation_plan.v1"
@@ -34,6 +36,10 @@ def run_front_generation_stage(
     accepted_still_path: Path | None = None,
     estimated_image_cost_usd: float = DEFAULT_IMAGE_COST_USD,
     estimated_video_cost_usd: float = DEFAULT_KLING_COST_USD,
+    wait: bool = False,
+    download: bool = False,
+    enable_variation: bool = False,
+    variation_preset: str = "ig_subtle",
 ) -> dict[str, Any]:
     """Plan or submit the paid front-generation path behind fail-closed guards."""
     if animation_mode not in {"kling", "motion_edit"}:
@@ -73,6 +79,9 @@ def run_front_generation_stage(
             "enablePaidGeneration": enable_paid_generation,
             "budgetCapUsd": budget_cap_usd,
             "acceptedStillPath": str(accepted_still_path) if accepted_still_path else None,
+            "wait": wait,
+            "download": download,
+            "enableVariation": enable_variation,
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -98,6 +107,8 @@ def run_front_generation_stage(
             budget_cap_usd=budget_cap_usd,
             estimated_image_cost_usd=estimated_image_cost_usd,
             estimated_video_cost_usd=estimated_video_cost_usd,
+            wait=wait,
+            download=download,
         )
         plan = {
             "schema": SCHEMA,
@@ -119,12 +130,40 @@ def run_front_generation_stage(
             "stages": stages,
         }
         validate_front_generation_plan(plan)
+        registered_asset = None
+        variation = None
+        if apply and not dry_run and accepted_still_path and animation_mode == "kling":
+            video_result = _stage_result(stages, "kling_video")
+            video_path = _local_video_path(video_result)
+            if video_path is not None:
+                registered_asset = _register_kling_rendered_asset(
+                    factory,
+                    campaign=campaign,
+                    source_asset=_source_asset_for_campaign(factory, campaign["id"]),
+                    video_path=video_path,
+                    video_result=video_result,
+                    plan=plan,
+                    accepted_still_path=Path(accepted_still_path).expanduser().resolve(),
+                    estimated_video_cost_usd=estimated_video_cost_usd,
+                )
+                if enable_variation:
+                    variation = run_variation_stage(
+                        factory,
+                        campaign_slug=campaign_slug,
+                        preset_name=variation_preset,
+                        rendered_asset_ids=[registered_asset["id"]],
+                        dry_run=True,
+                    )
+            elif enable_variation:
+                raise ValueError("front generation variation requires a downloaded local Kling video; pass --wait --download")
         result = {
             "schema": "campaign_factory.front_generation_stage_run.v1",
             "campaign": campaign_slug,
             "dryRun": dry_run or not apply,
             "apply": bool(apply and not dry_run),
             "plan": plan,
+            "registeredAsset": registered_asset,
+            "variation": variation,
             "promptPath": str(prompt_path),
             "pipelineJobId": pipeline_job["id"],
         }
@@ -192,6 +231,8 @@ def _build_stages(
     budget_cap_usd: float | None,
     estimated_image_cost_usd: float,
     estimated_video_cost_usd: float,
+    wait: bool,
+    download: bool,
 ) -> list[dict[str, Any]]:
     stages: list[dict[str, Any]] = []
     if accepted_still_path is None:
@@ -206,6 +247,7 @@ def _build_stages(
                 "--estimated-cost-usd",
                 str(estimated_image_cost_usd),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
+                *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
             ],
             budget_cap_usd=budget_cap_usd,
         )
@@ -250,6 +292,7 @@ def _build_stages(
                     "--estimated-cost-usd",
                     str(estimated_video_cost_usd),
                     *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
+                    *_runtime_generation_args(wait=wait, download=download, dry_run=True),
                 ],
                 budget_cap_usd=budget_cap_usd,
             )
@@ -306,6 +349,7 @@ def _build_stages(
                 "--estimated-cost-usd",
                 str(estimated_video_cost_usd),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
+                *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
             ],
             budget_cap_usd=budget_cap_usd,
         )
@@ -362,6 +406,118 @@ def _soul_args(*, creator: str | None, soul_id: str | None, soul_name: str | Non
     if soul_name:
         args += ["--soul-name", soul_name]
     return args
+
+
+def _runtime_generation_args(*, wait: bool, download: bool, dry_run: bool) -> list[str]:
+    args: list[str] = []
+    if wait:
+        args.append("--wait")
+    if download and not dry_run:
+        args.append("--download")
+    return args
+
+
+def _stage_result(stages: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    for stage in stages:
+        if stage.get("name") == name and isinstance(stage.get("result"), dict):
+            return stage["result"]
+    return {}
+
+
+def _local_video_path(video_result: dict[str, Any]) -> Path | None:
+    if not video_result.get("ok", False):
+        return None
+    lineage = video_result.get("lineage")
+    if not isinstance(lineage, dict):
+        return None
+    assets = lineage.get("assets")
+    if not isinstance(assets, dict):
+        return None
+    local_paths = assets.get("localPaths")
+    if not isinstance(local_paths, dict):
+        return None
+    for key in ("video", "output", "mp4"):
+        value = local_paths.get(key)
+        if not value:
+            continue
+        path = Path(str(value)).expanduser().resolve()
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def _register_kling_rendered_asset(
+    factory: Any,
+    *,
+    campaign: dict[str, Any],
+    source_asset: dict[str, Any],
+    video_path: Path,
+    video_result: dict[str, Any],
+    plan: dict[str, Any],
+    accepted_still_path: Path,
+    estimated_video_cost_usd: float,
+) -> dict[str, Any]:
+    if video_path.stat().st_size <= 0:
+        raise FileNotFoundError(f"Kling video output is empty: {video_path}")
+    rendered_id = new_id("asset")
+    digest = sha256_file(video_path)
+    now = utc_now()
+    lineage_path = video_result.get("path") or video_result.get("lineage_path")
+    caption_generation = {
+        "schema": "campaign_factory.caption_generation.v1",
+        "workflow": "front_generation_soul_to_kling",
+        "animationMode": "kling",
+        "paidGeneration": True,
+        "estimatedCostUsd": estimated_video_cost_usd,
+        "frontGenerationPlan": plan,
+        "generatedAssetLineagePath": lineage_path,
+        "acceptedStillPath": str(accepted_still_path),
+        "humanReviewRequired": True,
+    }
+    metadata = {
+        "frontGeneration": {
+            "animationMode": "kling",
+            "paidGeneration": True,
+            "estimatedCostUsd": estimated_video_cost_usd,
+            "acceptedStillPath": str(accepted_still_path),
+            "generatedAssetLineagePath": lineage_path,
+        },
+        "humanReviewRequired": True,
+    }
+    factory.conn.execute(
+        """
+        INSERT INTO rendered_assets
+        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
+         media_type, content_surface, caption_generation_json, recipe, target_ratio, metadata_json,
+         audit_status, review_state, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'video', 'reel', ?, 'kling_front_generation', '9:16', ?, 'pending', 'review_ready', ?, ?)
+        """,
+        (
+            rendered_id,
+            campaign["id"],
+            source_asset["id"],
+            digest,
+            str(video_path),
+            str(video_path),
+            video_path.name,
+            json.dumps(sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
+            json.dumps(sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True),
+            now,
+            now,
+        ),
+    )
+    factory.conn.commit()
+    return dict(factory.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+
+
+def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]:
+    row = factory.conn.execute(
+        "SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at, id LIMIT 1",
+        (campaign_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError("campaign must have at least one source asset before front-generation registration")
+    return dict(row)
 
 
 def _write_prompt_pack(path: Path, *, scene_type: str) -> Path:
