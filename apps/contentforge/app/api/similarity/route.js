@@ -15,7 +15,7 @@ var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
 var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "originality", "creativeQuality"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.5";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.6";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -374,10 +374,10 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   }
 
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "safe_zone", results.safeZone?.warnings);
-  addAdvisoryWarnings(warningItems, "caption", results.readability?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "caption", results.readability?.warnings);
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
-  addAdvisoryWarnings(warningItems, "hook", results.hookVisibility?.warnings);
-  addAdvisoryWarnings(warningItems, "creative", results.creativeQuality?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "hook", results.hookVisibility?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "creative", results.creativeQuality?.warnings);
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
 
   for (var [layer, verdict] of Object.entries(verdicts)) {
@@ -1412,6 +1412,7 @@ async function runReelAdvisoryAudit(outputDir, files) {
   var textBoxesDetected = 0;
   var ocrTextBoxesDetected = 0;
   var lowContrastBoxes = 0;
+  var smallCaptionBoxes = 0;
   var unsafeBoxes = 0;
   var earlyTextBoxes = 0;
   var deltas = [];
@@ -1455,11 +1456,16 @@ async function runReelAdvisoryAudit(outputDir, files) {
       var frameOcrBoxes = (ocrFrameResult.boxes || []).map(function (box) {
         var contrast = regionContrast(frame, box);
         var safeZoneIssues = textBoxSafeZoneIssues(box, frame);
+        var frameHeight = Math.max(1, box.frame?.height || frame.height || 1);
+        var fontHeightRatio = Math.max(0, (box.box?.h || 0) / frameHeight);
+        var fontSizeScore = Math.max(0, Math.min(100, Math.round((fontHeightRatio / thresholds.captionMinHeightRatio) * 100)));
         if (Number.isFinite(box.confidence)) ocrConfidenceValues.push(box.confidence);
         return {
           ...box,
           contrast,
-          readabilityScore: Math.max(0, Math.min(100, Math.round(((box.confidence || 0) * 0.7) + ((contrast || 0) * 0.3)))),
+          fontHeightRatio: Math.round(fontHeightRatio * 1000) / 1000,
+          fontSizeScore,
+          readabilityScore: Math.max(0, Math.min(100, Math.round(((box.confidence || 0) * 0.55) + ((contrast || 0) * 0.25) + (fontSizeScore * 0.2)))),
           safeZoneOverlap: safeZoneIssues,
         };
       });
@@ -1494,6 +1500,7 @@ async function runReelAdvisoryAudit(outputDir, files) {
           readabilityWarnings.push(advisoryWarning("caption_low_confidence", "Caption OCR confidence is low", "Detected caption text has low OCR confidence"));
         }
         if ((ocrBox.contrast || 0) < thresholds.captionLowContrast) lowContrastBoxes++;
+        if ((ocrBox.fontHeightRatio || 0) < thresholds.captionMinHeightRatio) smallCaptionBoxes++;
         if ((ocrBox.safeZoneOverlap || []).length) unsafeBoxes++;
       }
       for (var box of detected.boxes) {
@@ -1562,6 +1569,9 @@ async function runReelAdvisoryAudit(outputDir, files) {
   if (lowContrastBoxes > 0) {
     readabilityWarnings.push(advisoryWarning("caption_low_contrast", "Caption contrast is low", "Detected caption-like regions with low contrast"));
   }
+  if (smallCaptionBoxes > 0) {
+    readabilityWarnings.push(advisoryWarning("caption_text_too_small", "Caption text too small", "Detected caption text is below the minimum readable frame-height ratio"));
+  }
   if (unsafeBoxes > 0) {
     safeWarnings.push(advisoryWarning("caption_too_close_to_edge", "Caption may be too close to edge", "Caption-like text is close to an edge or platform UI safe zone"));
     safeWarnings.push(advisoryWarning("caption_overlaps_ui_safe_zone", "Caption may overlap Reels controls", "Caption-like text may overlap bottom or right-side Reels UI controls"));
@@ -1613,7 +1623,7 @@ async function runReelAdvisoryAudit(outputDir, files) {
     readability: {
       verdict: readabilityWarnings.length ? "warn" : "pass",
       warnings: readabilityWarnings,
-      metrics: { frameSamples, textBoxesDetected, ocrTextBoxesDetected, lowContrastBoxes },
+      metrics: { frameSamples, textBoxesDetected, ocrTextBoxesDetected, lowContrastBoxes, smallCaptionBoxes },
     },
     cover: {
       verdict: coverWarnings.length ? "warn" : "pass",

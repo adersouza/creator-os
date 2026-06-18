@@ -195,3 +195,79 @@ test("campaign profile blocks safe-zone overlap warnings", function () {
   assert.equal(summary.blockingCodes.includes("caption_overlaps_ui_safe_zone"), true);
   assert.equal(summary.warningCodes.includes("caption_too_close_to_edge"), false);
 });
+
+test("default profile keeps watchability warnings advisory", function () {
+  var results = {
+    readability: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_text_too_small", message: "caption too small", severity: "warn" },
+        { code: "caption_low_contrast", message: "caption low contrast", severity: "warn" },
+      ],
+    },
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "weak_first_3_seconds", message: "weak hook", severity: "warn" },
+      ],
+    },
+    creativeQuality: {
+      verdict: "warn",
+      warnings: [
+        { code: "creative_quality_review", message: "creative review", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, {
+    readability: "warn",
+    hookVisibility: "warn",
+    creativeQuality: "warn",
+  }, {
+    auditProfile: "default",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("caption_text_too_small"), true);
+  assert.equal(summary.warningCodes.includes("caption_low_contrast"), true);
+  assert.equal(summary.warningCodes.includes("weak_first_3_seconds"), true);
+  assert.equal(summary.warningCodes.includes("creative_quality_review"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("campaign profile blocks watchability warnings", function () {
+  var results = {
+    readability: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_text_too_small", message: "caption too small", severity: "warn" },
+        { code: "caption_low_contrast", message: "caption low contrast", severity: "warn" },
+      ],
+    },
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "weak_first_3_seconds", message: "weak hook", severity: "warn" },
+      ],
+    },
+    creativeQuality: {
+      verdict: "warn",
+      warnings: [
+        { code: "creative_quality_review", message: "creative review", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, {
+    readability: "warn",
+    hookVisibility: "warn",
+    creativeQuality: "warn",
+  }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("caption_text_too_small"), true);
+  assert.equal(summary.blockingCodes.includes("caption_low_contrast"), true);
+  assert.equal(summary.blockingCodes.includes("weak_first_3_seconds"), true);
+  assert.equal(summary.blockingCodes.includes("creative_quality_review"), true);
+  assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
+});

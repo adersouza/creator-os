@@ -15,12 +15,13 @@ export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
     bottomUiStartRatio: 0.82,
     topUiEndRatio: 0.06,
 
-    // OCR/readability defaults from synthetic caption fixtures; advisory until real corpus says otherwise.
+    // OCR/readability defaults from synthetic caption fixtures; blocking only for Campaign Factory fan-out.
     ocrLowConfidence: 55,
     captionLowContrast: 55,
+    captionMinHeightRatio: 0.035,
     heuristicLowContrast: 70,
 
-    // Hook/cover signals are ranking aids, not hard upload-readiness gates.
+    // Hook signals block Campaign Factory fan-out; cover signals remain ranking aids.
     staticOpeningDelta: 6,
     weakOpeningDelta: 10,
     coverCandidateSimilarityDelta: 8,

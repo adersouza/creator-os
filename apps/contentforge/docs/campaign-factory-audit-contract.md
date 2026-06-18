@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.5",
+  "contractVersion": "campaign_factory_audit.v1.6",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -100,6 +100,8 @@ with Campaign Factory fields:
       "confidence": 86,
       "box": { "x": 100, "y": 200, "w": 180, "h": 40 },
       "contrast": 120,
+      "fontHeightRatio": 0.063,
+      "fontSizeScore": 100,
       "readabilityScore": 96,
       "safeZoneOverlap": []
     }
@@ -240,8 +242,9 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
-- `campaign_factory_audit.v1.5` blocks caption safe-zone overlap warnings for
-  Campaign Factory upload readiness.
+- `campaign_factory_audit.v1.6` blocks caption safe-zone, caption readability,
+  hook visibility, and creative-quality warnings for Campaign Factory upload
+  readiness.
 - `campaign_factory_audit.v1.4` evaluates worst-case detector evidence rather
   than averages. PDQ requires every source/sibling distance to be greater than
   `40`; SSCD requires every source/sibling similarity to be below `0.50`.
@@ -252,12 +255,15 @@ with Campaign Factory fields:
   be monitored without changing verdict semantics.
 - `ocr.fallbackUsed` means ContentForge could not use the first requested OCR
   engine and used the next available local engine or heuristic path.
-- `creativeQuality` is advisory. It uses OCR, cover-frame statistics, readability
-  scores, and first-3-second motion/text signals to estimate hook clarity,
-  subject visibility, visual clarity, and opening strength. `semanticEngine:
-  "heuristic_v1"` means it is not model-backed semantic vision.
-- Safe-zone warnings are blocking for `campaign_factory_v1` because captions
-  that overlap platform UI are not draft-ready Campaign Factory outputs.
+- `creativeQuality` uses OCR, cover-frame statistics, readability scores, and
+  first-3-second motion/text signals to estimate hook clarity, subject
+  visibility, visual clarity, and opening strength. Its warnings are blocking
+  for `campaign_factory_v1` fan-out. `semanticEngine: "heuristic_v1"` means it
+  is not model-backed semantic vision.
+- Safe-zone, caption readability, hook-visibility, and creative-quality warnings
+  are blocking for `campaign_factory_v1` because assets with illegible captions,
+  weak openings, or unclear creative signals are not draft-ready Campaign
+  Factory outputs.
 - `referenceMatch` and the backward-compatible `multiAccountOriginalityAudit`
   are informational only. The layer name remains `originality` for API
   compatibility, but Campaign Factory treats it as a reference/variation meter.
@@ -277,32 +283,15 @@ Campaign Factory V1 should treat these as blockers:
 - `provenance_ai_flagged`
 - `caption_too_close_to_edge`
 - `caption_overlaps_ui_safe_zone`
-- non-advisory layer failures such as `pdq_failed`
-
-## Warning Codes
-
-Campaign Factory V1 should treat these as review-only signals:
-
-- `forensics_ffmpeg_signature`
-- `forensics_binary_signature`
-- `forensics_bitrate_review`
-- `forensics_audio_missing`
-- `forensics_missing_faststart`
-- `forensics_missing_creation_time`
-- `forensics_default_handler_name`
-- `compression_gop_review`
-- `provenance_c2pa_unavailable`
 - `ocr_unavailable`
 - `caption_not_detected`
 - `caption_low_confidence`
 - `caption_low_contrast`
-- `caption_too_close_to_edge`
-- `caption_overlaps_ui_safe_zone`
+- `caption_text_too_small`
 - `caption_text_unreadable`
 - `weak_first_3_seconds`
 - `hook_text_missing_first_3_seconds`
 - `static_opening`
-- `cover_candidates_similar`
 - `creative_hook_missing`
 - `creative_hook_generic`
 - `creative_hook_too_short`
@@ -315,6 +304,24 @@ Campaign Factory V1 should treat these as review-only signals:
 - `creative_subject_unclear`
 - `creative_opening_static`
 - `creative_opening_no_early_hook`
+- non-advisory layer failures such as `pdq_failed`
+
+## Warning Codes
+
+Campaign Factory V1 should treat these as review-only signals. The default
+ContentForge profile may still surface caption, hook, and creative-quality codes
+as warnings, but Campaign Factory fan-out treats them as blockers.
+
+- `forensics_ffmpeg_signature`
+- `forensics_binary_signature`
+- `forensics_bitrate_review`
+- `forensics_audio_missing`
+- `forensics_missing_faststart`
+- `forensics_missing_creation_time`
+- `forensics_default_handler_name`
+- `compression_gop_review`
+- `provenance_c2pa_unavailable`
+- `cover_candidates_similar`
 
 ## Advisory Checks
 
@@ -342,11 +349,12 @@ They are not readiness warning codes and should not block approval or export:
 - `reference_match_template_reuse`
 
 The audit reports recognized text, OCR confidence, caption boxes, contrast,
-safe-zone overlap, opening hook visibility, and cover candidate diversity.
-Safe-zone overlap blocks Campaign Factory upload readiness; the other creative
-signals remain review-only until model-backed quality gates land. Tesseract OCR
-runs on multiple preprocessed frame variants, including enhanced/upscaled and
-thresholded variants, then merges overlapping boxes before scoring.
+font-height ratio, safe-zone overlap, opening hook visibility, and cover
+candidate diversity. Safe-zone, caption readability, hook, and creative-quality
+warnings block Campaign Factory upload readiness; cover and reference-match
+signals remain review-only. Tesseract OCR runs on multiple preprocessed frame
+variants, including enhanced/upscaled and thresholded variants, then merges
+overlapping boxes before scoring.
 
 If OCR or optional provenance tooling is unavailable, ContentForge must return a
 warning or info result instead of crashing the HTTP response.
