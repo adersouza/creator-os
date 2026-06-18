@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.4",
+  "contractVersion": "campaign_factory_audit.v1.5",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -240,6 +240,8 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
+- `campaign_factory_audit.v1.5` blocks caption safe-zone overlap warnings for
+  Campaign Factory upload readiness.
 - `campaign_factory_audit.v1.4` evaluates worst-case detector evidence rather
   than averages. PDQ requires every source/sibling distance to be greater than
   `40`; SSCD requires every source/sibling similarity to be below `0.50`.
@@ -254,6 +256,8 @@ with Campaign Factory fields:
   scores, and first-3-second motion/text signals to estimate hook clarity,
   subject visibility, visual clarity, and opening strength. `semanticEngine:
   "heuristic_v1"` means it is not model-backed semantic vision.
+- Safe-zone warnings are blocking for `campaign_factory_v1` because captions
+  that overlap platform UI are not draft-ready Campaign Factory outputs.
 - `referenceMatch` and the backward-compatible `multiAccountOriginalityAudit`
   are informational only. The layer name remains `originality` for API
   compatibility, but Campaign Factory treats it as a reference/variation meter.
@@ -271,6 +275,8 @@ Campaign Factory V1 should treat these as blockers:
 - `forensics_bad_dimensions`
 - `forensics_audio_policy`
 - `provenance_ai_flagged`
+- `caption_too_close_to_edge`
+- `caption_overlaps_ui_safe_zone`
 - non-advisory layer failures such as `pdq_failed`
 
 ## Warning Codes
@@ -336,11 +342,11 @@ They are not readiness warning codes and should not block approval or export:
 - `reference_match_template_reuse`
 
 The audit reports recognized text, OCR confidence, caption boxes, contrast,
-safe-zone overlap, opening hook visibility, and cover candidate diversity. These
-signals are intended to rank and guide human review, not to make final creative
-or platform decisions. Tesseract OCR runs on multiple preprocessed frame
-variants, including enhanced/upscaled and thresholded variants, then merges
-overlapping boxes before scoring.
+safe-zone overlap, opening hook visibility, and cover candidate diversity.
+Safe-zone overlap blocks Campaign Factory upload readiness; the other creative
+signals remain review-only until model-backed quality gates land. Tesseract OCR
+runs on multiple preprocessed frame variants, including enhanced/upscaled and
+thresholded variants, then merges overlapping boxes before scoring.
 
 If OCR or optional provenance tooling is unavailable, ContentForge must return a
 warning or info result instead of crashing the HTTP response.
@@ -442,4 +448,4 @@ run.
 The `campaign_factory_v1` profile is stable for Campaign Factory V1.1 consumers.
 ContentForge may add new warning codes, but existing fields and meanings should
 remain backward-compatible. Contract changes that remove fields, rename codes,
-or change warning/blocking semantics require a new audit profile name.
+or change warning/blocking semantics require a new `contractVersion`.

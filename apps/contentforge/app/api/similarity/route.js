@@ -15,7 +15,7 @@ var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
 var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "originality", "creativeQuality"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.4";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.5";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -373,7 +373,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     }
   }
 
-  addAdvisoryWarnings(warningItems, "safe_zone", results.safeZone?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "safe_zone", results.safeZone?.warnings);
   addAdvisoryWarnings(warningItems, "caption", results.readability?.warnings);
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
   addAdvisoryWarnings(warningItems, "hook", results.hookVisibility?.warnings);

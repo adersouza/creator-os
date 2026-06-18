@@ -201,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.4");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.5");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);
@@ -230,7 +230,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
   }
 });
 
-test("/api/similarity adds advisory caption safe-zone warnings for Campaign Factory reels", async function (t) {
+test("/api/similarity blocks caption safe-zone warnings for Campaign Factory reels", async function (t) {
   if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
     sourceName: "000_cf_caption_source.mp4",
@@ -247,18 +247,18 @@ test("/api/similarity adds advisory caption safe-zone warnings for Campaign Fact
       layers: ["forensics"],
     }));
     var body = await response.json();
-    var warningCodes = body.readinessSummary.warningCodes;
+    var blockingCodes = body.readinessSummary.blockingCodes;
     assert.equal(response.status, 200);
     assert.equal(body.safeZone.verdict, "warn");
     assert.equal(body.verdictCodes.safeZone, "safe_zone_warn");
     assert.equal(body.verdictCodes.readability, "caption_readable");
     assert.equal(body.safeZone.metrics.frameSamples > 0, true);
     assert.equal(body.safeZone.metrics.textBoxesDetected > 0, true);
-    assert.equal(warningCodes.includes("caption_too_close_to_edge"), true);
-    assert.equal(warningCodes.includes("caption_overlaps_ui_safe_zone"), true);
-    assert.equal(body.readinessSummary.topWarnings.some((item) => item.code === "caption_too_close_to_edge" && item.severity === "warn"), true);
-    assert.equal(body.readinessSummary.uploadReady, true);
-    assert.notEqual(body.overallVerdict, "fail");
+    assert.equal(blockingCodes.includes("caption_too_close_to_edge"), true);
+    assert.equal(blockingCodes.includes("caption_overlaps_ui_safe_zone"), true);
+    assert.equal(body.readinessSummary.topWarnings.some((item) => item.code === "caption_too_close_to_edge"), false);
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.overallVerdict, "fail");
   } finally {
     await cleanupMp4Fixture(files);
   }

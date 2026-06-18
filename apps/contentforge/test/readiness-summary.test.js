@@ -155,3 +155,43 @@ test("campaign readiness emits stable sibling collision blocking codes", functio
   assert.equal(summary.blockingCodes.includes("pdq_sibling_collision"), true);
   assert.equal(summary.blockingCodes.includes("sscd_sibling_collision"), true);
 });
+
+test("default profile keeps safe-zone warnings advisory", function () {
+  var results = {
+    safeZone: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_too_close_to_edge", message: "caption close to edge", severity: "warn" },
+        { code: "caption_overlaps_ui_safe_zone", message: "caption overlaps UI", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { safeZone: "warn" }, {
+    auditProfile: "default",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("caption_too_close_to_edge"), true);
+  assert.equal(summary.warningCodes.includes("caption_overlaps_ui_safe_zone"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("campaign profile blocks safe-zone overlap warnings", function () {
+  var results = {
+    safeZone: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_too_close_to_edge", message: "caption close to edge", severity: "warn" },
+        { code: "caption_overlaps_ui_safe_zone", message: "caption overlaps UI", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { safeZone: "warn" }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("caption_too_close_to_edge"), true);
+  assert.equal(summary.blockingCodes.includes("caption_overlaps_ui_safe_zone"), true);
+  assert.equal(summary.warningCodes.includes("caption_too_close_to_edge"), false);
+});

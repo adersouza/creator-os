@@ -29,19 +29,17 @@
     {
       "file": "warnings/caption_too_close_to_edge.mp4",
       "expected": {
-        "overallVerdict": "warn",
-        "uploadReady": true,
-        "mustIncludeWarningCodes": ["caption_too_close_to_edge", "caption_overlaps_ui_safe_zone"],
-        "mustNotIncludeBlockingCodes": ["caption_too_close_to_edge", "caption_overlaps_ui_safe_zone"]
+        "overallVerdict": "fail",
+        "uploadReady": false,
+        "mustIncludeBlockingCodes": ["caption_too_close_to_edge", "caption_overlaps_ui_safe_zone"]
       }
     },
     {
       "file": "warnings/caption_bottom_ui_zone.mp4",
       "expected": {
-        "overallVerdict": "warn",
-        "uploadReady": true,
-        "mustIncludeWarningCodes": ["caption_overlaps_ui_safe_zone"],
-        "mustNotIncludeBlockingCodes": ["caption_overlaps_ui_safe_zone"]
+        "overallVerdict": "fail",
+        "uploadReady": false,
+        "mustIncludeBlockingCodes": ["caption_overlaps_ui_safe_zone"]
       }
     },
     {
