@@ -2,6 +2,9 @@ from pathlib import Path
 import subprocess
 import json
 
+MIN_VIDEO_DIMENSION_PX = 720
+
+
 class QualityGate:
     """Checks the technical quality of generated variants."""
     
@@ -33,8 +36,8 @@ class QualityGate:
         width = int(video_stream.get("width", 0))
         height = int(video_stream.get("height", 0))
         
-        # Minimum resolution check (e.g. at least 720p vertical or horizontal)
-        if width < 720 and height < 720:
+        # Both axes must meet the floor; short wide or narrow tall clips fail.
+        if width < MIN_VIDEO_DIMENSION_PX or height < MIN_VIDEO_DIMENSION_PX:
             print(f"Quality Reject: Resolution too low ({width}x{height})")
             return False
             

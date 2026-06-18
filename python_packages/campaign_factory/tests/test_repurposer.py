@@ -103,6 +103,46 @@ def test_editorial_engine_makes_real_quality_passing_transform(tmp_path: Path):
     assert QualityGate.is_quality_acceptable(output)
 
 
+def test_quality_gate_rejects_short_wide_video(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        QualityGate,
+        "get_video_info",
+        staticmethod(
+            lambda path: {
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 1080,
+                        "height": 404,
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert QualityGate.is_quality_acceptable(Path("short-wide.mp4")) is False
+
+
+def test_quality_gate_accepts_minimum_dimension_floor(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        QualityGate,
+        "get_video_info",
+        staticmethod(
+            lambda path: {
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 720,
+                        "height": 720,
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert QualityGate.is_quality_acceptable(Path("square-720.mp4")) is True
+
+
 def test_variant_pipeline_fails_without_partial_fake_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     master = _tiny_mp4(tmp_path / "master.mp4")
 
