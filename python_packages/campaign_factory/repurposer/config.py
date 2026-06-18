@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, Any, Optional
+from typing import Optional
 
 @dataclasses.dataclass
 class RepurposeConfig:
@@ -27,7 +27,7 @@ class RepurposeConfig:
     color_shift: bool = True
     
     # Layer 5: Micro
-    enable_micro: bool = True
+    enable_micro: bool = False
     strip_metadata: bool = True
     inject_noise: bool = True
     
@@ -45,7 +45,7 @@ class RepurposeConfig:
                 enable_polish=True,
                 zoom_factor=1.1,
                 color_shift=True,
-                enable_micro=True,
+                enable_micro=False,
                 strip_metadata=True,
                 inject_noise=True
             )
@@ -61,8 +61,8 @@ class RepurposeConfig:
                 enable_polish=True,
                 zoom_factor=1.02,
                 color_shift=False,
-                enable_micro=True,
+                enable_micro=False,
                 strip_metadata=True,
                 inject_noise=False
             )
-        return cls(target_platform="reels", aggressiveness=0.5)
+        return cls(target_platform="reels", aggressiveness=0.5, enable_micro=False)

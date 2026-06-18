@@ -22,6 +22,7 @@ from pipeline_contracts import (  # noqa: E402
     validate_schema_examples,
     validate_threadsdash_draft_payload,
     validate_threadsdash_draft_payload_strict,
+    validate_variant_assignment,
 )
 
 
@@ -41,4 +42,5 @@ __all__ = [
     "validate_schema_examples",
     "validate_threadsdash_draft_payload",
     "validate_threadsdash_draft_payload_strict",
+    "validate_variant_assignment",
 ]

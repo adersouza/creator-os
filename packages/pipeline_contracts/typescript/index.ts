@@ -25,6 +25,8 @@ export const RECOMMENDATION_NEXT_BATCH_SCHEMA_ID =
 	"campaign_factory.recommendations.next_batch.v1" as const;
 export const REPURPOSING_PLAN_SCHEMA_ID =
 	"campaign_factory.repurposing_plan.v1" as const;
+export const VARIANT_ASSIGNMENT_SCHEMA_ID =
+	"campaign_factory.variant_assignment.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -161,6 +163,68 @@ export const repurposingPlanSchema = {
 	},
 } as const;
 
+export const variantAssignmentSchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
+	$id: VARIANT_ASSIGNMENT_SCHEMA_ID,
+	title: "Campaign Factory Variant Assignment",
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"schema",
+		"campaign_slug",
+		"master_asset_id",
+		"master_asset_path",
+		"platform",
+		"generated_at",
+		"assignments",
+	],
+	properties: {
+		schema: { const: VARIANT_ASSIGNMENT_SCHEMA_ID },
+		campaign_slug: { type: "string", minLength: 1 },
+		master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
+		master_asset_path: { type: "string", minLength: 1 },
+		platform: { type: "string", minLength: 1 },
+		generated_at: { type: "string", minLength: 1 },
+		variation_enabled: { type: "boolean" },
+		assignments: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: [
+					"account_id",
+					"variant_asset_id",
+					"variant_path",
+					"parent_master_asset_id",
+					"preset_name",
+					"distinctness_scores",
+				],
+				properties: {
+					account_id: { type: "string", minLength: 1 },
+					instagram_account_id: { type: ["string", "null"] },
+					persona: { type: ["string", "null"] },
+					variant_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
+					variant_path: { type: "string", minLength: 1 },
+					parent_master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
+					preset_name: { type: "string", minLength: 1 },
+					distinctness_scores: {
+						type: "object",
+						additionalProperties: false,
+						required: ["master_ssim", "sibling_max_ssim", "threshold"],
+						properties: {
+							master_ssim: { type: "number", minimum: 0, maximum: 1 },
+							sibling_max_ssim: { type: "number", minimum: 0, maximum: 1 },
+							threshold: { type: "number", minimum: 0, maximum: 1 },
+						},
+					},
+					lineage: { type: "object" },
+				},
+			},
+		},
+	},
+} as const;
+
 export const audioCatalogExportSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$id: AUDIO_CATALOG_EXPORT_SCHEMA_ID,
@@ -224,6 +288,7 @@ export const pipelineContractSchemas = {
 	audioCatalogExport: audioCatalogExportSchema,
 	performanceSync: performanceSyncSchema,
 	captionOutcomeContext: captionOutcomeContextSchema,
+	variantAssignment: variantAssignmentSchema,
 	patternCard: {
 		$id: PATTERN_CARD_SCHEMA_ID,
 		type: "object",
@@ -1083,6 +1148,36 @@ export function validateRepurposingPlan(value: unknown): string[] {
 	}
 	if (typeof value.platform !== "string") {
 		errors.push("repurposing plan platform must be string");
+	}
+	return errors;
+}
+
+export function validateVariantAssignment(value: unknown): string[] {
+	const errors = schemaErrors(variantAssignmentSchema, value, "variant assignment");
+	if (!isRecord(value)) return ["variant assignment must be an object"];
+	if (value.schema !== VARIANT_ASSIGNMENT_SCHEMA_ID) {
+		errors.push("variant assignment schema mismatch");
+	}
+	if (typeof value.master_asset_id !== "string") {
+		errors.push("variant assignment master_asset_id must be string");
+	}
+	if (!Array.isArray(value.assignments)) {
+		errors.push("variant assignment assignments must be an array");
+		return errors;
+	}
+	for (const [index, assignment] of value.assignments.entries()) {
+		if (!isRecord(assignment)) {
+			errors.push(`assignments[${index}] must be an object`);
+			continue;
+		}
+		for (const field of ["account_id", "variant_asset_id", "variant_path", "parent_master_asset_id", "preset_name"] as const) {
+			if (typeof assignment[field] !== "string" || assignment[field].trim() === "") {
+				errors.push(`assignments[${index}].${field} must be string`);
+			}
+		}
+		if (!isRecord(assignment.distinctness_scores)) {
+			errors.push(`assignments[${index}].distinctness_scores must be an object`);
+		}
 	}
 	return errors;
 }

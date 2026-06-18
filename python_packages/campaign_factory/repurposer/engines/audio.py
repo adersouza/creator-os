@@ -1,13 +1,7 @@
 from pathlib import Path
+from importlib import import_module
 
 from .common import ensure_input_file, run_ffmpeg
-
-try:
-    from reference_factory.db import get_connection
-    from reference_factory.audio import recommend_audio
-except ImportError:
-    get_connection = None
-    recommend_audio = None
 
 class AudioEngine:
     """Layer 2: Audio replacement and mixing."""
@@ -18,6 +12,7 @@ class AudioEngine:
         ensure_input_file(video_path, label="video")
         
         # If no track is explicitly passed, try to fetch a trending one
+        get_connection, recommend_audio = _reference_audio_helpers()
         if not music_track and get_connection and recommend_audio:
             try:
                 conn = get_connection(video_path.parent) # Root config/db lookup
@@ -45,3 +40,12 @@ class AudioEngine:
             return run_ffmpeg(cmd, output_path=output_path)
             
         return video_path
+
+
+def _reference_audio_helpers():
+    try:
+        db_module = import_module("reference_factory.db")
+        audio_module = import_module("reference_factory.audio")
+    except ImportError:
+        return None, None
+    return getattr(db_module, "get_connection", None), getattr(audio_module, "recommend_audio", None)

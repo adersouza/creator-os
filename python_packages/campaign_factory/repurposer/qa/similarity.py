@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import imagehash
@@ -62,16 +63,15 @@ class SimilarityGate:
             "ffmpeg", "-i", str(master), "-i", str(variant),
             "-filter_complex", "ssim", "-f", "null", "-"
         ]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            # Parse SSIM from stderr (e.g., "SSIM Y:0.89 U:0.92 V:0.93 All:0.90")
-            for line in result.stderr.split('\n'):
-                if "SSIM" in line and "All:" in line:
-                    parts = line.split("All:")
-                    return float(parts[1].split()[0])
-            return 1.0 # If identical or failed
-        except Exception:
-            return 1.0
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "ffmpeg ssim failed").strip()
+            raise RuntimeError(detail)
+        # Parse SSIM from stderr (e.g., "SSIM Y:0.89 U:0.92 V:0.93 All:0.90")
+        match = re.search(r"All:([0-9.]+)", result.stderr)
+        if not match:
+            raise RuntimeError("ffmpeg ssim output did not include an All score")
+        return float(match.group(1))
 
     @classmethod
     def is_distinct_enough(cls, master: Path, variant: Path, threshold: float = 0.85) -> bool:

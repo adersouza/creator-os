@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.variant_assignment.v1",
+  "title": "Campaign Factory Variant Assignment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "campaign_slug",
+    "master_asset_id",
+    "master_asset_path",
+    "platform",
+    "generated_at",
+    "assignments"
+  ],
+  "properties": {
+    "schema": {
+      "const": "campaign_factory.variant_assignment.v1"
+    },
+    "campaign_slug": {
+      "type": "string",
+      "minLength": 1
+    },
+    "master_asset_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "master_asset_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variation_enabled": {
+      "type": "boolean"
+    },
+    "assignments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "variant_asset_id",
+          "variant_path",
+          "parent_master_asset_id",
+          "preset_name",
+          "distinctness_scores"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "instagram_account_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "persona": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variant_asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "variant_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parent_master_asset_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "preset_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "distinctness_scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "master_ssim",
+              "sibling_max_ssim",
+              "threshold"
+            ],
+            "properties": {
+              "master_ssim": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "sibling_max_ssim": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "lineage": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}
