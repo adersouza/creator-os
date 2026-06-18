@@ -39,7 +39,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 |-------|-------|---------|
 | **Intelligence / learning loop** | **4/10** | Partially closed — performance *does* drive 3 decisions, but the loop is human-gated, statistically naive, and leaks at capture + contract boundaries. |
 | **Content quality / virality** | **3/10** | Technical-validity machine, not a quality engine. The "quality floor" is a single resolution check. All creative scores are advisory `heuristic_v1` decoration that gate nothing. |
-| **Anti-shadowban safety** | **~4/10** (3 on the audited branch; +1 for PR #44 on main) | Variation is now real, but it gates on **SSIM**, not the perceptual hashes platforms actually cluster on — and the system ships the real detectors (PDQ/SSCD) but never lets them block. |
+| **Anti-shadowban safety** | **~6/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM — the detectors that were ship-but-never-block now block. Remaining gap to higher: caption/audio distinctness + cross-account (sibling-vs-sibling already in) perceptual pass at scale. |
 
 **The unifying story:** the system reliably produces a *valid, undetectable-by-SSIM, schema-conformant* file — and does almost nothing to ensure it's **good**, that it **won't hash-collide across accounts**, or that what it learned **changes what it makes next**. Three different audits, one root pattern: **real signals exist but are computed-and-ignored.**
 
@@ -181,7 +181,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 
 ## Suggested sequencing for Codex
 
-1. **Track S Critical first** (account safety = real money/ban risk): wire PDQ/SSCD as the distinctness gate + un-review-only them in ContentForge. Cheap (wiring existing detectors), highest risk reduction.
+1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. **Track I capture bugs** (the 3 in the High row) — they corrupt training data at the source; everything "smart" depends on clean capture. Port AP0-2 into the running path.
 3. **Track I contract lineage** — make IDs required so F can attribute (precondition for Workstream F).
 4. **Track Q quality floor** — real watchability gate (VMAF/audio/crop) + promote OCR safe-zone to blocking.
@@ -198,3 +198,42 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 - **No behavior regressions** to the working back half (export/schedule/publish/feedback).
 - **`core.py` is a 27k-line god-class** — new logic in new modules, thin seam only.
 - One logical change per PR; tests green; each fix adds the test that proves it.
+
+---
+
+## Track 9 — Production-grade hardening (path to ≥9/10 per part)
+
+The Intelligence/Quality/Safety tracks above add **capability** — they lift each pipeline part to roughly 7–8. The jump from there to **≥9** is almost entirely **tests + decomposition + drift-proofing**, i.e. engineering rigor, not new features. This track is what closes that last gap.
+
+### Per-part ceiling map
+
+| Part | Now | After Tracks S/I/Q + AP | What lifts it to ≥9 |
+|------|-----|--------------------------|----------------------|
+| **Reference Factory** | 6.6 | ~7.8 | Decompose `reference_intake.py` (2858 lines); kill dup `_caption_archetype` / latent KeyError (P1-4); ~80% test coverage on intake + pattern-card path; one declared, tested provider path (no Grok/Ollama doc drift). |
+| **Reel Factory** | 7.6 | ~8.3 | Fix `pyproject` module list (P0-1) → deterministic install; wrap Higgsfield/Kling in a tested adapter with recorded fixtures (failure modes handled, not hoped); golden-output tests for caption render + E2 still→MP4 (duration/pixel asserts). |
+| **Campaign Factory** | 6.1 | ~7.3 | **Decompose `core.py`** (27k lines / 847 methods) into orchestration / inventory / audit / export / learning modules behind interfaces. Biggest single lever in the system. Maint 4→8 + module-level tests per carved unit. Highest-risk; needs contract tests as a safety net FIRST. |
+| **ContentForge** | 7.0 | ~8.0 | Test `similarity/route.js` (1827 lines) + `pipeline.js` (P1-5 untested surface); calibration fixtures — known-collision & known-distinct media pairs asserting PDQ ≤31 / SSCD ≥0.75 hold (catches detector drift). |
+| **Autoposter (TD)** | 8.2 | ~9.0 | Land AP0–AP3 (merge ~16 branches, weave `publishInstagram.ts`, re-run CI) — already coded to 9-grade. For true 9: one integration test driving a fake Meta Graph through the full error taxonomy (transient/window_cap/permanent → retry/backoff/dead-letter) + account-health pause/resume loop. |
+| **Pipeline Contracts** | 6.7 | ~7.5 | Replace hand-rolled validators with **codegen from the JSON schemas** (→ Python + TS) so the two sides *can't* drift; round-trip property tests per contract; CI byte-sync check enforced, not hoped. |
+
+### The three structural levers (dominate the jump to 9)
+
+1. **`core.py` decomposition** — gates Campaign Factory; nothing else moves its maint score. ~weeks, highest risk. Land strong contract/characterization tests first as the safety net.
+2. **Test coverage on the 3 big untested surfaces** — `reference_intake.py`, `similarity/route.js`, `pipeline.js`. These are safety- and learning-critical and under-tested.
+3. **Contract codegen** — makes cross-repo drift structurally impossible instead of vigilance-dependent.
+
+### Two ceilings code can't fully fix (state honestly, don't fake)
+
+- **Learning-loop data volume.** F v2 (median-norm + decay + Thompson) is a *better estimator*, not *more data*. Per-arm reward is small-n; the real ceiling needs posting volume × time. That's calendar, not code — caps F ~8.5 until volume arrives.
+- **External-gen variance.** Higgsfield/Kling output quality isn't fully in our control. The tested adapter handles *failure*, not *creativity* — caps Reel Factory ~8.5 on the generation axis.
+
+### Suggested 9-grade sequence for Codex (dependency-safe)
+
+1. **Contract codegen first** — it's the safety net the rest leans on; drift-proofs every downstream change.
+2. **Characterization tests around `core.py`** before touching it — lock current behavior so the refactor can't silently regress.
+3. **Test the 3 untested surfaces** (reference_intake, similarity/route, pipeline.js) — independent, parallelizable, high-value.
+4. **ContentForge detector calibration fixtures** — pins PDQ/SSCD thresholds against drift.
+5. **Reel Factory adapter + golden-output tests**; fix `pyproject` (P0-1).
+6. **`core.py` decomposition LAST** — highest risk, now protected by steps 1–2. One module carved per PR.
+
+Same non-negotiable constraints above apply — especially: `core.py` work is *new modules + characterization tests*, not in-place surgery without a net; one logical change per PR; quality floor only goes up.

@@ -445,6 +445,15 @@ const ROADMAP=[
     {k:'◻',id:'Q',t:'Real quality floor + Higgsfield virality',n:'VMAF/audio/crop gate; wire virality_predictor',ref:'pending'},
     {k:'◻',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'turn ranking into learning',ref:'pending'},
   ]},
+  {track:'Production-grade — path to ≥9/10 (INTELLIGENCE_AUDIT.md · Track 9)',goal:'after capability tracks land each part at ~7–8, the jump to ≥9 is tests + decomposition + drift-proofing — rigor, not features',items:[
+    {k:'◻',id:'9-codegen',t:'Contract codegen (do FIRST)',n:'generate validators from JSON schemas (py+ts) so the two sides cannot drift; round-trip tests + CI byte-sync. Contracts 6.7→7.5',ref:'pending'},
+    {k:'◻',id:'9-char',t:'Characterization tests around core.py',n:'lock current behavior BEFORE refactor — the safety net for the god-class split',ref:'pending'},
+    {k:'◻',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py · similarity/route.js · pipeline.js — safety+learning-critical, ~80% cover. RefFactory→7.8, CForge→8.0',ref:'pending'},
+    {k:'◻',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures asserting PDQ ≤31 · SSCD ≥0.75 hold (drift guard)',ref:'pending'},
+    {k:'◻',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield/Kling adapter w/ fixtures; caption + E2 still→MP4 golden output; fix pyproject P0-1. Reel 7.6→8.3',ref:'pending'},
+    {k:'◻',id:'9-core',t:'Decompose core.py (do LAST)',n:'27k-line / 847-method god-class → modules behind interfaces. Biggest lever, highest risk, now net-protected. Campaign 6.1→7.3+, maint 4→8',ref:'pending'},
+    {k:'◻',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'merge ~16 TD branches → main; fake-Graph error-taxonomy + account-health loop test. Autoposter 8.2→9.0',ref:'TD'},
+  ]},
 ];
 function renderRoadmap(){
   const b=document.getElementById('roadmap-board');if(!b)return;
