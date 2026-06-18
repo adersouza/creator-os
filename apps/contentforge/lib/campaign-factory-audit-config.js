@@ -28,6 +28,13 @@ export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
     coverDarkBrightness: 35,
     coverBlurEdgeScore: 8,
 
+    // Watchability gates use available deterministic FFmpeg evidence. Optional filters stay advisory when absent.
+    minVmaf: 78,
+    maxCambi: 18,
+    minIntegratedLufs: -20,
+    maxIntegratedLufs: -8,
+    maxTruePeakDb: -1,
+
     // Local workstation soft target for generated fixtures; report-only.
     advisoryLatencySoftLimitMs: 5000,
 

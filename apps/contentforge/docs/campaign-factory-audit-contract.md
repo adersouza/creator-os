@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.6",
+  "contractVersion": "campaign_factory_audit.v1.7",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -46,7 +46,8 @@ with Campaign Factory fields:
   "verdictCodes": {
     "forensics": "forensics_warn",
     "safeZone": "safe_zone_warn",
-    "readability": "caption_readable"
+    "readability": "caption_readable",
+    "watchability": "watchability_warn"
   },
   "overallVerdict": "pass|warn|fail",
   "readinessSummary": {
@@ -141,6 +142,33 @@ with Campaign Factory fields:
       "earlyTextBoxes": 0,
       "avgFrameDelta": 0
     }
+  },
+  "watchability": {
+    "verdict": "pass|warn",
+    "warnings": [],
+    "metrics": {
+      "fileCount": 1,
+      "measuredFiles": 1
+    },
+    "files": [
+      {
+        "file": "<target>",
+        "qualityMetrics": {
+          "available": true,
+          "vmaf": 91.2,
+          "ssim": 0.96,
+          "psnr": 36.5,
+          "vmafmotion": 2.1,
+          "cambi": { "available": true, "value": null }
+        },
+        "qaSignals": {
+          "loudness": { "inputI": "-14.2", "inputTp": "-1.6" },
+          "letterbox": false,
+          "warnings": []
+        },
+        "warnings": []
+      }
+    ]
   },
   "creativeQuality": {
     "available": true,
@@ -242,9 +270,9 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
-- `campaign_factory_audit.v1.6` blocks caption safe-zone, caption readability,
-  hook visibility, and creative-quality warnings for Campaign Factory upload
-  readiness.
+- `campaign_factory_audit.v1.7` blocks caption safe-zone, caption readability,
+  hook visibility, deterministic watchability, and creative-quality warnings for
+  Campaign Factory upload readiness.
 - `campaign_factory_audit.v1.4` evaluates worst-case detector evidence rather
   than averages. PDQ requires every source/sibling distance to be greater than
   `40`; SSCD requires every source/sibling similarity to be below `0.50`.
@@ -260,10 +288,15 @@ with Campaign Factory fields:
   visibility, visual clarity, and opening strength. Its warnings are blocking
   for `campaign_factory_v1` fan-out. `semanticEngine: "heuristic_v1"` means it
   is not model-backed semantic vision.
-- Safe-zone, caption readability, hook-visibility, and creative-quality warnings
-  are blocking for `campaign_factory_v1` because assets with illegible captions,
-  weak openings, or unclear creative signals are not draft-ready Campaign
-  Factory outputs.
+- `watchability` uses deterministic local evidence when available: VMAF/CAMBI
+  reference metrics, loudnorm integrated loudness/true peak, black/silence
+  detection, and crop/letterbox detection. Missing optional filters are not
+  fail-closed; measured failures are blocking for `campaign_factory_v1`.
+- Safe-zone, caption readability, hook-visibility, watchability, and
+  creative-quality warnings are blocking for `campaign_factory_v1` because
+  assets with illegible captions, weak openings, bad loudness, letterboxing,
+  banding/compression loss, or unclear creative signals are not draft-ready
+  Campaign Factory outputs.
 - `referenceMatch` and the backward-compatible `multiAccountOriginalityAudit`
   are informational only. The layer name remains `originality` for API
   compatibility, but Campaign Factory treats it as a reference/variation meter.
@@ -304,13 +337,21 @@ Campaign Factory V1 should treat these as blockers:
 - `creative_subject_unclear`
 - `creative_opening_static`
 - `creative_opening_no_early_hook`
+- `video_vmaf_low`
+- `video_cambi_banding`
+- `audio_loudness_out_of_range`
+- `audio_true_peak_too_hot`
+- `watchability_black_segment`
+- `audio_long_silence`
+- `framing_letterbox_or_crop`
 - non-advisory layer failures such as `pdq_failed`
 
 ## Warning Codes
 
 Campaign Factory V1 should treat these as review-only signals. The default
-ContentForge profile may still surface caption, hook, and creative-quality codes
-as warnings, but Campaign Factory fan-out treats them as blockers.
+ContentForge profile may still surface caption, hook, watchability, and
+creative-quality codes as warnings, but Campaign Factory fan-out treats them as
+blockers.
 
 - `forensics_ffmpeg_signature`
 - `forensics_binary_signature`
@@ -325,8 +366,9 @@ as warnings, but Campaign Factory fan-out treats them as blockers.
 
 ## Advisory Checks
 
-Safe-zone, caption readability, cover candidate, and hook visibility checks use
-sampled frames plus local OCR when available. The default local OCR mode is
+Safe-zone, caption readability, cover candidate, hook visibility, and
+watchability checks use sampled frames plus local OCR and FFmpeg evidence when
+available. The default local OCR mode is
 `CONTENTFORGE_OCR_ENGINE=auto`, which tries Apple Vision on macOS, then
 Tesseract, then heuristic frame analysis. You can force a path with:
 
@@ -349,12 +391,13 @@ They are not readiness warning codes and should not block approval or export:
 - `reference_match_template_reuse`
 
 The audit reports recognized text, OCR confidence, caption boxes, contrast,
-font-height ratio, safe-zone overlap, opening hook visibility, and cover
-candidate diversity. Safe-zone, caption readability, hook, and creative-quality
-warnings block Campaign Factory upload readiness; cover and reference-match
-signals remain review-only. Tesseract OCR runs on multiple preprocessed frame
-variants, including enhanced/upscaled and thresholded variants, then merges
-overlapping boxes before scoring.
+font-height ratio, safe-zone overlap, opening hook visibility, deterministic
+watchability metrics, and cover candidate diversity. Safe-zone, caption
+readability, hook, watchability, and creative-quality warnings block Campaign
+Factory upload readiness; cover and reference-match signals remain review-only.
+Tesseract OCR runs on multiple preprocessed frame variants, including
+enhanced/upscaled and thresholded variants, then merges overlapping boxes before
+scoring.
 
 If OCR or optional provenance tooling is unavailable, ContentForge must return a
 warning or info result instead of crashing the HTTP response.

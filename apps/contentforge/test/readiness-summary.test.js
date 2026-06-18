@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildDetectorVerdicts,
   buildReadinessSummary,
+  buildWatchabilityWarnings,
 } from "../app/api/similarity/route.js";
 
 test("readiness summary blocks severe compression failures", function () {
@@ -270,4 +271,73 @@ test("campaign profile blocks watchability warnings", function () {
   assert.equal(summary.blockingCodes.includes("weak_first_3_seconds"), true);
   assert.equal(summary.blockingCodes.includes("creative_quality_review"), true);
   assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
+});
+
+test("watchability warning classifier uses available quality and audio evidence", function () {
+  var warnings = buildWatchabilityWarnings({
+    fileName: "variant.mp4",
+    thresholds: {
+      minVmaf: 78,
+      maxCambi: 18,
+      minIntegratedLufs: -20,
+      maxIntegratedLufs: -8,
+      maxTruePeakDb: -1,
+    },
+    qualityMetrics: {
+      vmaf: 62,
+      cambi: { value: 24 },
+    },
+    qaSignals: {
+      loudness: { inputI: "-24.2", inputTp: "-0.3" },
+      warnings: ["Long silence segment detected", "Possible border or letterbox detected"],
+    },
+  });
+  var codes = warnings.map((warning) => warning.code);
+
+  assert.equal(codes.includes("video_vmaf_low"), true);
+  assert.equal(codes.includes("video_cambi_banding"), true);
+  assert.equal(codes.includes("audio_loudness_out_of_range"), true);
+  assert.equal(codes.includes("audio_true_peak_too_hot"), true);
+  assert.equal(codes.includes("audio_long_silence"), true);
+  assert.equal(codes.includes("framing_letterbox_or_crop"), true);
+});
+
+test("default profile keeps quality watchability warnings advisory", function () {
+  var results = {
+    watchability: {
+      verdict: "warn",
+      warnings: [
+        { code: "video_vmaf_low", message: "low vmaf", severity: "warn" },
+        { code: "audio_loudness_out_of_range", message: "bad loudness", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { watchability: "warn" }, {
+    auditProfile: "default",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("video_vmaf_low"), true);
+  assert.equal(summary.warningCodes.includes("audio_loudness_out_of_range"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("campaign profile blocks quality watchability warnings", function () {
+  var results = {
+    watchability: {
+      verdict: "warn",
+      warnings: [
+        { code: "video_vmaf_low", message: "low vmaf", severity: "warn" },
+        { code: "audio_loudness_out_of_range", message: "bad loudness", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { watchability: "warn" }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("video_vmaf_low"), true);
+  assert.equal(summary.blockingCodes.includes("audio_loudness_out_of_range"), true);
+  assert.equal(summary.warningCodes.includes("video_vmaf_low"), false);
 });

@@ -71,7 +71,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 | Track | Score | Verdict |
 |-------|-------|---------|
 | **Intelligence / learning loop** | **5.9/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
-| **Content quality / virality** | **4.2/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, and heuristic creative warnings now block fan-out; VMAF/CAMBI, LUFS, subject/framing/crop, model-backed quality, and virality gates remain open. |
+| **Content quality / virality** | **4.8/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, and heuristic creative warnings now block fan-out; model-backed quality, subject semantics, and virality gates remain open. |
 | **Anti-shadowban safety** | **~6.5/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM, and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: rendered PDQ cluster cooldowns + dashboard aHash/video PDQ upstream work. |
 
 **The unifying story:** the system reliably produces a *valid, undetectable-by-SSIM, schema-conformant* file — and does almost nothing to ensure it's **good**, that it **won't hash-collide across accounts**, or that what it learned **changes what it makes next**. Three different audits, one root pattern: **real signals exist but are computed-and-ignored.**
@@ -80,8 +80,8 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 ## Cross-cutting themes (fix these patterns, not just instances)
 
-1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/heuristic creative warnings now block Campaign Factory upload readiness. VMAF/CAMBI quality machinery, LUFS, subject/framing/crop, model-backed scoring, and virality scoring are still unused or advisory. The fix is often *wiring*, not *building*.
-2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, and Campaign Factory watchability now blocks on deterministic OCR/hook/creative warnings. Quality still lacks VMAF/CAMBI, LUFS, crop/subject gates, and model-backed virality scoring.
+1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/deterministic watchability/heuristic creative warnings now block Campaign Factory upload readiness. Model-backed scoring, subject semantics, and virality scoring are still unused or advisory. The fix is often *wiring*, not *building*.
+2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, and Campaign Factory watchability now blocks on deterministic OCR/hook/quality evidence. Quality still lacks model-backed subject/creative/virality scoring.
 3. **Learned intelligence dead-ends as an operator note.** Winner-DNA, recommendation trust score, creative recommendations — all computed, none auto-fed back into generation or ranking.
 4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs and Campaign Factory imports metric history curves; remaining gaps are trust-score self-correction, Winner-DNA prompt feedback, and dashboard video-PDQ upstream work.
 5. **In-environment AI is unused.** Higgsfield `virality_predictor` + `video_analysis` are available (skill + `video_analysis.v1` contract scaffold) and wired into no gate or scoring decision.
@@ -107,12 +107,12 @@ Reference Factory now has a measured-outcome feedback path for generated prompts
 
 ---
 
-## Track Q — Content quality / virality (4.2/10)
+## Track Q — Content quality / virality (4.8/10)
 
 | Sev | File:line | Fix |
 |-----|-----------|-----|
-| Fixed / Critical remainder | `repurposer/qa/quality.py` `is_quality_acceptable` | Minimum-dimension bug fixed: both axes must now meet the 720px floor, and 1080×404 is covered by regression test. Remaining Track Q work: add a real watchability floor for compression, audio loudness (LUFS), VMAF/CAMBI banding (**machinery already exists** in `contentforge/lib/quality-metrics.js` — `runVmaf`/`cambi`, unused), framing/motion/legibility, and subject-crop checks. |
-| Fixed / Critical remainder | `contentforge/.../similarity/route.js`, ContentForge contract docs | Campaign Factory safe-zone, caption readability, hook visibility, and heuristic creative-quality warnings now block upload readiness in `campaign_factory_audit.v1.6`; the default ContentForge profile remains advisory. Caption OCR boxes now include `fontHeightRatio` / `fontSizeScore`, and `caption_text_too_small` is a blocking Campaign Factory watchability code. Remaining: VMAF/CAMBI, LUFS, subject/framing/crop checks, and model-backed quality/virality gates remain open. |
+| Fixed / Critical remainder | `repurposer/qa/quality.py` `is_quality_acceptable` | Minimum-dimension bug fixed: both axes must now meet the 720px floor, and 1080×404 is covered by regression test. Remaining Track Q work: model-backed subject/framing quality and virality scoring. |
+| Fixed / Critical remainder | `contentforge/.../similarity/route.js`, ContentForge contract docs | Campaign Factory safe-zone, caption readability, hook visibility, deterministic watchability, and heuristic creative-quality warnings now block upload readiness in `campaign_factory_audit.v1.7`; the default ContentForge profile remains advisory. Caption OCR boxes include `fontHeightRatio` / `fontSizeScore`, `caption_text_too_small` blocks, and available VMAF/CAMBI, loudnorm LUFS/true-peak, black/silence, and crop/letterbox evidence now emits blocking watchability codes. Remaining: model-backed subject/creative quality and virality gates. |
 | Critical | `contentforge/lib/creative-quality-audit.js:237` | Self-labeled `semanticEngine:"heuristic_v1"`, `modelBacked:false`. Hook scoring = keyword bag-matching. Replace with an LLM/VLM judge (or Higgsfield `video_analysis`) scoring the first-3s frames + OCR'd hook against learned winning archetypes. |
 | High | `route.js:1540` | "Hook strength" = `earlyTextBoxes>0 ? 100 : avgDelta>=10 ? 60 : 20` — now blocks Campaign Factory fan-out when weak, but still only detects presence of text/motion and cannot tell good from bad. Replace or augment with model-backed first-3s scoring. |
 | High | **Higgsfield `virality_predictor` unused** | Plug it in at two points: (a) contentforge as a new **blocking-capable** `virality` layer; (b) reel_factory post-render QC so low-predicted-virality clips are auto-rejected/down-ranked **before** posting. Converts "is it postable" → "will it perform." Lowest-effort high-leverage win. |
@@ -148,7 +148,7 @@ PR #44 made variation real (per-index edits, sibling gate). **But the gate still
 - **OpenCLIP / SigLIP** → semantic creative/hook scoring vs winning references (Track Q).
 - **PySceneDetect** → real scene-aware editorial variation (Tracks Q+S).
 - **Thompson-sampling bandit** or **River** (online ML) → turn ranking into actual learning (Track I).
-- **VMAF/CAMBI** → already in `contentforge/lib/quality-metrics.js`, wire as a quality gate (Track Q).
+- **VMAF/CAMBI + loudnorm/cropdetect** → wired into deterministic Campaign Factory watchability blocking when local FFmpeg evidence is available (Track Q); model-backed subject/creative/virality scoring remains open.
 
 ## Research prompts (external 2026 knowledge — give to Claude/ChatGPT deep-research)
 
@@ -216,7 +216,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. ~~**Track I capture bugs**~~ ✓ **UPSTREAM-FIXED (ThreadsDashboard PR #129)** — full-total monotonic guards, `snapshot_at` retention, Threads reach/saves semantics, and AP0-2 metric reconciliation are merged in the dashboard source repo.
 3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
-4. **Track Q quality floor** — minimum-dimension bug and Campaign Factory OCR safe-zone/readability/hook/heuristic creative blocking are fixed; real VMAF/CAMBI, LUFS/audio, subject/crop, and model-backed creative gates remain.
+4. **Track Q quality floor** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative blocking are fixed; model-backed subject/creative gates remain.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
 6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
 7. Winner-DNA → generation auto-feedback; reference_factory return path.
