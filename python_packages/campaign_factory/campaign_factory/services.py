@@ -7,6 +7,7 @@ from typing import Any, Callable
 from .config import Settings
 from .events import EventRepository
 from .graph import GraphRepository
+from .models import ModelRepository
 
 
 class CoreServices:
@@ -42,6 +43,15 @@ class CoreServices:
             slugify=slugify,
             sanitize_for_storage=sanitize_for_storage,
             utc_now=utc_now,
+        )
+        self.models = ModelRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            record_event=self.events.record_event,
         )
 
     def ensure_graph_node(
@@ -160,6 +170,60 @@ class CoreServices:
 
     def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.events.pipeline_job_payload(row)
+
+    def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
+        return self.models.upsert_model(slug, name=name, notes=notes)
+
+    def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
+        return self.models.upsert_campaign(slug, model_slug, name=name, platform=platform)
+
+    def upsert_account(
+        self,
+        handle: str,
+        platform: str = "instagram",
+        external_id: str | None = None,
+        model_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.models.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
+
+    def upsert_model_account_profile(
+        self,
+        model_slug: str,
+        *,
+        label: str | None = None,
+        allowed_instagram_account_ids: list[str] | None = None,
+        allowed_account_group_names: list[str] | None = None,
+        allowed_handle_patterns: list[str] | None = None,
+        default_smart_link: str | None = None,
+        story_cta_text: str | None = None,
+    ) -> dict[str, Any]:
+        return self.models.upsert_model_account_profile(
+            model_slug,
+            label=label,
+            allowed_instagram_account_ids=allowed_instagram_account_ids,
+            allowed_account_group_names=allowed_account_group_names,
+            allowed_handle_patterns=allowed_handle_patterns,
+            default_smart_link=default_smart_link,
+            story_cta_text=story_cta_text,
+        )
+
+    def model_account_profile(self, model_slug: str) -> dict[str, Any] | None:
+        return self.models.model_account_profile(model_slug)
+
+    def account_compatible_with_model(
+        self,
+        model_slug: str,
+        *,
+        instagram_account_id: str | None = None,
+        account_handle: str | None = None,
+        account_group_name: str | None = None,
+    ) -> tuple[bool, str | None, dict[str, Any] | None]:
+        return self.models.account_compatible_with_model(
+            model_slug,
+            instagram_account_id=instagram_account_id,
+            account_handle=account_handle,
+            account_group_name=account_group_name,
+        )
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

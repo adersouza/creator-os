@@ -5,6 +5,7 @@ from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
+from campaign_factory.models import ModelRepository
 from campaign_factory.services import CoreServices
 
 
@@ -25,6 +26,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.graph.conn is factory.conn
         assert isinstance(factory.services.events, EventRepository)
         assert factory.services.events.conn is factory.conn
+        assert isinstance(factory.services.models, ModelRepository)
+        assert factory.services.models.conn is factory.conn
     finally:
         factory.close()
 
@@ -85,6 +88,30 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("pipeline_job_payload", args, kwargs))
             return {"id": args[0]["id"]}
 
+        def upsert_model(self, *args, **kwargs):
+            calls.append(("upsert_model", args, kwargs))
+            return {"slug": args[0]}
+
+        def upsert_campaign(self, *args, **kwargs):
+            calls.append(("upsert_campaign", args, kwargs))
+            return {"slug": args[0], "model_slug": args[1]}
+
+        def upsert_account(self, *args, **kwargs):
+            calls.append(("upsert_account", args, kwargs))
+            return {"handle": args[0]}
+
+        def upsert_model_account_profile(self, *args, **kwargs):
+            calls.append(("upsert_model_account_profile", args, kwargs))
+            return {"modelSlug": args[0]}
+
+        def model_account_profile(self, *args, **kwargs):
+            calls.append(("model_account_profile", args, kwargs))
+            return {"modelSlug": args[0]}
+
+        def account_compatible_with_model(self, *args, **kwargs):
+            calls.append(("account_compatible_with_model", args, kwargs))
+            return True, None, {"modelSlug": args[0]}
+
         def campaign_by_slug(self, *args, **kwargs):
             calls.append(("campaign_by_slug", args, kwargs))
             return {"slug": args[0]}
@@ -108,6 +135,25 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory.set_pipeline_job_campaign("job_1", "camp_1") == {"id": "job_1", "campaignId": "camp_1"}
     assert factory.pipeline_job("job_1") == {"id": "job_1"}
     assert factory.pipeline_job_payload({"id": "job_1"}) == {"id": "job_1"}
+    assert factory.upsert_model("model-a", name="Model A", notes="notes") == {"slug": "model-a"}
+    assert factory.upsert_campaign("may", "model-a", name="May", platform="threads") == {"slug": "may", "model_slug": "model-a"}
+    assert factory.upsert_account("@creator", platform="instagram", external_id="ig_1", model_id="model_1") == {"handle": "@creator"}
+    assert factory.upsert_model_account_profile(
+        "model-a",
+        label="Model A",
+        allowed_instagram_account_ids=["ig_1"],
+        allowed_account_group_names=["warm"],
+        allowed_handle_patterns=["creator"],
+        default_smart_link="https://example.test",
+        story_cta_text="new post",
+    ) == {"modelSlug": "model-a"}
+    assert factory.model_account_profile("model-a") == {"modelSlug": "model-a"}
+    assert factory.account_compatible_with_model(
+        "model-a",
+        instagram_account_id="ig_1",
+        account_handle="creator",
+        account_group_name="warm",
+    ) == (True, None, {"modelSlug": "model-a"})
     assert factory.campaign_by_slug("may") == {"slug": "may"}
     assert factory.rendered_asset("asset_1") == {"id": "asset_1"}
 
@@ -137,6 +183,23 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("set_pipeline_job_campaign", ("job_1", "camp_1"), {}),
         ("pipeline_job", ("job_1",), {}),
         ("pipeline_job_payload", ({"id": "job_1"},), {}),
+        ("upsert_model", ("model-a",), {"name": "Model A", "notes": "notes"}),
+        ("upsert_campaign", ("may", "model-a"), {"name": "May", "platform": "threads"}),
+        ("upsert_account", ("@creator",), {"platform": "instagram", "external_id": "ig_1", "model_id": "model_1"}),
+        ("upsert_model_account_profile", ("model-a",), {
+            "label": "Model A",
+            "allowed_instagram_account_ids": ["ig_1"],
+            "allowed_account_group_names": ["warm"],
+            "allowed_handle_patterns": ["creator"],
+            "default_smart_link": "https://example.test",
+            "story_cta_text": "new post",
+        }),
+        ("model_account_profile", ("model-a",), {}),
+        ("account_compatible_with_model", ("model-a",), {
+            "instagram_account_id": "ig_1",
+            "account_handle": "creator",
+            "account_group_name": "warm",
+        }),
         ("campaign_by_slug", ("may",), {}),
         ("rendered_asset", ("asset_1",), {}),
     ]
@@ -265,6 +328,78 @@ def test_core_services_delegates_event_methods_to_event_repository() -> None:
         ("set_pipeline_job_campaign", ("job_1", "camp_1"), {}),
         ("pipeline_job", ("job_1",), {}),
         ("pipeline_job_payload", ({"id": "job_1"},), {}),
+    ]
+
+
+def test_core_services_delegates_model_methods_to_model_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeModels:
+        def upsert_model(self, *args, **kwargs):
+            calls.append(("upsert_model", args, kwargs))
+            return {"slug": args[0]}
+
+        def upsert_campaign(self, *args, **kwargs):
+            calls.append(("upsert_campaign", args, kwargs))
+            return {"slug": args[0]}
+
+        def upsert_account(self, *args, **kwargs):
+            calls.append(("upsert_account", args, kwargs))
+            return {"handle": args[0]}
+
+        def upsert_model_account_profile(self, *args, **kwargs):
+            calls.append(("upsert_model_account_profile", args, kwargs))
+            return {"modelSlug": args[0]}
+
+        def model_account_profile(self, *args, **kwargs):
+            calls.append(("model_account_profile", args, kwargs))
+            return {"modelSlug": args[0]}
+
+        def account_compatible_with_model(self, *args, **kwargs):
+            calls.append(("account_compatible_with_model", args, kwargs))
+            return True, None, {"modelSlug": args[0]}
+
+    services.models = FakeModels()
+
+    assert services.upsert_model("model-a", name="Model A", notes="notes") == {"slug": "model-a"}
+    assert services.upsert_campaign("may", "model-a", name="May", platform="threads") == {"slug": "may"}
+    assert services.upsert_account("@creator", platform="instagram", external_id="ig_1", model_id="model_1") == {"handle": "@creator"}
+    assert services.upsert_model_account_profile(
+        "model-a",
+        label="Model A",
+        allowed_instagram_account_ids=["ig_1"],
+        allowed_account_group_names=["warm"],
+        allowed_handle_patterns=["creator"],
+        default_smart_link="https://example.test",
+        story_cta_text="new post",
+    ) == {"modelSlug": "model-a"}
+    assert services.model_account_profile("model-a") == {"modelSlug": "model-a"}
+    assert services.account_compatible_with_model(
+        "model-a",
+        instagram_account_id="ig_1",
+        account_handle="creator",
+        account_group_name="warm",
+    ) == (True, None, {"modelSlug": "model-a"})
+
+    assert calls == [
+        ("upsert_model", ("model-a",), {"name": "Model A", "notes": "notes"}),
+        ("upsert_campaign", ("may", "model-a"), {"name": "May", "platform": "threads"}),
+        ("upsert_account", ("@creator",), {"platform": "instagram", "external_id": "ig_1", "model_id": "model_1"}),
+        ("upsert_model_account_profile", ("model-a",), {
+            "label": "Model A",
+            "allowed_instagram_account_ids": ["ig_1"],
+            "allowed_account_group_names": ["warm"],
+            "allowed_handle_patterns": ["creator"],
+            "default_smart_link": "https://example.test",
+            "story_cta_text": "new post",
+        }),
+        ("model_account_profile", ("model-a",), {}),
+        ("account_compatible_with_model", ("model-a",), {
+            "instagram_account_id": "ig_1",
+            "account_handle": "creator",
+            "account_group_name": "warm",
+        }),
     ]
 
 

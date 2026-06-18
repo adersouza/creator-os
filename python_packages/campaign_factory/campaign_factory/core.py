@@ -4028,84 +4028,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return hooks
 
     def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
-        slug = slugify(slug)
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM models WHERE slug = ?", (slug,)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE models SET name = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ?",
-                (name or row["name"], notes, now, row["id"]),
-            )
-            self.ensure_graph_node("model", local_table="models", local_id=row["id"], payload={"slug": slug, "name": name or row["name"]})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (row["id"],)).fetchone())
-        model_id = new_id("model")
-        self.conn.execute(
-            "INSERT INTO models (id, slug, name, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (model_id, slug, name or slug.replace("_", " ").title(), notes, now, now),
-        )
-        self.ensure_graph_node("model", local_table="models", local_id=model_id, payload={"slug": slug, "name": name or slug.replace("_", " ").title()})
-        self.conn.commit()
-        model = dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone())
-        self.record_event(
-            "model_created",
-            status="success",
-            message=f"Model created: {model['slug']}",
-            metadata={"modelId": model["id"], "slug": model["slug"], "name": model["name"]},
-        )
-        return model
+        return self.services.upsert_model(slug, name=name, notes=notes)
 
     def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
-        slug = slugify(slug)
-        model_slug = slugify(model_slug)
-        dirs = self.campaign_dirs(model_slug, slug)
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (slug,)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE campaigns SET name = ?, platform = ?, root_path = ?, updated_at = ? WHERE id = ?",
-                (name or row["name"], platform, str(dirs["root"]), now, row["id"]),
-            )
-            self.ensure_graph_node("campaign", local_table="campaigns", local_id=row["id"], payload={"slug": slug, "platform": platform})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (row["id"],)).fetchone())
-        campaign_id = new_id("camp")
-        self.conn.execute(
-            "INSERT INTO campaigns (id, slug, name, platform, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (campaign_id, slug, name or slug.replace("_", " ").title(), platform, str(dirs["root"]), now, now),
-        )
-        self.ensure_graph_node("campaign", local_table="campaigns", local_id=campaign_id, payload={"slug": slug, "platform": platform})
-        self.conn.commit()
-        campaign = dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone())
-        self.record_event(
-            "campaign_created",
-            campaign_id=campaign["id"],
-            status="success",
-            message=f"Campaign created: {campaign['slug']}",
-            metadata={"campaignId": campaign["id"], "slug": campaign["slug"], "platform": campaign["platform"]},
-        )
-        return campaign
+        return self.services.upsert_campaign(slug, model_slug, name=name, platform=platform)
 
     def upsert_account(self, handle: str, platform: str = "instagram", external_id: str | None = None, model_id: str | None = None) -> dict[str, Any]:
-        handle = handle.strip().lstrip("@")
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM accounts WHERE handle = ? AND platform = ?", (handle, platform)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE accounts SET external_id = COALESCE(?, external_id), model_id = COALESCE(?, model_id), updated_at = ? WHERE id = ?",
-                (external_id, model_id, now, row["id"]),
-            )
-            self.ensure_graph_node("account", local_table="accounts", local_id=row["id"], payload={"handle": handle, "platform": platform})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone())
-        account_id = new_id("acct")
-        self.conn.execute(
-            "INSERT INTO accounts (id, handle, platform, external_id, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (account_id, handle, platform, external_id, model_id, now, now),
-        )
-        self.ensure_graph_node("account", local_table="accounts", local_id=account_id, payload={"handle": handle, "platform": platform})
-        self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+        return self.services.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
 
     def upsert_model_account_profile(
         self,
@@ -4118,85 +4047,21 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         default_smart_link: str | None = None,
         story_cta_text: str | None = None,
     ) -> dict[str, Any]:
-        model = self.upsert_model(model_slug)
-        now = utc_now()
-        payload = {
-            "label": label or model["name"],
-            "allowed_instagram_account_ids_json": json.dumps(sorted(set(allowed_instagram_account_ids or []))),
-            "allowed_account_group_names_json": json.dumps(sorted(set(allowed_account_group_names or []))),
-            "allowed_handle_patterns_json": json.dumps(sorted(set(allowed_handle_patterns or []))),
-            "default_smart_link": default_smart_link,
-            "story_cta_text": story_cta_text,
-        }
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (model["slug"],)).fetchone()
-        if row:
-            self.conn.execute(
-                """
-                UPDATE model_account_profiles
-                SET model_id = ?, label = ?, allowed_instagram_account_ids_json = ?,
-                    allowed_account_group_names_json = ?, allowed_handle_patterns_json = ?,
-                    default_smart_link = ?, story_cta_text = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    model["id"],
-                    payload["label"],
-                    payload["allowed_instagram_account_ids_json"],
-                    payload["allowed_account_group_names_json"],
-                    payload["allowed_handle_patterns_json"],
-                    payload["default_smart_link"],
-                    payload["story_cta_text"],
-                    now,
-                    row["id"],
-                ),
-            )
-            self.conn.commit()
-            return self.model_account_profile(model["slug"]) or {}
-        profile_id = new_id("profile")
-        self.conn.execute(
-            """
-            INSERT INTO model_account_profiles
-            (id, model_id, model_slug, label, allowed_instagram_account_ids_json,
-             allowed_account_group_names_json, allowed_handle_patterns_json, default_smart_link,
-             story_cta_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                profile_id,
-                model["id"],
-                model["slug"],
-                payload["label"],
-                payload["allowed_instagram_account_ids_json"],
-                payload["allowed_account_group_names_json"],
-                payload["allowed_handle_patterns_json"],
-                payload["default_smart_link"],
-                payload["story_cta_text"],
-                now,
-                now,
-            ),
+        return self.services.upsert_model_account_profile(
+            model_slug,
+            label=label,
+            allowed_instagram_account_ids=allowed_instagram_account_ids,
+            allowed_account_group_names=allowed_account_group_names,
+            allowed_handle_patterns=allowed_handle_patterns,
+            default_smart_link=default_smart_link,
+            story_cta_text=story_cta_text,
         )
-        self.conn.commit()
-        return self.model_account_profile(model["slug"]) or {}
 
     def model_account_profile(self, model_slug: str) -> dict[str, Any] | None:
-        slug = slugify(model_slug)
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (slug,)).fetchone()
-        return self._model_account_profile_payload(dict(row)) if row else None
+        return self.services.model_account_profile(model_slug)
 
     def _model_account_profile_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "modelId": row["model_id"],
-            "modelSlug": row["model_slug"],
-            "label": row["label"],
-            "allowedInstagramAccountIds": json_load(row["allowed_instagram_account_ids_json"], []),
-            "allowedAccountGroupNames": json_load(row["allowed_account_group_names_json"], []),
-            "allowedHandlePatterns": json_load(row["allowed_handle_patterns_json"], []),
-            "defaultSmartLink": row["default_smart_link"],
-            "storyCtaText": row["story_cta_text"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.models._model_account_profile_payload(row)
 
     def account_compatible_with_model(
         self,
@@ -4206,22 +4071,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_handle: str | None = None,
         account_group_name: str | None = None,
     ) -> tuple[bool, str | None, dict[str, Any] | None]:
-        profile = self.model_account_profile(model_slug)
-        if not profile:
-            return True, None, None
-        allowed_ids = set(profile.get("allowedInstagramAccountIds") or [])
-        if instagram_account_id and allowed_ids:
-            return (instagram_account_id in allowed_ids, None if instagram_account_id in allowed_ids else "model_account_mismatch", profile)
-        allowed_groups = {str(item).lower() for item in profile.get("allowedAccountGroupNames") or []}
-        if account_group_name and allowed_groups:
-            ok = account_group_name.lower() in allowed_groups
-            return ok, None if ok else "model_account_group_mismatch", profile
-        handle = (account_handle or "").lower()
-        patterns = [str(item).lower() for item in profile.get("allowedHandlePatterns") or []]
-        if handle and patterns:
-            ok = any(pattern in handle for pattern in patterns)
-            return ok, None if ok else "model_account_handle_mismatch", profile
-        return True, None, profile
+        return self.services.account_compatible_with_model(
+            model_slug,
+            instagram_account_id=instagram_account_id,
+            account_handle=account_handle,
+            account_group_name=account_group_name,
+        )
 
     def create_distribution_plan(
         self,
