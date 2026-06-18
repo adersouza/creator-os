@@ -64,7 +64,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **5/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, but the loop is still human-gated and leaks at capture, Reference Factory feedback, and dashboard boundaries. |
+| **Intelligence / learning loop** | **5.3/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk and now imports TD metric history curves, but the loop is still human-gated and leaks at capture, Reference Factory feedback, and dashboard boundaries. |
 | **Content quality / virality** | **3.5/10** | Partially closed — minimum dimensions and Campaign Factory caption safe-zone overlap now block, but watchability, readability, model-backed creative scoring, and virality gates remain open. |
 | **Anti-shadowban safety** | **~6.5/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM, and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: rendered PDQ cluster cooldowns + dashboard aHash/video PDQ upstream work. |
 
@@ -94,7 +94,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
 | High (capture bugs — corrupt training data at source) | `supabase/migrations/20260307210000_monotonic_metric_updates.sql:36-41` · `analyticsSync.ts:716` · `post-engagement.ts:130-142` | (a) monotonic guard compares views-inclusive vs views-exclusive → per-post 24h UPDATE no-ops; (b) 90-day retention `delete().lt("created_at",…)` but column is `snapshot_at` → errors every run, swallowed, table grows unbounded; (c) Threads `reach`/`saves` never written (always 0) but the score weights them. |
 | Partial | `core.py:23197` trust score; `_history_score` | Campaign Factory learning summaries now carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. Trust score self-correction is still not read back. |
-| Med | `adapters/threadsdash.py:3004` | Handoff reads canonical `posts` row only, never `post_metric_history` time-series → F sees one point, no velocity/retention curve. Pull the time-series. |
+| Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
 | Med | AP0-2 `postMetricSnapshotReconciliation.ts` | AP0-2 reconciliation is real but lives only in TD's `audit/analytics-view-coverage` branch — **port it into the running path**; it doesn't touch the 3 capture bugs above. |
 
 **reference_factory has NO feedback loop at all** (one-directional: scrape→score→emit). Add outcome columns to `generated_video_prompts` (`db.py:296`) so it ranks patterns by *our* measured results, not competitor leaderboard order. (On its own it scores ~2/10.)
