@@ -2763,25 +2763,41 @@ def sync_performance_snapshots(
         updated = 0
         backfilled_edges = 0
         skipped = 0
+        skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         for row in rows:
-            meta = (row.get("metadata") or {}).get("campaign_factory") or {}
-            if not isinstance(meta, dict):
+            row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            meta = (row_metadata.get("campaign_factory") if isinstance(row_metadata, dict) else None) or {}
+            if not isinstance(meta, dict) or not meta:
                 skipped += 1
+                warning = _performance_sync_skip_warning(row, reason="missing_campaign_factory_metadata")
+                skipped_rows.append(warning)
+                warnings.append(warning)
+                _dead_letter_performance_sync_row(
+                    factory,
+                    campaign_id=campaign["id"],
+                    row=row,
+                    reason="missing_campaign_factory_metadata",
+                    reason_code="threadsdash_performance_missing_campaign_metadata",
+                    severity="medium",
+                )
                 continue
             if meta.get("campaign_id") and meta.get("campaign_id") != campaign_slug:
                 skipped += 1
+                skipped_rows.append(_performance_sync_skip_warning(row, reason="campaign_mismatch", campaignId=meta.get("campaign_id")))
                 continue
             meta = _with_local_caption_outcome_context(factory, meta)
             eligibility = _metrics_eligibility_for_threadsdash_row(factory, row=row, meta=meta)
             if not eligibility["eligible"]:
                 skipped += 1
-                warnings.append({
+                warning = {
                     "postId": row.get("id"),
                     "renderedAssetId": meta.get("rendered_asset_id"),
                     "reason": "metrics_not_eligible",
                     "blockingReasons": eligibility["blockingReasons"],
-                })
+                }
+                skipped_rows.append(warning)
+                warnings.append(warning)
                 continue
             tracked_rows.append(row)
             snapshot = _performance_snapshot_from_row(
@@ -3013,6 +3029,7 @@ def sync_performance_snapshots(
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
                 "warnings": warnings,
+                "skipReasons": _sync_reason_counts(skipped_rows),
             },
         )
         factory.conn.commit()
@@ -3028,6 +3045,7 @@ def sync_performance_snapshots(
             "updated": updated,
             "backfilledEdges": backfilled_edges,
             "skipped": skipped,
+            "skipReasons": _sync_reason_counts(skipped_rows),
             "warnings": warnings,
             "summary": summary,
             "pipelineJobId": pipeline_job["id"],
@@ -3046,6 +3064,7 @@ def sync_performance_snapshots(
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
                 "skipped": skipped,
+                "skipReasons": _sync_reason_counts(skipped_rows),
                 "warnings": warnings,
             },
         )
@@ -3058,6 +3077,7 @@ def sync_performance_snapshots(
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
                 "skipped": skipped,
+                "skipReasons": _sync_reason_counts(skipped_rows),
             },
         )
         return result
@@ -3098,6 +3118,55 @@ def _select_threadsdash_posts(client: "SupabaseRestClient", *, user_id: str, lim
                 **base_params,
             },
         )
+
+
+def _performance_sync_skip_warning(row: dict[str, Any], *, reason: str, **extra: Any) -> dict[str, Any]:
+    warning = {
+        "postId": row.get("id"),
+        "platform": row.get("platform"),
+        "status": row.get("status"),
+        "reason": reason,
+    }
+    warning.update({key: value for key, value in extra.items() if value is not None})
+    return warning
+
+
+def _dead_letter_performance_sync_row(
+    factory: CampaignFactory,
+    *,
+    campaign_id: str,
+    row: dict[str, Any],
+    reason: str,
+    reason_code: str,
+    severity: str,
+) -> None:
+    post_id = str(row.get("id") or new_id("threadsdash_post"))
+    post_graph_id = factory.ensure_graph_node(
+        "threadsdash_post",
+        external_system="threadsdash.posts",
+        external_id=post_id,
+        payload={
+            "postId": post_id,
+            "platform": row.get("platform"),
+            "status": row.get("status"),
+            "missingCampaignFactoryMetadata": reason == "missing_campaign_factory_metadata",
+        },
+    )
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    factory.create_exception(
+        reason_code=reason_code,
+        severity=severity,
+        campaign_id=campaign_id,
+        entity_graph_id=post_graph_id,
+        payload={
+            "postId": post_id,
+            "reason": reason,
+            "platform": row.get("platform"),
+            "status": row.get("status"),
+            "metadataKeys": sorted(str(key) for key in metadata.keys()),
+        },
+        commit=False,
+    )
 
 
 def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:

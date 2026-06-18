@@ -38,6 +38,13 @@ Track I capture work, Reference Factory outcome feedback/statistical rigor,
 Track Q quality/virality work, perceptual cooldowns, per-account audio, and
 upstream ThreadsDashboard work remain open.
 
+Track I Campaign Factory data-plumbing silent-drop handling is fixed on
+`codex/intelligence-track-i-data-plumbing`: ThreadsDashboard performance sync
+now emits structured skip reasons and opens a trust-exception dead letter when
+rows are missing valid `metadata.campaign_factory`, instead of dropping them
+without an operator-visible trail. Verification: focused
+`sync_performance_snapshots` tests plus full `test_core.py`.
+
 ---
 
 ## ⚠ Branch reconciliation — READ FIRST (do not redo shipped work)
@@ -84,7 +91,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | High | `reference_factory/patterns.py:569-603`, `public_metrics.py:99-116` | Ranking is raw-count: `log10(plays)` on absolute competitor plays, clusters by `sum(plays)`. **No account-size normalization** → big accounts always win. Divide by follower count. |
 | Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
 | Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
-| High | `adapters/threadsdash.py:2696-2699` | TD→Python sync **silently drops** any post missing `metadata.campaign_factory` (`skipped += 1; continue`). Log/dead-letter instead. |
+| Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
 | High (capture bugs — corrupt training data at source) | `supabase/migrations/20260307210000_monotonic_metric_updates.sql:36-41` · `analyticsSync.ts:716` · `post-engagement.ts:130-142` | (a) monotonic guard compares views-inclusive vs views-exclusive → per-post 24h UPDATE no-ops; (b) 90-day retention `delete().lt("created_at",…)` but column is `snapshot_at` → errors every run, swallowed, table grows unbounded; (c) Threads `reach`/`saves` never written (always 0) but the score weights them. |
 | Partial | `core.py:23197` trust score; `_history_score` | Campaign Factory learning summaries now carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. Trust score self-correction is still not read back. |
 | Med | `adapters/threadsdash.py:3004` | Handoff reads canonical `posts` row only, never `post_metric_history` time-series → F sees one point, no velocity/retention curve. Pull the time-series. |

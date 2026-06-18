@@ -11322,6 +11322,60 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         cf.close()
 
 
+def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    add_rendered_asset(cf, tmp_path)
+    rows = [{
+        "id": "post_missing_campaign_meta",
+        "status": "published",
+        "platform": "instagram",
+        "account_id": None,
+        "instagram_account_id": "ig_1",
+        "created_at": "2026-01-02T00:00:00+00:00",
+        "updated_at": "2026-01-03T00:00:00+00:00",
+        "published_at": "2026-01-02T01:00:00+00:00",
+        "permalink": "https://instagram.test/p/missing-meta",
+        "views": 1200,
+        "likes_count": 80,
+        "metadata": {"source": "threadsdash"},
+    }]
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            assert table == "posts"
+            return rows
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    try:
+        result = sync_performance_snapshots(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        assert result["inserted"] == 0
+        assert result["skipped"] == 1
+        assert result["skipReasons"] == {"missing_campaign_factory_metadata": 1}
+        assert result["warnings"][0]["reason"] == "missing_campaign_factory_metadata"
+        assert result["warnings"][0]["postId"] == "post_missing_campaign_meta"
+        assert cf.conn.execute("SELECT COUNT(*) FROM performance_snapshots").fetchone()[0] == 0
+        exception = cf.conn.execute(
+            "SELECT reason_code, severity, payload_json FROM trust_exceptions"
+        ).fetchone()
+        assert exception["reason_code"] == "threadsdash_performance_missing_campaign_metadata"
+        assert exception["severity"] == "medium"
+        payload = json.loads(exception["payload_json"])
+        assert payload["postId"] == "post_missing_campaign_meta"
+        assert payload["reason"] == "missing_campaign_factory_metadata"
+    finally:
+        cf.close()
+
+
 def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     rows = []
