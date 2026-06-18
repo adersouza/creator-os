@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">7.0</b>/10</span>
+  <span class="score">system <b id="hsys">7.2</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -106,7 +106,7 @@
   <p class="sub">The spine. Boxes = components &amp; generation primitives. Arrows = real data/handoff flows, colored by <b>verified</b> status (read from audit + code, not static analysis). Click any box for detail.</p>
   <div class="legend">
     <span><i class="dot works"></i> works (real &amp; tested)</span>
-    <span><i class="dot" style="background:#2ea043"></i> shipped ✓ (A–D, PR #44)</span>
+    <span><i class="dot" style="background:#2ea043"></i> shipped ✓ (A–G wired + Track S)</span>
     <span><i class="dot half"></i> half-manual (exists, not auto-triggered)</span>
     <span><i class="dot orphan"></i> orphan / stubbed</span>
     <span><i class="dot gap"></i> gap (not built)</span>
@@ -124,9 +124,9 @@
   </div>
   <div class="note">
     <b>Reading the map (updated PR #44):</b> the BACK half (export → schedule → publish → feedback) is <span style="color:var(--works)">real and working</span>.
-    The MIDDLE (per-account variation / repurposer) is now <span style="color:var(--works)">WIRED ✓</span> — un-orphaned into the control brain, real editorial edits, per-account distinct with a sibling-vs-sibling gate, quality floor enforced, micro spoof off. <b>Workstreams A–D shipped.</b>
-    The FRONT (image → Soul-2 → Kling generation) is now <span style="color:var(--half)">being wired in — contract seams landed</span>: E2 zero-cost motion edit (<code>motion_edit_render.v1</code>, PR #45) and E front generation (<code>front_generation_plan.v1</code> + <code>front_generation_stage.py</code>, PR #46/#47). Contracts + stage registration in; render engines still pending.
-    Now in progress (yellow): E2/E render engines, F learning loop (v1 ranking landed PR #48), G autonomy runner (PR #49). Front + intelligence + autonomy all moving from primitive → wired this cycle.
+    The MIDDLE (per-account variation / repurposer) is now <span style="color:var(--works)">WIRED ✓</span> — un-orphaned into the control brain, real editorial edits, per-account distinct with a sibling-vs-sibling gate, quality floor enforced, micro spoof off. <b>Workstreams A–G shipped (full wiring closed).</b>
+    The FRONT (image → Soul-2 → Kling generation) is now <span style="color:var(--works)">WIRED ✓</span>: E2 zero-cost motion edit (<code>motion_edit_render.v1</code> + <code>motion_edit_stage.py</code>, PR #45) and E front generation (<code>front_generation_plan.v1</code> + <code>front_generation_stage.py</code>, PR #46/#47) both on main — contract + render stage code, no stubs. Paid Kling stays cost-preflighted / dry-run by default.
+    <b>Pipeline wiring A–G is closed</b>: F learning-loop seam v1 (ranking, PR #48) and G proactive runner (<code>proactive_cycle_stage.py</code>, PR #49) landed. What remains is <i>not wiring</i> — it's Intelligence-track depth (F v2 Thompson reward, real quality floor + virality) tracked in INTELLIGENCE_AUDIT.md.
   </div>
 </section>
 
@@ -145,7 +145,7 @@
   <h2>Intelligence / Quality / Safety Audit <span style="color:var(--dim);font-weight:400;font-size:12px">(2026-06-18 · full detail in INTELLIGENCE_AUDIT.md)</span></h2>
   <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code + reconciled for PR #44.</p>
   <div class="note" style="border-left:3px solid var(--accent)">
-    <b>Root pattern across all three:</b> the right signals already EXIST in the code but are computed-and-ignored. PDQ/SSCD detectors → advisory-only. VMAF quality → unused. Higgsfield virality → unwired. Winner-DNA → dead-ends as an operator note. <b>The fixes are mostly wiring, not building.</b>
+    <b>Root pattern across all three:</b> the right signals already EXIST in the code but were computed-and-ignored. <b>PDQ/SSCD detectors → now BLOCKING (Track S, PR #54)</b>. Still advisory: VMAF quality → unused. Higgsfield virality → unwired. Winner-DNA → dead-ends as an operator note. <b>The remaining fixes are mostly wiring, not building.</b>
   </div>
   <div class="note" style="border-left:3px solid #2ea043">
     <b>Now research-backed (see <code>research/01–05</code> + INTELLIGENCE_AUDIT.md).</b> Real detector thresholds (PDQ ≤31, SSCD ≥0.75, TMK ≥0.7), a buildable 100-point pre-post Reel score, and a concrete Thompson-sampling learning-loop design.
@@ -174,9 +174,9 @@
 <!-- ============ IMPROVE ============ -->
 <section id="improve">
   <h2>Make it better &amp; more connected — workstreams A–G</h2>
-  <p class="sub">The verified build order to connect front → middle → back into one intelligent, proactive pipeline. From <code>PIPELINE_WIRING_PLAN.md</code>. Suggested sequence shown on the right of each.</p>
-  <div class="note" style="border-left:3px solid var(--accent)">
-    <b>Cheapest first win:</b> A + C + D = a working "distinct-content-per-account → scheduled multi-account post" slice with <b>zero generation cost</b>. Then E2 (free still→MP4) before any paid Kling.
+  <p class="sub">The build order that connected front → middle → back into one proactive pipeline. <code>PIPELINE_WIRING_PLAN.md</code> is now retired — A–G all shipped to main. Sequence shown on the right of each.</p>
+  <div class="note" style="border-left:3px solid var(--works)">
+    <b>✓ Pipeline wiring closed (A–G on main).</b> Distinct-content-per-account → zero-cost still→MP4 (E2) → front-gen (E) → scheduled multi-account post → feedback → proactive runner (G). Remaining work is <b>Intelligence-track depth</b> (F v2 reward, quality floor, virality), not wiring — see Intelligence Audit tab.
   </div>
   <div id="wslist"></div>
 </section>
@@ -210,18 +210,18 @@ const COMPONENTS=[
   {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:6.6,sub:[6,7,6,6,8],files:29,nodes:615,status:'works',
    keyfiles:['learning.py:460 — writes higgsfield_prompt_pack_top*.json','reference_intake.py (2858 lines)','patterns.py / public_metrics.py (dup _caption_archetype bug)'],
    notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','P1-4: doc/code drift on Grok/Ollama; latent KeyError bug']},
-  {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:7.4,sub:[7,8,8,6,8],files:107,nodes:2512,status:'half',
+  {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:7.6,sub:[7,8,8,7,8],files:107,nodes:2512,status:'works',
    keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
-   notes:['Generation primitive is REAL','But only called by overnight_grid_worker / reel_gui — NOT the control brain (GAP 2)','P0-1: pyproject lists 4 nonexistent modules — install fails']},
-  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, learning',score:5.4,sub:[4,7,6,3,7],files:60,nodes:2622,status:'works',
-   keyfiles:['core.py — 27k-line god-class, 847 methods (P1-3)','adapters/threadsdash.py:369 — export','repurposer/ — ORPHAN + stubbed engines'],
-   notes:['Back-half export/schedule/feedback is real','Never triggers generation (front gap)','Repurposer middle is orphaned','Lowest maintainability score in repo (3/10)']},
-  {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Content spoofer — FFmpeg variants that defeat PDQ/SSCD + rewrite capture metadata',score:6.8,sub:[7,6,8,6,7],files:113,nodes:779,status:'works',
-   keyfiles:['app/api/.../similarity/route.js (1827 lines)','pipeline.js (~800 lines)','forensics_check.py'],
-   notes:['Invoked by campaign over HTTP /api/similarity','Spoof meters + quality-floor guards','Quality floor non-negotiable; evasion only owner-directed','P1-5: large untested surface']},
+   notes:['Generation primitive is REAL','GAP 2 CLOSED — now reachable from control brain via front_generation_stage (E, PR #46/#47)','Also drives zero-AI still→MP4 path (E2, PR #45)','Verify pyproject module list before fresh install']},
+  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:6.1,sub:[6,7,6,4,7],files:60,nodes:2622,status:'works',
+   keyfiles:['core.py — 27k-line god-class, 847 methods (P1-3, still the maint drag)','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
+   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py god-class remains the maintainability drag (4/10); A–G avoided growing it']},
+  {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:7.0,sub:[7,7,8,6,7],files:113,nodes:779,status:'works',
+   keyfiles:['app/api/.../similarity/route.js — PDQ/SSCD collision gate (PR #54)','lib/pdq_check.py · lib/sscd_check.py · lib/reference_db.py','forensics_check.py'],
+   notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','P1-5: large untested surface']},
   {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.2,sub:[8,9,9,7,8],files:2102,nodes:16975,status:'works',
    keyfiles:['Separate product repo (ThreadsDashboard) — dashboard work is upstream','draftIngest.ts:449 — upsert posts as draft','publishing.ts:199 — Meta Graph media_publish'],
-   notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Autoposter AP0-1/2/3 hardened (dup-index, metrics reconcile, chain preflight)','Schedule/publish/feedback all real & working']},
+   notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Base publish chain (draft→schedule→QStash→publish→metrics) real & working on TD main','⚠ ALL autoposter hardening AP0–AP3 (race/metrics/chain + retry/taxonomy/quota/idempotency/token/scope/audio + observability + account-health) CODED on ~16 TD branches, NONE merged to TD main (9c1c9a06d) — needs integration pass, see Autoposter Map']},
   {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:6.7,sub:[6,null,4,null,7],files:32,nodes:1620,status:'works',
    keyfiles:['packages/pipeline_contracts/__init__.py — hand-rolled validator','typescript/ — ~12 hand-coded validators','schemas/*.json — 16 contracts'],
    notes:['Canonical source; compatibility copies must stay byte-synced','Validators use canonical schema-backed checks']},
@@ -230,9 +230,9 @@ const COMPONENTS=[
 const HANDOFFS=[
   {from:'reference_factory',to:'campaign_factory',carry:['pattern_card.v1','audio_catalog_export.v1','campaign_reference_bank.json'],mech:'file / import',status:'works',ev:'learning.py:460 writes packs · core.py:2278 import_reference_bank reads'},
   {from:'reference_factory',to:'reel_factory',carry:['higgsfield prompt packs'],mech:'file',status:'works',ev:'prompt packs consumed by generation path'},
-  {from:'reel_factory',to:'reel_factory',carry:['reference image → Soul-2 still → Kling video'],mech:'subprocess CLI (higgsfield)',status:'half',ev:'generate_assets.py:101/123 — REAL, but only called by overnight_grid_worker:204 / reel_gui — NOT control brain (GAP 2)',self:true,label:'GENERATION primitive'},
+  {from:'reel_factory',to:'reel_factory',carry:['reference image → Soul-2 still → Kling video'],mech:'subprocess CLI (higgsfield)',status:'works',ev:'generate_assets.py:101/123 — REAL; GAP 2 CLOSED — now driven by control brain via front_generation_stage (E, PR #46/#47), not only overnight_grid_worker',self:true,label:'GENERATION primitive ✓'},
   {from:'reel_factory',to:'campaign_factory',carry:['generated_asset_lineage.v1','audio_intent.v1','rendered assets'],mech:'subprocess + sqlite manifest',status:'works',ev:'core.py:17906 runs reel_pipeline · sync_reel_outputs:17973'},
-  {from:'campaign_factory',to:'contentforge',carry:['source + rendered file → spoof & verify'],mech:'HTTP POST /api/similarity',status:'works',ev:'works today; HTTP — invisible to graphify (0 static edges ≠ disconnected)'},
+  {from:'campaign_factory',to:'contentforge',carry:['source + rendered file → PDQ/SSCD collision check + quality gate'],mech:'HTTP POST /api/similarity',status:'works',ev:'PR #54: collision check now BLOCKING. HTTP — invisible to graphify (0 static edges ≠ disconnected)'},
   {from:'campaign_factory',to:'campaign_factory',carry:['per-account variation (repurposer)'],mech:'in-process',status:'done',ev:'PR #44: variation_stage seam wired to control brain (C); real editorial edits (A); per-account distinct + sibling-vs-sibling gate (B); QualityGate + SSIM fix enforced; micro spoof default OFF',self:true,label:'VARIATION ✓ (A–D)'},
   {from:'campaign_factory',to:'dashboard',carry:['campaign_draft_payload.v1','variant_assignment.v1'],mech:'HTTP ingest (X-Campaign-Factory-Ingest-Secret)',status:'done',ev:'PR #44 (D): each account draft gets its OWN variant when variation enabled; falls back to master when off. Opt-in flag.'},
   {from:'dashboard',to:'dashboard',carry:['QStash schedule → Meta Graph publish'],mech:'QStash → Graph API',status:'works',ev:'campaignSchedule.ts:596 → publishing.ts:199 media_publish · per-account spacing real',self:true,label:'SCHEDULE → PUBLISH'},
@@ -287,24 +287,24 @@ const POS={
   contentforge:{x:540,y:320,w:200,h:64},
   dashboard:{x:40,y:470,w:200,h:64},
   schedule:{x:300,y:470,w:180,h:54,kind:'works',title:'Schedule → Publish',sub:'QStash · Meta Graph',st:'works'},
-  e2:{x:540,y:170,w:180,h:54,kind:'half',title:'Still → MP4 (free)',sub:'contract seam ✓ (E2) · engine pending',st:'half'},
-  proactive:{x:540,y:470,w:200,h:54,kind:'half',title:'Proactive cycle runner',sub:'runner landing (G) · PR #49',st:'half'},
+  e2:{x:540,y:170,w:180,h:54,kind:'done',title:'Still → MP4 (free)',sub:'engine wired (E2) · PR #45',st:'done'},
+  proactive:{x:540,y:470,w:200,h:54,kind:'done',title:'Proactive cycle runner',sub:'wired (G) · PR #49',st:'done'},
 };
 const FLOWS=[
   ['reference_factory','reel_factory','works','prompt packs'],
   ['reference_factory','campaign_factory','works','reference bank'],
-  ['reel_factory','gen','half','triggers'],
-  ['gen','e2','half','still (E2) · seam ✓'],
+  ['reel_factory','gen','works','triggers'],
+  ['gen','e2','done','still→MP4 ✓ (E2)'],
   ['gen','campaign_factory','works','lineage'],
-  ['campaign_factory','gen','half','front-gen stage landing (E)'],
+  ['campaign_factory','gen','done','front-gen wired ✓ (E)'],
   ['campaign_factory','variation','works','variation ✓ (C)'],
-  ['variation','contentforge','works','spoof+verify'],
+  ['variation','contentforge','works','PDQ/SSCD gate ✓'],
   ['campaign_factory','contentforge','works','/api/similarity'],
   ['variation','dashboard','works','per-acct draft ✓ (D)'],
-  ['campaign_factory','dashboard','half','draft payload'],
+  ['campaign_factory','dashboard','works','draft payload'],
   ['dashboard','schedule','works','publish'],
   ['dashboard','campaign_factory','works','performance↩'],
-  ['campaign_factory','proactive','gap','autonomy (G)'],
+  ['campaign_factory','proactive','done','autonomy wired ✓ (G)'],
 ];
 
 /* ---------- RENDER ---------- */
@@ -423,17 +423,17 @@ const ROADMAP=[
     {k:'✅',id:'B',t:'Per-account distinctness',n:'sibling-vs-sibling gate',ref:'PR #44'},
     {k:'✅',id:'C',t:'Un-orphan → control brain',n:'variation_stage.py seam',ref:'PR #44'},
     {k:'✅',id:'D',t:'Variation → export',n:'per-account drafts; master fallback',ref:'PR #44'},
-    {k:'⏳',id:'E2',t:'Still → MP4 (free)',n:'contract seam ✓; render engine next',ref:'PR #45'},
-    {k:'⏳',id:'E',t:'Front auto-link Soul-2+Kling',n:'contract + stage landing; control-brain chain next',ref:'PR #46/#47'},
-    {k:'⏳',id:'F',t:'Intelligence / learning loop',n:'v1 rank-with-confidence ✓; median+decay+Thompson next',ref:'PR #48'},
-    {k:'⏳',id:'G',t:'Proactive autonomous cycles',n:'cycle runner landing; budget-governed, draft-first',ref:'PR #49'},
+    {k:'✅',id:'E2',t:'Still → MP4 (free)',n:'WIRED: motion_edit_render.v1 + motion_edit_stage.py (265L) — zero-AI render engine on main',ref:'PR #45'},
+    {k:'✅',id:'E',t:'Front auto-link Soul-2+Kling',n:'WIRED: front_generation_plan.v1 + front_generation_stage.py (539L); paid Kling cost-preflighted/dry-run by default',ref:'PR #46/#47'},
+    {k:'✅',id:'F',t:'Learning-loop seam (v1)',n:'WIRED: ranks by perf with confidence (recommendation_next_batch.v1). v2 reward = median+decay+Thompson → Intelligence track',ref:'PR #48'},
+    {k:'✅',id:'G',t:'Proactive autonomous cycles',n:'WIRED: proactive_cycle_stage.py (347L) — budget-governed, draft-first, kill-switch',ref:'PR #49'},
   ]},
-  {track:'Autoposter Hardening (AP0–AP2)',goal:'make the publish path race-safe, reliable, and observable',items:[
-    {k:'✅',id:'AP0-1',t:'Duplicate-schedule race',n:'partial unique index',ref:'TD done'},
-    {k:'✅',id:'AP0-2',t:'Metrics reconciliation',n:'no fire-and-forget data loss',ref:'TD done'},
-    {k:'✅',id:'AP0-3',t:'Thread-chain preflight',n:'segment size-checked pre-publish',ref:'TD done'},
-    {k:'◻',id:'AP1',t:'Robustness/security tier',n:'backoff, cron fairness, secret rotation, RLS scope',ref:'pending'},
-    {k:'◻',id:'AP2',t:'Cleanliness tier',n:'state-machine consolidation, run reports',ref:'pending'},
+  {track:'Autoposter Hardening (AP0–AP3)',goal:'make the publish path race-safe, reliable, observable — lives in ThreadsDashboard repo · ⚠ ALL coded on branches, TD main still 9c1c9a06d (0 AP work)',items:[
+    {k:'⏳',id:'AP0',t:'Correctness (race/metrics/chain)',n:'CODED on TD branch (dup-index migration, metrics reconcile, chain preflight) — NOT on TD main',ref:'branch'},
+    {k:'⏳',id:'AP1',t:'Robustness/security tier',n:'CODED on TD branches (retry/backoff, error taxonomy, quota gate, idempotency, token SM, scope, audio) — NOT on TD main',ref:'branches'},
+    {k:'⏳',id:'AP2',t:'Observability tier',n:'CODED on TD branches (status-transition chokepoint, run reports, two-queue contract) — NOT on TD main',ref:'branches'},
+    {k:'⏳',id:'AP3',t:'Account-health auto-backoff',n:'CODED on TD branch (non-follower reach collapse → pause/resume) — NOT on TD main',ref:'branch'},
+    {k:'◻',id:'AP-int',t:'Integration pass',n:'merge ~16 branches → TD main, weave publishInstagram.ts conflicts (6 collide)',ref:'pending'},
   ]},
   {track:'Audit Backlog (P0–P2)',goal:'every quality finding terminal',items:[
     {k:'✅',id:'P0–P2',t:'All findings closed',n:'Fixed / Upstream / Accepted deferred',ref:'PR #43'},
