@@ -8,6 +8,7 @@
 
 **Non-negotiables (carry from the existing tracks):**
 - One logical change per PR; each adds the test/migration that proves it.
+- **As each track lands, flip the matching finding in `infra_lifecycle_map.html`** (its own standalone dashboard — same flip-the-roadmap contract as `creator_os_map.html`/`autoposter_map.html`, but a separate file). Each finding card carries its track ID (A1…D6). Otherwise the map goes stale on the first merge.
 - Quality/safety floor only goes **up**. The media-reuse override TTL and distinctness guards are *detect-and-respect* hardening — never weaken them.
 - DB changes: `CREATE INDEX CONCURRENTLY` / `CREATE UNIQUE INDEX CONCURRENTLY` only (no table locks on prod); additive migrations; regenerate `src/types/supabase.ts`.
 - Schema-shape changes that cross the repo boundary → new **versioned** contract, `pnpm check:contracts` green.
@@ -61,7 +62,7 @@
 
 ## Track C — Vercel backend (7.0 → 9.5). All TD.
 
-**C1 — `cross-reply-publish` returns 5xx on retry-eligible errors (AUDIT §3 HIGH).** Replace the catch-all `200` with proper status so QStash retries/dead-letters. Test: a thrown transient error yields 5xx; a permanent error dead-letters.
+**C1 — `cross-reply-publish` returns 5xx on retry-eligible errors (AUDIT §3 MED).** Replace the catch-all `200` with proper status so QStash retries/dead-letters; **keep the existing Sentry capture** (failures are already visible there — this is purely about restoring retry). Test: a thrown transient error yields 5xx; a permanent error dead-letters.
 
 **C2 — Bound the manual-publish path (AUDIT §3 HIGH).** Add `maxDuration: 60` for `posts.ts` in `vercel.json` (or route manual publish through the async container path). Test: a slow-Meta simulation doesn't truncate mid-publish.
 
