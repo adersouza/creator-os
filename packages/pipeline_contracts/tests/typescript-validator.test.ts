@@ -8,6 +8,7 @@ import {
 	validateGeneratedAssetLineage,
 	validateMotionEditRender,
 	validatePerformanceSync,
+	validatePostMetricHistoryRead,
 	validateRepurposingPlan,
 	validateRecommendationAccuracyReport,
 	validateVariantAssignment,
@@ -172,6 +173,17 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validatePerformanceSync(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("pipelineJobId"),
+			]),
+		);
+	});
+
+	it("requires post metric history selected source columns", () => {
+		const payload = example("post_metric_history.read");
+		delete payload.rows[0].views_count;
+
+		expect(validatePostMetricHistoryRead(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("views_count"),
 			]),
 		);
 	});

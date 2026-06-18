@@ -11710,25 +11710,37 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path:
             {
                 "id": "hist_1h",
                 "post_id": "post_history_1",
+                "account_id": "acct_1",
+                "platform": "instagram",
                 "snapshot_at": "2026-01-02T02:00:00+00:00",
+                "hours_since_publish": 1,
                 "views_count": 100,
                 "likes_count": 8,
                 "replies_count": 1,
+                "reposts_count": 0,
+                "quotes_count": 0,
                 "shares_count": 2,
                 "saves_count": 3,
                 "reach": 90,
+                "engagement_rate": 0.155,
                 "created_at": "2026-01-02T02:00:00+00:00",
             },
             {
                 "id": "hist_24h",
                 "post_id": "post_history_1",
+                "account_id": "acct_1",
+                "platform": "instagram",
                 "snapshot_at": "2026-01-03T01:00:00+00:00",
+                "hours_since_publish": 24,
                 "views_count": 1200,
                 "likes_count": 80,
                 "replies_count": 9,
+                "reposts_count": 0,
+                "quotes_count": 0,
                 "shares_count": 14,
                 "saves_count": 22,
                 "reach": 1100,
+                "engagement_rate": 0.113,
                 "created_at": "2026-01-03T01:00:00+00:00",
             },
         ])
@@ -11775,6 +11787,68 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path:
                 "reach": 1100,
             },
         ]
+    finally:
+        cf.close()
+
+
+def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    post_rows = []
+    history_rows = []
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            if table == "posts":
+                return post_rows
+            if table == "post_metric_history":
+                return history_rows
+            raise AssertionError(table)
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        post_rows.append({
+            "id": "post_history_drift",
+            "status": "published",
+            "platform": "instagram",
+            "account_id": None,
+            "instagram_account_id": "ig_1",
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "updated_at": "2026-01-03T00:00:00+00:00",
+            "published_at": "2026-01-02T01:00:00+00:00",
+            "metadata": {
+                "campaign_factory": threadsdash_campaign_factory_metadata(source),
+            },
+        })
+        history_rows.append({
+            "id": "hist_drift",
+            "post_id": "post_history_drift",
+            "account_id": "acct_1",
+            "platform": "instagram",
+            "snapshot_at": "2026-01-03T01:00:00+00:00",
+            "hours_since_publish": 24,
+            "likes_count": 80,
+            "replies_count": 9,
+            "reposts_count": 0,
+            "quotes_count": 0,
+            "shares_count": 14,
+            "saves_count": 22,
+            "reach": 1100,
+            "engagement_rate": 0.113,
+            "created_at": "2026-01-03T01:00:00+00:00",
+        })
+
+        with pytest.raises(RuntimeError, match="post_metric_history.read.v1 validation failed.*views_count"):
+            sync_performance_snapshots(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                supabase_url="https://example.supabase.co",
+                supabase_service_role_key="service-role",
+            )
     finally:
         cf.close()
 

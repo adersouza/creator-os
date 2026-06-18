@@ -7,6 +7,8 @@ export const AUDIO_CATALOG_EXPORT_SCHEMA_ID =
 	"reference_factory.audio_catalog_export.v1" as const;
 export const PERFORMANCE_SYNC_SCHEMA_ID =
 	"campaign_factory.performance_sync.v1" as const;
+export const POST_METRIC_HISTORY_READ_SCHEMA_ID =
+	"threadsdashboard.post_metric_history.read.v1" as const;
 export const CAPTION_OUTCOME_CONTEXT_SCHEMA_ID =
 	"campaign_factory.caption_outcome_context.v1" as const;
 export const PATTERN_CARD_SCHEMA_ID = "reference_factory.pattern_card.v1" as const;
@@ -379,6 +381,41 @@ export const performanceSyncSchema = {
 		pipelineJobId: { type: "string", minLength: 1 },
 		pipelineTraceId: { type: "string", minLength: 1 },
 		summary: { type: "object" },
+	},
+} as const;
+
+export const postMetricHistoryReadSchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
+	$id: POST_METRIC_HISTORY_READ_SCHEMA_ID,
+	title: "ThreadsDashboard Post Metric History Read",
+	type: "object",
+	required: ["schema", "rows"],
+	properties: {
+		schema: { const: POST_METRIC_HISTORY_READ_SCHEMA_ID },
+		rows: {
+			type: "array",
+			items: {
+				type: "object",
+				required: [
+					"id",
+					"post_id",
+					"account_id",
+					"platform",
+					"snapshot_at",
+					"hours_since_publish",
+					"views_count",
+					"likes_count",
+					"replies_count",
+					"reposts_count",
+					"quotes_count",
+					"shares_count",
+					"saves_count",
+					"reach",
+					"engagement_rate",
+					"created_at",
+				],
+			},
+		},
 	},
 } as const;
 
@@ -1431,6 +1468,52 @@ export function validatePerformanceSync(value: unknown): string[] {
 	for (const field of ["pipelineJobId", "pipelineTraceId"] as const) {
 		if (typeof value[field] !== "string" || value[field].trim() === "") {
 			errors.push(`performance sync ${field} must be string`);
+		}
+	}
+	return errors;
+}
+
+export function validatePostMetricHistoryRead(value: unknown): string[] {
+	const errors = schemaErrors(
+		postMetricHistoryReadSchema,
+		value,
+		"post metric history read",
+	);
+	if (!isRecord(value)) return ["post metric history read must be an object"];
+	if (value.schema !== POST_METRIC_HISTORY_READ_SCHEMA_ID) {
+		errors.push("post metric history read schema mismatch");
+	}
+	if (!Array.isArray(value.rows)) {
+		errors.push("post metric history read rows must be an array");
+		return errors;
+	}
+	const requiredFields = [
+		"id",
+		"post_id",
+		"account_id",
+		"platform",
+		"snapshot_at",
+		"hours_since_publish",
+		"views_count",
+		"likes_count",
+		"replies_count",
+		"reposts_count",
+		"quotes_count",
+		"shares_count",
+		"saves_count",
+		"reach",
+		"engagement_rate",
+		"created_at",
+	] as const;
+	for (const [index, row] of value.rows.entries()) {
+		if (!isRecord(row)) {
+			errors.push(`post metric history read rows[${index}] must be object`);
+			continue;
+		}
+		for (const field of requiredFields) {
+			if (!(field in row)) {
+				errors.push(`post metric history read rows[${index}].${field} is required`);
+			}
 		}
 	}
 	return errors;
