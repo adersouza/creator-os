@@ -16,6 +16,20 @@
 
 ---
 
+## Current execution notes (2026-06-18)
+
+- **D3 is in progress, not complete.** Do not duplicate the table-family batches already opened:
+  - TD #147: `campaign_factory_*` zero-scan index batch.
+  - TD #152: `scheduler_decisions` zero-scan account/run indexes; preserves the active `created_at`, BRIN retention, workspace, and group indexes.
+  - TD #153: `meta_api_usage_snapshots` zero-scan account/captured index; preserves the active user/captured Reliability Center index.
+  - TD #154: `competitor_top_posts` zero-scan pattern/enrichment indexes; preserves active competitor, engagement, recent-window, pattern, metric-quality, unique, and primary-key indexes.
+  - TD #155: `account_dna*` zero-scan voice-embedding, creator-DNA, example, and account-rule indexes; preserves active workspace/group, active-account, rule-scope, primary-key, and creator-DNA table indexes.
+  - TD #156: `ai_eval_snapshots` zero-scan prompt-hash and user-suite indexes; preserves the active scope index and primary key.
+- Continue D3 one table family per PR, gated on live `pg_stat_user_indexes.idx_scan = 0` over the stated stats window and a code-path check proving the dropped index is not the active access path.
+- Keep `infra_lifecycle_map.html` in sync with each new D3 batch; the map should say batched/in-progress until the broader unused-index backlog is actually closed.
+
+---
+
 ## Track A — Cross-repo seam (6.5 → 9.5). The ⭐ priority; mostly TD, one creator-os PR. Do A1 first.
 
 **A1 — Make the boundary idempotent (closes AUDIT §1 HIGH-3 + the downgraded HIGH-2).**
@@ -82,7 +96,7 @@
 
 **D2 — Add the 29 unindexed FK indexes (AUDIT §4 MED).** `CREATE INDEX CONCURRENTLY` on the FK columns the advisor flagged (prioritize hot-path `posts`/`auto_post_queue`/`publish_attempts`; skip truly-dead `manager_*` if those tables are being retired). Proof: advisor `unindexed_foreign_keys` clears.
 
-**D3 — Prune the 195 unused indexes outside the hot tables (AUDIT §4 MED).** Batched `DROP INDEX CONCURRENTLY`, one PR per table-family, each gated on `idx_scan = 0` over a stated window. This is the systemic "index-everything" cleanup; do it after D1.
+**D3 — Prune the 195 unused indexes outside the hot tables (AUDIT §4 MED).** Batched `DROP INDEX CONCURRENTLY`, one PR per table-family, each gated on `idx_scan = 0` over a stated window. This is the systemic "index-everything" cleanup; do it after D1. **Status:** initial batches are open for `campaign_factory_*` (TD #147), `scheduler_decisions` (TD #152), `meta_api_usage_snapshots` (TD #153), `competitor_top_posts` (TD #154), `account_dna*` (TD #155), and `ai_eval_snapshots` (TD #156); continue with the next live-zero-scan table family rather than rebasing these into one oversized PR.
 
 **D4 — Settle the `posts` lease semantics (AUDIT §4 MED, ties to §1).** Confirm the publish worker takes `publish_locks` before *every* send and wire the day-old `next_retry_at` into a cron; document the two-mechanism (`publish_locks` + fingerprint) idempotency contract so it isn't re-litigated. Test: concurrent sends for one post serialize on the lock; `next_retry_at` drives a retry.
 
