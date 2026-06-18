@@ -3,6 +3,7 @@ from __future__ import annotations
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.graph import GraphRepository
 from campaign_factory.services import CoreServices
 
 
@@ -19,6 +20,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert isinstance(factory.services, CoreServices)
         assert factory.services.conn is factory.conn
         assert factory.services.settings is factory.settings
+        assert isinstance(factory.services.graph, GraphRepository)
+        assert factory.services.graph.conn is factory.conn
     finally:
         factory.close()
 
@@ -36,6 +39,9 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("ensure_graph_edge", args, kwargs))
             return "edge_1"
 
+        def set_graph_sync_state(self, *args, **kwargs):
+            calls.append(("set_graph_sync_state", args, kwargs))
+
         def record_event(self, *args, **kwargs):
             calls.append(("record_event", args, kwargs))
             return {"id": "evt_1"}
@@ -52,6 +58,7 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
     assert factory.ensure_graph_edge("from", "to", "contains", evidence={"ok": True}, commit=True) == "edge_1"
+    assert factory.set_graph_sync_state("threadsdash", {"cursor": "next"}) is None
     assert factory.record_event("evt", campaign_id="camp_1", status="success", metadata={"ok": True}) == {"id": "evt_1"}
     assert factory.campaign_by_slug("may") == {"slug": "may"}
     assert factory.rendered_asset("asset_1") == {"id": "asset_1"}
@@ -59,6 +66,7 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
         ("ensure_graph_edge", ("from", "to", "contains"), {"evidence": {"ok": True}, "commit": True}),
+        ("set_graph_sync_state", ("threadsdash", {"cursor": "next"}), {}),
         ("record_event", ("evt",), {
             "campaign_id": "camp_1",
             "source_asset_id": None,
@@ -74,6 +82,48 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         }),
         ("campaign_by_slug", ("may",), {}),
         ("rendered_asset", ("asset_1",), {}),
+    ]
+
+
+def test_core_services_delegates_graph_methods_to_graph_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeGraph:
+        def ensure_graph_node(self, *args, **kwargs):
+            calls.append(("ensure_graph_node", args, kwargs))
+            return "node_1"
+
+        def graph_id_for(self, *args, **kwargs):
+            calls.append(("graph_id_for", args, kwargs))
+            return "node_2"
+
+        def ensure_graph_edge(self, *args, **kwargs):
+            calls.append(("ensure_graph_edge", args, kwargs))
+            return "edge_1"
+
+        def set_sync_state(self, *args, **kwargs):
+            calls.append(("set_sync_state", args, kwargs))
+
+    services.graph = FakeGraph()
+
+    assert services.ensure_graph_node("campaign", local_table="campaigns", local_id="camp_1", payload={"slug": "may"}) == "node_1"
+    assert services.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "node_2"
+    assert services.ensure_graph_edge("node_1", "node_2", "contains", evidence={"ok": True}, commit=True) == "edge_1"
+    assert services.set_graph_sync_state("threadsdash", {"cursor": "next"}) is None
+
+    assert calls == [
+        ("ensure_graph_node", ("campaign",), {
+            "local_table": "campaigns",
+            "local_id": "camp_1",
+            "external_system": None,
+            "external_id": None,
+            "payload": {"slug": "may"},
+            "commit": False,
+        }),
+        ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
+        ("ensure_graph_edge", ("node_1", "node_2", "contains"), {"evidence": {"ok": True}, "commit": True}),
+        ("set_sync_state", ("threadsdash", {"cursor": "next"}), {}),
     ]
 
 
