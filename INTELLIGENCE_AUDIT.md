@@ -37,9 +37,12 @@ pytest python_packages/campaign_factory/tests/test_core.py -q`.
 Track I capture work is upstream-fixed in ThreadsDashboard PR #129: full-total
 metric monotonic guards, `post_metric_history` retention by `snapshot_at`,
 Threads reach/saves semantics, and non-fatal metric snapshot reconciliation are
-merged in the dashboard source repo. Reference Factory outcome feedback,
-Track Q quality/virality work, perceptual cooldowns, and dashboard video-PDQ
-follow-up remain open.
+merged in the dashboard source repo. Reference Factory outcome feedback is
+fixed on `codex/intelligence-track-i-reference-feedback`: measured prompt
+outcomes now import into `generated_video_prompts`, public ranking uses measured
+reward before follower-normalized public rate/raw plays, and pattern/learning
+exports carry the measured reward evidence. Track Q quality/virality work,
+perceptual cooldowns, and dashboard video-PDQ follow-up remain open.
 
 Track I Campaign Factory data-plumbing silent-drop handling is fixed on
 `codex/intelligence-track-i-data-plumbing`: ThreadsDashboard performance sync
@@ -67,7 +70,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **5.6/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, and the ThreadsDashboard capture repair is upstream-merged; Reference Factory feedback and dashboard video-PDQ follow-up remain open. |
+| **Intelligence / learning loop** | **5.9/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
 | **Content quality / virality** | **3.5/10** | Partially closed — minimum dimensions and Campaign Factory caption safe-zone overlap now block, but watchability, readability, model-backed creative scoring, and virality gates remain open. |
 | **Anti-shadowban safety** | **~6.5/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM, and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: rendered PDQ cluster cooldowns + dashboard aHash/video PDQ upstream work. |
 
@@ -78,9 +81,9 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 ## Cross-cutting themes (fix these patterns, not just instances)
 
 1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone overlap now blocks Campaign Factory upload readiness. VMAF/CAMBI quality machinery, readability, creative, and virality scoring are still unused or advisory. The fix is often *wiring*, not *building*.
-2. **The right metric is computed but the wrong one is the gate.** Distinctness gates on SSIM (structural) instead of PDQ/SSCD (perceptual-hash). Quality gates on resolution instead of watchability. Campaign Factory learning now uses normalized, recency-decayed, confidence-weighted scoring; Reference Factory ranking and quality/virality gates still need the same treatment.
+2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, and Reference Factory can rank by measured outcomes when available. Quality still gates mostly on resolution/safe-zone instead of full watchability, and virality scoring remains unwired.
 3. **Learned intelligence dead-ends as an operator note.** Winner-DNA, recommendation trust score, creative recommendations — all computed, none auto-fed back into generation or ranking.
-4. **The data pipeline that feeds "smart" leaks at the contract boundary.** The internal SQLite carries full lineage (post_id/variant_id/concept_id/...); the *exported contracts* drop those IDs, so Workstream F cannot attribute performance to cause even though the data exists.
+4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs and Campaign Factory imports metric history curves; remaining gaps are trust-score self-correction, Winner-DNA prompt feedback, and dashboard video-PDQ upstream work.
 5. **In-environment AI is unused.** Higgsfield `virality_predictor` + `video_analysis` are available (skill + `video_analysis.v1` contract scaffold) and wired into no gate or scoring decision.
 
 ---
@@ -91,7 +94,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 
 | Sev | File:line | Fix |
 |-----|-----------|-----|
-| High | `reference_factory/patterns.py:569-603`, `public_metrics.py:99-116` | Ranking is raw-count: `log10(plays)` on absolute competitor plays, clusters by `sum(plays)`. **No account-size normalization** → big accounts always win. Divide by follower count. |
+| Fixed | `reference_factory/outcomes.py`, `public_metrics.py`, `patterns.py`, `learning.py` | Reference Factory now imports measured prompt outcomes into `generated_video_prompts`, ranks public posts by measured reward before follower-normalized public rate/raw plays, embeds `measuredOutcome` in pattern metrics, and carries measured reward samples into learning-cluster performance signals. Regression tests prove a lower-raw-play reference with better measured reward outranks a raw-volume winner. |
 | Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
 | Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
@@ -100,7 +103,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
 | Upstream-fixed | ThreadsDashboard PR #129 `postMetricSnapshotReconciliation.ts` | AP0-2 metric snapshot reconciliation is now in the running sync-orchestrator path as a non-fatal metrics phase; it re-dispatches missing 1h/24h metric fetches without publishing, scheduling, or mutating post status. |
 
-**reference_factory has NO feedback loop at all** (one-directional: scrape→score→emit). Add outcome columns to `generated_video_prompts` (`db.py:296`) so it ranks patterns by *our* measured results, not competitor leaderboard order. (On its own it scores ~2/10.)
+Reference Factory now has a measured-outcome feedback path for generated prompts, but broader Winner-DNA generation feedback and automatic prompt assembly remain separate Track Q/I follow-ups.
 
 ---
 
