@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -20,6 +20,8 @@ from ..core import CampaignFactory, new_id, normalize_content_surface, utc_now, 
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
 UNRESOLVED_NATIVE_AUDIO_STATUSES = {"recommended", "needs_operator_selection", "selected", "blocked"}
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
+DASHBOARD_INGEST_MAX_ATTEMPTS = 3
+DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 
 
 def build_draft_payloads(
@@ -558,6 +560,19 @@ def export_threadsdash(
                     ingest_url=threadsdash_ingest_url,
                     ingest_secret=threadsdash_ingest_secret,
                 )
+                reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
+                    payload=payload,
+                    ingest_result=result["dashboardIngest"],
+                    user_id=user_id,
+                    supabase_url=supabase_url,
+                    supabase_service_role_key=supabase_service_role_key,
+                )
+                result["dashboardIngest"] = {
+                    **result["dashboardIngest"],
+                    "postIds": reconciled_post_ids,
+                    "reconciled": True,
+                    "postKeys": _threadsdash_ingest_post_keys(payload),
+                }
                 result["supabase"] = {
                     "attempted": False,
                     "disabled": True,
@@ -1209,6 +1224,27 @@ def _threadsdash_ingest_idempotency_key(payload: dict[str, Any]) -> str:
     return f"campaign-factory-draft-ingest:{digest}"
 
 
+def _threadsdash_ingest_post_keys(payload: dict[str, Any]) -> list[str]:
+    drafts = payload.get("drafts") if isinstance(payload.get("drafts"), list) else []
+    keys: list[str] = []
+    for draft in drafts:
+        if not isinstance(draft, dict):
+            continue
+        key = _threadsdash_draft_post_key(draft)
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _dashboard_ingest_backoff_seconds(attempt: int) -> float:
+    index = max(0, min(attempt - 1, len(DASHBOARD_INGEST_BACKOFF_SECONDS) - 1))
+    return DASHBOARD_INGEST_BACKOFF_SECONDS[index]
+
+
+def _is_retryable_dashboard_ingest_http_status(status: int) -> bool:
+    return status in {408, 409, 425, 429} or status >= 500
+
+
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
@@ -1228,31 +1264,106 @@ def _post_threadsdash_draft_ingest(
     body = dict(payload)
     body["dryRun"] = False
     idempotency_key = _threadsdash_ingest_idempotency_key(body)
-    request = Request(
-        url,
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Campaign-Factory-Ingest-Secret": secret,
-            "X-Idempotency-Key": idempotency_key,
-        },
-    )
-    try:
-        with urlopen(request, timeout=30) as response:
-            response_body = response.read().decode("utf-8")
-            parsed = json.loads(response_body) if response_body else {}
-            return {
-                "attempted": True,
-                "dryRun": False,
-                "statusCode": getattr(response, "status", 200),
-                "postIds": parsed.get("postIds") or [],
-                "response": parsed,
-            }
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise ValueError(f"Dashboard draft ingest rejected export ({exc.code}): {detail}") from exc
+    last_error: str | None = None
+    last_empty_response: dict[str, Any] | None = None
+    for attempt in range(1, DASHBOARD_INGEST_MAX_ATTEMPTS + 1):
+        request = Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-Campaign-Factory-Ingest-Secret": secret,
+                "X-Idempotency-Key": idempotency_key,
+            },
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                response_body = response.read().decode("utf-8")
+                parsed = json.loads(response_body) if response_body else {}
+                result = {
+                    "attempted": True,
+                    "dryRun": False,
+                    "statusCode": getattr(response, "status", 200),
+                    "postIds": parsed.get("postIds") or [],
+                    "response": parsed,
+                    "attempts": attempt,
+                }
+                if result["postIds"]:
+                    return result
+                last_empty_response = {
+                    **result,
+                    "emptyPostIds": True,
+                    "retryableFailure": "dashboard_ingest_empty_post_ids",
+                }
+                last_error = "Dashboard draft ingest returned empty postIds"
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            if not _is_retryable_dashboard_ingest_http_status(exc.code):
+                raise ValueError(f"Dashboard draft ingest rejected export ({exc.code}): {detail}") from exc
+            last_error = f"Dashboard draft ingest retryable HTTP {exc.code}: {detail}"
+        except (TimeoutError, URLError) as exc:
+            last_error = f"Dashboard draft ingest transport error: {exc}"
+        if attempt < DASHBOARD_INGEST_MAX_ATTEMPTS:
+            time.sleep(_dashboard_ingest_backoff_seconds(attempt))
+    if last_empty_response is not None:
+        return last_empty_response
+    raise ValueError(f"Dashboard draft ingest failed after {DASHBOARD_INGEST_MAX_ATTEMPTS} attempts: {last_error}")
+
+
+def _select_threadsdash_posts_by_post_keys(
+    client: "SupabaseRestClient",
+    *,
+    user_id: str,
+    post_keys: list[str],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for post_key in post_keys:
+        selected = client.select(
+            "posts",
+            {
+                "select": "id,user_id,status,campaign_factory_post_key,metadata",
+                "user_id": f"eq.{user_id}",
+                "campaign_factory_post_key": f"eq.{post_key}",
+                "limit": "1",
+            },
+        )
+        for row in selected:
+            row_id = str(row.get("id") or "")
+            if row_id and row_id not in seen_ids:
+                seen_ids.add(row_id)
+                rows.append(row)
+    return rows
+
+
+def _reconcile_dashboard_ingest_post_ids(
+    *,
+    payload: dict[str, Any],
+    ingest_result: dict[str, Any],
+    user_id: str,
+    supabase_url: str | None,
+    supabase_service_role_key: str | None,
+) -> list[str]:
+    post_ids = [str(post_id) for post_id in ingest_result.get("postIds") or [] if str(post_id)]
+    post_keys = _threadsdash_ingest_post_keys(payload)
+    if not post_keys:
+        if post_ids:
+            return post_ids
+        raise ValueError("Dashboard draft ingest did not return postIds and no Campaign Factory post keys were available")
+    if not supabase_url or not supabase_service_role_key:
+        raise ValueError("supabase_url and supabase_service_role_key are required to reconcile Dashboard draft ingest")
+    client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
+    rows = _select_threadsdash_posts_by_post_keys(client, user_id=user_id, post_keys=post_keys)
+    found_by_key = {str(row.get("campaign_factory_post_key")): row for row in rows}
+    missing = [post_key for post_key in post_keys if post_key not in found_by_key]
+    if missing:
+        raise ValueError(f"Dashboard draft ingest reconciliation failed; missing post keys: {', '.join(missing)}")
+    reconciled = [str(found_by_key[post_key].get("id")) for post_key in post_keys if found_by_key[post_key].get("id")]
+    if not reconciled:
+        raise ValueError("Dashboard draft ingest reconciliation found no post ids")
+    return reconciled
 
 
 def _hydrate_surface_media_items_for_uploaded_media(draft: dict[str, Any], media_ref: dict[str, Any]) -> None:

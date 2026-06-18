@@ -4366,7 +4366,23 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         captured["body"] = json.loads(request.data.decode("utf-8"))
         return FakeResponse()
 
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+            self.service_role_key = service_role_key
+
+        def select(self, table, params):
+            assert table == "posts"
+            return [{
+                "id": "post_ingest_1",
+                "user_id": "user_1",
+                "status": "draft",
+                "campaign_factory_post_key": params["campaign_factory_post_key"].removeprefix("eq."),
+                "metadata": {"campaign_factory": {}},
+            }]
+
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -4392,10 +4408,13 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
             dry_run=False,
             threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
             threadsdash_ingest_secret="ingest-secret",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
         )
 
         assert result["dashboardIngest"]["attempted"] is True
         assert result["dashboardIngest"]["postIds"] == ["post_ingest_1"]
+        assert result["dashboardIngest"]["reconciled"] is True
         assert result["supabase"]["attempted"] is False
         assert result["supabase"]["disabled"] is True
         assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
@@ -4406,6 +4425,84 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         )
         assert captured["body"]["dryRun"] is False
         assert captured["body"]["drafts"][0]["instagramPostCaption"]
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    calls: list[dict[str, Any]] = []
+
+    class EmptyPostIdsResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({"success": True, "postIds": [], "writtenDrafts": 0}).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        calls.append({
+            "headers": dict(request.header_items()),
+            "timeout": timeout,
+            "body": json.loads(request.data.decode("utf-8")),
+        })
+        return EmptyPostIdsResponse()
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+            self.service_role_key = service_role_key
+
+        def select(self, table, params):
+            assert table == "posts"
+            return []
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda _seconds: None)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "new post is up",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": False,
+                    "status": "not_required",
+                },
+            }),),
+        )
+        cf.conn.commit()
+        ensure_exportable_distribution_plan(cf)
+
+        with pytest.raises(ValueError, match="Dashboard draft ingest reconciliation failed"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+                threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+                threadsdash_ingest_secret="ingest-secret",
+                supabase_url="https://example.supabase.co",
+                supabase_service_role_key="service-role",
+            )
+
+        assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        failed_events = [
+            event for event in cf.events_for_campaign("may")
+            if event["eventType"] == "threadsdash_export_created" and event["status"] == "failure"
+        ]
+        assert failed_events
     finally:
         cf.close()
 
