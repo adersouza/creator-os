@@ -8,6 +8,7 @@ from .caption import CaptionFamilyRepository
 from .config import Settings
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
+from .discoverability import DiscoverabilityRepository
 from .distribution import DistributionRepository
 from .events import EventRepository
 from .exceptions import ExceptionRepository
@@ -53,6 +54,10 @@ class CoreServices:
         story_mix_plan: Callable[..., dict[str, Any]],
         story_calendar_plan: Callable[..., dict[str, Any]],
         json_load: Callable[[Any, Any], Any],
+        parent_factory_yield_waterfall: Callable[..., dict[str, Any]],
+        ratio: Callable[[Any, Any], float],
+        score_fraction: Callable[[Any, Any], float],
+        wilson_lower_bound: Callable[..., float],
         autonomy_level: Callable[[], str],
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
     ) -> None:
@@ -190,6 +195,14 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             autonomy_level=autonomy_level,
             recommendation_proof_summary=recommendation_proof_summary,
+        )
+        self.discoverability = DiscoverabilityRepository(
+            conn,
+            json_load=json_load,
+            parent_factory_yield_waterfall=parent_factory_yield_waterfall,
+            ratio=ratio,
+            score_fraction=score_fraction,
+            wilson_lower_bound=wilson_lower_bound,
         )
 
     def ensure_graph_node(
@@ -823,6 +836,63 @@ class CoreServices:
 
     def exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.exceptions.exception_payload(row)
+
+    def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
+        return self.discoverability.discoverability_safe_content_contract(*values)
+
+    def discoverability_intake_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_intake_gate(payload)
+
+    def discoverability_generation_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_generation_gate(payload)
+
+    def discoverability_pre_render_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_pre_render_gate(payload)
+
+    def discoverability_violation_origin_map(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_violation_origin_map()
+
+    def parent_factory_discoverability_loss_analysis(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.discoverability.parent_factory_discoverability_loss_analysis(waterfall=waterfall)
+
+    def parent_factory_waterfall_after_discoverability(self) -> dict[str, Any]:
+        return self.discoverability.parent_factory_waterfall_after_discoverability()
+
+    def discoverability_prevention_audit(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_prevention_audit()
+
+    def discoverability_prevention_scorecard(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_prevention_scorecard()
+
+    def parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
+        return self.discoverability.parent_factory_observed_discoverability_terms()
+
+    def parent_factory_captured_discoverability_evidence(self) -> list[dict[str, str]]:
+        return self.discoverability.parent_factory_captured_discoverability_evidence()
+
+    def discoverability_text_values(self, payload: dict[str, Any]) -> list[str]:
+        return self.discoverability.discoverability_text_values(payload)
+
+    def discoverability_loss_category(self, reason: str, matched_text: str) -> str:
+        return self.discoverability.discoverability_loss_category(reason, matched_text)
+
+    def discoverability_prevention_stage(self, category: str) -> str:
+        return self.discoverability.discoverability_prevention_stage(category)
+
+    def discoverability_gate_fields(self, payload: dict[str, Any], allowed_fields: set[str]) -> list[tuple[str, str]]:
+        return self.discoverability.discoverability_gate_fields(payload, allowed_fields)
+
+    def discoverability_gate_result(self, gate: str, fields: list[tuple[str, str]]) -> dict[str, Any]:
+        return self.discoverability.discoverability_gate_result(gate, fields)
+
+    def discoverability_origin_stage(self, source_field: str, reason: str) -> str:
+        return self.discoverability.discoverability_origin_stage(source_field, reason)
+
+    def post_discoverability_downstream_confidence(self) -> dict[str, Any]:
+        return self.discoverability.post_discoverability_downstream_confidence()
+
+    def discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
+        return self.discoverability.discoverability_evidence_for_fields(fields)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

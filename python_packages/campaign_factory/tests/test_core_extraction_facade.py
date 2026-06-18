@@ -9,6 +9,7 @@ from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
+from campaign_factory.discoverability import DiscoverabilityRepository
 from campaign_factory.distribution import DistributionRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.exceptions import ExceptionRepository
@@ -51,6 +52,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.decision_ledger.conn is factory.conn
         assert isinstance(factory.services.exceptions, ExceptionRepository)
         assert factory.services.exceptions.conn is factory.conn
+        assert isinstance(factory.services.discoverability, DiscoverabilityRepository)
+        assert factory.services.discoverability.conn is factory.conn
     finally:
         factory.close()
 
@@ -1377,6 +1380,290 @@ def test_core_services_delegates_decision_ledger_methods_to_decision_repository(
         ("decision_ledger_by_surface", (), {"creator": "Stacey", "surface": "story"}),
         ("decision_ledger_by_decision_type", (), {"creator": "Stacey", "decision_type": "account_needs_story"}),
         ("query_decision_ledger", (), {"creator": "Stacey"}),
+    ]
+
+
+def test_discoverability_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def discoverability_safe_content_contract(self, *args, **kwargs):
+            calls.append(("discoverability_safe_content_contract", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_safe_content_contract.v1"}
+
+        def discoverability_intake_gate(self, *args, **kwargs):
+            calls.append(("discoverability_intake_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_intake_gate.v1"}
+
+        def discoverability_generation_gate(self, *args, **kwargs):
+            calls.append(("discoverability_generation_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_generation_gate.v1"}
+
+        def discoverability_pre_render_gate(self, *args, **kwargs):
+            calls.append(("discoverability_pre_render_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_pre_render_gate.v1"}
+
+        def discoverability_violation_origin_map(self, *args, **kwargs):
+            calls.append(("discoverability_violation_origin_map", args, kwargs))
+            return {"schema": "creator_os.discoverability_violation_origin_map.v1"}
+
+        def parent_factory_discoverability_loss_analysis(self, *args, **kwargs):
+            calls.append(("parent_factory_discoverability_loss_analysis", args, kwargs))
+            return {"schema": "creator_os.parent_factory_discoverability_loss_analysis.v1"}
+
+        def parent_factory_waterfall_after_discoverability(self, *args, **kwargs):
+            calls.append(("parent_factory_waterfall_after_discoverability", args, kwargs))
+            return {"schema": "creator_os.parent_factory_waterfall_after_discoverability.v1"}
+
+        def discoverability_prevention_audit(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_audit", args, kwargs))
+            return {"schema": "creator_os.discoverability_prevention_audit.v1"}
+
+        def discoverability_prevention_scorecard(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_scorecard", args, kwargs))
+            return {"schema": "creator_os.discoverability_prevention_scorecard.v1"}
+
+        def parent_factory_observed_discoverability_terms(self, *args, **kwargs):
+            calls.append(("parent_factory_observed_discoverability_terms", args, kwargs))
+            return [{"reason": "dm_reference", "matchedText": "dm"}]
+
+        def parent_factory_captured_discoverability_evidence(self, *args, **kwargs):
+            calls.append(("parent_factory_captured_discoverability_evidence", args, kwargs))
+            return [{"reason": "dm_reference", "matchedText": "dm"}]
+
+        def discoverability_text_values(self, *args, **kwargs):
+            calls.append(("discoverability_text_values", args, kwargs))
+            return ["caption"]
+
+        def discoverability_loss_category(self, *args, **kwargs):
+            calls.append(("discoverability_loss_category", args, kwargs))
+            return "dm_language"
+
+        def discoverability_prevention_stage(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_stage", args, kwargs))
+            return "caption_creation"
+
+        def discoverability_gate_fields(self, *args, **kwargs):
+            calls.append(("discoverability_gate_fields", args, kwargs))
+            return [("caption", "dm me")]
+
+        def discoverability_gate_result(self, *args, **kwargs):
+            calls.append(("discoverability_gate_result", args, kwargs))
+            return {"gate": args[0]}
+
+        def discoverability_origin_stage(self, *args, **kwargs):
+            calls.append(("discoverability_origin_stage", args, kwargs))
+            return "caption_generation"
+
+        def post_discoverability_downstream_confidence(self, *args, **kwargs):
+            calls.append(("post_discoverability_downstream_confidence", args, kwargs))
+            return {"confidenceMethod": "wilson_lower_bound_95pct"}
+
+        def discoverability_evidence_for_fields(self, *args, **kwargs):
+            calls.append(("discoverability_evidence_for_fields", args, kwargs))
+            return [{"failureCategory": "dm_language"}]
+
+    factory.services = FakeServices()
+
+    assert factory.discoverability_safe_content_contract("dm me") == {
+        "schema": "campaign_factory.discoverability_safe_content_contract.v1",
+    }
+    assert factory.discoverability_intake_gate({"source_caption": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_intake_gate.v1",
+    }
+    assert factory.discoverability_generation_gate({"caption_text": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_generation_gate.v1",
+    }
+    assert factory.discoverability_pre_render_gate({"caption": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_pre_render_gate.v1",
+    }
+    assert factory.discoverability_violation_origin_map() == {
+        "schema": "creator_os.discoverability_violation_origin_map.v1",
+    }
+    assert factory.parent_factory_discoverability_loss_analysis(waterfall={"stages": []}) == {
+        "schema": "creator_os.parent_factory_discoverability_loss_analysis.v1",
+    }
+    assert factory.parent_factory_waterfall_after_discoverability() == {
+        "schema": "creator_os.parent_factory_waterfall_after_discoverability.v1",
+    }
+    assert factory.discoverability_prevention_audit() == {"schema": "creator_os.discoverability_prevention_audit.v1"}
+    assert factory.discoverability_prevention_scorecard() == {
+        "schema": "creator_os.discoverability_prevention_scorecard.v1",
+    }
+    assert factory._parent_factory_observed_discoverability_terms() == [{"reason": "dm_reference", "matchedText": "dm"}]
+    assert factory._parent_factory_captured_discoverability_evidence() == [{"reason": "dm_reference", "matchedText": "dm"}]
+    assert factory._discoverability_text_values({"caption": "caption"}) == ["caption"]
+    assert factory._discoverability_loss_category("dm_reference", "dm") == "dm_language"
+    assert factory._discoverability_prevention_stage("dm_language") == "caption_creation"
+    assert factory._discoverability_gate_fields({"caption": "dm me"}, {"caption"}) == [("caption", "dm me")]
+    assert factory._discoverability_gate_result("intake", [("caption", "dm me")]) == {"gate": "intake"}
+    assert factory._discoverability_origin_stage("caption", "dm_reference") == "caption_generation"
+    assert factory._post_discoverability_downstream_confidence() == {"confidenceMethod": "wilson_lower_bound_95pct"}
+    assert factory._discoverability_evidence_for_fields([("caption", "dm me")]) == [{"failureCategory": "dm_language"}]
+
+    assert calls == [
+        ("discoverability_safe_content_contract", ("dm me",), {}),
+        ("discoverability_intake_gate", ({"source_caption": "dm me"},), {}),
+        ("discoverability_generation_gate", ({"caption_text": "dm me"},), {}),
+        ("discoverability_pre_render_gate", ({"caption": "dm me"},), {}),
+        ("discoverability_violation_origin_map", (), {}),
+        ("parent_factory_discoverability_loss_analysis", (), {"waterfall": {"stages": []}}),
+        ("parent_factory_waterfall_after_discoverability", (), {}),
+        ("discoverability_prevention_audit", (), {}),
+        ("discoverability_prevention_scorecard", (), {}),
+        ("parent_factory_observed_discoverability_terms", (), {}),
+        ("parent_factory_captured_discoverability_evidence", (), {}),
+        ("discoverability_text_values", ({"caption": "caption"},), {}),
+        ("discoverability_loss_category", ("dm_reference", "dm"), {}),
+        ("discoverability_prevention_stage", ("dm_language",), {}),
+        ("discoverability_gate_fields", ({"caption": "dm me"}, {"caption"}), {}),
+        ("discoverability_gate_result", ("intake", [("caption", "dm me")]), {}),
+        ("discoverability_origin_stage", ("caption", "dm_reference"), {}),
+        ("post_discoverability_downstream_confidence", (), {}),
+        ("discoverability_evidence_for_fields", ([("caption", "dm me")],), {}),
+    ]
+
+
+def test_core_services_delegates_discoverability_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeDiscoverability:
+        def discoverability_safe_content_contract(self, *args, **kwargs):
+            calls.append(("discoverability_safe_content_contract", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_safe_content_contract.v1"}
+
+        def discoverability_intake_gate(self, *args, **kwargs):
+            calls.append(("discoverability_intake_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_intake_gate.v1"}
+
+        def discoverability_generation_gate(self, *args, **kwargs):
+            calls.append(("discoverability_generation_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_generation_gate.v1"}
+
+        def discoverability_pre_render_gate(self, *args, **kwargs):
+            calls.append(("discoverability_pre_render_gate", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_pre_render_gate.v1"}
+
+        def discoverability_violation_origin_map(self, *args, **kwargs):
+            calls.append(("discoverability_violation_origin_map", args, kwargs))
+            return {"schema": "creator_os.discoverability_violation_origin_map.v1"}
+
+        def parent_factory_discoverability_loss_analysis(self, *args, **kwargs):
+            calls.append(("parent_factory_discoverability_loss_analysis", args, kwargs))
+            return {"schema": "creator_os.parent_factory_discoverability_loss_analysis.v1"}
+
+        def parent_factory_waterfall_after_discoverability(self, *args, **kwargs):
+            calls.append(("parent_factory_waterfall_after_discoverability", args, kwargs))
+            return {"schema": "creator_os.parent_factory_waterfall_after_discoverability.v1"}
+
+        def discoverability_prevention_audit(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_audit", args, kwargs))
+            return {"schema": "creator_os.discoverability_prevention_audit.v1"}
+
+        def discoverability_prevention_scorecard(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_scorecard", args, kwargs))
+            return {"schema": "creator_os.discoverability_prevention_scorecard.v1"}
+
+        def parent_factory_observed_discoverability_terms(self, *args, **kwargs):
+            calls.append(("parent_factory_observed_discoverability_terms", args, kwargs))
+            return [{"reason": "dm_reference", "matchedText": "dm"}]
+
+        def parent_factory_captured_discoverability_evidence(self, *args, **kwargs):
+            calls.append(("parent_factory_captured_discoverability_evidence", args, kwargs))
+            return [{"reason": "dm_reference", "matchedText": "dm"}]
+
+        def discoverability_text_values(self, *args, **kwargs):
+            calls.append(("discoverability_text_values", args, kwargs))
+            return ["caption"]
+
+        def discoverability_loss_category(self, *args, **kwargs):
+            calls.append(("discoverability_loss_category", args, kwargs))
+            return "dm_language"
+
+        def discoverability_prevention_stage(self, *args, **kwargs):
+            calls.append(("discoverability_prevention_stage", args, kwargs))
+            return "caption_creation"
+
+        def discoverability_gate_fields(self, *args, **kwargs):
+            calls.append(("discoverability_gate_fields", args, kwargs))
+            return [("caption", "dm me")]
+
+        def discoverability_gate_result(self, *args, **kwargs):
+            calls.append(("discoverability_gate_result", args, kwargs))
+            return {"gate": args[0]}
+
+        def discoverability_origin_stage(self, *args, **kwargs):
+            calls.append(("discoverability_origin_stage", args, kwargs))
+            return "caption_generation"
+
+        def post_discoverability_downstream_confidence(self, *args, **kwargs):
+            calls.append(("post_discoverability_downstream_confidence", args, kwargs))
+            return {"confidenceMethod": "wilson_lower_bound_95pct"}
+
+        def discoverability_evidence_for_fields(self, *args, **kwargs):
+            calls.append(("discoverability_evidence_for_fields", args, kwargs))
+            return [{"failureCategory": "dm_language"}]
+
+    services.discoverability = FakeDiscoverability()
+
+    assert services.discoverability_safe_content_contract("dm me") == {
+        "schema": "campaign_factory.discoverability_safe_content_contract.v1",
+    }
+    assert services.discoverability_intake_gate({"source_caption": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_intake_gate.v1",
+    }
+    assert services.discoverability_generation_gate({"caption_text": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_generation_gate.v1",
+    }
+    assert services.discoverability_pre_render_gate({"caption": "dm me"}) == {
+        "schema": "campaign_factory.discoverability_pre_render_gate.v1",
+    }
+    assert services.discoverability_violation_origin_map() == {
+        "schema": "creator_os.discoverability_violation_origin_map.v1",
+    }
+    assert services.parent_factory_discoverability_loss_analysis(waterfall={"stages": []}) == {
+        "schema": "creator_os.parent_factory_discoverability_loss_analysis.v1",
+    }
+    assert services.parent_factory_waterfall_after_discoverability() == {
+        "schema": "creator_os.parent_factory_waterfall_after_discoverability.v1",
+    }
+    assert services.discoverability_prevention_audit() == {"schema": "creator_os.discoverability_prevention_audit.v1"}
+    assert services.discoverability_prevention_scorecard() == {
+        "schema": "creator_os.discoverability_prevention_scorecard.v1",
+    }
+    assert services.parent_factory_observed_discoverability_terms() == [{"reason": "dm_reference", "matchedText": "dm"}]
+    assert services.parent_factory_captured_discoverability_evidence() == [{"reason": "dm_reference", "matchedText": "dm"}]
+    assert services.discoverability_text_values({"caption": "caption"}) == ["caption"]
+    assert services.discoverability_loss_category("dm_reference", "dm") == "dm_language"
+    assert services.discoverability_prevention_stage("dm_language") == "caption_creation"
+    assert services.discoverability_gate_fields({"caption": "dm me"}, {"caption"}) == [("caption", "dm me")]
+    assert services.discoverability_gate_result("intake", [("caption", "dm me")]) == {"gate": "intake"}
+    assert services.discoverability_origin_stage("caption", "dm_reference") == "caption_generation"
+    assert services.post_discoverability_downstream_confidence() == {"confidenceMethod": "wilson_lower_bound_95pct"}
+    assert services.discoverability_evidence_for_fields([("caption", "dm me")]) == [{"failureCategory": "dm_language"}]
+
+    assert calls == [
+        ("discoverability_safe_content_contract", ("dm me",), {}),
+        ("discoverability_intake_gate", ({"source_caption": "dm me"},), {}),
+        ("discoverability_generation_gate", ({"caption_text": "dm me"},), {}),
+        ("discoverability_pre_render_gate", ({"caption": "dm me"},), {}),
+        ("discoverability_violation_origin_map", (), {}),
+        ("parent_factory_discoverability_loss_analysis", (), {"waterfall": {"stages": []}}),
+        ("parent_factory_waterfall_after_discoverability", (), {}),
+        ("discoverability_prevention_audit", (), {}),
+        ("discoverability_prevention_scorecard", (), {}),
+        ("parent_factory_observed_discoverability_terms", (), {}),
+        ("parent_factory_captured_discoverability_evidence", (), {}),
+        ("discoverability_text_values", ({"caption": "caption"},), {}),
+        ("discoverability_loss_category", ("dm_reference", "dm"), {}),
+        ("discoverability_prevention_stage", ("dm_language",), {}),
+        ("discoverability_gate_fields", ({"caption": "dm me"}, {"caption"}), {}),
+        ("discoverability_gate_result", ("intake", [("caption", "dm me")]), {}),
+        ("discoverability_origin_stage", ("caption", "dm_reference"), {}),
+        ("post_discoverability_downstream_confidence", (), {}),
+        ("discoverability_evidence_for_fields", ([("caption", "dm me")],), {}),
     ]
 
 
