@@ -93,6 +93,12 @@ def test_repurpose_presets_keep_micro_off_by_default():
     assert RepurposeConfig.from_preset("custom").enable_micro is False
 
 
+def test_ig_subtle_preset_uses_audio_layer_for_account_distinctness():
+    preset = RepurposeConfig.from_preset("ig_subtle")
+    assert preset.enable_audio is True
+    assert preset.require_audio_change is True
+
+
 def test_editorial_engine_makes_real_quality_passing_transform(tmp_path: Path):
     master = _tiny_mp4(tmp_path / "master.mp4")
 
@@ -192,6 +198,98 @@ def test_ffmpeg_engines_raise_when_command_fails(tmp_path: Path, monkeypatch: py
         MicroEngine.apply(source, tmp_path / "micro.mp4")
     with pytest.raises(RuntimeError, match="ffmpeg exploded"):
         AudioEngine.apply(source, tmp_path / "audio.mp4", music_track=track)
+
+
+def test_audio_engine_selects_account_specific_catalog_track(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    first_track = tmp_path / "first.m4a"
+    second_track = tmp_path / "second.m4a"
+    first_track.write_bytes(b"first")
+    second_track.write_bytes(b"second")
+    selected: list[Path] = []
+
+    def fake_helpers():
+        def get_connection(root):
+            return object()
+
+        def recommend_audio(conn, *, platform, limit):
+            assert platform == "reels"
+            assert limit == 2
+            return {
+                "recommendations": [
+                    {"title": "first", "localPreviewPath": str(first_track)},
+                    {"title": "second", "localPreviewPath": str(second_track)},
+                ]
+            }
+
+        return get_connection, recommend_audio
+
+    def fake_run_ffmpeg(cmd, *, output_path):
+        selected.append(Path(cmd[4]))
+        output_path.write_bytes(b"muxed")
+        return output_path
+
+    monkeypatch.setattr("repurposer.engines.audio._reference_audio_helpers", fake_helpers)
+    monkeypatch.setattr("repurposer.engines.audio.run_ffmpeg", fake_run_ffmpeg)
+
+    output = AudioEngine.apply(source, tmp_path / "audio.mp4", platform="reels", account_index=1)
+
+    assert output == tmp_path / "audio.mp4"
+    assert selected == [second_track]
+
+
+def test_audio_engine_fails_closed_when_required_audio_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+
+    monkeypatch.setattr("repurposer.engines.audio._reference_audio_helpers", lambda: (None, None))
+
+    with pytest.raises(RuntimeError, match="audio change required"):
+        AudioEngine.apply(source, tmp_path / "audio.mp4", platform="reels", require_audio_change=True)
+
+
+def test_variant_pipeline_passes_account_index_to_audio_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    master = _tiny_mp4(tmp_path / "master.mp4")
+    seen_indexes: list[int] = []
+
+    monkeypatch.setattr(
+        RepurposeConfig,
+        "from_preset",
+        classmethod(
+            lambda cls, name: cls(
+                target_platform="reels",
+                aggressiveness=0.0,
+                enable_editorial=False,
+                enable_audio=True,
+                enable_generative=False,
+                enable_polish=False,
+                enable_micro=False,
+            )
+        ),
+    )
+
+    def fake_audio(video_path, output_path, **kwargs):
+        seen_indexes.append(kwargs["account_index"])
+        output_path.write_bytes(video_path.read_bytes() + str(kwargs["account_index"]).encode("ascii"))
+        return output_path
+
+    monkeypatch.setattr("repurposer.pipeline.AudioEngine.apply", fake_audio)
+    monkeypatch.setattr("repurposer.pipeline.QualityGate.is_quality_acceptable", lambda path: True)
+    monkeypatch.setattr("repurposer.pipeline.SimilarityGate.calculate_ssim", lambda left, right: 0.7)
+
+    VariantPipeline(
+        master,
+        accounts=[{"account_id": "acct_a"}, {"account_id": "acct_b"}],
+        output_dir=tmp_path / "variants",
+    ).generate_assignment_manifest(
+        preset_name="ig_subtle",
+        campaign_slug="may",
+        master_asset_id="asset_master",
+        write_manifest=False,
+    )
+
+    assert seen_indexes == [0, 1]
 
 
 def test_visual_engine_skips_cleanly_when_video_to_video_is_unsupported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

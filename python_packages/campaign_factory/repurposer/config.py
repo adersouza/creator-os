@@ -14,6 +14,7 @@ class RepurposeConfig:
     
     # Layer 2: Audio
     enable_audio: bool = True
+    require_audio_change: bool = False
     music_track_path: Optional[str] = None
     voiceover_path: Optional[str] = None
     
@@ -41,6 +42,7 @@ class RepurposeConfig:
                 new_hook=True,
                 reorder_broll=True,
                 enable_audio=True,
+                require_audio_change=True,
                 enable_generative=True,
                 enable_polish=True,
                 zoom_factor=1.1,
@@ -56,7 +58,8 @@ class RepurposeConfig:
                 enable_editorial=True,
                 new_hook=False,
                 reorder_broll=True,
-                enable_audio=False,
+                enable_audio=True,
+                require_audio_change=True,
                 enable_generative=False,
                 enable_polish=True,
                 zoom_factor=1.02,

@@ -140,6 +140,8 @@ class VariantPipeline:
                     music_track=Path(config.music_track_path) if config.music_track_path else None,
                     voiceover=Path(config.voiceover_path) if config.voiceover_path else None,
                     platform=self.platform,
+                    account_index=index,
+                    require_audio_change=config.require_audio_change,
                 )
                 transformed = transformed or current != self.master
 

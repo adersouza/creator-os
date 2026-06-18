@@ -7,7 +7,15 @@ class AudioEngine:
     """Layer 2: Audio replacement and mixing."""
     
     @staticmethod
-    def apply(video_path: Path, output_path: Path, music_track: Path = None, voiceover: Path = None, platform: str = "tiktok") -> Path:
+    def apply(
+        video_path: Path,
+        output_path: Path,
+        music_track: Path = None,
+        voiceover: Path = None,
+        platform: str = "tiktok",
+        account_index: int = 0,
+        require_audio_change: bool = False,
+    ) -> Path:
         """Strips original audio and injects new audio."""
         ensure_input_file(video_path, label="video")
         
@@ -16,17 +24,22 @@ class AudioEngine:
         if not music_track and get_connection and recommend_audio:
             try:
                 conn = get_connection(video_path.parent) # Root config/db lookup
-                result = recommend_audio(conn, platform=platform, limit=1)
+                shortlist_size = max(1, int(account_index or 0) + 1)
+                result = recommend_audio(conn, platform=platform, limit=shortlist_size)
                 recs = result.get("recommendations", [])
-                if recs and recs[0].get("localPreviewPath"):
-                    candidate_path = Path(recs[0]["localPreviewPath"])
-                    if candidate_path.exists():
-                        print(f"[AudioEngine] Sourced trending audio: {recs[0].get('title')} ({candidate_path.name})")
+                if recs:
+                    rec = recs[int(account_index or 0) % len(recs)]
+                    candidate = rec.get("localPreviewPath")
+                    candidate_path = Path(candidate) if candidate else None
+                    if candidate_path and candidate_path.exists():
+                        print(f"[AudioEngine] Sourced account audio: {rec.get('title')} ({candidate_path.name})")
                         music_track = candidate_path
             except Exception as exc:
                 print(f"[AudioEngine] Failed to source dynamic trending audio: {exc}")
                 
         if not music_track and not voiceover:
+            if require_audio_change:
+                raise RuntimeError("audio change required but no replacement track or voiceover was available")
             return video_path # Nothing to do
             
         if music_track:
