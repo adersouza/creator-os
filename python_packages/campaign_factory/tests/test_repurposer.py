@@ -225,3 +225,43 @@ def test_variant_pipeline_generates_account_bound_assignment_manifest(tmp_path: 
     assert {item["account_id"] for item in manifest["assignments"]} == {"acct_a", "acct_b", "acct_c"}
     assert all("acct_" in Path(item["variant_path"]).name for item in manifest["assignments"])
     assert (tmp_path / "variants" / "asset_master.variant_assignment.v1.json").exists()
+
+
+def test_variant_pipeline_keeps_ssim_as_diagnostic_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    master = _tiny_mp4(tmp_path / "master.mp4")
+    accounts = [
+        {"account_id": "acct_a", "preset_name": "ig_subtle"},
+        {"account_id": "acct_b", "preset_name": "ig_subtle"},
+    ]
+    monkeypatch.setattr(
+        RepurposeConfig,
+        "from_preset",
+        classmethod(
+            lambda cls, name: cls(
+                target_platform="reels",
+                aggressiveness=0.1,
+                enable_editorial=False,
+                enable_audio=False,
+                enable_generative=False,
+                enable_polish=True,
+                enable_micro=False,
+            )
+        ),
+    )
+    monkeypatch.setattr("repurposer.pipeline.QualityGate.is_quality_acceptable", lambda path: True)
+    monkeypatch.setattr("repurposer.pipeline.SimilarityGate.calculate_ssim", lambda left, right: 0.99)
+
+    manifest = VariantPipeline(
+        master,
+        accounts=accounts,
+        output_dir=tmp_path / "variants",
+    ).generate_assignment_manifest(
+        preset_name="ig_subtle",
+        campaign_slug="may",
+        master_asset_id="asset_master",
+        write_manifest=False,
+    )
+
+    assert len(manifest["assignments"]) == 2
+    assert all(item["distinctness_scores"]["master_ssim"] == 0.99 for item in manifest["assignments"])
+    assert manifest["assignments"][1]["distinctness_scores"]["sibling_max_ssim"] == 0.99

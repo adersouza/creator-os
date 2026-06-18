@@ -122,6 +122,63 @@ test("/api/similarity returns 200 for Campaign Factory staged source and output/
   }
 });
 
+test("/api/similarity validates comparisonFiles as existing sibling filenames", async function () {
+  var files = await seedCampaignFactoryFiles();
+  var sibling = path.join(LEGACY_FINAL_DIR, "cf_similarity_sibling.jpg");
+  await writeFile(sibling, "sibling fixture");
+  try {
+    for (var comparisonFiles of [
+      ["../cf_similarity_sibling.jpg"],
+      ["missing.jpg"],
+      [files.variantName],
+    ]) {
+      var response = await POST(similarityRequest({
+        source: files.sourceName,
+        targetFile: files.variantName,
+        comparisonFiles,
+        layers: [],
+      }));
+      assert.equal(response.status, 400);
+    }
+
+    var validResponse = await POST(similarityRequest({
+      source: files.sourceName,
+      targetFile: files.variantName,
+      comparisonFiles: [path.basename(sibling)],
+      layers: [],
+    }));
+    var validBody = await validResponse.json();
+    assert.equal(validResponse.status, 200);
+    assert.deepEqual(validBody.comparisonFiles, [path.basename(sibling)]);
+    assert.equal(validBody.filesAnalyzed, 2);
+  } finally {
+    await cleanupCampaignFactoryFiles(files);
+    await rm(sibling, { force: true });
+  }
+});
+
+test("/api/similarity forces perceptual detectors for Campaign Factory profile", async function () {
+  var files = await seedCampaignFactoryFiles();
+  try {
+    var response = await POST(similarityRequest({
+      source: files.sourceName,
+      targetFile: files.variantName,
+      auditProfile: "campaign_factory_v1",
+      layers: [],
+    }));
+    var body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(Object.hasOwn(body.verdicts, "pdq"), true);
+    assert.equal(Object.hasOwn(body.verdicts, "sscd"), true);
+    assert.equal(body.overallVerdict, "fail");
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), true);
+  } finally {
+    await cleanupCampaignFactoryFiles(files);
+  }
+});
+
 test("/api/similarity warns but does not fail an upload-ready Campaign Factory FFmpeg render", async function (t) {
   if (skipWhenMissingTools(t, MEDIA_TOOLS)) return;
   var files = await seedMp4Fixture({
@@ -144,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.3");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.4");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);
@@ -527,7 +584,7 @@ test("/api/similarity reports optional Python layer failures as warnings", async
   }
 });
 
-test("/api/similarity keeps optional c2pa unavailability as a warning", async function () {
+test("/api/similarity keeps optional c2pa unavailability advisory while detector absence blocks", async function () {
   var files = await seedCampaignFactoryFiles();
   try {
     var response = await POST(similarityRequest({
@@ -538,9 +595,9 @@ test("/api/similarity keeps optional c2pa unavailability as a warning", async fu
     var body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.verdicts.provenance, "warn");
-    assert.equal(body.overallVerdict, "warn");
-    assert.equal(body.readinessSummary.uploadReady, true);
-    assert.equal(body.readinessSummary.blockingReasons.length, 0);
+    assert.equal(body.overallVerdict, "fail");
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), true);
     assert.equal(body.readinessSummary.warningCodes.includes("provenance_c2pa_unavailable"), true);
     assert.match(body.readinessSummary.warnings.join("\n"), /c2pa|provenance/i);
   } finally {

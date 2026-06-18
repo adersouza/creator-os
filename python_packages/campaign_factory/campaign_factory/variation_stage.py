@@ -6,6 +6,7 @@ from typing import Any
 
 from pipeline_contracts import validate_variant_assignment
 
+from .adapters.contentforge import audit_variation_batch
 from repurposer.pipeline import VariantPipeline
 
 
@@ -16,6 +17,7 @@ def run_variation_stage(
     preset_name: str = "ig_subtle",
     rendered_asset_ids: list[str] | None = None,
     dry_run: bool = True,
+    contentforge_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Create per-account zero-cost variant assignments for approved campaign assets."""
     manifest = factory.export_manifest(campaign_slug=campaign_slug)
@@ -40,7 +42,7 @@ def run_variation_stage(
                 preset_name=preset_name,
                 output_dir=output_dir,
             )
-            path = output_dir / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.v1.json"
+            path = output_dir / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.preview.v1.json"
             path.write_text(json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8")
         else:
             pipeline = VariantPipeline(
@@ -49,13 +51,52 @@ def run_variation_stage(
                 platform=manifest.get("platform") or "reels",
                 output_dir=output_dir,
             )
+            path = pipeline.manifest_path(asset["renderedAssetId"])
+            path.unlink(missing_ok=True)
             assignment = pipeline.generate_assignment_manifest(
                 preset_name=preset_name,
                 campaign_slug=campaign_slug,
                 master_asset_id=asset["renderedAssetId"],
-                write_manifest=True,
+                write_manifest=False,
             )
-            path = pipeline.manifest_path(asset["renderedAssetId"])
+            variant_paths = [Path(item["variant_path"]) for item in assignment["assignments"]]
+            report_path = output_dir / f"{_safe_slug(asset['renderedAssetId'])}.perceptual_audit.v1.json"
+            try:
+                audit = audit_variation_batch(
+                    contentforge_root=factory.settings.contentforge_root,
+                    source_path=Path(asset["filePath"]),
+                    variant_paths=variant_paths,
+                    contentforge_base_url=contentforge_base_url or factory.settings.contentforge_base_url,
+                    report_path=report_path,
+                )
+                readiness = audit.get("readinessSummary") or {}
+                verdicts = audit.get("verdicts") or {}
+                blocking_codes = [str(code) for code in readiness.get("blockingCodes") or []]
+                if (
+                    audit.get("contractVersion") != "campaign_factory_audit.v1.4"
+                    or readiness.get("uploadReady") is not True
+                    or verdicts.get("pdq") != "pass"
+                    or verdicts.get("sscd") != "pass"
+                ):
+                    detail = ", ".join(blocking_codes) or "perceptual_detector_gate_failed"
+                    raise RuntimeError(f"variation perceptual gate blocked: {detail}")
+                audit_lineage = {
+                    "contract_version": audit["contractVersion"],
+                    "report_path": str(report_path),
+                    "verdicts": {
+                        "pdq": verdicts["pdq"],
+                        "sscd": verdicts["sscd"],
+                    },
+                }
+                for item in assignment["assignments"]:
+                    item.setdefault("lineage", {})["perceptual_audit"] = audit_lineage
+                validate_variant_assignment(assignment)
+                path.write_text(json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8")
+            except Exception:
+                for variant_path in variant_paths:
+                    variant_path.unlink(missing_ok=True)
+                path.unlink(missing_ok=True)
+                raise
         validate_variant_assignment(assignment)
         results.append({
             "renderedAssetId": asset["renderedAssetId"],

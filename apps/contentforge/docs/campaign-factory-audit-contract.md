@@ -13,15 +13,22 @@ variant into `output/final/`, then calls:
 ```json
 {
   "source": "<staged source filename>",
-  "targetFile": "<staged rendered filename>",
+  "targetFile": "<first staged variant filename>",
+  "comparisonFiles": ["<second staged variant filename>"],
   "auditProfile": "campaign_factory_v1",
-  "layers": ["forensics", "compression", "provenance"]
+  "layers": ["pdq", "sscd"]
 }
 ```
 
 `targetFile` is required for request-scoped Campaign Factory audits. When it is
-present, ContentForge audits only that rendered file and ignores unrelated older
-files in `output/final/`.
+present, ContentForge audits that file plus validated `comparisonFiles` and
+ignores unrelated older files in `output/final/`. Comparison entries must be
+plain existing filenames, cannot equal `targetFile`, and cannot traverse
+outside the run output directory.
+
+PDQ and SSCD are mandatory for `campaign_factory_v1`, even if omitted from
+`layers`. The profile fails closed when either detector or the SSCD model is
+unavailable.
 
 ## Response
 
@@ -30,9 +37,10 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.3",
+  "contractVersion": "campaign_factory_audit.v1.4",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
+  "comparisonFiles": ["<staged sibling filename>"],
   "layers": {},
   "verdicts": {},
   "verdictCodes": {
@@ -232,6 +240,12 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
+- `campaign_factory_audit.v1.4` evaluates worst-case detector evidence rather
+  than averages. PDQ requires every source/sibling distance to be greater than
+  `40`; SSCD requires every source/sibling similarity to be below `0.50`.
+- Detector unavailability produces `pdq_unavailable` or `sscd_unavailable`.
+  Sibling collisions produce `pdq_sibling_collision` or
+  `sscd_sibling_collision`. All four codes are blocking for this profile.
 - `timings` reports audit runtime in milliseconds so slow OCR/frame sampling can
   be monitored without changing verdict semantics.
 - `ocr.fallbackUsed` means ContentForge could not use the first requested OCR

@@ -130,6 +130,7 @@ def main():
 
     # Compute cross-variant distances (check if variants are unique from each other)
     cross_collisions = 0
+    cross_safe_target_violations = 0
     variant_hashes = []
     for fname in files[:50]:  # limit cross-check to 50
         fpath = os.path.join(output_dir, fname)
@@ -150,6 +151,8 @@ def main():
             d = hamming_distance(variant_hashes[i][1], variant_hashes[j][1])
             if d <= 31:
                 cross_collisions += 1
+            if d <= 40:
+                cross_safe_target_violations += 1
 
     # Cleanup temp files
     try:
@@ -173,7 +176,9 @@ def main():
             "minDistance": min_dist,
             "maxDistance": max_dist,
             "threshold": 31,
+            "safeTarget": 40,
             "crossCollisions": cross_collisions,
+            "crossSafeTargetViolations": cross_safe_target_violations,
         },
         "sourceQuality": int(source_quality),
     }

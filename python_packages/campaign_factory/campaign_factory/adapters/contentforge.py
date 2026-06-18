@@ -115,6 +115,42 @@ def audit_campaign(
         raise
 
 
+def audit_variation_batch(
+    *,
+    contentforge_root: Path,
+    source_path: Path,
+    variant_paths: list[Path],
+    contentforge_base_url: str,
+    report_path: Path,
+) -> dict[str, Any]:
+    if len(variant_paths) < 1:
+        raise ValueError("variation batch requires at least one variant")
+    with _stage_contentforge_variation_batch(
+        contentforge_root,
+        source_path,
+        variant_paths,
+    ) as (staged_source, staged_variants):
+        response = _post_similarity(
+            contentforge_base_url,
+            source=staged_source.name,
+            target_file=staged_variants[0].name,
+            comparison_files=[path.name for path in staged_variants[1:]],
+            audit_profile=DEFAULT_AUDIT_PROFILE,
+            layers=["pdq", "sscd"],
+        )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        **response,
+        "schema": "campaign_factory.variation_perceptual_audit.v1",
+        "sourceFile": str(source_path),
+        "variantFiles": [str(path) for path in variant_paths],
+        "reportPath": str(report_path),
+        "createdAt": utc_now(),
+    }
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return report
+
+
 def _audit_asset(
     factory: CampaignFactory,
     *,
@@ -324,6 +360,54 @@ def _stage_contentforge_asset(contentforge_root: Path, source_path: Path, media_
                 pass
 
 
+@contextmanager
+def _stage_contentforge_variation_batch(
+    contentforge_root: Path,
+    source_path: Path,
+    variant_paths: list[Path],
+):
+    if not source_path.exists():
+        raise FileNotFoundError(source_path)
+    if any(not path.exists() for path in variant_paths):
+        missing = next(path for path in variant_paths if not path.exists())
+        raise FileNotFoundError(missing)
+    uploads_dir = contentforge_root / "uploads"
+    final_dir = contentforge_root / "output" / "final"
+    backup_dir = contentforge_root / "output" / f".campaign_factory_backup_{uuid.uuid4().hex[:8]}"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    final_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    token = uuid.uuid4().hex[:8]
+    staged_source = uploads_dir / f"campaign_factory_source_{token}{source_path.suffix.lower()}"
+    staged_variants: list[Path] = []
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for path in sorted(final_dir.iterdir()):
+            if path.is_file() and path.suffix.lower() in SUPPORTED_EXTS:
+                backup_path = backup_dir / path.name
+                shutil.move(str(path), str(backup_path))
+                moved.append((path, backup_path))
+        shutil.copy2(source_path, staged_source)
+        for index, variant_path in enumerate(variant_paths, 1):
+            staged_variant = final_dir / f"campaign_factory_variant_{token}_{index:03d}{variant_path.suffix.lower()}"
+            shutil.copy2(variant_path, staged_variant)
+            staged_variants.append(staged_variant)
+        yield staged_source, staged_variants
+    finally:
+        try:
+            for staged_variant in staged_variants:
+                staged_variant.unlink(missing_ok=True)
+            staged_source.unlink(missing_ok=True)
+        finally:
+            for original, backup in reversed(moved):
+                if backup.exists():
+                    shutil.move(str(backup), str(original))
+            try:
+                backup_dir.rmdir()
+            except OSError:
+                pass
+
+
 def _post_similarity(
     base_url: str,
     *,
@@ -332,6 +416,7 @@ def _post_similarity(
     audit_profile: str = DEFAULT_AUDIT_PROFILE,
     layers: list[str],
     originality_reference_files: list[str] | None = None,
+    comparison_files: list[str] | None = None,
 ) -> dict[str, Any]:
     endpoint = f"{base_url.rstrip('/')}/api/similarity"
     payload: dict[str, Any] = {
@@ -343,6 +428,8 @@ def _post_similarity(
         payload["targetFile"] = target_file
     if originality_reference_files:
         payload["originalityReferenceFiles"] = originality_reference_files
+    if comparison_files:
+        payload["comparisonFiles"] = comparison_files
     request = Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),

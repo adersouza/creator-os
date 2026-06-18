@@ -17,7 +17,8 @@ export async function getLocalDiagnostics() {
   var fpcalc = await run("fpcalc", ["-version"]);
   var pythonCommand = getPythonCommand();
   var python = await run(pythonCommand, ["--version"]);
-  var sscdModelPath = path.join(process.cwd(), "models", "sscd_disc_mixup.torchscript.pt");
+  var sscdModelPath = process.env.CONTENTFORGE_SSCD_MODEL_PATH ||
+    path.join(process.cwd(), "models", "sscd_disc_mixup.torchscript.pt");
   return {
     ffmpeg: {
       available: !filters.error,

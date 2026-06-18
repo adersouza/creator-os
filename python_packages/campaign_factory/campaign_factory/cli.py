@@ -129,6 +129,7 @@ def main() -> int:
     variation_run.add_argument("--campaign", required=True)
     variation_run.add_argument("--preset", default="ig_subtle")
     variation_run.add_argument("--rendered-asset-id", action="append", default=[])
+    variation_run.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
 
@@ -1159,6 +1160,7 @@ def main() -> int:
                     preset_name=args.preset,
                     rendered_asset_ids=args.rendered_asset_id or None,
                     dry_run=not args.apply or args.dry_run,
+                    contentforge_base_url=args.contentforge_base_url,
                 ))
         elif args.cmd == "animation":
             if args.animation_cmd == "motion-edit":

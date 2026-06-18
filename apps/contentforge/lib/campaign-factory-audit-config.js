@@ -30,6 +30,10 @@ export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
     // Local workstation soft target for generated fixtures; report-only.
     advisoryLatencySoftLimitMs: 5000,
 
+    // Campaign Factory fan-out blocks unless every source/sibling comparison clears these conservative targets.
+    pdqSafeDistance: 40,
+    sscdSafeSimilarity: 0.50,
+
     // Multi-account originality checks are advisory. They compare requested references only by default.
     originalityMaxReferenceFiles: 12,
     originalityOpeningHighSimilarity: 82,
