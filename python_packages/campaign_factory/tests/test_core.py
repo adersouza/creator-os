@@ -4898,6 +4898,71 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
         cf.close()
 
 
+def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        campaign = cf.campaign_by_slug("may")
+        seeded = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
+        now = "2026-05-31T00:00:00+00:00"
+        rows = []
+        for idx in range(3):
+            item_id = f"recitem_disproved_{idx}"
+            payload = {
+                "recommendationId": item_id,
+                "status": "disproved",
+                "confidence": "high",
+                "dataQuality": {"level": "high"},
+                "outcome": {"outcomeScore": 30, "baselineScore": 75, "measuredAt": now},
+            }
+            rows.append((
+                item_id,
+                seeded["runId"],
+                idx + 2,
+                source["id"],
+                cf.ensure_graph_node(
+                    "recommendation_item",
+                    local_table="recommendation_items",
+                    local_id=item_id,
+                    payload=payload,
+                ),
+                json.dumps({"level": "high"}),
+                json.dumps(payload["outcome"]),
+                json.dumps(payload),
+                now,
+                now,
+            ))
+        cf.conn.executemany(
+            """
+            INSERT INTO recommendation_items (
+              id, run_id, rank, target_account, source_asset_id, rendered_asset_id,
+              recommendation_graph_id, status, score, confidence, data_quality_json,
+              outcome_json, baseline_json, measurement_version, output_json, measured_at,
+              created_at
+            )
+            VALUES (?, ?, ?, 'ig_1', ?, 'asset_1', ?, 'disproved', 90, 'high', ?, ?,
+              '{}', 'recommendation_measurement.v1', ?, ?, ?)
+            """,
+            rows,
+        )
+        cf.conn.commit()
+
+        report = cf.recommendation_accuracy("may", account="ig_1", window_days=365)
+        assert report["recommendationTrustScore"] < 50
+
+        next_batch = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        item = next_batch["items"][0]
+
+        assert item["confidence"] == "low"
+        assert "low_recommendation_trust" in item["risks"]
+        assert item["evidence"]["recommendationTrust"]["score"] == report["recommendationTrustScore"]
+        assert item["scoreBreakdown"]["recommendationTrust"] == report["recommendationTrustScore"]
+    finally:
+        cf.close()
+
+
 def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
