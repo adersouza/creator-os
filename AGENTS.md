@@ -27,9 +27,10 @@ the dashboard production source unless the user explicitly changes that.
 `packages/pipeline_contracts` is the canonical source for shared schemas,
 Python validators, and TypeScript exports inside this monorepo. Compatibility
 copies under `pipeline_contracts/` and `python_packages/campaign_factory/schemas/`
-must stay byte-for-byte synced with the package source. ThreadsDashboard consumes
-contracts from its own external checkout/package path, not from an `apps/dashboard`
-mirror in Creator OS. Run `pnpm check:contracts` after any contract or payload change.
+must stay byte-for-byte synced with the package source. ThreadsDashboard
+consumes contracts from its own external checkout/package path, not from a
+Creator OS mirror path. Run `pnpm check:contracts` after any contract or payload
+change.
 
 ## Tooling And PR Safety
 

@@ -1,4 +1,4 @@
-// Prepare sibling source repos for the mirror parity gate in CI.
+// Legacy helper for preparing sibling source repos when committed mirrors exist.
 //
 // Local development already has ../ThreadsDashboard, ../campaign_factory, etc.
 // GitHub Actions checks out only creator-os, so this script clones each source

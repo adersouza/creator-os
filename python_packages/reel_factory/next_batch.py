@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from campaign_store import next_batch_plan
@@ -16,12 +17,12 @@ def campaign_factory_next_batch(campaign: str, *, count: int) -> dict | None:
     try:
         from campaign_factory.config import get_settings
         from campaign_factory.core import CampaignFactory
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
     cf = CampaignFactory(get_settings())
     try:
         result = cf.recommend_next_batch(campaign, count=count, persist=False)
-    except Exception:
+    except (OSError, RuntimeError, ValueError, sqlite3.Error):
         return None
     finally:
         cf.close()

@@ -31,10 +31,10 @@ This is source parity, not production runtime promotion:
 
 1. Keep generated media, DB files, local model weights, caches, and output
    folders out of source.
-2. Keep split repos as rollback mirrors until production deployment routing is
-   intentionally moved.
-3. Do not move the Dashboard production deployment blindly; the monorepo
-   Dashboard app contains scheduler and publishing cron configuration.
+2. Keep any external runtime repos as rollback sources until production
+   deployment routing is intentionally moved.
+3. Do not move the Dashboard production deployment from ThreadsDashboard
+   blindly; Creator OS no longer carries a committed Dashboard app.
 4. Build the 50-account inventory buffer before attempting the next scale gate.
 
 ## Latest Staged Acceptance Snapshot

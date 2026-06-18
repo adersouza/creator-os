@@ -20,7 +20,7 @@ python_packages/campaign_factory/schemas
 Those mirrors are not authoritative. Keep them byte-for-byte synchronized with
 `packages/pipeline_contracts` and run the root drift check before merging.
 ThreadsDashboard is external and does not receive a vendored copy through
-`creator-os/apps/dashboard`.
+Creator OS.
 
 ```bash
 pnpm check:contracts

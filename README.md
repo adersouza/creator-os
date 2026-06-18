@@ -162,10 +162,10 @@ Each repo has strict boundaries documented in [PIPELINE_BOUNDARIES.md](https://g
 | **Video Generation** | Kling 3.0 |
 | **Video Processing** | FFmpeg, FFprobe |
 | **QC / Similarity** | PDQ, SSCD, SSIM, Chromaprint, Apple Vision OCR |
-| **Backend** | Python ≥3.11, Next.js 16 (ContentForge), Vercel Serverless (Juno33) |
+| **Backend** | Python ≥3.11, Next.js 16 (ContentForge), ThreadsDashboard upstream services |
 | **Database** | Supabase (PostgreSQL), SQLite (local Campaign Factory) |
 | **Frontend** | React 19, TypeScript, Vite, Tailwind CSS |
-| **Deployment** | Vercel (serverless + cron) |
+| **Deployment** | Creator OS is not the dashboard runtime; ThreadsDashboard owns Vercel/serverless/cron deployment |
 | **Payments** | Stripe |
 | **Monitoring** | Sentry, PostHog |
 

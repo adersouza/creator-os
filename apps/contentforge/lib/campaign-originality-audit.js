@@ -283,6 +283,22 @@ async function audioMatches(targetPath, referencePath) {
   return { match: target.fingerprint === reference.fingerprint, available: true, reason: null };
 }
 
+async function referenceContextForFile(referenceFile, options, cache) {
+  if (cache.has(referenceFile)) return cache.get(referenceFile);
+  var referencePath = path.join(options.finalDir, referenceFile);
+  var referenceProbe = await probeFile(referencePath);
+  var referenceDuration = Number.parseFloat(referenceProbe?.format?.duration || "0");
+  var referenceFrames = await sampleOriginalityFrames(referencePath, referenceDuration);
+  var hookText = await hookTextForFile(referencePath, referenceFile, 0.4);
+  var context = {
+    path: referencePath,
+    frames: referenceFrames,
+    hookText,
+  };
+  cache.set(referenceFile, context);
+  return context;
+}
+
 function advisoryWarning(code, label, message, severity = "warn") {
   return { code, label, message, severity };
 }
@@ -358,12 +374,11 @@ async function parallelMapLimit(items, limit, worker) {
   return results;
 }
 
-async function analyzeReference(referenceFile, options, targetContext) {
+async function analyzeReference(referenceFile, options, targetContext, referenceCache) {
   var thresholds = campaignFactoryThresholds();
-  var referencePath = path.join(options.finalDir, referenceFile);
-  var referenceProbe = await probeFile(referencePath);
-  var referenceDuration = Number.parseFloat(referenceProbe?.format?.duration || "0");
-  var referenceFrames = await sampleOriginalityFrames(referencePath, referenceDuration);
+  var referenceContext = await referenceContextForFile(referenceFile, options, referenceCache);
+  var referencePath = referenceContext.path;
+  var referenceFrames = referenceContext.frames;
   var openingSimilarity = averageFrameSimilarity(targetContext.frames, referenceFrames);
   var frameSignatureSimilarity = averageSignatureSimilarity(targetContext.frames, referenceFrames);
   var coverSimilarity = null;
@@ -372,7 +387,7 @@ async function analyzeReference(referenceFile, options, targetContext) {
   }
   var hookSimilarity = null;
   if (targetContext.hookText) {
-    var referenceHook = await hookTextForFile(referencePath, referenceFile, 0.4);
+    var referenceHook = referenceContext.hookText;
     hookSimilarity = referenceHook.text ? tokenSimilarity(targetContext.hookText, referenceHook.text) : null;
   }
   var audio = await audioMatches(targetContext.path, referencePath);
@@ -443,8 +458,9 @@ export async function runMultiAccountOriginalityAudit(options) {
     frames: targetFrames,
     hookText: targetHookText,
   };
+  var referenceCache = new Map();
   var nearestMatches = await parallelMapLimit(references, 3, function (referenceFile) {
-    return analyzeReference(referenceFile, options, targetContext);
+    return analyzeReference(referenceFile, options, targetContext, referenceCache);
   });
   nearestMatches = nearestMatches.filter(Boolean).sort(function (a, b) { return b.score - a.score; });
   var top = nearestMatches[0] || null;
@@ -527,3 +543,13 @@ export async function runMultiAccountOriginalityAudit(options) {
   audit.referenceMatchSignals = referenceMatchSignals(audit);
   return audit;
 }
+
+export const __testInternals = {
+  averageFrameSimilarity,
+  averageSignatureSimilarity,
+  firstFrameSignature: frameSignature,
+  referenceMatchSignals,
+  riskFromScore,
+  tokenSimilarity,
+  variationNotes,
+};

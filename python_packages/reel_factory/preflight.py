@@ -32,7 +32,7 @@ def check_clip_readiness(
 
     try:
         meta = _probe_video(video, ffprobe)
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, UnicodeDecodeError) as e:
         return warnings + [PreflightWarning("probe_failed", f"{video.name} could not be probed: {e}", "error")]
 
     width = int(meta.get("width") or 0)

@@ -28,10 +28,14 @@ function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function escapeDrawtext(value) {
+export function escapeDrawtext(value) {
   return String(value || "")
     .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;")
+    .replace(/%/g, "\\%")
     .replace(/'/g, "\\'")
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]");

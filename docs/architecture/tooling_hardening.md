@@ -6,33 +6,29 @@ publishing, QStash, metrics sync, account health, or production inventory.
 
 ## Current Tooling Gates
 
-- `pnpm check:contracts` keeps pipeline contract mirrors synchronized.
+- `pnpm check:contracts` keeps pipeline contract compatibility copies
+  synchronized.
 - `pnpm security:secrets` runs a local current-tree secret scan when `gitleaks`
   or `trufflehog` is installed.
 - GitHub Actions runs CodeQL for JavaScript/TypeScript and Python.
-- GitHub Actions runs current-tree secret hygiene as a blocking check. The
-  TruffleHog full-history scan is report-only until the documented 2026-06-16
-  secret incident is rotated and purged from history.
-- GitHub Actions runs Dependency Review on pull requests with high-risk
-  dependency settings. It remains report-only until GitHub Dependency Graph is
-  enabled for the repository; after that, promote it to a blocking PR gate for
-  direct high/critical vulnerable dependency changes and denied copyleft
-  licenses.
-- GitHub Actions runs Trivy filesystem scans and uploads SARIF findings. Trivy
-  is currently report-only (`--exit-code 0`) so the first baseline does not
-  block unrelated migration work.
+- GitHub Actions runs current-tree secret hygiene as a blocking check.
+- GitHub Actions runs TruffleHog with verified-secret gating. The action
+  supplies its own fail flag; workflow arguments keep only policy filters.
+- GitHub Dependency Review is not an active gate because this private
+  repository does not have the required Dependency Graph/GHAS support enabled.
+- GitHub Actions runs Trivy filesystem scans, uploads SARIF findings, and gates
+  HIGH/CRITICAL findings with explicit ignores required for accepted risk.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
   snapshots.
-- GitHub Actions creates artifact attestations for SBOM artifacts and Dashboard
-  build artifacts. These attestations prove build provenance only; they do not
-  publish deploy artifacts or promote runtime.
+- GitHub Actions creates artifact attestations for SBOM artifacts. Dashboard
+  build provenance belongs upstream in ThreadsDashboard.
 - OpenSSF Scorecard runs in report mode. Pull requests upload the SARIF as a
   normal artifact; push/scheduled runs upload SARIF to code scanning after the
   first baseline exists. It is intentionally non-blocking until the baseline is
   reviewed.
 - `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
-- `pnpm test:visual` builds Dashboard Storybook, serves it locally, and runs
-  Playwright visual regression checks.
+- Dashboard Storybook and visual regression checks belong upstream in
+  ThreadsDashboard; Creator OS no longer carries a dashboard mirror.
 - `pnpm graphify:update` refreshes the local architecture graph. The
   `graphify-out/` directory remains a local artifact unless explicitly
   approved for commit.
