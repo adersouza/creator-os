@@ -1172,6 +1172,43 @@ def _require_legacy_supabase_writes() -> None:
         )
 
 
+def _threadsdash_draft_post_key(draft: dict[str, Any]) -> str | None:
+    metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
+    campaign_factory = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
+    manifest = (
+        campaign_factory.get("handoff_manifest")
+        if isinstance(campaign_factory.get("handoff_manifest"), dict)
+        else {}
+    )
+    for value in (
+        draft.get("campaignFactoryPostKey"),
+        draft.get("campaign_factory_post_key"),
+        campaign_factory.get("post_key"),
+        campaign_factory.get("draft_key"),
+        campaign_factory.get("rendered_asset_id"),
+        campaign_factory.get("asset_id"),
+        manifest.get("asset_id"),
+        manifest.get("rendered_asset_id"),
+    ):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _threadsdash_ingest_idempotency_key(payload: dict[str, Any]) -> str:
+    drafts = payload.get("drafts") if isinstance(payload.get("drafts"), list) else []
+    post_keys = [
+        key
+        for key in (_threadsdash_draft_post_key(draft) for draft in drafts if isinstance(draft, dict))
+        if key
+    ]
+    if len(post_keys) == 1:
+        return post_keys[0]
+    fingerprint_source = post_keys or [json.dumps(payload, sort_keys=True, ensure_ascii=False)]
+    digest = hashlib.sha256(json.dumps(fingerprint_source, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+    return f"campaign-factory-draft-ingest:{digest}"
+
+
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
@@ -1190,6 +1227,7 @@ def _post_threadsdash_draft_ingest(
         raise ValueError("threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false")
     body = dict(payload)
     body["dryRun"] = False
+    idempotency_key = _threadsdash_ingest_idempotency_key(body)
     request = Request(
         url,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -1198,6 +1236,7 @@ def _post_threadsdash_draft_ingest(
             "Content-Type": "application/json",
             "Accept": "application/json",
             "X-Campaign-Factory-Ingest-Secret": secret,
+            "X-Idempotency-Key": idempotency_key,
         },
     )
     try:
