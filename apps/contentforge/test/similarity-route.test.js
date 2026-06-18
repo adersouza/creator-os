@@ -201,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.6");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.7");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);

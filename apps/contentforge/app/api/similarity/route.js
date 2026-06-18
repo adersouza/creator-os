@@ -9,13 +9,15 @@ import { getPythonCommand } from "../../../lib/python-runtime.js";
 import { CAMPAIGN_FACTORY_AUDIT_CONFIG, campaignFactoryThresholds } from "../../../lib/campaign-factory-audit-config.js";
 import { runMultiAccountOriginalityAudit } from "../../../lib/campaign-originality-audit.js";
 import { buildCreativeQualityAudit } from "../../../lib/creative-quality-audit.js";
+import { getQualityMetrics } from "../../../lib/quality-metrics.js";
+import { getQaSignals } from "../../../lib/reels.js";
 
 var SUPPORTED_EXTS = [".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png"];
 var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
-var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "originality", "creativeQuality"]);
+var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "watchability", "originality", "creativeQuality"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.6";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.7";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -377,6 +379,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "caption", results.readability?.warnings);
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "hook", results.hookVisibility?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "watchability", results.watchability?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "creative", results.creativeQuality?.warnings);
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
 
@@ -409,10 +412,10 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     }
     if (verdict === "fail" && REVIEW_ONLY_LAYERS.has(layer)) {
       addReadinessItem(warningItems, layer + "_review", layer + ": layer needs review", layer + " needs review");
-    } else if (verdict === "fail" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "creativeQuality", "originality"].includes(layer)) {
+    } else if (verdict === "fail" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "originality"].includes(layer)) {
       addReadinessItem(blockingItems, layer + "_failed", layer + ": layer failed", layer + " failed");
     }
-    if (verdict === "warn" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "creativeQuality", "originality"].includes(layer)) {
+    if (verdict === "warn" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "originality"].includes(layer)) {
       addReadinessItem(warningItems, layer + "_review", layer + ": layer warning", layer + " needs review");
     }
   }
@@ -1386,13 +1389,55 @@ function uniqueWarnings(warnings) {
   });
 }
 
-async function runReelAdvisoryAudit(outputDir, files) {
+function finiteNumber(value) {
+  var number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function buildWatchabilityWarnings({ qualityMetrics = {}, qaSignals = {}, fileName = "target", thresholds = campaignFactoryThresholds() } = {}) {
+  var warnings = [];
+  var vmaf = finiteNumber(qualityMetrics.vmaf);
+  if (vmaf !== null && vmaf < thresholds.minVmaf) {
+    warnings.push(advisoryWarning("video_vmaf_low", "Low VMAF score", fileName + ": VMAF " + vmaf + " is below " + thresholds.minVmaf));
+  }
+
+  var cambi = finiteNumber(qualityMetrics.cambi?.value ?? qualityMetrics.cambi);
+  if (cambi !== null && cambi > thresholds.maxCambi) {
+    warnings.push(advisoryWarning("video_cambi_banding", "Banding risk detected", fileName + ": CAMBI " + cambi + " is above " + thresholds.maxCambi));
+  }
+
+  var loudness = qaSignals.loudness || {};
+  var integratedLufs = finiteNumber(loudness.inputI);
+  if (integratedLufs !== null && (integratedLufs < thresholds.minIntegratedLufs || integratedLufs > thresholds.maxIntegratedLufs)) {
+    warnings.push(advisoryWarning("audio_loudness_out_of_range", "Audio loudness outside target range", fileName + ": integrated loudness " + integratedLufs + " LUFS is outside " + thresholds.minIntegratedLufs + " to " + thresholds.maxIntegratedLufs));
+  }
+  var truePeak = finiteNumber(loudness.inputTp);
+  if (truePeak !== null && truePeak > thresholds.maxTruePeakDb) {
+    warnings.push(advisoryWarning("audio_true_peak_too_hot", "Audio true peak is too hot", fileName + ": true peak " + truePeak + " dB exceeds " + thresholds.maxTruePeakDb));
+  }
+
+  for (var warningText of qaSignals.warnings || []) {
+    if (/black segment/i.test(warningText)) {
+      warnings.push(advisoryWarning("watchability_black_segment", "Long black segment detected", fileName + ": " + warningText));
+    } else if (/silence/i.test(warningText)) {
+      warnings.push(advisoryWarning("audio_long_silence", "Long silence detected", fileName + ": " + warningText));
+    } else if (/letterbox|border/i.test(warningText)) {
+      warnings.push(advisoryWarning("framing_letterbox_or_crop", "Possible letterbox or border detected", fileName + ": " + warningText));
+    }
+  }
+
+  return uniqueWarnings(warnings);
+}
+
+async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
   var startedAt = Date.now();
   var thresholds = campaignFactoryThresholds();
   var videoFiles = files.filter(f => VIDEO_EXTS.includes(path.extname(f).toLowerCase())).slice(0, CAMPAIGN_FACTORY_AUDIT_CONFIG.sampling.maxVideos);
   var safeWarnings = [];
   var readabilityWarnings = [];
   var hookWarnings = [];
+  var watchabilityWarnings = [];
+  var watchabilityItems = [];
   var coverWarnings = [];
   var coverCandidates = [];
   var ocrResults = [];
@@ -1426,6 +1471,34 @@ async function runReelAdvisoryAudit(outputDir, files) {
     var filePath = path.join(outputDir, fname);
     var probe = await probeFile(filePath);
     var duration = Number.parseFloat(probe?.format?.duration || "0");
+    var videoStream = (probe?.streams || []).find(function (stream) { return stream.codec_type === "video"; }) || {};
+    var mediaInfo = {
+      width: Number.parseInt(videoStream.width || 0, 10),
+      height: Number.parseInt(videoStream.height || 0, 10),
+      bitrate: Number.parseInt(probe?.format?.bit_rate || videoStream.bit_rate || 0, 10),
+      duration,
+    };
+    var qualityMetrics = sourcePath
+      ? await getQualityMetrics({ sourcePath, variantPath: filePath, mediaInfo }).catch(function (error) {
+        return { available: false, reason: error.message || "quality metrics unavailable" };
+      })
+      : { available: false, reason: "Source file unavailable for reference metrics" };
+    var qaSignals = await getQaSignals(filePath, mediaInfo).catch(function (error) {
+      return { available: false, reason: error.message || "watchability signals unavailable", warnings: [] };
+    });
+    var fileWatchabilityWarnings = buildWatchabilityWarnings({
+      qualityMetrics,
+      qaSignals,
+      fileName: fname,
+      thresholds,
+    });
+    watchabilityWarnings.push(...fileWatchabilityWarnings);
+    watchabilityItems.push({
+      file: fname,
+      qualityMetrics,
+      qaSignals,
+      warnings: fileWatchabilityWarnings,
+    });
     var times = CAMPAIGN_FACTORY_AUDIT_CONFIG.sampling.ocrFrameTimesSec.filter(function (time) { return !duration || time < duration; });
     if (times.length === 0) times = [0];
     var frames = [];
@@ -1591,6 +1664,7 @@ async function runReelAdvisoryAudit(outputDir, files) {
   readabilityWarnings = uniqueWarnings(readabilityWarnings);
   coverWarnings = uniqueWarnings(coverWarnings);
   hookWarnings = uniqueWarnings(hookWarnings);
+  watchabilityWarnings = uniqueWarnings(watchabilityWarnings);
 
   return {
     ocr: {
@@ -1639,6 +1713,17 @@ async function runReelAdvisoryAudit(outputDir, files) {
         earlyTextBoxes,
         avgFrameDelta: avgDelta === null ? null : Math.round(avgDelta * 10) / 10,
       },
+    },
+    watchability: {
+      verdict: watchabilityWarnings.length ? "warn" : "pass",
+      warnings: watchabilityWarnings,
+      metrics: {
+        fileCount: watchabilityItems.length,
+        measuredFiles: watchabilityItems.filter(function (item) {
+          return item.qualityMetrics?.available || item.qaSignals?.loudness || item.qaSignals?.crop;
+        }).length,
+      },
+      files: watchabilityItems,
     },
     coverCandidates,
     timings: {
@@ -1788,9 +1873,10 @@ export async function POST(request) {
       layers.includes("readability") ||
       layers.includes("cover") ||
       layers.includes("hookVisibility") ||
+      layers.includes("watchability") ||
       layers.includes("creativeQuality");
     if (shouldRunReelAdvisory) {
-      var advisory = await timeLayer("advisory", timings, function () { return runReelAdvisoryAudit(auditDir, files); });
+      var advisory = await timeLayer("advisory", timings, function () { return runReelAdvisoryAudit(auditDir, files, sourcePath); });
       results.ocr = advisory.ocr;
       results.captionBoxes = advisory.captionBoxes;
       results.safeZoneScore = advisory.safeZoneScore;
@@ -1800,6 +1886,7 @@ export async function POST(request) {
       results.readability = advisory.readability;
       results.cover = advisory.cover;
       results.hookVisibility = advisory.hookVisibility;
+      results.watchability = advisory.watchability;
       results.coverCandidates = advisory.coverCandidates;
       results.creativeQuality = buildCreativeQualityAudit(advisory);
       timings.advisory = advisory.timings;
@@ -1871,6 +1958,9 @@ export async function POST(request) {
     if (results.hookVisibility?.verdict) {
       verdicts.hookVisibility = results.hookVisibility.verdict;
     }
+    if (results.watchability?.verdict) {
+      verdicts.watchability = results.watchability.verdict;
+    }
     if (results.creativeQuality?.verdict) {
       verdicts.creativeQuality = results.creativeQuality.verdict;
     }
@@ -1905,6 +1995,7 @@ export async function POST(request) {
       readability: results.readability || null,
       coverCandidates: results.coverCandidates || [],
       hookVisibility: results.hookVisibility || null,
+      watchability: results.watchability || null,
       creativeQuality: results.creativeQuality || null,
       audioFitSignals: buildAudioFitSignals(results, files),
       referenceMatch: results.multiAccountOriginalityAudit || null,
