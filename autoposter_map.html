@@ -80,8 +80,8 @@
 <body>
 <header>
   <h1>ThreadsDashboard — Autoposter Map</h1>
-  <span class="meta">Juno33 · draft → schedule → QStash → Meta Graph publish → metrics. Source lives in external ThreadsDashboard.</span>
-  <span class="score">pipeline <b>working</b> · <b style="color:var(--works)">AP0–AP3 SHIPPED ✓ on TD main</b> <span style="color:var(--dim)">(ec2190b5e)</span></span>
+  <span class="meta">Juno33 · draft → schedule → QStash → Meta Graph publish → metrics. Runtime source lives in ThreadsDashboard.</span>
+  <span class="score">pipeline <b>working</b> · <b style="color:var(--works)">AP0–AP9 SHIPPED ✓ on TD main</b> <span style="color:var(--dim)">(b76a418b)</span></span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Publish Flow</button>
@@ -115,7 +115,7 @@
   <div class="note">
     <b>Shape of the system:</b> drafts land from Campaign Factory → operator/auto schedules with per-account cadence + 14-day collision cooldowns →
     QStash delivers each job at its exact time (5-min cron is the fallback) → publish worker atomically claims and publishes to Threads/Instagram via Meta Graph →
-    engagement re-fetched at 1h/6h/24h. <b>The whole chain works.</b> The flags are hardening items (races, plaintext secret, fire-and-forget metrics), not breaks.
+    engagement re-fetched at 1h/6h/24h. <b>The whole chain works.</b> The old AP0–AP9 hardening flags are now closed; remaining flags are operational watchpoints, not known broken flow.
   </div>
 </section>
 
@@ -143,8 +143,8 @@
 
 <section id="risks">
   <h2>Risk flags &amp; known gaps</h2>
-  <p class="sub">Nothing here breaks the pipeline today. These are hardening targets — races, fixed thresholds, fire-and-forget paths, plaintext secret.</p>
-  <div class="note" style="border-left:3px solid var(--works)"><b>✓ Shipping status (read first):</b> the autoposter hardening tier is <b>SHIPPED and live on TD <code>main</code></b> (<code>ec2190b5e</code> · "merge: autoposter hardening complete"). The ~16 feature branches were woven into <code>codex/autoposter-hardening-complete</code> (integration pass — publish-path conflicts resolved, <code>transitionPostStatus</code> chokepoint threaded through all call-sites) and merged. Verified on main: <code>metaErrors.ts</code> 427-line hardened taxonomy, <code>accountHealthAutoBackoff.ts</code>, <code>threadChainContent.ts</code> all present; targeted suite 379 tests pass. Every "✓" item below is now <i>shipped</i>, not just coded.</div>
+  <p class="sub">Owner-facing ledger after AP0–AP9. Items below are either shipped fixes, production repair notes, or explicit non-goals.</p>
+  <div class="note" style="border-left:3px solid var(--works)"><b>✓ Shipping status (read first):</b> the autoposter hardening + AP9 verification tier is <b>SHIPPED and live on TD <code>main</code></b> (<code>b76a418b</code>). AP0–AP3 integration landed first at <code>ec2190b5e</code>; AP9 then added IG failure-path proof, publish-claim contention proof, degradation alerting, publish-path cleanup, token-rotation documentation, and native-audio cache hardening. Production schema repair on 2026-06-18 added <code>posts.next_retry_at</code> + <code>idx_posts_scheduled_next_retry_at</code>, repaired migration history for <code>20260618064358</code>, reloaded PostgREST, and verified <code>/api/cron/publish-worker</code> success at <code>2026-06-18 15:32:17 UTC</code>.</div>
   <div id="risklist"></div>
 </section>
 
@@ -160,42 +160,42 @@ const STAGES=[
   {id:'ingest',n:1,title:'Draft Ingest',kind:'works',risk:false,ref:'draftIngest.ts:570',role:'Campaign Factory → posts',
    fn:'handleCampaignFactoryDraftIngest',table:'posts (status="draft")',
    detail:['POST /api/campaign-factory-draft-ingest. Validates ingest secret + dry-run, then writes posts.','Binds instagram_account_id / account_id / user_id (L447-449).','metadata.campaign_factory carries asset_id, variant_id, content_fingerprint, handoff_manifest v2. asset_state must be publishable_candidate/exportable.','INSERT new or UPDATE existing via campaign_factory_post_key (L503-530).']},
-  {id:'approval',n:2,title:'Approval / State',kind:'works',risk:true,ref:'approval.ts + campaignSchedule.ts',role:'draft → scheduled → published / failed',
+  {id:'approval',n:2,title:'Approval / State',kind:'works',risk:false,ref:'approval.ts + campaignSchedule.ts',role:'draft → scheduled → published / failed',
    fn:'post.status machine',table:'posts.status',
-   detail:['States: draft → scheduled → publishing → published / failed.','draft→scheduled: handleCampaignSchedule (L596). scheduled→draft recovery: recoverMissedCampaignDispatches (L728).','scheduled→failed: escalateSkip after MAX_SKIP_RETRIES.','RISK: concurrent scheduling possible if status update not atomic.']},
-  {id:'schedule',n:3,title:'Scheduling (cadence + collision)',kind:'works',risk:true,ref:'campaignSchedule.ts:596',role:'compute times, per-account spacing',
+   detail:['States: draft → scheduled → publishing → published / failed.','draft→scheduled: handleCampaignSchedule (L596). scheduled→draft recovery: recoverMissedCampaignDispatches (L728).','Status writes now route through transitionPostStatus where applicable, with owner scoping and idempotency keys.','HARDENED: duplicate scheduling backed by a Postgres partial unique index; AP2 closed scattered status-write races.']},
+  {id:'schedule',n:3,title:'Scheduling (cadence + collision)',kind:'works',risk:false,ref:'campaignSchedule.ts:596',role:'compute times, per-account spacing',
    fn:'handleCampaignSchedule / handleCampaignScheduleTimePlan',table:'posts, campaign_schedule_batches',
-   detail:['deriveCadence (L1180): warming=1/day/24h, normal=1/day/24h, high-perf=2/day/6h.','bestPerformanceHour (L1203) + parseWindowHours (L1084) + nextWindowStart (L1134) + stableMinuteOffset (L1143, deterministic jitter).','Collision: hasActiveDuplicate + hasVariantLineageConflict — 14-day cooldowns on source/parent/variant-sibling (L18-20).','RISK: collision check runs after the schedule decision — two concurrent schedules can race.']},
+   detail:['deriveCadence (L1180): warming=1/day/24h, normal=1/day/24h, high-perf=2/day/6h.','bestPerformanceHour (L1203) + parseWindowHours (L1084) + nextWindowStart (L1134) + stableMinuteOffset (L1143, deterministic jitter).','Collision: hasActiveDuplicate + hasVariantLineageConflict — 14-day cooldowns on source/parent/variant-sibling (L18-20).','HARDENED: active same-account content fingerprints are protected by migration 20260618013000 and 23505 maps to same_content_fingerprint_account.']},
   {id:'dispatch',n:4,title:'QStash Dispatch',kind:'cron',risk:true,ref:'qstashSchedule.ts:26',role:'enqueue exact-time job',
    fn:'dispatchPostPublish',table:'posts.qstash_*',
    detail:['Enqueues QStash msg with notBefore = scheduled Unix time → /api/scheduled-post-publish.','Dedup key post-{id}-{unix} (L46). Retries=CRITICAL. Stores qstash_message_id, qstash_dispatch_status="dispatched".','cancelPostPublish (L295) deletes pending msg on reschedule/delete.','RISK: QStash signature verify (qstash.ts:64) is load-bearing — bypass = unauthorized publish. Fallback = 5-min cron.']},
-  {id:'worker',n:5,title:'Publish Worker (cron)',kind:'cron',risk:true,ref:'publish-worker.ts',role:'*/5min, 4 phases',
+  {id:'worker',n:5,title:'Publish Worker (cron)',kind:'cron',risk:false,ref:'publish-worker.ts',role:'*/5min, 4 phases',
    fn:'4 phases w/ time budget',table:'posts, auto_post_queue',
-   detail:['Every 5 min, 170s of 180s budget. Phase1 scheduled posts → Phase2 IG container publish → Phase3 auto_post_queue reconcile → Phase4 queue fill.','Fallback for QStash + safety net.','RISK: loose phase time budgeting — if Phase1 overruns, later phases silently skipped (warns L108-111).']},
+   detail:['Every 5 min, 170s of 180s budget. Phase1 scheduled posts → Phase2 IG container publish → Phase3 auto_post_queue reconcile → Phase4 queue fill.','Fallback for QStash + safety net.','HARDENED: phase fairness rotates stale phases forward, run reports are standardized, and AP9 alerting pages on starvation, failure-rate, quota, and publish-DLQ degradation.']},
   {id:'process',n:6,title:'Scheduled-Posts Processing',kind:'cron',risk:false,ref:'scheduled-posts.ts:87',role:'claim + order of operations',
    fn:'processScheduledPosts',table:'posts',
    detail:['Cleanup rejected(>7d) → retry transient → cleanup orphaned publishing(>30min) → rescue stuck Threads → process Threads → retry IG containers → rescue stuck IG → process new IG.','ATOMIC CLAIM: status scheduled→publishing + publishing_started_at. Prevents double-publish on overlapping cron.','Submodules: publishThreads.ts, publishInstagram.ts, rateLimit.ts, mediaValidation.ts, maintenance.ts.']},
-  {id:'publish',n:7,title:'Single Publish (Threads | IG)',kind:'works',risk:true,ref:'publishPost.ts:357',role:'central dispatch to platform',
+  {id:'publish',n:7,title:'Single Publish (Threads | IG)',kind:'works',risk:false,ref:'publishPost.ts:357',role:'central dispatch to platform',
    fn:'publishSinglePost',table:'posts',
-   detail:['Atomic re-check status=scheduled → subscription limit (L408) → outbound operator guard (L450) → route to publishThreadsPost (L491) or publishInstagramPost (L489).','Threads: postToThreads, chain via CHAIN_SEPARATOR, token refresh on 401. IG: container then publish, reels audio + trial params.','Success → status=published + ids/permalink/counts. Transient → stays scheduled (retry). Permanent → failed.','RISK: concurrent publish if atomic claim fails (L362-371). Sentry wrapper added post-audit (L478-485).']},
-  {id:'igmedia',n:8,title:'IG Container & Media',kind:'ext',risk:true,ref:'instagram/publishing.ts:191',role:'Meta Graph v25 container → publish',
+   detail:['Atomic re-check status=scheduled → subscription limit (L408) → outbound operator guard (L450) → route to publishThreadsPost (L491) or publishInstagramPost (L489).','Threads: postToThreads, chain via CHAIN_SEPARATOR, token refresh on 401. IG: container then publish, reels audio + trial params.','Success → status=published + ids/permalink/counts. Transient → stays scheduled with next_retry_at backoff. Permanent → failed/dead-letter.','HARDENED: AP9 publish-claim contention test proves only one parallel worker can claim the same scheduled post.']},
+  {id:'igmedia',n:8,title:'IG Container & Media',kind:'ext',risk:false,ref:'instagram/publishing.ts:191',role:'Meta Graph v25 container → publish',
    fn:'publishContainer / checkContainerStatus',table:'(Meta Graph API)',
-   detail:['checkContainerStatus (L53): poll 2s×5 then 5s, max 60 ≈ 5min. FINISHED/ERROR/EXPIRED/IN_PROGRESS/TIMED_OUT.','publishContainer (L191): media_publish, 3 retries w/ 3-5-8s backoff for "still processing" (subcodes 2207027/2207026).','Business vs personal login → getGraphBaseUrl.','RISK: network-error retry adds latency in outages; polling can miss intermediate state.']},
-  {id:'safety',n:9,title:'Safety Gates (preflight)',kind:'works',risk:true,ref:'publishPreflight.ts',role:'block unsafe before schedule',
+   detail:['checkContainerStatus (L53): poll 2s×5 then 5s, max 60 ≈ 5min. FINISHED/ERROR/EXPIRED/IN_PROGRESS/TIMED_OUT.','publishContainer (L191): media_publish, 3 retries w/ 3-5-8s backoff for "still processing" (subcodes 2207027/2207026).','Business vs personal login → getGraphBaseUrl.','HARDENED: AP9 IG failure-path tests cover transient, window-cap, permanent, media-not-ready, retry→success, and no-duplicate behavior.']},
+  {id:'safety',n:9,title:'Safety Gates (preflight)',kind:'works',risk:false,ref:'publishPreflight.ts',role:'block unsafe before schedule',
    fn:'runPublishPreflight',table:'(validation only)',
-   detail:['Called before scheduling (campaignSchedule.ts:527). Validates account, media, caption, audio, CF metadata, platform rules.','validateManifest (L242): asset_state exportable, manifest v2, visual_qc + identity_verification passed.','Reels audio: applyInstagramReelsAudioParams injects audio_name+audio_id. Trial graduation gated to reels only.','RISK: audio validation is spec-only — no runtime check the audio_id exists on Meta.']},
-  {id:'retry',n:10,title:'Retry / Failure',kind:'works',risk:true,ref:'publishPost.ts:206',role:'skip/rate-limit escalation, dead-letter',
+   detail:['Called before scheduling (campaignSchedule.ts:527). Validates account, media, caption, audio, CF metadata, platform rules.','validateManifest (L242): asset_state exportable, manifest v2, visual_qc + identity_verification passed.','Reels audio: applyInstagramReelsAudioParams injects audio_name+audio_id. Trial graduation gated to reels only.','HARDENED: native audio is validated and cached pre-publish; Threads chains validate each segment with threads_chain_segment_too_long before Meta fetch.']},
+  {id:'retry',n:10,title:'Retry / Failure',kind:'works',risk:false,ref:'publishPost.ts:206',role:'skip/rate-limit escalation, dead-letter',
    fn:'escalateSkip / escalateRateLimit',table:'posts.retry_count',
-   detail:['escalateSkip (L206): account inactive/needs_reauth/token_expired/suspended. MAX_SKIP_RETRIES (≈3) → failed + notify.','escalateRateLimit (L283): MAX=12 (~1h at 5-min cron) → failed + notify.','Transient (OAuth code 1, 5xx, timeout) → stays scheduled, retried. Non-retryable set (caption_too_long, media_inaccessible, kill_switch) → failed immediately.','RISK: thresholds code-baked (3,12), no exponential backoff — fixed 5-min cadence, needs redeploy to change.']},
-  {id:'health',n:11,title:'Account Health / Rate Limit',kind:'works',risk:true,ref:'igRateLimit.ts + campaignSchedule.ts:509',role:'eligibility gate per account',
+   detail:['Retry policy is centralized in publishRetryPolicy.ts with env knobs for skip/rate-limit maxes and base/max delay.','Non-terminal skip/rate-limit retries set retry_count + next_retry_at and QStash receives a best-effort delayed redispatch; cron remains durable fallback.','scheduled-post-publish returns retry_deferred when an early QStash delivery arrives before next_retry_at.','Production repair: posts.next_retry_at and idx_posts_scheduled_next_retry_at are present; publish-worker smoke run succeeded after schema cache reload.']},
+  {id:'health',n:11,title:'Account Health / Rate Limit',kind:'works',risk:false,ref:'igRateLimit.ts + campaignSchedule.ts:509',role:'eligibility gate per account',
    fn:'isAccountPublishable / checkIGRateLimit',table:'instagram_accounts, restrictions',
-   detail:['Eligibility buckets: safe_to_schedule_today, already_scheduled_today, blocked_reauth, blocked_token_expired, blocked_disabled, blocked_recent_failure, blocked_account_health.','checkIGRateLimit (publishInstagram L23), DB-backed per-account state. Token refresh refreshThreadsToken on 401.','RISK: rate-limit state in DB — concurrent publishes can race past the limit.']},
-  {id:'metrics',n:12,title:'Performance Sync Back',kind:'works',risk:true,ref:'post-engagement.ts:64',role:'re-fetch metrics 1h/6h/24h',
+   detail:['Eligibility buckets: safe_to_schedule_today, already_scheduled_today, blocked_reauth, blocked_token_expired, blocked_disabled, blocked_recent_failure, blocked_account_health.','checkIGRateLimit (publishInstagram L23), DB-backed per-account state. Token refresh refreshThreadsToken on 401.','HARDENED: live Meta quota gate blocks at source; account-health auto-backoff pauses suppressed/shadowban-throttled accounts and resumes them on recovery.']},
+  {id:'metrics',n:12,title:'Performance Sync Back',kind:'works',risk:false,ref:'post-engagement.ts:64',role:'re-fetch metrics 1h/6h/24h',
    fn:'dispatchEngagementFetch',table:'posts, post_metric_history',
-   detail:['QStash delayed fetch at 1h/6h/24h (qstashSchedule.ts:119). Dedup engagement-{id}-{delay}.','Decrypt token → Threads insights (views/likes/replies/reposts/quotes/shares) → calculateEngagementRate → RPC update_post_metrics_if_newer (L110) → insert post_metric_history (L144).','Feeds autoposter-performance-attribution (dna_fit/creator_fit/account_flavor/genericness scores).','RISK: fire-and-forget — if all QStash retries fail, metrics never backfilled.']},
-  {id:'auth',n:13,title:'Auth & Secrets',kind:'works',risk:true,ref:'draftIngest.ts + qstash.ts',role:'4 trust boundaries',
+   detail:['QStash delayed fetch at 1h/6h/24h (qstashSchedule.ts:119). Dedup engagement-{id}-{delay}.','Decrypt token → Threads insights (views/likes/replies/reposts/quotes/shares) → calculateEngagementRate → RPC update_post_metrics_if_newer (L110) → insert post_metric_history (L144).','Feeds autoposter-performance-attribution (dna_fit/creator_fit/account_flavor/genericness scores).','HARDENED: bounded reconciliation finds missing 1h/24h snapshots and re-dispatches stable engagement fetches.']},
+  {id:'auth',n:13,title:'Auth & Secrets',kind:'works',risk:false,ref:'draftIngest.ts + qstash.ts',role:'4 trust boundaries',
    fn:'ingest secret / QStash sig / cron auth / withAuth',table:'(env secrets)',
-   detail:['Ingest: x-campaign-factory-ingest-secret or Bearer (L229-238), checked vs CAMPAIGN_FACTORY_INGEST_SECRET (L577).','QStash: Receiver.verify upstash-signature (qstash.ts:64), 401 on invalid — load-bearing for scheduled-post-publish + post-engagement.','Cron: verifyCronAuth Vercel-Cron-Secret. User: withAuth Supabase JWT (middleware.ts:102).','RISK: ingest secret plaintext in env, no masking/rotation visible.']},
+   detail:['Ingest: x-campaign-factory-ingest-secret or Bearer (L229-238), now supports rotated/versioned secrets.','QStash: Receiver.verify upstash-signature (qstash.ts:64), 401 on invalid — load-bearing for scheduled-post-publish + post-engagement.','Cron: verifyCronAuth Vercel-Cron-Secret. User: withAuth Supabase JWT (middleware.ts:102).','AP9 documented encrypted IG/Threads access-token storage, refresh, expiry, and rotation story in docs/autoposter-token-rotation.md with drift tests.']},
 ];
 
 const POS={
@@ -288,14 +288,14 @@ function closeDrawer(){document.getElementById('drawer').classList.remove('open'
 document.getElementById('overlay').onclick=closeDrawer;
 
 const CRON=[
-  ['/api/cron/publish-worker','*/5 * * * *','Publish scheduled posts (4 phases) + QStash fallback','180s'],
+  ['/api/cron/publish-worker','*/5 * * * *','Publish scheduled posts (4 fair phases), retry-aware backoff, AP9 degradation alerts','180s'],
   ['/api/cron/campaign-schedule-recovery','*/5 * * * *','Rescue missed campaign dispatches → reset to draft','120s'],
   ['/api/cron/scheduler','*/5 * * * *','AI queue fill / autoposter schedule','180s'],
   ['/api/cron/sync-orchestrator','2,17,32,47 * * * *','Account metrics sync','180s'],
   ['/api/cron/health-monitor','0 */4 * * *','Account health check','300s'],
 ];
 const TABLES=[
-  ['posts','post metadata, status, scheduling, publishing','status · scheduled_for · published_at · instagram_account_id · qstash_message_id · qstash_dispatch_status · retry_count · ig_publish_attempts · metadata.campaign_factory'],
+  ['posts','post metadata, status, scheduling, publishing','status · scheduled_for · next_retry_at · published_at · instagram_account_id · qstash_message_id · qstash_dispatch_status · retry_count · ig_publish_attempts · metadata.campaign_factory'],
   ['post_metric_history','engagement snapshots at 1h/6h/24h','post_id · hours_since_publish · views/likes/replies/reposts/quotes · engagement_rate'],
   ['instagram_accounts','account creds + status','instagram_access_token_encrypted · is_active · needs_reauth · status · token_expires_at'],
   ['campaign_schedule_batches','batch scheduling records','requested_count · scheduled_count · failed_count'],
@@ -303,12 +303,18 @@ const TABLES=[
   ['auto_post_queue','separate AI-fill autoposter queue','workspace_id · group_id · status · dna/creator scores'],
 ];
 const AUTH=[
-  ['Campaign Factory ingest','x-campaign-factory-ingest-secret / Bearer','draftIngest.ts:229,577','⚠ plaintext env, no rotation/masking visible'],
+  ['Campaign Factory ingest','x-campaign-factory-ingest-secret / Bearer','draftIngest.ts:229,577','rotated/versioned secret support shipped'],
   ['QStash callbacks','Receiver.verify(upstash-signature)','qstash.ts:64','load-bearing — guards scheduled-post-publish + post-engagement'],
   ['Cron handlers','verifyCronAuth (Vercel-Cron-Secret)','publish-worker.ts:29','internal Vercel verification'],
   ['User endpoints','withAuth (Supabase JWT)','middleware.ts:102','all user-facing routes'],
 ];
 const RISKS=[
+  {fixed:true,t:'✓ FIXED (prod schema repair) — next_retry_at cron outage',w:'TD prod DB: migration 20260618064358 applied + history repaired; publish-worker success 2026-06-18 15:32 UTC',d:'RESOLVED: production cron code expected posts.next_retry_at; production DB was missing the column. Applied the existing idempotent migration, created idx_posts_scheduled_next_retry_at, reloaded PostgREST, verified REST select of id,next_retry_at, triggered /api/cron/publish-worker, and confirmed latest cron_runs rows are success with error=NULL.'},
+  {fixed:true,t:'✓ SHIPPED (AP9-1) — Instagram failure-path e2e parity',w:'TD main: e2e/publish-instagram.spec.ts + post-lifecycle failure/retry coverage',d:'RESOLVED: IG now has publish-path reaction proof for transient, window-cap, permanent, media-not-ready/container polling, retry→success, dead-letter, and no duplicate publish behavior. This complements metaErrors classifier tests instead of replacing them.'},
+  {fixed:true,t:'✓ SHIPPED (AP9-2) — double-publish contention proof',w:'TD main: publish claim concurrency tests for processScheduledPosts + publishSinglePost',d:'RESOLVED: parallel workers attempting the same scheduled post prove the atomic scheduled→publishing claim lets exactly one worker through and the others skip. This closes the proof gap analogous to the existing accountSync concurrent-sync safety test.'},
+  {fixed:true,t:'✓ SHIPPED (AP9-3) — degradation alerts wired',w:'TD main: autoposterAlerting.ts + publish-worker/AP3 account-health hooks',d:'RESOLVED: AP3 account-health pause/resume, publish dead-letter growth, and publish-worker run-report anomalies call the existing Discord alerting channel with de-dupe so ops gets paged on degradation rather than discovering it later.'},
+  {fixed:true,t:'✓ SHIPPED (AP9-4) — merge debt cleaned',w:'TD main: publishInstagram.ts · publishPost.ts · scheduled-posts/* cleanup',d:'RESOLVED: merged publish path was swept for duplicated retry/backoff logic, dead branches, and transitionPostStatus stragglers. Publish-path maintainability score moved from merge-complete to cleaned.'},
+  {fixed:true,t:'✓ SHIPPED (AP9-5) — token rotation story documented',w:'TD main: docs/autoposter-token-rotation.md + token-rotation-story.test.ts',d:'RESOLVED: encrypted IG/Threads token-at-rest story is documented with runtime anchors for encryption, refresh, expiry, and rotation/ciphertext migration. Test coverage keeps the doc aligned with code.'},
   {g:false,fixed:true,t:'✓ FIXED (AP0-1) — duplicate-schedule race',w:'TD: migration 20260618013000 partial unique index + campaignSchedule.ts 23505 mapping',d:'RESOLVED: Postgres partial unique index on (instagram_account_id, content_fingerprint) WHERE status active makes the cross-row duplicate atomic; 23505 mapped to same_content_fingerprint_account (scoped to the constraint). Note from review: rate-limit was ALREADY atomic (RPC); per-row flip already safe — only the cross-row dup needed fixing.'},
   {g:false,fixed:true,t:'✓ FIXED (AP1) — Meta error taxonomy + quota gate + idempotency + token state machine',w:'TD: metaErrors.ts (+182) · publishThreads/Instagram.ts quota · publishInstagram.ts dedupe · research/07',d:'RESOLVED — the hard research/07 core landed and verified: (1) metaErrors.ts classifies transient | window_cap | permanent | dead_letter_reauth | dead_letter by (code, error_subcode) — TRANSIENT_CODES {1,2,17,341,368,500,503} + 80001–80014 + subcodes {2207001,2207027,2207053,2207082} + 9007/2207027 media-not-ready, and reads estimated_time_to_regain_access. (2) Publish gated on live quota — queries threads_publishing_limit / content_publishing_limit (fields=quota_usage,config), reads config.quota_total, blocks at limit. (3) Idempotency — looks up published container by meta_media_id before publish, dedupes IG attempts (no double-publish on retry/timeout). (4) Token reauth guard + tests. This replaces the code-baked 3/12 thresholds with authoritative, spec-accurate handling.'},
   {g:false,fixed:true,t:'✓ FIXED (AP0-2) — metrics now reconcilable',w:'TD: bounded reconciliation phase + dispatchEngagementFetch dedupe',d:'RESOLVED: a bounded reconciliation pass finds published Threads posts missing 1h/24h post_metric_history windows and re-dispatches them with stable dedupe IDs. Dropped QStash windows get backfilled instead of lost — the learning loop keeps its data.'},
