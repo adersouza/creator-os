@@ -16279,6 +16279,59 @@ def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse
         cf.close()
 
 
+def test_inventory_reservation_blocks_computed_pdq_cluster_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
+        for index in range(2):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_pdq_cluster_{index}",
+                content_surface="reel",
+                media_type="video",
+                instagram_post_caption="lmk",
+            )
+
+        def fake_pdq(path: Path, **_: Any) -> dict[str, Any]:
+            name = Path(path).name
+            fingerprint = ("0" * 64) if "asset_pdq_cluster_0" in name else ("0" * 63 + "1")
+            return {
+                "status": "available",
+                "algorithm": "pdq_v1",
+                "fingerprint": fingerprint,
+                "quality": 100,
+                "source": "first_frame",
+            }
+
+        monkeypatch.setattr(core_module, "compute_pdq_fingerprint", fake_pdq)
+
+        first = cf.reserve_inventory_asset(
+            "asset_pdq_cluster_0",
+            account_id=account_a["id"],
+            surface="reel",
+            reserved_by="test",
+        )
+
+        with pytest.raises(ValueError, match="cross-account source/perceptual reuse cooldown conflict"):
+            cf.reserve_inventory_asset(
+                "asset_pdq_cluster_1",
+                account_id=account_b["id"],
+                surface="reel",
+                reserved_by="test",
+            )
+
+        second = cf.rendered_asset("asset_pdq_cluster_1")
+        second_metadata = json.loads(second["metadata_json"])
+        assert first["perceptual_cluster_id"].startswith("pdq:")
+        assert second_metadata["perceptualFingerprint"] == "0" * 63 + "1"
+        assert second_metadata["perceptualClusterId"] == first["perceptual_cluster_id"]
+    finally:
+        cf.close()
+
+
 def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -16312,6 +16365,54 @@ def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Pa
         assert result["reservedInventory"] == 1
         assert result["cooldownBlockedInventory"] == 1
         assert result["netInventory"] == 88
+    finally:
+        cf.close()
+
+
+def test_live_account_acceptance_counts_computed_pdq_cooldown_blocked_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        for index in range(3):
+            add_surface_asset_fixture(
+                cf,
+                tmp_path,
+                asset_id=f"asset_pdq_inventory_{index}",
+                content_surface="feed_single",
+                media_type="image",
+                instagram_post_caption="lmk",
+            )
+
+        def fake_pdq(path: Path, **_: Any) -> dict[str, Any]:
+            name = Path(path).name
+            fingerprint = "0" * 64
+            if "asset_pdq_inventory_1" in name:
+                fingerprint = "0" * 63 + "1"
+            if "asset_pdq_inventory_2" in name:
+                fingerprint = "f" * 64
+            return {
+                "status": "available",
+                "algorithm": "pdq_v1",
+                "fingerprint": fingerprint,
+                "quality": 100,
+                "source": "image",
+            }
+
+        monkeypatch.setattr(core_module, "compute_pdq_fingerprint", fake_pdq)
+        cf.reserve_inventory_asset(
+            "asset_pdq_inventory_0",
+            account_id=account["id"],
+            surface="feed_single",
+            reserved_by="test",
+        )
+
+        result = cf.creator_os_live_account_acceptance(account_target=1, content_surface="feed_single")
+
+        assert result["grossInventory"] == 3
+        assert result["reservedInventory"] == 1
+        assert result["cooldownBlockedInventory"] == 1
+        assert result["netInventory"] == 1
     finally:
         cf.close()
 
