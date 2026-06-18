@@ -299,6 +299,7 @@ def test_contract_schema_examples_validate():
         "kling_3_video_prompt.v1.example.json",
         "motion_edit_render.v1.example.json",
         "performance_sync.v1.example.json",
+        "post_metric_history.read.v1.example.json",
         "pattern_card.v1.example.json",
         "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
