@@ -8,6 +8,7 @@ from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_planning import CreativePlanningRepository
+from campaign_factory.distribution import DistributionRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
@@ -42,6 +43,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.reference.conn is factory.conn
         assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
         assert factory.services.caption_family.conn is factory.conn
+        assert isinstance(factory.services.distribution, DistributionRepository)
+        assert factory.services.distribution.conn is factory.conn
     finally:
         factory.close()
 
@@ -987,6 +990,230 @@ def test_core_services_delegates_caption_family_methods_to_caption_repository() 
         ("caption_family_hashtags", (["#one", "two"],), {}),
         ("caption_version_by_id", ("cver_1",), {}),
         ("caption_version_payload", ({"id": "cver_1"},), {}),
+    ]
+
+
+def test_distribution_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def create_distribution_plan(self, *args, **kwargs):
+            calls.append(("create_distribution_plan", args, kwargs))
+            return {"id": "dist_1"}
+
+        def distribution_plan(self, *args, **kwargs):
+            calls.append(("distribution_plan", args, kwargs))
+            return {"id": args[0]}
+
+        def distribution_plans_for_asset(self, *args, **kwargs):
+            calls.append(("distribution_plans_for_asset", args, kwargs))
+            return [{"renderedAssetId": args[0]}]
+
+        def distribution_plans_for_campaign(self, *args, **kwargs):
+            calls.append(("distribution_plans_for_campaign", args, kwargs))
+            return [{"campaign": args[0]}]
+
+        def clear_distribution_plans_for_campaign(self, *args, **kwargs):
+            calls.append(("clear_distribution_plans_for_campaign", args, kwargs))
+            return 2
+
+        def distribution_plan_payload(self, *args, **kwargs):
+            calls.append(("distribution_plan_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def plan_distribution(self, *args, **kwargs):
+            calls.append(("plan_distribution", args, kwargs))
+            return {"schema": "campaign_factory.distribution_plan_run.v1"}
+
+        def next_distribution_account(self, *args, **kwargs):
+            calls.append(("next_distribution_account", args, kwargs))
+            return "ig_1"
+
+        def distribution_slots(self, *args, **kwargs):
+            calls.append(("distribution_slots", args, kwargs))
+            return ["slot_1"]
+
+        def next_valid_distribution_slot(self, *args, **kwargs):
+            calls.append(("next_valid_distribution_slot", args, kwargs))
+            return "slot_1", 1
+
+        def distribution_summary(self, *args, **kwargs):
+            calls.append(("distribution_summary", args, kwargs))
+            return {"schema": "campaign_factory.distribution_summary.v1"}
+
+        def latest_distribution_plan_for_asset(self, *args, **kwargs):
+            calls.append(("latest_distribution_plan_for_asset", args, kwargs))
+            return {"renderedAssetId": args[0]}
+
+    factory.services = FakeServices()
+
+    assert factory.create_distribution_plan(
+        "asset_1",
+        surface="trial_reel",
+        account_id="acct_1",
+        instagram_account_id="ig_1",
+        planned_window_start="2026-01-02T10:00:00+00:00",
+        planned_window_end="2026-01-02T11:00:00+00:00",
+        paired_rendered_asset_id="asset_2",
+        reason_code="test",
+        smart_link="https://example.test",
+        cta_text="new post",
+        instagram_trial_reels=True,
+        trial_graduation_strategy="MANUAL",
+    ) == {"id": "dist_1"}
+    assert factory.distribution_plan("dist_1") == {"id": "dist_1"}
+    assert factory.distribution_plans_for_asset("asset_1") == [{"renderedAssetId": "asset_1"}]
+    assert factory.distribution_plans_for_campaign("may") == [{"campaign": "may"}]
+    assert factory.clear_distribution_plans_for_campaign("may") == 2
+    assert factory._distribution_plan_payload({"id": "dist_1"}) == {"id": "dist_1"}
+    assert factory.plan_distribution(
+        "may",
+        user_id="user_1",
+        mode="preview",
+        strategy="trial-heavy",
+        replace=False,
+        fallback_hours=[9],
+    ) == {"schema": "campaign_factory.distribution_plan_run.v1"}
+    assert factory._next_distribution_account({"allowedInstagramAccountIds": ["ig_1"]}, "model", {}) == "ig_1"
+    assert factory._distribution_slots([10], 1) == ["slot_1"]
+    assert factory._next_valid_distribution_slot([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []) == ("slot_1", 1)
+    assert factory.distribution_summary("may") == {"schema": "campaign_factory.distribution_summary.v1"}
+    assert factory._latest_distribution_plan_for_asset("asset_1") == {"renderedAssetId": "asset_1"}
+
+    assert calls == [
+        ("create_distribution_plan", ("asset_1",), {
+            "surface": "trial_reel",
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "planned_window_start": "2026-01-02T10:00:00+00:00",
+            "planned_window_end": "2026-01-02T11:00:00+00:00",
+            "paired_rendered_asset_id": "asset_2",
+            "reason_code": "test",
+            "smart_link": "https://example.test",
+            "cta_text": "new post",
+            "instagram_trial_reels": True,
+            "trial_graduation_strategy": "MANUAL",
+        }),
+        ("distribution_plan", ("dist_1",), {}),
+        ("distribution_plans_for_asset", ("asset_1",), {}),
+        ("distribution_plans_for_campaign", ("may",), {}),
+        ("clear_distribution_plans_for_campaign", ("may",), {}),
+        ("distribution_plan_payload", ({"id": "dist_1"},), {}),
+        ("plan_distribution", ("may",), {
+            "user_id": "user_1",
+            "mode": "preview",
+            "strategy": "trial-heavy",
+            "replace": False,
+            "fallback_hours": [9],
+        }),
+        ("next_distribution_account", ({"allowedInstagramAccountIds": ["ig_1"]}, "model", {}), {}),
+        ("distribution_slots", ([10], 1), {}),
+        ("next_valid_distribution_slot", ([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []), {}),
+        ("distribution_summary", ("may",), {}),
+        ("latest_distribution_plan_for_asset", ("asset_1",), {}),
+    ]
+
+
+def test_core_services_delegates_distribution_methods_to_distribution_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeDistribution:
+        def create_distribution_plan(self, *args, **kwargs):
+            calls.append(("create_distribution_plan", args, kwargs))
+            return {"id": "dist_1"}
+
+        def distribution_plan(self, *args, **kwargs):
+            calls.append(("distribution_plan", args, kwargs))
+            return {"id": args[0]}
+
+        def distribution_plans_for_asset(self, *args, **kwargs):
+            calls.append(("distribution_plans_for_asset", args, kwargs))
+            return [{"renderedAssetId": args[0]}]
+
+        def distribution_plans_for_campaign(self, *args, **kwargs):
+            calls.append(("distribution_plans_for_campaign", args, kwargs))
+            return [{"campaign": args[0]}]
+
+        def clear_distribution_plans_for_campaign(self, *args, **kwargs):
+            calls.append(("clear_distribution_plans_for_campaign", args, kwargs))
+            return 2
+
+        def distribution_plan_payload(self, *args, **kwargs):
+            calls.append(("distribution_plan_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def plan_distribution(self, *args, **kwargs):
+            calls.append(("plan_distribution", args, kwargs))
+            return {"schema": "campaign_factory.distribution_plan_run.v1"}
+
+        def next_distribution_account(self, *args, **kwargs):
+            calls.append(("next_distribution_account", args, kwargs))
+            return "ig_1"
+
+        def distribution_slots(self, *args, **kwargs):
+            calls.append(("distribution_slots", args, kwargs))
+            return ["slot_1"]
+
+        def next_valid_distribution_slot(self, *args, **kwargs):
+            calls.append(("next_valid_distribution_slot", args, kwargs))
+            return "slot_1", 1
+
+        def distribution_summary(self, *args, **kwargs):
+            calls.append(("distribution_summary", args, kwargs))
+            return {"schema": "campaign_factory.distribution_summary.v1"}
+
+        def latest_distribution_plan_for_asset(self, *args, **kwargs):
+            calls.append(("latest_distribution_plan_for_asset", args, kwargs))
+            return {"renderedAssetId": args[0]}
+
+    services.distribution = FakeDistribution()
+
+    assert services.create_distribution_plan("asset_1", instagram_account_id="ig_1") == {"id": "dist_1"}
+    assert services.distribution_plan("dist_1") == {"id": "dist_1"}
+    assert services.distribution_plans_for_asset("asset_1") == [{"renderedAssetId": "asset_1"}]
+    assert services.distribution_plans_for_campaign("may") == [{"campaign": "may"}]
+    assert services.clear_distribution_plans_for_campaign("may") == 2
+    assert services.distribution_plan_payload({"id": "dist_1"}) == {"id": "dist_1"}
+    assert services.plan_distribution("may", user_id="user_1") == {"schema": "campaign_factory.distribution_plan_run.v1"}
+    assert services.next_distribution_account({"allowedInstagramAccountIds": ["ig_1"]}, "model", {}) == "ig_1"
+    assert services.distribution_slots([10], 1) == ["slot_1"]
+    assert services.next_valid_distribution_slot([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []) == ("slot_1", 1)
+    assert services.distribution_summary("may") == {"schema": "campaign_factory.distribution_summary.v1"}
+    assert services.latest_distribution_plan_for_asset("asset_1") == {"renderedAssetId": "asset_1"}
+
+    assert calls == [
+        ("create_distribution_plan", ("asset_1",), {
+            "surface": "regular_reel",
+            "account_id": None,
+            "instagram_account_id": "ig_1",
+            "planned_window_start": None,
+            "planned_window_end": None,
+            "paired_rendered_asset_id": None,
+            "reason_code": None,
+            "smart_link": None,
+            "cta_text": None,
+            "instagram_trial_reels": False,
+            "trial_graduation_strategy": None,
+        }),
+        ("distribution_plan", ("dist_1",), {}),
+        ("distribution_plans_for_asset", ("asset_1",), {}),
+        ("distribution_plans_for_campaign", ("may",), {}),
+        ("clear_distribution_plans_for_campaign", ("may",), {}),
+        ("distribution_plan_payload", ({"id": "dist_1"},), {}),
+        ("plan_distribution", ("may",), {
+            "user_id": "user_1",
+            "mode": "preview",
+            "strategy": "trial-heavy",
+            "replace": True,
+            "fallback_hours": None,
+        }),
+        ("next_distribution_account", ({"allowedInstagramAccountIds": ["ig_1"]}, "model", {}), {}),
+        ("distribution_slots", ([10], 1), {}),
+        ("next_valid_distribution_slot", ([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []), {}),
+        ("distribution_summary", ("may",), {}),
+        ("latest_distribution_plan_for_asset", ("asset_1",), {}),
     ]
 
 
