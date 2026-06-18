@@ -1,0 +1,107 @@
+# Infra Hardening Prompt — take the seam + crons + backend + schema to 9–10
+
+**Audience:** Codex + owner. **Source of findings:** `INFRA_LIFECYCLE_AUDIT.md` (read it first — every PR below cites a finding there). **Goal:** lift the four infra domains from ~7.0 to 9–10 with bounded, low-risk PRs. No architecture changes are required — these are guard-rails, indexes, and schedules.
+
+**Two repos:**
+- **creator-os** (`main` protected; feature branch → PR; CI: contracts/architecture/hygiene/secret-scan/scorecard/CodeQL/python/javascript/sbom; `pnpm check:contracts` green after any schema change).
+- **ThreadsDashboard** (`main`; feature branch → PR; never push `main`; each PR adds the test that proves it).
+
+**Non-negotiables (carry from the existing tracks):**
+- One logical change per PR; each adds the test/migration that proves it.
+- **As each track lands, flip the matching finding in `infra_lifecycle_map.html`** (its own standalone dashboard — same flip-the-roadmap contract as `creator_os_map.html`/`autoposter_map.html`, but a separate file). Each finding card carries its track ID (A1…D6). Otherwise the map goes stale on the first merge.
+- Quality/safety floor only goes **up**. The media-reuse override TTL and distinctness guards are *detect-and-respect* hardening — never weaken them.
+- DB changes: `CREATE INDEX CONCURRENTLY` / `CREATE UNIQUE INDEX CONCURRENTLY` only (no table locks on prod); additive migrations; regenerate `src/types/supabase.ts`.
+- Schema-shape changes that cross the repo boundary → new **versioned** contract, `pnpm check:contracts` green.
+- The two `[verify]` findings (IG-webhook fallback, IG-container TTL) must be **traced and confirmed before** their fix PR — if already safe, the PR is just a regression test + comment.
+
+---
+
+## Track A — Cross-repo seam (6.5 → 9.5). The ⭐ priority; mostly TD, one creator-os PR. Do A1 first.
+
+**A1 — Make the boundary idempotent (closes AUDIT §1 HIGH-3 + the downgraded HIGH-2).**
+- TD migration: `CREATE UNIQUE INDEX CONCURRENTLY` on `posts (campaign_factory_post_key) WHERE campaign_factory_post_key IS NOT NULL`. (Live check: 0 current duplicates, so this builds clean.)
+- TD `draftIngest.ts`: catch the unique-violation and treat it as the "already ingested" branch (return the existing post id, action `"noop"`), not a 500.
+- creator-os `threadsdash.py`: send an `X-Idempotency-Key` header (the `campaign_factory_post_key` or export id); TD short-circuits on a key it has already written.
+- Tests: concurrent double-POST inserts exactly one row; retried POST returns the same id.
+
+**A2 — Reconcile the export, kill the silent success (AUDIT §1 HIGH-3).**
+- creator-os: after `_post_threadsdash_draft_ingest`, treat **empty `postIds` on 2xx** the same as an HTTP error — a retriable failure, not "exported". Before marking the export done, read back post count by key and assert it crossed.
+- Add a retry-with-backoff around the POST (now safe because A1 made it idempotent); replace the bare `urlopen(timeout=30)` with bounded retries.
+- Test: simulate TD validate-pass/write-fail → export is marked failed, not exported.
+
+**A3 — Assert media URLs at the boundary (AUDIT §1 HIGH-1).**
+- creator-os: pre-POST validation rejects any draft whose media items lack a resolved **remote** URL (the legacy `_write_supabase` hydration no longer runs on the HTTP path — stop depending on it).
+- TD `draftIngest.ts`: reject (4xx) a draft that would insert with empty `media_urls`.
+- Test: a draft with `media.url = None` and no remote manifest URL is rejected on both sides.
+
+**A4 — Schedule + contract the backward metric sync (AUDIT §1 MED).**
+- Either schedule `campaign-factory sync-performance` (cron/queue) **or** add a TD cron that pushes `performance_sync.v1` — pick one owner for the return leg.
+- Version a `post_metric_history.read.v1` contract and validate the read shape in `_select_threadsdash_post_metric_history` so a TD column rename fails loudly, not as silent NULLs.
+- Validate `performance_sync.v1` on **write** in production code (today only tests do).
+- Test: renamed/absent source column → hard error; scheduled run closes the loop without manual call.
+
+**A5 — Codegen the seam validators (AUDIT §1 MED; same as TRACK9 PR-1).**
+- Generate the Python + TS draft-ingest validators from the canonical schema; fold TD's 10 hand-rolled checks (handoff-manifest-v2, visual_qc, identity_verification, schedule_safe, caption) into the schema where they're structural, or document them as a named TD-only policy layer.
+- CI byte-sync check across the 5+ vendored schema copies. **This is the durable fix for seam drift** — if TRACK9 PR-1 lands first, this PR is just the seam-specific wiring.
+
+---
+
+## Track B — Crons (7.5 → 9.5). All TD. Independent, parallelizable.
+
+**B1 — Stop the publish-worker/scheduler overlap (AUDIT §2 HIGH→mitigated).** Filter publish-worker Phases 3–4 to `scheduler_version < 2`, matching `dawn-planner`/`account-state-evaluator`. Test: a v2+ workspace item is dispatched by scheduler only.
+
+**B2 — Cap watchdog recoveries (AUDIT §2 MED).** Add a recovery-attempt ceiling to the >30m-scheduled reset path; dead-letter on exhaustion (mirror the publishing-stuck 3-retry path). Test: an item that fails N recoveries lands in `dead_letter`, stops re-alerting.
+
+**B3 — Redispatch overdue IG instead of dead-ending to draft (AUDIT §2 MED).** `campaign-schedule-recovery` re-queues to the scheduler (or emits a draft-backlog alert) rather than silently resetting to `draft`. Test: an overdue IG post is re-dispatched, not stranded.
+
+**B4 — De-risk `reconcile-daily` timeout (AUDIT §2 MED).** Paginate/shard the per-account Meta scan across runs (cursor in a table) so a single run stays well under 300s at 200+ accounts. Test: a 500-account fixture completes within budget across runs.
+
+**B5 — Optional enforced budget cap (AUDIT §2 MED).** Promote `cost-digest` from alert-only to an enforced ceiling that pauses a workspace at 100% of `AI_DAILY_SPEND_LIMIT_USD` (owner-gated flag). Test: spend at cap flips the pause flag.
+
+---
+
+## Track C — Vercel backend (7.0 → 9.5). All TD.
+
+**C1 — `cross-reply-publish` returns 5xx on retry-eligible errors (AUDIT §3 MED).** Replace the catch-all `200` with proper status so QStash retries/dead-letters; **keep the existing Sentry capture** (failures are already visible there — this is purely about restoring retry). Test: a thrown transient error yields 5xx; a permanent error dead-letters.
+
+**C2 — Bound the manual-publish path (AUDIT §3 HIGH).** Add `maxDuration: 60` for `posts.ts` in `vercel.json` (or route manual publish through the async container path). Test: a slow-Meta simulation doesn't truncate mid-publish.
+
+**C3 — [verify-then-fix] IG-webhook fallback body (AUDIT §3 HIGH[verify]).** Trace past `webhook.ts:150`; if the fallback branch can reach HMAC verify on re-serialized bytes, make it a hard 4xx reject. Test: a fallback-body request is rejected, not verified.
+
+**C4 — [verify-then-fix] IG-container TTL (AUDIT §3 MED[verify]).** Confirm `ig-container-publisher` abandons containers older than ~24h and dead-letters them; add the TTL if missing. Test: a stale `IN_PROGRESS` container transitions to dead_letter.
+
+**C5 — Token hygiene + override TTL (AUDIT §3 MED).** Hard-delete the prior encrypted token blob on successful refresh; make `crossAccountMediaReuseOverrideToken` single-use or <5-min TTL. Tests: refreshed token leaves no stale blob; an expired/used override token is rejected. *(Safety-relevant: the override is a distinctness-guard bypass — keep it tight.)*
+
+**C6 — Unify Threads error handling on `classifyMetaError()` (AUDIT §3 LOW).** Replace ad-hoc string-matching in `publishThreads.ts`. Test: known Threads errors classify into the same taxonomy IG uses.
+
+---
+
+## Track D — Supabase schema/DB (7.0 → 9.5). All TD. D1 is the biggest single perf win.
+
+**D1 — Index diet on the two hottest tables (AUDIT §4 HIGH-1/2).** `DROP INDEX CONCURRENTLY` the 11 never-scanned `posts` indexes + dedupe the `post_metric_history` near-duplicate pairs (keep one covering index per access pattern). Verify each is unused via `pg_stat_user_indexes` before dropping; one PR per table with before/after index-count + write-amp note. Test/proof: advisor `unused_index` count drops; publish-path EXPLAIN unchanged.
+
+**D2 — Add the 29 unindexed FK indexes (AUDIT §4 MED).** `CREATE INDEX CONCURRENTLY` on the FK columns the advisor flagged (prioritize hot-path `posts`/`auto_post_queue`/`publish_attempts`; skip truly-dead `manager_*` if those tables are being retired). Proof: advisor `unindexed_foreign_keys` clears.
+
+**D3 — Prune the 195 unused indexes outside the hot tables (AUDIT §4 MED).** Batched `DROP INDEX CONCURRENTLY`, one PR per table-family, each gated on `idx_scan = 0` over a stated window. This is the systemic "index-everything" cleanup; do it after D1.
+
+**D4 — Settle the `posts` lease semantics (AUDIT §4 MED, ties to §1).** Confirm the publish worker takes `publish_locks` before *every* send and wire the day-old `next_retry_at` into a cron; document the two-mechanism (`publish_locks` + fingerprint) idempotency contract so it isn't re-litigated. Test: concurrent sends for one post serialize on the lock; `next_retry_at` drives a retry.
+
+**D5 — Make repo = live truth (AUDIT §4 LOW).** Add `CREATE TABLE` migrations for the 6 out-of-band tables (`agent_notes`, `inbox_ai_buckets`, `inbox_conversation_state`, `inbox_saved_views`, `notifications`, `revenue_snapshots`) and regenerate `src/types/supabase.ts` (currently one behind: missing `autoposter_control_events`). Proof: a clean migration replay reproduces all 206 tables; types key-count matches live.
+
+**D6 — Confirm the 3 RLS-no-policy tables are intentional (AUDIT §4 LOW).** `account_flavor`, `creator_dna`, `creator_identity_shape_usage` — add explicit service-role-only comments or policies so default-deny is a decision, not an accident. Verify the 4 `SECURITY DEFINER` workspace helpers can't probe foreign tenants.
+
+---
+
+## Suggested order (for the owner)
+
+1. **Track A (seam) first** — it's the ⭐ target and A1+A2 are a few hours that remove the only silent-data-loss paths in the system.
+2. **D1 in parallel** — biggest DB perf win, fully independent, pure deletion of unused indexes.
+3. **C1/C2** — small, high-value backend safety.
+4. **B1–B3** — cron correctness.
+5. Everything else (A4/A5, C3–C6, B4/B5, D2–D6) is parallelizable cleanup; the two `[verify]` items gate their own fixes.
+
+## Ceilings these PRs do NOT remove (honest)
+
+- **Meta-API latency/variance** — C2/C4 handle *timeout and orphaning*, not Meta being slow; that's external.
+- **Schema width on `posts` (~180 columns)** — the index diet cuts write-amp, but the denormalized column count is a deeper refactor not in scope here.
+- **The backward loop is only as fresh as its schedule** — A4 closes the manual gap, but learning quality still trails posting volume × time (same calendar ceiling `INTELLIGENCE_AUDIT.md` already states).
