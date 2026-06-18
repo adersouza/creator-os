@@ -54,6 +54,7 @@ from campaign_factory.contracts import (
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
     validate_schema_examples,
+    validate_motion_edit_render,
     validate_threadsdash_draft_payload,
     validate_variant_assignment,
 )
@@ -66,6 +67,7 @@ from campaign_factory.readiness_report import build_mass_production_readiness_re
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
 from campaign_factory.variation_stage import run_variation_stage
+from campaign_factory.motion_edit_stage import run_motion_edit_stage
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -291,6 +293,7 @@ def test_contract_schema_examples_validate():
         "generated_asset_lineage.v1.example.json",
         "higgsfield_soul_image_prompt.v1.example.json",
         "kling_3_video_prompt.v1.example.json",
+        "motion_edit_render.v1.example.json",
         "performance_sync.v1.example.json",
         "pattern_card.v1.example.json",
         "repurposing_plan.v1.example.json",
@@ -2073,6 +2076,238 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
     )
     cf.conn.commit()
     return source, rendered_path
+
+
+def add_source_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may") -> dict:
+    folder = tmp_path / "source_inputs"
+    folder.mkdir(exist_ok=True)
+    (folder / "source.mp4").write_bytes(b"source")
+    cf.import_folder(folder, campaign_slug=campaign_slug, model_slug="model")
+    return cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
+
+
+def fake_motion_edit_render(still_path: Path, output_path: Path, *, caption: str, dry_run: bool = False) -> dict:
+    audio_intent_path = output_path.with_suffix(".audio_intent.json")
+    lineage_path = output_path.with_suffix(".generated_asset_lineage.json")
+    return {
+        "schema": "reel_factory.motion_edit_render.v1",
+        "animationMode": "motion_edit",
+        "paidGeneration": False,
+        "estimatedCostUsd": 0,
+        "stillPath": str(still_path),
+        "outputPath": str(output_path),
+        "durationSeconds": 5.0,
+        "caption": caption,
+        "audioIntentPath": str(audio_intent_path),
+        "lineagePath": str(lineage_path),
+        "quality": {
+            "status": "planned" if dry_run else "passed",
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "durationSeconds": 5.0,
+        },
+        "ffmpegCommand": ["ffmpeg", "-i", str(still_path), str(output_path)],
+        "dryRun": dry_run,
+    }
+
+
+def write_fake_motion_edit_outputs(output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"motion-edit-mp4")
+    output_path.with_suffix(".audio_intent.json").write_text(
+        json.dumps({
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "platform_auto_music",
+            "required": False,
+            "status": "external_selection_required",
+        }),
+        encoding="utf-8",
+    )
+    output_path.with_suffix(".generated_asset_lineage.json").write_text(
+        json.dumps({
+            "schema": "reel_factory.generated_asset_lineage.v1",
+            "workflow": "motion_edit_still_to_reel",
+            "paidGeneration": False,
+            "estimatedCostUsd": 0,
+            "humanReviewRequired": True,
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        still_path = tmp_path / "still.png"
+        still_path.write_bytes(b"png")
+        before = cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0]
+
+        def fake_invoke(*_args, **kwargs):
+            return fake_motion_edit_render(
+                kwargs["still_path"],
+                kwargs["output_path"],
+                caption=kwargs["caption"],
+                dry_run=True,
+            )
+
+        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
+
+        result = run_motion_edit_stage(
+            cf,
+            campaign_slug="may",
+            still_path=still_path,
+            caption="Dry run caption",
+            dry_run=True,
+            apply=False,
+        )
+
+        validate_motion_edit_render(result["render"])
+        assert result["dryRun"] is True
+        assert result["registeredAsset"] is None
+        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == before
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
+def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+    finally:
+        cf.close()
+    from PIL import Image
+
+    still_path = tmp_path / "still.png"
+    Image.new("RGB", (1080, 1920), color=(20, 40, 80)).save(still_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.cli",
+            "animation",
+            "motion-edit",
+            "--campaign",
+            "may",
+            "--still",
+            str(still_path),
+            "--caption",
+            "CLI dry run caption",
+            "--duration",
+            "5",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+            "REEL_FACTORY_ROOT": str(MONOREPO_ROOT / "python_packages" / "reel_factory"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    validate_motion_edit_render(payload["render"])
+    assert payload["registeredAsset"] is None
+    conn = sqlite3.connect(tmp_path / "campaign_factory.sqlite")
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_motion_edit_stage_apply_registers_review_ready_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        still_path = tmp_path / "still.png"
+        still_path.write_bytes(b"png")
+
+        def fake_invoke(*_args, **kwargs):
+            write_fake_motion_edit_outputs(kwargs["output_path"])
+            return fake_motion_edit_render(
+                kwargs["still_path"],
+                kwargs["output_path"],
+                caption=kwargs["caption"],
+            )
+
+        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
+
+        result = run_motion_edit_stage(
+            cf,
+            campaign_slug="may",
+            still_path=still_path,
+            caption="Apply caption",
+            dry_run=False,
+            apply=True,
+        )
+
+        validate_motion_edit_render(result["render"])
+        registered = result["registeredAsset"]
+        assert registered["recipe"] == "motion_edit"
+        assert registered["media_type"] == "video"
+        assert registered["content_surface"] == "reel"
+        assert registered["review_state"] == "review_ready"
+        assert registered["audit_status"] == "pending"
+        caption_generation = json.loads(registered["caption_generation_json"])
+        metadata = json.loads(registered["metadata_json"])
+        assert caption_generation["motionEditRender"]["animationMode"] == "motion_edit"
+        assert caption_generation["paidGeneration"] is False
+        assert caption_generation["estimatedCostUsd"] == 0
+        assert metadata["humanReviewRequired"] is True
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
+def test_motion_edit_apply_enable_variation_targets_new_asset_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        still_path = tmp_path / "still.png"
+        still_path.write_bytes(b"png")
+        captured: dict[str, Any] = {}
+
+        def fake_invoke(*_args, **kwargs):
+            write_fake_motion_edit_outputs(kwargs["output_path"])
+            return fake_motion_edit_render(
+                kwargs["still_path"],
+                kwargs["output_path"],
+                caption=kwargs["caption"],
+            )
+
+        def fake_variation(factory, **kwargs):
+            captured.update(kwargs)
+            return {"schema": "campaign_factory.variation_stage_run.v1", "dryRun": kwargs["dry_run"]}
+
+        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
+        monkeypatch.setattr("campaign_factory.motion_edit_stage.run_variation_stage", fake_variation)
+
+        result = run_motion_edit_stage(
+            cf,
+            campaign_slug="may",
+            still_path=still_path,
+            caption="Variation caption",
+            dry_run=False,
+            apply=True,
+            enable_variation=True,
+            variation_preset="ig_bold",
+        )
+
+        assert captured["campaign_slug"] == "may"
+        assert captured["preset_name"] == "ig_bold"
+        assert captured["rendered_asset_ids"] == [result["registeredAsset"]["id"]]
+        assert captured["dry_run"] is True
+        assert result["variation"]["dryRun"] is True
+    finally:
+        cf.close()
 
 
 def threadsdash_campaign_factory_metadata(

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.motion_edit_render.v1",
+  "title": "Reel Factory Motion Edit Render",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "animationMode",
+    "paidGeneration",
+    "estimatedCostUsd",
+    "stillPath",
+    "outputPath",
+    "durationSeconds",
+    "caption",
+    "audioIntentPath",
+    "lineagePath",
+    "quality",
+    "ffmpegCommand"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reel_factory.motion_edit_render.v1"
+    },
+    "animationMode": {
+      "const": "motion_edit"
+    },
+    "paidGeneration": {
+      "const": false
+    },
+    "estimatedCostUsd": {
+      "const": 0
+    },
+    "stillPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outputPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "durationSeconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 60
+    },
+    "caption": {
+      "type": "string"
+    },
+    "audioIntentPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lineagePath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "width",
+        "height",
+        "fps",
+        "durationSeconds"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "passed",
+            "failed"
+          ]
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "durationSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ffmpegCommand": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dryRun": {
+      "type": "boolean"
+    }
+  }
+}

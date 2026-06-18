@@ -95,6 +95,7 @@ py-modules = [
   "slideshow_factory",
   "sscd_check",
   "sscd_video",
+  "still_to_reel",
   "thumbnail_gen",
   "variation_engine",
   "whisper_sync",
