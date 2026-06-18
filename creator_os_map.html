@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">7.2</b>/10</span>
+  <span class="score">system <b id="hsys">7.3</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -219,9 +219,9 @@ const COMPONENTS=[
   {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:7.0,sub:[7,7,8,6,7],files:113,nodes:779,status:'works',
    keyfiles:['app/api/.../similarity/route.js — PDQ/SSCD collision gate (PR #54)','lib/pdq_check.py · lib/sscd_check.py · lib/reference_db.py','forensics_check.py'],
    notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','P1-5: large untested surface']},
-  {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.2,sub:[8,9,9,7,8],files:2102,nodes:16975,status:'works',
+  {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.7,sub:[9,9,9,8,9],files:2102,nodes:16975,status:'works',
    keyfiles:['Separate product repo (ThreadsDashboard) — dashboard work is upstream','draftIngest.ts:449 — upsert posts as draft','publishing.ts:199 — Meta Graph media_publish'],
-   notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Base publish chain (draft→schedule→QStash→publish→metrics) real & working on TD main','⚠ ALL autoposter hardening AP0–AP3 (race/metrics/chain + retry/taxonomy/quota/idempotency/token/scope/audio + observability + account-health) CODED on ~16 TD branches, NONE merged to TD main (9c1c9a06d) — needs integration pass, see Autoposter Map']},
+   notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Base publish chain (draft→schedule→QStash→publish→metrics) real & working','✓ Autoposter hardening AP0–AP3 SHIPPED to TD main (ec2190b5e) — race/metrics/chain + retry/taxonomy/quota/idempotency/token/scope/audio + transitionPostStatus chokepoint + account-health auto-backoff; 379 tests pass. See Autoposter Map']},
   {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:6.7,sub:[6,null,4,null,7],files:32,nodes:1620,status:'works',
    keyfiles:['packages/pipeline_contracts/__init__.py — hand-rolled validator','typescript/ — ~12 hand-coded validators','schemas/*.json — 16 contracts'],
    notes:['Canonical source; compatibility copies must stay byte-synced','Validators use canonical schema-backed checks']},
@@ -428,12 +428,12 @@ const ROADMAP=[
     {k:'✅',id:'F',t:'Learning-loop seam (v1)',n:'WIRED: ranks by perf with confidence (recommendation_next_batch.v1). v2 reward = median+decay+Thompson → Intelligence track',ref:'PR #48'},
     {k:'✅',id:'G',t:'Proactive autonomous cycles',n:'WIRED: proactive_cycle_stage.py (347L) — budget-governed, draft-first, kill-switch',ref:'PR #49'},
   ]},
-  {track:'Autoposter Hardening (AP0–AP3)',goal:'make the publish path race-safe, reliable, observable — lives in ThreadsDashboard repo · ⚠ ALL coded on branches, TD main still 9c1c9a06d (0 AP work)',items:[
-    {k:'⏳',id:'AP0',t:'Correctness (race/metrics/chain)',n:'CODED on TD branch (dup-index migration, metrics reconcile, chain preflight) — NOT on TD main',ref:'branch'},
-    {k:'⏳',id:'AP1',t:'Robustness/security tier',n:'CODED on TD branches (retry/backoff, error taxonomy, quota gate, idempotency, token SM, scope, audio) — NOT on TD main',ref:'branches'},
-    {k:'⏳',id:'AP2',t:'Observability tier',n:'CODED on TD branches (status-transition chokepoint, run reports, two-queue contract) — NOT on TD main',ref:'branches'},
-    {k:'⏳',id:'AP3',t:'Account-health auto-backoff',n:'CODED on TD branch (non-follower reach collapse → pause/resume) — NOT on TD main',ref:'branch'},
-    {k:'◻',id:'AP-int',t:'Integration pass',n:'merge ~16 branches → TD main, weave publishInstagram.ts conflicts (6 collide)',ref:'pending'},
+  {track:'Autoposter Hardening (AP0–AP3)',goal:'make the publish path race-safe, reliable, observable — lives in ThreadsDashboard repo · ✓ SHIPPED to TD main (ec2190b5e, 379 tests pass)',items:[
+    {k:'✅',id:'AP0',t:'Correctness (race/metrics/chain)',n:'dup-index migration, metrics reconcile, chain preflight',ref:'TD main'},
+    {k:'✅',id:'AP1',t:'Robustness/security tier',n:'retry/backoff, error taxonomy (427L metaErrors), quota gate, idempotency, token SM, scope, audio',ref:'TD main'},
+    {k:'✅',id:'AP2',t:'Observability tier',n:'transitionPostStatus chokepoint threaded through all status writes, run reports, two-queue contract',ref:'TD main'},
+    {k:'✅',id:'AP3',t:'Account-health auto-backoff',n:'non-follower reach collapse → pause/resume; suppressed accounts skipped',ref:'TD main'},
+    {k:'✅',id:'AP-int',t:'Integration pass',n:'~16 branches woven into codex/autoposter-hardening-complete, publishInstagram.ts conflicts resolved → merged',ref:'ec2190b5e'},
   ]},
   {track:'Audit Backlog (P0–P2)',goal:'every quality finding terminal',items:[
     {k:'✅',id:'P0–P2',t:'All findings closed',n:'Fixed / Upstream / Accepted deferred',ref:'PR #43'},
@@ -452,7 +452,7 @@ const ROADMAP=[
     {k:'◻',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures asserting PDQ ≤31 · SSCD ≥0.75 hold (drift guard)',ref:'pending'},
     {k:'◻',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield/Kling adapter w/ fixtures; caption + E2 still→MP4 golden output; fix pyproject P0-1. Reel 7.6→8.3',ref:'pending'},
     {k:'◻',id:'9-core',t:'Decompose core.py (do LAST)',n:'27k-line / 847-method god-class → modules behind interfaces. Biggest lever, highest risk, now net-protected. Campaign 6.1→7.3+, maint 4→8',ref:'pending'},
-    {k:'◻',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'merge ~16 TD branches → main; fake-Graph error-taxonomy + account-health loop test. Autoposter 8.2→9.0',ref:'TD'},
+    {k:'✅',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'DONE: ~16 TD branches merged to TD main (ec2190b5e); 31 files / 379 tests pass, compat+typecheck+build green. Autoposter 8.2→8.7',ref:'TD main'},
   ]},
 ];
 function renderRoadmap(){
