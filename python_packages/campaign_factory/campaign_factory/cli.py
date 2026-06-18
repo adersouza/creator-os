@@ -34,6 +34,7 @@ from .reel_ledger_promotion import promote_reel_ledger
 from .variation_stage import run_variation_stage
 from .motion_edit_stage import run_motion_edit_stage
 from .front_generation_stage import run_front_generation_stage
+from .proactive_cycle_stage import run_proactive_cycle_stage
 
 
 def print_json(value) -> None:
@@ -168,6 +169,27 @@ def main() -> int:
     front_link.add_argument("--variation-preset", default="ig_subtle")
     front_link.add_argument("--dry-run", action="store_true")
     front_link.add_argument("--apply", action="store_true")
+
+    proactive = sub.add_parser("proactive-cycle")
+    proactive_sub = proactive.add_subparsers(dest="proactive_cmd", required=True)
+    proactive_run = proactive_sub.add_parser("run")
+    proactive_run.add_argument("--campaign", required=True)
+    proactive_run.add_argument("--count", type=int, default=3)
+    proactive_run.add_argument("--account")
+    proactive_run.add_argument("--reference-image")
+    proactive_run.add_argument("--generation-mode", choices=["existing_asset", "motion_edit", "front_generation_kling"], default="existing_asset")
+    proactive_run.add_argument("--enable-variation", action="store_true")
+    proactive_run.add_argument("--enable-export", action="store_true")
+    proactive_run.add_argument("--enable-schedule", action="store_true")
+    proactive_run.add_argument("--schedule-mode", choices=["draft", "preview", "live"], default="draft")
+    proactive_run.add_argument("--user-id")
+    proactive_run.add_argument("--dry-run", action="store_true")
+    proactive_run.add_argument("--apply", action="store_true")
+    proactive_run.add_argument("--enable-live", action="store_true")
+    proactive_run.add_argument("--enable-paid-generation", action="store_true")
+    proactive_run.add_argument("--budget-cap-usd", type=float)
+    proactive_run.add_argument("--idempotency-key")
+    proactive_run.add_argument("--kill-switch", action="store_true")
 
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
@@ -1175,6 +1197,28 @@ def main() -> int:
                     variation_preset=args.variation_preset,
                     dry_run=not args.apply or args.dry_run,
                     apply=args.apply,
+                ))
+        elif args.cmd == "proactive-cycle":
+            if args.proactive_cmd == "run":
+                print_json(run_proactive_cycle_stage(
+                    cf,
+                    campaign_slug=args.campaign,
+                    count=args.count,
+                    account=args.account,
+                    reference_image_path=Path(args.reference_image) if args.reference_image else None,
+                    generation_mode=args.generation_mode,
+                    enable_variation=args.enable_variation,
+                    enable_export=args.enable_export,
+                    enable_schedule=args.enable_schedule,
+                    schedule_mode=args.schedule_mode,
+                    user_id=args.user_id,
+                    dry_run=not args.apply or args.dry_run,
+                    apply=args.apply,
+                    enable_live=args.enable_live,
+                    enable_paid_generation=args.enable_paid_generation,
+                    budget_cap_usd=args.budget_cap_usd,
+                    idempotency_key=args.idempotency_key,
+                    kill_switch=args.kill_switch,
                 ))
         elif args.cmd == "audit":
             print_json(audit_campaign(

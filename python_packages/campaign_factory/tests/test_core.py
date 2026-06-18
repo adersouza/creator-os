@@ -70,6 +70,7 @@ from campaign_factory.caption_outcome import build_caption_outcome_context, colu
 from campaign_factory.variation_stage import run_variation_stage
 from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.front_generation_stage import ACCEPTED_STILL_PLACEHOLDER, run_front_generation_stage
+from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -2493,6 +2494,195 @@ def test_front_generation_enable_variation_requires_downloaded_video(tmp_path: P
                 budget_cap_usd=0.15,
                 enable_variation=True,
             )
+    finally:
+        cf.close()
+
+
+def test_proactive_cycle_dry_run_plans_draft_first_report(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        result = run_proactive_cycle_stage(
+            cf,
+            campaign_slug="may",
+            count=1,
+            account="ig_1",
+            dry_run=True,
+        )
+
+        assert result["schema"] == "campaign_factory.proactive_cycle_run.v1"
+        assert result["dryRun"] is True
+        assert result["publishingAllowed"] is False
+        assert result["autonomousSchedulingAllowed"] is False
+        assert result["liveGuard"]["allowed"] is True
+        assert result["generation"]["mode"] == "existing_asset"
+        assert result["generation"]["willCallPaidProvider"] is False
+        assert result["variation"]["enabled"] is False
+        assert result["export"]["enabled"] is False
+        assert result["scheduleIntent"]["effectiveMode"] == "draft"
+        assert result["executedActions"] == []
+        assert Path(result["reportPath"]).exists()
+    finally:
+        cf.close()
+
+
+def test_proactive_cycle_cli_outputs_dry_run_report(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+    finally:
+        cf.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.cli",
+            "proactive-cycle",
+            "run",
+            "--campaign",
+            "may",
+            "--count",
+            "1",
+        ],
+        cwd=PACKAGE_ROOT,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+            "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
+            "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
+            "THREADSDASH_ROOT": str(tmp_path / "ThreadsDashboard"),
+        },
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == "campaign_factory.proactive_cycle_run.v1"
+    assert payload["dryRun"] is True
+    assert payload["publishingAllowed"] is False
+
+
+def test_proactive_cycle_live_apply_fails_closed_without_required_flags(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        with pytest.raises(PermissionError, match="missing_enable_live"):
+            run_proactive_cycle_stage(
+                cf,
+                campaign_slug="may",
+                count=1,
+                dry_run=False,
+                apply=True,
+            )
+        failed = cf.conn.execute("SELECT status FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()
+        assert failed["status"] == "failed"
+    finally:
+        cf.close()
+
+
+def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        first = run_proactive_cycle_stage(
+            cf,
+            campaign_slug="may",
+            count=1,
+            idempotency_key="cycle-dry-1",
+            dry_run=True,
+        )
+        job_count = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()[0]
+        second = run_proactive_cycle_stage(
+            cf,
+            campaign_slug="may",
+            count=1,
+            idempotency_key="cycle-dry-1",
+            dry_run=True,
+        )
+
+        assert second["idempotentReplay"] is True
+        assert second["reportPath"] == first["reportPath"]
+        assert cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()[0] == job_count
+    finally:
+        cf.close()
+
+
+def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    captured = {"variation": None, "export": None}
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        def fake_variation(_factory, **kwargs):
+            captured["variation"] = kwargs
+            return {
+                "schema": "campaign_factory.variation_stage_run.v1",
+                "campaign": kwargs["campaign_slug"],
+                "dryRun": kwargs["dry_run"],
+                "presetName": kwargs["preset_name"],
+                "assignments": [],
+            }
+
+        def fake_export(_factory, **kwargs):
+            captured["export"] = kwargs
+            return {
+                "schema": "threadsdash.export_result.v1",
+                "dryRun": kwargs["dry_run"],
+                "created": [],
+                "updated": [],
+                "skipped": [],
+                "errors": [],
+            }
+
+        monkeypatch.setattr("campaign_factory.proactive_cycle_stage.run_variation_stage", fake_variation)
+        monkeypatch.setattr("campaign_factory.adapters.threadsdash.export_threadsdash", fake_export)
+
+        result = run_proactive_cycle_stage(
+            cf,
+            campaign_slug="may",
+            count=1,
+            dry_run=False,
+            apply=True,
+            enable_live=True,
+            budget_cap_usd=0,
+            idempotency_key="cycle-live-1",
+            enable_variation=True,
+            enable_export=True,
+            enable_schedule=True,
+            schedule_mode="preview",
+            user_id="user_1",
+        )
+
+        assert result["dryRun"] is False
+        assert result["liveGuard"]["allowed"] is True
+        assert result["executedActions"] == [
+            {"action": "variation_dry_run", "status": "completed"},
+            {"action": "export_draft_preview", "status": "completed"},
+        ]
+        assert captured["variation"]["dry_run"] is True
+        assert captured["variation"]["rendered_asset_ids"] == ["asset_1"]
+        assert captured["export"]["dry_run"] is True
+        assert captured["export"]["schedule_mode"] == "draft"
+        assert result["scheduleIntent"]["requestedMode"] == "preview"
+        assert result["scheduleIntent"]["effectiveMode"] == "draft"
     finally:
         cf.close()
 
