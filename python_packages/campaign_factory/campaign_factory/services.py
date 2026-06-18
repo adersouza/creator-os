@@ -10,6 +10,7 @@ from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
 from .distribution import DistributionRepository
 from .events import EventRepository
+from .exceptions import ExceptionRepository
 from .graph import GraphRepository
 from .models import ModelRepository
 from .reference import ReferenceRepository
@@ -51,6 +52,9 @@ class CoreServices:
         recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
         story_calendar_plan: Callable[..., dict[str, Any]],
+        json_load: Callable[[Any, Any], Any],
+        autonomy_level: Callable[[], str],
+        recommendation_proof_summary: Callable[[str], dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -174,6 +178,18 @@ class CoreServices:
             story_mix_plan=story_mix_plan,
             story_calendar_plan=story_calendar_plan,
             normalize_content_surface=normalize_content_surface,
+        )
+        self.exceptions = ExceptionRepository(
+            conn,
+            sanitize_for_storage=sanitize_for_storage,
+            json_load=json_load,
+            utc_now=utc_now,
+            campaign_by_slug=self.campaign_by_slug,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            autonomy_level=autonomy_level,
+            recommendation_proof_summary=recommendation_proof_summary,
         )
 
     def ensure_graph_node(
@@ -729,6 +745,84 @@ class CoreServices:
 
     def query_decision_ledger(self, **kwargs: Any) -> dict[str, Any]:
         return self.decision_ledger.query_decision_ledger(**kwargs)
+
+    def create_exception(
+        self,
+        *,
+        reason_code: str,
+        severity: str = "medium",
+        campaign_id: str | None = None,
+        account_id: str | None = None,
+        entity_graph_id: str | None = None,
+        recommendation_item_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        return self.exceptions.create_exception(
+            reason_code=reason_code,
+            severity=severity,
+            campaign_id=campaign_id,
+            account_id=account_id,
+            entity_graph_id=entity_graph_id,
+            recommendation_item_id=recommendation_item_id,
+            payload=payload,
+            commit=commit,
+        )
+
+    def exception(self, exception_id: str) -> dict[str, Any]:
+        return self.exceptions.exception(exception_id)
+
+    def exceptions_report(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
+        return self.exceptions.exceptions(campaign_slug, status=status)
+
+    def trust_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.exceptions.trust_summary(campaign_slug)
+
+    def resolve_exception(
+        self,
+        exception_id: str,
+        *,
+        resolution: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.resolve_exception(exception_id, resolution=resolution, operator=operator)
+
+    def snooze_exception(
+        self,
+        exception_id: str,
+        *,
+        until: str | None = None,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.snooze_exception(exception_id, until=until, reason=reason, operator=operator)
+
+    def reopen_exception(
+        self,
+        exception_id: str,
+        *,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.reopen_exception(exception_id, reason=reason, operator=operator)
+
+    def update_exception_status(
+        self,
+        exception_id: str,
+        status: str,
+        *,
+        resolution: dict[str, Any] | None = None,
+        snoozed_until: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.update_exception_status(
+            exception_id,
+            status,
+            resolution=resolution,
+            snoozed_until=snoozed_until,
+        )
+
+    def exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.exceptions.exception_payload(row)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
