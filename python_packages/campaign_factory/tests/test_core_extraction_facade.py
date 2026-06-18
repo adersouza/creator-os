@@ -4,6 +4,7 @@ from pathlib import Path
 
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.asset_import import AssetImportRepository
+from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_planning import CreativePlanningRepository
@@ -39,6 +40,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.creative_planning.conn is factory.conn
         assert isinstance(factory.services.reference, ReferenceRepository)
         assert factory.services.reference.conn is factory.conn
+        assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
+        assert factory.services.caption_family.conn is factory.conn
     finally:
         factory.close()
 
@@ -210,6 +213,30 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("reference_hook_is_schedule_safe", args, kwargs))
             return True
 
+        def caption_family_plan(self, *args, **kwargs):
+            calls.append(("caption_family_plan", args, kwargs))
+            return {"schema": "campaign_factory.caption_family_plan.v1"}
+
+        def caption_family_create(self, *args, **kwargs):
+            calls.append(("caption_family_create", args, kwargs))
+            return {"schema": "campaign_factory.caption_family_create.v1"}
+
+        def planned_caption_version(self, *args, **kwargs):
+            calls.append(("planned_caption_version", args, kwargs))
+            return {"captionVersionId": "cver_1"}
+
+        def caption_family_hashtags(self, *args, **kwargs):
+            calls.append(("caption_family_hashtags", args, kwargs))
+            return ["#one"]
+
+        def caption_version_by_id(self, *args, **kwargs):
+            calls.append(("caption_version_by_id", args, kwargs))
+            return {"captionVersionId": args[0]}
+
+        def caption_version_payload(self, *args, **kwargs):
+            calls.append(("caption_version_payload", args, kwargs))
+            return {"captionVersionId": args[0]["id"]}
+
     factory.services = FakeServices()
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
@@ -294,6 +321,34 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     ]
     assert factory._reference_pattern_payload({"id": "refpat_1"}) == {"id": "refpat_1"}
     assert factory._reference_hook_is_schedule_safe("mirror check") is True
+    assert factory.caption_family_plan(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        requested_caption_versions=2,
+        style="ig_short",
+        dry_run=True,
+    ) == {"schema": "campaign_factory.caption_family_plan.v1"}
+    assert factory.caption_family_create(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        requested_caption_versions=2,
+        style="ig_short",
+        dry_run=False,
+    ) == {"schema": "campaign_factory.caption_family_create.v1"}
+    assert factory._planned_caption_version(
+        caption_family_id="cfam_1",
+        parent={"id": "asset_1"},
+        concept={"parentReelId": "preel_1"},
+        index=1,
+        angle="question_bait",
+        base_burned="caption",
+        base_hashtags=["#one"],
+        style="ig_short",
+        caption_source="test",
+    ) == {"captionVersionId": "cver_1"}
+    assert factory._caption_family_hashtags(["#one", "two"]) == ["#one"]
+    assert factory._caption_version_by_id("cver_1") == {"captionVersionId": "cver_1"}
+    assert factory._caption_version_payload({"id": "cver_1"}) == {"captionVersionId": "cver_1"}
 
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
@@ -397,6 +452,34 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("reference_hooks", ({"clusterKey": "cluster", "label": "Cluster"},), {"count": 2}),
         ("reference_pattern_payload", ({"id": "refpat_1"},), {}),
         ("reference_hook_is_schedule_safe", ("mirror check",), {}),
+        ("caption_family_plan", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "requested_caption_versions": 2,
+            "style": "ig_short",
+            "dry_run": True,
+        }),
+        ("caption_family_create", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "requested_caption_versions": 2,
+            "style": "ig_short",
+            "dry_run": False,
+        }),
+        ("planned_caption_version", (), {
+            "caption_family_id": "cfam_1",
+            "parent": {"id": "asset_1"},
+            "concept": {"parentReelId": "preel_1"},
+            "index": 1,
+            "angle": "question_bait",
+            "base_burned": "caption",
+            "base_hashtags": ["#one"],
+            "style": "ig_short",
+            "caption_source": "test",
+        }),
+        ("caption_family_hashtags", (["#one", "two"],), {}),
+        ("caption_version_by_id", ("cver_1",), {}),
+        ("caption_version_payload", ({"id": "cver_1"},), {}),
     ]
 
 
@@ -812,6 +895,98 @@ def test_core_services_delegates_reference_methods_to_reference_repository() -> 
         ("reference_hooks", ({"clusterKey": "cluster", "label": "Cluster"},), {"count": 2}),
         ("reference_pattern_payload", ({"id": "refpat_1"},), {}),
         ("reference_hook_is_schedule_safe", ("mirror check",), {}),
+    ]
+
+
+def test_core_services_delegates_caption_family_methods_to_caption_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCaptionFamily:
+        def caption_family_plan(self, *args, **kwargs):
+            calls.append(("caption_family_plan", args, kwargs))
+            return {"schema": "campaign_factory.caption_family_plan.v1"}
+
+        def caption_family_create(self, *args, **kwargs):
+            calls.append(("caption_family_create", args, kwargs))
+            return {"schema": "campaign_factory.caption_family_create.v1"}
+
+        def planned_caption_version(self, *args, **kwargs):
+            calls.append(("planned_caption_version", args, kwargs))
+            return {"captionVersionId": "cver_1"}
+
+        def caption_family_hashtags(self, *args, **kwargs):
+            calls.append(("caption_family_hashtags", args, kwargs))
+            return ["#one"]
+
+        def caption_version_by_id(self, *args, **kwargs):
+            calls.append(("caption_version_by_id", args, kwargs))
+            return {"captionVersionId": args[0]}
+
+        def caption_version_payload(self, *args, **kwargs):
+            calls.append(("caption_version_payload", args, kwargs))
+            return {"captionVersionId": args[0]["id"]}
+
+    services.caption_family = FakeCaptionFamily()
+
+    assert services.caption_family_plan(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        requested_caption_versions=2,
+        style="ig_short",
+        dry_run=True,
+    ) == {"schema": "campaign_factory.caption_family_plan.v1"}
+    assert services.caption_family_create(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        requested_caption_versions=2,
+        style="ig_short",
+        dry_run=False,
+    ) == {"schema": "campaign_factory.caption_family_create.v1"}
+    assert services.planned_caption_version(
+        caption_family_id="cfam_1",
+        parent={"id": "asset_1"},
+        concept={"parentReelId": "preel_1"},
+        index=1,
+        angle="question_bait",
+        base_burned="caption",
+        base_hashtags=["#one"],
+        style="ig_short",
+        caption_source="test",
+    ) == {"captionVersionId": "cver_1"}
+    assert services.caption_family_hashtags(["#one", "two"]) == ["#one"]
+    assert services.caption_version_by_id("cver_1") == {"captionVersionId": "cver_1"}
+    assert services.caption_version_payload({"id": "cver_1"}) == {"captionVersionId": "cver_1"}
+
+    assert calls == [
+        ("caption_family_plan", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "requested_caption_versions": 2,
+            "style": "ig_short",
+            "dry_run": True,
+        }),
+        ("caption_family_create", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "requested_caption_versions": 2,
+            "style": "ig_short",
+            "dry_run": False,
+        }),
+        ("planned_caption_version", (), {
+            "caption_family_id": "cfam_1",
+            "parent": {"id": "asset_1"},
+            "concept": {"parentReelId": "preel_1"},
+            "index": 1,
+            "angle": "question_bait",
+            "base_burned": "caption",
+            "base_hashtags": ["#one"],
+            "style": "ig_short",
+            "caption_source": "test",
+        }),
+        ("caption_family_hashtags", (["#one", "two"],), {}),
+        ("caption_version_by_id", ("cver_1",), {}),
+        ("caption_version_payload", ({"id": "cver_1"},), {}),
     ]
 
 

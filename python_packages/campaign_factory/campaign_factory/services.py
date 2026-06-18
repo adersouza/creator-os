@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from typing import Any, Callable
 
 from .asset_import import AssetImportRepository
+from .caption import CaptionFamilyRepository
 from .config import Settings
 from .creative_planning import CreativePlanningRepository
 from .events import EventRepository
@@ -31,6 +31,12 @@ class CoreServices:
         prepare_reel_inputs: Callable[..., dict[str, Any]],
         discoverability_safe_content_contract: Callable[..., dict[str, Any]],
         reference_hook_fallbacks: tuple[str, ...],
+        normalize_content_surface: Callable[[str | None], str],
+        concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
+        explain_publishability: Callable[[str], dict[str, Any]],
+        surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
+        text_hash: Callable[[str], str],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -107,6 +113,17 @@ class CoreServices:
             prepare_reel_inputs=prepare_reel_inputs,
             discoverability_safe_content_contract=discoverability_safe_content_contract,
             reference_hook_fallbacks=reference_hook_fallbacks,
+        )
+        self.caption_family = CaptionFamilyRepository(
+            conn,
+            utc_now=utc_now,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            concept_for_parent_asset=concept_for_parent_asset,
+            explain_publishability=explain_publishability,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            instagram_post_caption_for_asset=instagram_post_caption_for_asset,
+            text_hash=text_hash,
         )
 
     def ensure_graph_node(
@@ -434,6 +451,74 @@ class CoreServices:
 
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
         return self.reference.reference_hook_is_schedule_safe(text)
+
+    def caption_family_plan(
+        self,
+        *,
+        creator: str | None,
+        parent_asset_id: str,
+        requested_caption_versions: int = 5,
+        style: str = "ig_short",
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        return self.caption_family.caption_family_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            requested_caption_versions=requested_caption_versions,
+            style=style,
+            dry_run=dry_run,
+        )
+
+    def caption_family_create(
+        self,
+        *,
+        creator: str | None,
+        parent_asset_id: str,
+        requested_caption_versions: int = 5,
+        style: str = "ig_short",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return self.caption_family.caption_family_create(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            requested_caption_versions=requested_caption_versions,
+            style=style,
+            dry_run=dry_run,
+        )
+
+    def planned_caption_version(
+        self,
+        *,
+        caption_family_id: str,
+        parent: dict[str, Any],
+        concept: dict[str, Any] | None,
+        index: int,
+        angle: str,
+        base_burned: str,
+        base_hashtags: list[str],
+        style: str,
+        caption_source: str,
+    ) -> dict[str, Any]:
+        return self.caption_family.planned_caption_version(
+            caption_family_id=caption_family_id,
+            parent=parent,
+            concept=concept,
+            index=index,
+            angle=angle,
+            base_burned=base_burned,
+            base_hashtags=base_hashtags,
+            style=style,
+            caption_source=caption_source,
+        )
+
+    def caption_family_hashtags(self, raw_tags: Any) -> list[str]:
+        return self.caption_family.caption_family_hashtags(raw_tags)
+
+    def caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
+        return self.caption_family.caption_version_by_id(caption_version_id)
+
+    def caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.caption_family.caption_version_payload(row)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
