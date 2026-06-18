@@ -112,5 +112,5 @@ sscd_video.py:main:122
 thumbnail_gen.py:generate_thumbnails:56
 whisper_sync.py:transcribe_clip:41
 whisper_sync.py:_has_audio_stream:108
-winner_dna.py:feature_text_for_output:67
-winner_dna.py:feature_text_for_output:73
+winner_dna.py:feature_text_for_output:156
+winner_dna.py:feature_text_for_output:162

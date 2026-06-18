@@ -1672,6 +1672,52 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(exp["groups"][0]["name"], "individual")
             self.assertGreater(costs["assets"][0]["winner_score_per_cost"], 0)
 
+    def test_winner_dna_features_prefer_video_analysis_sidecar_over_filename_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "unknown_clip.mp4"
+            out.write_bytes(b"video")
+            out.with_suffix(out.suffix + ".video_analysis.json").write_text(
+                json.dumps({
+                    "schema": "reference_factory.video_analysis.v1",
+                    "id": "analysis_unknown_clip",
+                    "referenceId": "unknown_clip",
+                    "provider": "operator_vlm",
+                    "model": "video_analysis",
+                    "status": "pattern_ready",
+                    "winnerDnaFeatures": {
+                        "scene": "gym_mirror",
+                        "camera": "mirror_selfie",
+                        "pose": "standing",
+                        "motion": "slow_pan",
+                        "outfit": "black_set",
+                        "creator": "stacey",
+                        "body_style": "athletic_hourglass",
+                        "caption_style": "lower_third",
+                        "hook_type": "pov",
+                    },
+                    "media": {"durationSeconds": 7.0, "width": 1080, "height": 1920},
+                    "signals": {},
+                    "patternCard": {
+                        "schema": "reference_factory.pattern_card.v1",
+                        "id": "pattern_gym_mirror",
+                        "platform": "instagram",
+                        "source": {"referenceId": "unknown_clip"},
+                        "formatType": "mirror_selfie",
+                        "hookType": "pov",
+                        "visualPattern": "Gym mirror clip",
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            result = upsert_reel_feature(root, out)
+
+            self.assertEqual(result["features"]["scene"], "gym_mirror")
+            self.assertEqual(result["features"]["motion"], "slow_pan")
+            self.assertEqual(result["features"]["hook_type"], "pov")
+            self.assertEqual(result["features"]["feature_source"], "video_analysis")
+
     def test_confidence_helpers_label_small_samples_as_directional(self):
         self.assertEqual(confidence_for_sample_size(8, total_outcomes=20)["level"], "low")
         self.assertIn("fewer than 50", low_data_warning(20))
