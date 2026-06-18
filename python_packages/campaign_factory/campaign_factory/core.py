@@ -741,16 +741,7 @@ class CampaignFactory:
         return None
 
     def set_graph_sync_state(self, system: str, cursor: dict[str, Any]) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO content_graph_sync_state (system, cursor_json, last_synced_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(system) DO UPDATE SET
-              cursor_json = excluded.cursor_json,
-              last_synced_at = excluded.last_synced_at
-            """,
-            (system, json.dumps(sanitize_for_storage(cursor), ensure_ascii=False, sort_keys=True), utc_now()),
-        )
+        self.services.set_graph_sync_state(system, cursor)
 
     def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
         root = self.settings.campaigns_dir / model_slug / campaign_slug
