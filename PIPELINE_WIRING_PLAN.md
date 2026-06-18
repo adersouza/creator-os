@@ -2,10 +2,14 @@
 
 ## Current Slice
 
-This branch implements the first mergeable pipeline-wiring slices:
-zero-cost, draft-first per-account video variation before ThreadsDashboard
-draft export, plus the E2 primitive for turning an accepted still into a
-review-ready MP4 by local FFmpeg motion edit.
+The first mergeable pipeline-wiring slices are now on `main`: zero-cost,
+draft-first per-account video variation before ThreadsDashboard draft export,
+plus the E2 primitive for turning an accepted still into a review-ready MP4 by
+local FFmpeg motion edit.
+
+The current branch starts Workstream E by adding the default-off front
+generation seam: reference image + Soul ID planning, projected-cost reporting,
+explicit paid-generation guards, and accepted-still Kling planning.
 
 Creator OS does not commit a dashboard mirror. Dashboard source, RLS, type
 cleanup, visual regression, and deployment provenance live in the external
@@ -28,6 +32,13 @@ ThreadsDashboard repository.
 - `campaign-factory animation motion-edit --campaign <slug>` previews the
   render by default; `--apply` registers a review-ready rendered asset without
   exporting, scheduling, or publishing.
+- `campaign-factory generation front-link --campaign <slug>` previews the paid
+  image-driven front path by default. It plans direct reference-image Soul still
+  generation, preserves the still accept gate, and plans Kling only after an
+  accepted still exists.
+- Paid front generation fails closed unless `--enable-paid-generation` and
+  `--budget-cap-usd` are both supplied. Dry-run projected-cost reports require
+  no Higgsfield/Kling calls.
 
 ## Safety Boundaries
 
@@ -38,6 +49,8 @@ ThreadsDashboard repository.
   operator explicitly supplies licensed local audio.
 - Applied motion-edit assets are `review_ready` and require human review before
   normal export/variation workflows can treat them as approved.
+- Front generation is default-off and budget-gated. A still must be reviewed
+  before live Kling animation is submitted.
 - `MicroEngine` remains available only through explicit opt-in config and is
   disabled in default presets.
 - `QualityGate` remains mandatory for accepted applied variants.
@@ -46,6 +59,7 @@ ThreadsDashboard repository.
 
 ## Next Slices
 
-- Add paid Soul/Kling generation behind explicit budget and review gates.
+- Complete paid Soul/Kling live chaining into registered master reels and
+  variation after review.
 - Add performance-driven preset selection.
 - Add proactive cycles only after the draft-first path is proven.

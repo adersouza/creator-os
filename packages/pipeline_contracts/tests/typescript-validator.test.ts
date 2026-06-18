@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	validateAudioIntentContract,
+	validateFrontGenerationPlan,
 	validateMotionEditRender,
 	validateRepurposingPlan,
 	validateVariantAssignment,
@@ -113,6 +114,28 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateMotionEditRender(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("width"),
+			]),
+		);
+	});
+
+	it("validates front generation plan review and publishing gates", () => {
+		const payload = example("front_generation_plan");
+		payload.publishingAllowed = true;
+
+		expect(validateFrontGenerationPlan(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("publishingAllowed"),
+			]),
+		);
+	});
+
+	it("rejects invalid front generation budget status through AJV", () => {
+		const payload = example("front_generation_plan");
+		payload.budgetStatus = "ignored";
+
+		expect(validateFrontGenerationPlan(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("budgetStatus"),
 			]),
 		);
 	});

@@ -50,6 +50,7 @@ from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_audio_catalog_export,
     validate_audio_intent,
+    validate_front_generation_plan,
     validate_performance_sync,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
@@ -68,6 +69,7 @@ from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
 from campaign_factory.variation_stage import run_variation_stage
 from campaign_factory.motion_edit_stage import run_motion_edit_stage
+from campaign_factory.front_generation_stage import ACCEPTED_STILL_PLACEHOLDER, run_front_generation_stage
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -290,6 +292,7 @@ def test_contract_schema_examples_validate():
         "campaign_draft_payload.v1.example.json",
         "caption_outcome_context.v1.example.json",
         "creative_plan.v1.example.json",
+        "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
         "higgsfield_soul_image_prompt.v1.example.json",
         "kling_3_video_prompt.v1.example.json",
@@ -2134,6 +2137,211 @@ def write_fake_motion_edit_outputs(output_path: Path) -> None:
         }),
         encoding="utf-8",
     )
+
+
+def fake_front_generation_result(args: list[str]) -> dict:
+    mode = args[0]
+    if mode.startswith("reference-image"):
+        return {
+            "ok": True,
+            "dry_run": mode.endswith("dry-run"),
+            "workflow": "higgsfield_direct_reference_image",
+            "commands": [["higgsfield", "generate", "create", "text2image_soul_v2"]],
+            "lineage_path": "/tmp/direct_reference_lineage.json",
+        }
+    if mode.startswith("video"):
+        return {
+            "ok": True,
+            "dry_run": mode.endswith("dry-run"),
+            "workflow": "kling3_0_video_from_accepted_still",
+            "commands": [["higgsfield", "generate", "create", "kling3_0"]],
+            "lineage_path": "/tmp/generated_asset_lineage.json",
+        }
+    raise AssertionError(f"unexpected generate_assets mode: {mode}")
+
+
+def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        calls: list[list[str]] = []
+
+        def fake_invoke(_factory, args, *, budget_cap_usd):
+            calls.append(args)
+            assert budget_cap_usd is None
+            return fake_front_generation_result(args)
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            creator="Stacey",
+            dry_run=True,
+        )
+
+        plan = result["plan"]
+        validate_front_generation_plan(plan)
+        assert result["dryRun"] is True
+        assert plan["projectedCostUsd"] == 0.15
+        assert plan["budgetStatus"] == "missing_cap"
+        assert [stage["name"] for stage in plan["stages"]] == [
+            "soul_reference_image",
+            "still_accept_gate",
+            "kling_video",
+        ]
+        assert calls[0][0] == "reference-image-dry-run"
+        assert calls[1][0] == "video-dry-run"
+        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
+def test_front_generation_apply_fails_closed_without_enable_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+
+        def fail_invoke(*_args, **_kwargs):
+            raise AssertionError("paid subprocess must not run")
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fail_invoke)
+
+        with pytest.raises(PermissionError, match="enable-paid-generation"):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                budget_cap_usd=0.25,
+            )
+        row = cf.conn.execute("SELECT status FROM pipeline_jobs WHERE job_type = 'front_generation'").fetchone()
+        assert row["status"] == "failed"
+    finally:
+        cf.close()
+
+
+def test_front_generation_apply_requires_budget_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("paid subprocess must not run")),
+        )
+
+        with pytest.raises(ValueError, match="budget-cap-usd"):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                enable_paid_generation=True,
+            )
+    finally:
+        cf.close()
+
+
+def test_front_generation_apply_submits_still_only_before_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        calls: list[list[str]] = []
+
+        def fake_invoke(_factory, args, *, budget_cap_usd):
+            calls.append(args)
+            assert budget_cap_usd == 0.25
+            return fake_front_generation_result(args)
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            creator="Stacey",
+            dry_run=False,
+            apply=True,
+            enable_paid_generation=True,
+            budget_cap_usd=0.25,
+        )
+
+        plan = result["plan"]
+        validate_front_generation_plan(plan)
+        assert calls[0] == [
+            "reference-image",
+            "--reference",
+            str(reference.resolve()),
+            "--stem",
+            "reference",
+            "--estimated-cost-usd",
+            "0.05",
+            "--creator",
+            "Stacey",
+        ]
+        assert calls[1][0] == "video-dry-run"
+        assert ACCEPTED_STILL_PLACEHOLDER not in json.dumps(plan)
+        assert plan["budgetStatus"] == "within_cap"
+        assert plan["stages"][0]["status"] == "submitted"
+        assert plan["stages"][1]["name"] == "still_accept_gate"
+        assert plan["stages"][1]["status"] == "waiting_for_review"
+        assert plan["stages"][2]["name"] == "kling_video"
+        assert plan["stages"][2]["status"] == "planned"
+        assert plan["publishingAllowed"] is False
+        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
+def test_front_generation_accepted_still_dry_run_plans_video_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        accepted = tmp_path / "accepted.png"
+        accepted.write_bytes(b"still")
+        calls: list[list[str]] = []
+
+        def fake_invoke(_factory, args, *, budget_cap_usd):
+            calls.append(args)
+            return fake_front_generation_result(args)
+
+        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            accepted_still_path=accepted,
+            creator="Stacey",
+            dry_run=True,
+        )
+
+        plan = result["plan"]
+        validate_front_generation_plan(plan)
+        assert plan["projectedCostUsd"] == 0.1
+        assert calls[0][0] == "video-dry-run"
+        assert "--start-image" in calls[0]
+        assert str(accepted.resolve()) in calls[0]
+        assert plan["stages"][0]["status"] == "skipped"
+        assert plan["stages"][2]["name"] == "kling_video"
+    finally:
+        cf.close()
 
 
 def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

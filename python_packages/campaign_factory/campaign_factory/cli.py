@@ -33,6 +33,7 @@ from .readiness_report import build_mass_production_readiness_report
 from .reel_ledger_promotion import promote_reel_ledger
 from .variation_stage import run_variation_stage
 from .motion_edit_stage import run_motion_edit_stage
+from .front_generation_stage import run_front_generation_stage
 
 
 def print_json(value) -> None:
@@ -144,6 +145,25 @@ def main() -> int:
     motion_edit.add_argument("--allow-upscale", action="store_true")
     motion_edit.add_argument("--enable-variation", action="store_true")
     motion_edit.add_argument("--variation-preset", default="ig_subtle")
+
+    generation = sub.add_parser("generation")
+    generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
+    front_link = generation_sub.add_parser("front-link")
+    front_link.add_argument("--campaign", required=True)
+    front_link.add_argument("--reference-image", required=True)
+    soul_group = front_link.add_mutually_exclusive_group(required=True)
+    soul_group.add_argument("--creator")
+    soul_group.add_argument("--soul-id")
+    soul_group.add_argument("--soul-name")
+    front_link.add_argument("--scene-type", default="room_selfie")
+    front_link.add_argument("--animation-mode", choices=["kling", "motion_edit"], default="kling")
+    front_link.add_argument("--accepted-still")
+    front_link.add_argument("--estimated-image-cost-usd", type=float, default=0.05)
+    front_link.add_argument("--estimated-video-cost-usd", type=float, default=0.10)
+    front_link.add_argument("--budget-cap-usd", type=float)
+    front_link.add_argument("--enable-paid-generation", action="store_true")
+    front_link.add_argument("--dry-run", action="store_true")
+    front_link.add_argument("--apply", action="store_true")
 
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
@@ -1128,6 +1148,25 @@ def main() -> int:
                     enable_variation=args.enable_variation,
                     variation_preset=args.variation_preset,
                     allow_upscale=args.allow_upscale,
+                ))
+        elif args.cmd == "generation":
+            if args.generation_cmd == "front-link":
+                print_json(run_front_generation_stage(
+                    cf,
+                    campaign_slug=args.campaign,
+                    reference_image_path=Path(args.reference_image),
+                    creator=args.creator,
+                    soul_id=args.soul_id,
+                    soul_name=args.soul_name,
+                    scene_type=args.scene_type,
+                    animation_mode=args.animation_mode,
+                    accepted_still_path=Path(args.accepted_still) if args.accepted_still else None,
+                    estimated_image_cost_usd=args.estimated_image_cost_usd,
+                    estimated_video_cost_usd=args.estimated_video_cost_usd,
+                    budget_cap_usd=args.budget_cap_usd,
+                    enable_paid_generation=args.enable_paid_generation,
+                    dry_run=not args.apply or args.dry_run,
+                    apply=args.apply,
                 ))
         elif args.cmd == "audit":
             print_json(audit_campaign(
