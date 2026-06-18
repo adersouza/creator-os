@@ -28,6 +28,7 @@ RECOMMENDATION_NEXT_BATCH_SCHEMA = "recommendation_next_batch.v1.schema.json"
 RECOMMENDATION_ACCURACY_REPORT_SCHEMA = "recommendation_accuracy_report.v1.schema.json"
 REPURPOSING_PLAN_SCHEMA = "repurposing_plan.v1.schema.json"
 VARIANT_ASSIGNMENT_SCHEMA = "variant_assignment.v1.schema.json"
+MOTION_EDIT_RENDER_SCHEMA = "motion_edit_render.v1.schema.json"
 
 SCHEMA_NAMES = {
     "audio_intent": AUDIO_INTENT_SCHEMA,
@@ -51,6 +52,8 @@ SCHEMA_NAMES = {
     "campaign_factory_repurposing_plan": REPURPOSING_PLAN_SCHEMA,
     "variant_assignment": VARIANT_ASSIGNMENT_SCHEMA,
     "campaign_factory_variant_assignment": VARIANT_ASSIGNMENT_SCHEMA,
+    "motion_edit_render": MOTION_EDIT_RENDER_SCHEMA,
+    "reel_factory_motion_edit_render": MOTION_EDIT_RENDER_SCHEMA,
 }
 
 
@@ -175,6 +178,10 @@ def validate_variant_assignment(value: Any) -> None:
     validate_contract(value, VARIANT_ASSIGNMENT_SCHEMA)
 
 
+def validate_motion_edit_render(value: Any) -> None:
+    validate_contract(value, MOTION_EDIT_RENDER_SCHEMA)
+
+
 def _validate_campaign_draft_graph_ids(value: Any) -> None:
     errors: list[str] = []
     if not isinstance(value, dict):
@@ -217,6 +224,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "recommendation_accuracy_report.v1.example.json": validate_recommendation_accuracy_report,
         "repurposing_plan.v1.example.json": validate_repurposing_plan,
         "variant_assignment.v1.example.json": validate_variant_assignment,
+        "motion_edit_render.v1.example.json": validate_motion_edit_render,
     }
     checks = []
     for filename, validator in validators.items():

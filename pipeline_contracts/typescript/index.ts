@@ -27,6 +27,8 @@ export const REPURPOSING_PLAN_SCHEMA_ID =
 	"campaign_factory.repurposing_plan.v1" as const;
 export const VARIANT_ASSIGNMENT_SCHEMA_ID =
 	"campaign_factory.variant_assignment.v1" as const;
+export const MOTION_EDIT_RENDER_SCHEMA_ID =
+	"reel_factory.motion_edit_render.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -225,6 +227,55 @@ export const variantAssignmentSchema = {
 	},
 } as const;
 
+export const motionEditRenderSchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
+	$id: MOTION_EDIT_RENDER_SCHEMA_ID,
+	title: "Reel Factory Motion Edit Render",
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"schema",
+		"animationMode",
+		"paidGeneration",
+		"estimatedCostUsd",
+		"stillPath",
+		"outputPath",
+		"durationSeconds",
+		"caption",
+		"audioIntentPath",
+		"lineagePath",
+		"quality",
+		"ffmpegCommand",
+	],
+	properties: {
+		schema: { const: MOTION_EDIT_RENDER_SCHEMA_ID },
+		animationMode: { const: "motion_edit" },
+		paidGeneration: { const: false },
+		estimatedCostUsd: { const: 0 },
+		stillPath: { type: "string", minLength: 1 },
+		outputPath: { type: "string", minLength: 1 },
+		durationSeconds: { type: "number", exclusiveMinimum: 0, maximum: 60 },
+		caption: { type: "string" },
+		audioIntentPath: { type: "string", minLength: 1 },
+		lineagePath: { type: "string", minLength: 1 },
+		quality: {
+			type: "object",
+			additionalProperties: false,
+			required: ["status", "width", "height", "fps", "durationSeconds"],
+			properties: {
+				status: { type: "string", enum: ["planned", "passed", "failed"] },
+				width: { type: "integer", minimum: 1 },
+				height: { type: "integer", minimum: 1 },
+				fps: { type: "number", exclusiveMinimum: 0 },
+				durationSeconds: { type: "number", exclusiveMinimum: 0 },
+				warnings: { type: "array", items: { type: "string" } },
+			},
+		},
+		ffmpegCommand: { type: "array", items: { type: "string" } },
+		dryRun: { type: "boolean" },
+	},
+} as const;
+
 export const audioCatalogExportSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$id: AUDIO_CATALOG_EXPORT_SCHEMA_ID,
@@ -289,6 +340,7 @@ export const pipelineContractSchemas = {
 	performanceSync: performanceSyncSchema,
 	captionOutcomeContext: captionOutcomeContextSchema,
 	variantAssignment: variantAssignmentSchema,
+	motionEditRender: motionEditRenderSchema,
 	patternCard: {
 		$id: PATTERN_CARD_SCHEMA_ID,
 		type: "object",
@@ -1178,6 +1230,27 @@ export function validateVariantAssignment(value: unknown): string[] {
 		if (!isRecord(assignment.distinctness_scores)) {
 			errors.push(`assignments[${index}].distinctness_scores must be an object`);
 		}
+	}
+	return errors;
+}
+
+export function validateMotionEditRender(value: unknown): string[] {
+	const errors = schemaErrors(motionEditRenderSchema, value, "motion edit render");
+	if (!isRecord(value)) return ["motion edit render must be an object"];
+	if (value.schema !== MOTION_EDIT_RENDER_SCHEMA_ID) {
+		errors.push("motion edit render schema mismatch");
+	}
+	if (value.animationMode !== "motion_edit") {
+		errors.push("motion edit render animationMode must be motion_edit");
+	}
+	if (value.paidGeneration !== false) {
+		errors.push("motion edit render paidGeneration must be false");
+	}
+	if (value.estimatedCostUsd !== 0) {
+		errors.push("motion edit render estimatedCostUsd must be 0");
+	}
+	if (!Array.isArray(value.ffmpegCommand)) {
+		errors.push("motion edit render ffmpegCommand must be an array");
 	}
 	return errors;
 }

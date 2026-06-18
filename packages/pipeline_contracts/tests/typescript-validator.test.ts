@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	validateAudioIntentContract,
+	validateMotionEditRender,
 	validateRepurposingPlan,
 	validateVariantAssignment,
 } from "../typescript/index";
@@ -90,6 +91,28 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateVariantAssignment(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("master_ssim"),
+			]),
+		);
+	});
+
+	it("validates motion edit render zero-cost requirements through AJV", () => {
+		const payload = example("motion_edit_render");
+		payload.paidGeneration = true;
+
+		expect(validateMotionEditRender(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("paidGeneration"),
+			]),
+		);
+	});
+
+	it("rejects invalid motion edit quality payloads through AJV", () => {
+		const payload = example("motion_edit_render");
+		delete payload.quality.width;
+
+		expect(validateMotionEditRender(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("width"),
 			]),
 		);
 	});

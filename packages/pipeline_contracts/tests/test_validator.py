@@ -15,6 +15,7 @@ from pipeline_contracts import (
     validate_generated_asset_lineage,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
+    validate_motion_edit_render,
     validate_pattern_card,
     validate_performance_sync,
     validate_repurposing_plan,
@@ -46,6 +47,7 @@ def test_named_validators_accept_examples():
     validate_generated_asset_lineage(load_example("generated_asset_lineage"))
     validate_creative_plan(load_example("creative_plan"))
     validate_variant_assignment(load_example("variant_assignment"))
+    validate_motion_edit_render(load_example("motion_edit_render"))
 
 
 def test_validator_reports_nested_required_field():
@@ -181,6 +183,30 @@ def test_variant_assignment_contract_rejects_bad_scores():
 
     with pytest.raises(ContractValidationError, match="master_ssim"):
         validate_variant_assignment(payload)
+
+
+def test_motion_edit_render_contract_requires_zero_paid_cost():
+    payload = load_example("motion_edit_render")
+    payload["estimatedCostUsd"] = 1
+
+    with pytest.raises(ContractValidationError, match="estimatedCostUsd"):
+        validate_motion_edit_render(payload)
+
+
+def test_motion_edit_render_contract_requires_motion_edit_mode():
+    payload = load_example("motion_edit_render")
+    payload["animationMode"] = "kling"
+
+    with pytest.raises(ContractValidationError, match="animationMode"):
+        validate_motion_edit_render(payload)
+
+
+def test_motion_edit_render_contract_requires_quality_dimensions():
+    payload = load_example("motion_edit_render")
+    del payload["quality"]["width"]
+
+    with pytest.raises(ContractValidationError, match="width"):
+        validate_motion_edit_render(payload)
 
 
 def test_campaign_draft_payload_validates_nested_ref_constraints():

@@ -1,0 +1,29 @@
+{
+  "schema": "reel_factory.motion_edit_render.v1",
+  "animationMode": "motion_edit",
+  "paidGeneration": false,
+  "estimatedCostUsd": 0,
+  "stillPath": "/tmp/still.png",
+  "outputPath": "/tmp/output.mp4",
+  "durationSeconds": 5,
+  "caption": "new post, same energy",
+  "audioIntentPath": "/tmp/output.mp4.audio_intent.json",
+  "lineagePath": "/tmp/output.mp4.generated_asset_lineage.json",
+  "quality": {
+    "status": "passed",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "durationSeconds": 5,
+    "warnings": []
+  },
+  "ffmpegCommand": [
+    "ffmpeg",
+    "-loop",
+    "1",
+    "-i",
+    "/tmp/still.png",
+    "/tmp/output.mp4"
+  ],
+  "dryRun": false
+}

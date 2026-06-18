@@ -32,6 +32,7 @@ from .closed_loop_proof import (
 from .readiness_report import build_mass_production_readiness_report
 from .reel_ledger_promotion import promote_reel_ledger
 from .variation_stage import run_variation_stage
+from .motion_edit_stage import run_motion_edit_stage
 
 
 def print_json(value) -> None:
@@ -128,6 +129,21 @@ def main() -> int:
     variation_run.add_argument("--rendered-asset-id", action="append", default=[])
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
+
+    animation = sub.add_parser("animation")
+    animation_sub = animation.add_subparsers(dest="animation_cmd", required=True)
+    motion_edit = animation_sub.add_parser("motion-edit")
+    motion_edit.add_argument("--campaign", required=True)
+    motion_edit.add_argument("--still", required=True)
+    caption_group = motion_edit.add_mutually_exclusive_group(required=True)
+    caption_group.add_argument("--caption")
+    caption_group.add_argument("--caption-file")
+    motion_edit.add_argument("--duration", type=float, default=5.0)
+    motion_edit.add_argument("--dry-run", action="store_true")
+    motion_edit.add_argument("--apply", action="store_true")
+    motion_edit.add_argument("--allow-upscale", action="store_true")
+    motion_edit.add_argument("--enable-variation", action="store_true")
+    motion_edit.add_argument("--variation-preset", default="ig_subtle")
 
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
@@ -1097,6 +1113,21 @@ def main() -> int:
                     preset_name=args.preset,
                     rendered_asset_ids=args.rendered_asset_id or None,
                     dry_run=not args.apply or args.dry_run,
+                ))
+        elif args.cmd == "animation":
+            if args.animation_cmd == "motion-edit":
+                caption = args.caption if args.caption is not None else Path(args.caption_file).read_text(encoding="utf-8").strip()
+                print_json(run_motion_edit_stage(
+                    cf,
+                    campaign_slug=args.campaign,
+                    still_path=Path(args.still),
+                    caption=caption,
+                    duration_seconds=args.duration,
+                    dry_run=not args.apply or args.dry_run,
+                    apply=args.apply,
+                    enable_variation=args.enable_variation,
+                    variation_preset=args.variation_preset,
+                    allow_upscale=args.allow_upscale,
                 ))
         elif args.cmd == "audit":
             print_json(audit_campaign(
