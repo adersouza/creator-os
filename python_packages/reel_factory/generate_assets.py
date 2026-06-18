@@ -585,6 +585,29 @@ def dry_run_direct_reference_image(plan: DirectReferenceImagePlan, *, wait: bool
     }
 
 
+def dry_run_video_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
+    prompt = load_prompt(plan.prompt_json)
+    if not plan.start_image:
+        raise ValueError("start_image is required for Kling video dry-run")
+    video_cmd = build_video_cmd(
+        prompt,
+        start_image=plan.start_image,
+        video_reference=plan.video_reference,
+        model=plan.video_model,
+        aspect_ratio=plan.video_aspect_ratio,
+        duration=plan.video_duration,
+        sound=plan.video_sound,
+        wait=wait,
+    )
+    return {
+        "ok": True,
+        "dry_run": True,
+        "workflow": "kling3_0_video_from_accepted_still",
+        "commands": [video_cmd],
+        "lineage_path": str(lineage_path(plan)),
+    }
+
+
 def _step(name: str, cmd: list[str], response: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"name": name, "command": cmd, "raw": response or {}}
 
@@ -1308,7 +1331,17 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mode", choices=["create", "dry-run", "reference-image", "reference-image-dry-run", "wait", "status", "capabilities"])
+    ap.add_argument("mode", choices=[
+        "create",
+        "dry-run",
+        "reference-image",
+        "reference-image-dry-run",
+        "video",
+        "video-dry-run",
+        "wait",
+        "status",
+        "capabilities",
+    ])
     ap.add_argument("--root", default=".")
     ap.add_argument("--prompt-json")
     ap.add_argument("--stem")
@@ -1357,6 +1390,15 @@ def main() -> int:
             raise SystemExit("--creator, --soul-id, or --soul-name is required so Soul V2 uses the creator identity")
         plan = _plan_from_args(args)
         result = dry_run(plan, wait=args.wait) if args.mode == "dry-run" else create_assets(
+            plan,
+            wait=args.wait,
+            download=args.download,
+        )
+    elif args.mode in {"video", "video-dry-run"}:
+        if not args.prompt_json or not args.stem or not args.start_image:
+            raise SystemExit("--prompt-json, --stem, and --start-image are required")
+        plan = _plan_from_args(args)
+        result = dry_run_video_asset(plan, wait=args.wait) if args.mode == "video-dry-run" else create_video_asset(
             plan,
             wait=args.wait,
             download=args.download,

@@ -12,6 +12,7 @@ from pipeline_contracts import (
     validate_campaign_draft_payload_strict,
     validate_caption_outcome_context,
     validate_creative_plan,
+    validate_front_generation_plan,
     validate_generated_asset_lineage,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
@@ -48,6 +49,7 @@ def test_named_validators_accept_examples():
     validate_creative_plan(load_example("creative_plan"))
     validate_variant_assignment(load_example("variant_assignment"))
     validate_motion_edit_render(load_example("motion_edit_render"))
+    validate_front_generation_plan(load_example("front_generation_plan"))
 
 
 def test_validator_reports_nested_required_field():
@@ -207,6 +209,30 @@ def test_motion_edit_render_contract_requires_quality_dimensions():
 
     with pytest.raises(ContractValidationError, match="width"):
         validate_motion_edit_render(payload)
+
+
+def test_front_generation_plan_requires_human_review():
+    payload = load_example("front_generation_plan")
+    payload["humanReviewRequired"] = False
+
+    with pytest.raises(ContractValidationError, match="humanReviewRequired"):
+        validate_front_generation_plan(payload)
+
+
+def test_front_generation_plan_never_allows_publishing():
+    payload = load_example("front_generation_plan")
+    payload["publishingAllowed"] = True
+
+    with pytest.raises(ContractValidationError, match="publishingAllowed"):
+        validate_front_generation_plan(payload)
+
+
+def test_front_generation_plan_rejects_missing_budget_status():
+    payload = load_example("front_generation_plan")
+    del payload["budgetStatus"]
+
+    with pytest.raises(ContractValidationError, match="budgetStatus"):
+        validate_front_generation_plan(payload)
 
 
 def test_campaign_draft_payload_validates_nested_ref_constraints():

@@ -29,6 +29,8 @@ export const VARIANT_ASSIGNMENT_SCHEMA_ID =
 	"campaign_factory.variant_assignment.v1" as const;
 export const MOTION_EDIT_RENDER_SCHEMA_ID =
 	"reel_factory.motion_edit_render.v1" as const;
+export const FRONT_GENERATION_PLAN_SCHEMA_ID =
+	"campaign_factory.front_generation_plan.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -276,6 +278,82 @@ export const motionEditRenderSchema = {
 	},
 } as const;
 
+export const frontGenerationPlanSchema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
+	$id: FRONT_GENERATION_PLAN_SCHEMA_ID,
+	title: "Campaign Factory Front Generation Plan",
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"schema",
+		"campaign",
+		"referenceImagePath",
+		"soul",
+		"animationMode",
+		"dryRun",
+		"paidGenerationEnabled",
+		"projectedCostUsd",
+		"budgetCapUsd",
+		"budgetStatus",
+		"humanReviewRequired",
+		"publishingAllowed",
+		"stages",
+	],
+	properties: {
+		schema: { const: FRONT_GENERATION_PLAN_SCHEMA_ID },
+		campaign: { type: "string", minLength: 1 },
+		referenceImagePath: { type: "string", minLength: 1 },
+		soul: {
+			type: "object",
+			additionalProperties: false,
+			required: ["creator", "soulId", "soulName"],
+			properties: {
+				creator: { type: ["string", "null"] },
+				soulId: { type: ["string", "null"] },
+				soulName: { type: ["string", "null"] },
+			},
+		},
+		animationMode: { type: "string", enum: ["kling", "motion_edit"] },
+		dryRun: { type: "boolean" },
+		paidGenerationEnabled: { type: "boolean" },
+		projectedCostUsd: { type: "number", minimum: 0 },
+		budgetCapUsd: { type: ["number", "null"], minimum: 0 },
+		budgetStatus: {
+			type: "string",
+			enum: ["within_cap", "missing_cap", "exceeds_cap", "not_required"],
+		},
+		humanReviewRequired: { const: true },
+		publishingAllowed: { const: false },
+		stages: {
+			type: "array",
+			minItems: 1,
+			items: {
+				type: "object",
+				additionalProperties: false,
+				required: ["name", "status", "paid", "estimatedCostUsd", "commands"],
+				properties: {
+					name: {
+						type: "string",
+						enum: ["soul_reference_image", "still_accept_gate", "kling_video", "motion_edit", "variation"],
+					},
+					status: {
+						type: "string",
+						enum: ["planned", "blocked", "skipped", "submitted", "waiting_for_review"],
+					},
+					paid: { type: "boolean" },
+					estimatedCostUsd: { type: "number", minimum: 0 },
+					commands: {
+						type: "array",
+						items: { type: "array", items: { type: "string" } },
+					},
+					result: { type: "object" },
+					reason: { type: "string" },
+				},
+			},
+		},
+	},
+} as const;
+
 export const audioCatalogExportSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$id: AUDIO_CATALOG_EXPORT_SCHEMA_ID,
@@ -341,6 +419,7 @@ export const pipelineContractSchemas = {
 	captionOutcomeContext: captionOutcomeContextSchema,
 	variantAssignment: variantAssignmentSchema,
 	motionEditRender: motionEditRenderSchema,
+	frontGenerationPlan: frontGenerationPlanSchema,
 	patternCard: {
 		$id: PATTERN_CARD_SCHEMA_ID,
 		type: "object",
@@ -1251,6 +1330,24 @@ export function validateMotionEditRender(value: unknown): string[] {
 	}
 	if (!Array.isArray(value.ffmpegCommand)) {
 		errors.push("motion edit render ffmpegCommand must be an array");
+	}
+	return errors;
+}
+
+export function validateFrontGenerationPlan(value: unknown): string[] {
+	const errors = schemaErrors(frontGenerationPlanSchema, value, "front generation plan");
+	if (!isRecord(value)) return ["front generation plan must be an object"];
+	if (value.schema !== FRONT_GENERATION_PLAN_SCHEMA_ID) {
+		errors.push("front generation plan schema mismatch");
+	}
+	if (value.humanReviewRequired !== true) {
+		errors.push("front generation plan humanReviewRequired must be true");
+	}
+	if (value.publishingAllowed !== false) {
+		errors.push("front generation plan publishingAllowed must be false");
+	}
+	if (!Array.isArray(value.stages) || value.stages.length === 0) {
+		errors.push("front generation plan stages must be a non-empty array");
 	}
 	return errors;
 }
