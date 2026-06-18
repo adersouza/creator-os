@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from campaign_factory import audit_payload, exports, readiness
+from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.events import EventRepository
@@ -28,6 +31,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.events.conn is factory.conn
         assert isinstance(factory.services.models, ModelRepository)
         assert factory.services.models.conn is factory.conn
+        assert isinstance(factory.services.asset_import, AssetImportRepository)
+        assert factory.services.asset_import.conn is factory.conn
     finally:
         factory.close()
 
@@ -120,6 +125,14 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("rendered_asset", args, kwargs))
             return {"id": args[0]}
 
+        def import_folder(self, *args, **kwargs):
+            calls.append(("import_folder", args, kwargs))
+            return {"imported": []}
+
+        def assets_for_campaign(self, *args, **kwargs):
+            calls.append(("assets_for_campaign", args, kwargs))
+            return [{"id": "src_1"}]
+
     factory.services = FakeServices()
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
@@ -156,6 +169,17 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     ) == (True, None, {"modelSlug": "model-a"})
     assert factory.campaign_by_slug("may") == {"slug": "may"}
     assert factory.rendered_asset("asset_1") == {"id": "asset_1"}
+    assert factory.import_folder(
+        Path("/tmp/import"),
+        campaign_slug="may",
+        model_slug="model-a",
+        model_name="Model A",
+        platform="threads",
+        account_handles=["ig_a"],
+        source_prompt="prompt",
+        notes="notes",
+    ) == {"imported": []}
+    assert factory.assets_for_campaign("camp_1") == [{"id": "src_1"}]
 
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
@@ -202,6 +226,16 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         }),
         ("campaign_by_slug", ("may",), {}),
         ("rendered_asset", ("asset_1",), {}),
+        ("import_folder", (Path("/tmp/import"),), {
+            "campaign_slug": "may",
+            "model_slug": "model-a",
+            "model_name": "Model A",
+            "platform": "threads",
+            "account_handles": ["ig_a"],
+            "source_prompt": "prompt",
+            "notes": "notes",
+        }),
+        ("assets_for_campaign", ("camp_1",), {}),
     ]
 
 
@@ -400,6 +434,47 @@ def test_core_services_delegates_model_methods_to_model_repository() -> None:
             "account_handle": "creator",
             "account_group_name": "warm",
         }),
+    ]
+
+
+def test_core_services_delegates_asset_import_methods_to_asset_import_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAssetImport:
+        def import_folder(self, *args, **kwargs):
+            calls.append(("import_folder", args, kwargs))
+            return {"imported": []}
+
+        def assets_for_campaign(self, *args, **kwargs):
+            calls.append(("assets_for_campaign", args, kwargs))
+            return [{"id": "src_1"}]
+
+    services.asset_import = FakeAssetImport()
+
+    assert services.import_folder(
+        Path("/tmp/import"),
+        campaign_slug="may",
+        model_slug="model-a",
+        model_name="Model A",
+        platform="threads",
+        account_handles=["ig_a"],
+        source_prompt="prompt",
+        notes="notes",
+    ) == {"imported": []}
+    assert services.assets_for_campaign("camp_1") == [{"id": "src_1"}]
+
+    assert calls == [
+        ("import_folder", (Path("/tmp/import"),), {
+            "campaign_slug": "may",
+            "model_slug": "model-a",
+            "model_name": "Model A",
+            "platform": "threads",
+            "account_handles": ["ig_a"],
+            "source_prompt": "prompt",
+            "notes": "notes",
+        }),
+        ("assets_for_campaign", ("camp_1",), {}),
     ]
 
 

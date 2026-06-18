@@ -635,6 +635,8 @@ class CampaignFactory:
             slugify=slugify,
             sanitize_for_storage=sanitize_for_storage,
             utc_now=utc_now,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
         )
         self.settings.campaigns_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4521,128 +4523,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         source_prompt: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        folder = Path(folder).expanduser().resolve()
-        if not folder.exists() or not folder.is_dir():
-            raise FileNotFoundError(f"input folder not found: {folder}")
-        model = self.upsert_model(model_slug, model_name)
-        campaign = self.upsert_campaign(campaign_slug, model["slug"], platform=platform)
-        pipeline_job = self.create_pipeline_job(
-            "import_folder",
-            campaign["id"],
-            {
-                "folder": str(folder),
-                "campaign": campaign_slug,
-                "model": model_slug,
-                "platform": platform,
-                "accounts": account_handles or [],
-                "source_prompt": source_prompt,
-                "notes": notes,
-            },
+        return self.services.import_folder(
+            folder,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            model_name=model_name,
+            platform=platform,
+            account_handles=account_handles,
+            source_prompt=source_prompt,
+            notes=notes,
         )
-        self.start_pipeline_job(pipeline_job["id"])
-        accounts = [
-            self.upsert_account(handle, platform=platform, model_id=model["id"])
-            for handle in (account_handles or [])
-            if handle.strip()
-        ]
-        try:
-            dirs = self.campaign_dirs(model["slug"], campaign["slug"])
-            imported: list[dict[str, Any]] = []
-            duplicates: list[str] = []
-            ignored: list[str] = []
-            for src in sorted(folder.iterdir()):
-                media_type = media_type_for_path(src)
-                if not src.is_file() or media_type not in {"video", "image"}:
-                    ignored.append(str(src))
-                    continue
-                digest = sha256_file(src)
-                existing = self.conn.execute(
-                    "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
-                    (campaign["id"], digest),
-                ).fetchone()
-                if existing:
-                    duplicates.append(str(src))
-                    self.record_event(
-                        "source_duplicate_ignored",
-                        campaign_id=campaign["id"],
-                        source_asset_id=existing["id"],
-                        pipeline_job_id=pipeline_job["id"],
-                        status="warning",
-                        message=f"Duplicate source ignored: {src.name}",
-                        metadata={"path": str(src), "contentHash": digest, "existingSourceAssetId": existing["id"]},
-                        commit=False,
-                    )
-                    continue
-                dest_name = f"{slugify(src.stem)}_{digest[:10]}{src.suffix.lower()}"
-                dest = dirs["sources"] / dest_name
-                shutil.copy2(src, dest)
-                now = utc_now()
-                source_id = new_id("src")
-                self.conn.execute(
-                    """
-                    INSERT INTO source_assets
-                    (id, campaign_id, model_id, content_hash, original_path, stored_path, filename, media_type, platform, source_prompt,
-                     notes, account_ids_json, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'imported', ?, ?)
-                    """,
-                    (
-                        source_id, campaign["id"], model["id"], digest, str(src), str(dest), dest.name, media_type, platform,
-                        source_prompt, notes, json.dumps([a["id"] for a in accounts]), now, now,
-                    ),
-                )
-                imported_asset = dict(self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (source_id,)).fetchone())
-                source_graph_id = self.ensure_graph_node(
-                    "source_asset",
-                    local_table="source_assets",
-                    local_id=source_id,
-                    payload={"campaignId": campaign["id"], "contentHash": digest, "filename": dest.name, "mediaType": media_type},
-                )
-                self.ensure_graph_edge(
-                    self.graph_id_for("campaigns", campaign["id"], entity_type="campaign", payload={"slug": campaign["slug"]}),
-                    source_graph_id,
-                    "campaign_contains_source_asset",
-                    evidence={"importedFrom": str(src), "pipelineJobId": pipeline_job["id"]},
-                )
-                imported.append(imported_asset)
-                self.record_event(
-                    "source_imported",
-                    campaign_id=campaign["id"],
-                    source_asset_id=source_id,
-                    pipeline_job_id=pipeline_job["id"],
-                    status="success",
-                    message=f"Source imported: {dest.name}",
-                    metadata={"originalPath": str(src), "storedPath": str(dest), "contentHash": digest, "mediaType": media_type},
-                    commit=False,
-                )
-            result = {"imported": imported, "duplicates": duplicates, "ignored": ignored, "campaign": campaign, "model": model}
-            self.record_event(
-                "source_imported",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="success" if imported else ("warning" if duplicates or ignored else "info"),
-                message=f"Import complete: {len(imported)} imported, {len(duplicates)} duplicates, {len(ignored)} ignored",
-                metadata={"importedCount": len(imported), "duplicateCount": len(duplicates), "ignoredCount": len(ignored)},
-                commit=False,
-            )
-            self.conn.commit()
-            self.finish_pipeline_job(pipeline_job["id"], {
-                "importedCount": len(imported),
-                "duplicateCount": len(duplicates),
-                "ignoredCount": len(ignored),
-            })
-            result["pipelineJobId"] = pipeline_job["id"]
-            return result
-        except Exception as exc:
-            self.record_event(
-                "source_imported",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="failure",
-                message=f"Import failed: {exc}",
-                metadata={"error": str(exc)},
-            )
-            self.fail_pipeline_job(pipeline_job["id"], str(exc))
-            raise
 
     def list_campaigns(self) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
@@ -4652,13 +4542,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return self.services.campaign_by_slug(slug)
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at", (campaign_id,)).fetchall()
-        assets = []
-        for row in rows:
-            item = dict(row)
-            item["media_type"] = item.get("media_type") or media_type_for_path(item.get("stored_path") or item.get("filename") or "")
-            assets.append(item)
-        return assets
+        return self.services.assets_for_campaign(campaign_id)
 
     def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", (campaign_id,)).fetchall()
