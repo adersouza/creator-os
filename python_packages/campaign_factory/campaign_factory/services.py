@@ -7,6 +7,7 @@ from .asset_import import AssetImportRepository
 from .caption import CaptionFamilyRepository
 from .config import Settings
 from .creative_planning import CreativePlanningRepository
+from .decision_ledger import DecisionLedgerRepository
 from .distribution import DistributionRepository
 from .events import EventRepository
 from .graph import GraphRepository
@@ -42,6 +43,14 @@ class CoreServices:
         variant_lineage_for_asset: Callable[[str], dict[str, Any]],
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
+        creator_label: Callable[[Any], str],
+        creator_os_target_date: Callable[..., str],
+        creator_os_daily_plan: Callable[..., dict[str, Any]],
+        creator_content_needs: Callable[..., dict[str, Any]],
+        recommended_story_intent_for_date: Callable[..., str],
+        recommended_story_style_for_intent: Callable[[str], str],
+        story_mix_plan: Callable[..., dict[str, Any]],
+        story_calendar_plan: Callable[..., dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -151,6 +160,20 @@ class CoreServices:
             dashboard=dashboard,
             model_account_profile=self.models.model_account_profile,
             account_compatible_with_model=self.models.account_compatible_with_model,
+        )
+        self.decision_ledger = DecisionLedgerRepository(
+            conn,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            creator_os_target_date=creator_os_target_date,
+            creator_os_daily_plan=creator_os_daily_plan,
+            creator_content_needs=creator_content_needs,
+            recommended_story_intent_for_date=recommended_story_intent_for_date,
+            recommended_story_style_for_intent=recommended_story_style_for_intent,
+            story_mix_plan=story_mix_plan,
+            story_calendar_plan=story_calendar_plan,
+            normalize_content_surface=normalize_content_surface,
         )
 
     def ensure_graph_node(
@@ -652,6 +675,60 @@ class CoreServices:
 
     def latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         return self.distribution.latest_distribution_plan_for_asset(rendered_asset_id)
+
+    def decision_ledger_preview(
+        self,
+        *,
+        creator: str,
+        date: str | None = None,
+        threadsdash_report: dict[str, Any] | None = None,
+        schedule_plan: dict[str, Any] | None = None,
+        time_plan: dict[str, Any] | None = None,
+        winner_expansion_report: dict[str, Any] | None = None,
+        winner_expansion_plan: dict[str, Any] | None = None,
+        variant_inventory_plan: dict[str, Any] | None = None,
+        variant_metrics_rollup: dict[str, Any] | None = None,
+        account_tiers: dict[str, Any] | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_preview(
+            creator=creator,
+            date=date,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
+            winner_expansion_report=winner_expansion_report,
+            winner_expansion_plan=winner_expansion_plan,
+            variant_inventory_plan=variant_inventory_plan,
+            variant_metrics_rollup=variant_metrics_rollup,
+            account_tiers=account_tiers,
+            generated_at=generated_at,
+        )
+
+    def decision_ledger_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_report(**kwargs)
+
+    def decision_ledger_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_summary(**kwargs)
+
+    def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_creator(creator=creator, **kwargs)
+
+    def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_account(account_id=account_id, creator=creator, **kwargs)
+
+    def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_surface(surface=surface, creator=creator, **kwargs)
+
+    def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_decision_type(
+            decision_type=decision_type,
+            creator=creator,
+            **kwargs,
+        )
+
+    def query_decision_ledger(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.query_decision_ledger(**kwargs)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
