@@ -439,7 +439,7 @@ const ROADMAP=[
     {k:'✅',id:'P0–P2',t:'All findings closed',n:'Fixed / Upstream / Accepted deferred',ref:'PR #43'},
   ]},
   {track:'Smart / Great / Safe (INTELLIGENCE_AUDIT.md)',goal:'turn computed-but-ignored signals into real intelligence, quality, and anti-collision safety',items:[
-    {k:'⏳',id:'S',t:'Gate on PDQ/SSCD, not SSIM',n:'un-review-only the real detectors; cross-account perceptual pass',ref:'NEXT (risk $)'},
+    {k:'✅',id:'S',t:'Gate on PDQ/SSCD, not SSIM',n:'SHIPPED: variation batches now gate on real PDQ + SSCD collisions (blocking) — forces genuinely-distinct content, no spoof/evasion',ref:'PR #54'},
     {k:'◻',id:'I-bugs',t:'Fix 3 metric-capture bugs',n:'clean training data at source + port AP0-2',ref:'pending'},
     {k:'◻',id:'I-lineage',t:'Require lineage IDs in contracts',n:'precondition for Workstream F',ref:'pending'},
     {k:'◻',id:'Q',t:'Real quality floor + Higgsfield virality',n:'VMAF/audio/crop gate; wire virality_predictor',ref:'pending'},
@@ -478,10 +478,10 @@ const INTEL=[
     {s:'High',t:'Higgsfield virality_predictor unused',w:'(grep: wired into no gate)',f:'Available in-environment. Plug as blocking virality layer + post-render QC. Lowest-effort high-leverage win.'},
     {s:'Fix',t:'Buildable: 100-pt Reel Prediction Score',w:'research/04',f:'Pre-post gate (hook 20 / 3s-clarity 20 / pacing 20 / shareability 20 / quality 10 / caption+audio 10). <70 don\'t post, 90+ best slot. Optimize for watch-time → 3s-hold → sends/reach. Score via Higgsfield video_analysis + VLM hook judge.'},
   ]},
-  {track:'Anti-shadowban safety',score:4,verdict:'INSUFFICIENT — variation is real (PR #44) but gates on SSIM. Research proves the editorial deltas don\'t move perceptual hashes at all.',findings:[
+  {track:'Anti-shadowban safety',score:6,verdict:'IMPROVED (PR #54) — variation batches now gate on real PDQ + SSCD collisions (blocking), not SSIM. Track S shipped. Remaining gaps: caption/audio distinctness + cross-account perceptual pass.',findings:[
     {s:'Crit',t:'Editorial deltas don\'t move the hash (proven)',w:'research/03 · repurposer/engines/editorial.py',f:'Speed/saturation/color = 0 PDQ effect; only crop breaks PDQ, and SSCD survives crop. Pixel nudges are theater. Real distinctness = different content per account (generation path) + different caption/audio.'},
     {s:'Crit',t:'Gate measures SSIM, not perceptual-hash',w:'repurposer/qa/similarity.py',f:'Targets: PDQ Hamming >40 (match ≤31), SSCD cosine <0.5 (copy ≥0.75), TMK <0.7. Wire calculate_phash_distance (dead today) + ContentForge PDQ/SSCD, sibling-vs-sibling.'},
-    {s:'Crit',t:'Real detectors (PDQ/SSCD) never block',w:'contentforge route.js:16 REVIEW_ONLY',f:'pdq_check.py + sscd_check.py (=SimSearchNet++ family, deployed on IG) exist & correct but a fail = non-blocking warning. Un-review-only for campaign_factory_v1.'},
+    {s:'Done',t:'Real detectors (PDQ/SSCD) now BLOCK',w:'PR #54 · pdq_check.py + sscd_check.py + reference_db.py',f:'RESOLVED: variation batches gate on PDQ + SSCD collisions as blocking checks (no longer review-only). SimSearchNet++ family, IG-deployed thresholds. Forces distinct content per account.'},
     {s:'High',t:'Account clustering is the binding constraint',w:'research/02',f:'Meta links accounts by device/IP/payment/timing; same audio+caption = independent flags; 10 unoriginal/30d = non-recommendable. Spread cadence across days; genuinely-distinct per account.'},
     {s:'Med',t:'Shared audio + uncomputed fingerprint cooldown',w:'config.py:58 · core.py:11117 · originalitySignals.ts:81',f:'IG variants keep master audio (Chromaprint match); perceptual cooldown reads never-computed fields; dashboard uses weak aHash, video gets none.'},
   ]},
