@@ -443,7 +443,7 @@ const ROADMAP=[
     {k:'◻',id:'I-bugs',t:'Fix 3 metric-capture bugs',n:'clean training data at source + port AP0-2',ref:'pending'},
     {k:'✅',id:'I-lineage',t:'Require lineage IDs in contracts',n:'generated lineage, recommendation accuracy, and performance sync reject omitted causal IDs',ref:'PR #60'},
     {k:'✅',id:'I-drop',t:'Dead-letter missing TD metadata',n:'performance sync emits skipReasons and trust exceptions instead of silent drops',ref:'current slice'},
-    {k:'◻',id:'Q',t:'Real quality floor + Higgsfield virality',n:'VMAF/audio/crop gate; wire virality_predictor',ref:'pending'},
+    {k:'◐',id:'Q',t:'Real quality floor + Higgsfield virality',n:'minimum-dimension bug fixed; VMAF/audio/crop/OCR gate + virality_predictor still pending',ref:'current slice'},
     {k:'✅',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'Campaign Factory scoring uses account-median reward, 21d decay, shrinkage, explicit unmeasured state',ref:'current slice'},
   ]},
   {track:'Production-grade — path to ≥9/10 (INTELLIGENCE_AUDIT.md · Track 9)',goal:'after capability tracks land each part at ~7–8, the jump to ≥9 is tests + decomposition + drift-proofing — rigor, not features',items:[
@@ -484,7 +484,7 @@ const INTEL=[
     {s:'Next',t:'Buildable: Thompson-sampling loop (Workstream F v2)',w:'research/05',f:'Campaign Factory v1 reward is now normalized/decayed/shrunk. Next: Thompson sampling, explore floor, 1h→24h surrogate, after upstream capture repair lands.'},
   ]},
   {track:'Content quality / virality',score:3,verdict:'Technical-validity machine, not a quality engine. Real scores exist but gate nothing.',findings:[
-    {s:'Crit',t:'"Quality floor" is one resolution check',w:'repurposer/qa/quality.py',f:'if width<720 AND height<720 — both must fail. Ignores compression/audio/framing/legibility. Add VMAF/LUFS/crop (VMAF machinery already in contentforge, unused).'},
+    {s:'Partial',t:'Minimum-dimension floor fixed; real quality floor still open',w:'repurposer/qa/quality.py',f:'Both axes must now meet 720px; 1080×404 is rejected by regression test. Still add VMAF/LUFS/crop/OCR legibility gates (VMAF machinery already in contentforge, unused).'},
     {s:'Crit',t:'All creative scores advisory-only',w:'contentforge route.js:16,343',f:'creativeQuality/hook/safeZone/readability excluded from blocking. README "quality floor" claim false in code.'},
     {s:'Crit',t:'Creative scoring is heuristic_v1 decoration',w:'creative-quality-audit.js:237',f:'modelBacked:false keyword bags. Replace with VLM/Higgsfield video_analysis judge.'},
     {s:'High',t:'Higgsfield virality_predictor unused',w:'(grep: wired into no gate)',f:'Available in-environment. Plug as blocking virality layer + post-render QC. Lowest-effort high-leverage win.'},

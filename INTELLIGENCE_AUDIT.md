@@ -105,7 +105,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 
 | Sev | File:line | Fix |
 |-----|-----------|-----|
-| Critical | `repurposer/qa/quality.py` `is_quality_acceptable` | The entire "quality floor" is `if width<720 and height<720: return False` — **both** dims must fail. A 720×404 or 1080-wide-but-short clip passes. Ignores compression, audio, framing, motion, legibility. Add a real watchability floor: audio loudness (LUFS), VMAF/CAMBI banding (**machinery already exists** in `contentforge/lib/quality-metrics.js` — `runVmaf`/`cambi`, unused), subject-crop check. |
+| Fixed / Critical remainder | `repurposer/qa/quality.py` `is_quality_acceptable` | Minimum-dimension bug fixed: both axes must now meet the 720px floor, and 1080×404 is covered by regression test. Remaining Track Q work: add a real watchability floor for compression, audio loudness (LUFS), VMAF/CAMBI banding (**machinery already exists** in `contentforge/lib/quality-metrics.js` — `runVmaf`/`cambi`, unused), framing/motion/legibility, and subject-crop checks. |
 | Critical | `contentforge/.../similarity/route.js:16,343-348` | `creativeQuality`/`safeZone`/`readability`/`hookVisibility` are hard-excluded from blocking — advisory-only. README's "enforce a quality floor" claim is **false in code**. Promote the *real* OCR safe-zone signal to a blocking gate; fix or retract the README. |
 | Critical | `contentforge/lib/creative-quality-audit.js:237` | Self-labeled `semanticEngine:"heuristic_v1"`, `modelBacked:false`. Hook scoring = keyword bag-matching. Replace with an LLM/VLM judge (or Higgsfield `video_analysis`) scoring the first-3s frames + OCR'd hook against learned winning archetypes. |
 | High | `route.js:1540` | "Hook strength" = `earlyTextBoxes>0 ? 100 : avgDelta>=10 ? 60 : 20` — only detects presence of text/motion, can't tell good from bad. |
@@ -210,7 +210,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. **Track I capture bugs** (the 3 in the High row) — they corrupt training data at the source; everything "smart" depends on clean capture. Port AP0-2 into the running path.
 3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
-4. **Track Q quality floor** — real watchability gate (VMAF/audio/crop) + promote OCR safe-zone to blocking.
+4. **Track Q quality floor** — minimum-dimension bug is fixed; real watchability gate (VMAF/audio/crop) + promote OCR safe-zone to blocking remains.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
 6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
 7. Winner-DNA → generation auto-feedback; reference_factory return path.
