@@ -7,10 +7,10 @@ draft-first per-account video variation before ThreadsDashboard draft export,
 plus the E2 primitive for turning an accepted still into a review-ready MP4 by
 local FFmpeg motion edit.
 
-The current branch implements Workstream F's first intelligence loop slice:
-next-batch recommendations now use measured performance snapshots to rank
-reference patterns and per-account variation presets before planning the next
-draft batch. Paid generation remains default-off and budget-gated.
+The current branch implements Workstream G's proactive cycle runner slice:
+one command can plan the next draft-first campaign cycle across recommendation,
+generation mode, variation, export intent, schedule intent, cost, idempotency,
+and run reporting. Paid generation remains default-off and budget-gated.
 
 Creator OS does not commit a dashboard mirror. Dashboard source, RLS, type
 cleanup, visual regression, and deployment provenance live in the external
@@ -58,6 +58,16 @@ ThreadsDashboard repository.
 - Account memory and performance leaderboards now treat `variationPreset` as a
   first-class measured pattern dimension extracted from campaign metadata and
   variant operation provenance.
+- `campaign-factory proactive-cycle run --campaign <slug>` writes a versioned
+  `proactive_cycle_run.v1` report that plans reference selection, generation
+  mode, variation preset, export intent, schedule intent, cost, and guardrail
+  status.
+- Proactive live mode is fail-closed: `--apply` requires `--enable-live`, an
+  idempotency key, a hard budget ceiling, and `--enable-paid-generation` when
+  the selected generation mode has projected paid cost.
+- Proactive live mode still runs only safe sub-actions in this slice:
+  zero-cost variation dry-run manifests and ThreadsDashboard draft export
+  previews. It does not publish or schedule autonomously.
 
 ## Safety Boundaries
 
@@ -72,12 +82,23 @@ ThreadsDashboard repository.
   normal export/variation workflows can treat them as approved.
 - Front generation is default-off and budget-gated. A still must be reviewed
   before live Kling animation is submitted.
+- Proactive cycles are default dry-run and draft-first. Live mode has a kill
+  switch via `CREATOR_OS_PROACTIVE_CYCLE_DISABLED=1` or `--kill-switch`.
 - `MicroEngine` remains available only through explicit opt-in config and is
   disabled in default presets.
 - `QualityGate` remains mandatory for accepted applied variants.
 - `SimilarityGate` failures now raise instead of silently treating bad SSIM
   output as identical/safe.
 
-## Next Slices
+## Definition Of Done
 
-- Add proactive cycles only after the draft-first path is proven.
+- A-D zero-cost per-account variation: implemented.
+- E2 motion edit: implemented.
+- E live front-generation chain: implemented with paid-generation guards.
+- F intelligence loop: implemented for performance-ranked reference patterns
+  and per-account variation presets.
+- G proactive cycle runner: implemented as a draft-first, fail-closed planner
+  and safe dry-run sub-action runner.
+- Dashboard mirror remains deleted; ThreadsDashboard remains external source of
+  truth.
+- Final proof remains the repository gates on the merged `main` tip.
