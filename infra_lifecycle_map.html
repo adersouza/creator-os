@@ -135,7 +135,7 @@
 <script>
 const DOMAINS=[
   {id:'seam',name:'⭐ Cross-repo seam',now:6.5,ceil:9.5,cap:'No idempotency key on the boundary; media-URL hydration only on the dead legacy path; failed write can read as success; backward sync manual + uncontracted.'},
-  {id:'crons',name:'Vercel crons (26)',now:7.5,ceil:9.5,cap:'Strong self-healing + lock hygiene already. Caps: publish-worker/scheduler */5 overlap, no max-recovery-count, overdue-IG dead-ends to draft, reconcile-daily timeout, no hard budget cap.'},
+  {id:'crons',name:'Vercel crons (26)',now:7.5,ceil:9.5,cap:'Strong self-healing + lock hygiene already. Caps: publish-worker/scheduler */5 overlap, no max-recovery-count, overdue-IG dead-ends to draft, reconcile-daily timeout (B4 PR open), no hard budget cap.'},
   {id:'backend',name:'Vercel backend (~130)',now:7.0,ceil:9.5,cap:'Good auth + error taxonomy. Caps: cross-reply 200-masking, manual-publish timeout, IG-webhook fallback [verify], IG-container TTL [verify], stale-token retention, override-token TTL.'},
   {id:'schema',name:'Supabase schema (206 tbl)',now:7.0,ceil:9.5,cap:'Tenant isolation + hot-path indexing already correct. Caps: posts/post_metric_history over-indexing, 29 unindexed FKs, 195 unused indexes, posts lease in flux, 6 out-of-band tables.'},
 ];
@@ -164,7 +164,7 @@ const F={
   {sev:'HIGH',t:'publish-worker & scheduler both run */5 on v2+ workspaces (double-dispatch)',ev:'publish-worker.ts:224 loads scheduler_version but never filters >=2',d:'Same item fetched by both within one window. <b>Mitigated</b> by the atomic claim — no double-publish, but wasted/noisy dispatch. Filter Phases 3–4 to version&lt;2.',tid:'B1'},
   {sev:'MED',t:'Watchdog auto-recovery has no max-recovery-count',ev:'autoposter-watchdog.ts:1053 (>30m scheduled reset)',d:'A permanently-bad item can loop recover→fail→recover. Cap recoveries, dead-letter on exhaustion (mirror the publishing-stuck 3-retry path).',tid:'B2'},
   {sev:'MED',t:'campaign-schedule-recovery dead-ends overdue IG posts to draft',ev:'campaign-schedule-recovery.ts (every 5m)',d:'Resets to <code>draft</code> for manual retry — no auto-redispatch. High-volume campaigns silently pile up. Re-queue or alert on backlog.',tid:'B3'},
-  {sev:'MED',t:'reconcile-daily is a known timeout risk',ev:'cronUtils.ts:44 (TTL bumped 120→310s after 28% timeout)',d:'Scans 200 accts × 25 posts vs Meta APIs, can graze 300s. Paginate/shard across runs.',tid:'B4'},
+  {sev:'MED',t:'reconcile-daily is a known timeout risk',ev:'cronUtils.ts:44 (TTL bumped 120→310s after 28% timeout) · TD PR #145 open',d:'B4 now has a cursor-sharding PR: per-platform account cursor stored in <code>reconciliation_runs.details</code>, deterministic wraparound, and a 500-account fixture proving capped runs advance instead of repeating the first page. Flip this after merge.',tid:'B4'},
   {sev:'MED',t:'No hard budget cap — cost crons are alert-only',ev:'cost-digest / monthly-kpi (Discord only)',d:'Warns at ≥75% of <code>AI_DAILY_SPEND_LIMIT_USD</code>; nothing pauses spend. Optional enforced cap.',tid:'B5'},
   {sev:'POS',t:'Concurrency hygiene is solid',ev:'26/26 handlers + function entries + LOCK_TTL; every TTL > maxDuration',d:'No run overlaps itself. Watchdog (8) + doctor (10) + health-monitor + reconcile = real self-healing layer.',tid:'—'},
   {sev:'LOW',t:'Watchdog + doctor still process v2+ workspaces the scheduler owns',ev:'operational noise, not double-repair (doctor is alert-only)',d:'Clarify ownership post-migration.',tid:'B1'},
