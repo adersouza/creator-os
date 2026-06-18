@@ -5,6 +5,7 @@ import {
   buildReadinessSummary,
   buildWatchabilityWarnings,
 } from "../app/api/similarity/route.js";
+import { buildViralityGate } from "../lib/virality-gate.js";
 
 test("readiness summary blocks severe compression failures", function () {
   var summary = buildReadinessSummary({
@@ -271,6 +272,57 @@ test("campaign profile blocks watchability warnings", function () {
   assert.equal(summary.blockingCodes.includes("weak_first_3_seconds"), true);
   assert.equal(summary.blockingCodes.includes("creative_quality_review"), true);
   assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
+});
+
+test("default profile keeps virality gate warnings advisory", function () {
+  var virality = buildViralityGate({
+    provider: "higgsfield_virality_predictor",
+    score: 52,
+    hookScore: 58,
+    retentionRisk: 70,
+  }, { required: true });
+  var summary = buildReadinessSummary({ virality }, { virality: virality.verdict }, {
+    auditProfile: "default",
+  });
+
+  assert.equal(virality.modelBacked, true);
+  assert.equal(virality.verdict, "warn");
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("virality_score_low"), true);
+  assert.equal(summary.warningCodes.includes("virality_hook_score_low"), true);
+  assert.equal(summary.warningCodes.includes("virality_retention_risk_high"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("campaign profile blocks low configured virality predictions", function () {
+  var virality = buildViralityGate({
+    provider: "higgsfield_virality_predictor",
+    viralityScore: 0.42,
+    hookStrength: 0.50,
+    retentionRisk: 0.80,
+  }, { required: true });
+  var summary = buildReadinessSummary({ virality }, { virality: virality.verdict }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(virality.score, 42);
+  assert.equal(virality.hookScore, 50);
+  assert.equal(virality.retentionRisk, 80);
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("virality_score_low"), true);
+  assert.equal(summary.blockingCodes.includes("virality_hook_score_low"), true);
+  assert.equal(summary.blockingCodes.includes("virality_retention_risk_high"), true);
+});
+
+test("campaign profile blocks requested virality gate when report is missing", function () {
+  var virality = buildViralityGate(null, { required: true });
+  var summary = buildReadinessSummary({ virality }, { virality: virality.verdict }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(virality.available, false);
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("virality_not_configured"), true);
 });
 
 test("watchability warning classifier uses available quality and audio evidence", function () {

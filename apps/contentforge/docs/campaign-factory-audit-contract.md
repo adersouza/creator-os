@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.7",
+  "contractVersion": "campaign_factory_audit.v1.8",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -199,6 +199,23 @@ with Campaign Factory fields:
     },
     "warnings": []
   },
+  "virality": {
+    "available": true,
+    "configured": true,
+    "provider": "higgsfield_virality_predictor",
+    "model": "virality_predictor",
+    "modelBacked": true,
+    "verdict": "pass|warn",
+    "score": 82,
+    "hookScore": 74,
+    "retentionRisk": 31,
+    "thresholds": {
+      "minViralityScore": 70,
+      "minHookViralityScore": 60,
+      "maxRetentionRiskScore": 65
+    },
+    "warnings": []
+  },
   "multiAccountOriginalityAudit": {
     "available": true,
     "mode": "reference_match_meter",
@@ -270,6 +287,12 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
+- `campaign_factory_audit.v1.8` adds the optional `virality` layer. The layer
+  consumes a supplied Higgsfield `virality_predictor` report; ContentForge does
+  not make paid/live provider calls from `/api/similarity`. When Campaign
+  Factory explicitly requests `layers: ["virality"]`, missing reports, low
+  predicted virality, weak predicted hook strength, or high retention risk are
+  blocking. The default profile keeps these findings advisory.
 - `campaign_factory_audit.v1.7` blocks caption safe-zone, caption readability,
   hook visibility, deterministic watchability, and creative-quality warnings for
   Campaign Factory upload readiness.
@@ -292,11 +315,12 @@ with Campaign Factory fields:
   reference metrics, loudnorm integrated loudness/true peak, black/silence
   detection, and crop/letterbox detection. Missing optional filters are not
   fail-closed; measured failures are blocking for `campaign_factory_v1`.
-- Safe-zone, caption readability, hook-visibility, watchability, and
-  creative-quality warnings are blocking for `campaign_factory_v1` because
+- Safe-zone, caption readability, hook-visibility, watchability,
+  creative-quality, and requested virality warnings are blocking for
+  `campaign_factory_v1` because
   assets with illegible captions, weak openings, bad loudness, letterboxing,
-  banding/compression loss, or unclear creative signals are not draft-ready
-  Campaign Factory outputs.
+  banding/compression loss, unclear creative signals, or low configured
+  virality predictions are not draft-ready Campaign Factory outputs.
 - `referenceMatch` and the backward-compatible `multiAccountOriginalityAudit`
   are informational only. The layer name remains `originality` for API
   compatibility, but Campaign Factory treats it as a reference/variation meter.
@@ -344,6 +368,11 @@ Campaign Factory V1 should treat these as blockers:
 - `watchability_black_segment`
 - `audio_long_silence`
 - `framing_letterbox_or_crop`
+- `virality_not_configured`
+- `virality_score_missing`
+- `virality_score_low`
+- `virality_hook_score_low`
+- `virality_retention_risk_high`
 - non-advisory layer failures such as `pdq_failed`
 
 ## Warning Codes

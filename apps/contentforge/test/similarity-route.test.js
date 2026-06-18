@@ -201,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.7");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.8");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);
@@ -227,6 +227,39 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
   } finally {
     await cleanupMp4Fixture(files);
     await cleanupMp4Fixture(stale);
+  }
+});
+
+test("/api/similarity exposes configured virality gate for Campaign Factory", async function () {
+  var files = await seedCampaignFactoryFiles();
+  try {
+    var response = await POST(similarityRequest({
+      source: files.sourceName,
+      auditProfile: "campaign_factory_v1",
+      targetFile: files.variantName,
+      layers: ["virality"],
+      viralityReport: {
+        provider: "higgsfield_virality_predictor",
+        job_id: "vp_test_1",
+        score: 44,
+        hookScore: 50,
+        retentionRisk: 72,
+      },
+    }));
+    var body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.8");
+    assert.equal(body.layers.virality.provider, "higgsfield_virality_predictor");
+    assert.equal(body.layers.virality.modelBacked, true);
+    assert.equal(body.layers.virality.score, 44);
+    assert.equal(body.verdicts.virality, "warn");
+    assert.equal(body.verdictCodes.virality, "virality_warn");
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.readinessSummary.blockingCodes.includes("virality_score_low"), true);
+    assert.equal(body.virality.reportId, "vp_test_1");
+  } finally {
+    await cleanupCampaignFactoryFiles(files);
   }
 });
 

@@ -9,6 +9,8 @@ from pipeline_contracts import validate_variant_assignment
 from .adapters.contentforge import audit_variation_batch
 from repurposer.pipeline import VariantPipeline
 
+CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {"campaign_factory_audit.v1.7", "campaign_factory_audit.v1.8"}
+
 
 def run_variation_stage(
     factory: Any,
@@ -73,7 +75,7 @@ def run_variation_stage(
                 verdicts = audit.get("verdicts") or {}
                 blocking_codes = [str(code) for code in readiness.get("blockingCodes") or []]
                 if (
-                    audit.get("contractVersion") != "campaign_factory_audit.v1.7"
+                    audit.get("contractVersion") not in CAMPAIGN_FACTORY_AUDIT_CONTRACTS
                     or readiness.get("uploadReady") is not True
                     or verdicts.get("pdq") != "pass"
                     or verdicts.get("sscd") != "pass"

@@ -35,6 +35,11 @@ export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
     maxIntegratedLufs: -8,
     maxTruePeakDb: -1,
 
+    // Optional Higgsfield virality/video-analysis gate. Default-off; blocking only when requested by Campaign Factory.
+    minViralityScore: 70,
+    minHookViralityScore: 60,
+    maxRetentionRiskScore: 65,
+
     // Local workstation soft target for generated fixtures; report-only.
     advisoryLatencySoftLimitMs: 5000,
 
