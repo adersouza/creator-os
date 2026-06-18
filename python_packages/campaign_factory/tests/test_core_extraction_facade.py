@@ -11,6 +11,7 @@ from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.distribution import DistributionRepository
 from campaign_factory.events import EventRepository
+from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.reference import ReferenceRepository
@@ -48,6 +49,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.distribution.conn is factory.conn
         assert isinstance(factory.services.decision_ledger, DecisionLedgerRepository)
         assert factory.services.decision_ledger.conn is factory.conn
+        assert isinstance(factory.services.exceptions, ExceptionRepository)
+        assert factory.services.exceptions.conn is factory.conn
     finally:
         factory.close()
 
@@ -1374,6 +1377,188 @@ def test_core_services_delegates_decision_ledger_methods_to_decision_repository(
         ("decision_ledger_by_surface", (), {"creator": "Stacey", "surface": "story"}),
         ("decision_ledger_by_decision_type", (), {"creator": "Stacey", "decision_type": "account_needs_story"}),
         ("query_decision_ledger", (), {"creator": "Stacey"}),
+    ]
+
+
+def test_exception_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def create_exception(self, *args, **kwargs):
+            calls.append(("create_exception", args, kwargs))
+            return {"id": "ex_1"}
+
+        def exception(self, *args, **kwargs):
+            calls.append(("exception", args, kwargs))
+            return {"id": args[0]}
+
+        def exceptions_report(self, *args, **kwargs):
+            calls.append(("exceptions", args, kwargs))
+            return {"exceptions": []}
+
+        def trust_summary(self, *args, **kwargs):
+            calls.append(("trust_summary", args, kwargs))
+            return {"schema": "campaign_factory.trust_summary.v1"}
+
+        def resolve_exception(self, *args, **kwargs):
+            calls.append(("resolve_exception", args, kwargs))
+            return {"status": "resolved"}
+
+        def snooze_exception(self, *args, **kwargs):
+            calls.append(("snooze_exception", args, kwargs))
+            return {"status": "snoozed"}
+
+        def reopen_exception(self, *args, **kwargs):
+            calls.append(("reopen_exception", args, kwargs))
+            return {"status": "open"}
+
+        def update_exception_status(self, *args, **kwargs):
+            calls.append(("update_exception_status", args, kwargs))
+            return {"status": args[1]}
+
+        def exception_payload(self, *args, **kwargs):
+            calls.append(("exception_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+    factory.services = FakeServices()
+
+    assert factory.create_exception(
+        reason_code="missing_account_assignment",
+        severity="high",
+        campaign_id="camp_1",
+        account_id="acct_1",
+        entity_graph_id="graph_1",
+        recommendation_item_id="rec_1",
+        payload={"source": "test"},
+        commit=False,
+    ) == {"id": "ex_1"}
+    assert factory.exception("ex_1") == {"id": "ex_1"}
+    assert factory.exceptions("may", status="all") == {"exceptions": []}
+    assert factory.trust_summary("may") == {"schema": "campaign_factory.trust_summary.v1"}
+    assert factory.resolve_exception("ex_1", resolution="fixed", operator="op") == {"status": "resolved"}
+    assert factory.snooze_exception("ex_1", until="2026-01-03T00:00:00+00:00", reason="wait", operator="op") == {"status": "snoozed"}
+    assert factory.reopen_exception("ex_1", reason="ready", operator="op") == {"status": "open"}
+    assert factory._update_exception_status(
+        "ex_1",
+        "resolved",
+        resolution={"resolution": "fixed"},
+        snoozed_until=None,
+    ) == {"status": "resolved"}
+    assert factory._exception_payload({"id": "ex_1"}) == {"id": "ex_1"}
+
+    assert calls == [
+        ("create_exception", (), {
+            "reason_code": "missing_account_assignment",
+            "severity": "high",
+            "campaign_id": "camp_1",
+            "account_id": "acct_1",
+            "entity_graph_id": "graph_1",
+            "recommendation_item_id": "rec_1",
+            "payload": {"source": "test"},
+            "commit": False,
+        }),
+        ("exception", ("ex_1",), {}),
+        ("exceptions", ("may",), {"status": "all"}),
+        ("trust_summary", ("may",), {}),
+        ("resolve_exception", ("ex_1",), {"resolution": "fixed", "operator": "op"}),
+        ("snooze_exception", ("ex_1",), {
+            "until": "2026-01-03T00:00:00+00:00",
+            "reason": "wait",
+            "operator": "op",
+        }),
+        ("reopen_exception", ("ex_1",), {"reason": "ready", "operator": "op"}),
+        ("update_exception_status", ("ex_1", "resolved"), {
+            "resolution": {"resolution": "fixed"},
+            "snoozed_until": None,
+        }),
+        ("exception_payload", ({"id": "ex_1"},), {}),
+    ]
+
+
+def test_core_services_delegates_exception_methods_to_exception_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeExceptions:
+        def create_exception(self, *args, **kwargs):
+            calls.append(("create_exception", args, kwargs))
+            return {"id": "ex_1"}
+
+        def exception(self, *args, **kwargs):
+            calls.append(("exception", args, kwargs))
+            return {"id": args[0]}
+
+        def exceptions(self, *args, **kwargs):
+            calls.append(("exceptions", args, kwargs))
+            return {"exceptions": []}
+
+        def trust_summary(self, *args, **kwargs):
+            calls.append(("trust_summary", args, kwargs))
+            return {"schema": "campaign_factory.trust_summary.v1"}
+
+        def resolve_exception(self, *args, **kwargs):
+            calls.append(("resolve_exception", args, kwargs))
+            return {"status": "resolved"}
+
+        def snooze_exception(self, *args, **kwargs):
+            calls.append(("snooze_exception", args, kwargs))
+            return {"status": "snoozed"}
+
+        def reopen_exception(self, *args, **kwargs):
+            calls.append(("reopen_exception", args, kwargs))
+            return {"status": "open"}
+
+        def update_exception_status(self, *args, **kwargs):
+            calls.append(("update_exception_status", args, kwargs))
+            return {"status": args[1]}
+
+        def exception_payload(self, *args, **kwargs):
+            calls.append(("exception_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+    services.exceptions = FakeExceptions()
+
+    assert services.create_exception(reason_code="missing_account_assignment", severity="high") == {"id": "ex_1"}
+    assert services.exception("ex_1") == {"id": "ex_1"}
+    assert services.exceptions_report("may", status="open") == {"exceptions": []}
+    assert services.trust_summary("may") == {"schema": "campaign_factory.trust_summary.v1"}
+    assert services.resolve_exception("ex_1", resolution="fixed", operator="op") == {"status": "resolved"}
+    assert services.snooze_exception("ex_1", until="2026-01-03T00:00:00+00:00", reason="wait", operator="op") == {
+        "status": "snoozed",
+    }
+    assert services.reopen_exception("ex_1", reason="ready", operator="op") == {"status": "open"}
+    assert services.update_exception_status("ex_1", "resolved", resolution={"resolution": "fixed"}) == {
+        "status": "resolved",
+    }
+    assert services.exception_payload({"id": "ex_1"}) == {"id": "ex_1"}
+
+    assert calls == [
+        ("create_exception", (), {
+            "reason_code": "missing_account_assignment",
+            "severity": "high",
+            "campaign_id": None,
+            "account_id": None,
+            "entity_graph_id": None,
+            "recommendation_item_id": None,
+            "payload": None,
+            "commit": True,
+        }),
+        ("exception", ("ex_1",), {}),
+        ("exceptions", ("may",), {"status": "open"}),
+        ("trust_summary", ("may",), {}),
+        ("resolve_exception", ("ex_1",), {"resolution": "fixed", "operator": "op"}),
+        ("snooze_exception", ("ex_1",), {
+            "until": "2026-01-03T00:00:00+00:00",
+            "reason": "wait",
+            "operator": "op",
+        }),
+        ("reopen_exception", ("ex_1",), {"reason": "ready", "operator": "op"}),
+        ("update_exception_status", ("ex_1", "resolved"), {
+            "resolution": {"resolution": "fixed"},
+            "snoozed_until": None,
+        }),
+        ("exception_payload", ({"id": "ex_1"},), {}),
     ]
 
 
