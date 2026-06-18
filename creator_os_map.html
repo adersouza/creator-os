@@ -490,12 +490,13 @@ const INTEL=[
     {s:'High',t:'Higgsfield virality_predictor unused',w:'(grep: wired into no gate)',f:'Available in-environment. Plug as blocking virality layer + post-render QC. Lowest-effort high-leverage win.'},
     {s:'Fix',t:'Buildable: 100-pt Reel Prediction Score',w:'research/04',f:'Pre-post gate (hook 20 / 3s-clarity 20 / pacing 20 / shareability 20 / quality 10 / caption+audio 10). <70 don\'t post, 90+ best slot. Optimize for watch-time → 3s-hold → sends/reach. Score via Higgsfield video_analysis + VLM hook judge.'},
   ]},
-  {track:'Anti-shadowban safety',score:6,verdict:'IMPROVED (PR #54) — variation batches now gate on real PDQ + SSCD collisions (blocking), not SSIM. Track S shipped. Remaining gaps: caption/audio distinctness + cross-account perceptual pass.',findings:[
+  {track:'Anti-shadowban safety',score:6.5,verdict:'IMPROVED — variation batches gate on real PDQ + SSCD collisions, and IG variation now requires account-specific replacement audio. Remaining gaps: rendered PDQ cluster cooldown + dashboard video PDQ upstream.',findings:[
     {s:'Crit',t:'Editorial deltas don\'t move the hash (proven)',w:'research/03 · repurposer/engines/editorial.py',f:'Speed/saturation/color = 0 PDQ effect; only crop breaks PDQ, and SSCD survives crop. Pixel nudges are theater. Real distinctness = different content per account (generation path) + different caption/audio.'},
     {s:'Crit',t:'Gate measures SSIM, not perceptual-hash',w:'repurposer/qa/similarity.py',f:'Targets: PDQ Hamming >40 (match ≤31), SSCD cosine <0.5 (copy ≥0.75), TMK <0.7. Wire calculate_phash_distance (dead today) + ContentForge PDQ/SSCD, sibling-vs-sibling.'},
     {s:'Done',t:'Real detectors (PDQ/SSCD) now BLOCK',w:'PR #54 · pdq_check.py + sscd_check.py + reference_db.py',f:'RESOLVED: variation batches gate on PDQ + SSCD collisions as blocking checks (no longer review-only). SimSearchNet++ family, IG-deployed thresholds. Forces distinct content per account.'},
     {s:'High',t:'Account clustering is the binding constraint',w:'research/02',f:'Meta links accounts by device/IP/payment/timing; same audio+caption = independent flags; 10 unoriginal/30d = non-recommendable. Spread cadence across days; genuinely-distinct per account.'},
-    {s:'Med',t:'Shared audio + uncomputed fingerprint cooldown',w:'config.py:58 · core.py:11117 · originalitySignals.ts:81',f:'IG variants keep master audio (Chromaprint match); perceptual cooldown reads never-computed fields; dashboard uses weak aHash, video gets none.'},
+    {s:'Done',t:'Repurposer no longer silently reuses master audio for IG variation',w:'repurposer/config.py · engines/audio.py · pipeline.py',f:'FIXED: ig_subtle invokes the audio layer, selects catalog-backed replacement audio by account index, and fails closed when required replacement audio is unavailable.'},
+    {s:'Med',t:'Uncomputed fingerprint cooldown + dashboard video hash gap',w:'core.py:11117 · originalitySignals.ts:81',f:'Perceptual cooldown reads never-computed fields; dashboard uses weak aHash, video gets none.'},
   ]},
 ];
 function renderIntel(){
