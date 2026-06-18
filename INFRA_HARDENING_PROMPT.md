@@ -18,6 +18,10 @@
 
 ## Current execution notes (2026-06-18)
 
+- **Current TD infra PR ledger, refreshed from GitHub on 2026-06-18:**
+  - CLEAN / ready for review once owner chooses merge order: TD #131 A1 idempotent ingest, #132 A3 media ingest boundary, #133 C1 cross-reply retry, #134 C2 posts max duration, #135 D1 posts index diet, #136 D1 post-metric-history index diet, #137 C3 IG webhook fallback rejection, #138 C4 IG container TTL, #139 C5 media reuse override token, #140 C5 token refresh hygiene, #141 C6 Threads error taxonomy, #142 B1 publish-worker v2 filter, #143 B2 watchdog recovery cap.
+  - OPEN with Vercel pending/unstable at refresh time: TD #144 B3 overdue IG redispatch, #145 B4 reconcile-daily cursor, #146 D2 FK indexes, #147 D3 campaign-factory indexes, #148 D4 posts lease retry, #149 D6 default-deny RLS docs, #150 B5 AI spend cap pause, #151 D5 replay missing live tables, #152 D3 scheduler indexes, #153 D3 meta usage index, #154 D3 competitor indexes, #155 D3 account-DNA indexes, #156 D3 AI eval indexes.
+  - Do not interpret `UNSTABLE` here as a code failure by itself; these PRs were in Vercel pending state when refreshed.
 - **D3 is in progress, not complete.** Do not duplicate the table-family batches already opened:
   - TD #147: `campaign_factory_*` zero-scan index batch.
   - TD #152: `scheduler_decisions` zero-scan account/run indexes; preserves the active `created_at`, BRIN retention, workspace, and group indexes.

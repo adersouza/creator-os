@@ -54,6 +54,11 @@
   td code,.sub code,.note code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:11.5px;color:#9ecbff}
   .note{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--dim);margin:14px 0}
   .note b{color:var(--txt)}
+  .ledger{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:14px 0 18px}
+  .ledger .bucket{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .ledger h3{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+  .ledger p{margin:0;font-size:12.5px;color:var(--txt)}
+  .ledger small{display:block;margin-top:6px;color:var(--dim);font-size:11.5px}
   .fnd{background:var(--panel);border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:12px 15px;margin-bottom:10px}
   .fnd .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .fnd .sev{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
@@ -89,6 +94,23 @@
   <h2>The content lifecycle, as one system</h2>
   <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os pulls them (manually) into its learning loop. The loop is architecturally closed but operationally manual on the return leg, and the forward leg's idempotency/media guarantees are softer than they look. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>; fix plan in <code>INFRA_HARDENING_PROMPT.md</code>.</p>
   <div class="note"><b>Confidence is not uniform.</b> Seam + schema findings were verified against live code / the live DB (partial-uniques, missing post_key unique, index counts, media gating, export path — all confirmed). Crons + backend are agent-reported from code reads; the load-bearing ones were spot-verified (posts.ts-absent-from-vercel.json ✓, cross-reply 200-on-catch ✓ — reframed). <code>[verify]</code> items need one more trace before being actioned as HIGH. <b>D3 update:</b> unused-index pruning is active as table-family PRs: TD #147, #152, #153, #154, #155, and #156. Continue one family per PR.</div>
+  <div class="ledger" aria-label="current ThreadsDashboard infra PR ledger">
+    <div class="bucket">
+      <h3>Clean TD PRs</h3>
+      <p>#131–#143</p>
+      <small>A1, A3, C1–C6, D1, B1, and B2 were clean in GitHub/Vercel at refresh time.</small>
+    </div>
+    <div class="bucket">
+      <h3>Pending TD PRs</h3>
+      <p>#144–#156</p>
+      <small>B3, B4, B5, D2, D3, D4, D5, and D6 were open with Vercel pending/unstable at refresh time.</small>
+    </div>
+    <div class="bucket">
+      <h3>D3 Reserved Batches</h3>
+      <p>#147 · #152 · #153 · #154 · #155 · #156</p>
+      <small>Do not duplicate these table families; continue D3 with the next live-zero-scan family.</small>
+    </div>
+  </div>
 
   <div class="diagram">
     <svg viewBox="0 0 980 290" role="img" aria-label="cross-repo content lifecycle">
