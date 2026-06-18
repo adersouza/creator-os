@@ -11239,6 +11239,8 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
             self.url = url
 
         def select(self, table, params):
+            if table == "post_metric_history":
+                return []
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
             return rows
@@ -11322,6 +11324,118 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         cf.close()
 
 
+def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    post_rows = []
+    history_rows = []
+    select_calls: list[tuple[str, dict]] = []
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            select_calls.append((table, dict(params)))
+            if table == "posts":
+                assert params["user_id"] == "eq.user_1"
+                return post_rows
+            if table == "post_metric_history":
+                assert params["post_id"] == "in.(post_history_1)"
+                return history_rows
+            raise AssertionError(table)
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        post_rows.append({
+            "id": "post_history_1",
+            "status": "published",
+            "platform": "instagram",
+            "account_id": None,
+            "instagram_account_id": "ig_1",
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "updated_at": "2026-01-03T00:00:00+00:00",
+            "published_at": "2026-01-02T01:00:00+00:00",
+            "permalink": "https://instagram.test/p/history",
+            "views": 900,
+            "likes_count": 60,
+            "metadata": {
+                "campaign_factory": threadsdash_campaign_factory_metadata(source),
+            },
+        })
+        history_rows.extend([
+            {
+                "id": "hist_1h",
+                "post_id": "post_history_1",
+                "snapshot_at": "2026-01-02T02:00:00+00:00",
+                "views_count": 100,
+                "likes_count": 8,
+                "replies_count": 1,
+                "shares_count": 2,
+                "saves_count": 3,
+                "reach": 90,
+                "created_at": "2026-01-02T02:00:00+00:00",
+            },
+            {
+                "id": "hist_24h",
+                "post_id": "post_history_1",
+                "snapshot_at": "2026-01-03T01:00:00+00:00",
+                "views_count": 1200,
+                "likes_count": 80,
+                "replies_count": 9,
+                "shares_count": 14,
+                "saves_count": 22,
+                "reach": 1100,
+                "created_at": "2026-01-03T01:00:00+00:00",
+            },
+        ])
+
+        result = sync_performance_snapshots(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        snapshots = [
+            dict(row)
+            for row in cf.conn.execute(
+                "SELECT post_id, snapshot_at, views, likes, comments, shares, saves, reach FROM performance_snapshots ORDER BY snapshot_at"
+            ).fetchall()
+        ]
+        assert [table for table, _ in select_calls] == ["posts", "post_metric_history"]
+        assert result["postsScanned"] == 1
+        assert result["campaignFactoryPostsScanned"] == 1
+        assert result["metricHistoryRowsScanned"] == 2
+        assert result["campaignFactorySnapshotsScanned"] == 2
+        assert result["inserted"] == 2
+        assert snapshots == [
+            {
+                "post_id": "post_history_1",
+                "snapshot_at": "2026-01-02T02:00:00+00:00",
+                "views": 100,
+                "likes": 8,
+                "comments": 1,
+                "shares": 2,
+                "saves": 3,
+                "reach": 90,
+            },
+            {
+                "post_id": "post_history_1",
+                "snapshot_at": "2026-01-03T01:00:00+00:00",
+                "views": 1200,
+                "likes": 80,
+                "comments": 9,
+                "shares": 14,
+                "saves": 22,
+                "reach": 1100,
+            },
+        ]
+    finally:
+        cf.close()
+
+
 def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     add_rendered_asset(cf, tmp_path)
@@ -11345,6 +11459,8 @@ def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_p
             self.url = url
 
         def select(self, table, params):
+            if table == "post_metric_history":
+                return []
             assert table == "posts"
             return rows
 
@@ -11385,6 +11501,8 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_
             self.url = url
 
         def select(self, table, params):
+            if table == "post_metric_history":
+                return []
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
             return rows
@@ -11478,6 +11596,8 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(tmp
             self.url = url
 
         def select(self, table, params):
+            if table == "post_metric_history":
+                return []
             assert table == "posts"
             return rows
 
@@ -12198,6 +12318,8 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
             self.url = url
 
         def select(self, table, params):
+            if table == "post_metric_history":
+                return []
             assert table == "posts"
             return rows
 
