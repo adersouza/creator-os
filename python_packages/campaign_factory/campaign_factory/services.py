@@ -7,6 +7,7 @@ from .asset_import import AssetImportRepository
 from .caption import CaptionFamilyRepository
 from .config import Settings
 from .creative_planning import CreativePlanningRepository
+from .distribution import DistributionRepository
 from .events import EventRepository
 from .graph import GraphRepository
 from .models import ModelRepository
@@ -37,6 +38,10 @@ class CoreServices:
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
         text_hash: Callable[[str], str],
+        validate_instagram_trial_reel_intent: Callable[..., str | None],
+        variant_lineage_for_asset: Callable[[str], dict[str, Any]],
+        ranking: Callable[[str], dict[str, Any]],
+        dashboard: Callable[[str], dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -124,6 +129,28 @@ class CoreServices:
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             instagram_post_caption_for_asset=instagram_post_caption_for_asset,
             text_hash=text_hash,
+        )
+        self.distribution = DistributionRepository(
+            conn,
+            new_id=new_id,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            campaign_by_slug=self.campaign_by_slug,
+            record_event=self.events.record_event,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+            validate_instagram_trial_reel_intent=validate_instagram_trial_reel_intent,
+            variant_lineage_for_asset=variant_lineage_for_asset,
+            ranking=ranking,
+            dashboard=dashboard,
+            model_account_profile=self.models.model_account_profile,
+            account_compatible_with_model=self.models.account_compatible_with_model,
         )
 
     def ensure_graph_node(
@@ -519,6 +546,112 @@ class CoreServices:
 
     def caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
         return self.caption_family.caption_version_payload(row)
+
+    def create_distribution_plan(
+        self,
+        rendered_asset_id: str,
+        *,
+        surface: str = "regular_reel",
+        account_id: str | None = None,
+        instagram_account_id: str | None = None,
+        planned_window_start: str | None = None,
+        planned_window_end: str | None = None,
+        paired_rendered_asset_id: str | None = None,
+        reason_code: str | None = None,
+        smart_link: str | None = None,
+        cta_text: str | None = None,
+        instagram_trial_reels: bool = False,
+        trial_graduation_strategy: str | None = None,
+    ) -> dict[str, Any]:
+        return self.distribution.create_distribution_plan(
+            rendered_asset_id,
+            surface=surface,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            paired_rendered_asset_id=paired_rendered_asset_id,
+            reason_code=reason_code,
+            smart_link=smart_link,
+            cta_text=cta_text,
+            instagram_trial_reels=instagram_trial_reels,
+            trial_graduation_strategy=trial_graduation_strategy,
+        )
+
+    def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
+        return self.distribution.distribution_plan(plan_id)
+
+    def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+        return self.distribution.distribution_plans_for_asset(rendered_asset_id)
+
+    def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
+        return self.distribution.distribution_plans_for_campaign(campaign_slug)
+
+    def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
+        return self.distribution.clear_distribution_plans_for_campaign(campaign_slug)
+
+    def distribution_plan_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.distribution.distribution_plan_payload(row)
+
+    def plan_distribution(
+        self,
+        campaign_slug: str,
+        *,
+        user_id: str,
+        mode: str = "preview",
+        strategy: str = "trial-heavy",
+        replace: bool = True,
+        fallback_hours: list[int] | None = None,
+    ) -> dict[str, Any]:
+        return self.distribution.plan_distribution(
+            campaign_slug,
+            user_id=user_id,
+            mode=mode,
+            strategy=strategy,
+            replace=replace,
+            fallback_hours=fallback_hours,
+        )
+
+    def next_distribution_account(
+        self,
+        profile: dict[str, Any] | None,
+        model_slug: str,
+        cursors: dict[str, int],
+    ) -> str | None:
+        return self.distribution.next_distribution_account(profile, model_slug, cursors)
+
+    def distribution_slots(self, hours: list[int], count: int) -> list[Any]:
+        return self.distribution.distribution_slots(hours, count)
+
+    def next_valid_distribution_slot(
+        self,
+        slots: list[Any],
+        start_index: int,
+        account_id: str,
+        asset: dict[str, Any],
+        account_day_counts: dict[tuple[str, str], int],
+        account_last_time: dict[str, Any],
+        caption_day_counts: dict[tuple[str, str], int],
+        source_week_counts: dict[tuple[str, str], int],
+        warnings: list[dict[str, Any]],
+    ) -> tuple[Any | None, int]:
+        return self.distribution.next_valid_distribution_slot(
+            slots,
+            start_index,
+            account_id,
+            asset,
+            account_day_counts,
+            account_last_time,
+            caption_day_counts,
+            source_week_counts,
+            warnings,
+        )
+
+    def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.distribution.distribution_summary(campaign_slug)
+
+    def latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        return self.distribution.latest_distribution_plan_for_asset(rendered_asset_id)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

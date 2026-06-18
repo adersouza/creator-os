@@ -20,9 +20,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
 
-from .caption_outcome import build_caption_outcome_context, column_values, load_context_json
+from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
@@ -599,6 +598,10 @@ class CampaignFactory:
             surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
             instagram_post_caption_for_asset=self._instagram_post_caption_for_asset,
             text_hash=self._text_hash,
+            validate_instagram_trial_reel_intent=self._validate_instagram_trial_reel_intent,
+            variant_lineage_for_asset=self._variant_lineage_for_asset,
+            ranking=self.ranking,
+            dashboard=self.dashboard,
         )
         self.settings.campaigns_dir.mkdir(parents=True, exist_ok=True)
 
@@ -3488,100 +3491,20 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
     ) -> dict[str, Any]:
-        asset = self.rendered_asset(rendered_asset_id)
-        now = utc_now()
-        plan_id = new_id("dist")
-        distribution_surface = _normalize_distribution_surface(surface)
-        asset_content_surface = normalize_content_surface(asset.get("content_surface"))
-        content_surface = normalize_content_surface(surface)
-        if distribution_surface in {"regular_reel", "trial_reel"}:
-            content_surface = "reel"
-        if instagram_trial_reels and asset_content_surface != "reel":
-            raise ValueError("Instagram Trial Reels require reel content")
-        normalized_strategy = self._validate_instagram_trial_reel_intent(
-            content_surface=content_surface,
-            distribution_surface=distribution_surface,
-            media_type=str(asset.get("media_type") or "video"),
+        return self.services.create_distribution_plan(
+            rendered_asset_id,
+            surface=surface,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            paired_rendered_asset_id=paired_rendered_asset_id,
+            reason_code=reason_code,
+            smart_link=smart_link,
+            cta_text=cta_text,
             instagram_trial_reels=instagram_trial_reels,
             trial_graduation_strategy=trial_graduation_strategy,
         )
-        caption_columns = column_values(load_context_json(asset.get("caption_outcome_context_json")))
-        variant_lineage = self._variant_lineage_for_asset(rendered_asset_id)
-        self.conn.execute(
-            """
-            INSERT INTO distribution_plans
-            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, surface, content_surface,
-             concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
-             variant_operations_json,
-             planned_window_start, planned_window_end, paired_rendered_asset_id, reason_code,
-             smart_link, cta_text, instagram_trial_reels, trial_graduation_strategy,
-             caption_hash, caption_text, caption_bank, caption_banks_json,
-             creator_mix, creator_model, frame_type, length_class, format_class, caption_fit_version,
-             suitability_decision, suitability_reason, source_clip, caption_outcome_context_json,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                plan_id,
-                asset["campaign_id"],
-                rendered_asset_id,
-                account_id,
-                instagram_account_id,
-                distribution_surface,
-                content_surface,
-                variant_lineage.get("concept_id"),
-                variant_lineage.get("parent_reel_id"),
-                variant_lineage.get("variant_family_id"),
-                variant_lineage.get("variant_id"),
-                variant_lineage.get("variant_index"),
-                json.dumps(sanitize_for_storage(variant_lineage.get("variant_operations") or []), ensure_ascii=False, sort_keys=True),
-                planned_window_start,
-                planned_window_end,
-                paired_rendered_asset_id,
-                reason_code,
-                smart_link,
-                cta_text,
-                1 if instagram_trial_reels else 0,
-                normalized_strategy,
-                caption_columns["caption_hash"],
-                caption_columns["caption_text"],
-                caption_columns["caption_bank"],
-                caption_columns["caption_banks_json"],
-                caption_columns["creator_mix"],
-                caption_columns["creator_model"],
-                caption_columns["frame_type"],
-                caption_columns["length_class"],
-                caption_columns["format_class"],
-                caption_columns["caption_fit_version"],
-                caption_columns["suitability_decision"],
-                caption_columns["suitability_reason"],
-                caption_columns["source_clip"],
-                caption_columns["caption_outcome_context_json"],
-                now,
-                now,
-            ),
-        )
-        self.record_event(
-            "distribution_plan_created",
-            campaign_id=asset["campaign_id"],
-            source_asset_id=asset["source_asset_id"],
-            rendered_asset_id=rendered_asset_id,
-            status="success",
-            message=f"Distribution plan created: {distribution_surface}",
-            metadata={
-                "distributionPlanId": plan_id,
-                "surface": distribution_surface,
-                "accountId": account_id,
-                "instagramAccountId": instagram_account_id,
-                "pairedRenderedAssetId": paired_rendered_asset_id,
-                "reasonCode": reason_code,
-                "instagramTrialReels": bool(instagram_trial_reels),
-                "trialGraduationStrategy": normalized_strategy,
-            },
-            commit=False,
-        )
-        self.conn.commit()
-        return self.distribution_plan(plan_id) or {}
 
     def _validate_instagram_trial_reel_intent(
         self,
@@ -3610,71 +3533,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return strategy
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute("SELECT * FROM distribution_plans WHERE id = ?", (plan_id,)).fetchone()
-        return self._distribution_plan_payload(dict(row)) if row else None
+        return self.services.distribution_plan(plan_id)
 
     def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ? ORDER BY created_at",
-            (rendered_asset_id,),
-        ).fetchall()
-        return [self._distribution_plan_payload(dict(row)) for row in rows]
+        return self.services.distribution_plans_for_asset(rendered_asset_id)
 
     def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE campaign_id = ? ORDER BY created_at",
-            (campaign["id"],),
-        ).fetchall()
-        return [self._distribution_plan_payload(dict(row)) for row in rows]
+        return self.services.distribution_plans_for_campaign(campaign_slug)
 
     def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
-        campaign = self.campaign_by_slug(campaign_slug)
-        count = self.conn.execute(
-            "SELECT COUNT(*) AS count FROM distribution_plans WHERE campaign_id = ?",
-            (campaign["id"],),
-        ).fetchone()["count"]
-        self.conn.execute("DELETE FROM distribution_plans WHERE campaign_id = ?", (campaign["id"],))
-        self.record_event(
-            "distribution_plans_cleared",
-            campaign_id=campaign["id"],
-            status="info",
-            message=f"Cleared {count} distribution plan rows",
-            metadata={"campaign": campaign_slug, "cleared": count},
-            commit=False,
-        )
-        self.conn.commit()
-        return int(count or 0)
+        return self.services.clear_distribution_plans_for_campaign(campaign_slug)
 
     def _distribution_plan_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "campaignId": row["campaign_id"],
-            "renderedAssetId": row["rendered_asset_id"],
-            "accountId": row["account_id"],
-            "instagramAccountId": row["instagram_account_id"],
-            "surface": row["surface"],
-            "contentSurface": row.get("content_surface") or normalize_content_surface(row["surface"]),
-            "plannedWindowStart": row["planned_window_start"],
-            "plannedWindowEnd": row["planned_window_end"],
-            "pairedRenderedAssetId": row["paired_rendered_asset_id"],
-            "reasonCode": row["reason_code"],
-            "smartLink": row["smart_link"],
-            "ctaText": row["cta_text"],
-            "instagramTrialReels": bool(row.get("instagram_trial_reels")),
-            "instagram_trial_reels": bool(row.get("instagram_trial_reels")),
-            "trialGraduationStrategy": row.get("trial_graduation_strategy"),
-            "trial_graduation_strategy": row.get("trial_graduation_strategy"),
-            "conceptId": row.get("concept_id"),
-            "parentReelId": row.get("parent_reel_id"),
-            "variantFamilyId": row.get("variant_family_id"),
-            "variantId": row.get("variant_id"),
-            "variantIndex": row.get("variant_index"),
-            "variantOperations": json_load(row.get("variant_operations_json"), []),
-            "captionOutcomeContext": load_context_json(row.get("caption_outcome_context_json")),
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.distribution_plan_payload(row)
 
     def plan_distribution(
         self,
@@ -3686,151 +3557,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         replace: bool = True,
         fallback_hours: list[int] | None = None,
     ) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        schedule_mode = _normalize_schedule_mode(mode)
-        normalized_strategy = (strategy or "trial-heavy").strip().lower().replace("_", "-")
-        if normalized_strategy not in {"trial-heavy"}:
-            raise ValueError("only trial-heavy distribution strategy is supported")
-        pipeline_job = self.create_pipeline_job(
-            "distribution_plan",
-            campaign["id"],
-            {
-                "campaign": campaign_slug,
-                "userId": user_id,
-                "mode": schedule_mode,
-                "strategy": normalized_strategy,
-                "replace": replace,
-            },
+        return self.services.plan_distribution(
+            campaign_slug,
+            user_id=user_id,
+            mode=mode,
+            strategy=strategy,
+            replace=replace,
+            fallback_hours=fallback_hours,
         )
-        self.start_pipeline_job(pipeline_job["id"])
-        try:
-            cleared = self.clear_distribution_plans_for_campaign(campaign_slug) if replace else 0
-            ranking = self.ranking(campaign_slug)
-            ranking_by_asset = ranking.get("byAsset") or {}
-            dashboard = self.dashboard(campaign_slug)
-            eligible_assets = [
-                asset for asset in dashboard.get("rendered", [])
-                if asset.get("review_state") in {"approved", "review_ready"}
-                and not (asset.get("export_readiness") or {}).get("blockingReasons")
-            ]
-            eligible_assets.sort(
-                key=lambda asset: (ranking_by_asset.get(asset["id"]) or {}).get("score", 0),
-                reverse=True,
-            )
-            total = len(eligible_assets)
-            regular_count = math.ceil(total * 0.20) if total else 0
-            trial_count = math.floor(total * 0.60)
-            if total and regular_count + trial_count == 0:
-                trial_count = 1
-            primary_assets = eligible_assets[:regular_count + trial_count]
-            profile_cache: dict[str, dict[str, Any] | None] = {}
-            account_cursors: dict[str, int] = {}
-            account_day_counts: dict[tuple[str, str], int] = {}
-            account_last_time: dict[str, datetime] = {}
-            caption_day_counts: dict[tuple[str, str], int] = {}
-            source_week_counts: dict[tuple[str, str], int] = {}
-            planned = []
-            unplanned = []
-            warnings: list[dict[str, Any]] = []
-            slots = self._distribution_slots(fallback_hours or [10, 14, 18], len(primary_assets) + len(primary_assets))
-            slot_index = 0
-            for index, asset in enumerate(primary_assets):
-                model_slug = asset.get("model_slug") or asset.get("modelId") or ""
-                profile = profile_cache.setdefault(model_slug, self.model_account_profile(model_slug))
-                account_id = self._next_distribution_account(profile, model_slug, account_cursors)
-                if not account_id:
-                    unplanned.append({"renderedAssetId": asset["id"], "reason": "no_compatible_account"})
-                    continue
-                surface = "regular_reel" if index < regular_count else "trial_reel"
-                reason_code = "high_confidence_reel" if surface == "regular_reel" else "test_uncertain_winner"
-                slot, slot_index = self._next_valid_distribution_slot(
-                    slots,
-                    slot_index,
-                    account_id,
-                    asset,
-                    account_day_counts,
-                    account_last_time,
-                    caption_day_counts,
-                    source_week_counts,
-                    warnings,
-                )
-                if not slot:
-                    unplanned.append({"renderedAssetId": asset["id"], "reason": "no_available_time_slot"})
-                    continue
-                plan = self.create_distribution_plan(
-                    asset["id"],
-                    surface=surface,
-                    instagram_account_id=account_id,
-                    planned_window_start=slot.isoformat(),
-                    reason_code=reason_code,
-                    smart_link=(profile or {}).get("defaultSmartLink"),
-                    cta_text=(profile or {}).get("storyCtaText") if surface == "story_cta" else None,
-                )
-                planned.append(plan)
-                if (profile or {}).get("storyCtaText") or (profile or {}).get("defaultSmartLink"):
-                    story_slot = slot + timedelta(hours=2)
-                    story_plan = self.create_distribution_plan(
-                        asset["id"],
-                        surface="story_cta",
-                        instagram_account_id=account_id,
-                        planned_window_start=story_slot.isoformat(),
-                        paired_rendered_asset_id=asset["id"],
-                        reason_code="cta_followup",
-                        smart_link=(profile or {}).get("defaultSmartLink"),
-                        cta_text=(profile or {}).get("storyCtaText") or "new post is up",
-                    )
-                    planned.append(story_plan)
-            surface_counts: dict[str, int] = {}
-            for plan in planned:
-                surface_counts[plan["surface"]] = surface_counts.get(plan["surface"], 0) + 1
-            result = {
-                "schema": "campaign_factory.distribution_plan_run.v1",
-                "campaign": campaign["slug"],
-                "userId": user_id,
-                "mode": schedule_mode,
-                "strategy": normalized_strategy,
-                "generatedAt": utc_now(),
-                "pipelineJobId": pipeline_job["id"],
-                "clearedPlans": cleared,
-                "eligibleAssets": total,
-                "plannedCount": len(planned),
-                "unplannedCount": len(unplanned) + max(0, total - len(primary_assets)),
-                "surfaceCounts": surface_counts,
-                "planned": planned,
-                "unplanned": unplanned + [
-                    {"renderedAssetId": asset["id"], "reason": "bottom_twenty_unplanned"}
-                    for asset in eligible_assets[len(primary_assets):]
-                ],
-                "warnings": warnings,
-            }
-            self.record_event(
-                "distribution_planned",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="success" if not warnings else "warning",
-                message=f"Distribution planned: {len(planned)} plans across {len(surface_counts)} surfaces",
-                metadata={
-                    "mode": schedule_mode,
-                    "strategy": normalized_strategy,
-                    "surfaceCounts": surface_counts,
-                    "plannedCount": len(planned),
-                    "unplannedCount": result["unplannedCount"],
-                    "warningCount": len(warnings),
-                },
-            )
-            self.finish_pipeline_job(pipeline_job["id"], result)
-            return result
-        except Exception as exc:
-            self.record_event(
-                "distribution_planned",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="failure",
-                message=f"Distribution planning failed: {exc}",
-                metadata={"error": str(exc), "mode": schedule_mode, "strategy": normalized_strategy},
-            )
-            self.fail_pipeline_job(pipeline_job["id"], str(exc))
-            raise
 
     def _next_distribution_account(
         self,
@@ -3838,34 +3572,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         model_slug: str,
         cursors: dict[str, int],
     ) -> str | None:
-        allowed = [str(item) for item in (profile or {}).get("allowedInstagramAccountIds") or [] if str(item).strip()]
-        if not allowed:
-            return None
-        cursor_key = (profile or {}).get("modelSlug") or model_slug or "default"
-        index = cursors.get(cursor_key, 0)
-        account_id = allowed[index % len(allowed)]
-        cursors[cursor_key] = index + 1
-        compatible, _, _ = self.account_compatible_with_model(model_slug, instagram_account_id=account_id)
-        return account_id if compatible else None
+        return self.services.next_distribution_account(profile, model_slug, cursors)
 
     def _distribution_slots(self, hours: list[int], count: int) -> list[datetime]:
-        local_tz = ZoneInfo("America/New_York")
-        now = datetime.now(timezone.utc)
-        local_start_date = (now.astimezone(local_tz) + timedelta(days=1)).date()
-        slots = []
-        day = 0
-        safe_hours = [hour for hour in hours if 0 <= int(hour) <= 23] or [10, 14, 18]
-        while len(slots) < max(1, count * 4):
-            current_day = local_start_date + timedelta(days=day)
-            for hour in safe_hours:
-                local_slot = datetime.combine(current_day, datetime_time(hour=int(hour)), tzinfo=local_tz)
-                slot = local_slot.astimezone(timezone.utc)
-                if slot > now:
-                    slots.append(slot)
-                    if len(slots) >= max(1, count * 4):
-                        break
-            day += 1
-        return slots
+        return self.services.distribution_slots(hours, count)
 
     def _next_valid_distribution_slot(
         self,
@@ -3879,29 +3589,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         source_week_counts: dict[tuple[str, str], int],
         warnings: list[dict[str, Any]],
     ) -> tuple[datetime | None, int]:
-        caption_hash = asset.get("caption_hash") or asset.get("captionHash") or asset.get("content_hash") or asset["id"]
-        source_id = asset.get("source_asset_id") or asset.get("sourceAssetId") or asset["id"]
-        for offset in range(len(slots)):
-            index = start_index + offset
-            slot = slots[index % len(slots)]
-            day_key = slot.date().isoformat()
-            week_key = f"{slot.isocalendar().year}-W{slot.isocalendar().week:02d}"
-            if account_day_counts.get((account_id, day_key), 0) >= 1:
-                continue
-            if account_id in account_last_time and abs((slot - account_last_time[account_id]).total_seconds()) < 4 * 3600:
-                continue
-            if caption_day_counts.get((account_id, f"{day_key}:{caption_hash}"), 0) >= 1:
-                warnings.append({"type": "caption_reuse_avoided", "renderedAssetId": asset["id"], "instagramAccountId": account_id})
-                continue
-            if source_week_counts.get((account_id, f"{week_key}:{source_id}"), 0) >= 1:
-                warnings.append({"type": "source_family_reuse_avoided", "renderedAssetId": asset["id"], "instagramAccountId": account_id})
-                continue
-            account_day_counts[(account_id, day_key)] = account_day_counts.get((account_id, day_key), 0) + 1
-            account_last_time[account_id] = slot
-            caption_day_counts[(account_id, f"{day_key}:{caption_hash}")] = caption_day_counts.get((account_id, f"{day_key}:{caption_hash}"), 0) + 1
-            source_week_counts[(account_id, f"{week_key}:{source_id}")] = source_week_counts.get((account_id, f"{week_key}:{source_id}"), 0) + 1
-            return slot, index + 1
-        return None, start_index
+        return self.services.next_valid_distribution_slot(
+            slots,
+            start_index,
+            account_id,
+            asset,
+            account_day_counts,
+            account_last_time,
+            caption_day_counts,
+            source_week_counts,
+            warnings,
+        )
 
     def import_folder(
         self,
@@ -19418,32 +19116,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self.rendered_for_campaign(campaign["id"])]
-        plans = self.distribution_plans_for_campaign(campaign_slug)
-        planned_assets = {plan["renderedAssetId"] for plan in plans if plan.get("surface") != "story_cta"}
-        surface_counts: dict[str, int] = {}
-        preview_count = 0
-        live_count = 0
-        for plan in plans:
-            surface = plan.get("surface") or "regular_reel"
-            surface_counts[surface] = surface_counts.get(surface, 0) + 1
-            if plan.get("plannedWindowStart"):
-                preview_count += 1
-        return {
-            "schema": "campaign_factory.distribution_summary.v1",
-            "campaign": campaign["slug"],
-            "generatedAt": utc_now(),
-            "surfaceCounts": surface_counts,
-            "plannedAssets": len(planned_assets),
-            "unplannedApprovedAssets": len([
-                asset for asset in rendered
-                if asset.get("review_state") in {"approved", "review_ready"} and asset["id"] not in planned_assets
-            ]),
-            "previewScheduledPlans": preview_count,
-            "liveScheduledPlans": live_count,
-            "plans": plans,
-        }
+        return self.services.distribution_summary(campaign_slug)
 
     def multi_surface_inventory_audit(
         self,
@@ -20398,11 +20071,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def _latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
-            (rendered_asset_id,),
-        ).fetchone()
-        return self._distribution_plan_payload(dict(row)) if row else None
+        return self.services.latest_distribution_plan_for_asset(rendered_asset_id)
 
     def _asset_components(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
