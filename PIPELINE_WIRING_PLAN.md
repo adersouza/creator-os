@@ -7,10 +7,10 @@ draft-first per-account video variation before ThreadsDashboard draft export,
 plus the E2 primitive for turning an accepted still into a review-ready MP4 by
 local FFmpeg motion edit.
 
-The current branch completes the first live Workstream E chain: accepted-still
-Kling apply can register a downloaded local MP4 as a review-ready master reel
-and, when explicitly requested, hand that one master into the existing variation
-stage. Paid generation remains default-off and budget-gated.
+The current branch implements Workstream F's first intelligence loop slice:
+next-batch recommendations now use measured performance snapshots to rank
+reference patterns and per-account variation presets before planning the next
+draft batch. Paid generation remains default-off and budget-gated.
 
 Creator OS does not commit a dashboard mirror. Dashboard source, RLS, type
 cleanup, visual regression, and deployment provenance live in the external
@@ -48,6 +48,16 @@ ThreadsDashboard repository.
   in dry-run mode against only the newly registered Kling master asset. If the
   paid job did not yield a downloaded local video, variation fails closed instead
   of silently sharing the master or doing nothing.
+- `campaign-factory recommend-next-batch` now selects the best measured
+  reference pattern when eligible performance history exists, instead of always
+  using the latest active/static campaign reference plan.
+- `recommendation_next_batch.v1` payloads include optional
+  `referencePatternEvidence`, `recommendedVariationPreset`, and
+  `variationPresetEvidence` fields so a later generation/variation slice can
+  bind the next batch to the best observed per-account preset.
+- Account memory and performance leaderboards now treat `variationPreset` as a
+  first-class measured pattern dimension extracted from campaign metadata and
+  variant operation provenance.
 
 ## Safety Boundaries
 
@@ -70,5 +80,4 @@ ThreadsDashboard repository.
 
 ## Next Slices
 
-- Add performance-driven preset selection.
 - Add proactive cycles only after the draft-first path is proven.

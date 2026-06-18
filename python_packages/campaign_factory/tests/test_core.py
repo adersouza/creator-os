@@ -4108,6 +4108,165 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
         cf.close()
 
 
+def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        campaign = cf.campaign_by_slug("may")
+        now = "2026-01-02T00:00:00+00:00"
+        for pattern_id, cluster_key, rank, label in [
+            ("refpat_static", "static_active", 1, "Static Active"),
+            ("refpat_winner", "winner_signal", 20, "Winner Signal"),
+        ]:
+            cf.conn.execute(
+                """
+                INSERT INTO reference_patterns (
+                  id, cluster_key, rank, label, visual_format, hook_type, caption_archetype,
+                  reference_ids_json, local_paths_json, public_urls_json, prompt_template_json,
+                  higgsfield_json, caption_formulas_json, audio_recommendations_json, raw_json,
+                  imported_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, 'mirror', 'curiosity', 'short_direct', '[]', '[]', '[]',
+                  '{"captionBrief":"short direct caption"}', '{}', '[{"formula":"short direct caption"}]',
+                  '{}', '{}', ?, ?)
+                """,
+                (pattern_id, cluster_key, rank, label, now, now),
+            )
+        cf.conn.execute(
+            """
+            INSERT INTO campaign_reference_plans
+            (id, campaign_id, reference_pattern_id, variant_count, created_at, updated_at)
+            VALUES ('crp_static', ?, 'refpat_static', 5, ?, ?)
+            """,
+            (campaign["id"], now, now),
+        )
+        caption_hash = threadsdash_adapter._text_hash("caption")
+        snapshots = [
+            ("perf_static", "post_static", "static_active", 200, 5, 0, 0, 0, 180),
+            ("perf_winner", "post_winner", "winner_signal", 15000, 1200, 90, 130, 180, 13000),
+        ]
+        for snapshot_id, post_id, cluster_key, views, likes, comments, shares, saves, reach in snapshots:
+            raw = {
+                "metadata": {
+                    "campaign_factory": {
+                        "reference_pattern": {
+                            "clusterKey": cluster_key,
+                            "label": cluster_key.replace("_", " ").title(),
+                        }
+                    }
+                }
+            }
+            cf.conn.execute(
+                """
+                INSERT INTO performance_snapshots
+                (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
+                 caption_hash, recipe, post_id, platform, status, instagram_account_id,
+                 snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible, raw_json, created_at)
+                VALUES (?, ?, 'asset_1', ?, ?, ?, ?, 'v01_original', ?, 'instagram',
+                 'published', 'ig_1', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    campaign["id"],
+                    source["id"],
+                    source["content_hash"],
+                    source["content_hash"],
+                    caption_hash,
+                    post_id,
+                    now,
+                    views,
+                    likes,
+                    comments,
+                    shares,
+                    saves,
+                    reach,
+                    json.dumps(raw),
+                    now,
+                ),
+            )
+        cf.conn.commit()
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
+
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+        assert item["referencePatternId"] == "refpat_winner"
+        assert item["referencePatternEvidence"]["selectionSource"] == "performance_snapshots"
+        rankings = item["referencePatternEvidence"]["rankings"]
+        assert [ranking["patternId"] for ranking in rankings[:2]] == ["refpat_winner", "refpat_static"]
+        assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
+    finally:
+        cf.close()
+
+
+def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        campaign = cf.campaign_by_slug("may")
+        now = "2026-01-02T12:00:00+00:00"
+        caption_hash = threadsdash_adapter._text_hash("caption")
+        snapshots = [
+            ("perf_preset_subtle", "post_subtle", "ig_subtle", 250, 8, 0, 0, 1, 220),
+            ("perf_preset_bold", "post_bold", "ig_bold", 18000, 1500, 120, 150, 210, 16000),
+        ]
+        for snapshot_id, post_id, preset, views, likes, comments, shares, saves, reach in snapshots:
+            raw = {"metadata": {"campaign_factory": {"variationPreset": preset}}}
+            cf.conn.execute(
+                """
+                INSERT INTO performance_snapshots
+                (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
+                 caption_hash, recipe, post_id, platform, status, instagram_account_id,
+                 snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
+                 variant_operations_json, raw_json, created_at)
+                VALUES (?, ?, 'asset_1', ?, ?, ?, ?, 'v01_original', ?, 'instagram',
+                 'published', 'ig_memory', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    campaign["id"],
+                    source["id"],
+                    source["content_hash"],
+                    source["content_hash"],
+                    caption_hash,
+                    post_id,
+                    now,
+                    views,
+                    likes,
+                    comments,
+                    shares,
+                    saves,
+                    reach,
+                    json.dumps([{"type": "account_bound_variant", "preset_name": preset}]),
+                    json.dumps(raw),
+                    now,
+                ),
+            )
+        cf.conn.commit()
+
+        rebuilt = cf.rebuild_account_memory("may")
+        rec = cf.recommend_next_batch("may", count=1, account="ig_memory", persist=True)
+
+        assert rebuilt["accountCount"] == 1
+        memory = cf.account_memory("may", account="ig_memory")["accounts"][0]
+        variation_stats = [item for item in memory["patternStats"] if item["patternType"] == "variationPreset"]
+        assert len(variation_stats) == 2
+        assert [item["label"] for item in variation_stats[:2]] == ["ig_bold", "ig_subtle"]
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+        assert item["recommendedVariationPreset"] == "ig_bold"
+        assert item["variationPresetEvidence"]["selectionSource"] == "performance_snapshots"
+        rankings = item["variationPresetEvidence"]["rankings"]
+        assert [ranking["presetName"] for ranking in rankings[:2]] == ["ig_bold", "ig_subtle"]
+        assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
+    finally:
+        cf.close()
+
+
 def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
