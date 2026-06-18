@@ -3025,7 +3025,7 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_pa
             assert contentforge_base_url == "http://contentforge.test"
             report_path.write_text("{}", encoding="utf-8")
             return {
-                "contractVersion": "campaign_factory_audit.v1.4",
+                "contractVersion": "campaign_factory_audit.v1.5",
                 "overallVerdict": "pass",
                 "verdicts": {"pdq": "pass", "sscd": "pass"},
                 "readinessSummary": {"uploadReady": True, "blockingCodes": []},
@@ -3044,7 +3044,7 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_pa
         assignment_path = Path(result["assignments"][0]["assignmentPath"])
         payload = json.loads(assignment_path.read_text(encoding="utf-8"))
         assert assignment_path.exists()
-        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"] == "campaign_factory_audit.v1.4"
+        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"] == "campaign_factory_audit.v1.5"
         assert payload["assignments"][0]["lineage"]["perceptual_audit"]["verdicts"] == {
             "pdq": "pass",
             "sscd": "pass",
@@ -3065,7 +3065,7 @@ def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(tmp_pat
         monkeypatch.setattr(
             "campaign_factory.variation_stage.audit_variation_batch",
             lambda **kwargs: {
-                "contractVersion": "campaign_factory_audit.v1.4",
+                "contractVersion": "campaign_factory_audit.v1.5",
                 "overallVerdict": "fail",
                 "verdicts": {"pdq": "fail", "sscd": "fail"},
                 "readinessSummary": {
@@ -3155,7 +3155,7 @@ def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path,
         monkeypatch.setattr(
             "campaign_factory.variation_stage.audit_variation_batch",
             lambda **kwargs: {
-                "contractVersion": "campaign_factory_audit.v1.4",
+                "contractVersion": "campaign_factory_audit.v1.5",
                 "overallVerdict": "pass",
                 "verdicts": {"pdq": "pass", "sscd": "pass"},
                 "readinessSummary": {"uploadReady": True, "blockingCodes": []},
@@ -4006,7 +4006,7 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(tmp_path: Pa
         seen["base_url"] = base_url
         seen.update(kwargs)
         return {
-            "contractVersion": "campaign_factory_audit.v1.4",
+            "contractVersion": "campaign_factory_audit.v1.5",
             "auditProfile": "campaign_factory_v1",
             "overallVerdict": "pass",
             "verdicts": {"pdq": "pass", "sscd": "pass"},

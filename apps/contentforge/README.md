@@ -10,7 +10,11 @@ ContentForge runs on your machine with Next.js, FFmpeg, and Python helper script
 Two families of checks:
 
 - **Spoof meters** — `sourceSimilarity`, `variantToVariantSimilarity`, `variationScore` measure how well a variant evades duplicate/forensic detection.
-- **Quality guards** — `creativeQualityScore`, `readabilityScore`, `safeZoneScore` enforce a **quality floor**: spoofing must never visibly degrade the delivered video. A variant that evades detection but looks worse is a failure.
+- **Quality guards** — `safeZoneScore` is blocking for Campaign Factory caption/UI
+  overlap, while `creativeQualityScore` and `readabilityScore` remain review
+  signals until model-backed quality gates land. Spoofing must never visibly
+  degrade the delivered video; a variant that evades detection but looks worse
+  is a failure.
 
 > **Note:** This defeats platform duplicate-detection and capture-forensics — a Terms-of-Service-evasion capability. Two standing rules: (1) the quality floor is non-negotiable — no spoof change may worsen perceptible output quality; (2) extending or strengthening the evasion capability requires explicit owner instruction.
 
@@ -135,8 +139,9 @@ Use `targetFile` so the audit is scoped to the rendered asset instead of every
 older file in `output/final/`. The `campaign_factory_v1` profile keeps
 FFmpeg/Lavf/Lavc, missing `creation_time`, generic `VideoHandler`, missing
 audio, and missing faststart visible as warnings when the media is otherwise
-platform-compatible. Real blockers remain unsupported codec/container, invalid
-short-form dimensions, unreadable/corrupt media, and bad audio policy.
+platform-compatible. Real blockers are unsupported codec/container, invalid
+short-form dimensions, unreadable/corrupt media, bad audio policy, and caption
+safe-zone overlap for Campaign Factory outputs.
 
 Responses include `verdicts`, `verdictCodes`, `overallVerdict`,
 `filesAnalyzed`, and:
