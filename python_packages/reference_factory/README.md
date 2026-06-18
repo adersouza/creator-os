@@ -161,6 +161,22 @@ Important: Apify posts are matched to local files only when Instagram numeric
 media IDs align with local filenames. Otherwise they are stored as
 `external_only` public winners from the same account universe. Prompt cards use
 the winning structure and public metrics; they do not copy captions directly.
+When the scrape includes creator audience size, public winner ranking uses
+play/view rate per follower before falling back to raw plays.
+
+Campaign Factory measured outcomes can be imported after posts have actual
+performance data:
+
+```bash
+python3 -m reference_factory.cli import-prompt-outcomes \
+  --input $CREATOR_OS_ROOT/reference_reels/outcomes/campaign_prompt_outcomes.json
+```
+
+Outcome rows should include `referenceId` or `promptId`, `rewardScore`,
+`confidence`, and `sampleCount`. Reference Factory stores those fields on
+`generated_video_prompts`; `top-public-posts`, `analyze-patterns`, and
+`build-learning-system` prefer measured reward evidence over public raw-volume
+rankings when it exists.
 
 TikTok/myfaveTT slideshow archives can be imported as slideshow reference
 material:

@@ -36,9 +36,10 @@ def import_apify_metrics(
             INSERT INTO public_posts (
               id, owner_username, short_code, url, timestamp, product_type, post_type,
               caption, video_view_count, video_play_count, likes_count, comments_count,
-              display_url, video_url, match_type, reference_id, local_path, raw_json, imported_at
+              owner_follower_count, public_rate_score, display_url, video_url, match_type,
+              reference_id, local_path, raw_json, imported_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(short_code) DO UPDATE SET
               owner_username = excluded.owner_username,
               url = excluded.url,
@@ -50,6 +51,8 @@ def import_apify_metrics(
               video_play_count = excluded.video_play_count,
               likes_count = excluded.likes_count,
               comments_count = excluded.comments_count,
+              owner_follower_count = excluded.owner_follower_count,
+              public_rate_score = excluded.public_rate_score,
               display_url = excluded.display_url,
               video_url = excluded.video_url,
               match_type = excluded.match_type,
@@ -71,6 +74,8 @@ def import_apify_metrics(
                 _int_or_none(post.get("videoPlayCount")),
                 _int_or_none(post.get("likesCount")),
                 _int_or_none(post.get("commentsCount")),
+                _follower_count(post),
+                _public_rate_score(post),
                 post.get("displayUrl"),
                 post.get("videoUrl"),
                 match_type,
@@ -100,10 +105,29 @@ def import_apify_metrics(
 def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
     rows = conn.execute(
         """
-        SELECT *
+        WITH prompt_outcomes AS (
+          SELECT reference_id,
+                 MAX(outcome_reward_score) AS measured_outcome_score,
+                 MAX(outcome_confidence) AS measured_outcome_confidence,
+                 SUM(outcome_sample_count) AS measured_outcome_sample_count,
+                 MAX(outcome_updated_at) AS measured_outcome_updated_at
+          FROM generated_video_prompts
+          WHERE outcome_reward_score IS NOT NULL
+          GROUP BY reference_id
+        )
+        SELECT public_posts.*,
+               prompt_outcomes.measured_outcome_score,
+               prompt_outcomes.measured_outcome_confidence,
+               prompt_outcomes.measured_outcome_sample_count,
+               prompt_outcomes.measured_outcome_updated_at
         FROM public_posts
+        LEFT JOIN prompt_outcomes ON prompt_outcomes.reference_id = public_posts.reference_id
         WHERE video_play_count IS NOT NULL OR video_view_count IS NOT NULL
-        ORDER BY COALESCE(video_play_count, video_view_count, 0) DESC,
+        ORDER BY CASE WHEN prompt_outcomes.measured_outcome_score IS NULL THEN 1 ELSE 0 END,
+                 prompt_outcomes.measured_outcome_score DESC,
+                 prompt_outcomes.measured_outcome_confidence DESC,
+                 COALESCE(public_rate_score, -1) DESC,
+                 COALESCE(video_play_count, video_view_count, 0) DESC,
                  COALESCE(video_view_count, 0) DESC,
                  COALESCE(likes_count, 0) DESC
         LIMIT ?
@@ -313,12 +337,29 @@ def _public_post_row(row, rank: int) -> dict[str, object]:
         "videoPlayCount": row["video_play_count"],
         "likesCount": row["likes_count"],
         "commentsCount": row["comments_count"],
+        "ownerFollowerCount": row["owner_follower_count"],
+        "publicRateScore": row["public_rate_score"],
         "displayUrl": row["display_url"],
         "videoUrl": row["video_url"],
         "matchType": row["match_type"],
         "referenceId": row["reference_id"],
         "localPath": row["local_path"],
         "rawJson": _compact_raw_json(raw_json),
+        "measuredOutcome": _measured_outcome(row),
+    }
+
+
+def _measured_outcome(row) -> dict[str, object] | None:
+    reward_score = row["measured_outcome_score"]
+    if reward_score is None:
+        return None
+    return {
+        "schema": "reference_factory.prompt_outcome_summary.v1",
+        "rewardScore": reward_score,
+        "confidence": row["measured_outcome_confidence"],
+        "sampleCount": row["measured_outcome_sample_count"] or 0,
+        "updatedAt": row["measured_outcome_updated_at"],
+        "source": "generated_video_prompts",
     }
 
 
@@ -328,6 +369,30 @@ def _compact_raw_json(raw_json: dict[str, Any]) -> dict[str, object]:
         for key in ["sourcePlatform", "sourceFormat", "authorId", "videoId", "coverPath"]
         if raw_json.get(key) is not None
     }
+
+
+def _follower_count(post: dict[str, Any]) -> int | None:
+    for key in ("ownerFollowersCount", "followersCount", "followerCount"):
+        value = _int_or_none(post.get(key))
+        if value:
+            return value
+    owner = post.get("owner")
+    if isinstance(owner, dict):
+        for key in ("followersCount", "followerCount"):
+            value = _int_or_none(owner.get(key))
+            if value:
+                return value
+    return None
+
+
+def _public_rate_score(post: dict[str, Any]) -> float | None:
+    followers = _follower_count(post)
+    if not followers:
+        return None
+    exposure = _int_or_none(post.get("videoPlayCount")) or _int_or_none(post.get("videoViewCount")) or 0
+    if exposure <= 0:
+        return None
+    return round(exposure / followers, 6)
 
 
 def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:

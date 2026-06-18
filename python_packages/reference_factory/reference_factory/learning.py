@@ -143,6 +143,8 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "views": int(row["video_view_count"] or 0),
                 "likes": int(row["likes_count"] or 0),
                 "comments": int(row["comments_count"] or 0),
+                "measuredOutcome": (pattern.get("metrics") or {}).get("measuredOutcome"),
+                "publicRateScore": (pattern.get("metrics") or {}).get("publicRateScore"),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
                 "visualFormat": row["visual_format"],
@@ -189,7 +191,13 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
     accounts = sorted(set(str(item.get("account") or "_unknown") for item in items))
     tags = Counter(tag for item in items for tag in item.get("tags", []))
     captions = [str(item.get("caption") or "").strip() for item in ranked if str(item.get("caption") or "").strip()]
-    cluster_score = _cluster_score(items, plays, quality, accounts)
+    measured_scores = [
+        float((item.get("measuredOutcome") or {}).get("rewardScore"))
+        for item in items
+        if isinstance(item.get("measuredOutcome"), dict)
+        and isinstance((item.get("measuredOutcome") or {}).get("rewardScore"), (int, float))
+    ]
+    cluster_score = _cluster_score(items, plays, quality, accounts, measured_scores)
     label = _cluster_label(visual, hook, caption)
     return {
         "schema": "reference_factory.learning_cluster.v1",
@@ -222,6 +230,8 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
         "performanceSignals": {
             "medianViews": int(statistics.median(plays)) if plays else 0,
             "totalPlays": sum(plays),
+            "measuredOutcomeSamples": len(measured_scores),
+            "avgMeasuredReward": round(sum(measured_scores) / len(measured_scores), 4) if measured_scores else None,
             "topAccounts": accounts[:10],
         },
         "promptTemplate": _prompt_template(visual, hook, caption),
@@ -230,13 +240,23 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def _cluster_score(items: list[dict[str, Any]], plays: list[int], quality: list[float], accounts: list[str]) -> float:
+def _cluster_score(
+    items: list[dict[str, Any]],
+    plays: list[int],
+    quality: list[float],
+    accounts: list[str],
+    measured_scores: list[float] | None = None,
+) -> float:
     avg_quality = sum(quality) / max(1, len(quality))
     total_plays = sum(plays)
     play_score = min(25.0, math.log10(max(total_plays, 1)) * 3.2)
     count_score = min(16.0, len(items) * 1.5)
     diversity_score = min(12.0, len(accounts) * 1.4)
-    return round((avg_quality * 0.47) + play_score + count_score + diversity_score, 2)
+    outcome_score = 0.0
+    if measured_scores:
+        avg_measured = sum(measured_scores) / len(measured_scores)
+        outcome_score = max(-8.0, min(18.0, (avg_measured - 1.0) * 20.0))
+    return round((avg_quality * 0.47) + play_score + count_score + diversity_score + outcome_score, 2)
 
 
 def _cluster_label(visual: str, hook: str, caption: str) -> str:

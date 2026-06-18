@@ -345,6 +345,9 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             "views": item.get("videoViewCount"),
             "likes": item.get("likesCount"),
             "comments": item.get("commentsCount"),
+            "ownerFollowerCount": item.get("ownerFollowerCount"),
+            "publicRateScore": item.get("publicRateScore"),
+            "measuredOutcome": item.get("measuredOutcome"),
             "performanceTier": performance_tier,
         },
         "caption": {
@@ -562,6 +565,13 @@ def _quality_score(item: dict[str, Any], caption_archetype: str, visual_format: 
         score += min(5.0, math.log10(max(likes, 1)) * 1.2)
     if comments:
         score += min(3.0, math.log10(max(comments, 1)))
+    measured = item.get("measuredOutcome") or {}
+    measured_score = measured.get("rewardScore") if isinstance(measured, dict) else None
+    if isinstance(measured_score, (int, float)):
+        score += max(-10.0, min(14.0, (float(measured_score) - 1.0) * 18.0))
+    public_rate_score = item.get("publicRateScore")
+    if isinstance(public_rate_score, (int, float)) and public_rate_score > 0:
+        score += min(6.0, math.log10(max(float(public_rate_score), 0.000001) * 1000.0 + 1.0) * 2.0)
     if match_type == "exact_media_id":
         score += 6
     if height > width and width >= 540:
@@ -706,6 +716,7 @@ def _llm_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _pattern_row_to_card(row: Any) -> dict[str, Any]:
     pattern = json_load(row["pattern_json"], {})
+    metrics = pattern.get("metrics") if isinstance(pattern.get("metrics"), dict) else {}
     return {
         "schema": "reference_factory.pattern_card.v1",
         "id": row["id"],
@@ -723,6 +734,9 @@ def _pattern_row_to_card(row: Any) -> dict[str, Any]:
             "views": row["video_view_count"],
             "likes": row["likes_count"],
             "comments": row["comments_count"],
+            "ownerFollowerCount": metrics.get("ownerFollowerCount"),
+            "publicRateScore": metrics.get("publicRateScore"),
+            "measuredOutcome": metrics.get("measuredOutcome"),
         },
         "suggestedLabel": row["suggested_label"],
         "visualFormat": row["visual_format"],

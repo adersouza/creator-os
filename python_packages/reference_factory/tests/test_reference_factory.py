@@ -20,6 +20,7 @@ from reference_factory.ocr import normalize_text, ocr_cleanup, parse_tesseract_t
 from reference_factory.patterns import analyze_patterns, apply_pattern_labels, export_patterns, pattern_summary
 from reference_factory.provider_doctor import provider_doctor
 from reference_factory.proof_verifier import verify_proof_bundle
+from reference_factory.outcomes import import_prompt_outcomes
 from reference_factory.public_metrics import export_learning_set, generate_prompt_cards, import_apify_metrics, top_public_posts
 from reference_factory.reference_intake import analyze_reference_local, compile_prompts_with_grok_api, export_video_analyses, generate_video_prompts, gemini_analysis_prompt, import_gemini_app_response, import_reference_analysis, queue_reference_analysis, _grok_prompt_builder, _json_from_model_text
 from reference_factory.review import (
@@ -1997,6 +1998,114 @@ def test_pattern_analyzer_labels_top_posts_and_exports_cards(tmp_path: Path) -> 
     assert Path(exported["jsonlPath"]).exists()
     assert applied["applied"] == 1
     assert conn.execute("SELECT label FROM review_labels WHERE reference_id = 'ref_local'").fetchone()["label"] == "gold"
+
+
+def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    for idx, (media_id, account) in enumerate((("2222222222", "small_account"), ("9999999999", "huge_account")), start=1):
+        conn.execute(
+            """
+            INSERT INTO source_files (
+              reference_id, path, account, file_name, extension, kind,
+              size_bytes, mtime, path_hash, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, '.mp4', 'video', 100, 'now', ?, 'now', 'now')
+            """,
+            (
+                f"ref_{idx}",
+                f"/examples/{account}/{account}_1111111111_{media_id}_3333333333.mp4",
+                account,
+                f"clip_1111111111_{media_id}_3333333333.mp4",
+                f"hash_{idx}",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO generated_video_prompts (
+              id, reference_id, target_tool, model_profile, prompt_json, status, created_at, updated_at
+            )
+            VALUES (?, ?, 'higgsfield', 'default', '{}', 'draft', 'now', 'now')
+            """,
+            (f"prompt_{idx}", f"ref_{idx}"),
+        )
+    apify_path = tmp_path / "apify.json"
+    apify_path.write_text(
+        """
+        [
+          {"id":"2222222222","ownerUsername":"small_account","shortCode":"LOWRAW","url":"https://instagram.com/p/LOWRAW/","caption":"POV: try this","videoPlayCount":1000,"videoViewCount":900,"likesCount":80,"commentsCount":3,"ownerFollowersCount":200},
+          {"id":"9999999999","ownerUsername":"huge_account","shortCode":"HIGHRAW","url":"https://instagram.com/p/HIGHRAW/","caption":"POV: try this","videoPlayCount":1000000,"videoViewCount":900000,"likesCount":8000,"commentsCount":30,"ownerFollowersCount":5000000}
+        ]
+        """,
+        encoding="utf-8",
+    )
+    import_apify_metrics(conn, [apify_path], top_limit=2)
+
+    imported = import_prompt_outcomes(
+        conn,
+        [
+            {"referenceId": "ref_1", "rewardScore": 1.8, "confidence": 0.82, "sampleCount": 4},
+            {"referenceId": "ref_2", "rewardScore": 0.4, "confidence": 0.76, "sampleCount": 8},
+        ],
+    )
+    top = top_public_posts(conn, limit=2)
+
+    assert imported["updated"] == 2
+    assert top["items"][0]["shortCode"] == "LOWRAW"
+    assert top["items"][0]["measuredOutcome"]["rewardScore"] == 1.8
+    assert top["items"][0]["publicRateScore"] > top["items"][1]["publicRateScore"]
+
+
+def test_pattern_analyzer_embeds_measured_outcome_signals(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind,
+          size_bytes, mtime, path_hash, created_at, updated_at
+        )
+        VALUES (
+          'ref_local', '/examples/account_a/account_a_1111111111_2222222222_3333333333.mp4',
+          'account_a', 'mirror_fitcheck_1111111111_2222222222_3333333333.mp4',
+          '.mp4', 'video', 100, 'now', 'hash', 'now', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO video_probes (
+          reference_id, valid, duration_seconds, width, height, fps,
+          codec, aspect_ratio, rotation, probe_json, probed_at
+        )
+        VALUES ('ref_local', 1, 8, 1080, 1920, 30, 'h264', 0.5625, 0, '{}', 'now')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO generated_video_prompts (
+          id, reference_id, target_tool, model_profile, prompt_json, status, created_at, updated_at
+        )
+        VALUES ('prompt_1', 'ref_local', 'higgsfield', 'default', '{}', 'draft', 'now', 'now')
+        """
+    )
+    apify_path = tmp_path / "apify.json"
+    apify_path.write_text(
+        """
+        [
+          {"id":"2222222222","ownerUsername":"account_a","shortCode":"ABC123","url":"https://instagram.com/p/ABC123/","caption":"POV: mirror fit check?","videoPlayCount":10000,"videoViewCount":9000,"likesCount":500,"commentsCount":20}
+        ]
+        """,
+        encoding="utf-8",
+    )
+    import_apify_metrics(conn, [apify_path], top_limit=1)
+    import_prompt_outcomes(conn, [{"referenceId": "ref_local", "rewardScore": 1.35, "confidence": 0.7, "sampleCount": 3}])
+
+    analyzed = analyze_patterns(conn, limit=1, provider="heuristic", output_dir=tmp_path / "learning")
+    row = conn.execute("SELECT pattern_json FROM reference_patterns").fetchone()
+    pattern = json.loads(row["pattern_json"])
+
+    assert analyzed["analyzed"] == 1
+    assert pattern["metrics"]["measuredOutcome"]["rewardScore"] == 1.35
+    assert pattern["metrics"]["measuredOutcome"]["sampleCount"] == 3
 
 
 def test_tiktok_archive_imports_slideshow_references_and_patterns(tmp_path: Path) -> None:

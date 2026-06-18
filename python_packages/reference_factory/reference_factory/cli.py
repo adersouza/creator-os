@@ -21,6 +21,7 @@ from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
 from .ocr import ocr_cleanup, run_ocr
+from .outcomes import import_prompt_outcomes_file
 from .patterns import analyze_patterns, apply_pattern_labels, export_patterns, pattern_summary
 from .provider_doctor import provider_doctor
 from .proof_verifier import verify_proof_bundle
@@ -120,6 +121,9 @@ def build_parser() -> argparse.ArgumentParser:
     patterns.add_argument("--limit", type=int, default=300)
     patterns.add_argument("--provider", default="auto", choices=["auto", "heuristic", "ollama"])
     patterns.add_argument("--ollama-model", default=None)
+
+    outcome_import = sub.add_parser("import-prompt-outcomes", help="Import Campaign Factory measured outcomes for generated Reference Factory prompts")
+    outcome_import.add_argument("--input", action="append", required=True, help="JSON outcome file path; repeatable")
 
     audio_patterns = sub.add_parser("analyze-audio-patterns", help="Analyze top public winners into reusable audio recommendations")
     audio_patterns.add_argument("--limit", type=int, default=300)
@@ -462,6 +466,13 @@ def main(argv: list[str] | None = None) -> int:
                     provider=args.provider,
                     ollama_model=args.ollama_model,
                     output_dir=data_root / "learning",
+                )
+            )
+        elif args.command == "import-prompt-outcomes":
+            print_json(
+                import_prompt_outcomes_file(
+                    conn,
+                    [Path(path).expanduser() for path in args.input],
                 )
             )
         elif args.command == "analyze-audio-patterns":

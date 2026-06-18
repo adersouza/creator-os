@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS public_posts (
   video_play_count INTEGER,
   likes_count INTEGER,
   comments_count INTEGER,
+  owner_follower_count INTEGER,
+  public_rate_score REAL,
   display_url TEXT,
   video_url TEXT,
   match_type TEXT NOT NULL DEFAULT 'external_only',
@@ -301,6 +303,11 @@ CREATE TABLE IF NOT EXISTS generated_video_prompts (
   model_profile TEXT,
   prompt_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
+  outcome_sample_count INTEGER NOT NULL DEFAULT 0,
+  outcome_reward_score REAL,
+  outcome_confidence REAL,
+  outcome_updated_at TEXT,
+  outcome_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(reference_id, target_tool, model_profile)
@@ -334,7 +341,41 @@ def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _ensure_schema_columns(conn)
     return conn
+
+
+def _ensure_schema_columns(conn: sqlite3.Connection) -> None:
+    _ensure_columns(
+        conn,
+        "public_posts",
+        {
+            "owner_follower_count": "INTEGER",
+            "public_rate_score": "REAL",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "generated_video_prompts",
+        {
+            "outcome_sample_count": "INTEGER NOT NULL DEFAULT 0",
+            "outcome_reward_score": "REAL",
+            "outcome_confidence": "REAL",
+            "outcome_updated_at": "TEXT",
+            "outcome_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
+    conn.commit()
+
+
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {
+        str(row["name"])
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
