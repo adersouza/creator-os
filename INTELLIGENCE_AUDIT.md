@@ -176,7 +176,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 6. **Track I statistical rigor** (normalization, recency decay, confidence weighting) — turns advice into intelligence; foundation for Workstream F.
 7. Winner-DNA → generation auto-feedback; reference_factory return path.
 
-## Non-negotiable constraints (carry from PIPELINE_WIRING_PLAN.md)
+## Non-negotiable constraints
 
 - **Legit variation + detection only — do NOT strengthen the `micro` hash-evasion spoof.** Safety fixes *catch* collisions; they don't hide them.
 - **Quality floor only goes UP.** No change may lower delivered quality.
