@@ -20,6 +20,7 @@ from pipeline_contracts import (
     validate_pattern_card,
     validate_performance_sync,
     validate_repurposing_plan,
+    validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
     validate_schema_examples,
     validate_variant_assignment,
@@ -50,6 +51,7 @@ def test_named_validators_accept_examples():
     validate_variant_assignment(load_example("variant_assignment"))
     validate_motion_edit_render(load_example("motion_edit_render"))
     validate_front_generation_plan(load_example("front_generation_plan"))
+    validate_recommendation_accuracy_report(load_example("recommendation_accuracy_report"))
 
 
 def test_validator_reports_nested_required_field():
@@ -58,6 +60,30 @@ def test_validator_reports_nested_required_field():
 
     with pytest.raises(ContractValidationError, match="allow_publish"):
         validate_campaign_draft_payload(payload)
+
+
+def test_generated_asset_lineage_requires_pipeline_trace_id():
+    payload = load_example("generated_asset_lineage")
+    del payload["pipelineTraceId"]
+
+    with pytest.raises(ContractValidationError, match="pipelineTraceId"):
+        validate_generated_asset_lineage(payload)
+
+
+def test_recommendation_accuracy_report_requires_causal_graph_ids():
+    payload = load_example("recommendation_accuracy_report")
+    del payload["reportGraphId"]
+
+    with pytest.raises(ContractValidationError, match="reportGraphId"):
+        validate_recommendation_accuracy_report(payload)
+
+
+def test_performance_sync_requires_pipeline_causal_ids():
+    payload = load_example("performance_sync")
+    del payload["pipelineJobId"]
+
+    with pytest.raises(ContractValidationError, match="pipelineJobId"):
+        validate_performance_sync(payload)
 
 
 def test_campaign_draft_payload_keeps_graph_ids_optional_for_legacy_metadata():

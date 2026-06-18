@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
 	validateAudioIntentContract,
 	validateFrontGenerationPlan,
+	validateGeneratedAssetLineage,
 	validateMotionEditRender,
+	validatePerformanceSync,
 	validateRepurposingPlan,
+	validateRecommendationAccuracyReport,
 	validateVariantAssignment,
 } from "../typescript/index";
 
@@ -136,6 +139,39 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateFrontGenerationPlan(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("budgetStatus"),
+			]),
+		);
+	});
+
+	it("requires generated asset lineage trace IDs", () => {
+		const payload = example("generated_asset_lineage");
+		delete payload.pipelineTraceId;
+
+		expect(validateGeneratedAssetLineage(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("pipelineTraceId"),
+			]),
+		);
+	});
+
+	it("requires recommendation accuracy graph IDs", () => {
+		const payload = example("recommendation_accuracy_report");
+		delete payload.reportGraphId;
+
+		expect(validateRecommendationAccuracyReport(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("reportGraphId"),
+			]),
+		);
+	});
+
+	it("requires performance sync pipeline causal IDs", () => {
+		const payload = example("performance_sync");
+		delete payload.pipelineJobId;
+
+		expect(validatePerformanceSync(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("pipelineJobId"),
 			]),
 		);
 	});

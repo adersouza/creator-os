@@ -6,6 +6,9 @@
   "required": [
     "schema",
     "campaign",
+    "campaignGraphId",
+    "reportId",
+    "reportGraphId",
     "windowDays",
     "generatedAt",
     "recommendationTrustScore",
@@ -18,12 +21,12 @@
   "properties": {
     "schema": { "const": "campaign_factory.recommendation_accuracy_report.v1" },
     "campaign": { "type": "string" },
-    "campaignGraphId": { "type": ["string", "null"] },
+    "campaignGraphId": { "type": "string", "minLength": 1 },
     "account": { "type": ["string", "null"] },
     "windowDays": { "type": "integer" },
     "generatedAt": { "type": "string" },
-    "reportId": { "type": "string" },
-    "reportGraphId": { "type": "string" },
+    "reportId": { "type": "string", "minLength": 1 },
+    "reportGraphId": { "type": "string", "minLength": 1 },
     "recommendationTrustScore": { "type": "integer" },
     "trustConfidence": { "type": "string", "enum": ["insufficient", "directional", "usable", "strong"] },
     "overall": {

@@ -15,8 +15,28 @@ comparisons, and write assignment manifests only after both detectors pass.
 SSIM remains diagnostic. General ContentForge audits remain advisory when
 detectors are unavailable.
 
-All Track I capture/learning work, Track Q quality/virality work, perceptual
-cooldowns, per-account audio, and upstream ThreadsDashboard work remain open.
+Track I contract lineage is fixed on
+`codex/intelligence-track-i-contract-lineage`: `generated_asset_lineage.v1`,
+`recommendation_accuracy_report.v1`, and `performance_sync.v1` now require
+causal graph/job/trace IDs, Python and TypeScript validators reject omitted IDs,
+and Campaign/Reel/Reference emitters populate those IDs. Verification:
+`uv run pytest packages/pipeline_contracts/tests`,
+`pnpm --filter pipeline-contracts-ts test`, `pnpm check:contracts`,
+`uv run pytest python_packages/campaign_factory/tests/test_core.py -q`, and
+`uv run pytest tests/integration/test_cross_pipeline_acceptance.py -q`.
+
+Track I Campaign Factory learning rigor is fixed on
+`codex/intelligence-track-i-learning-rigor`: Campaign Factory performance
+ranking now uses latest-snapshot-per-post replacement, account-median reward
+normalization, 21-day recency decay, Bayesian shrinkage toward a prior, and an
+explicit unmeasured state instead of raw average scoring or missing-as-50 inside
+the learning scorer. Verification: `uv run pytest
+python_packages/campaign_factory/tests/test_learning_score.py -q` and `uv run
+pytest python_packages/campaign_factory/tests/test_core.py -q`.
+
+Track I capture work, Reference Factory outcome feedback/statistical rigor,
+Track Q quality/virality work, perceptual cooldowns, per-account audio, and
+upstream ThreadsDashboard work remain open.
 
 ---
 
@@ -37,7 +57,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **4/10** | Partially closed — performance *does* drive 3 decisions, but the loop is human-gated, statistically naive, and leaks at capture + contract boundaries. |
+| **Intelligence / learning loop** | **5/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, but the loop is still human-gated and leaks at capture, Reference Factory feedback, and dashboard boundaries. |
 | **Content quality / virality** | **3/10** | Technical-validity machine, not a quality engine. The "quality floor" is a single resolution check. All creative scores are advisory `heuristic_v1` decoration that gate nothing. |
 | **Anti-shadowban safety** | **~6/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM — the detectors that were ship-but-never-block now block. Remaining gap to higher: caption/audio distinctness + cross-account (sibling-vs-sibling already in) perceptual pass at scale. |
 
@@ -48,7 +68,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 ## Cross-cutting themes (fix these patterns, not just instances)
 
 1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) → `REVIEW_ONLY`. VMAF/CAMBI quality machinery → unused. Creative/readability/safe-zone scores → excluded from blocking. The fix is often *wiring*, not *building*.
-2. **The right metric is computed but the wrong one is the gate.** Distinctness gates on SSIM (structural) instead of PDQ/SSCD (perceptual-hash). Quality gates on resolution instead of watchability. Learning ranks on raw `max(views)` instead of normalized, recency-decayed, confidence-weighted score.
+2. **The right metric is computed but the wrong one is the gate.** Distinctness gates on SSIM (structural) instead of PDQ/SSCD (perceptual-hash). Quality gates on resolution instead of watchability. Campaign Factory learning now uses normalized, recency-decayed, confidence-weighted scoring; Reference Factory ranking and quality/virality gates still need the same treatment.
 3. **Learned intelligence dead-ends as an operator note.** Winner-DNA, recommendation trust score, creative recommendations — all computed, none auto-fed back into generation or ranking.
 4. **The data pipeline that feeds "smart" leaks at the contract boundary.** The internal SQLite carries full lineage (post_id/variant_id/concept_id/...); the *exported contracts* drop those IDs, so Workstream F cannot attribute performance to cause even though the data exists.
 5. **In-environment AI is unused.** Higgsfield `virality_predictor` + `video_analysis` are available (skill + `video_analysis.v1` contract scaffold) and wired into no gate or scoring decision.
@@ -62,12 +82,11 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Sev | File:line | Fix |
 |-----|-----------|-----|
 | High | `reference_factory/patterns.py:569-603`, `public_metrics.py:99-116` | Ranking is raw-count: `log10(plays)` on absolute competitor plays, clusters by `sum(plays)`. **No account-size normalization** → big accounts always win. Divide by follower count. |
-| High | `core.py:25378` (`_performance_quality_score`), `:17212` | Linear weighted sum of **raw averages**, magic constants, no variance/confidence weighting. |
-| High | grep: zero recency/decay in `core.py`; `:14732` `max(views)` | **No recency decay anywhere** — a 2-yr-old post weights like a fresh one. Winner = raw `max(views)`. Add exp-decay on `snapshot_at`; replace max-views with normalized score. |
-| High | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | **Export contracts don't require lineage IDs** (`source`/`generation` are bare `{"type":"object"}`; no `post_id`/`variant_id`). Producers can omit every link and pass. The SQLite (`db.py:415-471`) HAS the spine — the break is at the contract. Make IDs `required`; add a contract test that drops an ID and asserts failure. |
+| Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
+| Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
 | High | `adapters/threadsdash.py:2696-2699` | TD→Python sync **silently drops** any post missing `metadata.campaign_factory` (`skipped += 1; continue`). Log/dead-letter instead. |
 | High (capture bugs — corrupt training data at source) | `supabase/migrations/20260307210000_monotonic_metric_updates.sql:36-41` · `analyticsSync.ts:716` · `post-engagement.ts:130-142` | (a) monotonic guard compares views-inclusive vs views-exclusive → per-post 24h UPDATE no-ops; (b) 90-day retention `delete().lt("created_at",…)` but column is `snapshot_at` → errors every run, swallowed, table grows unbounded; (c) Threads `reach`/`saves` never written (always 0) but the score weights them. |
-| Med | `core.py:23197` trust score; `:22504`/`_history_score` | Trust score computed, never read back (no self-correction). Missing performance masked as `50` (= "average") → unmeasured indistinguishable from mediocre. Carry an explicit "unmeasured" state. |
+| Partial | `core.py:23197` trust score; `_history_score` | Campaign Factory learning summaries now carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. Trust score self-correction is still not read back. |
 | Med | `adapters/threadsdash.py:3004` | Handoff reads canonical `posts` row only, never `post_metric_history` time-series → F sees one point, no velocity/retention curve. Pull the time-series. |
 | Med | AP0-2 `postMetricSnapshotReconciliation.ts` | AP0-2 reconciliation is real but lives only in TD's `audit/analytics-view-coverage` branch — **port it into the running path**; it doesn't touch the 3 capture bugs above. |
 
@@ -173,8 +192,8 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 - **1h→24h surrogate:** fit `24h_perf ~ 1h_perf` regression offline; use 1h *predicted* reward same-day, replace with actual 24h when it lands → responsive loop.
 - **Arms = independent per-dimension bandits** (hook type / preset / reference-pattern), combine winners — avoids combinatorial explosion. Phase 2: contextual (LinUCB) for interactions.
 - **Algorithm:** v1 = ranking **with confidence** (Bayesian credible interval / lower-bound) — 80% of bandit value, interpretable. v2 = Thompson sampling (Beta-Bernoulli on "beat trailing-median", or Gaussian on `relative_perf`) at volume.
-- **Confidence as a weight (fixes the audit's "confidence-as-label" + "missing=50" findings):** Bayesian shrinkage toward prior 1.0, `prior_strength≈5`: `shrunk = (5×1.0 + n×mean)/(5+n)`. Kills lucky-first-post; unmeasured arms sit at the prior, not faked-as-average.
-- **Recency decay (fixes "zero recency decay"):** `weight = 0.5^(age_days/half_life)`, half-life **~21d**. `effective_n = Σweight` shrinks when an arm goes unused → posterior re-widens → auto re-explore. One row per arm, incremental.
+- **Confidence as a weight (Campaign Factory v1 fixed):** Bayesian shrinkage toward prior 1.0, `prior_strength≈5`: `shrunk = (5×1.0 + n×mean)/(5+n)`. Kills lucky-first-post; unmeasured arms sit at the prior, not faked-as-average.
+- **Recency decay (Campaign Factory v1 fixed):** `weight = 0.5^(age_days/half_life)`, half-life **~21d**. `effective_n = Σweight` shrinks when an arm goes unused → posterior re-widens → auto re-explore. One row per arm, incremental.
 - **Exploration floor:** keep **≥15%** of production exploring so no arm dies permanently.
 - **Storage:** single SQLite table of per-arm decayed stats, updated on 1h then 24h pull. O(K)/decision.
 - **Precondition:** fix the 3 capture bugs first — a bandit on corrupt reward data learns garbage.
@@ -183,10 +202,10 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. **Track I capture bugs** (the 3 in the High row) — they corrupt training data at the source; everything "smart" depends on clean capture. Port AP0-2 into the running path.
-3. **Track I contract lineage** — make IDs required so F can attribute (precondition for Workstream F).
+3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
 4. **Track Q quality floor** — real watchability gate (VMAF/audio/crop) + promote OCR safe-zone to blocking.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
-6. **Track I statistical rigor** (normalization, recency decay, confidence weighting) — turns advice into intelligence; foundation for Workstream F.
+6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
 7. Winner-DNA → generation auto-feedback; reference_factory return path.
 
 ## Non-negotiable constraints

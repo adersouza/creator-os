@@ -8,6 +8,8 @@
     "schema",
     "campaign",
     "userId",
+    "pipelineJobId",
+    "pipelineTraceId",
     "summary"
   ],
   "properties": {
@@ -38,11 +40,13 @@
     "summary": {
       "type": "object"
     },
+    "pipelineJobId": {
+      "type": "string",
+      "minLength": 1
+    },
     "pipelineTraceId": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
+      "minLength": 1,
       "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
     }
   }

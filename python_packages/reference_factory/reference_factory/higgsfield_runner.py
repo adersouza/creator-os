@@ -1233,6 +1233,7 @@ def _lineage(
     selected_image_path = selected_panel_path or local_image_path
     return {
         "schema": "campaign_factory.generated_asset_lineage.v1",
+        "pipelineTraceId": f"trace_higgsfield_{pair.reference_id}_{_result_id(video_result or {}) or _result_id(image_result or {}) or 'pending'}",
         "source": {
             "referenceId": pair.reference_id,
             "patternCardId": pair.image_prompt.get("sourcePatternId") or pair.video_prompt.get("sourcePatternId"),
