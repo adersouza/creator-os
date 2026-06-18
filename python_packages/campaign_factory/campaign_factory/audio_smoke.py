@@ -401,6 +401,8 @@ def sync_smoke_performance(factory: CampaignFactory, *, draft_payload: dict[str,
         "inserted": inserted,
         "skipped": 0,
         "summary": factory.performance_summary(campaign_slug),
+        "pipelineJobId": "job_audio_smoke_perf",
+        "pipelineTraceId": "trace_audio_smoke_perf",
     }
     validate_performance_sync(result)
     return result

@@ -15,7 +15,17 @@ comparisons, and write assignment manifests only after both detectors pass.
 SSIM remains diagnostic. General ContentForge audits remain advisory when
 detectors are unavailable.
 
-All Track I capture/learning work, Track Q quality/virality work, perceptual
+Track I contract lineage is fixed on
+`codex/intelligence-track-i-contract-lineage`: `generated_asset_lineage.v1`,
+`recommendation_accuracy_report.v1`, and `performance_sync.v1` now require
+causal graph/job/trace IDs, Python and TypeScript validators reject omitted IDs,
+and Campaign/Reel/Reference emitters populate those IDs. Verification:
+`uv run pytest packages/pipeline_contracts/tests`,
+`pnpm --filter pipeline-contracts-ts test`, `pnpm check:contracts`,
+`uv run pytest python_packages/campaign_factory/tests/test_core.py -q`, and
+`uv run pytest tests/integration/test_cross_pipeline_acceptance.py -q`.
+
+Track I capture/learning work, Track Q quality/virality work, perceptual
 cooldowns, per-account audio, and upstream ThreadsDashboard work remain open.
 
 ---
@@ -64,7 +74,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | High | `reference_factory/patterns.py:569-603`, `public_metrics.py:99-116` | Ranking is raw-count: `log10(plays)` on absolute competitor plays, clusters by `sum(plays)`. **No account-size normalization** → big accounts always win. Divide by follower count. |
 | High | `core.py:25378` (`_performance_quality_score`), `:17212` | Linear weighted sum of **raw averages**, magic constants, no variance/confidence weighting. |
 | High | grep: zero recency/decay in `core.py`; `:14732` `max(views)` | **No recency decay anywhere** — a 2-yr-old post weights like a fresh one. Winner = raw `max(views)`. Add exp-decay on `snapshot_at`; replace max-views with normalized score. |
-| High | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | **Export contracts don't require lineage IDs** (`source`/`generation` are bare `{"type":"object"}`; no `post_id`/`variant_id`). Producers can omit every link and pass. The SQLite (`db.py:415-471`) HAS the spine — the break is at the contract. Make IDs `required`; add a contract test that drops an ID and asserts failure. |
+| Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
 | High | `adapters/threadsdash.py:2696-2699` | TD→Python sync **silently drops** any post missing `metadata.campaign_factory` (`skipped += 1; continue`). Log/dead-letter instead. |
 | High (capture bugs — corrupt training data at source) | `supabase/migrations/20260307210000_monotonic_metric_updates.sql:36-41` · `analyticsSync.ts:716` · `post-engagement.ts:130-142` | (a) monotonic guard compares views-inclusive vs views-exclusive → per-post 24h UPDATE no-ops; (b) 90-day retention `delete().lt("created_at",…)` but column is `snapshot_at` → errors every run, swallowed, table grows unbounded; (c) Threads `reach`/`saves` never written (always 0) but the score weights them. |
 | Med | `core.py:23197` trust score; `:22504`/`_history_score` | Trust score computed, never read back (no self-correction). Missing performance masked as `50` (= "average") → unmeasured indistinguishable from mediocre. Carry an explicit "unmeasured" state. |
@@ -183,7 +193,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. **Track I capture bugs** (the 3 in the High row) — they corrupt training data at the source; everything "smart" depends on clean capture. Port AP0-2 into the running path.
-3. **Track I contract lineage** — make IDs required so F can attribute (precondition for Workstream F).
+3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
 4. **Track Q quality floor** — real watchability gate (VMAF/audio/crop) + promote OCR safe-zone to blocking.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
 6. **Track I statistical rigor** (normalization, recency decay, confidence weighting) — turns advice into intelligence; foundation for Workstream F.

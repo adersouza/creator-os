@@ -141,6 +141,7 @@ def _run_mocked_generation_intake_smoke(*, projects_root: Path, workspace: Path)
 def _mock_lineage(source_video: Path) -> dict[str, Any]:
     return {
         "schema": "campaign_factory.generated_asset_lineage.v1",
+        "pipelineTraceId": "trace_mocked_generation_intake_smoke",
         "source": {
             "referenceId": "ref_mirror_selfie_smoke",
             "patternCardId": "pattern_mirror_selfie_smoke",

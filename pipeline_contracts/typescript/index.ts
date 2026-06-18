@@ -371,11 +371,13 @@ export const performanceSyncSchema = {
 	$id: PERFORMANCE_SYNC_SCHEMA_ID,
 	title: "Campaign Factory Performance Sync",
 	type: "object",
-	required: ["schema", "campaign", "userId", "summary"],
+	required: ["schema", "campaign", "userId", "pipelineJobId", "pipelineTraceId", "summary"],
 	properties: {
 		schema: { const: PERFORMANCE_SYNC_SCHEMA_ID },
 		campaign: { type: "string" },
 		userId: { type: "string" },
+		pipelineJobId: { type: "string", minLength: 1 },
+		pipelineTraceId: { type: "string", minLength: 1 },
 		summary: { type: "object" },
 	},
 } as const;
@@ -492,9 +494,10 @@ export const pipelineContractSchemas = {
 	generatedAssetLineage: {
 		$id: GENERATED_ASSET_LINEAGE_SCHEMA_ID,
 		type: "object",
-		required: ["schema", "source", "generation", "review"],
+		required: ["schema", "pipelineTraceId", "source", "generation", "review"],
 		properties: {
 			schema: { const: GENERATED_ASSET_LINEAGE_SCHEMA_ID },
+			pipelineTraceId: { type: "string", minLength: 1 },
 			source: { type: "object" },
 			generation: { type: "object" },
 			review: { type: "object" },
@@ -531,6 +534,39 @@ export const pipelineContractSchemas = {
 	recommendationAccuracyReport: {
 		$id: RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID,
 		type: "object",
+		required: [
+			"schema",
+			"campaign",
+			"campaignGraphId",
+			"reportId",
+			"reportGraphId",
+			"windowDays",
+			"generatedAt",
+			"recommendationTrustScore",
+			"trustConfidence",
+			"overall",
+			"calibration",
+			"segments",
+			"drift",
+		],
+		properties: {
+			schema: { const: RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID },
+			campaign: { type: "string" },
+			campaignGraphId: { type: "string", minLength: 1 },
+			reportId: { type: "string", minLength: 1 },
+			reportGraphId: { type: "string", minLength: 1 },
+			account: { type: ["string", "null"] },
+			windowDays: { type: "integer" },
+			generatedAt: { type: "string" },
+			recommendationTrustScore: { type: "integer" },
+			trustConfidence: { type: "string", enum: ["insufficient", "directional", "usable", "strong"] },
+			overall: { type: "object" },
+			calibration: { type: "array" },
+			segments: { type: "object" },
+			drift: { type: "array" },
+			observations: { type: "array" },
+			warnings: { type: "array" },
+		},
 	},
 	recommendationNextBatch: {
 		$id: RECOMMENDATION_NEXT_BATCH_SCHEMA_ID,
@@ -1352,6 +1388,32 @@ export function validateFrontGenerationPlan(value: unknown): string[] {
 	return errors;
 }
 
+export function validateGeneratedAssetLineage(value: unknown): string[] {
+	const errors = schemaErrors(pipelineContractSchemas.generatedAssetLineage, value, "generated asset lineage");
+	if (!isRecord(value)) return ["generated asset lineage must be an object"];
+	if (value.schema !== GENERATED_ASSET_LINEAGE_SCHEMA_ID) {
+		errors.push("generated asset lineage schema mismatch");
+	}
+	if (typeof value.pipelineTraceId !== "string" || value.pipelineTraceId.trim() === "") {
+		errors.push("generated asset lineage pipelineTraceId must be string");
+	}
+	return errors;
+}
+
+export function validateRecommendationAccuracyReport(value: unknown): string[] {
+	const errors = schemaErrors(pipelineContractSchemas.recommendationAccuracyReport, value, "recommendation accuracy report");
+	if (!isRecord(value)) return ["recommendation accuracy report must be an object"];
+	if (value.schema !== RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID) {
+		errors.push("recommendation accuracy report schema mismatch");
+	}
+	for (const field of ["campaignGraphId", "reportId", "reportGraphId"] as const) {
+		if (typeof value[field] !== "string" || value[field].trim() === "") {
+			errors.push(`recommendation accuracy report ${field} must be string`);
+		}
+	}
+	return errors;
+}
+
 export function validatePerformanceSync(value: unknown): string[] {
 	const errors = schemaErrors(performanceSyncSchema, value, "performance sync");
 	if (!isRecord(value)) return ["performance sync must be an object"];
@@ -1365,6 +1427,11 @@ export function validatePerformanceSync(value: unknown): string[] {
 	}
 	if (!isRecord(value.summary)) {
 		errors.push("performance sync summary must be an object");
+	}
+	for (const field of ["pipelineJobId", "pipelineTraceId"] as const) {
+		if (typeof value[field] !== "string" || value[field].trim() === "") {
+			errors.push(`performance sync ${field} must be string`);
+		}
 	}
 	return errors;
 }

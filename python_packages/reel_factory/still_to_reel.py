@@ -273,6 +273,7 @@ def _write_audio_intent(request: MotionEditRequest, output: Path) -> Path:
 def _write_lineage(request: MotionEditRequest, *, still: Path, output: Path, quality: dict[str, Any]) -> Path:
     payload = {
         "schema": "campaign_factory.generated_asset_lineage.v1",
+        "pipelineTraceId": f"trace_motion_edit_{_text_hash(str(still) + ':' + str(output) + ':' + str(request.seed))}",
         "createdAt": _utc_now(),
         "source": {
             "parentStillPath": str(still),

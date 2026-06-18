@@ -40,5 +40,5 @@
     }
   },
   "pipelineJobId": "job_smoke",
-  "pipelineTraceId": null
+  "pipelineTraceId": "trace_performance_sync_smoke"
 }

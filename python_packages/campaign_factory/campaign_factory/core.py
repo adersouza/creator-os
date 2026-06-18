@@ -1972,6 +1972,14 @@ class CampaignFactory:
         account_key = account or ""
         report_key = f"{campaign_id}:{account_key}:{window_days}:{input_hash}"
         report_id = f"recacc_report_{hashlib.sha256(report_key.encode('utf-8')).hexdigest()[:12]}"
+        report["reportId"] = report_id
+        report_graph_id = self.ensure_graph_node(
+            "recommendation_accuracy_report",
+            local_table="recommendation_accuracy_reports",
+            local_id=report_id,
+            payload=report,
+        )
+        report["reportGraphId"] = report_graph_id
         self.conn.execute(
             """
             INSERT INTO recommendation_accuracy_reports (
@@ -1994,14 +2002,12 @@ class CampaignFactory:
                 now,
             ),
         )
-        report_graph_id = self.ensure_graph_node(
+        self.ensure_graph_node(
             "recommendation_accuracy_report",
             local_table="recommendation_accuracy_reports",
             local_id=report_id,
             payload=report,
         )
-        report["reportId"] = report_id
-        report["reportGraphId"] = report_graph_id
         for observation in report.get("observations") or []:
             observation_graph_id = self.graph_id_for(
                 "recommendation_accuracy_observations",
@@ -18757,6 +18763,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             format_type = str(source_meta["formatType"])
         generated_lineage = source_lineage if source_lineage.get("schema") == "campaign_factory.generated_asset_lineage.v1" else {
             "schema": "campaign_factory.generated_asset_lineage.v1",
+            "pipelineTraceId": f"trace_finished_video_{digest[:16]}",
             "source": {
                 "referenceId": None,
                 "patternCardId": None,
@@ -24560,6 +24567,21 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         if isinstance(review, dict):
             review.setdefault("humanReviewRequired", True)
             review.setdefault("status", "draft")
+        if not lineage.get("pipelineTraceId"):
+            source_prompt_id = source_prompt.get("promptId")
+            if not source_prompt_id and isinstance(source, dict):
+                source_prompt_id = source.get("promptId")
+            generation_tool = source_prompt.get("generationTool")
+            if not generation_tool and isinstance(generation, dict):
+                generation_tool = generation.get("tool")
+            asset_path = generation.get("assetPath") if isinstance(generation, dict) else None
+            trace_seed = {
+                "promptId": source_prompt_id,
+                "referencePattern": source_prompt.get("referencePattern") or reference_pattern.get("clusterKey") or reference_pattern.get("id"),
+                "generationTool": generation_tool,
+                "assetPath": asset_path,
+            }
+            lineage["pipelineTraceId"] = f"trace_generated_asset_{hashlib.sha256(json.dumps(trace_seed, sort_keys=True).encode('utf-8')).hexdigest()[:16]}"
         return lineage
 
     def _audio_recommendations_for_asset(
