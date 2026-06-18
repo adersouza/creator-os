@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infra & Lifecycle Map — Creator OS ⇄ ThreadsDashboard</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131822; --panel2:#1a2130; --line:#273043;
+    --txt:#e6edf3; --dim:#8b97a8; --accent:#5aa9ff;
+    --works:#3fb950; --half:#d29922; --orphan:#db6d28; --gap:#f85149; --primitive:#a371f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:20px 28px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+  header h1{margin:0;font-size:20px;letter-spacing:.3px}
+  header .meta{color:var(--dim);font-size:12px}
+  header .score{margin-left:auto;font-size:13px;color:var(--dim)}
+  header .score b{color:var(--half);font-size:18px}
+  nav{display:flex;gap:4px;padding:10px 28px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:20;flex-wrap:wrap}
+  nav button{background:none;border:1px solid transparent;color:var(--dim);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+  nav button:hover{color:var(--txt)}
+  nav button.active{background:var(--panel2);color:var(--txt);border-color:var(--line)}
+  main{padding:22px 28px;max-width:1320px;margin:0 auto}
+  section{display:none}
+  section.active{display:block}
+  h2{font-size:16px;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 18px;max-width:900px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 16px;font-size:12px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .works{background:var(--works)} .half{background:var(--half)} .orphan{background:var(--orphan)}
+  .gap{background:var(--gap)} .primitive{background:var(--primitive)}
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;overflow-x:auto;margin-bottom:18px}
+  svg{display:block;min-width:980px}
+  .node rect{cursor:default;transition:filter .15s}
+  .node:hover rect{filter:brightness(1.2)}
+  .node text{pointer-events:none;font-size:12px;fill:var(--txt)}
+  .node .role{font-size:9.5px;fill:var(--dim)}
+  .edgelbl{font-size:9.5px;fill:var(--dim)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;transition:border-color .15s}
+  .card.dom{cursor:pointer}
+  .card.dom:hover{border-color:var(--accent)}
+  .card h3{margin:0 0 2px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .card .role{color:var(--dim);font-size:12.5px;margin:6px 0 10px}
+  .scorebar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;margin:8px 0}
+  .scorebar i{display:block;height:100%}
+  .card .stats{display:flex;gap:14px;font-size:11.5px;color:var(--dim);margin-top:8px}
+  .pill{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  td code,.sub code,.note code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:11.5px;color:#9ecbff}
+  .note{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--dim);margin:14px 0}
+  .note b{color:var(--txt)}
+  .fnd{background:var(--panel);border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:12px 15px;margin-bottom:10px}
+  .fnd .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fnd .sev{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+  .fnd .tid{margin-left:auto;font-size:11px;color:var(--dim);font-family:ui-monospace,Menlo,monospace}
+  .fnd h4{margin:0;font-size:13.5px;font-weight:600;flex:1 1 60%}
+  .fnd .ev{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9ecbff;margin:6px 0 0}
+  .fnd p{margin:6px 0 0;font-size:12.5px;color:var(--dim)}
+  .fnd p b{color:var(--txt)}
+  .sevHIGH{background:rgba(248,81,73,.16);color:#ff7b72}
+  .sevMED{background:rgba(210,153,34,.16);color:#e3b341}
+  .sevLOW{background:rgba(139,151,168,.16);color:var(--dim)}
+  .sevPOS{background:rgba(63,185,80,.16);color:#56d364}
+  .tagline{font-size:11px;color:var(--dim);margin:2px 0 14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Infra &amp; Lifecycle Map</h1>
+  <span class="meta">Creator OS ⇄ ThreadsDashboard · seam · crons · backend · schema · 2026-06-18</span>
+  <span class="score">infra avg <b id="hsys">7.0</b>/10 → target 9–10</span>
+</header>
+<nav>
+  <button class="active" data-t="overview">Overview</button>
+  <button data-t="seam">⭐ Seam</button>
+  <button data-t="crons">Crons (26)</button>
+  <button data-t="backend">Backend</button>
+  <button data-t="schema">Schema/DB</button>
+</nav>
+<main>
+
+<section id="overview" class="active">
+  <h2>The content lifecycle, as one system</h2>
+  <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os pulls them (manually) into its learning loop. The loop is architecturally closed but operationally manual on the return leg, and the forward leg's idempotency/media guarantees are softer than they look. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>; fix plan in <code>INFRA_HARDENING_PROMPT.md</code>.</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 980 290" role="img" aria-label="cross-repo content lifecycle">
+      <!-- repo lanes -->
+      <rect x="8" y="8" width="470" height="274" rx="8" fill="none" stroke="#273043"/>
+      <rect x="502" y="8" width="470" height="274" rx="8" fill="none" stroke="#273043"/>
+      <text x="20" y="26" class="role">CREATOR-OS · python campaign_factory</text>
+      <text x="514" y="26" class="role">THREADSDASHBOARD · vercel + supabase</text>
+      <!-- forward nodes -->
+      <g class="node"><rect x="24" y="40" width="180" height="42" rx="6" fill="#1a2130" stroke="#5aa9ff"/><text x="34" y="60">export_threadsdash()</text><text x="34" y="74" class="role">build_draft_payloads · media.url=None</text></g>
+      <g class="node"><rect x="24" y="96" width="180" height="40" rx="6" fill="#1a2130" stroke="#273043"/><text x="34" y="114">validate_strict()</text><text x="34" y="127" class="role">python schema only</text></g>
+      <g class="node"><rect x="516" y="40" width="200" height="42" rx="6" fill="#1a2130" stroke="#5aa9ff"/><text x="526" y="60">drafts/ingest.ts</text><text x="526" y="74" class="role">validate + 10 hand-rolled checks</text></g>
+      <g class="node"><rect x="516" y="96" width="200" height="40" rx="6" fill="#1a2130" stroke="#273043"/><text x="526" y="114">writeCampaignFactoryDraftIngest</text><text x="526" y="127" class="role">select-then-write on post_key</text></g>
+      <g class="node"><rect x="740" y="96" width="120" height="40" rx="6" fill="#131822" stroke="#3fb950"/><text x="752" y="114">posts</text><text x="752" y="127" class="role">table · 206 total</text></g>
+      <g class="node"><rect x="740" y="40" width="120" height="42" rx="6" fill="#131822" stroke="#273043"/><text x="752" y="60">publish-worker</text><text x="752" y="74" class="role">+ scheduler → Meta</text></g>
+      <!-- backward nodes -->
+      <g class="node"><rect x="516" y="200" width="200" height="42" rx="6" fill="#131822" stroke="#3fb950"/><text x="526" y="220">post_metric_history</text><text x="526" y="234" class="role">483K rows of metrics</text></g>
+      <g class="node"><rect x="24" y="200" width="200" height="42" rx="6" fill="#1a2130" stroke="#d29922"/><text x="34" y="220">sync_performance_snapshots()</text><text x="34" y="234" class="role">manual CLI · raw columns</text></g>
+      <g class="node"><rect x="24" y="252" width="200" height="24" rx="5" fill="#131822" stroke="#273043"/><text x="34" y="268" class="role">→ learning loop (F v2, ranking)</text></g>
+      <!-- legacy gated -->
+      <g class="node"><rect x="240" y="40" width="120" height="42" rx="6" fill="#131822" stroke="#db6d28" stroke-dasharray="4 3"/><text x="250" y="58" style="font-size:11px">_write_supabase</text><text x="250" y="72" class="role">legacy · gated off</text></g>
+      <!-- arrows -->
+      <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5aa9ff"/></marker><marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#d29922"/></marker></defs>
+      <line x1="204" y1="61" x2="514" y2="61" stroke="#5aa9ff" stroke-width="1.5" marker-end="url(#a)"/>
+      <text x="300" y="54" class="edgelbl">HTTP POST · X-…-Ingest-Secret · 30s · no retry</text>
+      <line x1="716" y1="116" x2="740" y2="116" stroke="#5aa9ff" stroke-width="1.5" marker-end="url(#a)"/>
+      <line x1="800" y1="96" x2="800" y2="82" stroke="#5aa9ff" stroke-width="1.5" marker-end="url(#a)"/>
+      <line x1="716" y1="221" x2="226" y2="221" stroke="#d29922" stroke-width="1.5" marker-end="url(#g)"/>
+      <text x="320" y="214" class="edgelbl">reads raw columns · no contract · manual</text>
+      <line x1="124" y1="242" x2="124" y2="252" stroke="#273043" stroke-width="1.5"/>
+    </svg>
+  </div>
+
+  <h2>Scorecard</h2>
+  <p class="tagline">No domain needs an architecture change to reach 9–10 — every cap is a bounded, low-risk fix.</p>
+  <div class="grid" id="domGrid"></div>
+</section>
+
+<section id="seam"></section>
+<section id="crons"></section>
+<section id="backend"></section>
+<section id="schema"></section>
+
+</main>
+<script>
+const DOMAINS=[
+  {id:'seam',name:'⭐ Cross-repo seam',now:6.5,ceil:9.5,cap:'No idempotency key on the boundary; media-URL hydration only on the dead legacy path; failed write can read as success; backward sync manual + uncontracted.'},
+  {id:'crons',name:'Vercel crons (26)',now:7.5,ceil:9.5,cap:'Strong self-healing + lock hygiene already. Caps: publish-worker/scheduler */5 overlap, no max-recovery-count, overdue-IG dead-ends to draft, reconcile-daily timeout, no hard budget cap.'},
+  {id:'backend',name:'Vercel backend (~130)',now:7.0,ceil:9.5,cap:'Good auth + error taxonomy. Caps: cross-reply 200-masking, manual-publish timeout, IG-webhook fallback [verify], IG-container TTL [verify], stale-token retention, override-token TTL.'},
+  {id:'schema',name:'Supabase schema (206 tbl)',now:7.0,ceil:9.5,cap:'Tenant isolation + hot-path indexing already correct. Caps: posts/post_metric_history over-indexing, 29 unindexed FKs, 195 unused indexes, posts lease in flux, 6 out-of-band tables.'},
+];
+function scColor(s){return s>=9?'var(--works)':s>=7?'var(--half)':s>=5?'var(--orphan)':'var(--gap)';}
+document.getElementById('domGrid').innerHTML=DOMAINS.map(d=>`
+  <div class="card dom" data-go="${d.id}">
+    <h3>${d.name}</h3>
+    <div class="scorebar"><i style="width:${d.now*10}%;background:${scColor(d.now)}"></i></div>
+    <div class="stats"><span>now <b style="color:${scColor(d.now)}">${d.now}</b></span><span>→ on fix <b style="color:var(--works)">${d.ceil}</b></span></div>
+    <div class="role" style="margin-top:8px">${d.cap}</div>
+  </div>`).join('');
+
+// findings: sev HIGH|MED|LOW|POS ; tid = fix-track id in INFRA_HARDENING_PROMPT.md
+const F={
+ seam:[
+  {sev:'HIGH',t:'HTTP ingest never hydrates media URLs — assumes media already remote',ev:'threadsdash.py:82,556 · hydration only in _write_supabase (legacy) :1087/1112',d:'Drafts can land in <b>posts</b> with empty <code>media_urls</code>, failing only at async IG publish. Boundary-assert remote URLs on both sides.',tid:'A3'},
+  {sev:'HIGH',t:'Failed TD write can be recorded as a successful export',ev:'threadsdash.py:611 · threadsdash_exports',d:'Validate-pass then DB-fail → export row with empty <code>post_ids</code>, no reconciliation. Treat empty-postIds-on-2xx as retriable; read back before marking exported.',tid:'A2'},
+  {sev:'MED',t:'Duplicate-post race on campaign_factory_post_key — latent, partially guarded',ev:'verified live: 0 dupes · no unique on post_key · partial-uniques posts_campaign_*_active_uniq cover plan-id / asset+acct+time',d:'<b>Downgraded from HIGH after live-DB check.</b> Visible duplicate blocked when plan-id or (account+asset+scheduled_for) present; residual gap on bare drafts. Add <code>UNIQUE INDEX CONCURRENTLY</code> on post_key + idempotency header to close fully.',tid:'A1'},
+  {sev:'MED',t:'Forward contract enforced by two hand-rolled validators that can drift',ev:'draftIngest.ts:382–524 · schema vendored in 5+ copies',d:'TD adds 10+ imperative checks not in the shared JSON schema. Same drift TRACK9 PR-1 codegen targets — the seam is the strongest case for it.',tid:'A5'},
+  {sev:'MED',t:'Backward metric sync reads raw columns, uncontracted + manual',ev:'threadsdash.py:_select_threadsdash_post_metric_history · CLI only',d:'A TD column rename = silent NULL import. Not scheduled — loop can stall with no alert. Schedule it (or TD-push) + version a read contract.',tid:'A4'},
+  {sev:'LOW',t:'Secret rotation well-built on TD, single-valued on creator-os',ev:'draftIngest.ts:299–330 (CURRENT/PREVIOUS/EXTRA, timing-safe)',d:'Rotation still needs both sides updated in one window. Document the order.',tid:'A1'},
+  {sev:'LOW',t:'No retry/backoff on the POST',ev:'threadsdash.py:urlopen(timeout=30)',d:'Transient TD slowness = hard export failure. Safe to add once A1 makes retries idempotent.',tid:'A2'},
+ ],
+ crons:[
+  {sev:'POS',t:'Posting critical-path chain is coherent + atomically idempotent',ev:'scheduler */5 → publish-worker */5 → QStash → auto-post-publish (claim RPC) → reconcile-daily',d:'<code>claim_auto_post_queue_item_for_publish</code> (schedule_nonce + conditional status→publishing) blocks any double-publish.',tid:'—'},
+  {sev:'HIGH',t:'publish-worker & scheduler both run */5 on v2+ workspaces (double-dispatch)',ev:'publish-worker.ts:224 loads scheduler_version but never filters >=2',d:'Same item fetched by both within one window. <b>Mitigated</b> by the atomic claim — no double-publish, but wasted/noisy dispatch. Filter Phases 3–4 to version&lt;2.',tid:'B1'},
+  {sev:'MED',t:'Watchdog auto-recovery has no max-recovery-count',ev:'autoposter-watchdog.ts:1053 (>30m scheduled reset)',d:'A permanently-bad item can loop recover→fail→recover. Cap recoveries, dead-letter on exhaustion (mirror the publishing-stuck 3-retry path).',tid:'B2'},
+  {sev:'MED',t:'campaign-schedule-recovery dead-ends overdue IG posts to draft',ev:'campaign-schedule-recovery.ts (every 5m)',d:'Resets to <code>draft</code> for manual retry — no auto-redispatch. High-volume campaigns silently pile up. Re-queue or alert on backlog.',tid:'B3'},
+  {sev:'MED',t:'reconcile-daily is a known timeout risk',ev:'cronUtils.ts:44 (TTL bumped 120→310s after 28% timeout)',d:'Scans 200 accts × 25 posts vs Meta APIs, can graze 300s. Paginate/shard across runs.',tid:'B4'},
+  {sev:'MED',t:'No hard budget cap — cost crons are alert-only',ev:'cost-digest / monthly-kpi (Discord only)',d:'Warns at ≥75% of <code>AI_DAILY_SPEND_LIMIT_USD</code>; nothing pauses spend. Optional enforced cap.',tid:'B5'},
+  {sev:'POS',t:'Concurrency hygiene is solid',ev:'26/26 handlers + function entries + LOCK_TTL; every TTL > maxDuration',d:'No run overlaps itself. Watchdog (8) + doctor (10) + health-monitor + reconcile = real self-healing layer.',tid:'—'},
+  {sev:'LOW',t:'Watchdog + doctor still process v2+ workspaces the scheduler owns',ev:'operational noise, not double-repair (doctor is alert-only)',d:'Clarify ownership post-migration.',tid:'B1'},
+ ],
+ backend:[
+  {sev:'POS',t:'Auth + error taxonomy foundation is strong',ev:'withAuth / CRON_SECRET / HMAC · classifyMetaError() taxonomy',d:'~130 routes, function count well under Vercel limits; service-role gated by PRIVILEGED_DB_REASONS; DB-layer RLS is the real tenant guard.',tid:'—'},
+  {sev:'HIGH',t:'cross-reply-publish returns 200 on unhandled error — masks QStash retry',ev:'cross-reply-publish.ts:63',d:'QStash sees success, never retries/dead-letters a failed reply. Lower-blast-radius engagement surface, but invisible failures. Return 5xx on retry-eligible errors.',tid:'C1'},
+  {sev:'HIGH',t:'Manual publish is synchronous with no maxDuration entry',ev:'posts.ts absent from vercel.json · handlePublish→orchestrateIGPublish()',d:'Runs at ~10–15s default while calling Meta synchronously → timeout mid-publish leaves post claimed-but-unpublished. Add maxDuration:60 or async path.',tid:'C2'},
+  {sev:'HIGH',t:'[verify] IG-webhook fallback-body branch may not reject before HMAC',ev:'instagram/webhook.ts:136–150',d:'Fallback re-serializes bytes; trace past :150 — if it HMAC-verifies instead of rejecting, a forged event could slip in. Make fallback a hard 4xx.',tid:'C3'},
+  {sev:'MED',t:'[verify] Async IG container has no visible TTL → can orphan',ev:'publishInstagram.ts:1164 (IN_PROGRESS)',d:'If a container never completes (token revoked mid-flight), it can hang indefinitely. Confirm ig-container-publisher abandons >24h + dead-letters.',tid:'C4'},
+  {sev:'MED',t:'Stale encrypted OAuth tokens not hard-deleted on refresh',ev:'encryption.ts (lazy v1→v2)',d:'Old valid blob lingers in rows/snapshots. Hard-delete prior blob on successful refresh; audit read access.',tid:'C5'},
+  {sev:'MED',t:'Cross-account media-reuse override token lacks visible TTL/single-use',ev:'publish.ts:355–373 (crossAccountMediaReuseOverrideToken)',d:'Guard-bypass on the distinctness side with no observed expiry. Make single-use or <5-min TTL. <b>Safety-relevant.</b>',tid:'C5'},
+  {sev:'LOW',t:'Threads publish doesn’t use classifyMetaError()',ev:'publishThreads.ts (ad-hoc string matching)',d:'Unify on the taxonomy IG already uses.',tid:'C6'},
+  {sev:'LOW',t:'CSP report endpoint fails-open + incomplete scrub',ev:'csp-report.ts (failMode open)',d:'Low-value surface; tighten scrubSensitive patterns, consider fail-closed.',tid:'C6'},
+ ],
+ schema:[
+  {sev:'POS',t:'Tenant isolation enforced at the DB layer, not app-only',ev:'posts auth.uid()=user_id · accounts +aal2 · auto_post_queue via workspace_members',d:'No USING(true), no anon grants on hot tables. 206 tables, 100% RLS-enabled.',tid:'—'},
+  {sev:'HIGH',t:'posts massively over-indexed for its write rate (write-amplification)',ev:'59 indexes · 795K updates · 11 never-scanned (advisor)',d:'7.7K rows but every update maintains 59 indexes + defeats HOT-update. <b>Dropping the 11 unused = pure win</b>, biggest single DB perf lever.',tid:'D1'},
+  {sev:'HIGH',t:'post_metric_history index bloat + duplicate indexes',ev:'238MB idx vs 110MB table · 483K rows · dup pairs pmh_post_hours/idx_pmh_post_hours',d:'Each redundant index paid on every insert at the DB’s highest insert volume. Dedupe to one covering index per access pattern.',tid:'D1'},
+  {sev:'POS',t:'Premise DISPROVEN: no missing index on the publish/scheduler hot path',ev:'idx_posts_scheduled WHERE status=scheduled · auto_post_queue claim/retry indexes',d:'Expected (status,scheduled_at,account) seq-scan risk does not exist; live working set is 1 row. Real risk is the inverse — over-indexing.',tid:'—'},
+  {sev:'MED',t:'29 unindexed foreign keys',ev:'advisor · posts.arc_beat_id/dna_id · auto_post_queue · publish_attempts · manager_*',d:'Seq-scans on cascade/join. CREATE INDEX CONCURRENTLY on hot-path FKs first.',tid:'D2'},
+  {sev:'MED',t:'195 unused indexes across 110 tables',ev:'advisor unused_index',d:'Systemic "index-everything" residue from 20+ tuning migrations with no prune cycle. Batched drops after D1.',tid:'D3'},
+  {sev:'MED',t:'posts publish path has no row-level lease + is in active flux',ev:'next_retry_at added today 20260618064358 · leans on publish_locks + fingerprint',d:'Valid two-mechanism design but unsettled this week. Confirm worker takes publish_locks before every send; wire next_retry_at to a cron.',tid:'D4'},
+  {sev:'LOW',t:'6 out-of-band tables → clean-replay reproducibility risk',ev:'agent_notes, inbox_ai_buckets/conversation_state/saved_views, notifications, revenue_snapshots',d:'Live but never CREATEd in any migration. Backfill migrations + regenerate types (one behind: missing autoposter_control_events).',tid:'D5'},
+  {sev:'LOW',t:'DLQ modeled as state+columns, not a table; 3 RLS-no-policy tables',ev:'ig_webhook_events.dead_letter* · auto_post_queue.status · account_flavor/creator_dna/…',d:'Architecturally fine; confirm the default-deny tables are intentional + the 4 SECURITY DEFINER helpers can’t probe foreign tenants.',tid:'D6'},
+ ],
+};
+const SECMETA={
+ seam:['⭐ Cross-repo lifecycle seam','The spine. Mostly TD, one creator-os PR. Fix track A — do A1 (idempotency) first.'],
+ crons:['26 Vercel crons','Strong self-healing already; close the overlap + recovery-ceiling gaps. Fix track B.'],
+ backend:['Vercel serverless backend','Good auth + taxonomy; close the silent-failure + timeout gaps. Fix track C.'],
+ schema:['Supabase schema / DB (live apsrvwxfoomhtswlhczo)','Isolation + hot-path indexing correct; the win is an index diet. Fix track D.'],
+};
+function renderFindings(id){
+  const m=SECMETA[id], items=F[id];
+  const counts={HIGH:0,MED:0,LOW:0,POS:0}; items.forEach(f=>counts[f.sev]++);
+  return `<h2>${m[0]}</h2><p class="sub">${m[1]}</p>
+    <div class="legend">
+      <span><i class="dot gap"></i> HIGH ${counts.HIGH}</span>
+      <span><i class="dot half"></i> MED ${counts.MED}</span>
+      <span><i class="dot" style="background:var(--dim)"></i> LOW ${counts.LOW}</span>
+      <span><i class="dot works"></i> strength ${counts.POS}</span>
+      <span style="margin-left:auto">fix IDs → <code>INFRA_HARDENING_PROMPT.md</code></span>
+    </div>` +
+    items.map(f=>{
+      const border={HIGH:'var(--gap)',MED:'var(--half)',LOW:'var(--dim)',POS:'var(--works)'}[f.sev];
+      const cls={HIGH:'sevHIGH',MED:'sevMED',LOW:'sevLOW',POS:'sevPOS'}[f.sev];
+      const lab=f.sev==='POS'?'STRENGTH':f.sev;
+      return `<div class="fnd" style="border-left-color:${border}">
+        <div class="top"><span class="sev ${cls}">${lab}</span><h4>${f.t}</h4><span class="tid">${f.tid}</span></div>
+        <div class="ev">${f.ev}</div><p>${f.d}</p></div>`;
+    }).join('');
+}
+['seam','crons','backend','schema'].forEach(id=>{document.getElementById(id).innerHTML=renderFindings(id);});
+
+function show(t){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.t===t));
+  document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===t));
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
+document.getElementById('domGrid').addEventListener('click',e=>{const c=e.target.closest('[data-go]');if(c)show(c.dataset.go);});
+</script>
+</body>
+</html>
