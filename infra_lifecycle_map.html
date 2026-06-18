@@ -189,7 +189,7 @@ const F={
   {sev:'MED',t:'195 unused indexes across 110 tables',ev:'advisor unused_index',d:'Systemic "index-everything" residue from 20+ tuning migrations with no prune cycle. Batched drops after D1.',tid:'D3'},
   {sev:'MED',t:'posts publish path has no row-level lease + is in active flux',ev:'next_retry_at added today 20260618064358 · leans on publish_locks + fingerprint',d:'Valid two-mechanism design but unsettled this week. Confirm worker takes publish_locks before every send; wire next_retry_at to a cron.',tid:'D4'},
   {sev:'LOW',t:'6 out-of-band tables → clean-replay reproducibility risk',ev:'agent_notes, inbox_ai_buckets/conversation_state/saved_views, notifications, revenue_snapshots',d:'Live but never CREATEd in any migration. Backfill migrations + regenerate types (one behind: missing autoposter_control_events).',tid:'D5'},
-  {sev:'LOW',t:'DLQ modeled as state+columns, not a table; 3 RLS-no-policy tables',ev:'ig_webhook_events.dead_letter* · auto_post_queue.status · account_flavor/creator_dna/…',d:'Architecturally fine; confirm the default-deny tables are intentional + the 4 SECURITY DEFINER helpers can’t probe foreign tenants.',tid:'D6'},
+  {sev:'LOW',t:'DLQ modeled as state+columns, not a table; 3 RLS-no-policy tables',ev:'ig_webhook_events.dead_letter* · auto_post_queue.status · D6 docs TD PR #149 open',d:'Architecturally fine. D6 now has a comment/proof PR documenting creator_dna/account_flavor/creator_identity_shape_usage as intentional service-role-only default-deny tables and locking workspace-helper scope evidence in tests. Keep open until merge and post-migration advisor proof.',tid:'D6'},
  ],
 };
 const SECMETA={
