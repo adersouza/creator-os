@@ -4,6 +4,7 @@ import json
 import sqlite3
 from typing import Any, Callable
 
+from .asset_import import AssetImportRepository
 from .config import Settings
 from .events import EventRepository
 from .graph import GraphRepository
@@ -21,6 +22,8 @@ class CoreServices:
         slugify: Callable[[str], str],
         sanitize_for_storage: Callable[[Any], Any],
         utc_now: Callable[[], str],
+        media_type_for_path: Callable[[Any], str],
+        sha256_file: Callable[[Any], str],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -52,6 +55,26 @@ class CoreServices:
             utc_now=utc_now,
             ensure_graph_node=self.graph.ensure_graph_node,
             record_event=self.events.record_event,
+        )
+        self.asset_import = AssetImportRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            upsert_account=self.models.upsert_account,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            record_event=self.events.record_event,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
         )
 
     def ensure_graph_node(
@@ -224,6 +247,32 @@ class CoreServices:
             account_handle=account_handle,
             account_group_name=account_group_name,
         )
+
+    def import_folder(
+        self,
+        folder: Any,
+        *,
+        campaign_slug: str,
+        model_slug: str,
+        model_name: str | None = None,
+        platform: str = "instagram",
+        account_handles: list[str] | None = None,
+        source_prompt: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.asset_import.import_folder(
+            folder,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            model_name=model_name,
+            platform=platform,
+            account_handles=account_handles,
+            source_prompt=source_prompt,
+            notes=notes,
+        )
+
+    def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+        return self.asset_import.assets_for_campaign(campaign_id)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
