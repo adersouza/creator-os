@@ -13,6 +13,7 @@ from typing import Any
 
 from audio_intent import read_audio_intent
 from safe_zone import PLATFORM_SAFE_ZONES, score_safe_zone
+from virality_qc import evaluate_output_virality
 
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
@@ -163,6 +164,7 @@ def evaluate_output(
     manifest_row: dict[str, Any] | None = None,
     ai_qc: dict[str, Any] | None = None,
     dimensions: tuple[int | None, int | None] | None = None,
+    require_virality: bool = False,
 ) -> dict[str, Any]:
     platform = normalize_platform(platform)
     profile = PLATFORM_PROFILES[platform]
@@ -203,6 +205,12 @@ def evaluate_output(
     if profile["strict_text_review"] and any("text" in w or "watermark" in w for w in ai_warnings):
         warnings.append("tiktok_text_watermark_review")
 
+    virality_qc = evaluate_output_virality(output_path, required=require_virality)
+    if virality_qc:
+        warnings.extend(virality_qc.get("warnings") or [])
+        if virality_qc.get("status") == "failed":
+            not_ready = True
+
     warnings = sorted(set(warnings))
     status = "not_ready" if not_ready else ("warn" if warnings else "ready")
     score = max(0, 100 - 10 * len(warnings) - (30 if not_ready else 0))
@@ -219,12 +227,14 @@ def evaluate_output(
         "audioIntent": audio_intent,
         "safeZone": safe_zone,
         "aiQc": ai_qc,
+        "viralityQc": virality_qc,
         "lineagePresent": _source_lineage_exists(root, clip, output_path),
     }
 
 
 def run_readiness(root: Path, *, clip: str | None = None,
-                  platform: str = "instagram_reels") -> dict[str, Any]:
+                  platform: str = "instagram_reels",
+                  require_virality: bool = False) -> dict[str, Any]:
     root = Path(root).resolve()
     platform = normalize_platform(platform)
     proc = root / "02_processed"
@@ -244,6 +254,7 @@ def run_readiness(root: Path, *, clip: str | None = None,
                 platform=platform,
                 manifest_row=manifest.get(path.name),
                 ai_qc=ai_qc.get(path.name),
+                require_virality=require_virality,
             )
             for path in sorted(clip_dir.glob("*.mp4"))
             if "_audio_" not in path.stem
@@ -254,6 +265,7 @@ def run_readiness(root: Path, *, clip: str | None = None,
             "clip": clip_dir.name,
             "platform": platform,
             "profile": PLATFORM_PROFILES[platform],
+            "requireVirality": bool(require_virality),
             "summary": {
                 "total": len(records),
                 "ready": sum(1 for row in records if row["status"] == "ready"),
@@ -269,6 +281,7 @@ def run_readiness(root: Path, *, clip: str | None = None,
     return {
         "schema": "reel_factory.readiness_summary.v1",
         "platform": platform,
+        "requireVirality": bool(require_virality),
         "summary": {
             "total": len(all_records),
             "ready": sum(1 for row in all_records if row["status"] == "ready"),
@@ -285,8 +298,18 @@ def main() -> int:
     ap.add_argument("--root", default=".")
     ap.add_argument("--clip")
     ap.add_argument("--platform", default="instagram_reels", choices=sorted(PLATFORM_PROFILES))
+    ap.add_argument("--require-virality", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(run_readiness(Path(args.root), clip=args.clip, platform=args.platform), indent=2, ensure_ascii=False))
+    print(json.dumps(
+        run_readiness(
+            Path(args.root),
+            clip=args.clip,
+            platform=args.platform,
+            require_virality=args.require_virality,
+        ),
+        indent=2,
+        ensure_ascii=False,
+    ))
     return 0
 
 

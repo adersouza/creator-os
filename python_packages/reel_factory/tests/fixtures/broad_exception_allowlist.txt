@@ -56,8 +56,8 @@ post_render.py:_probe_duration:69
 post_render.py:write_contact_sheet:149
 qc_check.py:probe:171
 qc_check.py:run_qc:303
-readiness_check.py:_probe_dimensions:153
-readiness_check.py:evaluate_output:179
+readiness_check.py:_probe_dimensions:154
+readiness_check.py:evaluate_output:181
 reel_gui.py:_review_states_by_filename:251
 reel_gui.py:_outcome_filenames:267
 reel_gui.py:_asset_state_by_stem:285
