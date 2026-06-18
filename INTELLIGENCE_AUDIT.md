@@ -46,7 +46,10 @@ cooldowns are fixed on `codex/intelligence-track-s-pdq-cluster-cooldown`: real
 PDQ fingerprints are computed into rendered-asset metadata when assets enter
 inventory safety checks, near matches are grouped at the Campaign Factory safe
 distance, and cross-account reservations/readiness block reuse by that cluster.
-Dashboard video-PDQ follow-up remains upstream-owned in ThreadsDashboard.
+Dashboard video-PDQ/keyframe follow-up is upstream-fixed in ThreadsDashboard
+PR #130: image originality capture now uses a 256-bit frame perceptual hash,
+video URLs can produce keyframe hashes through optional FFmpeg extraction, and
+legacy hash similarity remains compatible.
 ContentForge virality gating is
 partially fixed on `codex/intelligence-track-q-virality-gate`: the Campaign
 Factory audit contract now has a default-off `virality` layer that consumes a
@@ -95,9 +98,9 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **6.3/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ranks arms with decayed Beta-Bernoulli planning stats, reads back recommendation trust for self-correction, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up is upstream-owned. |
+| **Intelligence / learning loop** | **6.4/10** | Closed for audit scope — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ranks arms with decayed Beta-Bernoulli planning stats, reads back recommendation trust for self-correction, ThreadsDashboard capture repair is upstream-merged, Reference Factory ranks by measured prompt outcomes when available, and dashboard video/keyframe perceptual hashing is upstream-fixed. |
 | **Content quality / virality** | **6.2/10** | Closed for the current default-off slice — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, heuristic creative warnings, configured Higgsfield virality reports, supplied model-backed video-analysis reports, Reel Factory post-render virality sidecars, VLM-backed Winner-DNA extraction from supplied video-analysis sidecars, learned reference-pattern prompt guidance, and zero-cost operator/configured-provider report generation now affect readiness/fan-out/generation planning. Remaining Track Q items are accepted/deferred cleanup with owners. |
-| **Anti-shadowban safety** | **~7/10** (was ~4; **+3 for Track S shipped + cooldown follow-through**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM; rendered assets persist Campaign Factory PDQ clusters for cross-account cooldowns; and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: dashboard aHash/video PDQ upstream work. |
+| **Anti-shadowban safety** | **~7.2/10** (was ~4; **+3 for Track S shipped + cooldown follow-through**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM; rendered assets persist Campaign Factory PDQ clusters for cross-account cooldowns; IG variation presets fail closed unless replacement account audio is assigned; and dashboard originality capture has upstream 256-bit frame/keyframe perceptual hashes. Higher scores need calibrated platform-threshold fixtures and more real-media evidence. |
 
 **The unifying story:** the system used to reliably produce a *valid, undetectable-by-SSIM, schema-conformant* file while leaving quality, perceptual safety, and learning feedback mostly advisory. The current closeout converts the highest-blast-radius signals into gates or explicit upstream/deferred work: PDQ/SSCD collision checks block Campaign Factory fan-out, deterministic/model-backed quality evidence can block readiness, and measured outcomes feed ranking and prompt guidance.
 
@@ -108,7 +111,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/deterministic watchability/heuristic creative warnings plus supplied virality and video-analysis reports now block Campaign Factory upload readiness. Reel Factory readiness can also require supplied post-render virality evidence and has a zero-cost operator/configured-provider request path for producing those sidecars.
 2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, selected reference patterns feed front-generation prompt assembly, and Campaign Factory watchability now blocks on deterministic OCR/hook/quality/model-report evidence. Model-backed report execution stays default-off and operator/configuration controlled.
 3. **Learned intelligence dead-ends as an operator note.** Recommendation arms now rank with explicit decayed Beta-Bernoulli planning stats, selected reference-pattern structure feeds prompt assembly, supplied video-analysis sidecars feed Winner-DNA features, and generated report sidecars can flow into readiness and Winner-DNA extraction.
-4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs, Campaign Factory imports metric history curves, and recommendation trust is read back into next-batch scoring; remaining gap here is dashboard video-PDQ upstream work.
+4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs, Campaign Factory imports metric history curves, recommendation trust is read back into next-batch scoring, and dashboard media originality telemetry has upstream frame/keyframe perceptual hashes. Remaining improvement is calibration, not a missing data path.
 5. **In-environment AI is underused.** Higgsfield `virality_predictor` can now feed a default-off ContentForge gate and a Reel Factory post-render readiness gate when a report is supplied, and supplied Higgsfield `video_analysis` / VLM reports can block Campaign Factory fan-out. Reel Factory can now request/write those reports through a zero-cost operator/configured-provider seam; autonomous paid provider use remains out of scope by design.
 
 ---
@@ -151,7 +154,7 @@ Reference Factory now has a measured-outcome feedback path for generated prompts
 
 ## Track S — Anti-shadowban safety (~7/10; Campaign Factory fixed, dashboard upstream)
 
-PR #44 made variation real, and the later Track S slices made the Campaign Factory fan-out gate authoritative on PDQ/SSCD evidence. The remaining perceptual hashing gap is upstream dashboard video originality telemetry, not Creator OS variation apply.
+PR #44 made variation real, and the later Track S slices made the Campaign Factory fan-out gate authoritative on PDQ/SSCD evidence. ThreadsDashboard PR #130 closes the dashboard media telemetry gap with 256-bit frame perceptual hashes and optional video keyframe extraction.
 
 | Sev | File:line | Fix (DETECTION/variation only — NOT spoof-strengthening) |
 |-----|-----------|------|
@@ -160,7 +163,7 @@ PR #44 made variation real, and the later Track S slices made the Campaign Facto
 | Fixed for Campaign Factory scope | `contentforge/lib/campaign-factory-audit-config.js` | Campaign Factory variation supplies every sibling through `comparisonFiles` and blocks sibling collisions. Other ContentForge callers intentionally remain scoped opt-in because only fan-out batches have a complete sibling set; default ContentForge profile stays advisory by design. |
 | Fixed | `campaign_factory/perceptual.py`, `core.py` inventory safety | Campaign Factory now computes real PDQ fingerprints for rendered media when assets enter inventory safety checks, persists `perceptualFingerprint` / `perceptualClusterId` in rendered asset metadata, clusters near matches at Hamming distance `<=40`, and uses the existing cross-account cooldown to block reuse. Regression tests prove the cooldown works without manually supplied metadata. |
 | Fixed | `repurposer/config.py`, `engines/audio.py`, `repurposer/pipeline.py` | `ig_subtle` now enables the audio layer, selects catalog-backed replacement audio deterministically by account index, and fails closed when an audio-required preset cannot assign replacement audio. Tests cover per-account selection and missing-audio rejection. |
-| Upstream / ThreadsDashboard | `ThreadsDashboard/.../originalitySignals.ts:81-124` | Dashboard's only perceptual hash is weak 64-bit **aHash**, and `fetchPerceptualHash` returns null for video (video gets **no** perceptual signal). Upgrade to PDQ/keyframe video hashing upstream in ThreadsDashboard; Creator OS has no dashboard mirror. |
+| Upstream-fixed | `ThreadsDashboard/api/_lib/originalitySignals.ts` PR #130 | Dashboard originality capture no longer relies only on weak 64-bit **aHash**. Images now get `pdq256:` 256-bit frame hashes; videos can produce the same perceptual signal from an FFmpeg-extracted keyframe when FFmpeg is available; legacy hash similarity remains compatible. Creator OS has no dashboard mirror. |
 | Good (keep) | `core.py:5256-5311`; `campaignSchedule.ts:1180-1265,441-480` | Caption variation is real per-index; cadence is conservative (warming 1/day@24h … high-perf 2/day@6h + ~12-min cross-account spacing); lineage cooldowns (14d variant/parent, content-fingerprint) enforced + AP0-1 unique index. **The gap is perceptual sameness, not posting rate.** |
 
 **Policy note:** every safety fix above strengthens **detection and legit variation** (catching collisions, gating on the real metric, per-account audio/caption). **None strengthens the `micro` hash-evasion spoof** — that remains off-by-default and owner-directed only. We make the system *catch* collisions, not *hide* them.
