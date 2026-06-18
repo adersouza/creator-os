@@ -2221,6 +2221,65 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: 
         cf.close()
 
 
+def test_front_generation_prompt_pack_uses_selected_reference_pattern(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        campaign = cf.campaign_by_slug("may")
+        cf.conn.execute(
+            """
+            INSERT INTO reference_patterns (
+              id, cluster_key, rank, label, visual_format, hook_type, caption_archetype,
+              reference_ids_json, local_paths_json, public_urls_json, prompt_template_json,
+              higgsfield_json, caption_formulas_json, raw_json, imported_at, updated_at
+            ) VALUES (
+              'refpat_prompt', 'mirror_curiosity', 1, 'Mirror curiosity winner',
+              'mirror_selfie', 'curiosity_gap', 'question_hook',
+              '[]', '[]', '[]', ?, '{}', '[]', '{}', 'now', 'now'
+            )
+            """,
+            (json.dumps({"visual": "mirror selfie with phone-camera framing", "captionOverlay": "short question hook"}),),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO campaign_reference_plans
+            (id, campaign_id, reference_pattern_id, variant_count, created_at, updated_at)
+            VALUES ('plan_prompt', ?, 'refpat_prompt', 3, 'now', 'now')
+            """,
+            (campaign["id"],),
+        )
+        cf.conn.commit()
+
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(args),
+        )
+
+        result = run_front_generation_stage(
+            cf,
+            campaign_slug="may",
+            reference_image_path=reference,
+            creator="Stacey",
+            dry_run=True,
+        )
+
+        validate_front_generation_plan(result["plan"])
+        prompt_pack = json.loads(Path(result["promptPath"]).read_text(encoding="utf-8"))
+        joined = json.dumps(prompt_pack, ensure_ascii=False).lower()
+        assert prompt_pack["learnedPromptGuidance"]["source"] == "campaign_factory.reference_pattern"
+        assert prompt_pack["learnedPromptGuidance"]["referencePatternId"] == "refpat_prompt"
+        assert "mirror_selfie" in joined
+        assert "curiosity_gap" in joined
+        assert "question_hook" in joined
+        assert "structural guidance only" in joined
+        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
 def test_front_generation_apply_fails_closed_without_enable_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cf = make_factory(tmp_path)
     try:
