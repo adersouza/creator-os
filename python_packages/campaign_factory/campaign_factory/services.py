@@ -5,6 +5,7 @@ import sqlite3
 from typing import Any, Callable
 
 from .config import Settings
+from .events import EventRepository
 from .graph import GraphRepository
 
 
@@ -31,6 +32,13 @@ class CoreServices:
             conn,
             new_id=new_id,
             new_graph_id=new_graph_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+        )
+        self.events = EventRepository(
+            conn,
+            new_id=new_id,
             slugify=slugify,
             sanitize_for_storage=sanitize_for_storage,
             utc_now=utc_now,
@@ -103,36 +111,55 @@ class CoreServices:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
-        if status not in {"info", "success", "warning", "failure"}:
-            raise ValueError("activity event status must be info, success, warning, or failure")
-        event_id = self._new_id("evt")
-        now = self._utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO activity_events
-            (id, event_type, campaign_id, source_asset_id, rendered_asset_id, render_job_id,
-             audit_report_id, threadsdash_export_id, pipeline_job_id, status, message, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                event_type,
-                campaign_id,
-                source_asset_id,
-                rendered_asset_id,
-                render_job_id,
-                audit_report_id,
-                threadsdash_export_id,
-                pipeline_job_id,
-                status,
-                message or event_type.replace("_", " "),
-                json.dumps(self._sanitize_for_storage(metadata or {}), ensure_ascii=False, sort_keys=True),
-                now,
-            ),
+        return self.events.record_event(
+            event_type,
+            campaign_id=campaign_id,
+            source_asset_id=source_asset_id,
+            rendered_asset_id=rendered_asset_id,
+            render_job_id=render_job_id,
+            audit_report_id=audit_report_id,
+            threadsdash_export_id=threadsdash_export_id,
+            pipeline_job_id=pipeline_job_id,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
         )
-        if commit:
-            self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM activity_events WHERE id = ?", (event_id,)).fetchone())
+
+    def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.events.event_payload(row)
+
+    def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
+        return self.events.events_for_campaign(campaign_slug, limit=limit)
+
+    def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        return self.events.events_for_asset(rendered_asset_id, limit=limit)
+
+    def create_pipeline_job(
+        self,
+        job_type: str,
+        campaign_id: str | None,
+        input_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.events.create_pipeline_job(job_type, campaign_id, input_payload)
+
+    def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
+        return self.events.start_pipeline_job(job_id)
+
+    def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.events.finish_pipeline_job(job_id, result_payload)
+
+    def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.events.fail_pipeline_job(job_id, error, result_payload)
+
+    def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
+        return self.events.set_pipeline_job_campaign(job_id, campaign_id)
+
+    def pipeline_job(self, job_id: str) -> dict[str, Any]:
+        return self.events.pipeline_job(job_id)
+
+    def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.events.pipeline_job_payload(row)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

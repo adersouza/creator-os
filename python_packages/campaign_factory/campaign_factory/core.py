@@ -1146,112 +1146,34 @@ class CampaignFactory:
         return parsed.get("creativePlanId") or parsed.get("creative_plan_id")
 
     def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "eventType": row["event_type"],
-            "campaignId": row["campaign_id"],
-            "sourceAssetId": row["source_asset_id"],
-            "renderedAssetId": row["rendered_asset_id"],
-            "renderJobId": row["render_job_id"],
-            "auditReportId": row["audit_report_id"],
-            "threadsdashExportId": row["threadsdash_export_id"],
-            "pipelineJobId": row["pipeline_job_id"],
-            "status": row["status"],
-            "message": row["message"],
-            "metadata": json_load(row["metadata_json"], {}),
-            "createdAt": row["created_at"],
-        }
+        return self.services.event_payload(row)
 
     def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM activity_events WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (campaign["id"], max(1, min(limit, 1000))),
-        ).fetchall()
-        return [self.event_payload(dict(row)) for row in rows]
+        return self.services.events_for_campaign(campaign_slug, limit=limit)
 
     def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM activity_events WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (rendered_asset_id, max(1, min(limit, 1000))),
-        ).fetchall()
-        return [self.event_payload(dict(row)) for row in rows]
+        return self.services.events_for_asset(rendered_asset_id, limit=limit)
 
     def create_pipeline_job(self, job_type: str, campaign_id: str | None, input_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        job_id = new_id("job")
-        now = utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO pipeline_jobs
-            (id, job_type, campaign_id, status, input_json, result_json, error, attempt_count,
-             started_at, finished_at, created_at, updated_at)
-            VALUES (?, ?, ?, 'queued', ?, '{}', NULL, 0, NULL, NULL, ?, ?)
-            """,
-            (
-                job_id,
-                job_type,
-                campaign_id,
-                json.dumps(sanitize_for_storage(input_payload or {}), ensure_ascii=False, sort_keys=True),
-                now,
-                now,
-            ),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.create_pipeline_job(job_type, campaign_id, input_payload)
 
     def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'running', attempt_count = attempt_count + 1, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
-            (now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.start_pipeline_job(job_id)
 
     def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'succeeded', result_json = ?, error = NULL, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.finish_pipeline_job(job_id, result_payload)
 
     def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'failed', result_json = ?, error = ?, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), error, now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.fail_pipeline_job(job_id, error, result_payload)
 
     def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
-        self.conn.execute("UPDATE pipeline_jobs SET campaign_id = ?, updated_at = ? WHERE id = ?", (campaign_id, utc_now(), job_id))
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.set_pipeline_job_campaign(job_id, campaign_id)
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)).fetchone()
-        if not row:
-            raise ValueError(f"pipeline job not found: {job_id}")
-        return self.pipeline_job_payload(dict(row))
+        return self.services.pipeline_job(job_id)
 
     def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "jobType": row["job_type"],
-            "campaignId": row["campaign_id"],
-            "status": row["status"],
-            "input": json_load(row["input_json"], {}),
-            "result": json_load(row["result_json"], {}),
-            "error": row["error"],
-            "attemptCount": row["attempt_count"],
-            "startedAt": row["started_at"],
-            "finishedAt": row["finished_at"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.pipeline_job_payload(row)
 
     def autonomy_level(self) -> str:
         row = self.conn.execute("SELECT value_json FROM trust_settings WHERE key = 'autonomy_level'").fetchone()
