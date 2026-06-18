@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .asset_import import AssetImportRepository
 from .caption import CaptionFamilyRepository
+from .carousel_integrity import CarouselIntegrityRepository
 from .config import Settings
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
@@ -45,6 +46,9 @@ class CoreServices:
         explain_publishability: Callable[[str], dict[str, Any]],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        surface_report_assets: Callable[..., list[dict[str, Any]]],
+        surface_draft_proof: Callable[..., dict[str, Any]],
+        asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
         text_hash: Callable[[str], str],
         validate_instagram_trial_reel_intent: Callable[..., str | None],
@@ -238,6 +242,16 @@ class CoreServices:
             story_goals=story_goals,
             story_styles=story_styles,
             ig_media_type_by_surface=ig_media_type_by_surface,
+        )
+        self.carousel_integrity = CarouselIntegrityRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            surface_draft_proof=surface_draft_proof,
+            asset_components=asset_components,
         )
 
     def ensure_graph_node(
@@ -1012,6 +1026,79 @@ class CoreServices:
 
     def ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
         return self.surface_registration.ig_media_type_for_surface(surface, media_type)
+
+    def carousel_integrity_report(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_integrity_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_child_metrics_plan(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_child_metrics_plan(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_report_assets(
+        self,
+        *,
+        creator: str | None,
+        campaign_slug: str | None,
+        rendered_asset_id: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_report_assets(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_integrity_for_asset(asset)
+
+    def carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_component_signature(components)
+
+    def carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_media_item_signature(media_items)
+
+    def carousel_signature_payload(
+        self,
+        signature: list[dict[str, Any]],
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_signature_payload(signature, extra=extra)
+
+    def carousel_boundary_result(
+        self,
+        boundary: str,
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_boundary_result(boundary, before, after)
+
+    def carousel_meta_child_payload_preview(
+        self,
+        *,
+        asset: dict[str, Any],
+        draft: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

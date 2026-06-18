@@ -5,6 +5,7 @@ from pathlib import Path
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.caption import CaptionFamilyRepository
+from campaign_factory.carousel_integrity import CarouselIntegrityRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_planning import CreativePlanningRepository
@@ -57,6 +58,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.discoverability.conn is factory.conn
         assert isinstance(factory.services.surface_registration, SurfaceRegistrationRepository)
         assert factory.services.surface_registration.conn is factory.conn
+        assert isinstance(factory.services.carousel_integrity, CarouselIntegrityRepository)
+        assert factory.services.carousel_integrity.conn is factory.conn
     finally:
         factory.close()
 
@@ -1854,6 +1857,206 @@ def test_core_services_delegates_surface_registration_methods_to_repository() ->
             "content_surface": "feed_single",
             "content_hash": "abc123",
             "component_index": 0,
+        }),
+    ]
+
+
+def test_carousel_integrity_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def carousel_integrity_report(self, *args, **kwargs):
+            calls.append(("carousel_integrity_report", args, kwargs))
+            return {"schema": "campaign_factory.carousel_integrity_report.v1"}
+
+        def carousel_child_metrics_plan(self, *args, **kwargs):
+            calls.append(("carousel_child_metrics_plan", args, kwargs))
+            return {"schema": "campaign_factory.carousel_child_metrics_plan.v1"}
+
+        def carousel_report_assets(self, *args, **kwargs):
+            calls.append(("carousel_report_assets", args, kwargs))
+            return [{"id": "asset_carousel"}]
+
+        def carousel_integrity_for_asset(self, *args, **kwargs):
+            calls.append(("carousel_integrity_for_asset", args, kwargs))
+            return {"assetId": "asset_carousel"}
+
+        def carousel_component_signature(self, *args, **kwargs):
+            calls.append(("carousel_component_signature", args, kwargs))
+            return [{"componentIndex": 0}]
+
+        def carousel_media_item_signature(self, *args, **kwargs):
+            calls.append(("carousel_media_item_signature", args, kwargs))
+            return [{"componentIndex": 0}]
+
+        def carousel_signature_payload(self, *args, **kwargs):
+            calls.append(("carousel_signature_payload", args, kwargs))
+            return {"slideCount": 1}
+
+        def carousel_boundary_result(self, *args, **kwargs):
+            calls.append(("carousel_boundary_result", args, kwargs))
+            return {"boundary": args[0]}
+
+        def carousel_meta_child_payload_preview(self, *args, **kwargs):
+            calls.append(("carousel_meta_child_payload_preview", args, kwargs))
+            return {"children": []}
+
+    factory.services = FakeServices()
+
+    assert factory.carousel_integrity_report(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == {"schema": "campaign_factory.carousel_integrity_report.v1"}
+    assert factory.carousel_child_metrics_plan(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == {"schema": "campaign_factory.carousel_child_metrics_plan.v1"}
+    assert factory._carousel_report_assets(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == [{"id": "asset_carousel"}]
+    assert factory._carousel_integrity_for_asset({"id": "asset_carousel"}) == {"assetId": "asset_carousel"}
+    assert factory._carousel_component_signature([{"component_index": 0}]) == [{"componentIndex": 0}]
+    assert factory._carousel_media_item_signature([{"componentIndex": 0}]) == [{"componentIndex": 0}]
+    assert factory._carousel_signature_payload([{"componentIndex": 0}], extra={"ok": True}) == {"slideCount": 1}
+    assert factory._carousel_boundary_result("a_to_b", [{"componentIndex": 0}], [{"componentIndex": 0}]) == {
+        "boundary": "a_to_b",
+    }
+    assert factory._carousel_meta_child_payload_preview(
+        asset={"id": "asset_carousel"},
+        draft={},
+        components=[],
+    ) == {"children": []}
+
+    assert calls == [
+        ("carousel_integrity_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_child_metrics_plan", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_report_assets", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_integrity_for_asset", ({"id": "asset_carousel"},), {}),
+        ("carousel_component_signature", ([{"component_index": 0}],), {}),
+        ("carousel_media_item_signature", ([{"componentIndex": 0}],), {}),
+        ("carousel_signature_payload", ([{"componentIndex": 0}],), {"extra": {"ok": True}}),
+        ("carousel_boundary_result", ("a_to_b", [{"componentIndex": 0}], [{"componentIndex": 0}]), {}),
+        ("carousel_meta_child_payload_preview", (), {
+            "asset": {"id": "asset_carousel"},
+            "draft": {},
+            "components": [],
+        }),
+    ]
+
+
+def test_core_services_delegates_carousel_integrity_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCarouselIntegrity:
+        def carousel_integrity_report(self, *args, **kwargs):
+            calls.append(("carousel_integrity_report", args, kwargs))
+            return {"schema": "campaign_factory.carousel_integrity_report.v1"}
+
+        def carousel_child_metrics_plan(self, *args, **kwargs):
+            calls.append(("carousel_child_metrics_plan", args, kwargs))
+            return {"schema": "campaign_factory.carousel_child_metrics_plan.v1"}
+
+        def carousel_report_assets(self, *args, **kwargs):
+            calls.append(("carousel_report_assets", args, kwargs))
+            return [{"id": "asset_carousel"}]
+
+        def carousel_integrity_for_asset(self, *args, **kwargs):
+            calls.append(("carousel_integrity_for_asset", args, kwargs))
+            return {"assetId": "asset_carousel"}
+
+        def carousel_component_signature(self, *args, **kwargs):
+            calls.append(("carousel_component_signature", args, kwargs))
+            return [{"componentIndex": 0}]
+
+        def carousel_media_item_signature(self, *args, **kwargs):
+            calls.append(("carousel_media_item_signature", args, kwargs))
+            return [{"componentIndex": 0}]
+
+        def carousel_signature_payload(self, *args, **kwargs):
+            calls.append(("carousel_signature_payload", args, kwargs))
+            return {"slideCount": 1}
+
+        def carousel_boundary_result(self, *args, **kwargs):
+            calls.append(("carousel_boundary_result", args, kwargs))
+            return {"boundary": args[0]}
+
+        def carousel_meta_child_payload_preview(self, *args, **kwargs):
+            calls.append(("carousel_meta_child_payload_preview", args, kwargs))
+            return {"children": []}
+
+    services.carousel_integrity = FakeCarouselIntegrity()
+
+    assert services.carousel_integrity_report(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == {"schema": "campaign_factory.carousel_integrity_report.v1"}
+    assert services.carousel_child_metrics_plan(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == {"schema": "campaign_factory.carousel_child_metrics_plan.v1"}
+    assert services.carousel_report_assets(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_carousel",
+    ) == [{"id": "asset_carousel"}]
+    assert services.carousel_integrity_for_asset({"id": "asset_carousel"}) == {"assetId": "asset_carousel"}
+    assert services.carousel_component_signature([{"component_index": 0}]) == [{"componentIndex": 0}]
+    assert services.carousel_media_item_signature([{"componentIndex": 0}]) == [{"componentIndex": 0}]
+    assert services.carousel_signature_payload([{"componentIndex": 0}], extra={"ok": True}) == {"slideCount": 1}
+    assert services.carousel_boundary_result("a_to_b", [{"componentIndex": 0}], [{"componentIndex": 0}]) == {
+        "boundary": "a_to_b",
+    }
+    assert services.carousel_meta_child_payload_preview(
+        asset={"id": "asset_carousel"},
+        draft={},
+        components=[],
+    ) == {"children": []}
+
+    assert calls == [
+        ("carousel_integrity_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_child_metrics_plan", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_report_assets", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_carousel",
+        }),
+        ("carousel_integrity_for_asset", ({"id": "asset_carousel"},), {}),
+        ("carousel_component_signature", ([{"component_index": 0}],), {}),
+        ("carousel_media_item_signature", ([{"componentIndex": 0}],), {}),
+        ("carousel_signature_payload", ([{"componentIndex": 0}],), {"extra": {"ok": True}}),
+        ("carousel_boundary_result", ("a_to_b", [{"componentIndex": 0}], [{"componentIndex": 0}]), {}),
+        ("carousel_meta_child_payload_preview", (), {
+            "asset": {"id": "asset_carousel"},
+            "draft": {},
+            "components": [],
         }),
     ]
 
