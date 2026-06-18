@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from .asset_import import AssetImportRepository
 from .config import Settings
+from .creative_planning import CreativePlanningRepository
 from .events import EventRepository
 from .graph import GraphRepository
 from .models import ModelRepository
@@ -24,6 +25,8 @@ class CoreServices:
         utc_now: Callable[[], str],
         media_type_for_path: Callable[[Any], str],
         sha256_file: Callable[[Any], str],
+        rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
+        dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -75,6 +78,20 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
+        )
+        self.creative_planning = CreativePlanningRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            campaign_by_slug=self.campaign_by_slug,
+            assets_for_campaign=self.asset_import.assets_for_campaign,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
         )
 
     def ensure_graph_node(
@@ -273,6 +290,71 @@ class CoreServices:
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         return self.asset_import.assets_for_campaign(campaign_id)
+
+    def create_creative_plan(
+        self,
+        *,
+        name: str,
+        platform: str = "instagram",
+        target_account: str,
+        daily_base_video_target: int = 10,
+        style_lanes: list[str] | None = None,
+        model_profile: str = "",
+        source_accounts: list[str] | None = None,
+        goal: str = "views_reach",
+        linked_campaign: str | None = None,
+    ) -> dict[str, Any]:
+        return self.creative_planning.create_creative_plan(
+            name=name,
+            platform=platform,
+            target_account=target_account,
+            daily_base_video_target=daily_base_video_target,
+            style_lanes=style_lanes,
+            model_profile=model_profile,
+            source_accounts=source_accounts,
+            goal=goal,
+            linked_campaign=linked_campaign,
+        )
+
+    def creative_plan(self, name: str) -> dict[str, Any]:
+        return self.creative_planning.creative_plan(name)
+
+    def update_creative_plan_status(self, *, name: str, status: str) -> dict[str, Any]:
+        return self.creative_planning.update_creative_plan_status(name=name, status=status)
+
+    def sync_creative_plan_progress(self, *, name: str, prompt_export_path: Any) -> dict[str, Any]:
+        return self.creative_planning.sync_creative_plan_progress(name=name, prompt_export_path=prompt_export_path)
+
+    def creative_plan_for_campaign(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        return self.creative_planning.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
+
+    def record_creative_plan_event(
+        self,
+        plan_id: str,
+        event_type: str,
+        *,
+        status: str = "info",
+        message: str = "",
+        metadata: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> None:
+        self.creative_planning.record_creative_plan_event(
+            plan_id,
+            event_type,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
+        )
+
+    def creative_plan_payload(self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.creative_planning.creative_plan_payload(row, dashboard=dashboard)
+
+    def source_prompt_creative_plan_id(self, source: dict[str, Any]) -> str | None:
+        return self.creative_planning.source_prompt_creative_plan_id(source)
+
+    def asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
+        return self.creative_planning.asset_creative_plan_id(asset)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

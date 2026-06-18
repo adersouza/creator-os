@@ -6,6 +6,7 @@ from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
@@ -33,6 +34,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.models.conn is factory.conn
         assert isinstance(factory.services.asset_import, AssetImportRepository)
         assert factory.services.asset_import.conn is factory.conn
+        assert isinstance(factory.services.creative_planning, CreativePlanningRepository)
+        assert factory.services.creative_planning.conn is factory.conn
     finally:
         factory.close()
 
@@ -133,6 +136,41 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("assets_for_campaign", args, kwargs))
             return [{"id": "src_1"}]
 
+        def create_creative_plan(self, *args, **kwargs):
+            calls.append(("create_creative_plan", args, kwargs))
+            return {"schema": "campaign_factory.creative_plan.v1", "name": kwargs["name"]}
+
+        def creative_plan(self, *args, **kwargs):
+            calls.append(("creative_plan", args, kwargs))
+            return {"schema": "campaign_factory.creative_plan.v1", "name": args[0]}
+
+        def update_creative_plan_status(self, *args, **kwargs):
+            calls.append(("update_creative_plan_status", args, kwargs))
+            return {"status": kwargs["status"]}
+
+        def sync_creative_plan_progress(self, *args, **kwargs):
+            calls.append(("sync_creative_plan_progress", args, kwargs))
+            return {"schema": "campaign_factory.creative_plan_progress_sync.v1"}
+
+        def creative_plan_for_campaign(self, *args, **kwargs):
+            calls.append(("creative_plan_for_campaign", args, kwargs))
+            return {"linked_campaign": args[0]}
+
+        def record_creative_plan_event(self, *args, **kwargs):
+            calls.append(("record_creative_plan_event", args, kwargs))
+
+        def creative_plan_payload(self, *args, **kwargs):
+            calls.append(("creative_plan_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def source_prompt_creative_plan_id(self, *args, **kwargs):
+            calls.append(("source_prompt_creative_plan_id", args, kwargs))
+            return "cplan_1"
+
+        def asset_creative_plan_id(self, *args, **kwargs):
+            calls.append(("asset_creative_plan_id", args, kwargs))
+            return "cplan_2"
+
     factory.services = FakeServices()
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
@@ -180,6 +218,20 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         notes="notes",
     ) == {"imported": []}
     assert factory.assets_for_campaign("camp_1") == [{"id": "src_1"}]
+    assert factory.create_creative_plan(name="daily", target_account="@creator") == {
+        "schema": "campaign_factory.creative_plan.v1",
+        "name": "daily",
+    }
+    assert factory.creative_plan("daily") == {"schema": "campaign_factory.creative_plan.v1", "name": "daily"}
+    assert factory.update_creative_plan_status(name="daily", status="prompts_ready") == {"status": "prompts_ready"}
+    assert factory.sync_creative_plan_progress(name="daily", prompt_export_path=Path("/tmp/prompts.json")) == {
+        "schema": "campaign_factory.creative_plan_progress_sync.v1",
+    }
+    assert factory.creative_plan_for_campaign("may", dashboard={"campaign": {"slug": "may"}}) == {"linked_campaign": "may"}
+    assert factory._record_creative_plan_event("cplan_1", "creative_plan_created", metadata={"ok": True}) is None
+    assert factory._creative_plan_payload({"id": "cplan_1"}) == {"id": "cplan_1"}
+    assert factory._source_prompt_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"}) == "cplan_1"
+    assert factory._asset_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"}) == "cplan_2"
 
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
@@ -236,6 +288,30 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             "notes": "notes",
         }),
         ("assets_for_campaign", ("camp_1",), {}),
+        ("create_creative_plan", (), {
+            "name": "daily",
+            "platform": "instagram",
+            "target_account": "@creator",
+            "daily_base_video_target": 10,
+            "style_lanes": None,
+            "model_profile": "",
+            "source_accounts": None,
+            "goal": "views_reach",
+            "linked_campaign": None,
+        }),
+        ("creative_plan", ("daily",), {}),
+        ("update_creative_plan_status", (), {"name": "daily", "status": "prompts_ready"}),
+        ("sync_creative_plan_progress", (), {"name": "daily", "prompt_export_path": Path("/tmp/prompts.json")}),
+        ("creative_plan_for_campaign", ("may",), {"dashboard": {"campaign": {"slug": "may"}}}),
+        ("record_creative_plan_event", ("cplan_1", "creative_plan_created"), {
+            "status": "info",
+            "message": "",
+            "metadata": {"ok": True},
+            "commit": True,
+        }),
+        ("creative_plan_payload", ({"id": "cplan_1"},), {"dashboard": None}),
+        ("source_prompt_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"},), {}),
+        ("asset_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"},), {}),
     ]
 
 
@@ -475,6 +551,88 @@ def test_core_services_delegates_asset_import_methods_to_asset_import_repository
             "notes": "notes",
         }),
         ("assets_for_campaign", ("camp_1",), {}),
+    ]
+
+
+def test_core_services_delegates_creative_planning_methods_to_creative_planning_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreativePlanning:
+        def create_creative_plan(self, *args, **kwargs):
+            calls.append(("create_creative_plan", args, kwargs))
+            return {"name": kwargs["name"]}
+
+        def creative_plan(self, *args, **kwargs):
+            calls.append(("creative_plan", args, kwargs))
+            return {"name": args[0]}
+
+        def update_creative_plan_status(self, *args, **kwargs):
+            calls.append(("update_creative_plan_status", args, kwargs))
+            return {"status": kwargs["status"]}
+
+        def sync_creative_plan_progress(self, *args, **kwargs):
+            calls.append(("sync_creative_plan_progress", args, kwargs))
+            return {"schema": "campaign_factory.creative_plan_progress_sync.v1"}
+
+        def creative_plan_for_campaign(self, *args, **kwargs):
+            calls.append(("creative_plan_for_campaign", args, kwargs))
+            return {"linked_campaign": args[0]}
+
+        def record_creative_plan_event(self, *args, **kwargs):
+            calls.append(("record_creative_plan_event", args, kwargs))
+
+        def creative_plan_payload(self, *args, **kwargs):
+            calls.append(("creative_plan_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def source_prompt_creative_plan_id(self, *args, **kwargs):
+            calls.append(("source_prompt_creative_plan_id", args, kwargs))
+            return "cplan_1"
+
+        def asset_creative_plan_id(self, *args, **kwargs):
+            calls.append(("asset_creative_plan_id", args, kwargs))
+            return "cplan_2"
+
+    services.creative_planning = FakeCreativePlanning()
+
+    assert services.create_creative_plan(name="daily", target_account="@creator") == {"name": "daily"}
+    assert services.creative_plan("daily") == {"name": "daily"}
+    assert services.update_creative_plan_status(name="daily", status="prompts_ready") == {"status": "prompts_ready"}
+    assert services.sync_creative_plan_progress(name="daily", prompt_export_path=Path("/tmp/prompts.json")) == {
+        "schema": "campaign_factory.creative_plan_progress_sync.v1",
+    }
+    assert services.creative_plan_for_campaign("may", dashboard={"campaign": {"slug": "may"}}) == {"linked_campaign": "may"}
+    assert services.record_creative_plan_event("cplan_1", "creative_plan_created", metadata={"ok": True}) is None
+    assert services.creative_plan_payload({"id": "cplan_1"}) == {"id": "cplan_1"}
+    assert services.source_prompt_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"}) == "cplan_1"
+    assert services.asset_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"}) == "cplan_2"
+
+    assert calls == [
+        ("create_creative_plan", (), {
+            "name": "daily",
+            "platform": "instagram",
+            "target_account": "@creator",
+            "daily_base_video_target": 10,
+            "style_lanes": None,
+            "model_profile": "",
+            "source_accounts": None,
+            "goal": "views_reach",
+            "linked_campaign": None,
+        }),
+        ("creative_plan", ("daily",), {}),
+        ("update_creative_plan_status", (), {"name": "daily", "status": "prompts_ready"}),
+        ("sync_creative_plan_progress", (), {"name": "daily", "prompt_export_path": Path("/tmp/prompts.json")}),
+        ("creative_plan_for_campaign", ("may",), {"dashboard": {"campaign": {"slug": "may"}}}),
+        ("record_creative_plan_event", ("cplan_1", "creative_plan_created"), {
+            "status": "info",
+            "message": "",
+            "metadata": {"ok": True},
+            "commit": True,
+        }),
+        ("creative_plan_payload", ({"id": "cplan_1"},), {"dashboard": None}),
+        ("source_prompt_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"},), {}),
+        ("asset_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"},), {}),
     ]
 
 
