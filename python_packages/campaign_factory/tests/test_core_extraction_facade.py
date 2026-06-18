@@ -1,7 +1,80 @@
 from __future__ import annotations
 
 from campaign_factory import audit_payload, exports, readiness
+from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.services import CoreServices
+
+
+def test_campaign_factory_initializes_core_services(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    try:
+        assert isinstance(factory.services, CoreServices)
+        assert factory.services.conn is factory.conn
+        assert factory.services.settings is factory.settings
+    finally:
+        factory.close()
+
+
+def test_core_service_facade_methods_delegate_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def graph_id_for(self, *args, **kwargs):
+            calls.append(("graph_id_for", args, kwargs))
+            return "graph_1"
+
+        def ensure_graph_edge(self, *args, **kwargs):
+            calls.append(("ensure_graph_edge", args, kwargs))
+            return "edge_1"
+
+        def record_event(self, *args, **kwargs):
+            calls.append(("record_event", args, kwargs))
+            return {"id": "evt_1"}
+
+        def campaign_by_slug(self, *args, **kwargs):
+            calls.append(("campaign_by_slug", args, kwargs))
+            return {"slug": args[0]}
+
+        def rendered_asset(self, *args, **kwargs):
+            calls.append(("rendered_asset", args, kwargs))
+            return {"id": args[0]}
+
+    factory.services = FakeServices()
+
+    assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
+    assert factory.ensure_graph_edge("from", "to", "contains", evidence={"ok": True}, commit=True) == "edge_1"
+    assert factory.record_event("evt", campaign_id="camp_1", status="success", metadata={"ok": True}) == {"id": "evt_1"}
+    assert factory.campaign_by_slug("may") == {"slug": "may"}
+    assert factory.rendered_asset("asset_1") == {"id": "asset_1"}
+
+    assert calls == [
+        ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
+        ("ensure_graph_edge", ("from", "to", "contains"), {"evidence": {"ok": True}, "commit": True}),
+        ("record_event", ("evt",), {
+            "campaign_id": "camp_1",
+            "source_asset_id": None,
+            "rendered_asset_id": None,
+            "render_job_id": None,
+            "audit_report_id": None,
+            "threadsdash_export_id": None,
+            "pipeline_job_id": None,
+            "status": "success",
+            "message": "",
+            "metadata": {"ok": True},
+            "commit": True,
+        }),
+        ("campaign_by_slug", ("may",), {}),
+        ("rendered_asset", ("asset_1",), {}),
+    ]
 
 
 def test_execution_readiness_facade_delegates_to_readiness_module(monkeypatch) -> None:

@@ -29,6 +29,7 @@ from .db import connect, init_db
 from .learning_score import account_reward_baselines, aggregate_performance, performance_planning_score, performance_score
 from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
 from .persistence import json_load, row_to_dict, utc_now
+from .services import CoreServices
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
@@ -626,6 +627,15 @@ class CampaignFactory:
         self.settings = settings
         self.conn = connect(settings.db_path)
         init_db(self.conn)
+        self.services = CoreServices(
+            self.conn,
+            self.settings,
+            new_id=new_id,
+            new_graph_id=new_graph_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+        )
         self.settings.campaigns_dir.mkdir(parents=True, exist_ok=True)
 
     def close(self) -> None:
@@ -642,69 +652,15 @@ class CampaignFactory:
         payload: dict[str, Any] | None = None,
         commit: bool = False,
     ) -> str:
-        if not local_id and not external_id:
-            raise ValueError("graph node requires a local_id or external_id")
-        now = utc_now()
-        row = None
-        if local_table and local_id:
-            row = self.conn.execute(
-                "SELECT * FROM content_graph_nodes WHERE local_table = ? AND local_id = ?",
-                (local_table, local_id),
-            ).fetchone()
-        if not row and external_system and external_id:
-            row = self.conn.execute(
-                "SELECT * FROM content_graph_nodes WHERE external_system = ? AND external_id = ?",
-                (external_system, external_id),
-            ).fetchone()
-        payload_json = json.dumps(sanitize_for_storage(payload or {}), ensure_ascii=False, sort_keys=True)
-        if row:
-            self.conn.execute(
-                """
-                UPDATE content_graph_nodes
-                SET entity_type = ?, local_table = COALESCE(?, local_table),
-                    local_id = COALESCE(?, local_id),
-                    external_system = COALESCE(?, external_system),
-                    external_id = COALESCE(?, external_id),
-                    payload_json = ?, updated_at = ?
-                WHERE global_id = ?
-                """,
-                (
-                    slugify(entity_type),
-                    local_table,
-                    local_id,
-                    external_system,
-                    external_id,
-                    payload_json,
-                    now,
-                    row["global_id"],
-                ),
-            )
-            graph_id = row["global_id"]
-        else:
-            graph_id = new_graph_id(entity_type)
-            self.conn.execute(
-                """
-                INSERT INTO content_graph_nodes (
-                  global_id, entity_type, local_table, local_id, external_system,
-                  external_id, payload_json, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    graph_id,
-                    slugify(entity_type),
-                    local_table,
-                    local_id,
-                    external_system,
-                    external_id,
-                    payload_json,
-                    now,
-                    now,
-                ),
-            )
-        if commit:
-            self.conn.commit()
-        return graph_id
+        return self.services.ensure_graph_node(
+            entity_type,
+            local_table=local_table,
+            local_id=local_id,
+            external_system=external_system,
+            external_id=external_id,
+            payload=payload,
+            commit=commit,
+        )
 
     def graph_id_for(
         self,
@@ -714,17 +670,12 @@ class CampaignFactory:
         entity_type: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> str | None:
-        if not local_id:
-            return None
-        row = self.conn.execute(
-            "SELECT global_id FROM content_graph_nodes WHERE local_table = ? AND local_id = ?",
-            (local_table, local_id),
-        ).fetchone()
-        if row:
-            return row["global_id"]
-        if not entity_type:
-            return None
-        return self.ensure_graph_node(entity_type, local_table=local_table, local_id=local_id, payload=payload)
+        return self.services.graph_id_for(
+            local_table,
+            local_id,
+            entity_type=entity_type,
+            payload=payload,
+        )
 
     def ensure_graph_edge(
         self,
@@ -735,38 +686,13 @@ class CampaignFactory:
         evidence: dict[str, Any] | None = None,
         commit: bool = False,
     ) -> str | None:
-        if not from_global_id or not to_global_id:
-            return None
-        now = utc_now()
-        edge_id = new_id("edge")
-        self.conn.execute(
-            """
-            INSERT INTO content_graph_edges (
-              id, from_global_id, to_global_id, relation_type, evidence_json, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(from_global_id, to_global_id, relation_type) DO UPDATE SET
-              evidence_json = excluded.evidence_json
-            """,
-            (
-                edge_id,
-                from_global_id,
-                to_global_id,
-                slugify(relation_type),
-                json.dumps(sanitize_for_storage(evidence or {}), ensure_ascii=False, sort_keys=True),
-                now,
-            ),
+        return self.services.ensure_graph_edge(
+            from_global_id,
+            to_global_id,
+            relation_type,
+            evidence=evidence,
+            commit=commit,
         )
-        row = self.conn.execute(
-            """
-            SELECT id FROM content_graph_edges
-            WHERE from_global_id = ? AND to_global_id = ? AND relation_type = ?
-            """,
-            (from_global_id, to_global_id, slugify(relation_type)),
-        ).fetchone()
-        if commit:
-            self.conn.commit()
-        return row["id"] if row else edge_id
 
     def ensure_graph_edge_strict(
         self,
@@ -857,36 +783,20 @@ class CampaignFactory:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
-        if status not in {"info", "success", "warning", "failure"}:
-            raise ValueError("activity event status must be info, success, warning, or failure")
-        event_id = new_id("evt")
-        now = utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO activity_events
-            (id, event_type, campaign_id, source_asset_id, rendered_asset_id, render_job_id,
-             audit_report_id, threadsdash_export_id, pipeline_job_id, status, message, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                event_type,
-                campaign_id,
-                source_asset_id,
-                rendered_asset_id,
-                render_job_id,
-                audit_report_id,
-                threadsdash_export_id,
-                pipeline_job_id,
-                status,
-                message or event_type.replace("_", " "),
-                json.dumps(sanitize_for_storage(metadata or {}), ensure_ascii=False, sort_keys=True),
-                now,
-            ),
+        return self.services.record_event(
+            event_type,
+            campaign_id=campaign_id,
+            source_asset_id=source_asset_id,
+            rendered_asset_id=rendered_asset_id,
+            render_job_id=render_job_id,
+            audit_report_id=audit_report_id,
+            threadsdash_export_id=threadsdash_export_id,
+            pipeline_job_id=pipeline_job_id,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
         )
-        if commit:
-            self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM activity_events WHERE id = ?", (event_id,)).fetchone())
 
     def create_creative_plan(
         self,
@@ -4971,10 +4881,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return [dict(r) for r in rows]
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (slugify(slug),)).fetchone()
-        if not row:
-            raise ValueError(f"campaign not found: {slug}")
-        return dict(row)
+        return self.services.campaign_by_slug(slug)
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at", (campaign_id,)).fetchall()
@@ -4990,10 +4897,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return [dict(r) for r in rows]
 
     def rendered_asset(self, rendered_asset_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
-        if not row:
-            raise ValueError(f"rendered asset not found: {rendered_asset_id}")
-        return dict(row)
+        return self.services.rendered_asset(rendered_asset_id)
 
     def register_parent_reel(
         self,
