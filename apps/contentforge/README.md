@@ -11,10 +11,11 @@ Two families of checks:
 
 - **Spoof meters** — `sourceSimilarity`, `variantToVariantSimilarity`, `variationScore` measure how well a variant evades duplicate/forensic detection.
 - **Quality guards** — `safeZoneScore` is blocking for Campaign Factory caption/UI
-  overlap, while `creativeQualityScore` and `readabilityScore` remain review
-  signals until model-backed quality gates land. Spoofing must never visibly
-  degrade the delivered video; a variant that evades detection but looks worse
-  is a failure.
+  overlap; Campaign Factory can also request blocking `virality` and
+  `videoAnalysis` gates from supplied Higgsfield/VLM reports. The default local
+  profile keeps heuristic `creativeQualityScore` and `readabilityScore` as review
+  signals. Spoofing must never visibly degrade the delivered video; a variant
+  that evades detection but looks worse is a failure.
 
 > **Note:** This defeats platform duplicate-detection and capture-forensics — a Terms-of-Service-evasion capability. Two standing rules: (1) the quality floor is non-negotiable — no spoof change may worsen perceptible output quality; (2) extending or strengthening the evasion capability requires explicit owner instruction.
 

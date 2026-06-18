@@ -10,15 +10,16 @@ import { CAMPAIGN_FACTORY_AUDIT_CONFIG, campaignFactoryThresholds } from "../../
 import { runMultiAccountOriginalityAudit } from "../../../lib/campaign-originality-audit.js";
 import { buildCreativeQualityAudit } from "../../../lib/creative-quality-audit.js";
 import { buildViralityGate } from "../../../lib/virality-gate.js";
+import { buildVideoAnalysisGate } from "../../../lib/video-analysis-gate.js";
 import { getQualityMetrics } from "../../../lib/quality-metrics.js";
 import { getQaSignals } from "../../../lib/reels.js";
 
 var SUPPORTED_EXTS = [".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png"];
 var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
-var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "watchability", "originality", "creativeQuality", "virality"]);
+var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "watchability", "originality", "creativeQuality", "virality", "videoAnalysis"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.8";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.9";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -383,6 +384,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "watchability", results.watchability?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "creative", results.creativeQuality?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "virality", results.virality?.warnings);
+  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "video_analysis", results.videoAnalysis?.warnings);
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
 
   for (var [layer, verdict] of Object.entries(verdicts)) {
@@ -414,10 +416,10 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     }
     if (verdict === "fail" && REVIEW_ONLY_LAYERS.has(layer)) {
       addReadinessItem(warningItems, layer + "_review", layer + ": layer needs review", layer + " needs review");
-    } else if (verdict === "fail" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "virality", "originality"].includes(layer)) {
+    } else if (verdict === "fail" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "virality", "videoAnalysis", "originality"].includes(layer)) {
       addReadinessItem(blockingItems, layer + "_failed", layer + ": layer failed", layer + " failed");
     }
-    if (verdict === "warn" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "virality", "originality"].includes(layer)) {
+    if (verdict === "warn" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "watchability", "creativeQuality", "virality", "videoAnalysis", "originality"].includes(layer)) {
       addReadinessItem(warningItems, layer + "_review", layer + ": layer warning", layer + " needs review");
     }
   }
@@ -708,6 +710,7 @@ function verdictCode(layer, verdict) {
   if (layer === "hookVisibility") return "hook_" + (verdict || "unknown");
   if (layer === "creativeQuality") return "creative_quality_" + (verdict || "unknown");
   if (layer === "virality") return "virality_" + (verdict || "unknown");
+  if (layer === "videoAnalysis") return "video_analysis_" + (verdict || "unknown");
   if (layer === "originality") return "originality_" + (verdict || "unknown");
   return layer + "_" + (verdict || "unknown");
 }
@@ -1919,6 +1922,13 @@ export async function POST(request) {
         targetFile: targetFile ? files[0] : null,
       });
     }
+    if (layers.includes("videoAnalysis") || body.videoAnalysisReport) {
+      results.videoAnalysis = buildVideoAnalysisGate(body.videoAnalysisReport, {
+        required: layers.includes("videoAnalysis"),
+        auditProfile,
+        targetFile: targetFile ? files[0] : null,
+      });
+    }
 
     // Compute overall verdict
     var verdicts = {};
@@ -1978,6 +1988,9 @@ export async function POST(request) {
     if (results.virality?.verdict) {
       verdicts.virality = results.virality.verdict;
     }
+    if (results.videoAnalysis?.verdict) {
+      verdicts.videoAnalysis = results.videoAnalysis.verdict;
+    }
     if (results.multiAccountOriginalityAudit?.verdict) {
       verdicts.originality = results.multiAccountOriginalityAudit.verdict;
     }
@@ -2012,6 +2025,7 @@ export async function POST(request) {
       watchability: results.watchability || null,
       creativeQuality: results.creativeQuality || null,
       virality: results.virality || null,
+      videoAnalysis: results.videoAnalysis || null,
       audioFitSignals: buildAudioFitSignals(results, files),
       referenceMatch: results.multiAccountOriginalityAudit || null,
       multiAccountOriginalityAudit: results.multiAccountOriginalityAudit || null,

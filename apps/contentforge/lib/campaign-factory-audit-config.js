@@ -39,6 +39,10 @@ export const CAMPAIGN_FACTORY_AUDIT_CONFIG = {
     minViralityScore: 70,
     minHookViralityScore: 60,
     maxRetentionRiskScore: 65,
+    minVideoAnalysisScore: 70,
+    minSubjectClarityScore: 65,
+    minFirstThreeSecondsScore: 65,
+    minShareabilityScore: 60,
 
     // Local workstation soft target for generated fixtures; report-only.
     advisoryLatencySoftLimitMs: 5000,

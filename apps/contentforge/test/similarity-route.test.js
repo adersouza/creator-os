@@ -201,7 +201,7 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     var body = await response.json();
     var report = body.layers.forensics.fileReports.find((item) => item.name === files.variantName);
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.8");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.9");
     assert.equal(body.auditProfile, "campaign_factory_v1");
     assert.equal(body.targetFile, files.variantName);
     assert.equal(body.filesAnalyzed, 1);
@@ -249,7 +249,7 @@ test("/api/similarity exposes configured virality gate for Campaign Factory", as
     var body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.contractVersion, "campaign_factory_audit.v1.8");
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.9");
     assert.equal(body.layers.virality.provider, "higgsfield_virality_predictor");
     assert.equal(body.layers.virality.modelBacked, true);
     assert.equal(body.layers.virality.score, 44);
@@ -258,6 +258,43 @@ test("/api/similarity exposes configured virality gate for Campaign Factory", as
     assert.equal(body.readinessSummary.uploadReady, false);
     assert.equal(body.readinessSummary.blockingCodes.includes("virality_score_low"), true);
     assert.equal(body.virality.reportId, "vp_test_1");
+  } finally {
+    await cleanupCampaignFactoryFiles(files);
+  }
+});
+
+test("/api/similarity exposes configured video analysis gate for Campaign Factory", async function () {
+  var files = await seedCampaignFactoryFiles();
+  try {
+    var response = await POST(similarityRequest({
+      source: files.sourceName,
+      auditProfile: "campaign_factory_v1",
+      targetFile: files.variantName,
+      layers: ["videoAnalysis"],
+      videoAnalysisReport: {
+        provider: "higgsfield_video_analysis",
+        reportId: "va_test_1",
+        scores: {
+          overallScore: 62,
+          subjectClarityScore: 50,
+          firstThreeSecondsScore: 52,
+          shareabilityScore: 48,
+        },
+      },
+    }));
+    var body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.contractVersion, "campaign_factory_audit.v1.9");
+    assert.equal(body.layers.videoAnalysis.provider, "higgsfield_video_analysis");
+    assert.equal(body.layers.videoAnalysis.modelBacked, true);
+    assert.equal(body.layers.videoAnalysis.score, 62);
+    assert.equal(body.verdicts.videoAnalysis, "warn");
+    assert.equal(body.verdictCodes.videoAnalysis, "video_analysis_warn");
+    assert.equal(body.readinessSummary.uploadReady, false);
+    assert.equal(body.readinessSummary.blockingCodes.includes("video_analysis_score_low"), true);
+    assert.equal(body.readinessSummary.blockingCodes.includes("video_analysis_subject_clarity_low"), true);
+    assert.equal(body.videoAnalysis.reportId, "va_test_1");
   } finally {
     await cleanupCampaignFactoryFiles(files);
   }
