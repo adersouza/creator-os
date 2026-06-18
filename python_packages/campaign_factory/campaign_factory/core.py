@@ -21989,7 +21989,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         )
         performance = self.performance_summary(campaign["slug"])
         ranking = self.ranking(campaign["slug"])
-        reference_pattern = self.active_reference_pattern_for_campaign(campaign["id"]) or self._top_reference_pattern()
+        reference_pattern_rankings = self._ranked_reference_patterns_for_campaign(campaign["id"])
+        reference_pattern = (
+            reference_pattern_rankings[0]["pattern"]
+            if reference_pattern_rankings
+            else self.active_reference_pattern_for_campaign(campaign["id"]) or self._top_reference_pattern()
+        )
+        variation_preset_rankings = self._ranked_variation_presets_for_campaign(campaign["id"], account=account)
         reference_pattern_id = reference_pattern.get("id") if reference_pattern else None
         reference_pattern_graph_id = self.graph_id_for(
             "reference_patterns",
@@ -22008,6 +22014,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "performanceSnapshotCount": performance.get("snapshotCount") or 0,
             "candidateRenderedAssetIds": [item.get("renderedAssetId") for item in candidates],
             "referencePatternId": reference_pattern_id,
+            "referencePatternRankings": self._compact_recommendation_rankings(reference_pattern_rankings),
+            "variationPresetRankings": self._compact_recommendation_rankings(variation_preset_rankings),
         }
         input_hash = hashlib.sha256(json.dumps(input_snapshot, sort_keys=True).encode("utf-8")).hexdigest()[:16]
         run_id = f"recrun_{input_hash}"
@@ -22069,6 +22077,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 asset=enriched,
                 reference_pattern=reference_pattern,
                 reference_pattern_graph_id=reference_pattern_graph_id,
+                reference_pattern_rankings=reference_pattern_rankings,
+                variation_preset_rankings=variation_preset_rankings,
                 persist=persist,
                 run_id=run_id,
             )
@@ -22082,6 +22092,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 account=account,
                 reference_pattern=reference_pattern,
                 reference_pattern_graph_id=reference_pattern_graph_id,
+                reference_pattern_rankings=reference_pattern_rankings,
+                variation_preset_rankings=variation_preset_rankings,
                 persist=persist,
                 run_id=run_id,
             )
@@ -22150,6 +22162,150 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         ).fetchone()
         return self._reference_pattern_payload(dict(row)) if row else None
 
+    def _ranked_reference_patterns_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+        pattern_rows = self.conn.execute(
+            "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label"
+        ).fetchall()
+        patterns = [self._reference_pattern_payload(dict(row)) for row in pattern_rows]
+        if not patterns:
+            return []
+        pattern_by_key: dict[str, dict[str, Any]] = {}
+        for pattern in patterns:
+            keys = {
+                pattern.get("id"),
+                pattern.get("clusterKey"),
+                pattern.get("label"),
+                slugify(str(pattern.get("label") or "")),
+            }
+            for key in keys:
+                if key:
+                    pattern_by_key[str(key)] = pattern
+                    pattern_by_key[slugify(str(key))] = pattern
+        rows = self.conn.execute(
+            """
+            SELECT * FROM performance_snapshots
+            WHERE campaign_id = ? AND metrics_eligible = 1
+            ORDER BY snapshot_at DESC, created_at DESC
+            """,
+            (campaign_id,),
+        ).fetchall()
+        buckets: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            snapshot = self._performance_snapshot_payload(dict(row))
+            dimensions = snapshot.get("dimensions") or {}
+            candidate_keys: set[str] = set()
+            for dimension_key in ("promptPattern", "patternCard", "hook"):
+                dimension = dimensions.get(dimension_key)
+                if not isinstance(dimension, dict):
+                    continue
+                for key_name in ("key", "label", "clusterKey", "patternCardId"):
+                    value = dimension.get(key_name)
+                    if value:
+                        candidate_keys.add(str(value))
+                        candidate_keys.add(slugify(str(value)))
+            matched_patterns = {
+                pattern_by_key[key]["id"]: pattern_by_key[key]
+                for key in candidate_keys
+                if key in pattern_by_key
+            }
+            for pattern_id, pattern in matched_patterns.items():
+                bucket = buckets.setdefault(pattern_id, {"pattern": pattern, "snapshots": {}})
+                bucket["snapshots"][snapshot["id"]] = snapshot
+        rankings = []
+        for bucket in buckets.values():
+            snapshots = list(bucket["snapshots"].values())
+            performance = self._aggregate_performance(snapshots)
+            rankings.append({
+                "pattern": bucket["pattern"],
+                "patternId": bucket["pattern"].get("id"),
+                "clusterKey": bucket["pattern"].get("clusterKey"),
+                "label": bucket["pattern"].get("label"),
+                "sampleSize": int(performance.get("count") or 0),
+                "performanceScore": self._performance_quality_score(performance),
+                "performance": performance,
+            })
+        return sorted(
+            rankings,
+            key=lambda item: (
+                -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
+                -int(item.get("sampleSize") or 0),
+                int((item.get("pattern") or {}).get("rank") or 999999),
+                str(item.get("label") or ""),
+            ),
+        )
+
+    def _ranked_variation_presets_for_campaign(self, campaign_id: str, *, account: str | None = None) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM performance_snapshots
+            WHERE campaign_id = ? AND metrics_eligible = 1
+            ORDER BY snapshot_at DESC, created_at DESC
+            """,
+            (campaign_id,),
+        ).fetchall()
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            snapshot = self._performance_snapshot_payload(dict(row))
+            if account and account not in {snapshot.get("instagramAccountId"), snapshot.get("accountId")}:
+                continue
+            preset = (snapshot.get("dimensions") or {}).get("variationPreset")
+            if not isinstance(preset, dict) or not preset.get("key"):
+                continue
+            buckets.setdefault(str(preset["key"]), []).append(snapshot)
+        rankings = []
+        for preset_name, snapshots in buckets.items():
+            performance = self._aggregate_performance(snapshots)
+            latest = snapshots[0]
+            preset = (latest.get("dimensions") or {}).get("variationPreset") or {}
+            rankings.append({
+                "presetName": preset_name,
+                "label": preset.get("label") or preset_name,
+                "sampleSize": int(performance.get("count") or 0),
+                "performanceScore": self._performance_quality_score(performance),
+                "performance": performance,
+            })
+        return sorted(
+            rankings,
+            key=lambda item: (
+                -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
+                -int(item.get("sampleSize") or 0),
+                str(item.get("presetName") or ""),
+            ),
+        )
+
+    def _compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
+        compact = []
+        for item in rankings[:limit]:
+            compact.append({
+                key: item.get(key)
+                for key in ("patternId", "clusterKey", "presetName", "label", "sampleSize", "performanceScore")
+                if item.get(key) is not None
+            })
+        return compact
+
+    def _recommendation_reference_pattern_evidence(
+        self,
+        rankings: list[dict[str, Any]],
+        selected_pattern: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "selectedPatternId": (selected_pattern or {}).get("id"),
+            "selectedClusterKey": (selected_pattern or {}).get("clusterKey"),
+            "selectionSource": "performance_snapshots" if rankings else "active_or_static_fallback",
+            "rankings": self._compact_recommendation_rankings(rankings),
+        }
+
+    def _recommendation_variation_preset_evidence(
+        self,
+        rankings: list[dict[str, Any]],
+        selected_preset: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "selectedPresetName": selected_preset,
+            "selectionSource": "performance_snapshots" if rankings else "default_fallback",
+            "rankings": self._compact_recommendation_rankings(rankings),
+        }
+
     def _recommendation_item_payload(
         self,
         *,
@@ -22162,6 +22318,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         asset: dict[str, Any],
         reference_pattern: dict[str, Any] | None,
         reference_pattern_graph_id: str | None,
+        reference_pattern_rankings: list[dict[str, Any]],
+        variation_preset_rankings: list[dict[str, Any]],
         persist: bool,
         run_id: str,
     ) -> dict[str, Any]:
@@ -22188,6 +22346,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         confidence, confidence_reason = self._recommendation_confidence(asset, reference_pattern)
         data_quality = self._recommendation_data_quality(asset, reference_pattern)
         account_memory_payload = account_fit_evidence.get("memory")
+        recommended_variation_preset = (
+            variation_preset_rankings[0].get("presetName")
+            if variation_preset_rankings
+            else "ig_subtle"
+        )
+        reference_pattern_evidence = self._recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
+        variation_preset_evidence = self._recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
         reasons = self._recommendation_reasons(
             performance_score=performance_score,
             reference_score=reference_score,
@@ -22230,6 +22395,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "reasons": reasons,
             "risks": sorted(set(str(risk) for risk in risks if risk)),
             "accountFit": account_fit_evidence,
+            "referencePatternRankings": reference_pattern_evidence,
+            "variationPresetRankings": variation_preset_evidence,
             "scores": {
                 "performance": performance_score,
                 "referencePattern": reference_score,
@@ -22284,6 +22451,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "filename": asset.get("filename"),
             "referencePatternId": reference_pattern.get("id") if reference_pattern else None,
             "referencePattern": self._recommendation_reference_summary(reference_pattern),
+            "referencePatternEvidence": reference_pattern_evidence,
+            "recommendedVariationPreset": recommended_variation_preset,
+            "variationPresetEvidence": variation_preset_evidence,
             "suggestedRecipe": asset.get("recipe") or self._first_suggested_recipe(reference_pattern),
             "hookGuidance": self._hook_guidance(reference_pattern, asset),
             "captionGuidance": self._caption_guidance(reference_pattern, asset),
@@ -22394,6 +22564,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account: str | None,
         reference_pattern: dict[str, Any] | None,
         reference_pattern_graph_id: str | None,
+        reference_pattern_rankings: list[dict[str, Any]],
+        variation_preset_rankings: list[dict[str, Any]],
         persist: bool,
         run_id: str,
     ) -> dict[str, Any] | None:
@@ -22401,6 +22573,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             return None
         item_key = f"{run_id}:reference_only:{reference_pattern.get('id')}"
         item_id = f"recitem_{hashlib.sha256(item_key.encode('utf-8')).hexdigest()[:12]}"
+        recommended_variation_preset = (
+            variation_preset_rankings[0].get("presetName")
+            if variation_preset_rankings
+            else "ig_subtle"
+        )
+        reference_pattern_evidence = self._recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
+        variation_preset_evidence = self._recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
         output = {
             "recommendationId": item_id,
             "recommendationGraphId": None,
@@ -22420,6 +22599,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "filename": None,
             "referencePatternId": reference_pattern.get("id"),
             "referencePattern": self._recommendation_reference_summary(reference_pattern),
+            "referencePatternEvidence": reference_pattern_evidence,
+            "recommendedVariationPreset": recommended_variation_preset,
+            "variationPresetEvidence": variation_preset_evidence,
             "suggestedRecipe": self._first_suggested_recipe(reference_pattern),
             "hookGuidance": self._hook_guidance(reference_pattern, {}),
             "captionGuidance": self._caption_guidance(reference_pattern, {}),
@@ -22441,6 +22623,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 },
                 "reasons": ["active reference pattern is available for the next generation batch"],
                 "risks": ["missing_rendered_assets", "missing_performance_history"],
+                "referencePatternRankings": reference_pattern_evidence,
+                "variationPresetRankings": variation_preset_evidence,
             },
             "dataQuality": {
                 "sampleSize": 0,
@@ -24562,7 +24746,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             candidates: list[tuple[str, str, str | None]] = []
             if snapshot.get("recipe"):
                 candidates.append(("recipe", str(snapshot["recipe"]), str(snapshot["recipe"])))
-            for key in ("hook", "audio", "referenceFormat", "promptPattern", "patternCard", "captionFormula", "modelAccount"):
+            for key in ("hook", "audio", "referenceFormat", "promptPattern", "patternCard", "captionFormula", "modelAccount", "variationPreset"):
                 value = dimensions.get(key)
                 if isinstance(value, dict) and value.get("key"):
                     candidates.append((key, str(value["key"]), str(value.get("label") or value["key"])))
@@ -24827,6 +25011,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "patternCards": {},
             "modelAccounts": {},
             "captionFormulas": {},
+            "variationPresets": {},
             "hookRecipeCombos": {},
             "hookAudioCombos": {},
             "formatRecipeCombos": {},
@@ -24844,6 +25029,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             pattern_card = dimensions.get("patternCard") if isinstance(dimensions.get("patternCard"), dict) else None
             model_account = dimensions.get("modelAccount") if isinstance(dimensions.get("modelAccount"), dict) else None
             caption_formula = dimensions.get("captionFormula") if isinstance(dimensions.get("captionFormula"), dict) else None
+            variation_preset = dimensions.get("variationPreset") if isinstance(dimensions.get("variationPreset"), dict) else None
             if hook:
                 self._add_leaderboard_snapshot(boards["hooks"], hook["key"], snapshot, {"hook": hook})
             if recipe:
@@ -24860,6 +25046,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 self._add_leaderboard_snapshot(boards["modelAccounts"], model_account["key"], snapshot, {"modelAccount": model_account})
             if caption_formula:
                 self._add_leaderboard_snapshot(boards["captionFormulas"], caption_formula["key"], snapshot, {"captionFormula": caption_formula})
+            if variation_preset:
+                self._add_leaderboard_snapshot(boards["variationPresets"], variation_preset["key"], snapshot, {"variationPreset": variation_preset})
             if hook and recipe:
                 self._add_leaderboard_snapshot(
                     boards["hookRecipeCombos"],
@@ -25083,6 +25271,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         pattern_card = self._performance_pattern_card_dimension(campaign_meta)
         model_account = self._performance_model_account_dimension(campaign_meta, row)
         caption_formula = self._performance_caption_formula_dimension(campaign_meta)
+        variation_preset = self._performance_variation_preset_dimension(campaign_meta, row)
         dimensions: dict[str, Any] = {}
         if recipe:
             dimensions["recipe"] = str(recipe)
@@ -25100,6 +25289,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             dimensions["modelAccount"] = model_account
         if caption_formula:
             dimensions["captionFormula"] = caption_formula
+        if variation_preset:
+            dimensions["variationPreset"] = variation_preset
         return dimensions
 
     def _performance_hook_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
@@ -25273,6 +25464,37 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         if not formula:
             return None
         return {"key": slugify(str(formula)), "label": str(formula), "source": "campaign_factory"}
+
+    def _performance_variation_preset_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+        assignment = campaign_meta.get("variant_assignment") if isinstance(campaign_meta.get("variant_assignment"), dict) else {}
+        candidate_values = [
+            campaign_meta.get("variationPreset"),
+            campaign_meta.get("variation_preset"),
+            campaign_meta.get("variantPreset"),
+            campaign_meta.get("variant_preset"),
+            assignment.get("presetName"),
+            assignment.get("preset_name"),
+        ]
+        operations = json_load(row.get("variant_operations_json"), [])
+        if isinstance(operations, list):
+            for operation in operations:
+                if not isinstance(operation, dict):
+                    continue
+                candidate_values.extend([
+                    operation.get("presetName"),
+                    operation.get("preset_name"),
+                    operation.get("preset"),
+                ])
+                result = operation.get("result") if isinstance(operation.get("result"), dict) else {}
+                candidate_values.extend([
+                    result.get("presetName"),
+                    result.get("preset_name"),
+                    result.get("preset"),
+                ])
+        preset = next((str(value).strip() for value in candidate_values if str(value or "").strip()), "")
+        if not preset:
+            return None
+        return {"key": preset, "label": preset, "source": "variant_assignment"}
 
     def _performance_score(self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]) -> int | None:
         weights = [(source, 0.45), (caption, 0.35), (recipe, 0.20)]

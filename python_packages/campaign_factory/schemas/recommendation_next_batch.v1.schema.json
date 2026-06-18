@@ -181,6 +181,18 @@
               "null"
             ]
           },
+          "referencePatternEvidence": {
+            "type": "object"
+          },
+          "recommendedVariationPreset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variationPresetEvidence": {
+            "type": "object"
+          },
           "suggestedRecipe": {
             "type": [
               "string",
