@@ -1,6 +1,6 @@
 # Research 06 — Meta API Posting Limits & Automation Policy (2026)
 
-> Owner-supplied research. The **legit, official-API** version (not evasion). Feeds AUTOPOSTER_HARDENING_PLAN — publish-path hardening + cadence guardrails. juno33 = disclosed multi-client scheduler on the official Graph/Threads APIs.
+> Owner-supplied research. The **legit, official-API** version (not evasion). Fed the autoposter hardening tier (publish-path + cadence guardrails) — now SHIPPED to ThreadsDashboard `main` (`ec2190b5e`). juno33 = disclosed multi-client scheduler on the official Graph/Threads APIs.
 
 ## Publishing caps — query dynamically, never hard-code
 

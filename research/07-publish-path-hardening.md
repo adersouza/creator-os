@@ -1,6 +1,6 @@
 # Research 07 — Publish-Path Hardening: Errors, Retry, Idempotency, Tokens (2026)
 
-> Owner-supplied research (two deliverables consolidated). 100% legitimate publish-worker engineering. Feeds AUTOPOSTER_HARDENING_PLAN AP1.
+> Owner-supplied research (two deliverables consolidated). 100% legitimate publish-worker engineering. Fed the AP1 hardening tier — now SHIPPED to ThreadsDashboard `main` (`ec2190b5e`). Remaining publish-path verification lives in `AUTOPOSTER_AP9_PROMPT.md`.
 
 ## Container model (both platforms)
 - **IG:** `POST /<IG_ID>/media` (create) → `GET /<container>?fields=status_code` (poll) → `POST /<IG_ID>/media_publish` (creation_id). Host `graph.facebook.com` / `graph.instagram.com`.
