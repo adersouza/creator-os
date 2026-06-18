@@ -27,6 +27,7 @@ from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .db import connect, init_db
 from .learning_score import account_reward_baselines, aggregate_performance, performance_score
+from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
 from .persistence import json_load, row_to_dict, utc_now
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
@@ -10868,7 +10869,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         reuse_cooldown_days: int = DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        asset = self.rendered_asset(asset_id)
+        asset = self.ensure_rendered_asset_perceptual_metadata(asset_id)
         normalized_surface = normalize_content_surface(surface or asset.get("content_surface") or "reel")
         uniqueness = self._asset_uniqueness_values(asset, metadata=metadata)
         now = utc_now()
@@ -10992,7 +10993,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)).fetchone())
 
     def _asset_uniqueness_values(self, asset: dict[str, Any], *, metadata: dict[str, Any] | None = None) -> dict[str, str]:
-        metadata = metadata or {}
+        asset_metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(asset_metadata, dict):
+            asset_metadata = {}
+        metadata = {**asset_metadata, **(metadata or {})}
         caption_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(caption_generation, dict):
             caption_generation = {}
@@ -11039,6 +11043,70 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "perceptualClusterId": str(cluster or ""),
             "accountGroupId": str(account_group or ""),
         }
+
+    def ensure_rendered_asset_perceptual_metadata(self, rendered_asset_id: str, *, commit: bool = True) -> dict[str, Any]:
+        asset = self.rendered_asset(rendered_asset_id)
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        existing_fingerprint = metadata.get("perceptualFingerprint") or metadata.get("perceptual_fingerprint")
+        existing_cluster = metadata.get("perceptualClusterId") or metadata.get("perceptual_cluster_id")
+        if existing_fingerprint and existing_cluster:
+            return asset
+
+        media_path = Path(str(asset.get("campaign_path") or asset.get("output_path") or ""))
+        result = compute_pdq_fingerprint(media_path)
+        perceptual_meta = {
+            "algorithm": result.get("algorithm") or "pdq_v1",
+            "status": result.get("status") or "unavailable",
+            "source": result.get("source"),
+            "quality": result.get("quality"),
+            "code": result.get("code"),
+            "detail": result.get("detail"),
+        }
+        updated = dict(metadata)
+        updated["perceptual"] = {key: value for key, value in perceptual_meta.items() if value is not None}
+        if result.get("status") == "available" and result.get("fingerprint"):
+            fingerprint = str(result["fingerprint"])
+            cluster_id = self._pdq_cluster_id_for_fingerprint(
+                campaign_id=str(asset["campaign_id"]),
+                rendered_asset_id=str(asset["id"]),
+                fingerprint=fingerprint,
+            )
+            updated.update({
+                "perceptualFingerprint": fingerprint,
+                "perceptual_fingerprint": fingerprint,
+                "perceptualClusterId": cluster_id,
+                "perceptual_cluster_id": cluster_id,
+            })
+        if updated == metadata:
+            return asset
+        now = utc_now()
+        self.conn.execute(
+            "UPDATE rendered_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(sanitize_for_storage(updated), ensure_ascii=False, sort_keys=True), now, rendered_asset_id),
+        )
+        if commit:
+            self.conn.commit()
+        refreshed = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        return dict(refreshed or asset)
+
+    def _pdq_cluster_id_for_fingerprint(self, *, campaign_id: str, rendered_asset_id: str, fingerprint: str) -> str:
+        fallback = f"pdq:{fingerprint[:16]}"
+        rows = self.conn.execute(
+            "SELECT id, metadata_json FROM rendered_assets WHERE campaign_id = ? AND id <> ? ORDER BY created_at, id",
+            (campaign_id, rendered_asset_id),
+        ).fetchall()
+        for row in rows:
+            metadata = json_load(row["metadata_json"], {})
+            if not isinstance(metadata, dict):
+                continue
+            other = metadata.get("perceptualFingerprint") or metadata.get("perceptual_fingerprint")
+            distance = pdq_hamming_distance(fingerprint, str(other or ""))
+            if distance is not None and distance <= 40:
+                cluster = metadata.get("perceptualClusterId") or metadata.get("perceptual_cluster_id")
+                return str(cluster or f"pdq:{str(other)[:16]}")
+        return fallback
 
     def _inventory_uniqueness_conflicts(
         self,
@@ -11147,6 +11215,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             asset = assets_by_id.get(asset_id)
             if not asset:
                 continue
+            asset = self.ensure_rendered_asset_perceptual_metadata(asset_id)
+            assets_by_id[asset_id] = asset
             values = self._asset_uniqueness_values(asset)
             for key_name in ("sourceFamilyId", "perceptualClusterId"):
                 value = values.get(key_name) or ""
@@ -11156,6 +11226,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         for asset_id, asset in assets_by_id.items():
             if asset_id in reserved_or_used:
                 continue
+            asset = self.ensure_rendered_asset_perceptual_metadata(asset_id)
+            assets_by_id[asset_id] = asset
             values = self._asset_uniqueness_values(asset)
             if any((key_name, values.get(key_name) or "") in blocked_keys for key_name in ("sourceFamilyId", "perceptualClusterId")):
                 cooldown_blocked.add(asset_id)

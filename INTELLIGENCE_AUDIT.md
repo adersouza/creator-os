@@ -41,8 +41,13 @@ merged in the dashboard source repo. Reference Factory outcome feedback is
 fixed on `codex/intelligence-track-i-reference-feedback`: measured prompt
 outcomes now import into `generated_video_prompts`, public ranking uses measured
 reward before follower-normalized public rate/raw plays, and pattern/learning
-exports carry the measured reward evidence. Track Q quality/virality work,
-perceptual cooldowns, and dashboard video-PDQ follow-up remain open.
+exports carry the measured reward evidence. Campaign Factory PDQ cluster
+cooldowns are fixed on `codex/intelligence-track-s-pdq-cluster-cooldown`: real
+PDQ fingerprints are computed into rendered-asset metadata when assets enter
+inventory safety checks, near matches are grouped at the Campaign Factory safe
+distance, and cross-account reservations/readiness block reuse by that cluster.
+Track Q model-backed quality/virality work and dashboard video-PDQ follow-up
+remain open.
 
 Track I Campaign Factory data-plumbing silent-drop handling is fixed on
 `codex/intelligence-track-i-data-plumbing`: ThreadsDashboard performance sync
@@ -72,7 +77,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 |-------|-------|---------|
 | **Intelligence / learning loop** | **5.9/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
 | **Content quality / virality** | **4.8/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, and heuristic creative warnings now block fan-out; model-backed quality, subject semantics, and virality gates remain open. |
-| **Anti-shadowban safety** | **~6.5/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM, and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: rendered PDQ cluster cooldowns + dashboard aHash/video PDQ upstream work. |
+| **Anti-shadowban safety** | **~7/10** (was ~4; **+3 for Track S shipped + cooldown follow-through**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM; rendered assets persist Campaign Factory PDQ clusters for cross-account cooldowns; and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: dashboard aHash/video PDQ upstream work. |
 
 **The unifying story:** the system reliably produces a *valid, undetectable-by-SSIM, schema-conformant* file — and does almost nothing to ensure it's **good**, that it **won't hash-collide across accounts**, or that what it learned **changes what it makes next**. Three different audits, one root pattern: **real signals exist but are computed-and-ignored.**
 
@@ -132,7 +137,7 @@ PR #44 made variation real (per-index edits, sibling gate). **But the gate still
 | Fixed | `repurposer/qa/similarity.py`, `campaign_factory/variation_stage.py` | SSIM is diagnostic only. Apply mode gates the full batch on ContentForge PDQ `>40` and SSCD `<0.50` evidence before writing an export-consumable assignment. |
 | Fixed | `contentforge/.../similarity/route.js` | `campaign_factory_v1` now makes PDQ/SSCD failures and unavailability blocking. The default ContentForge profile remains advisory. |
 | Partial | `contentforge/lib/campaign-factory-audit-config.js` | Campaign Factory variation now supplies every sibling through `comparisonFiles` and blocks sibling collisions. Other ContentForge callers must opt into a scoped comparison set. |
-| High | `core.py:11117-11221` | Cross-account `perceptualFingerprint`/`perceptualClusterId` cooldown reads metadata fields that are **never computed** → silently no-ops. Compute + persist real PDQ at render time; add a "PDQ cluster cooldown" alongside the lineage cooldowns. |
+| Fixed | `campaign_factory/perceptual.py`, `core.py` inventory safety | Campaign Factory now computes real PDQ fingerprints for rendered media when assets enter inventory safety checks, persists `perceptualFingerprint` / `perceptualClusterId` in rendered asset metadata, clusters near matches at Hamming distance `<=40`, and uses the existing cross-account cooldown to block reuse. Regression tests prove the cooldown works without manually supplied metadata. |
 | Fixed | `repurposer/config.py`, `engines/audio.py`, `repurposer/pipeline.py` | `ig_subtle` now enables the audio layer, selects catalog-backed replacement audio deterministically by account index, and fails closed when an audio-required preset cannot assign replacement audio. Tests cover per-account selection and missing-audio rejection. |
 | Med | `ThreadsDashboard/.../originalitySignals.ts:81-124` | Dashboard's only perceptual hash is weak 64-bit **aHash**, and `fetchPerceptualHash` returns null for video (video gets **no** perceptual signal). Upgrade to PDQ; keyframe-hash video. |
 | Good (keep) | `core.py:5256-5311`; `campaignSchedule.ts:1180-1265,441-480` | Caption variation is real per-index; cadence is conservative (warming 1/day@24h … high-perf 2/day@6h + ~12-min cross-account spacing); lineage cooldowns (14d variant/parent, content-fingerprint) enforced + AP0-1 unique index. **The gap is perceptual sameness, not posting rate.** |
@@ -219,7 +224,8 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 4. **Track Q quality floor** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative blocking are fixed; model-backed subject/creative gates remain.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
 6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
-7. Winner-DNA → generation auto-feedback; reference_factory return path.
+7. ~~**Track S rendered PDQ cluster cooldown**~~ ✓ **FIXED** — rendered asset metadata now carries real PDQ fingerprints/clusters and cross-account inventory cooldowns consume the cluster.
+8. Winner-DNA → generation auto-feedback; reference_factory return path.
 
 ## Non-negotiable constraints
 
