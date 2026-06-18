@@ -21,6 +21,7 @@ from intelligence_store import (
 
 
 FEATURE_KEYS = ("scene", "camera", "pose", "motion", "outfit", "creator", "body_style", "caption_style", "hook_type")
+_VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 
 
 def connect(root: Path) -> sqlite3.Connection:
@@ -58,6 +59,94 @@ def infer_features_from_text(text: str) -> dict[str, Any]:
     }
 
 
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _video_analysis_sidecar_paths(root: Path, output_path: Path) -> list[Path]:
+    return [
+        output_path.with_suffix(output_path.suffix + ".video_analysis.json"),
+        output_path.with_suffix(output_path.suffix + ".video-analysis.json"),
+        output_path.with_suffix(".video_analysis.json"),
+        output_path.with_suffix(".video-analysis.json"),
+        output_path.parent / f"{output_path.stem}.video_analysis.json",
+        output_path.parent / f"{output_path.stem}.video-analysis.json",
+        root / "video_analysis" / f"{output_path.stem}.json",
+        root / "05_analysis" / f"{output_path.stem}.video_analysis.json",
+    ]
+
+
+def _explicit_winner_dna_features(report: dict[str, Any]) -> dict[str, Any]:
+    candidates = [
+        report.get("winnerDnaFeatures"),
+        report.get("winner_dna_features"),
+        (report.get("signals") or {}).get("winnerDnaFeatures") if isinstance(report.get("signals"), dict) else None,
+        (report.get("signals") or {}).get("winner_dna_features") if isinstance(report.get("signals"), dict) else None,
+        (report.get("raw") or {}).get("winnerDnaFeatures") if isinstance(report.get("raw"), dict) else None,
+        (report.get("raw") or {}).get("winner_dna_features") if isinstance(report.get("raw"), dict) else None,
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        features = {
+            key: value
+            for key, value in candidate.items()
+            if key in _VIDEO_ANALYSIS_FEATURE_KEYS and value not in (None, "")
+        }
+        if features:
+            return features
+    return {}
+
+
+def video_analysis_features_for_output(root: Path, output_path: Path) -> dict[str, Any] | None:
+    for path in _video_analysis_sidecar_paths(root, output_path):
+        if not path.exists():
+            continue
+        report = _read_json(path)
+        if not report:
+            continue
+        features = _explicit_winner_dna_features(report)
+        pattern_card = report.get("patternCard") if isinstance(report.get("patternCard"), dict) else {}
+        pattern_text = " ".join(
+            str(value)
+            for value in (
+                pattern_card.get("formatType"),
+                pattern_card.get("hookType"),
+                pattern_card.get("visualPattern"),
+                pattern_card.get("subjectAction"),
+                " ".join(pattern_card.get("shotSequence") or []) if isinstance(pattern_card.get("shotSequence"), list) else "",
+            )
+            if value
+        )
+        inferred = infer_features_from_text(pattern_text) if pattern_text else {}
+        for key in FEATURE_KEYS:
+            if features.get(key) in (None, "", "unknown") and inferred.get(key) not in (None, "", "unknown"):
+                features[key] = inferred[key]
+        if "camera" not in features and pattern_card.get("formatType"):
+            features["camera"] = pattern_card["formatType"]
+        if "hook_type" not in features and pattern_card.get("hookType"):
+            features["hook_type"] = pattern_card["hookType"]
+        text_style = pattern_card.get("textOverlayStyle")
+        if "caption_style" not in features and isinstance(text_style, dict) and text_style.get("placement"):
+            features["caption_style"] = str(text_style["placement"])
+        if not any(features.get(key) not in (None, "", "unknown") for key in FEATURE_KEYS):
+            continue
+        baseline = infer_features_from_text(feature_text_for_output(root, output_path))
+        baseline.update(features)
+        baseline["feature_source"] = "video_analysis"
+        baseline["video_analysis_id"] = report.get("id")
+        baseline["video_analysis_provider"] = report.get("provider")
+        baseline["video_analysis_model"] = report.get("model")
+        if pattern_card.get("id"):
+            baseline["pattern_card_id"] = pattern_card["id"]
+        return baseline
+    return None
+
+
 def feature_text_for_output(root: Path, output_path: Path) -> str:
     parts = [output_path.stem.replace("_", " ")]
     lineage = output_path.with_suffix(output_path.suffix + ".generated_asset_lineage.json")
@@ -82,7 +171,7 @@ def upsert_reel_feature(root: Path, output_path: Path, *, asset_generation_id: s
     root = Path(root).resolve()
     output_path = Path(output_path).expanduser().resolve()
     conn = connect(root)
-    features = features or infer_features_from_text(feature_text_for_output(root, output_path))
+    features = features or video_analysis_features_for_output(root, output_path) or infer_features_from_text(feature_text_for_output(root, output_path))
     now = int(time.time())
     feature_id = f"feat_{abs(hash(str(output_path))) & 0xffffffff:x}"
     conn.execute(
