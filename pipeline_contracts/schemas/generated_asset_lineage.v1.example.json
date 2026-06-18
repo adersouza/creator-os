@@ -45,5 +45,5 @@
     "source_clip": "/tmp/source.mp4",
     "rendered_output": "/tmp/rendered.mp4"
   },
-  "pipelineTraceId": null
+  "pipelineTraceId": "trace_generated_asset_001"
 }

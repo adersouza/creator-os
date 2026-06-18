@@ -1028,7 +1028,7 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(source_lineage, source_lineage_path_for(src))
             self.assertEqual(source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid")
             self.assertEqual(data["source"]["sourceLineagePath"], str(source_lineage))
-            self.assertNotIn("generation", data)
+            self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
             self.assertEqual(data["render"]["renderJobKey"], "job")
             self.assertTrue(data["review"]["humanReviewRequired"])
 

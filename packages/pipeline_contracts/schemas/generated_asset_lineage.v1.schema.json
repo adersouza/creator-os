@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "schema",
+    "pipelineTraceId",
     "source",
     "generation",
     "review"
@@ -53,10 +54,8 @@
       "$ref": "caption_outcome_context.v1.schema.json"
     },
     "pipelineTraceId": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
+      "minLength": 1,
       "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
     }
   }

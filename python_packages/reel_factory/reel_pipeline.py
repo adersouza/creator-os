@@ -476,9 +476,13 @@ def write_generated_asset_lineage_sidecar(
     sidecar = out_path.with_suffix(out_path.suffix + ".generated_asset_lineage.json")
     payload = {
         "schema": "campaign_factory.generated_asset_lineage.v1",
+        "pipelineTraceId": f"trace_reel_render_{hashlib.sha256(f'{source_hash}:{render_job_key}'.encode('utf-8')).hexdigest()[:16]}",
         "source": {
             "sourceLineagePath": str(source_lineage_path) if source_lineage_path else None,
             "sourceVideoHash": source_hash,
+        },
+        "generation": {
+            "tool": "reel_factory.reel_pipeline",
         },
         "render": {
             "renderJobKey": render_job_key,

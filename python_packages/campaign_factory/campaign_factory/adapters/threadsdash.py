@@ -3031,6 +3031,7 @@ def sync_performance_snapshots(
             "warnings": warnings,
             "summary": summary,
             "pipelineJobId": pipeline_job["id"],
+            "pipelineTraceId": f"trace_performance_sync_{pipeline_job['id']}",
         }
         factory.record_event(
             "performance_synced",
