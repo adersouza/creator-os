@@ -35,7 +35,10 @@ INDEX_DIR = os.path.join(PROJECT_ROOT, "output", "index")
 FAISS_INDEX_PATH = os.path.join(INDEX_DIR, "sscd.faiss")
 METADATA_PATH = os.path.join(INDEX_DIR, "metadata.json")
 PDQ_INDEX_PATH = os.path.join(INDEX_DIR, "pdq_hashes.npy")
-MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "sscd_disc_mixup.torchscript.pt")
+MODEL_PATH = os.environ.get(
+    "CONTENTFORGE_SSCD_MODEL_PATH",
+    os.path.join(PROJECT_ROOT, "models", "sscd_disc_mixup.torchscript.pt"),
+)
 
 EMBEDDING_DIM = 512
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".mp4", ".mov", ".webm"}

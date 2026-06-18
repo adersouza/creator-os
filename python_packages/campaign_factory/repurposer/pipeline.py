@@ -72,11 +72,6 @@ class VariantPipeline:
                         if not sibling_transformed:
                             continue
                         sibling_ssim = SimilarityGate.calculate_ssim(sibling, variant)
-                        if sibling_ssim >= self.similarity_threshold:
-                            raise RuntimeError(
-                                f"sibling similarity gate failed for {account['account_id']} "
-                                f"against {sibling_account_id}: {sibling_ssim:.3f}"
-                            )
                         scores["sibling_max_ssim"] = max(scores["sibling_max_ssim"], sibling_ssim)
             except Exception as exc:
                 for created, _, _, _ in variants:
@@ -189,9 +184,6 @@ class VariantPipeline:
             master_ssim = 0.0
             if transformed:
                 master_ssim = SimilarityGate.calculate_ssim(self.master, final)
-            if transformed and master_ssim >= self.similarity_threshold:
-                final.unlink(missing_ok=True)
-                raise RuntimeError("similarity gate failed")
 
             return final, {
                 "master_ssim": round(master_ssim, 6),

@@ -67,7 +67,7 @@ from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.readiness_report import build_mass_production_readiness_report
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
-from campaign_factory.variation_stage import run_variation_stage
+from campaign_factory.variation_stage import load_variant_assignment_index, run_variation_stage
 from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.front_generation_stage import ACCEPTED_STILL_PLACEHOLDER, run_front_generation_stage
 from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
@@ -2951,6 +2951,141 @@ def test_variation_stage_dry_run_creates_valid_assignment_manifest(tmp_path: Pat
         payload = json.loads(assignment_path.read_text(encoding="utf-8"))
         validate_variant_assignment(payload)
         assert {item["instagram_account_id"] for item in payload["assignments"]} == {"ig_1", "ig_2", "ig_3"}
+        assert ".preview." in assignment_path.name
+        assert load_variant_assignment_index(cf, campaign_slug="may") == {}
+    finally:
+        cf.close()
+
+
+class FakeVariationPipeline:
+    def __init__(self, master_asset, *, accounts, platform, output_dir):
+        self.master_asset = Path(master_asset)
+        self.accounts = accounts
+        self.output_dir = Path(output_dir)
+
+    def generate_assignment_manifest(
+        self,
+        *,
+        preset_name,
+        campaign_slug,
+        master_asset_id,
+        write_manifest,
+    ):
+        assert write_manifest is False
+        assignments = []
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        for account in self.accounts:
+            variant_path = self.output_dir / f"{master_asset_id}_{account['account_id']}_variant.mp4"
+            variant_path.write_bytes(b"variant")
+            assignments.append({
+                "account_id": account["account_id"],
+                "instagram_account_id": account.get("instagram_account_id"),
+                "persona": account.get("persona"),
+                "variant_asset_id": f"{master_asset_id}_{account['account_id']}",
+                "variant_path": str(variant_path),
+                "parent_master_asset_id": master_asset_id,
+                "preset_name": preset_name,
+                "distinctness_scores": {
+                    "master_ssim": 0.99,
+                    "sibling_max_ssim": 0.99,
+                    "threshold": 0.85,
+                },
+                "lineage": {
+                    "mode": "zero_cost_variation",
+                    "paid_generation": False,
+                    "micro_enabled": False,
+                },
+            })
+        return {
+            "schema": "campaign_factory.variant_assignment.v1",
+            "campaign_slug": campaign_slug,
+            "master_asset_id": master_asset_id,
+            "master_asset_path": str(self.master_asset),
+            "platform": "reels",
+            "generated_at": "2026-06-18T00:00:00Z",
+            "variation_enabled": True,
+            "assignments": assignments,
+        }
+
+    def manifest_path(self, master_asset_id):
+        return self.output_dir / f"{master_asset_id}.variant_assignment.v1.json"
+
+
+def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
+        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
+
+        def fake_audit(*, contentforge_root, source_path, variant_paths, contentforge_base_url, report_path):
+            assert len(variant_paths) == 2
+            assert contentforge_base_url == "http://contentforge.test"
+            report_path.write_text("{}", encoding="utf-8")
+            return {
+                "contractVersion": "campaign_factory_audit.v1.4",
+                "overallVerdict": "pass",
+                "verdicts": {"pdq": "pass", "sscd": "pass"},
+                "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+                "reportPath": str(report_path),
+            }
+
+        monkeypatch.setattr("campaign_factory.variation_stage.audit_variation_batch", fake_audit)
+
+        result = run_variation_stage(
+            cf,
+            campaign_slug="may",
+            dry_run=False,
+            contentforge_base_url="http://contentforge.test",
+        )
+
+        assignment_path = Path(result["assignments"][0]["assignmentPath"])
+        payload = json.loads(assignment_path.read_text(encoding="utf-8"))
+        assert assignment_path.exists()
+        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"] == "campaign_factory_audit.v1.4"
+        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["verdicts"] == {
+            "pdq": "pass",
+            "sscd": "pass",
+        }
+    finally:
+        cf.close()
+
+
+def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
+        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
+        assignment_dir = cf.campaign_dirs("model", "may")["exports"] / "variation_assignments"
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.audit_variation_batch",
+            lambda **kwargs: {
+                "contractVersion": "campaign_factory_audit.v1.4",
+                "overallVerdict": "fail",
+                "verdicts": {"pdq": "fail", "sscd": "fail"},
+                "readinessSummary": {
+                    "uploadReady": False,
+                    "blockingCodes": ["pdq_sibling_collision", "sscd_unavailable"],
+                },
+                "reportPath": str(kwargs["report_path"]),
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="pdq_sibling_collision"):
+            run_variation_stage(
+                cf,
+                campaign_slug="may",
+                dry_run=False,
+                contentforge_base_url="http://contentforge.test",
+            )
+
+        assert not list(assignment_dir.glob("*_variant.mp4"))
+        assert not list(assignment_dir.glob("*.variant_assignment.v1.json"))
     finally:
         cf.close()
 
@@ -3009,14 +3144,30 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         cf.close()
 
 
-def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path):
+def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     try:
         _, rendered_path = add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
-        run_variation_stage(cf, campaign_slug="may", dry_run=True)
+        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.audit_variation_batch",
+            lambda **kwargs: {
+                "contractVersion": "campaign_factory_audit.v1.4",
+                "overallVerdict": "pass",
+                "verdicts": {"pdq": "pass", "sscd": "pass"},
+                "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+                "reportPath": str(kwargs["report_path"]),
+            },
+        )
+        run_variation_stage(
+            cf,
+            campaign_slug="may",
+            dry_run=False,
+            contentforge_base_url="http://contentforge.test",
+        )
 
         payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", enable_variation=True)
 
@@ -3839,6 +3990,46 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
         assert json.loads(row["verdicts_json"]) == {"pdq": "pass"}
     finally:
         cf.close()
+
+
+def test_variation_batch_audit_sends_all_siblings_and_writes_report(tmp_path: Path, monkeypatch):
+    contentforge_root = tmp_path / "contentforge"
+    source = tmp_path / "master.mp4"
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    source.write_bytes(b"master")
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    seen = {}
+
+    def fake_similarity(base_url, **kwargs):
+        seen["base_url"] = base_url
+        seen.update(kwargs)
+        return {
+            "contractVersion": "campaign_factory_audit.v1.4",
+            "auditProfile": "campaign_factory_v1",
+            "overallVerdict": "pass",
+            "verdicts": {"pdq": "pass", "sscd": "pass"},
+            "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    report_path = tmp_path / "audit.json"
+
+    report = contentforge_adapter.audit_variation_batch(
+        contentforge_root=contentforge_root,
+        source_path=source,
+        variant_paths=[first, second],
+        contentforge_base_url="http://contentforge.test",
+        report_path=report_path,
+    )
+
+    assert seen["base_url"] == "http://contentforge.test"
+    assert seen["layers"] == ["pdq", "sscd"]
+    assert seen["target_file"].startswith("campaign_factory_variant_")
+    assert len(seen["comparison_files"]) == 1
+    assert report["reportPath"] == str(report_path)
+    assert json.loads(report_path.read_text(encoding="utf-8"))["verdicts"]["pdq"] == "pass"
 
 
 def test_contentforge_audit_uses_selected_reference_pattern(tmp_path: Path, monkeypatch):

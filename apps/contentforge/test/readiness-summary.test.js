@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildReadinessSummary } from "../app/api/similarity/route.js";
+import {
+  buildDetectorVerdicts,
+  buildReadinessSummary,
+} from "../app/api/similarity/route.js";
 
 test("readiness summary blocks severe compression failures", function () {
   var summary = buildReadinessSummary({
@@ -61,4 +64,94 @@ test("readiness summary treats similarity layers as review-only signals", functi
   assert.equal(summary.warningCodes.includes("temporal_review"), true);
   assert.equal(summary.warningCodes.includes("ssim_review"), true);
   assert.equal(summary.warningCodes.includes("pdq_review"), true);
+});
+
+test("campaign profile fails closed when perceptual detectors are unavailable", function () {
+  var results = {
+    pdq: { available: false, error: "pdqhash missing" },
+    sscd: { available: false, error: "model missing" },
+  };
+  var verdicts = buildDetectorVerdicts(results, "campaign_factory_v1");
+  var summary = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.deepEqual(verdicts, { pdq: "fail", sscd: "fail" });
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("pdq_unavailable"), true);
+  assert.equal(summary.blockingCodes.includes("sscd_unavailable"), true);
+});
+
+test("default profile keeps unavailable perceptual detectors advisory", function () {
+  var results = {
+    pdq: { available: false, error: "pdqhash missing" },
+    sscd: { available: false, error: "model missing" },
+  };
+  var verdicts = buildDetectorVerdicts(results, "default");
+  var summary = buildReadinessSummary(results, verdicts, {
+    auditProfile: "default",
+  });
+
+  assert.deepEqual(verdicts, { pdq: "warn", sscd: "warn" });
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("pdq_review"), true);
+  assert.equal(summary.warningCodes.includes("sscd_review"), true);
+});
+
+test("campaign detector verdicts use worst-case evidence instead of safe averages", function () {
+  var results = {
+    pdq: {
+      stats: {
+        avgDistance: 90,
+        minDistance: 12,
+        crossCollisions: 0,
+        crossSafeTargetViolations: 0,
+      },
+    },
+    sscd: {
+      stats: {
+        avgSimilarity: 0.1,
+        maxSimilarity: 0.82,
+        crossVariantCollisions: 0,
+        crossVariantSafeTargetViolations: 0,
+      },
+    },
+  };
+
+  assert.deepEqual(buildDetectorVerdicts(results, "campaign_factory_v1"), {
+    pdq: "fail",
+    sscd: "fail",
+  });
+  assert.deepEqual(buildDetectorVerdicts(results, "default"), {
+    pdq: "pass",
+    sscd: "pass",
+  });
+});
+
+test("campaign readiness emits stable sibling collision blocking codes", function () {
+  var results = {
+    pdq: {
+      stats: {
+        avgDistance: 90,
+        minDistance: 80,
+        crossCollisions: 0,
+        crossSafeTargetViolations: 1,
+      },
+    },
+    sscd: {
+      stats: {
+        avgSimilarity: 0.1,
+        maxSimilarity: 0.2,
+        crossVariantCollisions: 0,
+        crossVariantSafeTargetViolations: 2,
+      },
+    },
+  };
+  var verdicts = buildDetectorVerdicts(results, "campaign_factory_v1");
+  var summary = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.blockingCodes.includes("pdq_sibling_collision"), true);
+  assert.equal(summary.blockingCodes.includes("sscd_sibling_collision"), true);
 });

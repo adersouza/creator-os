@@ -5,6 +5,19 @@
 **Companion visuals:** `creator_os_map.html` (Intelligence Audit tab).
 **This is a DIFFERENT audit from the closed `AUDIT_FINDINGS.md`.** That one graded code/tests/docs/maintainability/security. This one asks the question the owner actually cares about: **is the system smart, does it make great content, and is it safe to post across many accounts?** Answer today: not yet — but the bones are there.
 
+## Remediation status
+
+Track S critical perceptual gating is fixed on
+`codex/intelligence-audit-perceptual-gate`: Campaign Factory variation apply
+runs now submit the complete account-bound batch to ContentForge, require
+available PDQ and SSCD detectors, evaluate worst-case source and sibling
+comparisons, and write assignment manifests only after both detectors pass.
+SSIM remains diagnostic. General ContentForge audits remain advisory when
+detectors are unavailable.
+
+All Track I capture/learning work, Track Q quality/virality work, perceptual
+cooldowns, per-account audio, and upstream ThreadsDashboard work remain open.
+
 ---
 
 ## ⚠ Branch reconciliation — READ FIRST (do not redo shipped work)
@@ -84,9 +97,9 @@ PR #44 made variation real (per-index edits, sibling gate). **But the gate still
 
 | Sev | File:line | Fix (DETECTION/variation only — NOT spoof-strengthening) |
 |-----|-----------|------|
-| Critical | `repurposer/qa/similarity.py` (sibling/master gate uses `calculate_ssim`) | **SSIM ≠ perceptual-hash distance.** A global brightness/contrast nudge tanks SSIM yet barely moves PDQ's DCT-of-luminance hash. Variants pass the gate and still cluster on PDQ (≤31)/SSCD (≥0.75). **Gate on real perceptual distance:** wire the already-present `calculate_phash_distance` (dead code today) and/or call ContentForge PDQ/SSCD. Require PDQ Hamming **>~32** and SSCD cosine **<~0.5** vs master AND every sibling. |
-| Critical | `contentforge/.../similarity/route.js:16` | `REVIEW_ONLY_LAYERS` includes `pdq`,`sscd` → a real duplicate-detector **fail is downgraded to a non-blocking warning**. The detectors (`lib/pdq_check.py`, `lib/sscd_check.py`) are built and correct — they just never block. Branch the readiness logic so PDQ/SSCD fail vs any sibling/source sets `blocking` for `campaign_factory_v1`. |
-| High | `contentforge/lib/campaign-factory-audit-config.js:33` | ContentForge audit compares each asset against the **reference/source set**, not against the **N sibling variants** going to sibling accounts → cross-account clustering is never measured. Add a sibling-vs-sibling perceptual pass before fan-out. |
+| Fixed | `repurposer/qa/similarity.py`, `campaign_factory/variation_stage.py` | SSIM is diagnostic only. Apply mode gates the full batch on ContentForge PDQ `>40` and SSCD `<0.50` evidence before writing an export-consumable assignment. |
+| Fixed | `contentforge/.../similarity/route.js` | `campaign_factory_v1` now makes PDQ/SSCD failures and unavailability blocking. The default ContentForge profile remains advisory. |
+| Partial | `contentforge/lib/campaign-factory-audit-config.js` | Campaign Factory variation now supplies every sibling through `comparisonFiles` and blocks sibling collisions. Other ContentForge callers must opt into a scoped comparison set. |
 | High | `core.py:11117-11221` | Cross-account `perceptualFingerprint`/`perceptualClusterId` cooldown reads metadata fields that are **never computed** → silently no-ops. Compute + persist real PDQ at render time; add a "PDQ cluster cooldown" alongside the lineage cooldowns. |
 | Med | `repurposer/config.py:58-59`, `engines/audio.py:34-47` | `ig_subtle` sets `enable_audio=False` → IG variants keep the **master's audio** → Chromaprint match across every account. Assign a different/shifted track per account. |
 | Med | `ThreadsDashboard/.../originalitySignals.ts:81-124` | Dashboard's only perceptual hash is weak 64-bit **aHash**, and `fetchPerceptualHash` returns null for video (video gets **no** perceptual signal). Upgrade to PDQ; keyframe-hash video. |

@@ -15,7 +15,7 @@ var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
 var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "originality", "creativeQuality"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.3";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.4";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -287,7 +287,48 @@ function operatorLabelGroups(blockingItems, warningItems) {
   return groups;
 }
 
-export function buildReadinessSummary(results, verdicts) {
+export function buildDetectorVerdicts(results, auditProfile = "default") {
+  var thresholds = campaignFactoryThresholds();
+  var campaignProfile = auditProfile === "campaign_factory_v1";
+  var verdicts = {};
+  var pdq = results.pdq;
+  if (pdq) {
+    if (pdq.available === false || pdq.error) {
+      verdicts.pdq = campaignProfile ? "fail" : "warn";
+    } else if (campaignProfile) {
+      var pdqStats = pdq.stats || {};
+      var pdqFailed = !Number.isFinite(pdqStats.minDistance) ||
+        pdqStats.minDistance <= thresholds.pdqSafeDistance ||
+        Number(pdqStats.crossCollisions || 0) > 0 ||
+        Number(pdqStats.crossSafeTargetViolations || 0) > 0;
+      verdicts.pdq = pdqFailed ? "fail" : "pass";
+    } else {
+      var avgDist = pdq.stats?.avgDistance;
+      verdicts.pdq = Number.isFinite(avgDist) ? (avgDist > 60 ? "pass" : avgDist > 30 ? "warn" : "fail") : "warn";
+    }
+  }
+  var sscd = results.sscd;
+  if (sscd) {
+    if (sscd.available === false || sscd.error) {
+      verdicts.sscd = campaignProfile ? "fail" : "warn";
+    } else if (campaignProfile) {
+      var sscdStats = sscd.stats || {};
+      var sscdFailed = !Number.isFinite(sscdStats.maxSimilarity) ||
+        sscdStats.maxSimilarity >= thresholds.sscdSafeSimilarity ||
+        Number(sscdStats.crossVariantCollisions || 0) > 0 ||
+        Number(sscdStats.crossVariantSafeTargetViolations || 0) > 0;
+      verdicts.sscd = sscdFailed ? "fail" : "pass";
+    } else {
+      var avgSim = sscd.stats?.avgSimilarity;
+      verdicts.sscd = Number.isFinite(avgSim) ? (avgSim < 0.50 ? "pass" : avgSim < 0.75 ? "warn" : "fail") : "warn";
+    }
+  }
+  return verdicts;
+}
+
+export function buildReadinessSummary(results, verdicts, options = {}) {
+  var auditProfile = options.auditProfile || "default";
+  var campaignProfile = auditProfile === "campaign_factory_v1";
   var blockingReasons = [];
   var warnings = [];
   var blockingItems = [];
@@ -340,6 +381,32 @@ export function buildReadinessSummary(results, verdicts) {
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
 
   for (var [layer, verdict] of Object.entries(verdicts)) {
+    if (campaignProfile && (layer === "pdq" || layer === "sscd")) {
+      var detector = results[layer] || {};
+      var stats = detector.stats || {};
+      if (detector.available === false || detector.error) {
+        addReadinessItem(
+          blockingItems,
+          layer + "_unavailable",
+          layer + ": detector unavailable",
+          layer.toUpperCase() + " detector unavailable"
+        );
+      } else if (Number(stats.crossCollisions || 0) > 0 || Number(
+        layer === "pdq" ? stats.crossSafeTargetViolations || 0 : stats.crossVariantSafeTargetViolations || 0
+      ) > 0) {
+        addReadinessItem(
+          blockingItems,
+          layer + "_sibling_collision",
+          layer + ": sibling collision detected",
+          layer.toUpperCase() + " sibling collision detected"
+        );
+      } else if (verdict === "fail") {
+        addReadinessItem(blockingItems, layer + "_failed", layer + ": detector threshold failed", layer + " failed");
+      } else if (verdict === "warn") {
+        addReadinessItem(warningItems, layer + "_review", layer + ": layer warning", layer + " needs review");
+      }
+      continue;
+    }
     if (verdict === "fail" && REVIEW_ONLY_LAYERS.has(layer)) {
       addReadinessItem(warningItems, layer + "_review", layer + ": layer needs review", layer + " needs review");
     } else if (verdict === "fail" && !["forensics", "compression", "provenance", "safeZone", "readability", "cover", "hookVisibility", "creativeQuality", "originality"].includes(layer)) {
@@ -1590,11 +1657,16 @@ export async function POST(request) {
     var layers = body.layers || ["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim"];
     var auditProfile = VALID_AUDIT_PROFILES.has(body.auditProfile) ? body.auditProfile : "default";
     var targetFile = body.targetFile || body.target || body.variant || body.outputFile || null;
+    var requestedComparisonFiles = body.comparisonFiles ?? [];
 
     if (!sourcePath) {
       return NextResponse.json({ error: "Missing or invalid source path" }, { status: 400 });
     }
     layers = layers.filter(function (layer) { return VALID_LAYERS.has(layer); });
+    if (auditProfile === "campaign_factory_v1") {
+      if (!layers.includes("pdq")) layers.push("pdq");
+      if (!layers.includes("sscd")) layers.push("sscd");
+    }
 
     try { await access(sourcePath); } catch {
       return NextResponse.json({ error: "Source file not found" }, { status: 404 });
@@ -1614,6 +1686,13 @@ export async function POST(request) {
       .sort((a, b) => a.localeCompare(b));
     var allFiles = [...files];
 
+    if (!Array.isArray(requestedComparisonFiles) || requestedComparisonFiles.some(function (file) {
+      return typeof file !== "string";
+    })) {
+      return NextResponse.json({ error: "comparisonFiles must be an array of filenames" }, { status: 400 });
+    }
+
+    var comparisonFiles = [];
     if (targetFile) {
       var safeTarget = path.basename(String(targetFile));
       if (!safeTarget || safeTarget !== String(targetFile).replace(/^output\/final\//, "")) {
@@ -1623,6 +1702,19 @@ export async function POST(request) {
       if (files.length === 0) {
         return NextResponse.json({ error: "Target file not found" }, { status: 404 });
       }
+      for (var requestedComparison of requestedComparisonFiles) {
+        var safeComparison = path.basename(requestedComparison);
+        if (!safeComparison || safeComparison !== requestedComparison || safeComparison === safeTarget) {
+          return NextResponse.json({ error: "Invalid comparisonFiles entry" }, { status: 400 });
+        }
+        if (!allFiles.includes(safeComparison)) {
+          return NextResponse.json({ error: "Comparison file not found: " + safeComparison }, { status: 400 });
+        }
+        if (!comparisonFiles.includes(safeComparison)) comparisonFiles.push(safeComparison);
+      }
+      files = [safeTarget, ...comparisonFiles];
+    } else if (requestedComparisonFiles.length > 0) {
+      return NextResponse.json({ error: "comparisonFiles requires targetFile" }, { status: 400 });
     }
 
     if (files.length === 0) {
@@ -1725,16 +1817,7 @@ export async function POST(request) {
     function unavailableVerdict(result) {
       return result && (result.available === false || result.error) ? "warn" : null;
     }
-    if (results.pdq?.stats) {
-      // Calibrated: PASS if avg distance >60, WARN if 30-60, FAIL if <30
-      var avgDist = results.pdq.stats.avgDistance;
-      verdicts.pdq = unavailableVerdict(results.pdq) || (Number.isFinite(avgDist) ? (avgDist > 60 ? "pass" : avgDist > 30 ? "warn" : "fail") : "warn");
-    }
-    if (results.sscd?.stats) {
-      // Calibrated: PASS if avg similarity <0.50, WARN 0.50-0.75, FAIL >=0.75
-      var avgSim = results.sscd.stats.avgSimilarity;
-      verdicts.sscd = unavailableVerdict(results.sscd) || (Number.isFinite(avgSim) ? (avgSim < 0.50 ? "pass" : avgSim < 0.75 ? "warn" : "fail") : "warn");
-    }
+    Object.assign(verdicts, buildDetectorVerdicts(results, auditProfile));
     if (results.audio?.stats) {
       verdicts.audio = results.audio.stats.identicalPercent === 0 ? "pass" : results.audio.stats.identicalPercent <= 20 ? "warn" : "fail";
     } else if (layers.includes("audio") && results.audio?.available === false) {
@@ -1785,7 +1868,7 @@ export async function POST(request) {
       verdicts.originality = results.multiAccountOriginalityAudit.verdict;
     }
 
-    var readinessSummary = buildReadinessSummary(results, verdicts);
+    var readinessSummary = buildReadinessSummary(results, verdicts, { auditProfile });
     var overallVerdict = readinessSummary.blockingReasons.length > 0 ? "fail"
       : readinessSummary.warnings.length > 0 ? "warn" : "pass";
     var verdictCodes = Object.fromEntries(Object.entries(verdicts).map(function ([layer, verdict]) {
@@ -1797,6 +1880,7 @@ export async function POST(request) {
       contractVersion: auditProfile === "campaign_factory_v1" ? CAMPAIGN_FACTORY_CONTRACT_VERSION : null,
       auditProfile,
       targetFile: targetFile ? files[0] : null,
+      comparisonFiles,
       layers: results,
       verdicts,
       verdictCodes,

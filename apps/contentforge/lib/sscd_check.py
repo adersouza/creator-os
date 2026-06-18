@@ -23,7 +23,10 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "sscd_disc_mixup.torchscript.pt")
+MODEL_PATH = os.environ.get(
+    "CONTENTFORGE_SSCD_MODEL_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "models", "sscd_disc_mixup.torchscript.pt"),
+)
 
 # ImageNet normalization (SSCD uses standard ImageNet preprocessing)
 TRANSFORM = transforms.Compose([
@@ -163,6 +166,7 @@ def main():
 
     # Cross-variant similarity (check variants against each other)
     cross_high = 0
+    cross_safe_target_violations = 0
     variant_embeddings = []
     for fname in files[:30]:
         fpath = os.path.join(output_dir, fname)
@@ -183,6 +187,8 @@ def main():
             sim = cosine_similarity(variant_embeddings[i][1], variant_embeddings[j][1])
             if sim >= 0.75:
                 cross_high += 1
+            if sim >= 0.50:
+                cross_safe_target_violations += 1
 
     # Cleanup temp
     try:
@@ -211,6 +217,7 @@ def main():
             "minSimilarity": round(min_sim, 4) if min_sim is not None else None,
             "maxSimilarity": round(max_sim, 4) if max_sim is not None else None,
             "crossVariantCollisions": cross_high,
+            "crossVariantSafeTargetViolations": cross_safe_target_violations,
             "thresholds": {"pass": 0.50, "warn": 0.75},
         },
     }

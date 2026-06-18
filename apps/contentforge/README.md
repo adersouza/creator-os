@@ -53,7 +53,10 @@ variant unusable.
 - FFmpeg and FFprobe available on `PATH`
 - macOS `zip`, `strings`, and `open` commands for zip download, binary string checks, and folder opening
 - Optional for audio checks: Chromaprint `fpcalc`
-- Optional for SSCD/reference checks: the SSCD model at `models/sscd_disc_mixup.torchscript.pt`
+- SSCD model at `models/sscd_disc_mixup.torchscript.pt`, or set
+  `CONTENTFORGE_SSCD_MODEL_PATH` to an external model file. The model is
+  optional for general advisory checks but required for Campaign Factory
+  variation apply runs.
 
 Install common system tools on macOS:
 
@@ -67,7 +70,8 @@ Python helpers may require:
 ./scripts/setup-python.sh
 ```
 
-Some checks degrade gracefully when optional tools or models are missing.
+General-profile checks degrade gracefully when optional tools or models are
+missing. `campaign_factory_v1` fails closed when PDQ or SSCD cannot run.
 
 ## Setup
 
