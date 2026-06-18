@@ -1,16 +1,17 @@
 # Creator OS Pipeline Wiring Plan
 
-## Current Slice
+## Status
 
-The first mergeable pipeline-wiring slices are now on `main`: zero-cost,
-draft-first per-account video variation before ThreadsDashboard draft export,
-plus the E2 primitive for turning an accepted still into a review-ready MP4 by
-local FFmpeg motion edit.
+The pipeline-wiring slices through Workstream G are now on `main`: zero-cost,
+draft-first per-account video variation before ThreadsDashboard draft export;
+the E2 primitive for turning an accepted still into a review-ready MP4 by local
+FFmpeg motion edit; the guarded paid front-generation seam; the recommendation
+intelligence loop; and the proactive cycle runner.
 
-The current branch implements Workstream G's proactive cycle runner slice:
-one command can plan the next draft-first campaign cycle across recommendation,
-generation mode, variation, export intent, schedule intent, cost, idempotency,
-and run reporting. Paid generation remains default-off and budget-gated.
+The proactive cycle runner lets one command plan the next draft-first campaign
+cycle across recommendation, generation mode, variation, export intent,
+schedule intent, cost, idempotency, and run reporting. Paid generation remains
+default-off and budget-gated.
 
 Creator OS does not commit a dashboard mirror. Dashboard source, RLS, type
 cleanup, visual regression, and deployment provenance live in the external
@@ -101,4 +102,7 @@ ThreadsDashboard repository.
   and safe dry-run sub-action runner.
 - Dashboard mirror remains deleted; ThreadsDashboard remains external source of
   truth.
-- Final proof remains the repository gates on the merged `main` tip.
+- Final proof is the repository gates on the merged `main` tip:
+  `pnpm check:contracts`, `pnpm check:arch`, `pnpm check:arch:fixtures`,
+  `pnpm check:artifacts`, `pnpm check:integration`, `pnpm security:secrets`,
+  `pnpm test`, and the relevant Python package tests for changed packages.
