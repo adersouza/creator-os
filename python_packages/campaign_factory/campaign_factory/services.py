@@ -10,6 +10,7 @@ from .creative_planning import CreativePlanningRepository
 from .events import EventRepository
 from .graph import GraphRepository
 from .models import ModelRepository
+from .reference import ReferenceRepository
 
 
 class CoreServices:
@@ -27,6 +28,9 @@ class CoreServices:
         sha256_file: Callable[[Any], str],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        prepare_reel_inputs: Callable[..., dict[str, Any]],
+        discoverability_safe_content_contract: Callable[..., dict[str, Any]],
+        reference_hook_fallbacks: tuple[str, ...],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -92,6 +96,17 @@ class CoreServices:
             assets_for_campaign=self.asset_import.assets_for_campaign,
             rendered_for_campaign=rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
+        )
+        self.reference = ReferenceRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            utc_now=utc_now,
+            record_event=self.events.record_event,
+            campaign_by_slug=self.campaign_by_slug,
+            prepare_reel_inputs=prepare_reel_inputs,
+            discoverability_safe_content_contract=discoverability_safe_content_contract,
+            reference_hook_fallbacks=reference_hook_fallbacks,
         )
 
     def ensure_graph_node(
@@ -355,6 +370,70 @@ class CoreServices:
 
     def asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
         return self.creative_planning.asset_creative_plan_id(asset)
+
+    def import_reference_bank(self, bank_path: Any, prompt_pack_path: Any | None = None) -> dict[str, Any]:
+        return self.reference.import_reference_bank(bank_path, prompt_pack_path)
+
+    def reference_prompt_pack_by_cluster(self, prompt_pack_path: Any | None) -> dict[str, dict[str, Any]]:
+        return self.reference.reference_prompt_pack_by_cluster(prompt_pack_path)
+
+    def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
+        return self.reference.reference_patterns(limit=limit)
+
+    def reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.reference.reference_pattern_payload(row)
+
+    def select_reference_pattern(
+        self,
+        campaign_slug: str,
+        *,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.reference.select_reference_pattern(
+            campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            notes=notes,
+        )
+
+    def campaign_reference_plan(self, campaign_slug: str) -> dict[str, Any]:
+        return self.reference.campaign_reference_plan(campaign_slug)
+
+    def prepare_reel_from_reference(
+        self,
+        *,
+        campaign_slug: str,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        recipes: list[str] | None = None,
+        caption_color: str | None = "auto",
+        notes: str | None = None,
+        force_new: bool = True,
+    ) -> dict[str, Any]:
+        return self.reference.prepare_reel_from_reference(
+            campaign_slug=campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            recipes=recipes,
+            caption_color=caption_color,
+            notes=notes,
+            force_new=force_new,
+        )
+
+    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+        return self.reference.active_reference_pattern_for_campaign(campaign_id)
+
+    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+        return self.reference.reference_hooks(pattern, count=count)
+
+    def reference_hook_is_schedule_safe(self, text: str) -> bool:
+        return self.reference.reference_hook_is_schedule_safe(text)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

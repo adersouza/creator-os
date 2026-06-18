@@ -10,6 +10,7 @@ from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
+from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
 
 
@@ -36,6 +37,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.asset_import.conn is factory.conn
         assert isinstance(factory.services.creative_planning, CreativePlanningRepository)
         assert factory.services.creative_planning.conn is factory.conn
+        assert isinstance(factory.services.reference, ReferenceRepository)
+        assert factory.services.reference.conn is factory.conn
     finally:
         factory.close()
 
@@ -171,6 +174,42 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("asset_creative_plan_id", args, kwargs))
             return "cplan_2"
 
+        def import_reference_bank(self, *args, **kwargs):
+            calls.append(("import_reference_bank", args, kwargs))
+            return {"schema": "campaign_factory.reference_bank_import.v1"}
+
+        def reference_patterns(self, *args, **kwargs):
+            calls.append(("reference_patterns", args, kwargs))
+            return {"schema": "campaign_factory.reference_patterns.v1"}
+
+        def select_reference_pattern(self, *args, **kwargs):
+            calls.append(("select_reference_pattern", args, kwargs))
+            return {"schema": "campaign_factory.reference_pattern_selection.v1"}
+
+        def campaign_reference_plan(self, *args, **kwargs):
+            calls.append(("campaign_reference_plan", args, kwargs))
+            return {"schema": "campaign_factory.reference_plan.v1"}
+
+        def prepare_reel_from_reference(self, *args, **kwargs):
+            calls.append(("prepare_reel_from_reference", args, kwargs))
+            return {"schema": "campaign_factory.prepare_from_reference.v1"}
+
+        def active_reference_pattern_for_campaign(self, *args, **kwargs):
+            calls.append(("active_reference_pattern_for_campaign", args, kwargs))
+            return {"id": "refpat_1"}
+
+        def reference_hooks(self, *args, **kwargs):
+            calls.append(("reference_hooks", args, kwargs))
+            return [{"text": "mirror check"}]
+
+        def reference_pattern_payload(self, *args, **kwargs):
+            calls.append(("reference_pattern_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def reference_hook_is_schedule_safe(self, *args, **kwargs):
+            calls.append(("reference_hook_is_schedule_safe", args, kwargs))
+            return True
+
     factory.services = FakeServices()
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
@@ -232,6 +271,29 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory._creative_plan_payload({"id": "cplan_1"}) == {"id": "cplan_1"}
     assert factory._source_prompt_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"}) == "cplan_1"
     assert factory._asset_creative_plan_id({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"}) == "cplan_2"
+    assert factory.import_reference_bank(Path("/tmp/bank.json"), Path("/tmp/prompts.json")) == {
+        "schema": "campaign_factory.reference_bank_import.v1",
+    }
+    assert factory.reference_patterns(limit=3) == {"schema": "campaign_factory.reference_patterns.v1"}
+    assert factory.select_reference_pattern("may", cluster_key="cluster", variant_count=2, notes="notes") == {
+        "schema": "campaign_factory.reference_pattern_selection.v1",
+    }
+    assert factory.campaign_reference_plan("may") == {"schema": "campaign_factory.reference_plan.v1"}
+    assert factory.prepare_reel_from_reference(
+        campaign_slug="may",
+        cluster_key="cluster",
+        variant_count=2,
+        recipes=["v01_original"],
+        caption_color="white",
+        notes="notes",
+        force_new=False,
+    ) == {"schema": "campaign_factory.prepare_from_reference.v1"}
+    assert factory.active_reference_pattern_for_campaign("camp_1") == {"id": "refpat_1"}
+    assert factory.reference_hooks({"clusterKey": "cluster", "label": "Cluster"}, count=2) == [
+        {"text": "mirror check"},
+    ]
+    assert factory._reference_pattern_payload({"id": "refpat_1"}) == {"id": "refpat_1"}
+    assert factory._reference_hook_is_schedule_safe("mirror check") is True
 
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
@@ -312,6 +374,29 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("creative_plan_payload", ({"id": "cplan_1"},), {"dashboard": None}),
         ("source_prompt_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"},), {}),
         ("asset_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"},), {}),
+        ("import_reference_bank", (Path("/tmp/bank.json"), Path("/tmp/prompts.json")), {}),
+        ("reference_patterns", (), {"limit": 3}),
+        ("select_reference_pattern", ("may",), {
+            "cluster_key": "cluster",
+            "reference_pattern_id": None,
+            "variant_count": 2,
+            "notes": "notes",
+        }),
+        ("campaign_reference_plan", ("may",), {}),
+        ("prepare_reel_from_reference", (), {
+            "campaign_slug": "may",
+            "cluster_key": "cluster",
+            "reference_pattern_id": None,
+            "variant_count": 2,
+            "recipes": ["v01_original"],
+            "caption_color": "white",
+            "notes": "notes",
+            "force_new": False,
+        }),
+        ("active_reference_pattern_for_campaign", ("camp_1",), {}),
+        ("reference_hooks", ({"clusterKey": "cluster", "label": "Cluster"},), {"count": 2}),
+        ("reference_pattern_payload", ({"id": "refpat_1"},), {}),
+        ("reference_hook_is_schedule_safe", ("mirror check",), {}),
     ]
 
 
@@ -633,6 +718,100 @@ def test_core_services_delegates_creative_planning_methods_to_creative_planning_
         ("creative_plan_payload", ({"id": "cplan_1"},), {"dashboard": None}),
         ("source_prompt_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_1\"}"},), {}),
         ("asset_creative_plan_id", ({"source_prompt": "{\"creativePlanId\":\"cplan_2\"}"},), {}),
+    ]
+
+
+def test_core_services_delegates_reference_methods_to_reference_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeReference:
+        def import_reference_bank(self, *args, **kwargs):
+            calls.append(("import_reference_bank", args, kwargs))
+            return {"schema": "campaign_factory.reference_bank_import.v1"}
+
+        def reference_patterns(self, *args, **kwargs):
+            calls.append(("reference_patterns", args, kwargs))
+            return {"schema": "campaign_factory.reference_patterns.v1"}
+
+        def select_reference_pattern(self, *args, **kwargs):
+            calls.append(("select_reference_pattern", args, kwargs))
+            return {"schema": "campaign_factory.reference_pattern_selection.v1"}
+
+        def campaign_reference_plan(self, *args, **kwargs):
+            calls.append(("campaign_reference_plan", args, kwargs))
+            return {"schema": "campaign_factory.reference_plan.v1"}
+
+        def prepare_reel_from_reference(self, *args, **kwargs):
+            calls.append(("prepare_reel_from_reference", args, kwargs))
+            return {"schema": "campaign_factory.prepare_from_reference.v1"}
+
+        def active_reference_pattern_for_campaign(self, *args, **kwargs):
+            calls.append(("active_reference_pattern_for_campaign", args, kwargs))
+            return {"id": "refpat_1"}
+
+        def reference_hooks(self, *args, **kwargs):
+            calls.append(("reference_hooks", args, kwargs))
+            return [{"text": "mirror check"}]
+
+        def reference_pattern_payload(self, *args, **kwargs):
+            calls.append(("reference_pattern_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def reference_hook_is_schedule_safe(self, *args, **kwargs):
+            calls.append(("reference_hook_is_schedule_safe", args, kwargs))
+            return True
+
+    services.reference = FakeReference()
+
+    assert services.import_reference_bank(Path("/tmp/bank.json"), Path("/tmp/prompts.json")) == {
+        "schema": "campaign_factory.reference_bank_import.v1",
+    }
+    assert services.reference_patterns(limit=3) == {"schema": "campaign_factory.reference_patterns.v1"}
+    assert services.select_reference_pattern("may", cluster_key="cluster", variant_count=2, notes="notes") == {
+        "schema": "campaign_factory.reference_pattern_selection.v1",
+    }
+    assert services.campaign_reference_plan("may") == {"schema": "campaign_factory.reference_plan.v1"}
+    assert services.prepare_reel_from_reference(
+        campaign_slug="may",
+        cluster_key="cluster",
+        variant_count=2,
+        recipes=["v01_original"],
+        caption_color="white",
+        notes="notes",
+        force_new=False,
+    ) == {"schema": "campaign_factory.prepare_from_reference.v1"}
+    assert services.active_reference_pattern_for_campaign("camp_1") == {"id": "refpat_1"}
+    assert services.reference_hooks({"clusterKey": "cluster", "label": "Cluster"}, count=2) == [
+        {"text": "mirror check"},
+    ]
+    assert services.reference_pattern_payload({"id": "refpat_1"}) == {"id": "refpat_1"}
+    assert services.reference_hook_is_schedule_safe("mirror check") is True
+
+    assert calls == [
+        ("import_reference_bank", (Path("/tmp/bank.json"), Path("/tmp/prompts.json")), {}),
+        ("reference_patterns", (), {"limit": 3}),
+        ("select_reference_pattern", ("may",), {
+            "cluster_key": "cluster",
+            "reference_pattern_id": None,
+            "variant_count": 2,
+            "notes": "notes",
+        }),
+        ("campaign_reference_plan", ("may",), {}),
+        ("prepare_reel_from_reference", (), {
+            "campaign_slug": "may",
+            "cluster_key": "cluster",
+            "reference_pattern_id": None,
+            "variant_count": 2,
+            "recipes": ["v01_original"],
+            "caption_color": "white",
+            "notes": "notes",
+            "force_new": False,
+        }),
+        ("active_reference_pattern_for_campaign", ("camp_1",), {}),
+        ("reference_hooks", ({"clusterKey": "cluster", "label": "Cluster"},), {"count": 2}),
+        ("reference_pattern_payload", ({"id": "refpat_1"},), {}),
+        ("reference_hook_is_schedule_safe", ("mirror check",), {}),
     ]
 
 
