@@ -4347,6 +4347,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
     cf = make_factory(tmp_path)
     captured: dict[str, Any] = {}
     monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
+    remote_url = "https://cdn.example.com/campaigns/may/asset_1.mp4"
 
     class FakeResponse:
         status = 200
@@ -4384,6 +4385,21 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
 
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+
+    def build_payloads_with_remote_media(*args, **kwargs):
+        payload = original_build_draft_payloads(*args, **kwargs)
+        for draft in payload.get("drafts", []):
+            for item in draft.get("media", []) or []:
+                if isinstance(item, dict):
+                    item["url"] = remote_url
+            meta = draft.get("metadata", {}).get("campaign_factory", {})
+            manifest = meta.get("handoff_manifest")
+            if isinstance(manifest, dict):
+                manifest["mediaItems"] = [{"type": "video", "url": remote_url}]
+        return payload
+
+    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -4426,6 +4442,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         )
         assert captured["body"]["dryRun"] is False
         assert captured["body"]["drafts"][0]["instagramPostCaption"]
+        assert captured["body"]["drafts"][0]["media"][0]["url"] == remote_url
     finally:
         cf.close()
 
@@ -4434,6 +4451,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
     cf = make_factory(tmp_path)
     calls: list[dict[str, Any]] = []
     monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
+    remote_url = "https://cdn.example.com/campaigns/may/asset_1.mp4"
 
     class EmptyPostIdsResponse:
         status = 200
@@ -4467,6 +4485,21 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda _seconds: None)
+    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+
+    def build_payloads_with_remote_media(*args, **kwargs):
+        payload = original_build_draft_payloads(*args, **kwargs)
+        for draft in payload.get("drafts", []):
+            for item in draft.get("media", []) or []:
+                if isinstance(item, dict):
+                    item["url"] = remote_url
+            meta = draft.get("metadata", {}).get("campaign_factory", {})
+            manifest = meta.get("handoff_manifest")
+            if isinstance(manifest, dict):
+                manifest["mediaItems"] = [{"type": "video", "url": remote_url}]
+        return payload
+
+    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -4538,6 +4571,54 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
             ingest_url="https://dashboard.example.com/api/internal/proxy",
             ingest_secret="ingest-secret",
         )
+
+
+def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    calls: list[dict[str, Any]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append({"url": request.full_url, "timeout": timeout})
+        if "/api/campaign-factory/drafts/ingest" in request.full_url:
+            raise AssertionError("dashboard ingest should not be called for unresolved media")
+        raise OSError("supabase unavailable in unresolved-media regression")
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "new post is up",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": False,
+                    "status": "not_required",
+                },
+            }),),
+        )
+        cf.conn.commit()
+        ensure_exportable_distribution_plan(cf)
+
+        with pytest.raises(ValueError, match="export blocked by handoff manifest: asset_1:media_item_0_remote_url_missing"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+                threadsdash_ingest_url="https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+                threadsdash_ingest_secret="ingest-secret",
+                supabase_url="https://example.supabase.co",
+                supabase_service_role_key="service-role",
+            )
+
+        assert not any("/api/campaign-factory/drafts/ingest" in call["url"] for call in calls)
+        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+    finally:
+        cf.close()
 
 
 def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: Path, monkeypatch):
