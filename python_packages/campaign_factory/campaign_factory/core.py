@@ -22089,6 +22089,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             else self.active_reference_pattern_for_campaign(campaign["id"]) or self._top_reference_pattern()
         )
         variation_preset_rankings = self._ranked_variation_presets_for_campaign(campaign["id"], account=account)
+        recommendation_trust = self._latest_recommendation_trust_context(campaign["id"], account=account)
         reference_pattern_id = reference_pattern.get("id") if reference_pattern else None
         reference_pattern_graph_id = self.graph_id_for(
             "reference_patterns",
@@ -22109,6 +22110,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "referencePatternId": reference_pattern_id,
             "referencePatternRankings": self._compact_recommendation_rankings(reference_pattern_rankings),
             "variationPresetRankings": self._compact_recommendation_rankings(variation_preset_rankings),
+            "recommendationTrust": recommendation_trust,
         }
         input_hash = hashlib.sha256(json.dumps(input_snapshot, sort_keys=True).encode("utf-8")).hexdigest()[:16]
         run_id = f"recrun_{input_hash}"
@@ -22172,6 +22174,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 reference_pattern_graph_id=reference_pattern_graph_id,
                 reference_pattern_rankings=reference_pattern_rankings,
                 variation_preset_rankings=variation_preset_rankings,
+                recommendation_trust=recommendation_trust,
                 persist=persist,
                 run_id=run_id,
             )
@@ -22187,6 +22190,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 reference_pattern_graph_id=reference_pattern_graph_id,
                 reference_pattern_rankings=reference_pattern_rankings,
                 variation_preset_rankings=variation_preset_rankings,
+                recommendation_trust=recommendation_trust,
                 persist=persist,
                 run_id=run_id,
             )
@@ -22407,6 +22411,79 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "rankings": self._compact_recommendation_rankings(rankings),
         }
 
+    def _latest_recommendation_trust_context(self, campaign_id: str, *, account: str | None) -> dict[str, Any]:
+        account_key = account or ""
+        row = self.conn.execute(
+            """
+            SELECT * FROM recommendation_accuracy_reports
+            WHERE campaign_id = ?
+              AND account_key IN (?, '')
+            ORDER BY CASE WHEN account_key = ? THEN 0 ELSE 1 END, updated_at DESC
+            LIMIT 1
+            """,
+            (campaign_id, account_key, account_key),
+        ).fetchone()
+        if not row:
+            return {
+                "status": "unmeasured",
+                "score": None,
+                "trustConfidence": "insufficient",
+                "measuredCount": 0,
+                "source": "no_recommendation_accuracy_report",
+            }
+        payload = json_load(row["report_json"], {})
+        overall = payload.get("overall") if isinstance(payload.get("overall"), dict) else {}
+        score = payload.get("recommendationTrustScore")
+        score_int = int(score) if isinstance(score, (int, float)) else None
+        if score_int is None:
+            status = "unmeasured"
+        elif score_int < 50:
+            status = "low"
+        elif score_int < 70:
+            status = "directional"
+        else:
+            status = "trusted"
+        return {
+            "status": status,
+            "score": score_int,
+            "trustConfidence": payload.get("trustConfidence") or "insufficient",
+            "measuredCount": int(overall.get("measuredCount") or 0),
+            "accuracyRate": overall.get("accuracyRate"),
+            "reportId": payload.get("reportId") or row["id"],
+            "reportGraphId": payload.get("reportGraphId"),
+            "accountScope": row["account_key"] or "all_accounts",
+            "windowDays": row["window_days"],
+            "updatedAt": row["updated_at"],
+            "source": "recommendation_accuracy_report",
+        }
+
+    def _apply_recommendation_trust(
+        self,
+        *,
+        score: int | float,
+        confidence: str,
+        confidence_reason: str,
+        recommendation_trust: dict[str, Any],
+    ) -> tuple[int, str, str, list[str]]:
+        trust_score = recommendation_trust.get("score")
+        if not isinstance(trust_score, int):
+            return int(max(0, min(100, round(score)))), confidence, confidence_reason, []
+        risks = []
+        adjusted_score = int(max(0, min(100, round(score))))
+        adjusted_confidence = confidence
+        adjusted_reason = confidence_reason
+        if trust_score < 50:
+            risks.append("low_recommendation_trust")
+            adjusted_score = min(adjusted_score, max(25, trust_score + 20))
+            adjusted_confidence = "low"
+            adjusted_reason = f"{confidence_reason}; recommendation trust score {trust_score} is low from measured outcomes"
+        elif trust_score < 70 and adjusted_confidence == "high":
+            risks.append("directional_recommendation_trust")
+            adjusted_score = min(adjusted_score, trust_score + 15)
+            adjusted_confidence = "medium"
+            adjusted_reason = f"{confidence_reason}; recommendation trust score {trust_score} is directional"
+        return adjusted_score, adjusted_confidence, adjusted_reason, risks
+
     def _recommendation_item_payload(
         self,
         *,
@@ -22421,6 +22498,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         reference_pattern_graph_id: str | None,
         reference_pattern_rankings: list[dict[str, Any]],
         variation_preset_rankings: list[dict[str, Any]],
+        recommendation_trust: dict[str, Any],
         persist: bool,
         run_id: str,
     ) -> dict[str, Any]:
@@ -22445,6 +22523,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         if readiness.get("state") == "blocked":
             score = min(score, 45)
         confidence, confidence_reason = self._recommendation_confidence(asset, reference_pattern)
+        score, confidence, confidence_reason, trust_risks = self._apply_recommendation_trust(
+            score=score,
+            confidence=confidence,
+            confidence_reason=confidence_reason,
+            recommendation_trust=recommendation_trust,
+        )
+        risks.extend(trust_risks)
         data_quality = self._recommendation_data_quality(asset, reference_pattern)
         account_memory_payload = account_fit_evidence.get("memory")
         recommended_variation_preset = (
@@ -22495,6 +22580,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "graph": graph_evidence,
             "reasons": reasons,
             "risks": sorted(set(str(risk) for risk in risks if risk)),
+            "recommendationTrust": recommendation_trust,
             "accountFit": account_fit_evidence,
             "referencePatternRankings": reference_pattern_evidence,
             "variationPresetRankings": variation_preset_evidence,
@@ -22505,6 +22591,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "accountFitFatigue": account_score,
                 "novelty": novelty_score,
                 "operationalReadiness": operational_score,
+                "recommendationTrust": recommendation_trust.get("score"),
             },
         }
         item_key = f"{run_id}:{rank}:{asset.get('id')}"
@@ -22572,6 +22659,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "accountFitFatigue": account_score,
                 "novelty": novelty_score,
                 "operationalReadiness": operational_score,
+                "recommendationTrust": recommendation_trust.get("score"),
             },
             "evidence": evidence,
             "dataQuality": data_quality,
@@ -22667,6 +22755,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         reference_pattern_graph_id: str | None,
         reference_pattern_rankings: list[dict[str, Any]],
         variation_preset_rankings: list[dict[str, Any]],
+        recommendation_trust: dict[str, Any],
         persist: bool,
         run_id: str,
     ) -> dict[str, Any] | None:
@@ -22681,6 +22770,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         )
         reference_pattern_evidence = self._recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
         variation_preset_evidence = self._recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
+        score, confidence, confidence_reason, trust_risks = self._apply_recommendation_trust(
+            score=self._reference_pattern_score(reference_pattern),
+            confidence="low",
+            confidence_reason="No rendered assets are available yet; recommendation is based on the active reference pattern only.",
+            recommendation_trust=recommendation_trust,
+        )
         output = {
             "recommendationId": item_id,
             "recommendationGraphId": None,
@@ -22690,9 +22785,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "sourceAssetGraphId": None,
             "renderedAssetGraphId": None,
             "rank": 1,
-            "score": self._reference_pattern_score(reference_pattern),
-            "confidence": "low",
-            "confidenceReason": "No rendered assets are available yet; recommendation is based on the active reference pattern only.",
+            "score": score,
+            "confidence": confidence,
+            "confidenceReason": confidence_reason,
             "autonomyLevel": self.autonomy_level(),
             "executionStatus": "not_started",
             "targetAccount": account,
@@ -22707,7 +22802,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "hookGuidance": self._hook_guidance(reference_pattern, {}),
             "captionGuidance": self._caption_guidance(reference_pattern, {}),
             "reasons": ["active reference pattern is available for the next generation batch"],
-            "risks": ["missing_rendered_assets", "missing_performance_history"],
+            "risks": ["missing_rendered_assets", "missing_performance_history", *trust_risks],
             "scoreBreakdown": {
                 "performance": 50,
                 "referencePattern": self._reference_pattern_score(reference_pattern),
@@ -22715,6 +22810,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "accountFitFatigue": 50,
                 "novelty": 50,
                 "operationalReadiness": 0,
+                "recommendationTrust": recommendation_trust.get("score"),
             },
             "evidence": {
                 "graph": {
@@ -22723,7 +22819,8 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                     "referencePatternGraphId": reference_pattern_graph_id,
                 },
                 "reasons": ["active reference pattern is available for the next generation batch"],
-                "risks": ["missing_rendered_assets", "missing_performance_history"],
+                "risks": ["missing_rendered_assets", "missing_performance_history", *trust_risks],
+                "recommendationTrust": recommendation_trust,
                 "referencePatternRankings": reference_pattern_evidence,
                 "variationPresetRankings": variation_preset_evidence,
             },
