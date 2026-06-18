@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 from .caption_outcome import build_caption_outcome_context, column_values, load_context_json
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
+from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
 from .db import connect, init_db
 from .learning_score import account_reward_baselines, aggregate_performance, performance_planning_score, performance_score
 from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
@@ -34,20 +35,6 @@ from .services import CoreServices
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS
-CREATIVE_PLAN_STATUSES = {
-    "planned",
-    "references_selected",
-    "prompts_ready",
-    "generated",
-    "ingested",
-    "rendered",
-    "audited",
-    "reviewed",
-    "exported",
-    "posted",
-    "measured",
-}
-DEFAULT_STYLE_LANES = ["amateur_native", "polished_glam", "slideshow_story", "pov_relationship", "lifestyle_scene"]
 RECOMMENDATION_ITEM_STATUSES = {
     "proposed",
     "accepted",
@@ -635,6 +622,10 @@ class CampaignFactory:
             slugify=slugify,
             sanitize_for_storage=sanitize_for_storage,
             utc_now=utc_now,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            rendered_for_campaign=self.rendered_for_campaign,
+            dashboard_rendered_asset=self._dashboard_rendered_asset,
         )
         self.settings.campaigns_dir.mkdir(parents=True, exist_ok=True)
 
@@ -741,16 +732,7 @@ class CampaignFactory:
         return None
 
     def set_graph_sync_state(self, system: str, cursor: dict[str, Any]) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO content_graph_sync_state (system, cursor_json, last_synced_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(system) DO UPDATE SET
-              cursor_json = excluded.cursor_json,
-              last_synced_at = excluded.last_synced_at
-            """,
-            (system, json.dumps(sanitize_for_storage(cursor), ensure_ascii=False, sort_keys=True), utc_now()),
-        )
+        self.services.set_graph_sync_state(system, cursor)
 
     def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
         root = self.settings.campaigns_dir / model_slug / campaign_slug
@@ -811,137 +793,29 @@ class CampaignFactory:
         goal: str = "views_reach",
         linked_campaign: str | None = None,
     ) -> dict[str, Any]:
-        plan_name = slugify(name)
-        now = utc_now()
-        lanes = [slugify(lane) for lane in (style_lanes or DEFAULT_STYLE_LANES) if str(lane).strip()]
-        accounts = [str(account).strip().lstrip("@") for account in (source_accounts or []) if str(account).strip()]
-        row = self.conn.execute("SELECT id FROM creative_plans WHERE name = ?", (plan_name,)).fetchone()
-        if row:
-            self.conn.execute(
-                """
-                UPDATE creative_plans
-                SET platform = ?, goal = ?, target_account = ?, daily_base_video_target = ?,
-                    style_lanes_json = ?, model_profile = ?, source_accounts_json = ?,
-                    linked_campaign_slug = COALESCE(?, linked_campaign_slug), updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    platform,
-                    goal,
-                    target_account.strip().lstrip("@"),
-                    max(1, int(daily_base_video_target)),
-                    json.dumps(lanes),
-                    model_profile or "",
-                    json.dumps(accounts),
-                    slugify(linked_campaign) if linked_campaign else None,
-                    now,
-                    row["id"],
-                ),
-            )
-            plan_id = row["id"]
-            event_type = "creative_plan_updated"
-        else:
-            plan_id = new_id("cplan")
-            self.conn.execute(
-                """
-                INSERT INTO creative_plans (
-                  id, name, platform, goal, target_account, daily_base_video_target,
-                  style_lanes_json, model_profile, source_accounts_json, status,
-                  linked_campaign_slug, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?)
-                """,
-                (
-                    plan_id,
-                    plan_name,
-                    platform,
-                    goal,
-                    target_account.strip().lstrip("@"),
-                    max(1, int(daily_base_video_target)),
-                    json.dumps(lanes),
-                    model_profile or "",
-                    json.dumps(accounts),
-                    slugify(linked_campaign) if linked_campaign else None,
-                    now,
-                    now,
-                ),
-            )
-            event_type = "creative_plan_created"
-        plan_graph_id = self.ensure_graph_node(
-            "creative_plan",
-            local_table="creative_plans",
-            local_id=plan_id,
-            payload={"name": plan_name, "platform": platform, "linkedCampaign": slugify(linked_campaign) if linked_campaign else None},
+        return self.services.create_creative_plan(
+            name=name,
+            platform=platform,
+            target_account=target_account,
+            daily_base_video_target=daily_base_video_target,
+            style_lanes=style_lanes,
+            model_profile=model_profile,
+            source_accounts=source_accounts,
+            goal=goal,
+            linked_campaign=linked_campaign,
         )
-        if linked_campaign:
-            campaign_row = self.conn.execute("SELECT id FROM campaigns WHERE slug = ?", (slugify(linked_campaign),)).fetchone()
-            if campaign_row:
-                self.ensure_graph_edge(
-                    plan_graph_id,
-                    self.graph_id_for("campaigns", campaign_row["id"], entity_type="campaign"),
-                    "plans_campaign",
-                    evidence={"linkedCampaign": slugify(linked_campaign)},
-                )
-        self._record_creative_plan_event(plan_id, event_type, status="success", message=f"Creative plan saved: {plan_name}", commit=False)
-        self.conn.commit()
-        return self.creative_plan(plan_name)
 
     def creative_plan(self, name: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM creative_plans WHERE name = ?", (slugify(name),)).fetchone()
-        if not row:
-            raise ValueError(f"creative plan not found: {name}")
-        return self._creative_plan_payload(dict(row))
+        return self.services.creative_plan(name)
 
     def update_creative_plan_status(self, *, name: str, status: str) -> dict[str, Any]:
-        normalized = status.strip().lower()
-        if normalized not in CREATIVE_PLAN_STATUSES:
-            raise ValueError(f"creative plan status must be one of: {', '.join(sorted(CREATIVE_PLAN_STATUSES))}")
-        plan_row = self.conn.execute("SELECT * FROM creative_plans WHERE name = ?", (slugify(name),)).fetchone()
-        if not plan_row:
-            raise ValueError(f"creative plan not found: {name}")
-        now = utc_now()
-        self.conn.execute("UPDATE creative_plans SET status = ?, updated_at = ? WHERE id = ?", (normalized, now, plan_row["id"]))
-        self._record_creative_plan_event(plan_row["id"], "creative_plan_status_updated", status="success", message=f"Status set to {normalized}", metadata={"status": normalized}, commit=False)
-        self.conn.commit()
-        return self.creative_plan(name)
+        return self.services.update_creative_plan_status(name=name, status=status)
 
     def sync_creative_plan_progress(self, *, name: str, prompt_export_path: Path) -> dict[str, Any]:
-        plan_row = self.conn.execute("SELECT * FROM creative_plans WHERE name = ?", (slugify(name),)).fetchone()
-        if not plan_row:
-            raise ValueError(f"creative plan not found: {name}")
-        path = Path(prompt_export_path).expanduser()
-        if not path.exists():
-            raise ValueError(f"prompt export not found: {path}")
-        counts = self._creative_plan_prompt_export_counts(path, plan_id=plan_row["id"], plan_name=plan_row["name"])
-        self._record_creative_plan_event(
-            plan_row["id"],
-            "creative_plan_progress_synced",
-            status="success",
-            message=f"Synced creative plan progress from {path.name}",
-            metadata={"sourcePath": str(path), "counts": counts},
-            commit=False,
-        )
-        if counts.get("image_prompts", 0) > 0 or counts.get("video_prompts", 0) > 0:
-            self.conn.execute(
-                "UPDATE creative_plans SET status = ?, updated_at = ? WHERE id = ? AND status = 'planned'",
-                ("prompts_ready", utc_now(), plan_row["id"]),
-            )
-        else:
-            self.conn.execute("UPDATE creative_plans SET updated_at = ? WHERE id = ?", (utc_now(), plan_row["id"]))
-        self.conn.commit()
-        plan = self.creative_plan(name)
-        return {
-            "schema": "campaign_factory.creative_plan_progress_sync.v1",
-            "plan": plan,
-            "sourcePath": str(path),
-            "counts": counts,
-        }
+        return self.services.sync_creative_plan_progress(name=name, prompt_export_path=prompt_export_path)
 
     def creative_plan_for_campaign(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        row = self.conn.execute("SELECT * FROM creative_plans WHERE linked_campaign_slug = ? ORDER BY updated_at DESC LIMIT 1", (slugify(campaign_slug),)).fetchone()
-        if not row:
-            return None
-        return self._creative_plan_payload(dict(row), dashboard=dashboard)
+        return self.services.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
 
     def _record_creative_plan_event(
         self,
@@ -953,314 +827,53 @@ class CampaignFactory:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO creative_plan_events (id, creative_plan_id, event_type, status, message, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (new_id("cpevt"), plan_id, event_type, status, message, json.dumps(sanitize_for_storage(metadata or {}), sort_keys=True), utc_now()),
+        self.services.record_creative_plan_event(
+            plan_id,
+            event_type,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
         )
-        if commit:
-            self.conn.commit()
 
     def _creative_plan_payload(self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
-        linked_campaign = row.get("linked_campaign_slug")
-        if not linked_campaign and dashboard and dashboard.get("campaign"):
-            linked_campaign = dashboard["campaign"].get("slug")
-        counts = self._creative_plan_counts(row, linked_campaign=linked_campaign, dashboard=dashboard)
-        next_actions = self._creative_plan_next_actions(row, counts)
-        return {
-            "schema": "campaign_factory.creative_plan.v1",
-            "id": row["id"],
-            "name": row["name"],
-            "platform": row["platform"],
-            "goal": row["goal"],
-            "target_account": row["target_account"],
-            "daily_base_video_target": int(row["daily_base_video_target"] or 10),
-            "style_lanes": json_load(row.get("style_lanes_json"), []),
-            "model_profile": row.get("model_profile") or "",
-            "source_accounts": json_load(row.get("source_accounts_json"), []),
-            "status": row["status"],
-            "counts": counts,
-            "next_actions": next_actions,
-            "linked_campaign": linked_campaign,
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
-
-    def _creative_plan_counts(self, row: dict[str, Any], *, linked_campaign: str | None, dashboard: dict[str, Any] | None = None) -> dict[str, int]:
-        plan_id = row["id"]
-        target = int(row.get("daily_base_video_target") or 10)
-        references = self._count_reference_prompts(plan_id, "referenceId")
-        analyses = self._count_reference_prompts(plan_id, "sourcePatternId")
-        image_prompts = self._count_reference_prompts(plan_id, "higgsfield_soul_image_prompt")
-        video_prompts = self._count_reference_prompts(plan_id, "kling_3_video_prompt")
-        synced_counts = self._latest_creative_plan_synced_counts(plan_id)
-        references = max(references, int(synced_counts.get("references", 0) or 0))
-        analyses = max(analyses, int(synced_counts.get("analyses", 0) or 0))
-        image_prompts = max(image_prompts, int(synced_counts.get("image_prompts", 0) or 0))
-        video_prompts = max(video_prompts, int(synced_counts.get("video_prompts", 0) or 0))
-        sources = (dashboard or {}).get("sources") or []
-        rendered = (dashboard or {}).get("rendered") or []
-        if linked_campaign and not dashboard:
-            try:
-                campaign = self.campaign_by_slug(linked_campaign)
-                sources = self.assets_for_campaign(campaign["id"])
-                rendered = [self._dashboard_rendered_asset(asset) for asset in self.rendered_for_campaign(campaign["id"])]
-            except ValueError:
-                sources = []
-                rendered = []
-        plan_sources = [source for source in sources if self._source_prompt_creative_plan_id(source) == plan_id]
-        plan_rendered = [asset for asset in rendered if self._asset_creative_plan_id(asset) == plan_id]
-        reviewed_states = {"approved", "rejected", "review_ready"}
-        posted_states = {"exported", "scheduled", "posted", "published"}
-        measured = sum(1 for asset in plan_rendered if asset.get("latestPerformance") or asset.get("performanceScore") is not None)
-        return {
-            "references": min(max(references, analyses, image_prompts, video_prompts), target) if target else references,
-            "analyses": analyses,
-            "image_prompts": image_prompts,
-            "video_prompts": video_prompts,
-            "generated_videos": len(plan_sources),
-            "ingested_videos": len(plan_sources),
-            "rendered_outputs": len(plan_rendered),
-            "reviewed_outputs": sum(1 for asset in plan_rendered if asset.get("review_state") in reviewed_states),
-            "exported_drafts": sum(1 for asset in plan_rendered if asset.get("review_state") == "approved"),
-            "posted_items": sum(1 for asset in plan_rendered if (asset.get("export_state") or asset.get("exportState") or "").lower() in posted_states),
-            "measured_items": measured,
-        }
-
-    def _creative_plan_next_actions(self, row: dict[str, Any], counts: dict[str, int]) -> list[str]:
-        target = int(row.get("daily_base_video_target") or 10)
-        actions: list[str] = []
-        if counts["references"] < target:
-            actions.append(f"Select {target - counts['references']} more references")
-        if counts["analyses"] < target:
-            actions.append(f"Analyze {target - counts['analyses']} more references")
-        if counts["image_prompts"] < target:
-            actions.append(f"Generate {target - counts['image_prompts']} more Higgsfield image prompts")
-        if counts["video_prompts"] < target:
-            actions.append(f"Generate {target - counts['video_prompts']} more Kling video prompts")
-        if counts["generated_videos"] < target:
-            actions.append(f"Generate {target - counts['generated_videos']} more finished videos")
-        if counts["ingested_videos"] < counts["generated_videos"]:
-            actions.append(f"Intake {counts['generated_videos'] - counts['ingested_videos']} finished videos")
-        if counts["reviewed_outputs"] < counts["rendered_outputs"]:
-            actions.append(f"Review {counts['rendered_outputs'] - counts['reviewed_outputs']} rendered outputs")
-        if counts["measured_items"] < counts["posted_items"]:
-            actions.append("Import reach/views for posted drafts")
-        return actions[:5] or ["Creative plan is caught up"]
-
-    def _count_reference_prompts(self, plan_id: str, key: str) -> int:
-        rows = self.conn.execute("SELECT source_prompt FROM source_assets WHERE source_prompt LIKE ?", (f"%{plan_id}%",)).fetchall()
-        seen: set[str] = set()
-        for row in rows:
-            payload = json_load(row["source_prompt"], {})
-            value = payload.get(key) or ((payload.get("generatedAssetLineage") or {}).get("source") or {}).get(key)
-            if value:
-                seen.add(str(value))
-        return len(seen)
-
-    def _latest_creative_plan_synced_counts(self, plan_id: str) -> dict[str, int]:
-        row = self.conn.execute(
-            """
-            SELECT metadata_json FROM creative_plan_events
-            WHERE creative_plan_id = ? AND event_type = 'creative_plan_progress_synced'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (plan_id,),
-        ).fetchone()
-        if not row:
-            return {}
-        metadata = json_load(row["metadata_json"], {})
-        counts = metadata.get("counts") if isinstance(metadata.get("counts"), dict) else {}
-        return {str(key): int(value or 0) for key, value in counts.items() if isinstance(value, (int, float))}
-
-    def _creative_plan_prompt_export_counts(self, path: Path, *, plan_id: str, plan_name: str | None = None) -> dict[str, int]:
-        records = self._load_prompt_export_records(path)
-        reference_ids: set[str] = set()
-        pattern_ids: set[str] = set()
-        image_prompt_ids: set[str] = set()
-        video_prompt_ids: set[str] = set()
-        for index, record in enumerate(records):
-            prompts = self._prompt_records_from_export_record(record)
-            for prompt in prompts:
-                if not isinstance(prompt, dict):
-                    continue
-                prompt_plan_id = prompt.get("creativePlanId") or prompt.get("creative_plan_id") or record.get("creativePlanId") or record.get("creative_plan_id")
-                allowed_plan_ids = {plan_id}
-                if plan_name:
-                    allowed_plan_ids.add(str(plan_name))
-                if prompt_plan_id and str(prompt_plan_id) not in allowed_plan_ids:
-                    continue
-                reference_id = prompt.get("referenceId") or prompt.get("reference_id") or record.get("referenceId") or record.get("reference_id")
-                pattern_id = prompt.get("sourcePatternId") or prompt.get("source_pattern_id") or record.get("sourcePatternId") or record.get("source_pattern_id")
-                prompt_id = prompt.get("id") or prompt.get("promptId") or prompt.get("prompt_id") or f"{path.name}:{index}:{prompt.get('targetTool') or prompt.get('target_tool')}"
-                target_tool = str(prompt.get("targetTool") or prompt.get("target_tool") or record.get("targetTool") or "").lower()
-                schema = str(prompt.get("schema") or "").lower()
-                if reference_id:
-                    reference_ids.add(str(reference_id))
-                if pattern_id:
-                    pattern_ids.add(str(pattern_id))
-                if "higgsfield" in target_tool or "higgsfield_soul_image_prompt" in schema:
-                    image_prompt_ids.add(str(prompt_id))
-                if "kling" in target_tool or "kling_3_video_prompt" in schema:
-                    video_prompt_ids.add(str(prompt_id))
-        return {
-            "references": len(reference_ids or pattern_ids),
-            "analyses": len(pattern_ids),
-            "image_prompts": len(image_prompt_ids),
-            "video_prompts": len(video_prompt_ids),
-        }
-
-    def _load_prompt_export_records(self, path: Path) -> list[dict[str, Any]]:
-        if path.suffix.lower() == ".jsonl":
-            records: list[dict[str, Any]] = []
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parsed = json_load(line, {})
-                if isinstance(parsed, dict):
-                    records.append(parsed)
-            return records
-        parsed = json_load(path.read_text(encoding="utf-8"), {})
-        if isinstance(parsed, dict):
-            items = parsed.get("items") or parsed.get("prompts") or parsed.get("records")
-            if isinstance(items, list):
-                return [item for item in items if isinstance(item, dict)]
-            return [parsed]
-        if isinstance(parsed, list):
-            return [item for item in parsed if isinstance(item, dict)]
-        return []
-
-    def _prompt_records_from_export_record(self, record: dict[str, Any]) -> list[dict[str, Any]]:
-        prompts: list[dict[str, Any]] = []
-        for key in ("imagePrompt", "image_prompt", "higgsfieldPrompt", "higgsfield_prompt", "klingPrompt", "kling_prompt", "prompt"):
-            value = record.get(key)
-            if isinstance(value, dict):
-                prompts.append(value)
-        if not prompts:
-            prompts.append(record)
-        return prompts
+        return self.services.creative_plan_payload(row, dashboard=dashboard)
 
     def _source_prompt_creative_plan_id(self, source: dict[str, Any]) -> str | None:
-        payload = source.get("sourcePrompt") or source.get("source_prompt")
-        parsed = json_load(payload, {}) if isinstance(payload, str) else (payload if isinstance(payload, dict) else {})
-        return parsed.get("creativePlanId") or parsed.get("creative_plan_id")
+        return self.services.source_prompt_creative_plan_id(source)
 
     def _asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
-        source_prompt = asset.get("sourcePrompt") or asset.get("source_prompt")
-        parsed = json_load(source_prompt, {}) if isinstance(source_prompt, str) else (source_prompt if isinstance(source_prompt, dict) else {})
-        return parsed.get("creativePlanId") or parsed.get("creative_plan_id")
+        return self.services.asset_creative_plan_id(asset)
 
     def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "eventType": row["event_type"],
-            "campaignId": row["campaign_id"],
-            "sourceAssetId": row["source_asset_id"],
-            "renderedAssetId": row["rendered_asset_id"],
-            "renderJobId": row["render_job_id"],
-            "auditReportId": row["audit_report_id"],
-            "threadsdashExportId": row["threadsdash_export_id"],
-            "pipelineJobId": row["pipeline_job_id"],
-            "status": row["status"],
-            "message": row["message"],
-            "metadata": json_load(row["metadata_json"], {}),
-            "createdAt": row["created_at"],
-        }
+        return self.services.event_payload(row)
 
     def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM activity_events WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (campaign["id"], max(1, min(limit, 1000))),
-        ).fetchall()
-        return [self.event_payload(dict(row)) for row in rows]
+        return self.services.events_for_campaign(campaign_slug, limit=limit)
 
     def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM activity_events WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (rendered_asset_id, max(1, min(limit, 1000))),
-        ).fetchall()
-        return [self.event_payload(dict(row)) for row in rows]
+        return self.services.events_for_asset(rendered_asset_id, limit=limit)
 
     def create_pipeline_job(self, job_type: str, campaign_id: str | None, input_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        job_id = new_id("job")
-        now = utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO pipeline_jobs
-            (id, job_type, campaign_id, status, input_json, result_json, error, attempt_count,
-             started_at, finished_at, created_at, updated_at)
-            VALUES (?, ?, ?, 'queued', ?, '{}', NULL, 0, NULL, NULL, ?, ?)
-            """,
-            (
-                job_id,
-                job_type,
-                campaign_id,
-                json.dumps(sanitize_for_storage(input_payload or {}), ensure_ascii=False, sort_keys=True),
-                now,
-                now,
-            ),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.create_pipeline_job(job_type, campaign_id, input_payload)
 
     def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'running', attempt_count = attempt_count + 1, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
-            (now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.start_pipeline_job(job_id)
 
     def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'succeeded', result_json = ?, error = NULL, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.finish_pipeline_job(job_id, result_payload)
 
     def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        now = utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'failed', result_json = ?, error = ?, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), error, now, now, job_id),
-        )
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.fail_pipeline_job(job_id, error, result_payload)
 
     def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
-        self.conn.execute("UPDATE pipeline_jobs SET campaign_id = ?, updated_at = ? WHERE id = ?", (campaign_id, utc_now(), job_id))
-        self.conn.commit()
-        return self.pipeline_job(job_id)
+        return self.services.set_pipeline_job_campaign(job_id, campaign_id)
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)).fetchone()
-        if not row:
-            raise ValueError(f"pipeline job not found: {job_id}")
-        return self.pipeline_job_payload(dict(row))
+        return self.services.pipeline_job(job_id)
 
     def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "jobType": row["job_type"],
-            "campaignId": row["campaign_id"],
-            "status": row["status"],
-            "input": json_load(row["input_json"], {}),
-            "result": json_load(row["result_json"], {}),
-            "error": row["error"],
-            "attemptCount": row["attempt_count"],
-            "startedAt": row["started_at"],
-            "finishedAt": row["finished_at"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.pipeline_job_payload(row)
 
     def autonomy_level(self) -> str:
         row = self.conn.execute("SELECT value_json FROM trust_settings WHERE key = 'autonomy_level'").fetchone()
@@ -4115,84 +3728,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return hooks
 
     def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
-        slug = slugify(slug)
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM models WHERE slug = ?", (slug,)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE models SET name = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ?",
-                (name or row["name"], notes, now, row["id"]),
-            )
-            self.ensure_graph_node("model", local_table="models", local_id=row["id"], payload={"slug": slug, "name": name or row["name"]})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (row["id"],)).fetchone())
-        model_id = new_id("model")
-        self.conn.execute(
-            "INSERT INTO models (id, slug, name, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (model_id, slug, name or slug.replace("_", " ").title(), notes, now, now),
-        )
-        self.ensure_graph_node("model", local_table="models", local_id=model_id, payload={"slug": slug, "name": name or slug.replace("_", " ").title()})
-        self.conn.commit()
-        model = dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone())
-        self.record_event(
-            "model_created",
-            status="success",
-            message=f"Model created: {model['slug']}",
-            metadata={"modelId": model["id"], "slug": model["slug"], "name": model["name"]},
-        )
-        return model
+        return self.services.upsert_model(slug, name=name, notes=notes)
 
     def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
-        slug = slugify(slug)
-        model_slug = slugify(model_slug)
-        dirs = self.campaign_dirs(model_slug, slug)
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (slug,)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE campaigns SET name = ?, platform = ?, root_path = ?, updated_at = ? WHERE id = ?",
-                (name or row["name"], platform, str(dirs["root"]), now, row["id"]),
-            )
-            self.ensure_graph_node("campaign", local_table="campaigns", local_id=row["id"], payload={"slug": slug, "platform": platform})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (row["id"],)).fetchone())
-        campaign_id = new_id("camp")
-        self.conn.execute(
-            "INSERT INTO campaigns (id, slug, name, platform, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (campaign_id, slug, name or slug.replace("_", " ").title(), platform, str(dirs["root"]), now, now),
-        )
-        self.ensure_graph_node("campaign", local_table="campaigns", local_id=campaign_id, payload={"slug": slug, "platform": platform})
-        self.conn.commit()
-        campaign = dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone())
-        self.record_event(
-            "campaign_created",
-            campaign_id=campaign["id"],
-            status="success",
-            message=f"Campaign created: {campaign['slug']}",
-            metadata={"campaignId": campaign["id"], "slug": campaign["slug"], "platform": campaign["platform"]},
-        )
-        return campaign
+        return self.services.upsert_campaign(slug, model_slug, name=name, platform=platform)
 
     def upsert_account(self, handle: str, platform: str = "instagram", external_id: str | None = None, model_id: str | None = None) -> dict[str, Any]:
-        handle = handle.strip().lstrip("@")
-        now = utc_now()
-        row = self.conn.execute("SELECT * FROM accounts WHERE handle = ? AND platform = ?", (handle, platform)).fetchone()
-        if row:
-            self.conn.execute(
-                "UPDATE accounts SET external_id = COALESCE(?, external_id), model_id = COALESCE(?, model_id), updated_at = ? WHERE id = ?",
-                (external_id, model_id, now, row["id"]),
-            )
-            self.ensure_graph_node("account", local_table="accounts", local_id=row["id"], payload={"handle": handle, "platform": platform})
-            self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone())
-        account_id = new_id("acct")
-        self.conn.execute(
-            "INSERT INTO accounts (id, handle, platform, external_id, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (account_id, handle, platform, external_id, model_id, now, now),
-        )
-        self.ensure_graph_node("account", local_table="accounts", local_id=account_id, payload={"handle": handle, "platform": platform})
-        self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+        return self.services.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
 
     def upsert_model_account_profile(
         self,
@@ -4205,85 +3747,21 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         default_smart_link: str | None = None,
         story_cta_text: str | None = None,
     ) -> dict[str, Any]:
-        model = self.upsert_model(model_slug)
-        now = utc_now()
-        payload = {
-            "label": label or model["name"],
-            "allowed_instagram_account_ids_json": json.dumps(sorted(set(allowed_instagram_account_ids or []))),
-            "allowed_account_group_names_json": json.dumps(sorted(set(allowed_account_group_names or []))),
-            "allowed_handle_patterns_json": json.dumps(sorted(set(allowed_handle_patterns or []))),
-            "default_smart_link": default_smart_link,
-            "story_cta_text": story_cta_text,
-        }
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (model["slug"],)).fetchone()
-        if row:
-            self.conn.execute(
-                """
-                UPDATE model_account_profiles
-                SET model_id = ?, label = ?, allowed_instagram_account_ids_json = ?,
-                    allowed_account_group_names_json = ?, allowed_handle_patterns_json = ?,
-                    default_smart_link = ?, story_cta_text = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    model["id"],
-                    payload["label"],
-                    payload["allowed_instagram_account_ids_json"],
-                    payload["allowed_account_group_names_json"],
-                    payload["allowed_handle_patterns_json"],
-                    payload["default_smart_link"],
-                    payload["story_cta_text"],
-                    now,
-                    row["id"],
-                ),
-            )
-            self.conn.commit()
-            return self.model_account_profile(model["slug"]) or {}
-        profile_id = new_id("profile")
-        self.conn.execute(
-            """
-            INSERT INTO model_account_profiles
-            (id, model_id, model_slug, label, allowed_instagram_account_ids_json,
-             allowed_account_group_names_json, allowed_handle_patterns_json, default_smart_link,
-             story_cta_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                profile_id,
-                model["id"],
-                model["slug"],
-                payload["label"],
-                payload["allowed_instagram_account_ids_json"],
-                payload["allowed_account_group_names_json"],
-                payload["allowed_handle_patterns_json"],
-                payload["default_smart_link"],
-                payload["story_cta_text"],
-                now,
-                now,
-            ),
+        return self.services.upsert_model_account_profile(
+            model_slug,
+            label=label,
+            allowed_instagram_account_ids=allowed_instagram_account_ids,
+            allowed_account_group_names=allowed_account_group_names,
+            allowed_handle_patterns=allowed_handle_patterns,
+            default_smart_link=default_smart_link,
+            story_cta_text=story_cta_text,
         )
-        self.conn.commit()
-        return self.model_account_profile(model["slug"]) or {}
 
     def model_account_profile(self, model_slug: str) -> dict[str, Any] | None:
-        slug = slugify(model_slug)
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (slug,)).fetchone()
-        return self._model_account_profile_payload(dict(row)) if row else None
+        return self.services.model_account_profile(model_slug)
 
     def _model_account_profile_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "modelId": row["model_id"],
-            "modelSlug": row["model_slug"],
-            "label": row["label"],
-            "allowedInstagramAccountIds": json_load(row["allowed_instagram_account_ids_json"], []),
-            "allowedAccountGroupNames": json_load(row["allowed_account_group_names_json"], []),
-            "allowedHandlePatterns": json_load(row["allowed_handle_patterns_json"], []),
-            "defaultSmartLink": row["default_smart_link"],
-            "storyCtaText": row["story_cta_text"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.models._model_account_profile_payload(row)
 
     def account_compatible_with_model(
         self,
@@ -4293,22 +3771,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_handle: str | None = None,
         account_group_name: str | None = None,
     ) -> tuple[bool, str | None, dict[str, Any] | None]:
-        profile = self.model_account_profile(model_slug)
-        if not profile:
-            return True, None, None
-        allowed_ids = set(profile.get("allowedInstagramAccountIds") or [])
-        if instagram_account_id and allowed_ids:
-            return (instagram_account_id in allowed_ids, None if instagram_account_id in allowed_ids else "model_account_mismatch", profile)
-        allowed_groups = {str(item).lower() for item in profile.get("allowedAccountGroupNames") or []}
-        if account_group_name and allowed_groups:
-            ok = account_group_name.lower() in allowed_groups
-            return ok, None if ok else "model_account_group_mismatch", profile
-        handle = (account_handle or "").lower()
-        patterns = [str(item).lower() for item in profile.get("allowedHandlePatterns") or []]
-        if handle and patterns:
-            ok = any(pattern in handle for pattern in patterns)
-            return ok, None if ok else "model_account_handle_mismatch", profile
-        return True, None, profile
+        return self.services.account_compatible_with_model(
+            model_slug,
+            instagram_account_id=instagram_account_id,
+            account_handle=account_handle,
+            account_group_name=account_group_name,
+        )
 
     def create_distribution_plan(
         self,
@@ -4753,128 +4221,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         source_prompt: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        folder = Path(folder).expanduser().resolve()
-        if not folder.exists() or not folder.is_dir():
-            raise FileNotFoundError(f"input folder not found: {folder}")
-        model = self.upsert_model(model_slug, model_name)
-        campaign = self.upsert_campaign(campaign_slug, model["slug"], platform=platform)
-        pipeline_job = self.create_pipeline_job(
-            "import_folder",
-            campaign["id"],
-            {
-                "folder": str(folder),
-                "campaign": campaign_slug,
-                "model": model_slug,
-                "platform": platform,
-                "accounts": account_handles or [],
-                "source_prompt": source_prompt,
-                "notes": notes,
-            },
+        return self.services.import_folder(
+            folder,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            model_name=model_name,
+            platform=platform,
+            account_handles=account_handles,
+            source_prompt=source_prompt,
+            notes=notes,
         )
-        self.start_pipeline_job(pipeline_job["id"])
-        accounts = [
-            self.upsert_account(handle, platform=platform, model_id=model["id"])
-            for handle in (account_handles or [])
-            if handle.strip()
-        ]
-        try:
-            dirs = self.campaign_dirs(model["slug"], campaign["slug"])
-            imported: list[dict[str, Any]] = []
-            duplicates: list[str] = []
-            ignored: list[str] = []
-            for src in sorted(folder.iterdir()):
-                media_type = media_type_for_path(src)
-                if not src.is_file() or media_type not in {"video", "image"}:
-                    ignored.append(str(src))
-                    continue
-                digest = sha256_file(src)
-                existing = self.conn.execute(
-                    "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
-                    (campaign["id"], digest),
-                ).fetchone()
-                if existing:
-                    duplicates.append(str(src))
-                    self.record_event(
-                        "source_duplicate_ignored",
-                        campaign_id=campaign["id"],
-                        source_asset_id=existing["id"],
-                        pipeline_job_id=pipeline_job["id"],
-                        status="warning",
-                        message=f"Duplicate source ignored: {src.name}",
-                        metadata={"path": str(src), "contentHash": digest, "existingSourceAssetId": existing["id"]},
-                        commit=False,
-                    )
-                    continue
-                dest_name = f"{slugify(src.stem)}_{digest[:10]}{src.suffix.lower()}"
-                dest = dirs["sources"] / dest_name
-                shutil.copy2(src, dest)
-                now = utc_now()
-                source_id = new_id("src")
-                self.conn.execute(
-                    """
-                    INSERT INTO source_assets
-                    (id, campaign_id, model_id, content_hash, original_path, stored_path, filename, media_type, platform, source_prompt,
-                     notes, account_ids_json, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'imported', ?, ?)
-                    """,
-                    (
-                        source_id, campaign["id"], model["id"], digest, str(src), str(dest), dest.name, media_type, platform,
-                        source_prompt, notes, json.dumps([a["id"] for a in accounts]), now, now,
-                    ),
-                )
-                imported_asset = dict(self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (source_id,)).fetchone())
-                source_graph_id = self.ensure_graph_node(
-                    "source_asset",
-                    local_table="source_assets",
-                    local_id=source_id,
-                    payload={"campaignId": campaign["id"], "contentHash": digest, "filename": dest.name, "mediaType": media_type},
-                )
-                self.ensure_graph_edge(
-                    self.graph_id_for("campaigns", campaign["id"], entity_type="campaign", payload={"slug": campaign["slug"]}),
-                    source_graph_id,
-                    "campaign_contains_source_asset",
-                    evidence={"importedFrom": str(src), "pipelineJobId": pipeline_job["id"]},
-                )
-                imported.append(imported_asset)
-                self.record_event(
-                    "source_imported",
-                    campaign_id=campaign["id"],
-                    source_asset_id=source_id,
-                    pipeline_job_id=pipeline_job["id"],
-                    status="success",
-                    message=f"Source imported: {dest.name}",
-                    metadata={"originalPath": str(src), "storedPath": str(dest), "contentHash": digest, "mediaType": media_type},
-                    commit=False,
-                )
-            result = {"imported": imported, "duplicates": duplicates, "ignored": ignored, "campaign": campaign, "model": model}
-            self.record_event(
-                "source_imported",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="success" if imported else ("warning" if duplicates or ignored else "info"),
-                message=f"Import complete: {len(imported)} imported, {len(duplicates)} duplicates, {len(ignored)} ignored",
-                metadata={"importedCount": len(imported), "duplicateCount": len(duplicates), "ignoredCount": len(ignored)},
-                commit=False,
-            )
-            self.conn.commit()
-            self.finish_pipeline_job(pipeline_job["id"], {
-                "importedCount": len(imported),
-                "duplicateCount": len(duplicates),
-                "ignoredCount": len(ignored),
-            })
-            result["pipelineJobId"] = pipeline_job["id"]
-            return result
-        except Exception as exc:
-            self.record_event(
-                "source_imported",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="failure",
-                message=f"Import failed: {exc}",
-                metadata={"error": str(exc)},
-            )
-            self.fail_pipeline_job(pipeline_job["id"], str(exc))
-            raise
 
     def list_campaigns(self) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
@@ -4884,13 +4240,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return self.services.campaign_by_slug(slug)
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at", (campaign_id,)).fetchall()
-        assets = []
-        for row in rows:
-            item = dict(row)
-            item["media_type"] = item.get("media_type") or media_type_for_path(item.get("stored_path") or item.get("filename") or "")
-            assets.append(item)
-        return assets
+        return self.services.assets_for_campaign(campaign_id)
 
     def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", (campaign_id,)).fetchall()

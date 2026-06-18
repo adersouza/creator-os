@@ -4,7 +4,12 @@ import json
 import sqlite3
 from typing import Any, Callable
 
+from .asset_import import AssetImportRepository
 from .config import Settings
+from .creative_planning import CreativePlanningRepository
+from .events import EventRepository
+from .graph import GraphRepository
+from .models import ModelRepository
 
 
 class CoreServices:
@@ -18,6 +23,10 @@ class CoreServices:
         slugify: Callable[[str], str],
         sanitize_for_storage: Callable[[Any], Any],
         utc_now: Callable[[], str],
+        media_type_for_path: Callable[[Any], str],
+        sha256_file: Callable[[Any], str],
+        rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
+        dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -26,6 +35,64 @@ class CoreServices:
         self._slugify = slugify
         self._sanitize_for_storage = sanitize_for_storage
         self._utc_now = utc_now
+        self.graph = GraphRepository(
+            conn,
+            new_id=new_id,
+            new_graph_id=new_graph_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+        )
+        self.events = EventRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+        )
+        self.models = ModelRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            record_event=self.events.record_event,
+        )
+        self.asset_import = AssetImportRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            upsert_account=self.models.upsert_account,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            record_event=self.events.record_event,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+        )
+        self.creative_planning = CreativePlanningRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            campaign_by_slug=self.campaign_by_slug,
+            assets_for_campaign=self.asset_import.assets_for_campaign,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+        )
 
     def ensure_graph_node(
         self,
@@ -38,69 +105,15 @@ class CoreServices:
         payload: dict[str, Any] | None = None,
         commit: bool = False,
     ) -> str:
-        if not local_id and not external_id:
-            raise ValueError("graph node requires a local_id or external_id")
-        now = self._utc_now()
-        row = None
-        if local_table and local_id:
-            row = self.conn.execute(
-                "SELECT * FROM content_graph_nodes WHERE local_table = ? AND local_id = ?",
-                (local_table, local_id),
-            ).fetchone()
-        if not row and external_system and external_id:
-            row = self.conn.execute(
-                "SELECT * FROM content_graph_nodes WHERE external_system = ? AND external_id = ?",
-                (external_system, external_id),
-            ).fetchone()
-        payload_json = json.dumps(self._sanitize_for_storage(payload or {}), ensure_ascii=False, sort_keys=True)
-        if row:
-            self.conn.execute(
-                """
-                UPDATE content_graph_nodes
-                SET entity_type = ?, local_table = COALESCE(?, local_table),
-                    local_id = COALESCE(?, local_id),
-                    external_system = COALESCE(?, external_system),
-                    external_id = COALESCE(?, external_id),
-                    payload_json = ?, updated_at = ?
-                WHERE global_id = ?
-                """,
-                (
-                    self._slugify(entity_type),
-                    local_table,
-                    local_id,
-                    external_system,
-                    external_id,
-                    payload_json,
-                    now,
-                    row["global_id"],
-                ),
-            )
-            graph_id = row["global_id"]
-        else:
-            graph_id = self._new_graph_id(entity_type)
-            self.conn.execute(
-                """
-                INSERT INTO content_graph_nodes (
-                  global_id, entity_type, local_table, local_id, external_system,
-                  external_id, payload_json, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    graph_id,
-                    self._slugify(entity_type),
-                    local_table,
-                    local_id,
-                    external_system,
-                    external_id,
-                    payload_json,
-                    now,
-                    now,
-                ),
-            )
-        if commit:
-            self.conn.commit()
-        return graph_id
+        return self.graph.ensure_graph_node(
+            entity_type,
+            local_table=local_table,
+            local_id=local_id,
+            external_system=external_system,
+            external_id=external_id,
+            payload=payload,
+            commit=commit,
+        )
 
     def graph_id_for(
         self,
@@ -110,17 +123,7 @@ class CoreServices:
         entity_type: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> str | None:
-        if not local_id:
-            return None
-        row = self.conn.execute(
-            "SELECT global_id FROM content_graph_nodes WHERE local_table = ? AND local_id = ?",
-            (local_table, local_id),
-        ).fetchone()
-        if row:
-            return row["global_id"]
-        if not entity_type:
-            return None
-        return self.ensure_graph_node(entity_type, local_table=local_table, local_id=local_id, payload=payload)
+        return self.graph.graph_id_for(local_table, local_id, entity_type=entity_type, payload=payload)
 
     def ensure_graph_edge(
         self,
@@ -131,38 +134,16 @@ class CoreServices:
         evidence: dict[str, Any] | None = None,
         commit: bool = False,
     ) -> str | None:
-        if not from_global_id or not to_global_id:
-            return None
-        now = self._utc_now()
-        edge_id = self._new_id("edge")
-        self.conn.execute(
-            """
-            INSERT INTO content_graph_edges (
-              id, from_global_id, to_global_id, relation_type, evidence_json, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(from_global_id, to_global_id, relation_type) DO UPDATE SET
-              evidence_json = excluded.evidence_json
-            """,
-            (
-                edge_id,
-                from_global_id,
-                to_global_id,
-                self._slugify(relation_type),
-                json.dumps(self._sanitize_for_storage(evidence or {}), ensure_ascii=False, sort_keys=True),
-                now,
-            ),
+        return self.graph.ensure_graph_edge(
+            from_global_id,
+            to_global_id,
+            relation_type,
+            evidence=evidence,
+            commit=commit,
         )
-        row = self.conn.execute(
-            """
-            SELECT id FROM content_graph_edges
-            WHERE from_global_id = ? AND to_global_id = ? AND relation_type = ?
-            """,
-            (from_global_id, to_global_id, self._slugify(relation_type)),
-        ).fetchone()
-        if commit:
-            self.conn.commit()
-        return row["id"] if row else edge_id
+
+    def set_graph_sync_state(self, system: str, cursor: dict[str, Any]) -> None:
+        self.graph.set_sync_state(system, cursor)
 
     def record_event(
         self,
@@ -180,36 +161,200 @@ class CoreServices:
         metadata: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
-        if status not in {"info", "success", "warning", "failure"}:
-            raise ValueError("activity event status must be info, success, warning, or failure")
-        event_id = self._new_id("evt")
-        now = self._utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO activity_events
-            (id, event_type, campaign_id, source_asset_id, rendered_asset_id, render_job_id,
-             audit_report_id, threadsdash_export_id, pipeline_job_id, status, message, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                event_type,
-                campaign_id,
-                source_asset_id,
-                rendered_asset_id,
-                render_job_id,
-                audit_report_id,
-                threadsdash_export_id,
-                pipeline_job_id,
-                status,
-                message or event_type.replace("_", " "),
-                json.dumps(self._sanitize_for_storage(metadata or {}), ensure_ascii=False, sort_keys=True),
-                now,
-            ),
+        return self.events.record_event(
+            event_type,
+            campaign_id=campaign_id,
+            source_asset_id=source_asset_id,
+            rendered_asset_id=rendered_asset_id,
+            render_job_id=render_job_id,
+            audit_report_id=audit_report_id,
+            threadsdash_export_id=threadsdash_export_id,
+            pipeline_job_id=pipeline_job_id,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
         )
-        if commit:
-            self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM activity_events WHERE id = ?", (event_id,)).fetchone())
+
+    def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.events.event_payload(row)
+
+    def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
+        return self.events.events_for_campaign(campaign_slug, limit=limit)
+
+    def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        return self.events.events_for_asset(rendered_asset_id, limit=limit)
+
+    def create_pipeline_job(
+        self,
+        job_type: str,
+        campaign_id: str | None,
+        input_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.events.create_pipeline_job(job_type, campaign_id, input_payload)
+
+    def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
+        return self.events.start_pipeline_job(job_id)
+
+    def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.events.finish_pipeline_job(job_id, result_payload)
+
+    def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.events.fail_pipeline_job(job_id, error, result_payload)
+
+    def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
+        return self.events.set_pipeline_job_campaign(job_id, campaign_id)
+
+    def pipeline_job(self, job_id: str) -> dict[str, Any]:
+        return self.events.pipeline_job(job_id)
+
+    def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.events.pipeline_job_payload(row)
+
+    def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
+        return self.models.upsert_model(slug, name=name, notes=notes)
+
+    def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
+        return self.models.upsert_campaign(slug, model_slug, name=name, platform=platform)
+
+    def upsert_account(
+        self,
+        handle: str,
+        platform: str = "instagram",
+        external_id: str | None = None,
+        model_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.models.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
+
+    def upsert_model_account_profile(
+        self,
+        model_slug: str,
+        *,
+        label: str | None = None,
+        allowed_instagram_account_ids: list[str] | None = None,
+        allowed_account_group_names: list[str] | None = None,
+        allowed_handle_patterns: list[str] | None = None,
+        default_smart_link: str | None = None,
+        story_cta_text: str | None = None,
+    ) -> dict[str, Any]:
+        return self.models.upsert_model_account_profile(
+            model_slug,
+            label=label,
+            allowed_instagram_account_ids=allowed_instagram_account_ids,
+            allowed_account_group_names=allowed_account_group_names,
+            allowed_handle_patterns=allowed_handle_patterns,
+            default_smart_link=default_smart_link,
+            story_cta_text=story_cta_text,
+        )
+
+    def model_account_profile(self, model_slug: str) -> dict[str, Any] | None:
+        return self.models.model_account_profile(model_slug)
+
+    def account_compatible_with_model(
+        self,
+        model_slug: str,
+        *,
+        instagram_account_id: str | None = None,
+        account_handle: str | None = None,
+        account_group_name: str | None = None,
+    ) -> tuple[bool, str | None, dict[str, Any] | None]:
+        return self.models.account_compatible_with_model(
+            model_slug,
+            instagram_account_id=instagram_account_id,
+            account_handle=account_handle,
+            account_group_name=account_group_name,
+        )
+
+    def import_folder(
+        self,
+        folder: Any,
+        *,
+        campaign_slug: str,
+        model_slug: str,
+        model_name: str | None = None,
+        platform: str = "instagram",
+        account_handles: list[str] | None = None,
+        source_prompt: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.asset_import.import_folder(
+            folder,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            model_name=model_name,
+            platform=platform,
+            account_handles=account_handles,
+            source_prompt=source_prompt,
+            notes=notes,
+        )
+
+    def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+        return self.asset_import.assets_for_campaign(campaign_id)
+
+    def create_creative_plan(
+        self,
+        *,
+        name: str,
+        platform: str = "instagram",
+        target_account: str,
+        daily_base_video_target: int = 10,
+        style_lanes: list[str] | None = None,
+        model_profile: str = "",
+        source_accounts: list[str] | None = None,
+        goal: str = "views_reach",
+        linked_campaign: str | None = None,
+    ) -> dict[str, Any]:
+        return self.creative_planning.create_creative_plan(
+            name=name,
+            platform=platform,
+            target_account=target_account,
+            daily_base_video_target=daily_base_video_target,
+            style_lanes=style_lanes,
+            model_profile=model_profile,
+            source_accounts=source_accounts,
+            goal=goal,
+            linked_campaign=linked_campaign,
+        )
+
+    def creative_plan(self, name: str) -> dict[str, Any]:
+        return self.creative_planning.creative_plan(name)
+
+    def update_creative_plan_status(self, *, name: str, status: str) -> dict[str, Any]:
+        return self.creative_planning.update_creative_plan_status(name=name, status=status)
+
+    def sync_creative_plan_progress(self, *, name: str, prompt_export_path: Any) -> dict[str, Any]:
+        return self.creative_planning.sync_creative_plan_progress(name=name, prompt_export_path=prompt_export_path)
+
+    def creative_plan_for_campaign(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        return self.creative_planning.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
+
+    def record_creative_plan_event(
+        self,
+        plan_id: str,
+        event_type: str,
+        *,
+        status: str = "info",
+        message: str = "",
+        metadata: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> None:
+        self.creative_planning.record_creative_plan_event(
+            plan_id,
+            event_type,
+            status=status,
+            message=message,
+            metadata=metadata,
+            commit=commit,
+        )
+
+    def creative_plan_payload(self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.creative_planning.creative_plan_payload(row, dashboard=dashboard)
+
+    def source_prompt_creative_plan_id(self, source: dict[str, Any]) -> str | None:
+        return self.creative_planning.source_prompt_creative_plan_id(source)
+
+    def asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
+        return self.creative_planning.asset_creative_plan_id(asset)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
