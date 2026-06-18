@@ -31,6 +31,14 @@
     "campaignFactoryPostsScanned": {
       "type": "integer"
     },
+    "metricHistoryRowsScanned": {
+      "type": "integer",
+      "description": "Rows read from ThreadsDashboard post_metric_history for time-series performance learning"
+    },
+    "campaignFactorySnapshotsScanned": {
+      "type": "integer",
+      "description": "Eligible Campaign Factory performance snapshots considered after expanding post_metric_history"
+    },
     "inserted": {
       "type": "integer"
     },

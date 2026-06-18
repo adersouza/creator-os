@@ -2759,12 +2759,26 @@ def sync_performance_snapshots(
         client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
         rows = _select_threadsdash_posts(client, user_id=user_id, limit=limit)
         tracked_rows = []
+        tracked_snapshot_count = 0
         inserted = 0
         updated = 0
         backfilled_edges = 0
         skipped = 0
         skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
+        try:
+            metric_history_rows = _select_threadsdash_post_metric_history(
+                client,
+                post_ids=[str(row.get("id")) for row in rows if row.get("id")],
+                limit=limit,
+            )
+        except RuntimeError as exc:
+            metric_history_rows = []
+            warnings.append({
+                "reason": "metric_history_unavailable",
+                "message": str(exc),
+            })
+        metric_history_by_post = _group_metric_history_by_post(metric_history_rows)
         for row in rows:
             row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
             meta = (row_metadata.get("campaign_factory") if isinstance(row_metadata, dict) else None) or {}
@@ -2800,224 +2814,226 @@ def sync_performance_snapshots(
                 warnings.append(warning)
                 continue
             tracked_rows.append(row)
-            snapshot = _performance_snapshot_from_row(
-                campaign_id=campaign["id"],
-                row=row,
-                meta={**meta, "metrics_eligible": True},
-            )
-            existing = factory.conn.execute(
-                "SELECT id FROM performance_snapshots WHERE post_id = ? AND snapshot_at = ?",
-                (snapshot["post_id"], snapshot["snapshot_at"]),
-            ).fetchone()
-            factory.conn.execute(
-                """
-                INSERT INTO performance_snapshots
-                (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
-                 concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
-                 variant_operations_json, audio_id, caption_family_id, caption_version_id,
-                 caption_hash, caption_text, caption_bank, caption_banks_json, creator_mix, creator_model,
-                 frame_type, length_class, format_class, caption_fit_version, suitability_decision,
-                 suitability_reason, source_clip, caption_outcome_context_json, recipe,
-                 post_id, platform, content_surface, status, account_id, instagram_account_id,
-                 permalink, published_at, snapshot_at, views, likes, comments, shares, saves, impressions,
-                 reach, watch_time_seconds, metrics_eligible, raw_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(post_id, snapshot_at) DO UPDATE SET
-                  campaign_id = excluded.campaign_id,
-                  rendered_asset_id = excluded.rendered_asset_id,
-                  source_asset_id = excluded.source_asset_id,
-                  content_hash = excluded.content_hash,
-                  source_content_hash = excluded.source_content_hash,
-                  concept_id = excluded.concept_id,
-                  parent_reel_id = excluded.parent_reel_id,
-                  variant_family_id = excluded.variant_family_id,
-                  variant_id = excluded.variant_id,
-                  variant_index = excluded.variant_index,
-                  variant_operations_json = excluded.variant_operations_json,
-                  audio_id = excluded.audio_id,
-                  caption_family_id = excluded.caption_family_id,
-                  caption_version_id = excluded.caption_version_id,
-                  caption_hash = excluded.caption_hash,
-                  caption_text = excluded.caption_text,
-                  caption_bank = excluded.caption_bank,
-                  caption_banks_json = excluded.caption_banks_json,
-                  creator_mix = excluded.creator_mix,
-                  creator_model = excluded.creator_model,
-                  frame_type = excluded.frame_type,
-                  length_class = excluded.length_class,
-                  format_class = excluded.format_class,
-                  caption_fit_version = excluded.caption_fit_version,
-                  suitability_decision = excluded.suitability_decision,
-                  suitability_reason = excluded.suitability_reason,
-                  source_clip = excluded.source_clip,
-                  caption_outcome_context_json = excluded.caption_outcome_context_json,
-                  recipe = excluded.recipe,
-                  platform = excluded.platform,
-                  content_surface = excluded.content_surface,
-                  status = excluded.status,
-                  account_id = excluded.account_id,
-                  instagram_account_id = excluded.instagram_account_id,
-                  permalink = excluded.permalink,
-                  published_at = excluded.published_at,
-                  views = excluded.views,
-                  likes = excluded.likes,
-                  comments = excluded.comments,
-                  shares = excluded.shares,
-                  saves = excluded.saves,
-                  impressions = excluded.impressions,
-                  reach = excluded.reach,
-                  watch_time_seconds = excluded.watch_time_seconds,
-                  metrics_eligible = excluded.metrics_eligible,
-                  raw_json = excluded.raw_json
-                """,
-                (
-                    snapshot["id"],
-                    snapshot["campaign_id"],
-                    snapshot["rendered_asset_id"],
-                    snapshot["source_asset_id"],
-                    snapshot["content_hash"],
-                    snapshot["source_content_hash"],
-                    snapshot["concept_id"],
-                    snapshot["parent_reel_id"],
-                    snapshot["variant_family_id"],
-                    snapshot["variant_id"],
-                    snapshot["variant_index"],
-                    snapshot["variant_operations_json"],
-                    snapshot["audio_id"],
-                    snapshot["caption_family_id"],
-                    snapshot["caption_version_id"],
-                    snapshot["caption_hash"],
-                    snapshot["caption_text"],
-                    snapshot["caption_bank"],
-                    snapshot["caption_banks_json"],
-                    snapshot["creator_mix"],
-                    snapshot["creator_model"],
-                    snapshot["frame_type"],
-                    snapshot["length_class"],
-                    snapshot["format_class"],
-                    snapshot["caption_fit_version"],
-                    snapshot["suitability_decision"],
-                    snapshot["suitability_reason"],
-                    snapshot["source_clip"],
-                    snapshot["caption_outcome_context_json"],
-                    snapshot["recipe"],
-                    snapshot["post_id"],
-                    snapshot["platform"],
-                    snapshot["content_surface"],
-                    snapshot["status"],
-                    snapshot["account_id"],
-                    snapshot["instagram_account_id"],
-                    snapshot["permalink"],
-                    snapshot["published_at"],
-                    snapshot["snapshot_at"],
-                    snapshot["views"],
-                    snapshot["likes"],
-                    snapshot["comments"],
-                    snapshot["shares"],
-                    snapshot["saves"],
-                    snapshot["impressions"],
-                    snapshot["reach"],
-                    snapshot["watch_time_seconds"],
-                    snapshot["metrics_eligible"],
-                    snapshot["raw_json"],
-                    snapshot["created_at"],
-                ),
-            )
-            if existing:
-                updated += 1
-                snapshot["id"] = existing["id"]
-            else:
-                inserted += 1
-            post_graph_id = factory.ensure_graph_node(
-                "threadsdash_post",
-                external_system="threadsdash.posts",
-                external_id=snapshot["post_id"],
-                payload={
-                    "postId": snapshot["post_id"],
-                    "status": snapshot["status"],
-                    "campaignId": meta.get("campaign_id"),
-                    "renderedAssetId": snapshot["rendered_asset_id"],
-                },
-            )
-            rendered_graph_id = meta.get("rendered_asset_graph_id") or meta.get("graph_id")
-            required_missing = [
-                key for key in ("graph_id", "campaign_graph_id", "source_asset_graph_id", "rendered_asset_graph_id")
-                if not meta.get(key)
-            ]
-            if required_missing:
-                warning = {"postId": snapshot["post_id"], "missingGraphIds": required_missing}
-                warnings.append(warning)
-                factory.create_exception(
-                    reason_code="performance_sync_missing_graph_ids",
-                    severity="medium",
+            for sync_row in _threadsdash_performance_rows(row, metric_history_by_post.get(str(row.get("id")) or "", [])):
+                tracked_snapshot_count += 1
+                snapshot = _performance_snapshot_from_row(
                     campaign_id=campaign["id"],
-                    entity_graph_id=post_graph_id,
-                    payload=warning,
-                    commit=False,
+                    row=sync_row,
+                    meta={**meta, "metrics_eligible": True},
                 )
-            if not rendered_graph_id and snapshot["rendered_asset_id"]:
-                rendered_graph_id = factory.graph_id_for("rendered_assets", snapshot["rendered_asset_id"], entity_type="rendered_asset")
-            before_edges = factory.conn.total_changes
-            factory.ensure_graph_edge_strict(
-                rendered_graph_id,
-                post_graph_id,
-                "rendered_asset_to_threadsdash_post",
-                evidence={"postId": snapshot["post_id"], "performanceSync": True},
-                campaign_id=campaign["id"],
-                source_operation="threadsdash_performance_sync",
-            )
-            performance_graph_id = factory.ensure_graph_node(
-                "performance_snapshot",
-                local_table="performance_snapshots",
-                local_id=snapshot["id"],
-                payload={
-                    "postId": snapshot["post_id"],
-                    "snapshotAt": snapshot["snapshot_at"],
-                    "views": snapshot["views"],
-                    "likes": snapshot["likes"],
-                    "comments": snapshot["comments"],
-                    "shares": snapshot["shares"],
-                    "saves": snapshot["saves"],
-                },
-            )
-            factory.ensure_graph_edge_strict(
-                post_graph_id,
-                performance_graph_id,
-                "threadsdash_post_to_performance_snapshot",
-                evidence={"snapshotAt": snapshot["snapshot_at"]},
-                campaign_id=campaign["id"],
-                source_operation="threadsdash_performance_sync",
-            )
-            recommendation_graph_id = factory.ensure_graph_node(
-                "recommendation_input",
-                external_system="campaign_factory.recommendation_input",
-                external_id=snapshot["id"],
-                payload={"performanceSnapshotId": snapshot["id"], "campaignId": campaign["id"]},
-            )
-            factory.ensure_graph_edge_strict(
-                performance_graph_id,
-                recommendation_graph_id,
-                "performance_snapshot_to_recommendation_input",
-                evidence={"source": "threadsdash_performance_sync"},
-                campaign_id=campaign["id"],
-                source_operation="threadsdash_performance_sync",
-            )
-            audio_rollup = factory.record_audio_performance_snapshot(snapshot, commit=False)
-            if audio_rollup:
-                performance_payload = json.loads(snapshot["raw_json"]) if isinstance(snapshot.get("raw_json"), str) else {}
-                campaign_meta = ((performance_payload.get("metadata") or {}).get("campaign_factory") or {}) if isinstance(performance_payload, dict) else {}
-                selection = (((campaign_meta.get("audio_intent") or {}).get("operator_selection") or {}) if isinstance(campaign_meta.get("audio_intent"), dict) else {})
-                if isinstance(selection, dict) and selection:
-                    audio_selection_graph_id = factory.ensure_graph_node(
-                        "audio_selection",
-                        external_system="threadsdash.audio_selection",
-                        external_id=f"{snapshot['post_id']}:{audio_rollup['audioKey']}",
-                        payload={"postId": snapshot["post_id"], "audio": selection},
+                existing = factory.conn.execute(
+                    "SELECT id FROM performance_snapshots WHERE post_id = ? AND snapshot_at = ?",
+                    (snapshot["post_id"], snapshot["snapshot_at"]),
+                ).fetchone()
+                factory.conn.execute(
+                    """
+                    INSERT INTO performance_snapshots
+                    (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
+                     concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
+                     variant_operations_json, audio_id, caption_family_id, caption_version_id,
+                     caption_hash, caption_text, caption_bank, caption_banks_json, creator_mix, creator_model,
+                     frame_type, length_class, format_class, caption_fit_version, suitability_decision,
+                     suitability_reason, source_clip, caption_outcome_context_json, recipe,
+                     post_id, platform, content_surface, status, account_id, instagram_account_id,
+                     permalink, published_at, snapshot_at, views, likes, comments, shares, saves, impressions,
+                     reach, watch_time_seconds, metrics_eligible, raw_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(post_id, snapshot_at) DO UPDATE SET
+                      campaign_id = excluded.campaign_id,
+                      rendered_asset_id = excluded.rendered_asset_id,
+                      source_asset_id = excluded.source_asset_id,
+                      content_hash = excluded.content_hash,
+                      source_content_hash = excluded.source_content_hash,
+                      concept_id = excluded.concept_id,
+                      parent_reel_id = excluded.parent_reel_id,
+                      variant_family_id = excluded.variant_family_id,
+                      variant_id = excluded.variant_id,
+                      variant_index = excluded.variant_index,
+                      variant_operations_json = excluded.variant_operations_json,
+                      audio_id = excluded.audio_id,
+                      caption_family_id = excluded.caption_family_id,
+                      caption_version_id = excluded.caption_version_id,
+                      caption_hash = excluded.caption_hash,
+                      caption_text = excluded.caption_text,
+                      caption_bank = excluded.caption_bank,
+                      caption_banks_json = excluded.caption_banks_json,
+                      creator_mix = excluded.creator_mix,
+                      creator_model = excluded.creator_model,
+                      frame_type = excluded.frame_type,
+                      length_class = excluded.length_class,
+                      format_class = excluded.format_class,
+                      caption_fit_version = excluded.caption_fit_version,
+                      suitability_decision = excluded.suitability_decision,
+                      suitability_reason = excluded.suitability_reason,
+                      source_clip = excluded.source_clip,
+                      caption_outcome_context_json = excluded.caption_outcome_context_json,
+                      recipe = excluded.recipe,
+                      platform = excluded.platform,
+                      content_surface = excluded.content_surface,
+                      status = excluded.status,
+                      account_id = excluded.account_id,
+                      instagram_account_id = excluded.instagram_account_id,
+                      permalink = excluded.permalink,
+                      published_at = excluded.published_at,
+                      views = excluded.views,
+                      likes = excluded.likes,
+                      comments = excluded.comments,
+                      shares = excluded.shares,
+                      saves = excluded.saves,
+                      impressions = excluded.impressions,
+                      reach = excluded.reach,
+                      watch_time_seconds = excluded.watch_time_seconds,
+                      metrics_eligible = excluded.metrics_eligible,
+                      raw_json = excluded.raw_json
+                    """,
+                    (
+                        snapshot["id"],
+                        snapshot["campaign_id"],
+                        snapshot["rendered_asset_id"],
+                        snapshot["source_asset_id"],
+                        snapshot["content_hash"],
+                        snapshot["source_content_hash"],
+                        snapshot["concept_id"],
+                        snapshot["parent_reel_id"],
+                        snapshot["variant_family_id"],
+                        snapshot["variant_id"],
+                        snapshot["variant_index"],
+                        snapshot["variant_operations_json"],
+                        snapshot["audio_id"],
+                        snapshot["caption_family_id"],
+                        snapshot["caption_version_id"],
+                        snapshot["caption_hash"],
+                        snapshot["caption_text"],
+                        snapshot["caption_bank"],
+                        snapshot["caption_banks_json"],
+                        snapshot["creator_mix"],
+                        snapshot["creator_model"],
+                        snapshot["frame_type"],
+                        snapshot["length_class"],
+                        snapshot["format_class"],
+                        snapshot["caption_fit_version"],
+                        snapshot["suitability_decision"],
+                        snapshot["suitability_reason"],
+                        snapshot["source_clip"],
+                        snapshot["caption_outcome_context_json"],
+                        snapshot["recipe"],
+                        snapshot["post_id"],
+                        snapshot["platform"],
+                        snapshot["content_surface"],
+                        snapshot["status"],
+                        snapshot["account_id"],
+                        snapshot["instagram_account_id"],
+                        snapshot["permalink"],
+                        snapshot["published_at"],
+                        snapshot["snapshot_at"],
+                        snapshot["views"],
+                        snapshot["likes"],
+                        snapshot["comments"],
+                        snapshot["shares"],
+                        snapshot["saves"],
+                        snapshot["impressions"],
+                        snapshot["reach"],
+                        snapshot["watch_time_seconds"],
+                        snapshot["metrics_eligible"],
+                        snapshot["raw_json"],
+                        snapshot["created_at"],
+                    ),
+                )
+                if existing:
+                    updated += 1
+                    snapshot["id"] = existing["id"]
+                else:
+                    inserted += 1
+                post_graph_id = factory.ensure_graph_node(
+                    "threadsdash_post",
+                    external_system="threadsdash.posts",
+                    external_id=snapshot["post_id"],
+                    payload={
+                        "postId": snapshot["post_id"],
+                        "status": snapshot["status"],
+                        "campaignId": meta.get("campaign_id"),
+                        "renderedAssetId": snapshot["rendered_asset_id"],
+                    },
+                )
+                rendered_graph_id = meta.get("rendered_asset_graph_id") or meta.get("graph_id")
+                required_missing = [
+                    key for key in ("graph_id", "campaign_graph_id", "source_asset_graph_id", "rendered_asset_graph_id")
+                    if not meta.get(key)
+                ]
+                if required_missing:
+                    warning = {"postId": snapshot["post_id"], "missingGraphIds": required_missing}
+                    warnings.append(warning)
+                    factory.create_exception(
+                        reason_code="performance_sync_missing_graph_ids",
+                        severity="medium",
+                        campaign_id=campaign["id"],
+                        entity_graph_id=post_graph_id,
+                        payload=warning,
+                        commit=False,
                     )
-                    factory.ensure_graph_edge(audio_selection_graph_id, post_graph_id, "audio_selection_to_threadsdash_post")
-                    factory.ensure_graph_edge(audio_selection_graph_id, performance_graph_id, "audio_selection_to_performance_snapshot")
-            if existing and factory.conn.total_changes > before_edges:
-                backfilled_edges += 1
+                if not rendered_graph_id and snapshot["rendered_asset_id"]:
+                    rendered_graph_id = factory.graph_id_for("rendered_assets", snapshot["rendered_asset_id"], entity_type="rendered_asset")
+                before_edges = factory.conn.total_changes
+                factory.ensure_graph_edge_strict(
+                    rendered_graph_id,
+                    post_graph_id,
+                    "rendered_asset_to_threadsdash_post",
+                    evidence={"postId": snapshot["post_id"], "performanceSync": True},
+                    campaign_id=campaign["id"],
+                    source_operation="threadsdash_performance_sync",
+                )
+                performance_graph_id = factory.ensure_graph_node(
+                    "performance_snapshot",
+                    local_table="performance_snapshots",
+                    local_id=snapshot["id"],
+                    payload={
+                        "postId": snapshot["post_id"],
+                        "snapshotAt": snapshot["snapshot_at"],
+                        "views": snapshot["views"],
+                        "likes": snapshot["likes"],
+                        "comments": snapshot["comments"],
+                        "shares": snapshot["shares"],
+                        "saves": snapshot["saves"],
+                    },
+                )
+                factory.ensure_graph_edge_strict(
+                    post_graph_id,
+                    performance_graph_id,
+                    "threadsdash_post_to_performance_snapshot",
+                    evidence={"snapshotAt": snapshot["snapshot_at"]},
+                    campaign_id=campaign["id"],
+                    source_operation="threadsdash_performance_sync",
+                )
+                recommendation_graph_id = factory.ensure_graph_node(
+                    "recommendation_input",
+                    external_system="campaign_factory.recommendation_input",
+                    external_id=snapshot["id"],
+                    payload={"performanceSnapshotId": snapshot["id"], "campaignId": campaign["id"]},
+                )
+                factory.ensure_graph_edge_strict(
+                    performance_graph_id,
+                    recommendation_graph_id,
+                    "performance_snapshot_to_recommendation_input",
+                    evidence={"source": "threadsdash_performance_sync"},
+                    campaign_id=campaign["id"],
+                    source_operation="threadsdash_performance_sync",
+                )
+                audio_rollup = factory.record_audio_performance_snapshot(snapshot, commit=False)
+                if audio_rollup:
+                    performance_payload = json.loads(snapshot["raw_json"]) if isinstance(snapshot.get("raw_json"), str) else {}
+                    campaign_meta = ((performance_payload.get("metadata") or {}).get("campaign_factory") or {}) if isinstance(performance_payload, dict) else {}
+                    selection = (((campaign_meta.get("audio_intent") or {}).get("operator_selection") or {}) if isinstance(campaign_meta.get("audio_intent"), dict) else {})
+                    if isinstance(selection, dict) and selection:
+                        audio_selection_graph_id = factory.ensure_graph_node(
+                            "audio_selection",
+                            external_system="threadsdash.audio_selection",
+                            external_id=f"{snapshot['post_id']}:{audio_rollup['audioKey']}",
+                            payload={"postId": snapshot["post_id"], "audio": selection},
+                        )
+                        factory.ensure_graph_edge(audio_selection_graph_id, post_graph_id, "audio_selection_to_threadsdash_post")
+                        factory.ensure_graph_edge(audio_selection_graph_id, performance_graph_id, "audio_selection_to_performance_snapshot")
+                if existing and factory.conn.total_changes > before_edges:
+                    backfilled_edges += 1
         factory.set_graph_sync_state(
             "threadsdash.performance",
             {
@@ -3025,6 +3041,8 @@ def sync_performance_snapshots(
                 "userId": user_id,
                 "postsScanned": len(rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
+                "metricHistoryRowsScanned": len(metric_history_rows),
+                "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
@@ -3041,6 +3059,8 @@ def sync_performance_snapshots(
             "checkedAt": utc_now(),
             "postsScanned": len(rows),
             "campaignFactoryPostsScanned": len(tracked_rows),
+            "metricHistoryRowsScanned": len(metric_history_rows),
+            "campaignFactorySnapshotsScanned": tracked_snapshot_count,
             "inserted": inserted,
             "updated": updated,
             "backfilledEdges": backfilled_edges,
@@ -3060,6 +3080,8 @@ def sync_performance_snapshots(
             metadata={
                 "postsScanned": len(rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
+                "metricHistoryRowsScanned": len(metric_history_rows),
+                "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
@@ -3073,6 +3095,8 @@ def sync_performance_snapshots(
             {
                 "postsScanned": len(rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
+                "metricHistoryRowsScanned": len(metric_history_rows),
+                "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
                 "backfilledEdges": backfilled_edges,
@@ -3118,6 +3142,79 @@ def _select_threadsdash_posts(client: "SupabaseRestClient", *, user_id: str, lim
                 **base_params,
             },
         )
+
+
+def _select_threadsdash_post_metric_history(
+    client: "SupabaseRestClient",
+    *,
+    post_ids: list[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    ids = sorted({post_id for post_id in post_ids if post_id})
+    if not ids:
+        return []
+    select_columns = (
+        "id,post_id,account_id,platform,snapshot_at,hours_since_publish,"
+        "views_count,likes_count,replies_count,reposts_count,quotes_count,shares_count,"
+        "saves_count,reach,engagement_rate,created_at"
+    )
+    return client.select(
+        "post_metric_history",
+        {
+            "select": select_columns,
+            "post_id": f"in.({','.join(ids)})",
+            "order": "snapshot_at.asc",
+            "limit": str(max(limit, len(ids) * 24)),
+        },
+    )
+
+
+def _group_metric_history_by_post(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        post_id = str(row.get("post_id") or "")
+        if not post_id:
+            continue
+        grouped.setdefault(post_id, []).append(row)
+    for post_rows in grouped.values():
+        post_rows.sort(key=lambda item: str(item.get("snapshot_at") or item.get("created_at") or ""))
+    return grouped
+
+
+def _threadsdash_performance_rows(post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not metric_history_rows:
+        return [post_row]
+    return [_threadsdash_post_with_metric_history(post_row, history_row) for history_row in metric_history_rows]
+
+
+def _threadsdash_post_with_metric_history(post_row: dict[str, Any], history_row: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(post_row)
+    merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get("created_at")
+    merged["views"] = history_row.get("views_count")
+    merged["views_count"] = history_row.get("views_count")
+    merged["likes"] = history_row.get("likes_count")
+    merged["likes_count"] = history_row.get("likes_count")
+    merged["comments"] = history_row.get("replies_count")
+    merged["replies_count"] = history_row.get("replies_count")
+    merged["reposts_count"] = history_row.get("reposts_count")
+    merged["quotes_count"] = history_row.get("quotes_count")
+    merged["shares"] = history_row.get("shares_count")
+    merged["shares_count"] = history_row.get("shares_count")
+    merged["saves"] = history_row.get("saves_count")
+    merged["saves_count"] = history_row.get("saves_count")
+    merged["reach"] = history_row.get("reach")
+    merged["engagement_rate"] = history_row.get("engagement_rate")
+    merged["account_id"] = post_row.get("account_id") or history_row.get("account_id")
+    merged["platform"] = post_row.get("platform") or history_row.get("platform")
+    metadata = dict(post_row.get("metadata") if isinstance(post_row.get("metadata"), dict) else {})
+    metadata["threadsdash_metric_history"] = {
+        "id": history_row.get("id"),
+        "postId": history_row.get("post_id"),
+        "snapshotAt": history_row.get("snapshot_at"),
+        "hoursSincePublish": history_row.get("hours_since_publish"),
+    }
+    merged["metadata"] = metadata
+    return merged
 
 
 def _performance_sync_skip_warning(row: dict[str, Any], *, reason: str, **extra: Any) -> dict[str, Any]:
