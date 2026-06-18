@@ -3,6 +3,7 @@ from __future__ import annotations
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.services import CoreServices
 
@@ -22,6 +23,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.settings is factory.settings
         assert isinstance(factory.services.graph, GraphRepository)
         assert factory.services.graph.conn is factory.conn
+        assert isinstance(factory.services.events, EventRepository)
+        assert factory.services.events.conn is factory.conn
     finally:
         factory.close()
 
@@ -46,6 +49,42 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("record_event", args, kwargs))
             return {"id": "evt_1"}
 
+        def events_for_campaign(self, *args, **kwargs):
+            calls.append(("events_for_campaign", args, kwargs))
+            return [{"id": "evt_1"}]
+
+        def events_for_asset(self, *args, **kwargs):
+            calls.append(("events_for_asset", args, kwargs))
+            return [{"id": "evt_2"}]
+
+        def create_pipeline_job(self, *args, **kwargs):
+            calls.append(("create_pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def start_pipeline_job(self, *args, **kwargs):
+            calls.append(("start_pipeline_job", args, kwargs))
+            return {"id": "job_1", "status": "running"}
+
+        def finish_pipeline_job(self, *args, **kwargs):
+            calls.append(("finish_pipeline_job", args, kwargs))
+            return {"id": "job_1", "status": "succeeded"}
+
+        def fail_pipeline_job(self, *args, **kwargs):
+            calls.append(("fail_pipeline_job", args, kwargs))
+            return {"id": "job_1", "status": "failed"}
+
+        def set_pipeline_job_campaign(self, *args, **kwargs):
+            calls.append(("set_pipeline_job_campaign", args, kwargs))
+            return {"id": "job_1", "campaignId": "camp_1"}
+
+        def pipeline_job(self, *args, **kwargs):
+            calls.append(("pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def pipeline_job_payload(self, *args, **kwargs):
+            calls.append(("pipeline_job_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
         def campaign_by_slug(self, *args, **kwargs):
             calls.append(("campaign_by_slug", args, kwargs))
             return {"slug": args[0]}
@@ -60,6 +99,15 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory.ensure_graph_edge("from", "to", "contains", evidence={"ok": True}, commit=True) == "edge_1"
     assert factory.set_graph_sync_state("threadsdash", {"cursor": "next"}) is None
     assert factory.record_event("evt", campaign_id="camp_1", status="success", metadata={"ok": True}) == {"id": "evt_1"}
+    assert factory.events_for_campaign("may", limit=3) == [{"id": "evt_1"}]
+    assert factory.events_for_asset("asset_1", limit=2) == [{"id": "evt_2"}]
+    assert factory.create_pipeline_job("render", "camp_1", {"step": 1}) == {"id": "job_1"}
+    assert factory.start_pipeline_job("job_1") == {"id": "job_1", "status": "running"}
+    assert factory.finish_pipeline_job("job_1", {"ok": True}) == {"id": "job_1", "status": "succeeded"}
+    assert factory.fail_pipeline_job("job_1", "boom", {"ok": False}) == {"id": "job_1", "status": "failed"}
+    assert factory.set_pipeline_job_campaign("job_1", "camp_1") == {"id": "job_1", "campaignId": "camp_1"}
+    assert factory.pipeline_job("job_1") == {"id": "job_1"}
+    assert factory.pipeline_job_payload({"id": "job_1"}) == {"id": "job_1"}
     assert factory.campaign_by_slug("may") == {"slug": "may"}
     assert factory.rendered_asset("asset_1") == {"id": "asset_1"}
 
@@ -80,6 +128,15 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             "metadata": {"ok": True},
             "commit": True,
         }),
+        ("events_for_campaign", ("may",), {"limit": 3}),
+        ("events_for_asset", ("asset_1",), {"limit": 2}),
+        ("create_pipeline_job", ("render", "camp_1", {"step": 1}), {}),
+        ("start_pipeline_job", ("job_1",), {}),
+        ("finish_pipeline_job", ("job_1", {"ok": True}), {}),
+        ("fail_pipeline_job", ("job_1", "boom", {"ok": False}), {}),
+        ("set_pipeline_job_campaign", ("job_1", "camp_1"), {}),
+        ("pipeline_job", ("job_1",), {}),
+        ("pipeline_job_payload", ({"id": "job_1"},), {}),
         ("campaign_by_slug", ("may",), {}),
         ("rendered_asset", ("asset_1",), {}),
     ]
@@ -124,6 +181,90 @@ def test_core_services_delegates_graph_methods_to_graph_repository() -> None:
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
         ("ensure_graph_edge", ("node_1", "node_2", "contains"), {"evidence": {"ok": True}, "commit": True}),
         ("set_sync_state", ("threadsdash", {"cursor": "next"}), {}),
+    ]
+
+
+def test_core_services_delegates_event_methods_to_event_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeEvents:
+        def record_event(self, *args, **kwargs):
+            calls.append(("record_event", args, kwargs))
+            return {"id": "evt_1"}
+
+        def events_for_campaign(self, *args, **kwargs):
+            calls.append(("events_for_campaign", args, kwargs))
+            return []
+
+        def events_for_asset(self, *args, **kwargs):
+            calls.append(("events_for_asset", args, kwargs))
+            return []
+
+        def create_pipeline_job(self, *args, **kwargs):
+            calls.append(("create_pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def start_pipeline_job(self, *args, **kwargs):
+            calls.append(("start_pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def finish_pipeline_job(self, *args, **kwargs):
+            calls.append(("finish_pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def fail_pipeline_job(self, *args, **kwargs):
+            calls.append(("fail_pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def set_pipeline_job_campaign(self, *args, **kwargs):
+            calls.append(("set_pipeline_job_campaign", args, kwargs))
+            return {"id": "job_1"}
+
+        def pipeline_job(self, *args, **kwargs):
+            calls.append(("pipeline_job", args, kwargs))
+            return {"id": "job_1"}
+
+        def pipeline_job_payload(self, *args, **kwargs):
+            calls.append(("pipeline_job_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+    services.events = FakeEvents()
+
+    assert services.record_event("evt", campaign_id="camp_1") == {"id": "evt_1"}
+    assert services.events_for_campaign("may", limit=3) == []
+    assert services.events_for_asset("asset_1", limit=2) == []
+    assert services.create_pipeline_job("render", "camp_1", {"step": 1}) == {"id": "job_1"}
+    assert services.start_pipeline_job("job_1") == {"id": "job_1"}
+    assert services.finish_pipeline_job("job_1", {"ok": True}) == {"id": "job_1"}
+    assert services.fail_pipeline_job("job_1", "boom", {"ok": False}) == {"id": "job_1"}
+    assert services.set_pipeline_job_campaign("job_1", "camp_1") == {"id": "job_1"}
+    assert services.pipeline_job("job_1") == {"id": "job_1"}
+    assert services.pipeline_job_payload({"id": "job_1"}) == {"id": "job_1"}
+
+    assert calls == [
+        ("record_event", ("evt",), {
+            "campaign_id": "camp_1",
+            "source_asset_id": None,
+            "rendered_asset_id": None,
+            "render_job_id": None,
+            "audit_report_id": None,
+            "threadsdash_export_id": None,
+            "pipeline_job_id": None,
+            "status": "info",
+            "message": "",
+            "metadata": None,
+            "commit": True,
+        }),
+        ("events_for_campaign", ("may",), {"limit": 3}),
+        ("events_for_asset", ("asset_1",), {"limit": 2}),
+        ("create_pipeline_job", ("render", "camp_1", {"step": 1}), {}),
+        ("start_pipeline_job", ("job_1",), {}),
+        ("finish_pipeline_job", ("job_1", {"ok": True}), {}),
+        ("fail_pipeline_job", ("job_1", "boom", {"ok": False}), {}),
+        ("set_pipeline_job_campaign", ("job_1", "camp_1"), {}),
+        ("pipeline_job", ("job_1",), {}),
+        ("pipeline_job_payload", ({"id": "job_1"},), {}),
     ]
 
 
