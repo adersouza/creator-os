@@ -591,6 +591,9 @@ class CampaignFactory:
             explain_publishability=self.explain_publishability,
             surface_handoff_readiness_report=self.surface_handoff_readiness_report,
             surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
+            surface_report_assets=self._surface_report_assets,
+            surface_draft_proof=self.surface_draft_proof,
+            asset_components=self._asset_components,
             instagram_post_caption_for_asset=self._instagram_post_caption_for_asset,
             text_hash=self._text_hash,
             validate_instagram_trial_reel_intent=self._validate_instagram_trial_reel_intent,
@@ -18201,23 +18204,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None = None,
         rendered_asset_id: str | None = None,
     ) -> dict[str, Any]:
-        assets = self._carousel_report_assets(
-            creator=self._creator_label(creator) if creator else None,
+        return self.services.carousel_integrity_report(
+            creator=creator,
             campaign_slug=campaign_slug,
             rendered_asset_id=rendered_asset_id,
         )
-        rows = [self._carousel_integrity_for_asset(asset) for asset in assets]
-        return {
-            "schema": "campaign_factory.carousel_integrity_report.v1",
-            "creator": self._creator_label(creator) if creator else None,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "renderedAssetId": rendered_asset_id,
-            "carouselAssetsAnalyzed": len(rows),
-            "passed": sum(1 for row in rows if row.get("overallIntegrityPassed")),
-            "failed": sum(1 for row in rows if not row.get("overallIntegrityPassed")),
-            "assets": rows,
-            "wouldWrite": False,
-        }
 
     def carousel_child_metrics_plan(
         self,
@@ -18226,67 +18217,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None = None,
         rendered_asset_id: str | None = None,
     ) -> dict[str, Any]:
-        assets = self._carousel_report_assets(
-            creator=self._creator_label(creator) if creator else None,
+        return self.services.carousel_child_metrics_plan(
+            creator=creator,
             campaign_slug=campaign_slug,
             rendered_asset_id=rendered_asset_id,
         )
-        rows = []
-        for asset in assets:
-            integrity = self._carousel_integrity_for_asset(asset)
-            children = []
-            for component in integrity["assetComponents"]["components"]:
-                children.append({
-                    "renderedAssetId": asset["id"],
-                    "componentIndex": component["componentIndex"],
-                    "componentHash": component["mediaHash"],
-                    "mediaType": component["mediaType"],
-                    "contentSurface": "feed_carousel",
-                    "futureMetricKeys": {
-                        "rendered_asset_id": asset["id"],
-                        "carousel_child_index": component["componentIndex"],
-                        "carousel_child_hash": component["mediaHash"],
-                        "content_surface": "feed_carousel",
-                    },
-                    "wouldWrite": False,
-                })
-            rows.append({
-                "assetId": asset["id"],
-                "contentSurface": "feed_carousel",
-                "igMediaType": "CAROUSEL",
-                "childCount": len(children),
-                "parentMetricsCanonical": True,
-                "parentMetricKeys": [
-                    "post_id",
-                    "rendered_asset_id",
-                    "content_surface",
-                    "views",
-                    "reach",
-                    "likes",
-                    "comments",
-                    "shares",
-                    "saves",
-                ],
-                "childMetricsSupplemental": True,
-                "childMetricsPlan": children,
-                "metricsRollupKeys": [
-                    "rendered_asset_id",
-                    "carousel_child_index",
-                    "carousel_child_hash",
-                    "content_surface",
-                ],
-                "integrityPassed": bool(integrity.get("overallIntegrityPassed")),
-                "wouldWrite": False,
-            })
-        return {
-            "schema": "campaign_factory.carousel_child_metrics_plan.v1",
-            "creator": self._creator_label(creator) if creator else None,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "renderedAssetId": rendered_asset_id,
-            "carouselAssetsAnalyzed": len(rows),
-            "assets": rows,
-            "wouldWrite": False,
-        }
 
     def _carousel_report_assets(
         self,
@@ -18295,161 +18230,29 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None,
         rendered_asset_id: str | None,
     ) -> list[dict[str, Any]]:
-        assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
-        rows = [
-            asset for asset in assets
-            if normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "feed_carousel"
-        ]
-        if rendered_asset_id:
-            rows = [asset for asset in rows if asset["id"] == rendered_asset_id]
-        return rows
+        return self.services.carousel_report_assets(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
 
     def _carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
-        components = self._carousel_component_signature(self._asset_components(asset["id"]))
-        readiness = self._surface_handoff_readiness_for_asset(asset)
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        manifest_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
-        manifest_signature = self._carousel_media_item_signature(manifest_items)
-        draft_proof = self.surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
-            campaign=asset.get("campaign_slug"),
-            rendered_asset_id=asset["id"],
-        )
-        draft = draft_proof["drafts"][0] if draft_proof.get("drafts") else {}
-        draft_signature = self._carousel_media_item_signature(draft.get("mediaItems") if isinstance(draft, dict) else [])
-        threadsdash_signature = self._carousel_media_item_signature((draft.get("handoffManifestV2") or {}).get("mediaItems") if isinstance(draft.get("handoffManifestV2"), dict) else [])
-        meta_preview = self._carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
-        meta_signature = self._carousel_media_item_signature(meta_preview.get("children") or [])
-        caption_lineage_preserved = bool(
-            manifest.get("instagramPostCaption")
-            and manifest.get("caption_hash")
-            and (draft.get("handoffManifestV2") or {}).get("caption_hash") == manifest.get("caption_hash")
-        )
-        content_surface_preserved = (
-            readiness.get("contentSurface") == "feed_carousel"
-            and manifest.get("contentSurface") == "feed_carousel"
-            and draft.get("contentSurface") == "feed_carousel"
-            and draft.get("igMediaType") == "CAROUSEL"
-            and meta_preview.get("parentPayload", {}).get("media_type") == "CAROUSEL"
-        )
-        boundaries = [
-            self._carousel_boundary_result("asset_components_to_handoff_manifest_v2", components, manifest_signature),
-            self._carousel_boundary_result("handoff_manifest_v2_to_surface_draft_proof", manifest_signature, draft_signature),
-            self._carousel_boundary_result("surface_draft_proof_to_threadsdash_payload", draft_signature, threadsdash_signature),
-            self._carousel_boundary_result("threadsdash_payload_to_meta_child_payload_preview", threadsdash_signature, meta_signature),
-        ]
-        return {
-            "assetId": asset["id"],
-            "contentSurface": normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")),
-            "igMediaType": readiness.get("igMediaType"),
-            "canHandoff": bool(readiness.get("canHandoff")),
-            "contentSurfacePreserved": bool(content_surface_preserved),
-            "captionLineagePreserved": bool(caption_lineage_preserved),
-            "assetComponents": self._carousel_signature_payload(components),
-            "handoffManifestV2": self._carousel_signature_payload(manifest_signature, extra={
-                "contentSurface": manifest.get("contentSurface"),
-                "igMediaType": manifest.get("igMediaType"),
-                "captionHash": manifest.get("caption_hash"),
-                "instagramPostCaptionHash": manifest.get("instagram_post_caption_hash"),
-            }),
-            "surfaceDraftProof": self._carousel_signature_payload(draft_signature, extra={
-                "canProduceDraftPayload": bool(draft_proof.get("canProduceDraftPayload")),
-                "draftCount": int(draft_proof.get("draftCount") or 0),
-            }),
-            "threadDashPayload": self._carousel_signature_payload(threadsdash_signature, extra={
-                "schema": draft.get("schema"),
-                "contentSurface": draft.get("contentSurface"),
-                "igMediaType": draft.get("igMediaType"),
-            }),
-            "metaChildPayloadPreview": self._carousel_signature_payload(meta_signature, extra=meta_preview),
-            "boundaries": boundaries,
-            "overallIntegrityPassed": bool(
-                readiness.get("canHandoff")
-                and content_surface_preserved
-                and caption_lineage_preserved
-                and boundaries
-                and all(boundary["slideCountPreserved"] and boundary["slideOrderPreserved"] and boundary["componentHashesMatch"] for boundary in boundaries)
-            ),
-            "wouldWrite": False,
-        }
+        return self.services.carousel_integrity_for_asset(asset)
 
     def _carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            {
-                "componentIndex": int(component.get("component_index") or 0),
-                "mediaPath": component.get("media_path"),
-                "mediaHash": component.get("media_hash"),
-                "mediaType": component.get("media_type"),
-            }
-            for component in components
-        ]
+        return self.services.carousel_component_signature(components)
 
     def _carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
-        if not isinstance(media_items, list):
-            return []
-        rows = []
-        for item in media_items:
-            if not isinstance(item, dict):
-                continue
-            rows.append({
-                "componentIndex": int(item.get("componentIndex") if item.get("componentIndex") is not None else item.get("component_index") or 0),
-                "mediaPath": item.get("mediaPath") or item.get("media_path"),
-                "mediaHash": item.get("mediaHash") or item.get("media_hash") or item.get("componentHash"),
-                "mediaType": item.get("mediaType") or item.get("media_type"),
-            })
-        return rows
+        return self.services.carousel_media_item_signature(media_items)
 
     def _carousel_signature_payload(self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        payload = {
-            "slideCount": len(signature),
-            "componentIndexes": [item["componentIndex"] for item in signature],
-            "componentHashes": [item["mediaHash"] for item in signature],
-            "components": signature,
-        }
-        if extra:
-            payload.update(extra)
-        return payload
+        return self.services.carousel_signature_payload(signature, extra=extra)
 
     def _carousel_boundary_result(self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
-        before_indexes = [item["componentIndex"] for item in before]
-        after_indexes = [item["componentIndex"] for item in after]
-        before_hashes = [item["mediaHash"] for item in before]
-        after_hashes = [item["mediaHash"] for item in after]
-        return {
-            "boundary": boundary,
-            "slideCountPreserved": len(before) == len(after),
-            "slideOrderPreserved": before_indexes == after_indexes,
-            "componentHashesMatch": before_hashes == after_hashes,
-            "beforeComponentIndexes": before_indexes,
-            "afterComponentIndexes": after_indexes,
-            "beforeComponentHashes": before_hashes,
-            "afterComponentHashes": after_hashes,
-            "wouldWrite": False,
-        }
+        return self.services.carousel_boundary_result(boundary, before, after)
 
     def _carousel_meta_child_payload_preview(self, *, asset: dict[str, Any], draft: dict[str, Any], components: list[dict[str, Any]]) -> dict[str, Any]:
-        children = []
-        for component in components:
-            media_type = "VIDEO" if str(component.get("mediaType") or "").lower() == "video" else "IMAGE"
-            children.append({
-                "componentIndex": component["componentIndex"],
-                "mediaPath": component["mediaPath"],
-                "mediaHash": component["mediaHash"],
-                "mediaType": component["mediaType"],
-                "media_type": media_type,
-                "is_carousel_item": True,
-                "previewContainerId": f"carousel_child_preview_{asset['id']}_{component['componentIndex']}",
-                "wouldWrite": False,
-            })
-        return {
-            "parentPayload": {
-                "media_type": "CAROUSEL",
-                "caption": draft.get("instagramPostCaption") or "",
-                "children": [child["previewContainerId"] for child in children],
-            },
-            "children": children,
-            "wouldWrite": False,
-        }
+        return self.services.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
 
     def _build_surface_inventory(
         self,
