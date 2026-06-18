@@ -34,9 +34,12 @@ the learning scorer. Verification: `uv run pytest
 python_packages/campaign_factory/tests/test_learning_score.py -q` and `uv run
 pytest python_packages/campaign_factory/tests/test_core.py -q`.
 
-Track I capture work, Reference Factory outcome feedback/statistical rigor,
-Track Q quality/virality work, perceptual cooldowns, per-account audio, and
-upstream ThreadsDashboard work remain open.
+Track I capture work is upstream-fixed in ThreadsDashboard PR #129: full-total
+metric monotonic guards, `post_metric_history` retention by `snapshot_at`,
+Threads reach/saves semantics, and non-fatal metric snapshot reconciliation are
+merged in the dashboard source repo. Reference Factory outcome feedback,
+Track Q quality/virality work, perceptual cooldowns, and dashboard video-PDQ
+follow-up remain open.
 
 Track I Campaign Factory data-plumbing silent-drop handling is fixed on
 `codex/intelligence-track-i-data-plumbing`: ThreadsDashboard performance sync
@@ -64,7 +67,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 | Track | Score | Verdict |
 |-------|-------|---------|
-| **Intelligence / learning loop** | **5.3/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk and now imports TD metric history curves, but the loop is still human-gated and leaks at capture, Reference Factory feedback, and dashboard boundaries. |
+| **Intelligence / learning loop** | **5.6/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, and the ThreadsDashboard capture repair is upstream-merged; Reference Factory feedback and dashboard video-PDQ follow-up remain open. |
 | **Content quality / virality** | **3.5/10** | Partially closed — minimum dimensions and Campaign Factory caption safe-zone overlap now block, but watchability, readability, model-backed creative scoring, and virality gates remain open. |
 | **Anti-shadowban safety** | **~6.5/10** (was ~4; **+2 for Track S shipped, PR #54**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM, and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: rendered PDQ cluster cooldowns + dashboard aHash/video PDQ upstream work. |
 
@@ -92,10 +95,10 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
 | Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
-| High (capture bugs — corrupt training data at source) | `supabase/migrations/20260307210000_monotonic_metric_updates.sql:36-41` · `analyticsSync.ts:716` · `post-engagement.ts:130-142` | (a) monotonic guard compares views-inclusive vs views-exclusive → per-post 24h UPDATE no-ops; (b) 90-day retention `delete().lt("created_at",…)` but column is `snapshot_at` → errors every run, swallowed, table grows unbounded; (c) Threads `reach`/`saves` never written (always 0) but the score weights them. |
+| Upstream-fixed | ThreadsDashboard PR #129 (`supabase/migrations`, `analyticsSync.ts`, `post-engagement.ts`) | Track I capture repair is merged upstream: monotonic metric guards compare full metric totals, metric history retention uses `snapshot_at`, Threads reach is policy-backed as `views`, unavailable Threads saves are `null`, and tests cover those semantics. |
 | Partial | `core.py:23197` trust score; `_history_score` | Campaign Factory learning summaries now carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. Trust score self-correction is still not read back. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
-| Med | AP0-2 `postMetricSnapshotReconciliation.ts` | AP0-2 reconciliation is real but lives only in TD's `audit/analytics-view-coverage` branch — **port it into the running path**; it doesn't touch the 3 capture bugs above. |
+| Upstream-fixed | ThreadsDashboard PR #129 `postMetricSnapshotReconciliation.ts` | AP0-2 metric snapshot reconciliation is now in the running sync-orchestrator path as a non-fatal metrics phase; it re-dispatches missing 1h/24h metric fetches without publishing, scheduling, or mutating post status. |
 
 **reference_factory has NO feedback loop at all** (one-directional: scrape→score→emit). Add outcome columns to `generated_video_prompts` (`db.py:296`) so it ranks patterns by *our* measured results, not competitor leaderboard order. (On its own it scores ~2/10.)
 
@@ -208,7 +211,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 ## Suggested sequencing for Codex
 
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
-2. **Track I capture bugs** (the 3 in the High row) — they corrupt training data at the source; everything "smart" depends on clean capture. Port AP0-2 into the running path.
+2. ~~**Track I capture bugs**~~ ✓ **UPSTREAM-FIXED (ThreadsDashboard PR #129)** — full-total monotonic guards, `snapshot_at` retention, Threads reach/saves semantics, and AP0-2 metric reconciliation are merged in the dashboard source repo.
 3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
 4. **Track Q quality floor** — minimum-dimension bug and Campaign Factory OCR safe-zone blocking are fixed; real watchability gate (VMAF/audio/crop), readability legibility, and model-backed creative gates remain.
 5. **Higgsfield virality wiring** (Track Q) — high-leverage, low effort.
