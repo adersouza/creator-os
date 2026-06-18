@@ -15,6 +15,7 @@ from .exceptions import ExceptionRepository
 from .graph import GraphRepository
 from .models import ModelRepository
 from .reference import ReferenceRepository
+from .surface_registration import SurfaceRegistrationRepository
 
 
 class CoreServices:
@@ -30,14 +31,19 @@ class CoreServices:
         utc_now: Callable[[], str],
         media_type_for_path: Callable[[Any], str],
         sha256_file: Callable[[Any], str],
+        probe_image_shape: Callable[[Any], dict[str, Any]],
+        probe_video_shape: Callable[[Any], dict[str, Any]],
+        ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         prepare_reel_inputs: Callable[..., dict[str, Any]],
         discoverability_safe_content_contract: Callable[..., dict[str, Any]],
         reference_hook_fallbacks: tuple[str, ...],
         normalize_content_surface: Callable[[str | None], str],
+        campaign_dirs: Callable[[str, str], dict[str, Any]],
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
+        surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
         text_hash: Callable[[str], str],
@@ -58,6 +64,12 @@ class CoreServices:
         ratio: Callable[[Any, Any], float],
         score_fraction: Callable[[Any, Any], float],
         wilson_lower_bound: Callable[..., float],
+        story_source_blockers: Callable[[list[dict[str, Any]]], list[str]],
+        normalize_story_enum: Callable[[Any, set[str]], str | None],
+        story_intents: set[str],
+        story_goals: set[str],
+        story_styles: set[str],
+        ig_media_type_by_surface: dict[str, str],
         autonomy_level: Callable[[], str],
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
     ) -> None:
@@ -203,6 +215,29 @@ class CoreServices:
             ratio=ratio,
             score_fraction=score_fraction,
             wilson_lower_bound=wilson_lower_bound,
+        )
+        self.surface_registration = SurfaceRegistrationRepository(
+            conn,
+            slugify=slugify,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            campaign_dirs=campaign_dirs,
+            surface_handoff_readiness_report=surface_handoff_readiness_report,
+            record_event=self.events.record_event,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            probe_image_shape=probe_image_shape,
+            probe_video_shape=probe_video_shape,
+            ratio_label_from_shape=ratio_label_from_shape,
+            story_source_blockers=story_source_blockers,
+            normalize_story_enum=normalize_story_enum,
+            story_intents=story_intents,
+            story_goals=story_goals,
+            story_styles=story_styles,
+            ig_media_type_by_surface=ig_media_type_by_surface,
         )
 
     def ensure_graph_node(
@@ -893,6 +928,90 @@ class CoreServices:
 
     def discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
         return self.discoverability.discoverability_evidence_for_fields(fields)
+
+    def register_surface_asset(
+        self,
+        *,
+        input_path: Any,
+        surface: str,
+        creator: str,
+        campaign_slug: str,
+        instagram_post_caption: str | None = None,
+        target_ratio: str | None = None,
+        model_slug: str | None = None,
+        operator: str | None = None,
+        alt_text: list[str] | None = None,
+        story_asset_class: str | None = None,
+        story_cta_type: str | None = None,
+        story_cta_text: str | None = None,
+        story_cta_target_url: str | None = None,
+        story_intent: str | None = None,
+        story_goal: str | None = None,
+        story_style: str | None = None,
+        snapchat_username: str | None = None,
+        snapchat_display_name: str | None = None,
+        snapchat_cta_text: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_registration.register_surface_asset(
+            input_path=input_path,
+            surface=surface,
+            creator=creator,
+            campaign_slug=campaign_slug,
+            instagram_post_caption=instagram_post_caption,
+            target_ratio=target_ratio,
+            model_slug=model_slug,
+            operator=operator,
+            alt_text=alt_text,
+            story_asset_class=story_asset_class,
+            story_cta_type=story_cta_type,
+            story_cta_text=story_cta_text,
+            story_cta_target_url=story_cta_target_url,
+            story_intent=story_intent,
+            story_goal=story_goal,
+            story_style=story_style,
+            snapchat_username=snapchat_username,
+            snapchat_display_name=snapchat_display_name,
+            snapchat_cta_text=snapchat_cta_text,
+        )
+
+    def surface_registration_components(
+        self,
+        *,
+        input_path: Any,
+        surface: str,
+        target_ratio: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.surface_registration.surface_registration_components(
+            input_path=input_path,
+            surface=surface,
+            target_ratio=target_ratio,
+        )
+
+    def surface_registration_component(self, path: Any, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
+        return self.surface_registration.surface_registration_component(path, surface=surface, target_ratio=target_ratio)
+
+    def stage_surface_registration_file(
+        self,
+        path: Any,
+        rendered_dir: Any,
+        *,
+        content_surface: str,
+        content_hash: str,
+        component_index: int,
+    ) -> Any:
+        return self.surface_registration.stage_surface_registration_file(
+            path,
+            rendered_dir,
+            content_surface=content_surface,
+            content_hash=content_hash,
+            component_index=component_index,
+        )
+
+    def surface_registration_aspect_ratio_safe(self, ratio: Any, surface: str) -> bool:
+        return self.surface_registration.aspect_ratio_safe(ratio, surface)
+
+    def ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
+        return self.surface_registration.ig_media_type_for_surface(surface, media_type)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

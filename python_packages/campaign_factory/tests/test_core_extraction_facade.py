@@ -17,6 +17,7 @@ from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
+from campaign_factory.surface_registration import SurfaceRegistrationRepository
 
 
 def test_campaign_factory_initializes_core_services(tmp_path) -> None:
@@ -54,6 +55,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.exceptions.conn is factory.conn
         assert isinstance(factory.services.discoverability, DiscoverabilityRepository)
         assert factory.services.discoverability.conn is factory.conn
+        assert isinstance(factory.services.surface_registration, SurfaceRegistrationRepository)
+        assert factory.services.surface_registration.conn is factory.conn
     finally:
         factory.close()
 
@@ -1664,6 +1667,194 @@ def test_core_services_delegates_discoverability_methods_to_repository() -> None
         ("discoverability_origin_stage", ("caption", "dm_reference"), {}),
         ("post_discoverability_downstream_confidence", (), {}),
         ("discoverability_evidence_for_fields", ([("caption", "dm me")],), {}),
+    ]
+
+
+def test_surface_registration_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def register_surface_asset(self, *args, **kwargs):
+            calls.append(("register_surface_asset", args, kwargs))
+            return {"schema": "campaign_factory.register_surface_asset.v1"}
+
+        def surface_registration_components(self, *args, **kwargs):
+            calls.append(("surface_registration_components", args, kwargs))
+            return [{"path": Path("/tmp/surface.png")}]
+
+        def surface_registration_component(self, *args, **kwargs):
+            calls.append(("surface_registration_component", args, kwargs))
+            return {"path": Path("/tmp/surface.png")}
+
+        def stage_surface_registration_file(self, *args, **kwargs):
+            calls.append(("stage_surface_registration_file", args, kwargs))
+            return Path("/tmp/staged.png")
+
+    factory.services = FakeServices()
+
+    assert factory.register_surface_asset(
+        input_path=Path("/tmp/surface.png"),
+        surface="feed_single",
+        creator="Stacey",
+        campaign_slug="may",
+        instagram_post_caption="caption",
+        target_ratio="1:1",
+        model_slug="stacey",
+        operator="op",
+        alt_text=["first"],
+        story_asset_class="story_selfie",
+        story_cta_type="none",
+        story_cta_text="",
+        story_cta_target_url="",
+        story_intent="casual_selfie",
+        story_goal="engagement",
+        story_style="selfie",
+        snapchat_username="snap",
+        snapchat_display_name="Snap",
+        snapchat_cta_text="add me",
+    ) == {"schema": "campaign_factory.register_surface_asset.v1"}
+    assert factory._surface_registration_components(
+        input_path=Path("/tmp/surface.png"),
+        surface="feed_single",
+        target_ratio="1:1",
+    ) == [{"path": Path("/tmp/surface.png")}]
+    assert factory._surface_registration_component(
+        Path("/tmp/surface.png"),
+        surface="feed_single",
+        target_ratio="1:1",
+    ) == {"path": Path("/tmp/surface.png")}
+    assert factory._stage_surface_registration_file(
+        Path("/tmp/surface.png"),
+        Path("/tmp/rendered"),
+        content_surface="feed_single",
+        content_hash="abc123",
+        component_index=0,
+    ) == Path("/tmp/staged.png")
+
+    assert calls == [
+        ("register_surface_asset", (), {
+            "input_path": Path("/tmp/surface.png"),
+            "surface": "feed_single",
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "instagram_post_caption": "caption",
+            "target_ratio": "1:1",
+            "model_slug": "stacey",
+            "operator": "op",
+            "alt_text": ["first"],
+            "story_asset_class": "story_selfie",
+            "story_cta_type": "none",
+            "story_cta_text": "",
+            "story_cta_target_url": "",
+            "story_intent": "casual_selfie",
+            "story_goal": "engagement",
+            "story_style": "selfie",
+            "snapchat_username": "snap",
+            "snapchat_display_name": "Snap",
+            "snapchat_cta_text": "add me",
+        }),
+        ("surface_registration_components", (), {
+            "input_path": Path("/tmp/surface.png"),
+            "surface": "feed_single",
+            "target_ratio": "1:1",
+        }),
+        ("surface_registration_component", (Path("/tmp/surface.png"),), {
+            "surface": "feed_single",
+            "target_ratio": "1:1",
+        }),
+        ("stage_surface_registration_file", (Path("/tmp/surface.png"), Path("/tmp/rendered")), {
+            "content_surface": "feed_single",
+            "content_hash": "abc123",
+            "component_index": 0,
+        }),
+    ]
+
+
+def test_core_services_delegates_surface_registration_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeSurfaceRegistration:
+        def register_surface_asset(self, *args, **kwargs):
+            calls.append(("register_surface_asset", args, kwargs))
+            return {"schema": "campaign_factory.register_surface_asset.v1"}
+
+        def surface_registration_components(self, *args, **kwargs):
+            calls.append(("surface_registration_components", args, kwargs))
+            return [{"path": Path("/tmp/surface.png")}]
+
+        def surface_registration_component(self, *args, **kwargs):
+            calls.append(("surface_registration_component", args, kwargs))
+            return {"path": Path("/tmp/surface.png")}
+
+        def stage_surface_registration_file(self, *args, **kwargs):
+            calls.append(("stage_surface_registration_file", args, kwargs))
+            return Path("/tmp/staged.png")
+
+    services.surface_registration = FakeSurfaceRegistration()
+
+    assert services.register_surface_asset(
+        input_path=Path("/tmp/surface.png"),
+        surface="feed_single",
+        creator="Stacey",
+        campaign_slug="may",
+        instagram_post_caption="caption",
+    ) == {"schema": "campaign_factory.register_surface_asset.v1"}
+    assert services.surface_registration_components(
+        input_path=Path("/tmp/surface.png"),
+        surface="feed_single",
+        target_ratio="1:1",
+    ) == [{"path": Path("/tmp/surface.png")}]
+    assert services.surface_registration_component(
+        Path("/tmp/surface.png"),
+        surface="feed_single",
+        target_ratio="1:1",
+    ) == {"path": Path("/tmp/surface.png")}
+    assert services.stage_surface_registration_file(
+        Path("/tmp/surface.png"),
+        Path("/tmp/rendered"),
+        content_surface="feed_single",
+        content_hash="abc123",
+        component_index=0,
+    ) == Path("/tmp/staged.png")
+
+    assert calls == [
+        ("register_surface_asset", (), {
+            "input_path": Path("/tmp/surface.png"),
+            "surface": "feed_single",
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "instagram_post_caption": "caption",
+            "target_ratio": None,
+            "model_slug": None,
+            "operator": None,
+            "alt_text": None,
+            "story_asset_class": None,
+            "story_cta_type": None,
+            "story_cta_text": None,
+            "story_cta_target_url": None,
+            "story_intent": None,
+            "story_goal": None,
+            "story_style": None,
+            "snapchat_username": None,
+            "snapchat_display_name": None,
+            "snapchat_cta_text": None,
+        }),
+        ("surface_registration_components", (), {
+            "input_path": Path("/tmp/surface.png"),
+            "surface": "feed_single",
+            "target_ratio": "1:1",
+        }),
+        ("surface_registration_component", (Path("/tmp/surface.png"),), {
+            "surface": "feed_single",
+            "target_ratio": "1:1",
+        }),
+        ("stage_surface_registration_file", (Path("/tmp/surface.png"), Path("/tmp/rendered")), {
+            "content_surface": "feed_single",
+            "content_hash": "abc123",
+            "component_index": 0,
+        }),
     ]
 
 
