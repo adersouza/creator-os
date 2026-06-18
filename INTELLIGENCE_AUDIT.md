@@ -46,8 +46,8 @@ cooldowns are fixed on `codex/intelligence-track-s-pdq-cluster-cooldown`: real
 PDQ fingerprints are computed into rendered-asset metadata when assets enter
 inventory safety checks, near matches are grouped at the Campaign Factory safe
 distance, and cross-account reservations/readiness block reuse by that cluster.
-Track Q model-backed quality work, live/operator virality report generation,
-and dashboard video-PDQ follow-up remain open. ContentForge virality gating is
+Track Q live/operator report generation, Winner-DNA feedback, and dashboard
+video-PDQ follow-up remain open. ContentForge virality gating is
 partially fixed on `codex/intelligence-track-q-virality-gate`: the Campaign
 Factory audit contract now has a default-off `virality` layer that consumes a
 supplied Higgsfield `virality_predictor` report and blocks fan-out on missing
@@ -56,7 +56,12 @@ risk. ContentForge does not make paid/live Higgsfield calls from
 `/api/similarity`. Reel Factory post-render virality readiness is fixed on
 `codex/intelligence-track-q-reel-virality-qc`: readiness can now require a
 supplied virality report sidecar and marks missing or low evidence as
-`not_ready` without making provider calls.
+`not_ready` without making provider calls. ContentForge model-backed quality
+ingestion is fixed on `codex/intelligence-track-q-video-analysis-gate`: the
+Campaign Factory audit contract now has a default-off `videoAnalysis` layer
+that consumes supplied Higgsfield `video_analysis` or VLM evidence and blocks
+fan-out on missing configured evidence or low model-backed overall,
+subject-clarity, first-three-seconds, or shareability scores.
 
 Track I Campaign Factory data-plumbing silent-drop handling is fixed on
 `codex/intelligence-track-i-data-plumbing`: ThreadsDashboard performance sync
@@ -85,7 +90,7 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 | Track | Score | Verdict |
 |-------|-------|---------|
 | **Intelligence / learning loop** | **5.9/10** | Partially closed — Campaign Factory scoring is normalized/decayed/shrunk, imports TD metric history curves, ThreadsDashboard capture repair is upstream-merged, and Reference Factory now ranks by measured prompt outcomes when available; dashboard video-PDQ follow-up remains open. |
-| **Content quality / virality** | **5.4/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, heuristic creative warnings, configured Higgsfield virality reports, and Reel Factory post-render virality sidecars can now block readiness/fan-out; model-backed quality/subject semantics and live/operator report generation remain open. |
+| **Content quality / virality** | **5.6/10** | Partially closed — minimum dimensions plus Campaign Factory caption safe-zone, readability, hook, deterministic watchability, heuristic creative warnings, configured Higgsfield virality reports, supplied model-backed video-analysis reports, and Reel Factory post-render virality sidecars can now block readiness/fan-out; live/operator report generation and Winner-DNA feedback remain open. |
 | **Anti-shadowban safety** | **~7/10** (was ~4; **+3 for Track S shipped + cooldown follow-through**) | Variation batches now gate on **real PDQ + SSCD collisions (blocking)**, not SSIM; rendered assets persist Campaign Factory PDQ clusters for cross-account cooldowns; and IG variation presets fail closed unless replacement account audio is assigned. Remaining gap to higher: dashboard aHash/video PDQ upstream work. |
 
 **The unifying story:** the system reliably produces a *valid, undetectable-by-SSIM, schema-conformant* file — and does almost nothing to ensure it's **good**, that it **won't hash-collide across accounts**, or that what it learned **changes what it makes next**. Three different audits, one root pattern: **real signals exist but are computed-and-ignored.**
@@ -94,11 +99,11 @@ Everything else below was **verified to still hold on `main`** (the headlines we
 
 ## Cross-cutting themes (fix these patterns, not just instances)
 
-1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/deterministic watchability/heuristic creative warnings plus supplied virality reports now block Campaign Factory upload readiness. Reel Factory readiness can also require supplied post-render virality evidence. Model-backed subject/creative scoring is still unused or advisory. The fix is often *wiring*, not *building*.
-2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, and Campaign Factory watchability now blocks on deterministic OCR/hook/quality evidence. Quality still lacks model-backed subject/creative/virality scoring.
+1. **Real detectors/scorers exist but are wired as advisory, never enforced.** PDQ/SSCD (real Meta-grade duplicate detectors) now block Campaign Factory variation, and safe-zone/readability/hook/deterministic watchability/heuristic creative warnings plus supplied virality and video-analysis reports now block Campaign Factory upload readiness. Reel Factory readiness can also require supplied post-render virality evidence. Live generation of those model-backed reports is still not automated. The fix is often *wiring*, not *building*.
+2. **The right metric is computed but the wrong one is the gate.** Distinctness now gates on PDQ/SSCD instead of SSIM for Campaign Factory variation, Reference Factory can rank by measured outcomes when available, and Campaign Factory watchability now blocks on deterministic OCR/hook/quality/model-report evidence. Quality still lacks automated model-report generation and Winner-DNA feedback.
 3. **Learned intelligence dead-ends as an operator note.** Winner-DNA, recommendation trust score, creative recommendations — all computed, none auto-fed back into generation or ranking.
 4. **The data pipeline that feeds "smart" is improving but still has weak return paths.** The attribution contracts now require causal IDs and Campaign Factory imports metric history curves; remaining gaps are trust-score self-correction, Winner-DNA prompt feedback, and dashboard video-PDQ upstream work.
-5. **In-environment AI is underused.** Higgsfield `virality_predictor` can now feed a default-off ContentForge gate and a Reel Factory post-render readiness gate when a report is supplied, but live/operator report generation and `video_analysis` subject/creative scoring are still not wired into generation decisions.
+5. **In-environment AI is underused.** Higgsfield `virality_predictor` can now feed a default-off ContentForge gate and a Reel Factory post-render readiness gate when a report is supplied, and supplied Higgsfield `video_analysis` / VLM reports can block Campaign Factory fan-out. Live/operator report generation and automatic prompt feedback are still not wired into generation decisions.
 
 ---
 
@@ -121,15 +126,15 @@ Reference Factory now has a measured-outcome feedback path for generated prompts
 
 ---
 
-## Track Q — Content quality / virality (4.8/10)
+## Track Q — Content quality / virality (5.6/10)
 
 | Sev | File:line | Fix |
 |-----|-----------|-----|
-| Fixed / Critical remainder | `repurposer/qa/quality.py` `is_quality_acceptable` | Minimum-dimension bug fixed: both axes must now meet the 720px floor, and 1080×404 is covered by regression test. Remaining Track Q work: model-backed subject/framing quality and virality scoring. |
-| Fixed / Critical remainder | `contentforge/.../similarity/route.js`, ContentForge contract docs, `reel_factory/readiness_check.py` | Campaign Factory safe-zone, caption readability, hook visibility, deterministic watchability, heuristic creative-quality warnings, and requested Higgsfield virality reports now block upload readiness in `campaign_factory_audit.v1.8`; the default ContentForge profile remains advisory. Caption OCR boxes include `fontHeightRatio` / `fontSizeScore`, `caption_text_too_small` blocks, and available VMAF/CAMBI, loudnorm LUFS/true-peak, black/silence, and crop/letterbox evidence now emits blocking watchability codes. Reel Factory readiness can require supplied post-render virality sidecars and marks missing/low evidence as `not_ready`. Remaining: model-backed subject/creative quality and live/operator virality report generation. |
-| Critical | `contentforge/lib/creative-quality-audit.js:237` | Self-labeled `semanticEngine:"heuristic_v1"`, `modelBacked:false`. Hook scoring = keyword bag-matching. Replace with an LLM/VLM judge (or Higgsfield `video_analysis`) scoring the first-3s frames + OCR'd hook against learned winning archetypes. |
-| High | `route.js:1540` | "Hook strength" = `earlyTextBoxes>0 ? 100 : avgDelta>=10 ? 60 : 20` — now blocks Campaign Factory fan-out when weak, but still only detects presence of text/motion and cannot tell good from bad. Replace or augment with model-backed first-3s scoring. |
-| Partial | **Higgsfield `virality_predictor` gate** | ContentForge now has a blocking-capable, default-off `virality` layer that ingests supplied Higgsfield `virality_predictor` reports and blocks Campaign Factory fan-out on low/missing configured evidence. Reel Factory readiness can require a supplied post-render virality sidecar and blocks rendered outputs on low/missing evidence. Remaining: live/operator report generation and model-backed `video_analysis` scoring. |
+| Fixed / Critical remainder | `repurposer/qa/quality.py` `is_quality_acceptable` | Minimum-dimension bug fixed: both axes must now meet the 720px floor, and 1080×404 is covered by regression test. Remaining Track Q work: live/operator report generation and Winner-DNA prompt feedback. |
+| Fixed / Critical remainder | `contentforge/.../similarity/route.js`, ContentForge contract docs, `reel_factory/readiness_check.py` | Campaign Factory safe-zone, caption readability, hook visibility, deterministic watchability, heuristic creative-quality warnings, requested Higgsfield virality reports, and requested model-backed video-analysis reports now block upload readiness in `campaign_factory_audit.v1.9`; the default ContentForge profile remains advisory. Caption OCR boxes include `fontHeightRatio` / `fontSizeScore`, `caption_text_too_small` blocks, and available VMAF/CAMBI, loudnorm LUFS/true-peak, black/silence, and crop/letterbox evidence now emits blocking watchability codes. Reel Factory readiness can require supplied post-render virality sidecars and marks missing/low evidence as `not_ready`. Remaining: live/operator report generation. |
+| Partial | `contentforge/lib/creative-quality-audit.js:237`, `video-analysis-gate.js` | The built-in `creativeQuality` fallback remains `semanticEngine:"heuristic_v1"`, but Campaign Factory can now request a model-backed `videoAnalysis` layer that consumes supplied Higgsfield `video_analysis` / VLM reports and blocks low overall, subject-clarity, first-3-second, or shareability evidence. Remaining: automatic report generation and learned-archetype comparison. |
+| Partial | `route.js:1540`, `video-analysis-gate.js` | "Hook strength" heuristic still only detects presence of text/motion, but requested `videoAnalysis` evidence can now provide model-backed first-three-seconds scoring and block weak openings. Remaining: make report generation automatic. |
+| Partial | **Higgsfield `virality_predictor` / `video_analysis` gates** | ContentForge now has blocking-capable, default-off `virality` and `videoAnalysis` layers that ingest supplied Higgsfield/VLM reports and block Campaign Factory fan-out on low/missing configured evidence. Reel Factory readiness can require a supplied post-render virality sidecar and blocks rendered outputs on low/missing evidence. Remaining: live/operator report generation. |
 | Fixed / Critical remainder | `route.js:1450-1575` | Caption readability now includes `fontHeightRatio` and `fontSizeScore`, and tiny detected text emits `caption_text_too_small`, which blocks Campaign Factory fan-out. Remaining: validate thresholds against real creator footage and add subject/crop/model-backed legibility checks. |
 | Med | `reel_factory/winner_dna.py:30-45`, `campaign_store.py:799-806` | Winner-DNA = substring keyword matching; `prompt_focus` is a 5-value enum dead-ending as an operator note. Feed winning scene/pose/motion/caption-archetype directly into the prompt-assembly step; upgrade feature extraction to VLM on the actual winning videos. |
 | Med | `reel_factory/ai_visual_qc.py` | Named "AI visual QC", contains no model (OpenCV blur/jump thresholds). Either add a model or rename; today it's a heuristic. |
@@ -157,12 +162,12 @@ PR #44 made variation real (per-index edits, sibling gate). **But the gate still
 
 ## Tools to adopt (map to the gaps)
 
-- **Higgsfield `virality_predictor` + `video_analysis`** (already connected) → real virality gate (Track Q).
+- **Higgsfield `virality_predictor` + `video_analysis`** (already connected) → supplied-report gates are wired; automated report generation remains (Track Q).
 - **PDQ** (`facebook/ThreatExchange`) + **SSCD** (`facebookresearch/sscd-copy-detection`, model already referenced) → real distinctness metric (Track S); both detectors already in `contentforge/lib`.
 - **OpenCLIP / SigLIP** → semantic creative/hook scoring vs winning references (Track Q).
 - **PySceneDetect** → real scene-aware editorial variation (Tracks Q+S).
 - **Thompson-sampling bandit** or **River** (online ML) → turn ranking into actual learning (Track I).
-- **VMAF/CAMBI + loudnorm/cropdetect** → wired into deterministic Campaign Factory watchability blocking when local FFmpeg evidence is available (Track Q); model-backed subject/creative/virality scoring remains open.
+- **VMAF/CAMBI + loudnorm/cropdetect** → wired into deterministic Campaign Factory watchability blocking when local FFmpeg evidence is available (Track Q); supplied model-backed virality/video-analysis evidence can block, but automated report generation remains open.
 
 ## Research prompts (external 2026 knowledge — give to Claude/ChatGPT deep-research)
 
@@ -230,7 +235,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. ~~**Track I capture bugs**~~ ✓ **UPSTREAM-FIXED (ThreadsDashboard PR #129)** — full-total monotonic guards, `snapshot_at` retention, Threads reach/saves semantics, and AP0-2 metric reconciliation are merged in the dashboard source repo.
 3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
-4. **Track Q quality floor** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative blocking are fixed; model-backed subject/creative gates remain.
+4. **Track Q quality floor** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative and supplied model-backed video-analysis blocking are fixed; live/operator report generation remains.
 5. **Higgsfield virality wiring** (Track Q) — ContentForge report-ingestion and Reel Factory post-render sidecar gates are fixed; live/operator report generation remains.
 6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, and explicit unmeasured state are in the Campaign Factory scoring seam.
 7. ~~**Track S rendered PDQ cluster cooldown**~~ ✓ **FIXED** — rendered asset metadata now carries real PDQ fingerprints/clusters and cross-account inventory cooldowns consume the cluster.

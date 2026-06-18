@@ -6,6 +6,7 @@ import {
   buildWatchabilityWarnings,
 } from "../app/api/similarity/route.js";
 import { buildViralityGate } from "../lib/virality-gate.js";
+import { buildVideoAnalysisGate } from "../lib/video-analysis-gate.js";
 
 test("readiness summary blocks severe compression failures", function () {
   var summary = buildReadinessSummary({
@@ -323,6 +324,65 @@ test("campaign profile blocks requested virality gate when report is missing", f
   assert.equal(virality.available, false);
   assert.equal(summary.uploadReady, false);
   assert.equal(summary.blockingCodes.includes("virality_not_configured"), true);
+});
+
+test("default profile keeps video analysis warnings advisory", function () {
+  var videoAnalysis = buildVideoAnalysisGate({
+    provider: "higgsfield_video_analysis",
+    score: 55,
+    subjectClarityScore: 59,
+    firstThreeSecondsScore: 58,
+    shareabilityScore: 57,
+  }, { required: true });
+  var summary = buildReadinessSummary({ videoAnalysis }, { videoAnalysis: videoAnalysis.verdict }, {
+    auditProfile: "default",
+  });
+
+  assert.equal(videoAnalysis.modelBacked, true);
+  assert.equal(videoAnalysis.verdict, "warn");
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("video_analysis_score_low"), true);
+  assert.equal(summary.warningCodes.includes("video_analysis_subject_clarity_low"), true);
+  assert.equal(summary.warningCodes.includes("video_analysis_first3s_low"), true);
+  assert.equal(summary.warningCodes.includes("video_analysis_shareability_low"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("campaign profile blocks low configured video analysis evidence", function () {
+  var videoAnalysis = buildVideoAnalysisGate({
+    provider: "higgsfield_video_analysis",
+    reportId: "va_test_1",
+    scores: {
+      overallScore: 0.50,
+      subjectClarityScore: 0.52,
+      firstThreeSecondsScore: 0.48,
+      shareabilityScore: 0.44,
+    },
+  }, { required: true });
+  var summary = buildReadinessSummary({ videoAnalysis }, { videoAnalysis: videoAnalysis.verdict }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(videoAnalysis.score, 50);
+  assert.equal(videoAnalysis.subjectClarityScore, 52);
+  assert.equal(videoAnalysis.firstThreeSecondsScore, 48);
+  assert.equal(videoAnalysis.shareabilityScore, 44);
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("video_analysis_score_low"), true);
+  assert.equal(summary.blockingCodes.includes("video_analysis_subject_clarity_low"), true);
+  assert.equal(summary.blockingCodes.includes("video_analysis_first3s_low"), true);
+  assert.equal(summary.blockingCodes.includes("video_analysis_shareability_low"), true);
+});
+
+test("campaign profile blocks requested video analysis gate when report is missing", function () {
+  var videoAnalysis = buildVideoAnalysisGate(null, { required: true });
+  var summary = buildReadinessSummary({ videoAnalysis }, { videoAnalysis: videoAnalysis.verdict }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(videoAnalysis.available, false);
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("video_analysis_not_configured"), true);
 });
 
 test("watchability warning classifier uses available quality and audio evidence", function () {

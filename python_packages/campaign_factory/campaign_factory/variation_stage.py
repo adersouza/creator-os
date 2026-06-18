@@ -9,7 +9,11 @@ from pipeline_contracts import validate_variant_assignment
 from .adapters.contentforge import audit_variation_batch
 from repurposer.pipeline import VariantPipeline
 
-CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {"campaign_factory_audit.v1.7", "campaign_factory_audit.v1.8"}
+CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
+    "campaign_factory_audit.v1.7",
+    "campaign_factory_audit.v1.8",
+    "campaign_factory_audit.v1.9",
+}
 
 
 def run_variation_stage(

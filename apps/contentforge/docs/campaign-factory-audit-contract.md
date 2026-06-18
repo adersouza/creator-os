@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.8",
+  "contractVersion": "campaign_factory_audit.v1.9",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -287,6 +287,13 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
+- `campaign_factory_audit.v1.9` adds the optional `videoAnalysis` layer. The
+  layer consumes a supplied Higgsfield `video_analysis` or equivalent VLM report;
+  ContentForge does not make paid/live provider calls from `/api/similarity`.
+  When Campaign Factory explicitly requests `layers: ["videoAnalysis"]`, missing
+  reports or low model-backed overall, subject-clarity, first-3-second, or
+  shareability scores are blocking. The default profile keeps these findings
+  advisory.
 - `campaign_factory_audit.v1.8` adds the optional `virality` layer. The layer
   consumes a supplied Higgsfield `virality_predictor` report; ContentForge does
   not make paid/live provider calls from `/api/similarity`. When Campaign
@@ -316,11 +323,11 @@ with Campaign Factory fields:
   detection, and crop/letterbox detection. Missing optional filters are not
   fail-closed; measured failures are blocking for `campaign_factory_v1`.
 - Safe-zone, caption readability, hook-visibility, watchability,
-  creative-quality, and requested virality warnings are blocking for
+  creative-quality, requested virality, and requested video-analysis warnings are blocking for
   `campaign_factory_v1` because
   assets with illegible captions, weak openings, bad loudness, letterboxing,
   banding/compression loss, unclear creative signals, or low configured
-  virality predictions are not draft-ready Campaign Factory outputs.
+  virality/video-analysis predictions are not draft-ready Campaign Factory outputs.
 - `referenceMatch` and the backward-compatible `multiAccountOriginalityAudit`
   are informational only. The layer name remains `originality` for API
   compatibility, but Campaign Factory treats it as a reference/variation meter.
@@ -373,6 +380,12 @@ Campaign Factory V1 should treat these as blockers:
 - `virality_score_low`
 - `virality_hook_score_low`
 - `virality_retention_risk_high`
+- `video_analysis_not_configured`
+- `video_analysis_score_missing`
+- `video_analysis_score_low`
+- `video_analysis_subject_clarity_low`
+- `video_analysis_first3s_low`
+- `video_analysis_shareability_low`
 - non-advisory layer failures such as `pdq_failed`
 
 ## Warning Codes
@@ -422,7 +435,8 @@ They are not readiness warning codes and should not block approval or export:
 The audit reports recognized text, OCR confidence, caption boxes, contrast,
 font-height ratio, safe-zone overlap, opening hook visibility, deterministic
 watchability metrics, and cover candidate diversity. Safe-zone, caption
-readability, hook, watchability, and creative-quality warnings block Campaign
+readability, hook, watchability, creative-quality, requested virality, and
+requested video-analysis warnings block Campaign
 Factory upload readiness; cover and reference-match signals remain review-only.
 Tesseract OCR runs on multiple preprocessed frame variants, including
 enhanced/upscaled and thresholded variants, then merges overlapping boxes before

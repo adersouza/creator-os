@@ -49,7 +49,7 @@ async function cleanupStaged(staged) {
 }
 
 function assertContract(body) {
-  assert.equal(body.contractVersion, "campaign_factory_audit.v1.8");
+  assert.equal(body.contractVersion, "campaign_factory_audit.v1.9");
   assert.equal(body.auditProfile, "campaign_factory_v1");
   assert.equal(typeof body.targetFile, "string");
   assert.equal(typeof body.readinessSummary.summaryText, "string");
