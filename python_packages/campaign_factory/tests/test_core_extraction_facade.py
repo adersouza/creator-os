@@ -8,6 +8,7 @@ from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_planning import CreativePlanningRepository
+from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.distribution import DistributionRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.graph import GraphRepository
@@ -45,6 +46,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.caption_family.conn is factory.conn
         assert isinstance(factory.services.distribution, DistributionRepository)
         assert factory.services.distribution.conn is factory.conn
+        assert isinstance(factory.services.decision_ledger, DecisionLedgerRepository)
+        assert factory.services.decision_ledger.conn is factory.conn
     finally:
         factory.close()
 
@@ -240,6 +243,38 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("caption_version_payload", args, kwargs))
             return {"captionVersionId": args[0]["id"]}
 
+        def decision_ledger_preview(self, *args, **kwargs):
+            calls.append(("decision_ledger_preview", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_preview.v1"}
+
+        def decision_ledger_report(self, *args, **kwargs):
+            calls.append(("decision_ledger_report", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_report.v1"}
+
+        def decision_ledger_summary(self, *args, **kwargs):
+            calls.append(("decision_ledger_summary", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_summary.v1"}
+
+        def decision_ledger_by_creator(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_creator", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_creator.v1"}
+
+        def decision_ledger_by_account(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_account", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_account.v1"}
+
+        def decision_ledger_by_surface(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_surface", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_surface.v1"}
+
+        def decision_ledger_by_decision_type(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_decision_type", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_decision_type.v1"}
+
+        def query_decision_ledger(self, *args, **kwargs):
+            calls.append(("query_decision_ledger", args, kwargs))
+            return {"decisionCount": 0}
+
     factory.services = FakeServices()
 
     assert factory.graph_id_for("campaigns", "camp_1", entity_type="campaign", payload={"slug": "may"}) == "graph_1"
@@ -352,6 +387,24 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory._caption_family_hashtags(["#one", "two"]) == ["#one"]
     assert factory._caption_version_by_id("cver_1") == {"captionVersionId": "cver_1"}
     assert factory._caption_version_payload({"id": "cver_1"}) == {"captionVersionId": "cver_1"}
+    assert factory.decision_ledger_preview(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.decision_ledger_preview.v1",
+    }
+    assert factory.decision_ledger_report(creator="Stacey") == {"schema": "creator_os.decision_ledger_report.v1"}
+    assert factory.decision_ledger_summary(creator="Stacey") == {"schema": "creator_os.decision_ledger_summary.v1"}
+    assert factory.decision_ledger_by_creator(creator="Stacey") == {
+        "schema": "creator_os.decision_ledger_by_creator.v1",
+    }
+    assert factory.decision_ledger_by_account(creator="Stacey", account_id="acct_1") == {
+        "schema": "creator_os.decision_ledger_by_account.v1",
+    }
+    assert factory.decision_ledger_by_surface(creator="Stacey", surface="story") == {
+        "schema": "creator_os.decision_ledger_by_surface.v1",
+    }
+    assert factory.decision_ledger_by_decision_type(creator="Stacey", decision_type="account_needs_story") == {
+        "schema": "creator_os.decision_ledger_by_decision_type.v1",
+    }
+    assert factory._query_decision_ledger(creator="Stacey") == {"decisionCount": 0}
 
     assert calls == [
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
@@ -483,6 +536,31 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("caption_family_hashtags", (["#one", "two"],), {}),
         ("caption_version_by_id", ("cver_1",), {}),
         ("caption_version_payload", ({"id": "cver_1"},), {}),
+        ("decision_ledger_preview", (), {
+            "creator": "Stacey",
+            "date": "2026-06-06",
+            "threadsdash_report": {},
+            "schedule_plan": None,
+            "time_plan": None,
+            "winner_expansion_report": None,
+            "winner_expansion_plan": None,
+            "variant_inventory_plan": None,
+            "variant_metrics_rollup": None,
+            "account_tiers": None,
+            "generated_at": None,
+        }),
+        ("decision_ledger_report", (), {"creator": "Stacey"}),
+        ("decision_ledger_summary", (), {"creator": "Stacey"}),
+        ("decision_ledger_by_creator", (), {"creator": "Stacey"}),
+        ("decision_ledger_by_account", (), {"creator": "Stacey", "account_id": "acct_1"}),
+        ("decision_ledger_by_surface", (), {"creator": "Stacey", "surface": "story"}),
+        ("decision_ledger_by_decision_type", (), {"creator": "Stacey", "decision_type": "account_needs_story"}),
+        ("query_decision_ledger", (), {
+            "creator": "Stacey",
+            "account_id": None,
+            "surface": None,
+            "decision_type": None,
+        }),
     ]
 
 
@@ -1214,6 +1292,88 @@ def test_core_services_delegates_distribution_methods_to_distribution_repository
         ("next_valid_distribution_slot", ([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []), {}),
         ("distribution_summary", ("may",), {}),
         ("latest_distribution_plan_for_asset", ("asset_1",), {}),
+    ]
+
+
+def test_core_services_delegates_decision_ledger_methods_to_decision_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeDecisionLedger:
+        def decision_ledger_preview(self, *args, **kwargs):
+            calls.append(("decision_ledger_preview", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_preview.v1"}
+
+        def decision_ledger_report(self, *args, **kwargs):
+            calls.append(("decision_ledger_report", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_report.v1"}
+
+        def decision_ledger_summary(self, *args, **kwargs):
+            calls.append(("decision_ledger_summary", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_summary.v1"}
+
+        def decision_ledger_by_creator(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_creator", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_creator.v1"}
+
+        def decision_ledger_by_account(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_account", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_account.v1"}
+
+        def decision_ledger_by_surface(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_surface", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_surface.v1"}
+
+        def decision_ledger_by_decision_type(self, *args, **kwargs):
+            calls.append(("decision_ledger_by_decision_type", args, kwargs))
+            return {"schema": "creator_os.decision_ledger_by_decision_type.v1"}
+
+        def query_decision_ledger(self, *args, **kwargs):
+            calls.append(("query_decision_ledger", args, kwargs))
+            return {"decisionCount": 0}
+
+    services.decision_ledger = FakeDecisionLedger()
+
+    assert services.decision_ledger_preview(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.decision_ledger_preview.v1",
+    }
+    assert services.decision_ledger_report(creator="Stacey") == {"schema": "creator_os.decision_ledger_report.v1"}
+    assert services.decision_ledger_summary(creator="Stacey") == {"schema": "creator_os.decision_ledger_summary.v1"}
+    assert services.decision_ledger_by_creator(creator="Stacey") == {
+        "schema": "creator_os.decision_ledger_by_creator.v1",
+    }
+    assert services.decision_ledger_by_account(creator="Stacey", account_id="acct_1") == {
+        "schema": "creator_os.decision_ledger_by_account.v1",
+    }
+    assert services.decision_ledger_by_surface(creator="Stacey", surface="story") == {
+        "schema": "creator_os.decision_ledger_by_surface.v1",
+    }
+    assert services.decision_ledger_by_decision_type(creator="Stacey", decision_type="account_needs_story") == {
+        "schema": "creator_os.decision_ledger_by_decision_type.v1",
+    }
+    assert services.query_decision_ledger(creator="Stacey") == {"decisionCount": 0}
+
+    assert calls == [
+        ("decision_ledger_preview", (), {
+            "creator": "Stacey",
+            "date": "2026-06-06",
+            "threadsdash_report": None,
+            "schedule_plan": None,
+            "time_plan": None,
+            "winner_expansion_report": None,
+            "winner_expansion_plan": None,
+            "variant_inventory_plan": None,
+            "variant_metrics_rollup": None,
+            "account_tiers": None,
+            "generated_at": None,
+        }),
+        ("decision_ledger_report", (), {"creator": "Stacey"}),
+        ("decision_ledger_summary", (), {"creator": "Stacey"}),
+        ("decision_ledger_by_creator", (), {"creator": "Stacey"}),
+        ("decision_ledger_by_account", (), {"creator": "Stacey", "account_id": "acct_1"}),
+        ("decision_ledger_by_surface", (), {"creator": "Stacey", "surface": "story"}),
+        ("decision_ledger_by_decision_type", (), {"creator": "Stacey", "decision_type": "account_needs_story"}),
+        ("query_decision_ledger", (), {"creator": "Stacey"}),
     ]
 
 
