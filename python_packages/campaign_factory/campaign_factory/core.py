@@ -26,7 +26,7 @@ from .caption_outcome import build_caption_outcome_context, column_values, load_
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .db import connect, init_db
-from .learning_score import account_reward_baselines, aggregate_performance, performance_score
+from .learning_score import account_reward_baselines, aggregate_performance, performance_planning_score, performance_score
 from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
 from .persistence import json_load, row_to_dict, utc_now
 
@@ -22316,11 +22316,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "label": bucket["pattern"].get("label"),
                 "sampleSize": int(performance.get("count") or 0),
                 "performanceScore": self._performance_quality_score(performance),
+                "planningScore": self._performance_planning_score(performance),
+                "bandit": (performance.get("learning") or {}).get("bandit"),
                 "performance": performance,
             })
         return sorted(
             rankings,
             key=lambda item: (
+                -(item["planningScore"] if item.get("planningScore") is not None else -1),
                 -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
                 -int(item.get("sampleSize") or 0),
                 int((item.get("pattern") or {}).get("rank") or 999999),
@@ -22357,11 +22360,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 "label": preset.get("label") or preset_name,
                 "sampleSize": int(performance.get("count") or 0),
                 "performanceScore": self._performance_quality_score(performance),
+                "planningScore": self._performance_planning_score(performance),
+                "bandit": (performance.get("learning") or {}).get("bandit"),
                 "performance": performance,
             })
         return sorted(
             rankings,
             key=lambda item: (
+                -(item["planningScore"] if item.get("planningScore") is not None else -1),
                 -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
                 -int(item.get("sampleSize") or 0),
                 str(item.get("presetName") or ""),
@@ -22373,7 +22379,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         for item in rankings[:limit]:
             compact.append({
                 key: item.get(key)
-                for key in ("patternId", "clusterKey", "presetName", "label", "sampleSize", "performanceScore")
+                for key in ("patternId", "clusterKey", "presetName", "label", "sampleSize", "performanceScore", "planningScore", "bandit")
                 if item.get(key) is not None
             })
         return compact
@@ -25328,6 +25334,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
 
     def _performance_quality_score(self, summary: dict[str, Any]) -> int | None:
         return performance_score(summary)
+
+    def _performance_planning_score(self, summary: dict[str, Any]) -> int | None:
+        return performance_planning_score(summary)
 
     def _performance_snapshot_dimensions(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row.get("raw_json"), {})
