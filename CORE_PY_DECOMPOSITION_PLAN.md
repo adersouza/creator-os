@@ -67,6 +67,12 @@ These are called everywhere (not state): `record_event` (40), `campaign_by_slug`
 - **PR 0 (before any extraction):** build a characterization harness — a seeded SQLite fixture + golden-output tests that call the *current* public methods and snapshot their returns/DB side-effects. Cover at minimum the Tier-1 + Tier-2 clusters' public entry points. These tests must pass **identically** before and after each extraction — that's the definition of done for every move below.
 - Run the existing `pipeline_smoke` / `audio_smoke` / contract tests as additional guards.
 
+### Implementation ledger
+
+| Slice | Status | Verification notes |
+|-------|--------|--------------------|
+| PR 0 — characterization harness | In progress on `codex/core-py-characterization` | Adds `python_packages/campaign_factory/tests/test_core_characterization.py`, pinning Tier 1 graph/events/jobs/models/asset-import behavior and representative Tier 2 planning/distribution/exception/discoverability/decision/caption behavior. The harness uses seeded SQLite state, normalized generated identifiers, golden payload assertions, and DB side-effect counts. No production code moves are included. |
+
 ---
 
 ## PR sequence (one cluster per PR; facade keeps the public API)
