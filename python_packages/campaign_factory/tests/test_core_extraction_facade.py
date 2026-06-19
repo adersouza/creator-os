@@ -29,6 +29,7 @@ from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.finished_video import FinishedVideoRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.inventory_planning import InventoryPlanningRepository
+from campaign_factory.inventory_perceptual import InventoryPerceptualRepository
 from campaign_factory.inventory_reservations import InventoryReservationRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
@@ -152,6 +153,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.archive_quality.conn is factory.conn
         assert isinstance(factory.services.inventory_planning, InventoryPlanningRepository)
         assert factory.services.inventory_planning.conn is factory.conn
+        assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
+        assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
         assert factory.services.inventory_reservations.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
@@ -621,6 +624,51 @@ def test_campaign_factory_delegates_inventory_reservation_methods_to_services() 
             "reservation_adjusted_inventory",
             ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
             {"content_surface": "feed_single"},
+        ),
+    ]
+
+
+def test_campaign_factory_delegates_inventory_perceptual_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def asset_uniqueness_values(self, *args, **kwargs):
+            calls.append(("asset_uniqueness_values", args, kwargs))
+            return {"perceptualClusterId": "pdq:abc"}
+
+        def ensure_rendered_asset_perceptual_metadata(self, *args, **kwargs):
+            calls.append(("ensure_rendered_asset_perceptual_metadata", args, kwargs))
+            return {"id": "asset_1"}
+
+        def pdq_cluster_id_for_fingerprint(self, *args, **kwargs):
+            calls.append(("pdq_cluster_id_for_fingerprint", args, kwargs))
+            return "pdq:abc"
+
+    factory.services = FakeServices()
+
+    assert factory._asset_uniqueness_values(
+        {"id": "asset_1"},
+        metadata={"sourceFamilyId": "family_1"},
+    ) == {"perceptualClusterId": "pdq:abc"}
+    assert factory.ensure_rendered_asset_perceptual_metadata("asset_1", commit=False) == {"id": "asset_1"}
+    assert factory._pdq_cluster_id_for_fingerprint(
+        campaign_id="campaign_1",
+        rendered_asset_id="asset_1",
+        fingerprint="0" * 64,
+    ) == "pdq:abc"
+
+    assert calls == [
+        ("asset_uniqueness_values", ({"id": "asset_1"},), {"metadata": {"sourceFamilyId": "family_1"}}),
+        ("ensure_rendered_asset_perceptual_metadata", ("asset_1",), {"commit": False}),
+        (
+            "pdq_cluster_id_for_fingerprint",
+            (),
+            {
+                "campaign_id": "campaign_1",
+                "rendered_asset_id": "asset_1",
+                "fingerprint": "0" * 64,
+            },
         ),
     ]
 
@@ -3528,6 +3576,51 @@ def test_core_services_delegates_inventory_reservation_methods_to_repository() -
             "reservation_adjusted_inventory",
             ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
             {"content_surface": "feed_single"},
+        ),
+    ]
+
+
+def test_core_services_delegates_inventory_perceptual_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeInventoryPerceptual:
+        def asset_uniqueness_values(self, *args, **kwargs):
+            calls.append(("asset_uniqueness_values", args, kwargs))
+            return {"perceptualClusterId": "pdq:abc"}
+
+        def ensure_rendered_asset_perceptual_metadata(self, *args, **kwargs):
+            calls.append(("ensure_rendered_asset_perceptual_metadata", args, kwargs))
+            return {"id": "asset_1"}
+
+        def pdq_cluster_id_for_fingerprint(self, *args, **kwargs):
+            calls.append(("pdq_cluster_id_for_fingerprint", args, kwargs))
+            return "pdq:abc"
+
+    services.inventory_perceptual = FakeInventoryPerceptual()
+
+    assert services.asset_uniqueness_values(
+        {"id": "asset_1"},
+        metadata={"sourceFamilyId": "family_1"},
+    ) == {"perceptualClusterId": "pdq:abc"}
+    assert services.ensure_rendered_asset_perceptual_metadata("asset_1", commit=False) == {"id": "asset_1"}
+    assert services.pdq_cluster_id_for_fingerprint(
+        campaign_id="campaign_1",
+        rendered_asset_id="asset_1",
+        fingerprint="0" * 64,
+    ) == "pdq:abc"
+
+    assert calls == [
+        ("asset_uniqueness_values", ({"id": "asset_1"},), {"metadata": {"sourceFamilyId": "family_1"}}),
+        ("ensure_rendered_asset_perceptual_metadata", ("asset_1",), {"commit": False}),
+        (
+            "pdq_cluster_id_for_fingerprint",
+            (),
+            {
+                "campaign_id": "campaign_1",
+                "rendered_asset_id": "asset_1",
+                "fingerprint": "0" * 64,
+            },
         ),
     ]
 
