@@ -27,6 +27,7 @@ from .graph import GraphRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .models import ModelRepository
+from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
@@ -107,13 +108,9 @@ class CoreServices:
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_os_execution_readiness: Callable[..., dict[str, Any]],
         inventory_slo_report: Callable[..., dict[str, Any]],
-        surface_maturity_audit: Callable[[], dict[str, Any]],
         exception_queue_priority_report: Callable[[], dict[str, Any]],
         parent_factory_autopilot_plan: Callable[..., dict[str, Any]],
         inventory_autopilot_plan: Callable[..., dict[str, Any]],
-        operator_load_audit: Callable[[], dict[str, Any]],
-        failure_injection_suite: Callable[[], dict[str, Any]],
-        idempotency_proof: Callable[[], dict[str, Any]],
         inventory_stage_counts: Callable[[], dict[str, int]],
         inventory_production_requirements: Callable[..., dict[str, Any]],
         exception_queue_report: Callable[[], dict[str, Any]],
@@ -543,23 +540,24 @@ class CoreServices:
             creator_os_account_health_report=creator_os_account_health_report,
             content_surfaces=content_surfaces,
         )
+        self.operational_proofs = OperationalProofRepository(conn)
         self.readiness_report = ReadinessReportRepository(
             conn,
             creator_os_200_account_acceptance_suite=self.acceptance_suite.creator_os_200_account_acceptance_suite,
             inventory_slo_report=inventory_slo_report,
-            surface_maturity_audit=surface_maturity_audit,
+            surface_maturity_audit=self.operational_proofs.surface_maturity_audit,
             exception_queue_priority_report=exception_queue_priority_report,
             parent_factory_autopilot_plan=parent_factory_autopilot_plan,
             inventory_autopilot_plan=inventory_autopilot_plan,
-            operator_load_audit=operator_load_audit,
-            failure_injection_suite=failure_injection_suite,
-            idempotency_proof=idempotency_proof,
+            operator_load_audit=self.operational_proofs.operator_load_audit,
+            failure_injection_suite=self.operational_proofs.failure_injection_suite,
+            idempotency_proof=self.operational_proofs.idempotency_proof,
         )
         self.live_scale = LiveScaleRepository(
             conn,
             inventory_stage_counts=inventory_stage_counts,
             inventory_production_requirements=inventory_production_requirements,
-            operator_load_audit=operator_load_audit,
+            operator_load_audit=self.operational_proofs.operator_load_audit,
             exception_queue_report=exception_queue_report,
             reel_factory_parent_metrics=reel_factory_parent_metrics,
             score_fraction=score_fraction,
@@ -873,6 +871,21 @@ class CoreServices:
 
     def creator_os_certification_report(self) -> dict[str, Any]:
         return self.certification.creator_os_certification_report()
+
+    def failure_injection_suite(self) -> dict[str, Any]:
+        return self.operational_proofs.failure_injection_suite()
+
+    def idempotency_proof(self) -> dict[str, Any]:
+        return self.operational_proofs.idempotency_proof()
+
+    def surface_maturity_audit(self) -> dict[str, Any]:
+        return self.operational_proofs.surface_maturity_audit()
+
+    def operator_load_audit(self) -> dict[str, Any]:
+        return self.operational_proofs.operator_load_audit()
+
+    def idempotency_evidence_for_path(self, name: str) -> str:
+        return self.operational_proofs.idempotency_evidence_for_path(name)
 
     def create_pipeline_job(
         self,
