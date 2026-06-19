@@ -2,11 +2,11 @@ import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.
 import {
 	generatedPipelineContractSchemaManifest,
 	generatedPipelineContractSchemas,
-} from "./generated-schemas";
+} from "./generated-schemas.js";
 export {
 	generatedPipelineContractSchemaManifest,
 	generatedPipelineContractSchemas,
-} from "./generated-schemas";
+} from "./generated-schemas.js";
 
 export const AUDIO_INTENT_SCHEMA_ID = "pipeline.audio_intent.v1" as const;
 export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
