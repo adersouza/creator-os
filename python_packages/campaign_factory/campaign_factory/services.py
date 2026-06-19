@@ -42,6 +42,7 @@ from .surface_requirements import SurfaceRequirementsRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_summary import SurfaceSummaryRepository
 from .tribev2 import TribeV2Repository
+from .variant_lineage import VariantLineageRepository
 from .winner_expansion import WinnerExpansionRepository
 
 
@@ -74,20 +75,24 @@ class CoreServices:
         capture_discoverability_gate_rejection_evidence: Callable[..., dict[str, Any]],
         reference_hook_fallbacks: tuple[str, ...],
         normalize_content_surface: Callable[[str | None], str],
+        urlopen: Callable[..., Any],
         campaign_dirs: Callable[[str, str], dict[str, Any]],
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
         capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
         build_surface_readiness: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         asset_matches_creator: Callable[[dict[str, Any], str], bool],
         latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
+        content_trust_status_blockers: Callable[..., tuple[list[str], dict[str, str]]],
         reservation_adjusted_inventory: Callable[..., dict[str, int]],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
+        register_variant_asset: Callable[..., dict[str, Any]],
         suggest_simple_instagram_post_caption: Callable[..., str],
         text_hash: Callable[[str], str],
         validate_instagram_trial_reel_intent: Callable[..., str | None],
@@ -321,6 +326,31 @@ class CoreServices:
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             instagram_post_caption_for_asset=instagram_post_caption_for_asset,
             text_hash=text_hash,
+        )
+        self.variant_lineage = VariantLineageRepository(
+            conn,
+            settings,
+            utc_now=utc_now,
+            sha256_file=sha256_file,
+            sanitize_for_storage=sanitize_for_storage,
+            normalize_content_surface=normalize_content_surface,
+            urlopen=urlopen,
+            campaign_by_slug=self.campaign_by_slug,
+            rendered_asset=self.rendered_asset,
+            explain_publishability=explain_publishability,
+            capture_publishability_rejection_evidence_from_result=capture_publishability_rejection_evidence_from_result,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            audio_selection_for_asset=audio_selection_for_asset,
+            record_event=self.events.record_event,
+            caption_version_by_id=self.caption_family.caption_version_by_id,
+            model_slug_for_campaign=self.reel_execution.model_slug_for_campaign,
+            campaign_dirs=campaign_dirs,
+            latest_audit_for_asset=latest_audit_for_asset,
+            content_trust_status_blockers=content_trust_status_blockers,
+            instagram_post_caption_for_asset=instagram_post_caption_for_asset,
+            performance_snapshot_payload=performance_snapshot_payload,
+            aggregate_performance=aggregate_performance,
+            register_variant_asset=register_variant_asset,
         )
         self.distribution = DistributionRepository(
             conn,
@@ -3118,3 +3148,135 @@ class CoreServices:
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
         return dict(row)
+
+    def register_parent_reel(
+        self,
+        rendered_asset_id: str,
+        *,
+        operator: str | None = None,
+        status: str = "active",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.variant_lineage.register_parent_reel(
+            rendered_asset_id,
+            operator=operator,
+            status=status,
+            metadata=metadata,
+        )
+
+    def variant_plan(
+        self,
+        *,
+        parent_asset_id: str,
+        caption_version_id: str | None = None,
+        count: int = 10,
+        contentforge_preset: str = "caption_safe",
+        cooldown_days: int = 14,
+    ) -> dict[str, Any]:
+        return self.variant_lineage.variant_plan(
+            parent_asset_id=parent_asset_id,
+            caption_version_id=caption_version_id,
+            count=count,
+            contentforge_preset=contentforge_preset,
+            cooldown_days=cooldown_days,
+        )
+
+    def generate_variants(
+        self,
+        *,
+        parent_asset_id: str,
+        caption_version_id: str | None = None,
+        count: int = 10,
+        contentforge_preset: str = "caption_safe",
+        contentforge_base_url: str | None = None,
+        source_media_path: str | None = None,
+        contentforge_timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        return self.variant_lineage.generate_variants(
+            parent_asset_id=parent_asset_id,
+            caption_version_id=caption_version_id,
+            count=count,
+            contentforge_preset=contentforge_preset,
+            contentforge_base_url=contentforge_base_url,
+            source_media_path=source_media_path,
+            contentforge_timeout_seconds=contentforge_timeout_seconds,
+        )
+
+    def contentforge_variant_pack_blocked_result(
+        self,
+        *,
+        plan: dict[str, Any],
+        blocking_reason: str,
+        endpoint: str,
+        staged_source: str,
+        timeout_seconds: int,
+        error: BaseException,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.variant_lineage.contentforge_variant_pack_blocked_result(
+            plan=plan,
+            blocking_reason=blocking_reason,
+            endpoint=endpoint,
+            staged_source=staged_source,
+            timeout_seconds=timeout_seconds,
+            error=error,
+            extra=extra,
+        )
+
+    def register_variant_asset(
+        self,
+        *,
+        parent_asset_id: str,
+        variant_asset_id: str,
+        variant_family_id: str,
+        variant_index: int,
+        operations: list[dict[str, Any]],
+        caption_family_id: str | None = None,
+        caption_version_id: str | None = None,
+        contentforge_run_id: str | None = None,
+        contentforge_preset: str = "caption_safe",
+        qc_status: str = "passed",
+        cooldown_days: int = 14,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        return self.variant_lineage.register_variant_asset(
+            parent_asset_id=parent_asset_id,
+            variant_asset_id=variant_asset_id,
+            variant_family_id=variant_family_id,
+            variant_index=variant_index,
+            operations=operations,
+            caption_family_id=caption_family_id,
+            caption_version_id=caption_version_id,
+            contentforge_run_id=contentforge_run_id,
+            contentforge_preset=contentforge_preset,
+            qc_status=qc_status,
+            cooldown_days=cooldown_days,
+            commit=commit,
+        )
+
+    def parent_variant_inventory(self, campaign_slug: str) -> dict[str, Any]:
+        return self.variant_lineage.parent_variant_inventory(campaign_slug)
+
+    def variant_metrics_rollup(self, campaign_slug: str) -> dict[str, Any]:
+        return self.variant_lineage.variant_metrics_rollup(campaign_slug)
+
+    def concept_for_parent_asset(self, parent_asset_id: str) -> dict[str, Any] | None:
+        return self.variant_lineage.concept_for_parent_asset(parent_asset_id)
+
+    def variant_lineage_for_asset(self, rendered_asset_id: str) -> dict[str, Any]:
+        return self.variant_lineage.variant_lineage_for_asset(rendered_asset_id)
+
+    def concept_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.variant_lineage.concept_payload(row)
+
+    def variant_family_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        return self.variant_lineage.variant_family_payload(row)
+
+    def variant_lineage_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.variant_lineage.variant_lineage_asset_payload(row)
+
+    def variant_usage_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        return self.variant_lineage.variant_usage_payload(row)
+
+    def variant_rollup_group(self, snapshots: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+        return self.variant_lineage.variant_rollup_group(snapshots, key, output_key)
