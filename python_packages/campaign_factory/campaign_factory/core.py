@@ -594,6 +594,10 @@ class CampaignFactory:
             creator_os_daily_plan=self.creator_os_daily_plan,
             account_content_needs=self.account_content_needs,
             creator_content_needs=self.creator_content_needs,
+            account_surface_obligations_plan=self.account_surface_obligations_plan,
+            multi_surface_inventory_audit=self.multi_surface_inventory_audit,
+            surface_gap_report=self.surface_gap_report,
+            empty_surface_totals=self._empty_surface_totals,
             build_surface_inventory=lambda *args, **kwargs: self._build_surface_inventory(*args, **kwargs),
             last_surface_posted_at=lambda *args, **kwargs: self._last_surface_posted_at(*args, **kwargs),
             truthy=self._truthy,
@@ -4113,22 +4117,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        target_date = self._creator_os_target_date(date=date, generated_at=generated_at)
-        needs = self.creator_content_needs(creator=creator_label, date=target_date)
-        inventory = self.multi_surface_inventory_audit(creator=creator_label)
-        gap = self.surface_gap_report(creator=creator_label, date=target_date)
-        return {
-            "schema": "creator_os.creator_surface_summary.v1",
-            "creator": creator_label,
-            "date": target_date,
-            "accountsAnalyzed": needs.get("accountsAnalyzed", 0),
-            "surfaceRequirementsTracked": list(CONTENT_SURFACES),
-            "totalsBySurface": needs.get("totalsBySurface") or self._empty_surface_totals(),
-            "surfaceInventory": inventory.get("inventoryBySurface") or {},
-            "surfaceShortfalls": gap.get("surfaceGaps") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creator_surface_summary(creator=creator, date=date, generated_at=generated_at)
 
     def account_surface_summary(
         self,
@@ -4138,18 +4127,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_id: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        target_date = self._creator_os_target_date(date=date, generated_at=generated_at)
-        if account_id:
-            return self.account_content_needs(account_id=account_id, creator=creator_label, date=target_date)
-        obligations = self.account_surface_obligations_plan(creator=creator_label, date=target_date)
-        return {
-            "schema": "creator_os.account_surface_summary.v1",
-            "creator": creator_label,
-            "date": target_date,
-            "accounts": obligations.get("accounts") or [],
-            "wouldWrite": False,
-        }
+        return self.services.account_surface_summary(
+            creator=creator,
+            date=date,
+            account_id=account_id,
+            generated_at=generated_at,
+        )
 
     def creator_surface_gap_report(
         self,
@@ -4158,11 +4141,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        target_date = self._creator_os_target_date(date=date, generated_at=generated_at)
-        report = self.surface_gap_report(creator=creator, date=target_date)
-        report = dict(report)
-        report["schema"] = "creator_os.creator_surface_gap_report.v1"
-        return report
+        return self.services.creator_surface_gap_report(creator=creator, date=date, generated_at=generated_at)
 
     def story_inventory_report(
         self,
