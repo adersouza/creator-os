@@ -37,6 +37,7 @@ from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_handoff import SurfaceHandoffRepository
+from campaign_factory.surface_requirements import SurfaceRequirementsRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.tribev2 import TribeV2Repository
@@ -94,6 +95,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.story_management.conn is factory.conn
         assert isinstance(factory.services.surface_handoff, SurfaceHandoffRepository)
         assert factory.services.surface_handoff.conn is factory.conn
+        assert isinstance(factory.services.surface_requirements, SurfaceRequirementsRepository)
+        assert factory.services.surface_requirements.conn is factory.conn
         assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
         assert factory.services.surface_summary.conn is factory.conn
         assert isinstance(factory.services.draft_inventory_gap, DraftInventoryGapRepository)
@@ -236,6 +239,148 @@ def test_campaign_factory_delegates_surface_summary_methods_to_services() -> Non
             {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
         ),
         ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
+
+
+def test_campaign_factory_delegates_surface_requirement_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def account_surface_obligations_plan(self, *args, **kwargs):
+            calls.append(("account_surface_obligations_plan", args, kwargs))
+            return {"schema": "campaign_factory.account_surface_obligations_plan.v1"}
+
+        def account_content_needs(self, *args, **kwargs):
+            calls.append(("account_content_needs", args, kwargs))
+            return {"schema": "campaign_factory.account_content_needs.v1"}
+
+        def account_surface_status(self, *args, **kwargs):
+            calls.append(("account_surface_status", args, kwargs))
+            return {"schema": "campaign_factory.account_surface_status.v1"}
+
+        def creator_content_needs(self, *args, **kwargs):
+            calls.append(("creator_content_needs", args, kwargs))
+            return {"schema": "campaign_factory.creator_content_needs.v1"}
+
+        def surface_gap_report(self, *args, **kwargs):
+            calls.append(("surface_gap_report", args, kwargs))
+            return {"schema": "campaign_factory.surface_gap_report.v1"}
+
+        def build_surface_status(self, *args, **kwargs):
+            calls.append(("build_surface_status", args, kwargs))
+            return {"schema": "campaign_factory.surface_status.v1"}
+
+        def account_content_requirement_rows(self, *args, **kwargs):
+            calls.append(("account_content_requirement_rows", args, kwargs))
+            return [{"id": "req_1"}]
+
+        def account_row_for_requirement_account(self, *args, **kwargs):
+            calls.append(("account_row_for_requirement_account", args, kwargs))
+            return {"id": "acct_1"}
+
+        def content_obligation_for_requirement(self, *args, **kwargs):
+            calls.append(("content_obligation_for_requirement", args, kwargs))
+            return {"surface": "story"}
+
+        def required_content_count(self, *args, **kwargs):
+            calls.append(("required_content_count", args, kwargs))
+            return 2
+
+        def empty_surface_totals(self, *args, **kwargs):
+            calls.append(("empty_surface_totals", args, kwargs))
+            return {"story": {"required": 0}}
+
+        def add_obligation_to_totals(self, *args, **kwargs):
+            calls.append(("add_obligation_to_totals", args, kwargs))
+
+        def requirement_active_on_date(self, *args, **kwargs):
+            calls.append(("requirement_active_on_date", args, kwargs))
+            return True
+
+        def surface_scheduled_count(self, *args, **kwargs):
+            calls.append(("surface_scheduled_count", args, kwargs))
+            return 1
+
+        def surface_completed_count(self, *args, **kwargs):
+            calls.append(("surface_completed_count", args, kwargs))
+            return 0
+
+        def last_surface_posted_at(self, *args, **kwargs):
+            calls.append(("last_surface_posted_at", args, kwargs))
+            return "2026-06-05T12:00:00+00:00"
+
+        def surface_scheduled_for_account(self, *args, **kwargs):
+            calls.append(("surface_scheduled_for_account", args, kwargs))
+            return True
+
+        def surface_completed_for_account(self, *args, **kwargs):
+            calls.append(("surface_completed_for_account", args, kwargs))
+            return False
+
+    factory.services = FakeServices()
+
+    assert factory.account_surface_obligations_plan(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.account_surface_obligations_plan.v1",
+    }
+    assert factory.account_content_needs(account_id="acct_1", creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.account_content_needs.v1",
+    }
+    assert factory.account_surface_status(account_id="acct_1", date="2026-06-06") == {
+        "schema": "campaign_factory.account_surface_status.v1",
+    }
+    assert factory.creator_content_needs(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.creator_content_needs.v1",
+    }
+    assert factory.surface_gap_report(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.surface_gap_report.v1",
+    }
+    assert factory._build_surface_status(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.surface_status.v1",
+    }
+    assert factory._account_content_requirement_rows(creator="Stacey") == [{"id": "req_1"}]
+    assert factory._account_row_for_requirement_account("acct_1") == {"id": "acct_1"}
+    assert factory._content_obligation_for_requirement({"id": "req_1"}, "2026-06-06") == {"surface": "story"}
+    assert factory._required_content_count({"id": "req_1"}, "2026-06-06") == 2
+    assert factory._empty_surface_totals() == {"story": {"required": 0}}
+    totals = {"story": {"required": 0}}
+    factory._add_obligation_to_totals(totals, {"surface": "story"})
+    assert factory._requirement_active_on_date({"id": "req_1"}, "2026-06-06") is True
+    assert factory._surface_scheduled_count("acct_1", "ig_1", "story", "2026-06-06") == 1
+    assert factory._surface_completed_count("acct_1", "ig_1", "story", "2026-06-06") == 0
+    assert factory._last_surface_posted_at(
+        account_id="acct_1",
+        instagram_account_id="ig_1",
+        surface="story",
+        before_date="2026-06-06",
+    ) == "2026-06-05T12:00:00+00:00"
+    assert factory._surface_scheduled_for_account("acct_1", "ig_1", "story", "2026-06-06") is True
+    assert factory._surface_completed_for_account("acct_1", "ig_1", "story", "2026-06-06") is False
+
+    assert calls == [
+        ("account_surface_obligations_plan", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("account_content_needs", (), {"account_id": "acct_1", "creator": "Stacey", "date": "2026-06-06"}),
+        ("account_surface_status", (), {"account_id": "acct_1", "creator": None, "date": "2026-06-06"}),
+        ("creator_content_needs", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("build_surface_status", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("account_content_requirement_rows", (), {"creator": "Stacey", "account_id": None}),
+        ("account_row_for_requirement_account", ("acct_1",), {}),
+        ("content_obligation_for_requirement", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("required_content_count", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("empty_surface_totals", (), {}),
+        ("add_obligation_to_totals", (totals, {"surface": "story"}), {}),
+        ("requirement_active_on_date", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("surface_scheduled_count", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("surface_completed_count", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("last_surface_posted_at", (), {
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "surface": "story",
+            "before_date": "2026-06-06",
+        }),
+        ("surface_scheduled_for_account", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("surface_completed_for_account", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
     ]
 
 
@@ -1473,6 +1618,148 @@ def test_core_services_delegates_surface_summary_methods_to_surface_summary_repo
             {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
         ),
         ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
+
+
+def test_core_services_delegates_surface_requirement_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeSurfaceRequirements:
+        def account_surface_obligations_plan(self, *args, **kwargs):
+            calls.append(("account_surface_obligations_plan", args, kwargs))
+            return {"schema": "campaign_factory.account_surface_obligations_plan.v1"}
+
+        def account_content_needs(self, *args, **kwargs):
+            calls.append(("account_content_needs", args, kwargs))
+            return {"schema": "campaign_factory.account_content_needs.v1"}
+
+        def account_surface_status(self, *args, **kwargs):
+            calls.append(("account_surface_status", args, kwargs))
+            return {"schema": "campaign_factory.account_surface_status.v1"}
+
+        def creator_content_needs(self, *args, **kwargs):
+            calls.append(("creator_content_needs", args, kwargs))
+            return {"schema": "campaign_factory.creator_content_needs.v1"}
+
+        def surface_gap_report(self, *args, **kwargs):
+            calls.append(("surface_gap_report", args, kwargs))
+            return {"schema": "campaign_factory.surface_gap_report.v1"}
+
+        def build_surface_status(self, *args, **kwargs):
+            calls.append(("build_surface_status", args, kwargs))
+            return {"schema": "campaign_factory.surface_status.v1"}
+
+        def account_content_requirement_rows(self, *args, **kwargs):
+            calls.append(("account_content_requirement_rows", args, kwargs))
+            return [{"id": "req_1"}]
+
+        def account_row_for_requirement_account(self, *args, **kwargs):
+            calls.append(("account_row_for_requirement_account", args, kwargs))
+            return {"id": "acct_1"}
+
+        def content_obligation_for_requirement(self, *args, **kwargs):
+            calls.append(("content_obligation_for_requirement", args, kwargs))
+            return {"surface": "story"}
+
+        def required_content_count(self, *args, **kwargs):
+            calls.append(("required_content_count", args, kwargs))
+            return 2
+
+        def empty_surface_totals(self, *args, **kwargs):
+            calls.append(("empty_surface_totals", args, kwargs))
+            return {"story": {"required": 0}}
+
+        def add_obligation_to_totals(self, *args, **kwargs):
+            calls.append(("add_obligation_to_totals", args, kwargs))
+
+        def requirement_active_on_date(self, *args, **kwargs):
+            calls.append(("requirement_active_on_date", args, kwargs))
+            return True
+
+        def surface_scheduled_count(self, *args, **kwargs):
+            calls.append(("surface_scheduled_count", args, kwargs))
+            return 1
+
+        def surface_completed_count(self, *args, **kwargs):
+            calls.append(("surface_completed_count", args, kwargs))
+            return 0
+
+        def last_surface_posted_at(self, *args, **kwargs):
+            calls.append(("last_surface_posted_at", args, kwargs))
+            return "2026-06-05T12:00:00+00:00"
+
+        def surface_scheduled_for_account(self, *args, **kwargs):
+            calls.append(("surface_scheduled_for_account", args, kwargs))
+            return True
+
+        def surface_completed_for_account(self, *args, **kwargs):
+            calls.append(("surface_completed_for_account", args, kwargs))
+            return False
+
+    services.surface_requirements = FakeSurfaceRequirements()
+
+    assert services.account_surface_obligations_plan(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.account_surface_obligations_plan.v1",
+    }
+    assert services.account_content_needs(account_id="acct_1", creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.account_content_needs.v1",
+    }
+    assert services.account_surface_status(account_id="acct_1", date="2026-06-06") == {
+        "schema": "campaign_factory.account_surface_status.v1",
+    }
+    assert services.creator_content_needs(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.creator_content_needs.v1",
+    }
+    assert services.surface_gap_report(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.surface_gap_report.v1",
+    }
+    assert services.build_surface_status(creator="Stacey", date="2026-06-06") == {
+        "schema": "campaign_factory.surface_status.v1",
+    }
+    assert services.account_content_requirement_rows(creator="Stacey") == [{"id": "req_1"}]
+    assert services.account_row_for_requirement_account("acct_1") == {"id": "acct_1"}
+    assert services.content_obligation_for_requirement({"id": "req_1"}, "2026-06-06") == {"surface": "story"}
+    assert services.required_content_count({"id": "req_1"}, "2026-06-06") == 2
+    assert services.empty_surface_totals() == {"story": {"required": 0}}
+    totals = {"story": {"required": 0}}
+    services.add_obligation_to_totals(totals, {"surface": "story"})
+    assert services.requirement_active_on_date({"id": "req_1"}, "2026-06-06") is True
+    assert services.surface_scheduled_count("acct_1", "ig_1", "story", "2026-06-06") == 1
+    assert services.surface_completed_count("acct_1", "ig_1", "story", "2026-06-06") == 0
+    assert services.last_surface_posted_at(
+        account_id="acct_1",
+        instagram_account_id="ig_1",
+        surface="story",
+        before_date="2026-06-06",
+    ) == "2026-06-05T12:00:00+00:00"
+    assert services.surface_scheduled_for_account("acct_1", "ig_1", "story", "2026-06-06") is True
+    assert services.surface_completed_for_account("acct_1", "ig_1", "story", "2026-06-06") is False
+
+    assert calls == [
+        ("account_surface_obligations_plan", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("account_content_needs", (), {"account_id": "acct_1", "creator": "Stacey", "date": "2026-06-06"}),
+        ("account_surface_status", (), {"account_id": "acct_1", "creator": None, "date": "2026-06-06"}),
+        ("creator_content_needs", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("build_surface_status", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("account_content_requirement_rows", (), {"creator": "Stacey", "account_id": None}),
+        ("account_row_for_requirement_account", ("acct_1",), {}),
+        ("content_obligation_for_requirement", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("required_content_count", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("empty_surface_totals", (), {}),
+        ("add_obligation_to_totals", (totals, {"surface": "story"}), {}),
+        ("requirement_active_on_date", ({"id": "req_1"}, "2026-06-06"), {}),
+        ("surface_scheduled_count", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("surface_completed_count", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("last_surface_posted_at", (), {
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "surface": "story",
+            "before_date": "2026-06-06",
+        }),
+        ("surface_scheduled_for_account", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
+        ("surface_completed_for_account", ("acct_1", "ig_1", "story", "2026-06-06"), {}),
     ]
 
 
