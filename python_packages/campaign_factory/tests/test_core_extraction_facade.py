@@ -22,6 +22,7 @@ from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
+from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
@@ -84,6 +85,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.autonomy.conn is factory.conn
         assert isinstance(factory.services.account_memory, AccountMemoryRepository)
         assert factory.services.account_memory.conn is factory.conn
+        assert isinstance(factory.services.recommendation_accuracy_repo, RecommendationAccuracyRepository)
+        assert factory.services.recommendation_accuracy_repo.conn is factory.conn
     finally:
         factory.close()
 
@@ -231,6 +234,66 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         def account_memory_confidence(self, *args, **kwargs):
             calls.append(("account_memory_confidence", args, kwargs))
             return "low"
+
+        def recommendation_accuracy(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1", "campaign": args[0]}
+
+        def rebuild_recommendation_accuracy(self, *args, **kwargs):
+            calls.append(("rebuild_recommendation_accuracy", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1", "campaign": args[0]}
+
+        def recommendation_proof_summary(self, *args, **kwargs):
+            calls.append(("recommendation_proof_summary", args, kwargs))
+            return {"measuredCount": 1}
+
+        def rebuild_recommendation_accuracy_observations(self, *args, **kwargs):
+            calls.append(("rebuild_recommendation_accuracy_observations", args, kwargs))
+            return [{"id": "obs_1"}]
+
+        def upsert_recommendation_accuracy_observation(self, *args, **kwargs):
+            calls.append(("upsert_recommendation_accuracy_observation", args, kwargs))
+            return {"id": "obs_1"}
+
+        def recommendation_accuracy_observations(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_observations", args, kwargs))
+            return [{"id": "obs_1"}]
+
+        def recommendation_accuracy_report_payload(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_report_payload", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1"}
+
+        def persist_recommendation_accuracy_report(self, *args, **kwargs):
+            calls.append(("persist_recommendation_accuracy_report", args, kwargs))
+            return "recacc_report_1"
+
+        def recommendation_accuracy_drift(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_drift", args, kwargs))
+            return []
+
+        def recommendation_trust_score(self, *args, **kwargs):
+            calls.append(("recommendation_trust_score", args, kwargs))
+            return 80
+
+        def recommendation_trust_confidence(self, *args, **kwargs):
+            calls.append(("recommendation_trust_confidence", args, kwargs))
+            return "usable"
+
+        def recommendation_confidence_bucket(self, *args, **kwargs):
+            calls.append(("recommendation_confidence_bucket", args, kwargs))
+            return "usable"
+
+        def recommendation_audio_selection(self, *args, **kwargs):
+            calls.append(("recommendation_audio_selection", args, kwargs))
+            return {"id": "audsel_1"}
+
+        def recommendation_audio_match_status(self, *args, **kwargs):
+            calls.append(("recommendation_audio_match_status", args, kwargs))
+            return "recommended_audio_selected"
+
+        def recommendation_outcome_snapshot_ids(self, *args, **kwargs):
+            calls.append(("recommendation_outcome_snapshot_ids", args, kwargs))
+            return ["perf_1"]
 
         def create_creative_plan(self, *args, **kwargs):
             calls.append(("create_creative_plan", args, kwargs))
@@ -418,6 +481,29 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory._account_fatigue_from_pattern_stats([]) == {"level": "low"}
     assert factory._account_recommendation_outcomes("camp_1", "ig_1", "now") == {"measuredTotal": 0}
     assert factory._account_memory_confidence(1, {"measuredTotal": 0}) == "low"
+    assert factory.recommendation_accuracy("may", account="ig_1", window_days=7, persist=False) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+        "campaign": "may",
+    }
+    assert factory.rebuild_recommendation_accuracy("may", account="ig_1", window_days=7) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+        "campaign": "may",
+    }
+    assert factory._recommendation_proof_summary("camp_1") == {"measuredCount": 1}
+    assert factory._rebuild_recommendation_accuracy_observations("camp_1", account="ig_1") == [{"id": "obs_1"}]
+    assert factory._upsert_recommendation_accuracy_observation({"id": "rec_1"}, commit=True) == {"id": "obs_1"}
+    assert factory._recommendation_accuracy_observations("camp_1", account="ig_1", window_days=7) == [{"id": "obs_1"}]
+    assert factory._recommendation_accuracy_report_payload({"id": "camp_1", "slug": "may"}, [], [], account="ig_1", window_days=7) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+    }
+    assert factory._persist_recommendation_accuracy_report({"observations": []}, "camp_1", account="ig_1", window_days=7) == "recacc_report_1"
+    assert factory._recommendation_accuracy_drift([], []) == []
+    assert factory._recommendation_trust_score([], []) == 80
+    assert factory._recommendation_trust_confidence(10) == "usable"
+    assert factory._recommendation_confidence_bucket("medium", "high") == "usable"
+    assert factory._recommendation_audio_selection("rec_1") == {"id": "audsel_1"}
+    assert factory._recommendation_audio_match_status({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}) == "recommended_audio_selected"
+    assert factory._recommendation_outcome_snapshot_ids({"snapshots": [{"id": "perf_1"}]}, {}) == ["perf_1"]
     assert factory.create_creative_plan(name="daily", target_account="@creator") == {
         "schema": "campaign_factory.creative_plan.v1",
         "name": "daily",
@@ -569,6 +655,21 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("account_fatigue_from_pattern_stats", ([],), {}),
         ("account_recommendation_outcomes", ("camp_1", "ig_1", "now"), {}),
         ("account_memory_confidence", (1, {"measuredTotal": 0}), {}),
+        ("recommendation_accuracy", ("may",), {"account": "ig_1", "window_days": 7, "persist": False}),
+        ("rebuild_recommendation_accuracy", ("may",), {"account": "ig_1", "window_days": 7}),
+        ("recommendation_proof_summary", ("camp_1",), {}),
+        ("rebuild_recommendation_accuracy_observations", ("camp_1",), {"account": "ig_1", "commit": True}),
+        ("upsert_recommendation_accuracy_observation", ({"id": "rec_1"},), {"commit": True}),
+        ("recommendation_accuracy_observations", ("camp_1",), {"account": "ig_1", "window_days": 7, "before_window_days": None}),
+        ("recommendation_accuracy_report_payload", ({"id": "camp_1", "slug": "may"}, [], []), {"account": "ig_1", "window_days": 7}),
+        ("persist_recommendation_accuracy_report", ({"observations": []}, "camp_1"), {"account": "ig_1", "window_days": 7}),
+        ("recommendation_accuracy_drift", ([], []), {"min_sample": 5, "drop_threshold": 0.15}),
+        ("recommendation_trust_score", ([], []), {}),
+        ("recommendation_trust_confidence", (10,), {}),
+        ("recommendation_confidence_bucket", ("medium", "high"), {}),
+        ("recommendation_audio_selection", ("rec_1",), {}),
+        ("recommendation_audio_match_status", ({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}), {}),
+        ("recommendation_outcome_snapshot_ids", ({"snapshots": [{"id": "perf_1"}]}, {}), {}),
         ("create_creative_plan", (), {
             "name": "daily",
             "platform": "instagram",
@@ -1004,6 +1105,116 @@ def test_core_services_delegates_account_memory_methods_to_account_memory_reposi
         ("account_fatigue_from_pattern_stats", ([],), {}),
         ("account_recommendation_outcomes", ("camp_1", "ig_1", "now"), {}),
         ("account_memory_confidence", (1, {"measuredTotal": 0}), {}),
+    ]
+
+
+def test_core_services_delegates_recommendation_accuracy_methods_to_recommendation_accuracy_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeRecommendationAccuracy:
+        def recommendation_accuracy(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1", "campaign": args[0]}
+
+        def rebuild_recommendation_accuracy(self, *args, **kwargs):
+            calls.append(("rebuild_recommendation_accuracy", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1", "campaign": args[0]}
+
+        def recommendation_proof_summary(self, *args, **kwargs):
+            calls.append(("recommendation_proof_summary", args, kwargs))
+            return {"measuredCount": 1}
+
+        def rebuild_recommendation_accuracy_observations(self, *args, **kwargs):
+            calls.append(("rebuild_recommendation_accuracy_observations", args, kwargs))
+            return [{"id": "obs_1"}]
+
+        def upsert_recommendation_accuracy_observation(self, *args, **kwargs):
+            calls.append(("upsert_recommendation_accuracy_observation", args, kwargs))
+            return {"id": "obs_1"}
+
+        def recommendation_accuracy_observations(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_observations", args, kwargs))
+            return [{"id": "obs_1"}]
+
+        def recommendation_accuracy_report_payload(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_report_payload", args, kwargs))
+            return {"schema": "campaign_factory.recommendation_accuracy_report.v1"}
+
+        def persist_recommendation_accuracy_report(self, *args, **kwargs):
+            calls.append(("persist_recommendation_accuracy_report", args, kwargs))
+            return "recacc_report_1"
+
+        def recommendation_accuracy_drift(self, *args, **kwargs):
+            calls.append(("recommendation_accuracy_drift", args, kwargs))
+            return []
+
+        def recommendation_trust_score(self, *args, **kwargs):
+            calls.append(("recommendation_trust_score", args, kwargs))
+            return 80
+
+        def recommendation_trust_confidence(self, *args, **kwargs):
+            calls.append(("recommendation_trust_confidence", args, kwargs))
+            return "usable"
+
+        def recommendation_confidence_bucket(self, *args, **kwargs):
+            calls.append(("recommendation_confidence_bucket", args, kwargs))
+            return "usable"
+
+        def recommendation_audio_selection(self, *args, **kwargs):
+            calls.append(("recommendation_audio_selection", args, kwargs))
+            return {"id": "audsel_1"}
+
+        def recommendation_audio_match_status(self, *args, **kwargs):
+            calls.append(("recommendation_audio_match_status", args, kwargs))
+            return "recommended_audio_selected"
+
+        def recommendation_outcome_snapshot_ids(self, *args, **kwargs):
+            calls.append(("recommendation_outcome_snapshot_ids", args, kwargs))
+            return ["perf_1"]
+
+    services.recommendation_accuracy_repo = FakeRecommendationAccuracy()
+
+    assert services.recommendation_accuracy("may", account="ig_1", window_days=7, persist=False) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+        "campaign": "may",
+    }
+    assert services.rebuild_recommendation_accuracy("may", account="ig_1", window_days=7) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+        "campaign": "may",
+    }
+    assert services.recommendation_proof_summary("camp_1") == {"measuredCount": 1}
+    assert services.rebuild_recommendation_accuracy_observations("camp_1", account="ig_1") == [{"id": "obs_1"}]
+    assert services.upsert_recommendation_accuracy_observation({"id": "rec_1"}, commit=True) == {"id": "obs_1"}
+    assert services.recommendation_accuracy_observations("camp_1", account="ig_1", window_days=7) == [{"id": "obs_1"}]
+    assert services.recommendation_accuracy_report_payload({"id": "camp_1", "slug": "may"}, [], [], account="ig_1", window_days=7) == {
+        "schema": "campaign_factory.recommendation_accuracy_report.v1",
+    }
+    assert services.persist_recommendation_accuracy_report({"observations": []}, "camp_1", account="ig_1", window_days=7) == "recacc_report_1"
+    assert services.recommendation_accuracy_drift([], []) == []
+    assert services.recommendation_trust_score([], []) == 80
+    assert services.recommendation_trust_confidence(10) == "usable"
+    assert services.recommendation_confidence_bucket("medium", "high") == "usable"
+    assert services.recommendation_audio_selection("rec_1") == {"id": "audsel_1"}
+    assert services.recommendation_audio_match_status({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}) == "recommended_audio_selected"
+    assert services.recommendation_outcome_snapshot_ids({"snapshots": [{"id": "perf_1"}]}, {}) == ["perf_1"]
+
+    assert calls == [
+        ("recommendation_accuracy", ("may",), {"account": "ig_1", "window_days": 7, "persist": False}),
+        ("rebuild_recommendation_accuracy", ("may",), {"account": "ig_1", "window_days": 7}),
+        ("recommendation_proof_summary", ("camp_1",), {}),
+        ("rebuild_recommendation_accuracy_observations", ("camp_1",), {"account": "ig_1", "commit": True}),
+        ("upsert_recommendation_accuracy_observation", ({"id": "rec_1"},), {"commit": True}),
+        ("recommendation_accuracy_observations", ("camp_1",), {"account": "ig_1", "window_days": 7, "before_window_days": None}),
+        ("recommendation_accuracy_report_payload", ({"id": "camp_1", "slug": "may"}, [], []), {"account": "ig_1", "window_days": 7}),
+        ("persist_recommendation_accuracy_report", ({"observations": []}, "camp_1"), {"account": "ig_1", "window_days": 7}),
+        ("recommendation_accuracy_drift", ([], []), {"min_sample": 5, "drop_threshold": 0.15}),
+        ("recommendation_trust_score", ([], []), {}),
+        ("recommendation_trust_confidence", (10,), {}),
+        ("recommendation_confidence_bucket", ("medium", "high"), {}),
+        ("recommendation_audio_selection", ("rec_1",), {}),
+        ("recommendation_audio_match_status", ({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}), {}),
+        ("recommendation_outcome_snapshot_ids", ({"snapshots": [{"id": "perf_1"}]}, {}), {}),
     ]
 
 
