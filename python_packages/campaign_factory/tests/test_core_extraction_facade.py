@@ -460,6 +460,169 @@ def test_core_services_delegates_finished_video_intake_methods_to_repository(tmp
         factory.close()
 
 
+def test_campaign_factory_delegates_finished_video_registration_review_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def review_rendered_asset(self, *args, **kwargs):
+            calls.append(("review_rendered_asset", args, kwargs))
+            return {"id": args[0], "review_state": kwargs["decision"]}
+
+        def approve_rendered_asset(self, *args, **kwargs):
+            calls.append(("approve_rendered_asset", args, kwargs))
+            return {"id": args[0], "review_state": "approved"}
+
+        def register_finished_video(self, *args, **kwargs):
+            calls.append(("register_finished_video", args, kwargs))
+            return {
+                "schema": "campaign_factory.register_finished_video.v1",
+                "campaign": kwargs["campaign_slug"],
+                "renderedAssetId": "asset_finished",
+            }
+
+    factory.services = FakeServices()
+
+    assert factory.review_rendered_asset(
+        "asset_1",
+        decision="rejected",
+        notes="not this one",
+        require_safe_audit=True,
+    ) == {"id": "asset_1", "review_state": "rejected"}
+    assert factory.approve_rendered_asset("asset_1", notes="approved", require_safe_audit=True) == {
+        "id": "asset_1",
+        "review_state": "approved",
+    }
+    assert factory.register_finished_video(
+        input_path=Path("/tmp/finished.mp4"),
+        campaign_slug="daily",
+        model_slug="stacey",
+        caption="caption text",
+        instagram_post_caption="post caption",
+        caption_hash="hash_1",
+        caption_bank="bank",
+        creator_mix="Stacey",
+        creator_model="Stacey",
+        track_id="track_1",
+        track_name="Track One",
+        audio_source="operator_muxed_audio",
+        selected_reason="operator selected",
+        operator="op",
+        approval_reason="looks good",
+        review_batch="batch_1",
+        caption_placement_policy="focal_safe_v1",
+        caption_placement_decision={"status": "passed"},
+    ) == {
+        "schema": "campaign_factory.register_finished_video.v1",
+        "campaign": "daily",
+        "renderedAssetId": "asset_finished",
+    }
+
+    assert calls == [
+        (
+            "review_rendered_asset",
+            ("asset_1",),
+            {"decision": "rejected", "notes": "not this one", "require_safe_audit": True},
+        ),
+        (
+            "approve_rendered_asset",
+            ("asset_1",),
+            {"notes": "approved", "require_safe_audit": True},
+        ),
+        (
+            "register_finished_video",
+            (),
+            {
+                "input_path": Path("/tmp/finished.mp4"),
+                "campaign_slug": "daily",
+                "model_slug": "stacey",
+                "caption": "caption text",
+                "instagram_post_caption": "post caption",
+                "caption_hash": "hash_1",
+                "caption_bank": "bank",
+                "creator_mix": "Stacey",
+                "creator_model": "Stacey",
+                "track_id": "track_1",
+                "track_name": "Track One",
+                "audio_source": "operator_muxed_audio",
+                "selected_reason": "operator selected",
+                "operator": "op",
+                "approval_reason": "looks good",
+                "review_batch": "batch_1",
+                "caption_placement_policy": "focal_safe_v1",
+                "caption_placement_decision": {"status": "passed"},
+            },
+        ),
+    ]
+
+
+def test_core_services_delegates_finished_video_registration_review_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeFinishedVideo:
+        def review_rendered_asset(self, *args, **kwargs):
+            calls.append(("review_rendered_asset", args, kwargs))
+            return {"id": args[0], "review_state": kwargs["decision"]}
+
+        def approve_rendered_asset(self, *args, **kwargs):
+            calls.append(("approve_rendered_asset", args, kwargs))
+            return {"id": args[0], "review_state": "approved"}
+
+        def register_finished_video(self, *args, **kwargs):
+            calls.append(("register_finished_video", args, kwargs))
+            return {
+                "schema": "campaign_factory.register_finished_video.v1",
+                "campaign": kwargs["campaign_slug"],
+            }
+
+    services.finished_video = FakeFinishedVideo()
+
+    assert services.review_rendered_asset("asset_1", decision="rejected", notes="no") == {
+        "id": "asset_1",
+        "review_state": "rejected",
+    }
+    assert services.approve_rendered_asset("asset_1", notes="ok", require_safe_audit=True) == {
+        "id": "asset_1",
+        "review_state": "approved",
+    }
+    assert services.register_finished_video(
+        input_path=Path("/tmp/finished.mp4"),
+        campaign_slug="daily",
+        model_slug="stacey",
+        caption="caption text",
+    ) == {"schema": "campaign_factory.register_finished_video.v1", "campaign": "daily"}
+
+    assert calls == [
+        ("review_rendered_asset", ("asset_1",), {"decision": "rejected", "notes": "no", "require_safe_audit": False}),
+        ("approve_rendered_asset", ("asset_1",), {"notes": "ok", "require_safe_audit": True}),
+        (
+            "register_finished_video",
+            (),
+            {
+                "input_path": Path("/tmp/finished.mp4"),
+                "campaign_slug": "daily",
+                "model_slug": "stacey",
+                "caption": "caption text",
+                "instagram_post_caption": None,
+                "caption_hash": None,
+                "caption_bank": None,
+                "creator_mix": None,
+                "creator_model": None,
+                "track_id": None,
+                "track_name": None,
+                "audio_source": None,
+                "selected_reason": None,
+                "operator": None,
+                "approval_reason": None,
+                "review_batch": None,
+                "caption_placement_policy": None,
+                "caption_placement_decision": None,
+            },
+        ),
+    ]
+
+
 def test_campaign_factory_delegates_surface_requirement_methods_to_services() -> None:
     factory = object.__new__(CampaignFactory)
     calls = []

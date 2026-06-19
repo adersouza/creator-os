@@ -66,12 +66,15 @@ class CoreServices:
         prepare_reel_inputs: Callable[..., dict[str, Any]],
         make_batch: Callable[..., dict[str, Any]],
         load_source_lineage: Callable[[Any | None], dict[str, Any]],
+        discoverability_pre_render_gate: Callable[[dict[str, Any]], dict[str, Any]],
         discoverability_safe_content_contract: Callable[..., dict[str, Any]],
+        capture_discoverability_gate_rejection_evidence: Callable[..., dict[str, Any]],
         reference_hook_fallbacks: tuple[str, ...],
         normalize_content_surface: Callable[[str | None], str],
         campaign_dirs: Callable[[str, str], dict[str, Any]],
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
+        capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
@@ -257,15 +260,28 @@ class CoreServices:
             conn,
             settings,
             slugify=slugify,
+            new_id=new_id,
             media_type_for_path=media_type_for_path,
             sha256_file=sha256_file,
             probe_video_shape=probe_video_shape,
+            text_hash=text_hash,
             json_load=json_load,
             utc_now=utc_now,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            campaign_dirs=campaign_dirs,
             make_batch=make_batch,
             creative_plan=self.creative_planning.creative_plan,
             load_source_lineage=load_source_lineage,
+            discoverability_pre_render_gate=discoverability_pre_render_gate,
+            capture_discoverability_gate_rejection_evidence=capture_discoverability_gate_rejection_evidence,
+            explain_publishability=explain_publishability,
+            capture_publishability_rejection_evidence_from_result=capture_publishability_rejection_evidence_from_result,
             record_creative_plan_event=self.creative_planning.record_creative_plan_event,
+            record_event=self.events.record_event,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
         )
         self.caption_family = CaptionFamilyRepository(
             conn,
@@ -1475,6 +1491,77 @@ class CoreServices:
 
     def classify_finished_video_format(self, path: Any) -> str:
         return self.finished_video.classify_finished_video_format(path)
+
+    def review_rendered_asset(
+        self,
+        rendered_asset_id: str,
+        *,
+        decision: str,
+        notes: str | None = None,
+        require_safe_audit: bool = False,
+    ) -> dict[str, Any]:
+        return self.finished_video.review_rendered_asset(
+            rendered_asset_id,
+            decision=decision,
+            notes=notes,
+            require_safe_audit=require_safe_audit,
+        )
+
+    def approve_rendered_asset(
+        self,
+        rendered_asset_id: str,
+        *,
+        notes: str | None = None,
+        require_safe_audit: bool = False,
+    ) -> dict[str, Any]:
+        return self.finished_video.approve_rendered_asset(
+            rendered_asset_id,
+            notes=notes,
+            require_safe_audit=require_safe_audit,
+        )
+
+    def register_finished_video(
+        self,
+        *,
+        input_path: Any,
+        campaign_slug: str,
+        model_slug: str,
+        caption: str,
+        instagram_post_caption: str | None = None,
+        caption_hash: str | None = None,
+        caption_bank: str | None = None,
+        creator_mix: str | None = None,
+        creator_model: str | None = None,
+        track_id: str | None = None,
+        track_name: str | None = None,
+        audio_source: str | None = None,
+        selected_reason: str | None = None,
+        operator: str | None = None,
+        approval_reason: str | None = None,
+        review_batch: str | None = None,
+        caption_placement_policy: str | None = None,
+        caption_placement_decision: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.finished_video.register_finished_video(
+            input_path=input_path,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            caption=caption,
+            instagram_post_caption=instagram_post_caption,
+            caption_hash=caption_hash,
+            caption_bank=caption_bank,
+            creator_mix=creator_mix,
+            creator_model=creator_model,
+            track_id=track_id,
+            track_name=track_name,
+            audio_source=audio_source,
+            selected_reason=selected_reason,
+            operator=operator,
+            approval_reason=approval_reason,
+            review_batch=review_batch,
+            caption_placement_policy=caption_placement_policy,
+            caption_placement_decision=caption_placement_decision,
+        )
 
     def caption_family_plan(
         self,
