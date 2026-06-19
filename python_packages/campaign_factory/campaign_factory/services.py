@@ -21,6 +21,7 @@ from .graph import GraphRepository
 from .models import ModelRepository
 from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
+from .recommendation_accuracy import RecommendationAccuracyRepository
 from .story_management import StoryManagementRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .tribev2 import TribeV2Repository
@@ -85,6 +86,7 @@ class CoreServices:
         account_reward_baselines: Callable[[list[dict[str, Any]]], dict[str, float]],
         aggregate_performance: Callable[..., dict[str, Any]],
         performance_quality_score: Callable[[dict[str, Any]], int | None],
+        audio_selection_payload: Callable[[str], dict[str, Any]],
         recommended_story_intent_for_date: Callable[..., str],
         recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
@@ -259,6 +261,17 @@ class CoreServices:
             account_reward_baselines=account_reward_baselines,
             aggregate_performance=aggregate_performance,
             performance_quality_score=performance_quality_score,
+        )
+        self.recommendation_accuracy_repo = RecommendationAccuracyRepository(
+            conn,
+            utc_now=utc_now,
+            json_load=json_load,
+            sanitize_for_storage=sanitize_for_storage,
+            campaign_by_slug=self.campaign_by_slug,
+            graph_id_for=self.graph.graph_id_for,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            audio_selection_payload=audio_selection_payload,
         )
         self.exceptions = ExceptionRepository(
             conn,
@@ -647,6 +660,142 @@ class CoreServices:
 
     def account_memory_confidence(self, sample_size: int, outcomes: dict[str, Any]) -> str:
         return self.account_memory.account_memory_confidence(sample_size, outcomes)
+
+    def recommendation_accuracy(
+        self,
+        campaign_slug: str,
+        *,
+        account: str | None = None,
+        window_days: int = 30,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.recommendation_accuracy(
+            campaign_slug,
+            account=account,
+            window_days=window_days,
+            persist=persist,
+        )
+
+    def rebuild_recommendation_accuracy(
+        self,
+        campaign_slug: str,
+        *,
+        account: str | None = None,
+        window_days: int = 30,
+    ) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.rebuild_recommendation_accuracy(
+            campaign_slug,
+            account=account,
+            window_days=window_days,
+        )
+
+    def recommendation_proof_summary(self, campaign_id: str) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.recommendation_proof_summary(campaign_id)
+
+    def rebuild_recommendation_accuracy_observations(
+        self,
+        campaign_id: str,
+        *,
+        account: str | None = None,
+        commit: bool = True,
+    ) -> list[dict[str, Any]]:
+        return self.recommendation_accuracy_repo.rebuild_recommendation_accuracy_observations(
+            campaign_id,
+            account=account,
+            commit=commit,
+        )
+
+    def upsert_recommendation_accuracy_observation(self, row: dict[str, Any], *, commit: bool = False) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.upsert_recommendation_accuracy_observation(row, commit=commit)
+
+    def recommendation_accuracy_observations(
+        self,
+        campaign_id: str,
+        *,
+        account: str | None = None,
+        window_days: int | None = None,
+        before_window_days: int | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.recommendation_accuracy_repo.recommendation_accuracy_observations(
+            campaign_id,
+            account=account,
+            window_days=window_days,
+            before_window_days=before_window_days,
+        )
+
+    def recommendation_accuracy_report_payload(
+        self,
+        campaign: dict[str, Any],
+        observations: list[dict[str, Any]],
+        prior_observations: list[dict[str, Any]],
+        *,
+        account: str | None,
+        window_days: int,
+    ) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.recommendation_accuracy_report_payload(
+            campaign,
+            observations,
+            prior_observations,
+            account=account,
+            window_days=window_days,
+        )
+
+    def persist_recommendation_accuracy_report(
+        self,
+        report: dict[str, Any],
+        campaign_id: str,
+        *,
+        account: str | None,
+        window_days: int,
+    ) -> str:
+        return self.recommendation_accuracy_repo.persist_recommendation_accuracy_report(
+            report,
+            campaign_id,
+            account=account,
+            window_days=window_days,
+        )
+
+    def accuracy_segment(self, observations: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.accuracy_segment(observations)
+
+    def accuracy_grouped(self, observations: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+        return self.recommendation_accuracy_repo.accuracy_grouped(observations, key)
+
+    def recommendation_accuracy_drift(
+        self,
+        recent: list[dict[str, Any]],
+        prior: list[dict[str, Any]],
+        *,
+        min_sample: int = 5,
+        drop_threshold: float = 0.15,
+    ) -> list[dict[str, Any]]:
+        return self.recommendation_accuracy_repo.recommendation_accuracy_drift(
+            recent,
+            prior,
+            min_sample=min_sample,
+            drop_threshold=drop_threshold,
+        )
+
+    def recommendation_trust_score(self, observations: list[dict[str, Any]], drift: list[dict[str, Any]]) -> int:
+        return self.recommendation_accuracy_repo.recommendation_trust_score(observations, drift)
+
+    def recommendation_trust_confidence(self, measured_count: int) -> str:
+        return self.recommendation_accuracy_repo.recommendation_trust_confidence(measured_count)
+
+    def recommendation_confidence_bucket(self, confidence: str, data_quality_level: str) -> str:
+        return self.recommendation_accuracy_repo.recommendation_confidence_bucket(confidence, data_quality_level)
+
+    def recommendation_audio_selection(self, recommendation_item_id: str) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.recommendation_audio_selection(recommendation_item_id)
+
+    def recommendation_audio_match_status(self, output: dict[str, Any], selection: dict[str, Any]) -> str:
+        return self.recommendation_accuracy_repo.recommendation_audio_match_status(output, selection)
+
+    def recommendation_outcome_snapshot_ids(self, outcome: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
+        return self.recommendation_accuracy_repo.recommendation_outcome_snapshot_ids(outcome, evidence)
+
+    def parse_datetime(self, value: Any):
+        return self.recommendation_accuracy_repo.parse_datetime(value)
 
     def create_creative_plan(
         self,
