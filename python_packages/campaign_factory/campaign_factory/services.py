@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable
 
+from .acceptance_suite import AcceptanceSuiteRepository
 from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
 from .asset_import import AssetImportRepository
@@ -98,6 +99,7 @@ class CoreServices:
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
         creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
+        creator_os_execution_readiness: Callable[..., dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -514,6 +516,13 @@ class CoreServices:
             creator_os_execution_account_health_warnings=self.account_health.creator_os_execution_account_health_warnings,
             utc_now=utc_now,
         )
+        self.acceptance_suite = AcceptanceSuiteRepository(
+            conn,
+            creator_os_daily_plan=creator_os_daily_plan,
+            creator_os_execution_readiness=creator_os_execution_readiness,
+            creator_os_account_health_report=creator_os_account_health_report,
+            content_surfaces=content_surfaces,
+        )
 
     def ensure_graph_node(
         self,
@@ -667,6 +676,31 @@ class CoreServices:
             threadsdash_report=threadsdash_report,
             schedule_plan=schedule_plan,
             time_plan=time_plan,
+            generated_at=generated_at,
+        )
+
+    def creator_os_200_account_acceptance_suite(
+        self,
+        *,
+        accounts: int = 200,
+        creators: int = 3,
+        daily_obligations: int = 600,
+        draft_inventory: int = 1800,
+        warming_accounts: int = 30,
+        restricted_accounts: int = 15,
+        manual_review_accounts: int = 10,
+        mixed_surfaces: bool = True,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.acceptance_suite.creator_os_200_account_acceptance_suite(
+            accounts=accounts,
+            creators=creators,
+            daily_obligations=daily_obligations,
+            draft_inventory=draft_inventory,
+            warming_accounts=warming_accounts,
+            restricted_accounts=restricted_accounts,
+            manual_review_accounts=manual_review_accounts,
+            mixed_surfaces=mixed_surfaces,
             generated_at=generated_at,
         )
 
