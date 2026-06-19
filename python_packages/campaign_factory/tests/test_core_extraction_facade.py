@@ -35,6 +35,7 @@ from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.publishability import PublishabilityRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
+from campaign_factory.recommendations import RecommendationRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.reel_execution import ReelExecutionRepository
 from campaign_factory.services import CoreServices
@@ -142,6 +143,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.account_memory.conn is factory.conn
         assert isinstance(factory.services.recommendation_accuracy_repo, RecommendationAccuracyRepository)
         assert factory.services.recommendation_accuracy_repo.conn is factory.conn
+        assert isinstance(factory.services.recommendations, RecommendationRepository)
+        assert factory.services.recommendations.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
         assert factory.services.campaign_overview.conn is factory.conn
     finally:
@@ -3297,6 +3300,228 @@ def test_core_services_delegates_recommendation_accuracy_methods_to_recommendati
         ("recommendation_audio_selection", ("rec_1",), {}),
         ("recommendation_audio_match_status", ({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}), {}),
         ("recommendation_outcome_snapshot_ids", ({"snapshots": [{"id": "perf_1"}]}, {}), {}),
+    ]
+
+
+def test_campaign_factory_delegates_recommendation_execution_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    factory.services = FakeServices()
+    item_payload_kwargs = {
+        "campaign": {"id": "camp_1"},
+        "campaign_graph_id": "cg_campaign",
+        "run_graph_id": "cg_run",
+        "rank": 1,
+        "account": "ig_1",
+        "candidate": {"renderedAssetId": "asset_1"},
+        "asset": {"id": "asset_1", "campaign_id": "camp_1"},
+        "reference_pattern": {"id": "pattern_1"},
+        "reference_pattern_graph_id": "cg_pattern",
+        "reference_pattern_rankings": [],
+        "variation_preset_rankings": [],
+        "recommendation_trust": {"status": "unmeasured"},
+        "persist": False,
+        "run_id": "run_1",
+    }
+    reference_only_kwargs = {
+        "campaign": {"id": "camp_1"},
+        "campaign_graph_id": "cg_campaign",
+        "run_graph_id": "cg_run",
+        "account": "ig_1",
+        "reference_pattern": {"id": "pattern_1"},
+        "reference_pattern_graph_id": "cg_pattern",
+        "reference_pattern_rankings": [],
+        "variation_preset_rankings": [],
+        "recommendation_trust": {"status": "unmeasured"},
+        "persist": False,
+        "run_id": "run_1",
+    }
+
+    assert factory.recommend_next_batch("may", count=2)["method"] == "recommend_next_batch"
+    assert factory.recommendation_runs("may", limit=3)["method"] == "recommendation_runs"
+    assert factory._top_reference_pattern()["method"] == "top_reference_pattern"
+    assert factory._ranked_reference_patterns_for_campaign("camp_1")["method"] == "ranked_reference_patterns_for_campaign"
+    assert factory._ranked_variation_presets_for_campaign("camp_1", account="ig_1")["method"] == "ranked_variation_presets_for_campaign"
+    assert factory._compact_recommendation_rankings({"referencePatterns": []})["method"] == "compact_recommendation_rankings"
+    assert factory._latest_recommendation_trust_context("camp_1", account=None)["method"] == "latest_recommendation_trust_context"
+    assert factory._recommendation_item_payload(**item_payload_kwargs)["method"] == "recommendation_item_payload"
+    assert factory._reference_only_recommendation_item(**reference_only_kwargs)["method"] == "reference_only_recommendation_item"
+    assert factory.recommendation_item("rec_1")["method"] == "recommendation_item"
+    assert factory.accept_recommendation_item("rec_1", operator="ade")["method"] == "accept_recommendation_item"
+    assert factory.reject_recommendation_item("rec_1", reason="bad fit")["method"] == "reject_recommendation_item"
+    assert factory.link_recommendation_item("rec_1", rendered_asset_id="asset_1")["method"] == "link_recommendation_item"
+    assert factory.measure_recommendation_item("rec_1", performance_snapshot_id="perf_1")["method"] == "measure_recommendation_item"
+    assert factory.execute_accepted_recommendation("rec_1", force=True)["method"] == "execute_accepted_recommendation"
+    assert factory._update_recommendation_lifecycle(
+        "rec_1",
+        status="accepted",
+        decision={"operator": "ade"},
+        event_type="recommendation_item_accepted",
+        message="accepted",
+    )["method"] == "update_recommendation_lifecycle"
+    assert factory._recommendation_account_fit_evidence("camp_1", {"id": "asset_1"}, "ig_1")["method"] == "recommendation_account_fit_evidence"
+
+    assert calls == [
+        ("recommend_next_batch", ("may",), {"count": 2, "account": None, "persist": False}),
+        ("recommendation_runs", ("may",), {"limit": 3}),
+        ("top_reference_pattern", (), {}),
+        ("ranked_reference_patterns_for_campaign", ("camp_1",), {}),
+        ("ranked_variation_presets_for_campaign", ("camp_1",), {"account": "ig_1"}),
+        ("compact_recommendation_rankings", ({"referencePatterns": []},), {"limit": 5}),
+        ("latest_recommendation_trust_context", ("camp_1",), {"account": None}),
+        ("recommendation_item_payload", (), item_payload_kwargs),
+        ("reference_only_recommendation_item", (), reference_only_kwargs),
+        ("recommendation_item", ("rec_1",), {}),
+        ("accept_recommendation_item", ("rec_1",), {"operator": "ade", "notes": None, "admin_override": False, "override_reason": None}),
+        ("reject_recommendation_item", ("rec_1",), {"reason": "bad fit", "operator": None, "notes": None, "admin_override": False, "override_reason": None}),
+        ("link_recommendation_item", ("rec_1",), {
+            "source_asset_id": None,
+            "render_job_id": None,
+            "rendered_asset_id": "asset_1",
+            "post_id": None,
+            "performance_snapshot_id": None,
+            "evidence": None,
+            "admin_override": False,
+            "override_reason": None,
+        }),
+        ("measure_recommendation_item", ("rec_1",), {"performance_snapshot_id": "perf_1", "admin_override": False, "override_reason": None}),
+        ("execute_accepted_recommendation", ("rec_1",), {
+            "mode": "level_2",
+            "force": True,
+            "dry_run_render": False,
+            "run_audit": True,
+            "contentforge_base_url": None,
+        }),
+        ("update_recommendation_lifecycle", ("rec_1",), {
+            "status": "accepted",
+            "decision": {"operator": "ade"},
+            "outcome": None,
+            "baseline": None,
+            "measurement_version": None,
+            "timestamp_column": None,
+            "event_type": "recommendation_item_accepted",
+            "message": "accepted",
+            "admin_override": False,
+            "override_reason": None,
+        }),
+        ("recommendation_account_fit_evidence", ("camp_1", {"id": "asset_1"}, "ig_1"), {}),
+    ]
+
+
+def test_core_services_delegates_recommendation_execution_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeRecommendations:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    services.recommendations = FakeRecommendations()
+    item_payload_kwargs = {
+        "campaign": {"id": "camp_1"},
+        "campaign_graph_id": "cg_campaign",
+        "run_graph_id": "cg_run",
+        "rank": 1,
+        "account": "ig_1",
+        "candidate": {"renderedAssetId": "asset_1"},
+        "asset": {"id": "asset_1", "campaign_id": "camp_1"},
+        "reference_pattern": {"id": "pattern_1"},
+        "reference_pattern_graph_id": "cg_pattern",
+        "reference_pattern_rankings": [],
+        "variation_preset_rankings": [],
+        "recommendation_trust": {"status": "unmeasured"},
+        "persist": False,
+        "run_id": "run_1",
+    }
+    reference_only_kwargs = {
+        "campaign": {"id": "camp_1"},
+        "campaign_graph_id": "cg_campaign",
+        "run_graph_id": "cg_run",
+        "account": "ig_1",
+        "reference_pattern": {"id": "pattern_1"},
+        "reference_pattern_graph_id": "cg_pattern",
+        "reference_pattern_rankings": [],
+        "variation_preset_rankings": [],
+        "recommendation_trust": {"status": "unmeasured"},
+        "persist": False,
+        "run_id": "run_1",
+    }
+
+    assert services.recommend_next_batch("may", count=2)["method"] == "recommend_next_batch"
+    assert services.recommendation_runs("may", limit=3)["method"] == "recommendation_runs"
+    assert services.top_reference_pattern()["method"] == "top_reference_pattern"
+    assert services.ranked_reference_patterns_for_campaign("camp_1")["method"] == "ranked_reference_patterns_for_campaign"
+    assert services.ranked_variation_presets_for_campaign("camp_1", account="ig_1")["method"] == "ranked_variation_presets_for_campaign"
+    assert services.compact_recommendation_rankings({"referencePatterns": []})["method"] == "compact_recommendation_rankings"
+    assert services.latest_recommendation_trust_context("camp_1", account=None)["method"] == "latest_recommendation_trust_context"
+    assert services.recommendation_item_payload(**item_payload_kwargs)["method"] == "recommendation_item_payload"
+    assert services.reference_only_recommendation_item(**reference_only_kwargs)["method"] == "reference_only_recommendation_item"
+    assert services.recommendation_item("rec_1")["method"] == "recommendation_item"
+    assert services.accept_recommendation_item("rec_1", operator="ade")["method"] == "accept_recommendation_item"
+    assert services.reject_recommendation_item("rec_1", reason="bad fit")["method"] == "reject_recommendation_item"
+    assert services.link_recommendation_item("rec_1", rendered_asset_id="asset_1")["method"] == "link_recommendation_item"
+    assert services.measure_recommendation_item("rec_1", performance_snapshot_id="perf_1")["method"] == "measure_recommendation_item"
+    assert services.execute_accepted_recommendation("rec_1", force=True)["method"] == "execute_accepted_recommendation"
+    assert services.update_recommendation_lifecycle(
+        "rec_1",
+        status="accepted",
+        decision={"operator": "ade"},
+        event_type="recommendation_item_accepted",
+        message="accepted",
+    )["method"] == "update_recommendation_lifecycle"
+    assert services.recommendation_account_fit_evidence("camp_1", {"id": "asset_1"}, "ig_1")["method"] == "recommendation_account_fit_evidence"
+
+    assert calls == [
+        ("recommend_next_batch", ("may",), {"count": 2, "account": None, "persist": False}),
+        ("recommendation_runs", ("may",), {"limit": 3}),
+        ("top_reference_pattern", (), {}),
+        ("ranked_reference_patterns_for_campaign", ("camp_1",), {}),
+        ("ranked_variation_presets_for_campaign", ("camp_1",), {"account": "ig_1"}),
+        ("compact_recommendation_rankings", ({"referencePatterns": []},), {"limit": 5}),
+        ("latest_recommendation_trust_context", ("camp_1",), {"account": None}),
+        ("recommendation_item_payload", (), item_payload_kwargs),
+        ("reference_only_recommendation_item", (), reference_only_kwargs),
+        ("recommendation_item", ("rec_1",), {}),
+        ("accept_recommendation_item", ("rec_1",), {"operator": "ade", "notes": None, "admin_override": False, "override_reason": None}),
+        ("reject_recommendation_item", ("rec_1",), {"reason": "bad fit", "operator": None, "notes": None, "admin_override": False, "override_reason": None}),
+        ("link_recommendation_item", ("rec_1",), {
+            "source_asset_id": None,
+            "render_job_id": None,
+            "rendered_asset_id": "asset_1",
+            "post_id": None,
+            "performance_snapshot_id": None,
+            "evidence": None,
+            "admin_override": False,
+            "override_reason": None,
+        }),
+        ("measure_recommendation_item", ("rec_1",), {"performance_snapshot_id": "perf_1", "admin_override": False, "override_reason": None}),
+        ("execute_accepted_recommendation", ("rec_1",), {
+            "mode": "level_2",
+            "force": True,
+            "dry_run_render": False,
+            "run_audit": True,
+            "contentforge_base_url": None,
+        }),
+        ("update_recommendation_lifecycle", ("rec_1",), {
+            "status": "accepted",
+            "decision": {"operator": "ade"},
+            "event_type": "recommendation_item_accepted",
+            "message": "accepted",
+        }),
+        ("recommendation_account_fit_evidence", ("camp_1", {"id": "asset_1"}, "ig_1"), {}),
     ]
 
 
