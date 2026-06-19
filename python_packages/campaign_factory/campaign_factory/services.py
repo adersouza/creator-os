@@ -110,7 +110,10 @@ class CoreServices:
         operator_load_audit: Callable[[], dict[str, Any]],
         failure_injection_suite: Callable[[], dict[str, Any]],
         idempotency_proof: Callable[[], dict[str, Any]],
-        creator_os_live_100_account_readiness: Callable[[], dict[str, Any]],
+        inventory_stage_counts: Callable[[], dict[str, int]],
+        inventory_production_requirements: Callable[..., dict[str, Any]],
+        exception_queue_report: Callable[[], dict[str, Any]],
+        reel_factory_parent_metrics: Callable[[], dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -548,7 +551,11 @@ class CoreServices:
         )
         self.live_scale = LiveScaleRepository(
             conn,
-            creator_os_live_100_account_readiness=creator_os_live_100_account_readiness,
+            inventory_stage_counts=inventory_stage_counts,
+            inventory_production_requirements=inventory_production_requirements,
+            operator_load_audit=operator_load_audit,
+            exception_queue_report=exception_queue_report,
+            reel_factory_parent_metrics=reel_factory_parent_metrics,
             score_fraction=score_fraction,
         )
 
@@ -747,11 +754,34 @@ class CoreServices:
     def creator_os_9_5_readiness_report(self) -> dict[str, Any]:
         return self.readiness_report.creator_os_9_5_readiness_report()
 
+    def creator_os_live_100_account_readiness(self) -> dict[str, Any]:
+        return self.live_scale.creator_os_live_100_account_readiness()
+
     def creator_os_live_scale_runbook(self) -> dict[str, Any]:
         return self.live_scale.creator_os_live_scale_runbook()
 
     def creator_os_live_scale_scorecard(self) -> dict[str, Any]:
         return self.live_scale.creator_os_live_scale_scorecard()
+
+    def actual_account_operational_counts(self) -> dict[str, int]:
+        return self.live_scale.actual_account_operational_counts()
+
+    def live_100_exact_shortfall(
+        self,
+        *,
+        accounts: dict[str, int],
+        available_inventory: int,
+        required_inventory: int,
+        available_parents: int,
+        required_parents: int,
+    ) -> str:
+        return self.live_scale.live_100_exact_shortfall(
+            accounts=accounts,
+            available_inventory=available_inventory,
+            required_inventory=required_inventory,
+            available_parents=available_parents,
+            required_parents=required_parents,
+        )
 
     def create_pipeline_job(
         self,
