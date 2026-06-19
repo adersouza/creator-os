@@ -4119,10 +4119,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         time_plan: dict[str, Any] | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        from . import readiness as _readiness
-
-        return _readiness.creator_os_execution_readiness(
-            self,
+        return self.services.creator_os_execution_readiness(
             creator=creator,
             requested_count=requested_count,
             threadsdash_report=threadsdash_report,
@@ -9935,41 +9932,6 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             if str(value).strip().lower() in {"0", "false", "no"}:
                 return True
         return False
-
-    def _creator_os_has_time_collision(self, items: list[dict[str, Any]]) -> bool:
-        seen: set[str] = set()
-        for item in items:
-            scheduled_for = str(item.get("scheduledFor") or item.get("scheduled_for") or "").strip()
-            if not scheduled_for:
-                continue
-            if scheduled_for in seen:
-                return True
-            seen.add(scheduled_for)
-        return False
-
-    def _creator_os_publish_runtime_findings(self, missed_dispatches: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
-        warnings: list[str] = []
-        blockers: list[str] = []
-        if missed_dispatches:
-            blockers.append("missed_dispatches_unresolved")
-        threadsdash_root = self.settings.threadsdash_root
-        if not threadsdash_root.exists():
-            warnings.append("threadsdashboard_runtime_routes_unverified")
-            return warnings, blockers
-        if not (threadsdash_root / "api" / "scheduled-post-publish.ts").exists():
-            blockers.append("scheduled_post_publish_route_missing")
-        if not (threadsdash_root / "api" / "cron" / "campaign-schedule-recovery.ts").exists():
-            blockers.append("campaign_schedule_recovery_route_missing")
-        vercel_config = threadsdash_root / "vercel.json"
-        if vercel_config.exists():
-            try:
-                if "/api/cron/campaign-schedule-recovery" not in vercel_config.read_text(encoding="utf-8"):
-                    blockers.append("campaign_schedule_recovery_cron_missing")
-            except OSError:
-                warnings.append("campaign_schedule_recovery_cron_unverified")
-        else:
-            warnings.append("vercel_json_unavailable")
-        return warnings, blockers
 
     def _creator_os_inventory_for_creator(
         self,

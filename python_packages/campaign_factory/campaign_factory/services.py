@@ -19,6 +19,7 @@ from .distribution import DistributionRepository
 from .daily_plan import DailyPlanRepository
 from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
+from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .graph import GraphRepository
 from .models import ModelRepository
@@ -500,6 +501,19 @@ class CoreServices:
             creative_risk_block_threshold=creative_risk_block_threshold,
             creative_risk_caution_threshold=creative_risk_caution_threshold,
         )
+        self.execution_readiness = ExecutionReadinessRepository(
+            conn,
+            settings,
+            creator_label=creator_label,
+            creator_os_daily_plan=creator_os_daily_plan,
+            creator_os_draft_items=creator_os_draft_items,
+            creator_os_schedule_safe_drafts=creator_os_schedule_safe_drafts,
+            creator_os_account_health_report=creator_os_account_health_report,
+            creator_os_execution_draft_blockers=creator_os_execution_draft_blockers,
+            creator_os_execution_account_health_blockers=self.account_health.creator_os_execution_account_health_blockers,
+            creator_os_execution_account_health_warnings=self.account_health.creator_os_execution_account_health_warnings,
+            utc_now=utc_now,
+        )
 
     def ensure_graph_node(
         self,
@@ -634,6 +648,25 @@ class CoreServices:
             winner_expansion_plan=winner_expansion_plan,
             variant_metrics_rollup=variant_metrics_rollup,
             date=date,
+            generated_at=generated_at,
+        )
+
+    def creator_os_execution_readiness(
+        self,
+        *,
+        creator: str,
+        requested_count: int,
+        threadsdash_report: dict[str, Any] | None = None,
+        schedule_plan: dict[str, Any] | None = None,
+        time_plan: dict[str, Any] | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.execution_readiness.creator_os_execution_readiness(
+            creator=creator,
+            requested_count=requested_count,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
             generated_at=generated_at,
         )
 

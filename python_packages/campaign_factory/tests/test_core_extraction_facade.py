@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from campaign_factory import audit_payload, exports, readiness
+from campaign_factory import audit_payload, exports
 from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
@@ -20,6 +20,7 @@ from campaign_factory.distribution import DistributionRepository
 from campaign_factory.daily_plan import DailyPlanRepository
 from campaign_factory.draft_inventory_gap import DraftInventoryGapRepository
 from campaign_factory.events import EventRepository
+from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
@@ -89,6 +90,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.draft_inventory_gap.conn is factory.conn
         assert isinstance(factory.services.daily_plan, DailyPlanRepository)
         assert factory.services.daily_plan.conn is factory.conn
+        assert isinstance(factory.services.execution_readiness, ExecutionReadinessRepository)
+        assert factory.services.execution_readiness.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -3939,27 +3942,77 @@ def test_core_services_delegates_exception_methods_to_exception_repository() -> 
     ]
 
 
-def test_execution_readiness_facade_delegates_to_readiness_module(monkeypatch) -> None:
+def test_campaign_factory_delegates_creator_os_execution_readiness_to_services() -> None:
     factory = object.__new__(CampaignFactory)
     calls = []
 
-    def fake_execution_readiness(self, **kwargs):
-        calls.append((self, kwargs))
-        return {"schema": "creator_os.execution_readiness.v1", "ok": True}
+    class FakeServices:
+        def creator_os_execution_readiness(self, **kwargs):
+            calls.append(("creator_os_execution_readiness", kwargs))
+            return {"schema": "creator_os.execution_readiness.v1", "ok": True}
 
-    monkeypatch.setattr(readiness, "creator_os_execution_readiness", fake_execution_readiness)
+    factory.services = FakeServices()
 
-    result = factory.creator_os_execution_readiness(creator="Stacey", requested_count=2)
+    assert factory.creator_os_execution_readiness(
+        creator="Stacey",
+        requested_count=2,
+        threadsdash_report={"schema": "threadsdash.report.v1"},
+        schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+        time_plan={"schema": "creator_os.time_plan.v1"},
+        generated_at="2026-06-06T12:00:00Z",
+    ) == {"schema": "creator_os.execution_readiness.v1", "ok": True}
+    assert calls == [(
+        "creator_os_execution_readiness",
+        {
+            "creator": "Stacey",
+            "requested_count": 2,
+            "threadsdash_report": {"schema": "threadsdash.report.v1"},
+            "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+            "time_plan": {"schema": "creator_os.time_plan.v1"},
+            "generated_at": "2026-06-06T12:00:00Z",
+        },
+    )]
 
-    assert result["schema"] == "creator_os.execution_readiness.v1"
-    assert calls == [(factory, {
-        "creator": "Stacey",
-        "requested_count": 2,
-        "threadsdash_report": None,
-        "schedule_plan": None,
-        "time_plan": None,
-        "generated_at": None,
-    })]
+
+def test_core_services_delegates_creator_os_execution_readiness_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        def fake_execution_readiness(**kwargs):
+            calls.append(("creator_os_execution_readiness", kwargs))
+            return {"schema": "creator_os.execution_readiness.v1", "ok": True}
+
+        factory.services.execution_readiness.creator_os_execution_readiness = fake_execution_readiness
+
+        assert factory.services.creator_os_execution_readiness(
+            creator="Stacey",
+            requested_count=2,
+            threadsdash_report={"schema": "threadsdash.report.v1"},
+            schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+            time_plan={"schema": "creator_os.time_plan.v1"},
+            generated_at="2026-06-06T12:00:00Z",
+        ) == {"schema": "creator_os.execution_readiness.v1", "ok": True}
+        assert calls == [(
+            "creator_os_execution_readiness",
+            {
+                "creator": "Stacey",
+                "requested_count": 2,
+                "threadsdash_report": {"schema": "threadsdash.report.v1"},
+                "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+                "time_plan": {"schema": "creator_os.time_plan.v1"},
+                "generated_at": "2026-06-06T12:00:00Z",
+            },
+        )]
+    finally:
+        factory.close()
 
 
 def test_export_facade_delegates_to_export_module(monkeypatch) -> None:
