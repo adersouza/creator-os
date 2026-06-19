@@ -19,6 +19,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
+from campaign_factory.winner_expansion import WinnerExpansionRepository
 
 
 def test_campaign_factory_initializes_core_services(tmp_path) -> None:
@@ -60,6 +61,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.surface_registration.conn is factory.conn
         assert isinstance(factory.services.carousel_integrity, CarouselIntegrityRepository)
         assert factory.services.carousel_integrity.conn is factory.conn
+        assert isinstance(factory.services.winner_expansion, WinnerExpansionRepository)
+        assert factory.services.winner_expansion.conn is factory.conn
     finally:
         factory.close()
 
@@ -1386,6 +1389,220 @@ def test_core_services_delegates_decision_ledger_methods_to_decision_repository(
         ("decision_ledger_by_surface", (), {"creator": "Stacey", "surface": "story"}),
         ("decision_ledger_by_decision_type", (), {"creator": "Stacey", "decision_type": "account_needs_story"}),
         ("query_decision_ledger", (), {"creator": "Stacey"}),
+    ]
+
+
+def test_core_services_delegates_winner_expansion_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeWinnerExpansion:
+        def winner_expansion_plan(self, *args, **kwargs):
+            calls.append(("winner_expansion_plan", args, kwargs))
+            return {"schema": "campaign_factory.winner_expansion_plan.v1"}
+
+        def winner_expansion_report(self, *args, **kwargs):
+            calls.append(("winner_expansion_report", args, kwargs))
+            return {"schema": "campaign_factory.winner_expansion_report.v1"}
+
+        def winner_variant_candidate(self, *args, **kwargs):
+            calls.append(("winner_variant_candidate", args, kwargs))
+            return {"variantAssetId": "asset_variant"}
+
+        def winner_variant_candidate_decision(self, *args, **kwargs):
+            calls.append(("winner_variant_candidate_decision", args, kwargs))
+            return {"recommended": True, "blockingReasons": []}
+
+        def latest_variant_audit_result(self, *args, **kwargs):
+            calls.append(("latest_variant_audit_result", args, kwargs))
+            return {"qualityScore": 100}
+
+        def contentforge_result_from_operations(self, *args, **kwargs):
+            calls.append(("contentforge_result_from_operations", args, kwargs))
+            return {"familyName": "cover_frame"}
+
+        def operation_family_from_operations(self, *args, **kwargs):
+            calls.append(("operation_family_from_operations", args, kwargs))
+            return "cover_frame"
+
+        def score_value(self, *args, **kwargs):
+            calls.append(("score_value", args, kwargs))
+            return 95
+
+        def variant_inventory_primary_blocking_reason(self, *args, **kwargs):
+            calls.append(("variant_inventory_primary_blocking_reason", args, kwargs))
+            return "missing_audio"
+
+        def variant_inventory_quality_risk(self, *args, **kwargs):
+            calls.append(("variant_inventory_quality_risk", args, kwargs))
+            return "low"
+
+        def variant_inventory_winner_rank(self, *args, **kwargs):
+            calls.append(("variant_inventory_winner_rank", args, kwargs))
+            return {"hasWinnerMetrics": True, "score": 10, "metrics": {"views": 10}}
+
+        def variant_asset_payload(self, *args, **kwargs):
+            calls.append(("variant_asset_payload", args, kwargs))
+            return {"variantId": "var_1"}
+
+    services.winner_expansion = FakeWinnerExpansion()
+
+    assert services.winner_expansion_plan(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        target_variants=3,
+        preset="strong_safe",
+    ) == {"schema": "campaign_factory.winner_expansion_plan.v1"}
+    assert services.winner_expansion_report("may", min_views=100, min_reach=200, min_followers=3) == {
+        "schema": "campaign_factory.winner_expansion_report.v1",
+    }
+    assert services.winner_variant_candidate({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}) == {
+        "variantAssetId": "asset_variant",
+    }
+    assert services.winner_variant_candidate_decision({"uploadReady": True}) == {
+        "recommended": True,
+        "blockingReasons": [],
+    }
+    assert services.latest_variant_audit_result("asset_variant") == {"qualityScore": 100}
+    assert services.contentforge_result_from_operations([{"type": "contentforge_result"}]) == {"familyName": "cover_frame"}
+    assert services.operation_family_from_operations([{"familyName": "cover_frame"}]) == "cover_frame"
+    assert services.score_value("95") == 95
+    assert services.variant_inventory_primary_blocking_reason(["missing_audio"]) == "missing_audio"
+    assert services.variant_inventory_quality_risk("asset_1") == "low"
+    assert services.variant_inventory_winner_rank(
+        campaign_id="camp_1",
+        parent_asset_id="asset_1",
+        parent_reel_id="preel_1",
+    ) == {"hasWinnerMetrics": True, "score": 10, "metrics": {"views": 10}}
+    assert services.variant_asset_payload({"id": "var_1"}) == {"variantId": "var_1"}
+
+    assert calls == [
+        ("winner_expansion_plan", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "target_variants": 3,
+            "preset": "strong_safe",
+        }),
+        ("winner_expansion_report", ("may",), {"min_views": 100, "min_reach": 200, "min_followers": 3}),
+        ("winner_variant_candidate", ({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}), {}),
+        ("winner_variant_candidate_decision", ({"uploadReady": True},), {}),
+        ("latest_variant_audit_result", ("asset_variant",), {}),
+        ("contentforge_result_from_operations", ([{"type": "contentforge_result"}],), {}),
+        ("operation_family_from_operations", ([{"familyName": "cover_frame"}],), {}),
+        ("score_value", ("95",), {}),
+        ("variant_inventory_primary_blocking_reason", (["missing_audio"],), {}),
+        ("variant_inventory_quality_risk", ("asset_1",), {}),
+        ("variant_inventory_winner_rank", (), {
+            "campaign_id": "camp_1",
+            "parent_asset_id": "asset_1",
+            "parent_reel_id": "preel_1",
+        }),
+        ("variant_asset_payload", ({"id": "var_1"},), {}),
+    ]
+
+
+def test_winner_expansion_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def winner_expansion_plan(self, *args, **kwargs):
+            calls.append(("winner_expansion_plan", args, kwargs))
+            return {"schema": "campaign_factory.winner_expansion_plan.v1"}
+
+        def winner_expansion_report(self, *args, **kwargs):
+            calls.append(("winner_expansion_report", args, kwargs))
+            return {"schema": "campaign_factory.winner_expansion_report.v1"}
+
+        def winner_variant_candidate(self, *args, **kwargs):
+            calls.append(("winner_variant_candidate", args, kwargs))
+            return {"variantAssetId": "asset_variant"}
+
+        def winner_variant_candidate_decision(self, *args, **kwargs):
+            calls.append(("winner_variant_candidate_decision", args, kwargs))
+            return {"recommended": True, "blockingReasons": []}
+
+        def latest_variant_audit_result(self, *args, **kwargs):
+            calls.append(("latest_variant_audit_result", args, kwargs))
+            return {"qualityScore": 100}
+
+        def contentforge_result_from_operations(self, *args, **kwargs):
+            calls.append(("contentforge_result_from_operations", args, kwargs))
+            return {"familyName": "cover_frame"}
+
+        def operation_family_from_operations(self, *args, **kwargs):
+            calls.append(("operation_family_from_operations", args, kwargs))
+            return "cover_frame"
+
+        def score_value(self, *args, **kwargs):
+            calls.append(("score_value", args, kwargs))
+            return 95
+
+        def variant_inventory_primary_blocking_reason(self, *args, **kwargs):
+            calls.append(("variant_inventory_primary_blocking_reason", args, kwargs))
+            return "missing_audio"
+
+        def variant_inventory_quality_risk(self, *args, **kwargs):
+            calls.append(("variant_inventory_quality_risk", args, kwargs))
+            return "low"
+
+        def variant_inventory_winner_rank(self, *args, **kwargs):
+            calls.append(("variant_inventory_winner_rank", args, kwargs))
+            return {"hasWinnerMetrics": True, "score": 10, "metrics": {"views": 10}}
+
+    factory.services = FakeServices()
+
+    assert factory.winner_expansion_plan(
+        creator="Stacey",
+        parent_asset_id="asset_1",
+        target_variants=3,
+        preset="strong_safe",
+    ) == {"schema": "campaign_factory.winner_expansion_plan.v1"}
+    assert factory.winner_expansion_report("may", min_views=100, min_reach=200, min_followers=3) == {
+        "schema": "campaign_factory.winner_expansion_report.v1",
+    }
+    assert factory._winner_variant_candidate({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}) == {
+        "variantAssetId": "asset_variant",
+    }
+    assert factory._winner_variant_candidate_decision({"uploadReady": True}) == {
+        "recommended": True,
+        "blockingReasons": [],
+    }
+    assert factory._latest_variant_audit_result("asset_variant") == {"qualityScore": 100}
+    assert factory._contentforge_result_from_operations([{"type": "contentforge_result"}]) == {
+        "familyName": "cover_frame",
+    }
+    assert factory._operation_family_from_operations([{"familyName": "cover_frame"}]) == "cover_frame"
+    assert factory._score_value("95") == 95
+    assert factory._variant_inventory_primary_blocking_reason(["missing_audio"]) == "missing_audio"
+    assert factory._variant_inventory_quality_risk("asset_1") == "low"
+    assert factory._variant_inventory_winner_rank(
+        campaign_id="camp_1",
+        parent_asset_id="asset_1",
+        parent_reel_id="preel_1",
+    ) == {"hasWinnerMetrics": True, "score": 10, "metrics": {"views": 10}}
+
+    assert calls == [
+        ("winner_expansion_plan", (), {
+            "creator": "Stacey",
+            "parent_asset_id": "asset_1",
+            "target_variants": 3,
+            "preset": "strong_safe",
+        }),
+        ("winner_expansion_report", ("may",), {"min_views": 100, "min_reach": 200, "min_followers": 3}),
+        ("winner_variant_candidate", ({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}), {}),
+        ("winner_variant_candidate_decision", ({"uploadReady": True},), {}),
+        ("latest_variant_audit_result", ("asset_variant",), {}),
+        ("contentforge_result_from_operations", ([{"type": "contentforge_result"}],), {}),
+        ("operation_family_from_operations", ([{"familyName": "cover_frame"}],), {}),
+        ("score_value", ("95",), {}),
+        ("variant_inventory_primary_blocking_reason", (["missing_audio"],), {}),
+        ("variant_inventory_quality_risk", ("asset_1",), {}),
+        ("variant_inventory_winner_rank", (), {
+            "campaign_id": "camp_1",
+            "parent_asset_id": "asset_1",
+            "parent_reel_id": "preel_1",
+        }),
     ]
 
 
