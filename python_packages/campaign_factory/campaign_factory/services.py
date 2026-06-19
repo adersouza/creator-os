@@ -13,6 +13,7 @@ from .carousel_integrity import CarouselIntegrityRepository
 from .campaign_overview import CampaignOverviewRepository
 from .certification import CertificationRepository
 from .config import Settings
+from .core_complexity import CoreComplexityRepository
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
@@ -579,6 +580,7 @@ class CoreServices:
             story_certification_proof=self.story_management.story_certification_proof,
             carousel_certification_proof=carousel_certification_proof,
         )
+        self.core_complexity = CoreComplexityRepository(conn, settings)
 
     def ensure_graph_node(
         self,
@@ -886,6 +888,15 @@ class CoreServices:
 
     def idempotency_evidence_for_path(self, name: str) -> str:
         return self.operational_proofs.idempotency_evidence_for_path(name)
+
+    def single_source_of_truth_audit(self) -> dict[str, Any]:
+        return self.core_complexity.single_source_of_truth_audit()
+
+    def core_complexity_reduction_plan(self) -> dict[str, Any]:
+        return self.core_complexity.core_complexity_reduction_plan()
+
+    def largest_project_files(self) -> list[dict[str, Any]]:
+        return self.core_complexity.largest_project_files()
 
     def create_pipeline_job(
         self,

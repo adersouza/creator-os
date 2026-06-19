@@ -14,6 +14,7 @@ from campaign_factory.campaign_overview import CampaignOverviewRepository
 from campaign_factory.certification import CertificationRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.core_complexity import CoreComplexityRepository
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
 from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
@@ -110,6 +111,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.certification.conn is factory.conn
         assert isinstance(factory.services.operational_proofs, OperationalProofRepository)
         assert factory.services.operational_proofs.conn is factory.conn
+        assert isinstance(factory.services.core_complexity, CoreComplexityRepository)
+        assert factory.services.core_complexity.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4691,6 +4694,76 @@ def test_core_services_delegates_operational_proof_methods_to_repository(tmp_pat
             ("surface_maturity_audit", (), {}),
             ("operator_load_audit", (), {}),
             ("idempotency_evidence_for_path", ("schedule",), {}),
+        ]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_core_complexity_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def single_source_of_truth_audit(self):
+            calls.append(("single_source_of_truth_audit", (), {}))
+            return {"schema": "creator_os.single_source_of_truth_audit.v1"}
+
+        def core_complexity_reduction_plan(self):
+            calls.append(("core_complexity_reduction_plan", (), {}))
+            return {"schema": "creator_os.core_complexity_reduction_plan.v1"}
+
+        def largest_project_files(self):
+            calls.append(("largest_project_files", (), {}))
+            return [{"file": "campaign_factory/core.py", "lines": 1, "risk": "low"}]
+
+    factory.services = FakeServices()
+
+    assert factory.single_source_of_truth_audit() == {"schema": "creator_os.single_source_of_truth_audit.v1"}
+    assert factory.core_complexity_reduction_plan() == {"schema": "creator_os.core_complexity_reduction_plan.v1"}
+    assert factory._largest_project_files() == [{"file": "campaign_factory/core.py", "lines": 1, "risk": "low"}]
+    assert calls == [
+        ("single_source_of_truth_audit", (), {}),
+        ("core_complexity_reduction_plan", (), {}),
+        ("largest_project_files", (), {}),
+    ]
+
+
+def test_core_services_delegates_core_complexity_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeCoreComplexity:
+            conn = factory.conn
+
+            def single_source_of_truth_audit(self):
+                calls.append(("single_source_of_truth_audit", (), {}))
+                return {"schema": "creator_os.single_source_of_truth_audit.v1"}
+
+            def core_complexity_reduction_plan(self):
+                calls.append(("core_complexity_reduction_plan", (), {}))
+                return {"schema": "creator_os.core_complexity_reduction_plan.v1"}
+
+            def largest_project_files(self):
+                calls.append(("largest_project_files", (), {}))
+                return [{"file": "campaign_factory/core.py", "lines": 1, "risk": "low"}]
+
+        factory.services.core_complexity = FakeCoreComplexity()
+
+        assert factory.services.single_source_of_truth_audit() == {"schema": "creator_os.single_source_of_truth_audit.v1"}
+        assert factory.services.core_complexity_reduction_plan() == {"schema": "creator_os.core_complexity_reduction_plan.v1"}
+        assert factory.services.largest_project_files() == [{"file": "campaign_factory/core.py", "lines": 1, "risk": "low"}]
+        assert calls == [
+            ("single_source_of_truth_audit", (), {}),
+            ("core_complexity_reduction_plan", (), {}),
+            ("largest_project_files", (), {}),
         ]
     finally:
         factory.close()
