@@ -38,6 +38,36 @@ class CaptionRenderTests(unittest.TestCase):
             self.assertLessEqual(bbox[2], 540)
             self.assertLessEqual(bbox[3], 960)
 
+    def test_wrapped_caption_pixels_stay_out_of_reels_safe_zones(self):
+        try:
+            from caption_render import render_caption_png
+        except ModuleNotFoundError as e:
+            if e.name == "pilmoji":
+                self.skipTest("pilmoji is not installed in this interpreter")
+            raise
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "caption.png"
+            render_caption_png(
+                "launch day checklist has one verylongunbrokenwordthatmustwrap cleanly",
+                font_family="Onest",
+                fonts_dir=Path("fonts"),
+                color_scheme="light",
+                band="bottom",
+                style="classic",
+                out_path=out,
+                canvas_w=540,
+                canvas_h=960,
+            )
+
+            img = Image.open(out).convert("RGBA")
+            bbox = img.getbbox()
+            self.assertIsNotNone(bbox)
+            assert bbox is not None
+            safe_bottom = round(480 * 960 / 1920)
+            self.assertLessEqual(bbox[2] - bbox[0], 360)
+            self.assertLessEqual(bbox[3], 960 - safe_bottom)
+
 
 if __name__ == "__main__":
     unittest.main()

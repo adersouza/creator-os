@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "id": "job_processing_001",
+      "status": "processing",
+      "params": {
+        "prompt": "recorded pending prompt"
+      }
+    }
+  ]
+}

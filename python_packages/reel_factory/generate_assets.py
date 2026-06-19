@@ -35,11 +35,19 @@ VIDEO_SOUND_MODELS = {"kling2_6", "kling3_0"}
 class HiggsfieldCommandError(RuntimeError):
     """Raised when the local Higgsfield CLI rejects or fails a command."""
 
-    def __init__(self, cmd: list[str], returncode: int, stdout: str, stderr: str):
+    def __init__(
+        self,
+        cmd: list[str],
+        returncode: int,
+        stdout: str,
+        stderr: str,
+        failure_kind: str = "command_failed",
+    ):
         self.cmd = cmd
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+        self.failure_kind = failure_kind
         message = stderr[-2000:] or stdout[-2000:] or f"command failed: {' '.join(cmd)}"
         super().__init__(message)
 
@@ -164,24 +172,98 @@ def capabilities_path(root: Path) -> Path:
     return Path(root).resolve() / "project_data" / "higgsfield_capabilities.json"
 
 
+def _stringify_process_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _classify_higgsfield_failure(stdout: str, stderr: str) -> str:
+    text = f"{stdout}\n{stderr}".lower()
+    if any(token in text for token in ("quota", "credit", "billing", "rate limit", "429", "insufficient funds")):
+        return "quota"
+    if any(token in text for token in ("timeout", "timed out", "deadline")):
+        return "timeout"
+    if any(token in text for token in ("partial", "incomplete", "processing")):
+        return "partial"
+    return "command_failed"
+
+
+def _adapter_primary_item(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, dict):
+        items = data.get("items")
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            return items[0]
+        if data.get("job_set_type") or data.get("status") or data.get("id"):
+            return data
+    return None
+
+
+def _mark_partial_generation(data: dict[str, Any]) -> dict[str, Any]:
+    item = _adapter_primary_item(data)
+    status = str(item.get("status") or "").lower() if item else ""
+    if not status or status == "completed":
+        return data
+    marked = dict(data)
+    marked["_adapter"] = {
+        "failureKind": "partial",
+        "status": status,
+        "message": "Higgsfield returned a non-completed generation response.",
+    }
+    return marked
+
+
+class HiggsfieldCliAdapter:
+    """Small subprocess boundary for paid Higgsfield/Kling CLI calls."""
+
+    def __init__(self, runner: Any = subprocess.run, timeout_seconds: int = 60 * 30):
+        self.runner = runner
+        self.timeout_seconds = timeout_seconds
+
+    def run_json(self, cmd: list[str]) -> dict[str, Any]:
+        try:
+            result = self.runner(cmd, capture_output=True, text=True, timeout=self.timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            stdout = _stringify_process_output(exc.output or exc.stdout)
+            stderr = _stringify_process_output(exc.stderr) or f"Higgsfield command timed out after {exc.timeout} seconds"
+            raise HiggsfieldCommandError(cmd, -1, stdout, stderr, "timeout") from exc
+        stdout = _stringify_process_output(getattr(result, "stdout", ""))
+        stderr = _stringify_process_output(getattr(result, "stderr", ""))
+        returncode = int(getattr(result, "returncode", 1))
+        if returncode != 0:
+            raise HiggsfieldCommandError(cmd, returncode, stdout, stderr, _classify_higgsfield_failure(stdout, stderr))
+        text = stdout.strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return {"raw": text}
+        payload = data if isinstance(data, dict) else {"items": data}
+        return _mark_partial_generation(payload)
+
+
 def _run_json(cmd: list[str]) -> dict[str, Any]:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60 * 30)
-    if result.returncode != 0:
-        raise HiggsfieldCommandError(cmd, result.returncode, result.stdout, result.stderr)
-    text = result.stdout.strip()
-    if not text:
-        return {}
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text}
-    return data if isinstance(data, dict) else {"items": data}
+    return HiggsfieldCliAdapter().run_json(cmd)
 
 
 def _run_text(cmd: list[str]) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        stdout = _stringify_process_output(exc.output or exc.stdout)
+        stderr = _stringify_process_output(exc.stderr) or f"Higgsfield command timed out after {exc.timeout} seconds"
+        raise HiggsfieldCommandError(cmd, -1, stdout, stderr, "timeout") from exc
     if result.returncode != 0:
-        raise HiggsfieldCommandError(cmd, result.returncode, result.stdout, result.stderr)
+        raise HiggsfieldCommandError(
+            cmd,
+            result.returncode,
+            result.stdout,
+            result.stderr,
+            _classify_higgsfield_failure(result.stdout, result.stderr),
+        )
     return result.stdout
 
 
@@ -615,6 +697,7 @@ def _step(name: str, cmd: list[str], response: dict[str, Any] | None = None) -> 
 def _failure_raw(exc: HiggsfieldCommandError) -> dict[str, Any]:
     return {
         "error": "higgsfield_command_failed",
+        "failureKind": exc.failure_kind,
         "message": str(exc),
         "returnCode": exc.returncode,
         "stdoutTail": exc.stdout[-4000:],

@@ -1,0 +1,8 @@
+{
+  "id": "img_completed_001",
+  "status": "completed",
+  "result_url": "https://example.test/generated.png",
+  "params": {
+    "prompt": "recorded completed prompt"
+  }
+}
