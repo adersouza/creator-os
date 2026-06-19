@@ -11,6 +11,7 @@ from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
 from .campaign_overview import CampaignOverviewRepository
+from .certification import CertificationRepository
 from .config import Settings
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
@@ -117,6 +118,8 @@ class CoreServices:
         inventory_production_requirements: Callable[..., dict[str, Any]],
         exception_queue_report: Callable[[], dict[str, Any]],
         reel_factory_parent_metrics: Callable[[], dict[str, Any]],
+        parent_factory_production_scorecard: Callable[[], dict[str, Any]],
+        carousel_certification_proof: Callable[..., dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -570,6 +573,14 @@ class CoreServices:
             reservation_adjusted_inventory=reservation_adjusted_inventory,
             exception_queue_report=exception_queue_report,
         )
+        self.certification = CertificationRepository(
+            conn,
+            creator_os_live_100_account_readiness=self.live_scale.creator_os_live_100_account_readiness,
+            parent_factory_production_scorecard=parent_factory_production_scorecard,
+            discoverability_prevention_scorecard=self.discoverability.discoverability_prevention_scorecard,
+            story_certification_proof=self.story_management.story_certification_proof,
+            carousel_certification_proof=carousel_certification_proof,
+        )
 
     def ensure_graph_node(
         self,
@@ -859,6 +870,9 @@ class CoreServices:
 
     def live_acceptance_blocker_for(self, key: str) -> str:
         return self.live_acceptance.live_acceptance_blocker_for(key)
+
+    def creator_os_certification_report(self) -> dict[str, Any]:
+        return self.certification.creator_os_certification_report()
 
     def create_pipeline_job(
         self,

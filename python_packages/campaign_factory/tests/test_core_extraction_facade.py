@@ -11,6 +11,7 @@ from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
 from campaign_factory.campaign_overview import CampaignOverviewRepository
+from campaign_factory.certification import CertificationRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
@@ -104,6 +105,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.live_scale.conn is factory.conn
         assert isinstance(factory.services.live_acceptance, LiveAcceptanceRepository)
         assert factory.services.live_acceptance.conn is factory.conn
+        assert isinstance(factory.services.certification, CertificationRepository)
+        assert factory.services.certification.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4550,6 +4553,48 @@ def test_core_services_delegates_live_account_acceptance_methods_to_repository(t
             ("live_acceptance_metrics_imported", (), {}),
             ("live_acceptance_blocker_for", ("metricsImported",), {}),
         ]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_creator_os_certification_report_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_certification_report(self):
+            calls.append(("creator_os_certification_report", (), {}))
+            return {"schema": "creator_os.certification_report.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_certification_report() == {"schema": "creator_os.certification_report.v1"}
+    assert calls == [("creator_os_certification_report", (), {})]
+
+
+def test_core_services_delegates_creator_os_certification_report_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeCertification:
+            conn = factory.conn
+
+            def creator_os_certification_report(self):
+                calls.append(("creator_os_certification_report", (), {}))
+                return {"schema": "creator_os.certification_report.v1"}
+
+        factory.services.certification = FakeCertification()
+
+        assert factory.services.creator_os_certification_report() == {"schema": "creator_os.certification_report.v1"}
+        assert calls == [("creator_os_certification_report", (), {})]
     finally:
         factory.close()
 
