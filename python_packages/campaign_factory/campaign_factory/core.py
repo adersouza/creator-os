@@ -608,7 +608,6 @@ class CampaignFactory:
             aggregate_performance=self._aggregate_performance,
             performance_quality_score=self._performance_quality_score,
             audio_selection_payload=self._audio_selection_payload,
-            jobs_for_campaign=self.jobs_for_campaign,
             audio_workflow_summary=self.audio_workflow_summary,
             events_for_asset=self.events_for_asset,
             performance_for_asset=self._performance_for_asset,
@@ -1095,12 +1094,7 @@ class CampaignFactory:
         return self.services.exception_payload(row)
 
     def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM pipeline_jobs WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (campaign["id"], max(1, min(limit, 1000))),
-        ).fetchall()
-        return [self.pipeline_job_payload(dict(row)) for row in rows]
+        return self.services.jobs_for_campaign(campaign_slug, limit=limit)
 
     def import_reference_bank(self, bank_path: Path, prompt_pack_path: Path | None = None) -> dict[str, Any]:
         return self.services.import_reference_bank(bank_path, prompt_pack_path)

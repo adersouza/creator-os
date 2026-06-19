@@ -104,6 +104,16 @@ class EventRepository:
         ).fetchall()
         return [self.event_payload(dict(row)) for row in rows]
 
+    def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
+        row = self.conn.execute("SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)).fetchone()
+        if not row:
+            raise ValueError(f"campaign not found: {campaign_slug}")
+        rows = self.conn.execute(
+            "SELECT * FROM pipeline_jobs WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (row["id"], max(1, min(limit, 1000))),
+        ).fetchall()
+        return [self.pipeline_job_payload(dict(job_row)) for job_row in rows]
+
     def create_pipeline_job(
         self,
         job_type: str,

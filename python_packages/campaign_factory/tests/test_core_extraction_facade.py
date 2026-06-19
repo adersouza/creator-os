@@ -149,6 +149,21 @@ def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> N
     ]
 
 
+def test_campaign_factory_delegates_jobs_for_campaign_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def jobs_for_campaign(self, *args, **kwargs):
+            calls.append(("jobs_for_campaign", args, kwargs))
+            return [{"id": "job_1"}]
+
+    factory.services = FakeServices()
+
+    assert factory.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
+    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
+
+
 def test_core_service_facade_methods_delegate_to_services() -> None:
     factory = object.__new__(CampaignFactory)
     calls = []
@@ -1164,6 +1179,21 @@ def test_core_services_delegates_account_memory_methods_to_account_memory_reposi
         ("account_recommendation_outcomes", ("camp_1", "ig_1", "now"), {}),
         ("account_memory_confidence", (1, {"measuredTotal": 0}), {}),
     ]
+
+
+def test_core_services_delegates_jobs_for_campaign_to_event_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeEvents:
+        def jobs_for_campaign(self, *args, **kwargs):
+            calls.append(("jobs_for_campaign", args, kwargs))
+            return [{"id": "job_1"}]
+
+    services.events = FakeEvents()
+
+    assert services.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
+    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
 
 
 def test_core_services_delegates_recommendation_accuracy_methods_to_recommendation_accuracy_repository() -> None:
