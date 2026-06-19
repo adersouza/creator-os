@@ -17,6 +17,7 @@ from .graph import GraphRepository
 from .models import ModelRepository
 from .reference import ReferenceRepository
 from .surface_registration import SurfaceRegistrationRepository
+from .winner_expansion import WinnerExpansionRepository
 
 
 class CoreServices:
@@ -252,6 +253,13 @@ class CoreServices:
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             surface_draft_proof=surface_draft_proof,
             asset_components=asset_components,
+        )
+        self.winner_expansion = WinnerExpansionRepository(
+            conn,
+            campaign_by_slug=self.campaign_by_slug,
+            rendered_asset=self.rendered_asset,
+            concept_for_parent_asset=concept_for_parent_asset,
+            explain_publishability=explain_publishability,
         )
 
     def ensure_graph_node(
@@ -1099,6 +1107,76 @@ class CoreServices:
         components: list[dict[str, Any]],
     ) -> dict[str, Any]:
         return self.carousel_integrity.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
+
+    def winner_expansion_plan(
+        self,
+        *,
+        creator: str | None = None,
+        parent_asset_id: str,
+        target_variants: int = 10,
+        preset: str = "caption_safe_v2",
+    ) -> dict[str, Any]:
+        return self.winner_expansion.winner_expansion_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            target_variants=target_variants,
+            preset=preset,
+        )
+
+    def winner_expansion_report(
+        self,
+        campaign_slug: str,
+        *,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.winner_expansion.winner_expansion_report(
+            campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
+        return self.winner_expansion.winner_variant_candidate(variant_payload, rendered)
+
+    def winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return self.winner_expansion.winner_variant_candidate_decision(candidate)
+
+    def latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
+        return self.winner_expansion.latest_variant_audit_result(variant_asset_id)
+
+    def contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.winner_expansion.contentforge_result_from_operations(operations)
+
+    def operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
+        return self.winner_expansion.operation_family_from_operations(operations)
+
+    def score_value(self, value: Any) -> int:
+        return self.winner_expansion.score_value(value)
+
+    def variant_inventory_primary_blocking_reason(self, failures: list[str]) -> str:
+        return self.winner_expansion.variant_inventory_primary_blocking_reason(failures)
+
+    def variant_inventory_quality_risk(self, parent_asset_id: str) -> str:
+        return self.winner_expansion.variant_inventory_quality_risk(parent_asset_id)
+
+    def variant_inventory_winner_rank(
+        self,
+        *,
+        campaign_id: str,
+        parent_asset_id: str,
+        parent_reel_id: str,
+    ) -> dict[str, Any]:
+        return self.winner_expansion.variant_inventory_winner_rank(
+            campaign_id=campaign_id,
+            parent_asset_id=parent_asset_id,
+            parent_reel_id=parent_reel_id,
+        )
+
+    def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.winner_expansion.variant_asset_payload(row)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
