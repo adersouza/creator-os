@@ -88,7 +88,6 @@ class CoreServices:
         aggregate_performance: Callable[..., dict[str, Any]],
         performance_quality_score: Callable[[dict[str, Any]], int | None],
         audio_selection_payload: Callable[[str], dict[str, Any]],
-        jobs_for_campaign: Callable[..., list[dict[str, Any]]],
         audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         events_for_asset: Callable[..., list[dict[str, Any]]],
         performance_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
@@ -287,7 +286,7 @@ class CoreServices:
             assets_for_campaign=self.asset_import.assets_for_campaign,
             rendered_for_campaign=rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
-            jobs_for_campaign=jobs_for_campaign,
+            jobs_for_campaign=self.events.jobs_for_campaign,
             audio_workflow_summary=audio_workflow_summary,
             rendered_asset=self.rendered_asset,
             record_event=self.events.record_event,
@@ -513,6 +512,9 @@ class CoreServices:
 
     def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
         return self.events.events_for_asset(rendered_asset_id, limit=limit)
+
+    def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
+        return self.events.jobs_for_campaign(campaign_slug, limit=limit)
 
     def create_pipeline_job(
         self,
