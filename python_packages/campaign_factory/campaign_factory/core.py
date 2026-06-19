@@ -622,7 +622,8 @@ class CampaignFactory:
             ig_media_type_by_surface=IG_MEDIA_TYPE_BY_SURFACE,
             image_exts=IMAGE_EXTS,
             video_exts=VIDEO_EXTS,
-            autonomy_level=self.autonomy_level,
+            autonomy_levels=AUTONOMY_LEVELS,
+            default_autonomy_level=DEFAULT_AUTONOMY_LEVEL,
             recommendation_proof_summary=self._recommendation_proof_summary,
             multi_blocker_inventory_unlock_report=lambda *args, **kwargs: self.multi_blocker_inventory_unlock_report(*args, **kwargs),
             multi_blocker_repair_minutes=self.MULTI_BLOCKER_REPAIR_MINUTES,
@@ -882,37 +883,13 @@ class CampaignFactory:
         return self.services.pipeline_job_payload(row)
 
     def autonomy_level(self) -> str:
-        row = self.conn.execute("SELECT value_json FROM trust_settings WHERE key = 'autonomy_level'").fetchone()
-        payload = json_load(row["value_json"], {}) if row else {}
-        level = str(payload.get("level") or DEFAULT_AUTONOMY_LEVEL)
-        return level if level in AUTONOMY_LEVELS else DEFAULT_AUTONOMY_LEVEL
+        return self.services.autonomy_level()
 
     def set_autonomy_level(self, level: str) -> dict[str, Any]:
-        if level not in AUTONOMY_LEVELS:
-            raise ValueError(f"autonomy level must be one of {sorted(AUTONOMY_LEVELS)}")
-        now = utc_now()
-        payload = {"level": level, "updatedAt": now}
-        self.conn.execute(
-            """
-            INSERT INTO trust_settings (key, value_json, updated_at)
-            VALUES ('autonomy_level', ?, ?)
-            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-            """,
-            (json.dumps(payload, ensure_ascii=False, sort_keys=True), now),
-        )
-        self.conn.commit()
-        return {"schema": "campaign_factory.autonomy_policy.v1", **payload}
+        return self.services.set_autonomy_level(level)
 
     def autonomy_policy(self) -> dict[str, Any]:
-        return {
-            "schema": "campaign_factory.autonomy_policy.v1",
-            "level": self.autonomy_level(),
-            "levels": [
-                {"level": "level_1", "label": "Recommendations only", "publishesAutomatically": False},
-                {"level": "level_2", "label": "Accepted recommendations auto-execute generation/render/audit", "publishesAutomatically": False},
-                {"level": "level_3", "label": "Reserved for future auto-approval", "publishesAutomatically": False, "reserved": True},
-            ],
-        }
+        return self.services.autonomy_policy()
 
     def rebuild_account_memory(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self.campaign_by_slug(campaign_slug)
