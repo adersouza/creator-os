@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from campaign_factory import audit_payload, exports
+from campaign_factory.acceptance_suite import AcceptanceSuiteRepository
 from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
@@ -92,6 +93,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.daily_plan.conn is factory.conn
         assert isinstance(factory.services.execution_readiness, ExecutionReadinessRepository)
         assert factory.services.execution_readiness.conn is factory.conn
+        assert isinstance(factory.services.acceptance_suite, AcceptanceSuiteRepository)
+        assert factory.services.acceptance_suite.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4009,6 +4012,91 @@ def test_core_services_delegates_creator_os_execution_readiness_to_repository(tm
                 "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
                 "time_plan": {"schema": "creator_os.time_plan.v1"},
                 "generated_at": "2026-06-06T12:00:00Z",
+            },
+        )]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_creator_os_200_account_acceptance_suite_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_200_account_acceptance_suite(self, **kwargs):
+            calls.append(("creator_os_200_account_acceptance_suite", kwargs))
+            return {"schema": "creator_os.200_account_acceptance_suite.v1", "ok": True}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_200_account_acceptance_suite(
+        accounts=50,
+        creators=2,
+        daily_obligations=100,
+        draft_inventory=300,
+        warming_accounts=4,
+        restricted_accounts=3,
+        manual_review_accounts=2,
+        mixed_surfaces=False,
+        generated_at="2026-06-08T12:00:00+00:00",
+    ) == {"schema": "creator_os.200_account_acceptance_suite.v1", "ok": True}
+    assert calls == [(
+        "creator_os_200_account_acceptance_suite",
+        {
+            "accounts": 50,
+            "creators": 2,
+            "daily_obligations": 100,
+            "draft_inventory": 300,
+            "warming_accounts": 4,
+            "restricted_accounts": 3,
+            "manual_review_accounts": 2,
+            "mixed_surfaces": False,
+            "generated_at": "2026-06-08T12:00:00+00:00",
+        },
+    )]
+
+
+def test_core_services_delegates_creator_os_200_account_acceptance_suite_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        def fake_acceptance_suite(**kwargs):
+            calls.append(("creator_os_200_account_acceptance_suite", kwargs))
+            return {"schema": "creator_os.200_account_acceptance_suite.v1", "ok": True}
+
+        factory.services.acceptance_suite.creator_os_200_account_acceptance_suite = fake_acceptance_suite
+
+        assert factory.services.creator_os_200_account_acceptance_suite(
+            accounts=50,
+            creators=2,
+            daily_obligations=100,
+            draft_inventory=300,
+            warming_accounts=4,
+            restricted_accounts=3,
+            manual_review_accounts=2,
+            mixed_surfaces=False,
+            generated_at="2026-06-08T12:00:00+00:00",
+        ) == {"schema": "creator_os.200_account_acceptance_suite.v1", "ok": True}
+        assert calls == [(
+            "creator_os_200_account_acceptance_suite",
+            {
+                "accounts": 50,
+                "creators": 2,
+                "daily_obligations": 100,
+                "draft_inventory": 300,
+                "warming_accounts": 4,
+                "restricted_accounts": 3,
+                "manual_review_accounts": 2,
+                "mixed_surfaces": False,
+                "generated_at": "2026-06-08T12:00:00+00:00",
             },
         )]
     finally:
