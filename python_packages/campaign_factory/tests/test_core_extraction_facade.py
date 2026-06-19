@@ -17,6 +17,7 @@ from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.discoverability import DiscoverabilityRepository
 from campaign_factory.distribution import DistributionRepository
+from campaign_factory.draft_inventory_gap import DraftInventoryGapRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
@@ -83,6 +84,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.story_management.conn is factory.conn
         assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
         assert factory.services.surface_summary.conn is factory.conn
+        assert isinstance(factory.services.draft_inventory_gap, DraftInventoryGapRepository)
+        assert factory.services.draft_inventory_gap.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -204,6 +207,81 @@ def test_campaign_factory_delegates_surface_summary_methods_to_services() -> Non
         ),
         ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
     ]
+
+
+def test_campaign_factory_delegates_creator_os_draft_inventory_gap_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_draft_inventory_gap(self, *args, **kwargs):
+            calls.append(("creator_os_draft_inventory_gap", args, kwargs))
+            return {"schema": "creator_os.draft_inventory_gap.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_draft_inventory_gap(
+        creator="Stacey",
+        threadsdash_report={"schema": "threadsdash.report.v1"},
+        schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+        time_plan={"schema": "creator_os.time_plan.v1"},
+        generated_at="2026-06-06T12:00:00Z",
+    ) == {"schema": "creator_os.draft_inventory_gap.v1"}
+    assert calls == [
+        (
+            "creator_os_draft_inventory_gap",
+            (),
+            {
+                "creator": "Stacey",
+                "threadsdash_report": {"schema": "threadsdash.report.v1"},
+                "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+                "time_plan": {"schema": "creator_os.time_plan.v1"},
+                "generated_at": "2026-06-06T12:00:00Z",
+            },
+        ),
+    ]
+
+
+def test_core_services_delegates_creator_os_draft_inventory_gap_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    try:
+        calls = []
+
+        def fake_gap(*args, **kwargs):
+            calls.append(("creator_os_draft_inventory_gap", args, kwargs))
+            return {"schema": "creator_os.draft_inventory_gap.v1"}
+
+        factory.services.draft_inventory_gap.creator_os_draft_inventory_gap = fake_gap
+
+        assert factory.services.creator_os_draft_inventory_gap(
+            creator="Stacey",
+            threadsdash_report={"schema": "threadsdash.report.v1"},
+            schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+            time_plan={"schema": "creator_os.time_plan.v1"},
+            generated_at="2026-06-06T12:00:00Z",
+        ) == {"schema": "creator_os.draft_inventory_gap.v1"}
+        assert calls == [
+            (
+                "creator_os_draft_inventory_gap",
+                (),
+                {
+                    "creator": "Stacey",
+                    "threadsdash_report": {"schema": "threadsdash.report.v1"},
+                    "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+                    "time_plan": {"schema": "creator_os.time_plan.v1"},
+                    "generated_at": "2026-06-06T12:00:00Z",
+                },
+            ),
+        ]
+    finally:
+        factory.close()
 
 
 def test_core_service_facade_methods_delegate_to_services() -> None:
