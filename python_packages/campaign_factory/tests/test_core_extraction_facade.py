@@ -36,6 +36,7 @@ from campaign_factory.inventory_recovery import InventoryRecoveryRepository
 from campaign_factory.inventory_reservations import InventoryReservationRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
+from campaign_factory.lifecycle_reporting import LifecycleReportingRepository
 from campaign_factory.make_batch import MakeBatchRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.multi_blocker_unlock import MultiBlockerUnlockRepository
@@ -139,6 +140,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.live_scale.conn is factory.conn
         assert isinstance(factory.services.live_acceptance, LiveAcceptanceRepository)
         assert factory.services.live_acceptance.conn is factory.conn
+        assert isinstance(factory.services.lifecycle_reporting, LifecycleReportingRepository)
+        assert factory.services.lifecycle_reporting.conn is factory.conn
         assert isinstance(factory.services.make_batch_repo, MakeBatchRepository)
         assert factory.services.make_batch_repo.conn is factory.conn
         assert isinstance(factory.services.certification, CertificationRepository)
@@ -1089,6 +1092,114 @@ def test_campaign_factory_delegates_multi_blocker_unlock_methods_to_services() -
         ("multi_blocker_combo_difficulty", (["audio_failure"],), {}),
         ("multi_blocker_best_combo", ([], 1), {}),
         ("multi_blocker_minimal_fix_set", ([],), {"current_inventory": 0, "required_inventory": 1}),
+    ]
+
+
+def test_campaign_factory_delegates_lifecycle_reporting_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+    asset = {"id": "asset_1"}
+    plan = {"id": "plan_1"}
+    post = {"id": "post_1"}
+    snapshot = {"id": "snapshot_1"}
+
+    assert factory.campaign_readiness("may", user_id="user_1") == {"method": "campaign_readiness"}
+    assert factory.lifecycle_report("may", user_id="user_1", include_threadsdash="off") == {"method": "lifecycle_report"}
+    assert factory.creator_os_lifecycle_dashboard(campaign="may", user_id="user_1") == {"method": "creator_os_lifecycle_dashboard"}
+    assert factory._creator_os_lifecycle_bucket({"currentState": "published"}) == {"method": "creator_os_lifecycle_bucket"}
+    assert factory._lifecycle_snapshots_by_asset("campaign_1") == {"method": "lifecycle_snapshots_by_asset"}
+    assert factory._lifecycle_threadsdash_indexes(campaign_slug="may", user_id="user_1", include_threadsdash="off", threadsdash_posts=[]) == {
+        "method": "lifecycle_threadsdash_indexes",
+    }
+    assert factory._lifecycle_row(campaign={"id": "campaign_1", "slug": "may"}, asset=asset, plan=plan, assignments=[], snapshots=[], threadsdash_posts=[]) == {
+        "method": "lifecycle_row",
+    }
+    assert factory._derive_lifecycle_state(asset=asset, plan=plan, assignments=[], readiness={}, post=post, snapshot=snapshot, mismatch={}, media_issue=None) == {
+        "method": "derive_lifecycle_state",
+    }
+    assert factory._lifecycle_blocking_reason(["missing_audit"]) == {"method": "lifecycle_blocking_reason"}
+    assert factory._lifecycle_media_validation_issue(asset=asset, post=post) == {"method": "lifecycle_media_validation_issue"}
+    assert factory._latest_lifecycle_post([post]) == {"method": "latest_lifecycle_post"}
+    assert factory._lifecycle_snapshot_has_metrics(snapshot) == {"method": "lifecycle_snapshot_has_metrics"}
+    assert factory._lifecycle_is_past_due("2026-01-01T00:00:00+00:00") == {"method": "lifecycle_is_past_due"}
+    assert factory._lifecycle_past_due_resolved(post) == {"method": "lifecycle_past_due_resolved"}
+    assert factory._lifecycle_last_state_change(asset=asset, plan=plan, post=post, snapshot=snapshot) == {"method": "lifecycle_last_state_change"}
+    assert factory._parse_lifecycle_time("2026-01-01T00:00:00+00:00") == {"method": "parse_lifecycle_time"}
+    assert factory._lifecycle_mismatch(asset=asset, plan=plan, post=post, snapshot=snapshot, context_fingerprint="abc") == {
+        "method": "lifecycle_mismatch",
+    }
+    assert factory._lifecycle_post_meta(post) == {"method": "lifecycle_post_meta"}
+    assert factory._lifecycle_fingerprint({"caption": "hello"}) == {"method": "lifecycle_fingerprint"}
+    assert factory._canonical_lifecycle_context({"render_recipe": None, "caption": "hello"}) == {"method": "canonical_lifecycle_context"}
+    assert factory._compact_lifecycle_post(post) == {"method": "compact_lifecycle_post"}
+    assert factory._compact_lifecycle_snapshot(snapshot) == {"method": "compact_lifecycle_snapshot"}
+
+    assert calls == [
+        ("campaign_readiness", ("may",), {"user_id": "user_1"}),
+        (
+            "lifecycle_report",
+            ("may",),
+            {
+                "user_id": "user_1",
+                "threadsdash_posts": None,
+                "include_threadsdash": "off",
+                "state": None,
+                "blocking_reason": None,
+                "rendered_asset_id": None,
+            },
+        ),
+        (
+            "creator_os_lifecycle_dashboard",
+            (),
+            {
+                "campaign": "may",
+                "user_id": "user_1",
+                "threadsdash_posts": None,
+                "include_threadsdash": "auto",
+                "generated_at": None,
+            },
+        ),
+        ("creator_os_lifecycle_bucket", ({"currentState": "published"},), {}),
+        ("lifecycle_snapshots_by_asset", ("campaign_1",), {}),
+        (
+            "lifecycle_threadsdash_indexes",
+            (),
+            {"campaign_slug": "may", "user_id": "user_1", "include_threadsdash": "off", "threadsdash_posts": []},
+        ),
+        (
+            "lifecycle_row",
+            (),
+            {"campaign": {"id": "campaign_1", "slug": "may"}, "asset": asset, "plan": plan, "assignments": [], "snapshots": [], "threadsdash_posts": []},
+        ),
+        (
+            "derive_lifecycle_state",
+            (),
+            {"asset": asset, "plan": plan, "assignments": [], "readiness": {}, "post": post, "snapshot": snapshot, "mismatch": {}, "media_issue": None},
+        ),
+        ("lifecycle_blocking_reason", (["missing_audit"],), {}),
+        ("lifecycle_media_validation_issue", (), {"asset": asset, "post": post}),
+        ("latest_lifecycle_post", ([post],), {}),
+        ("lifecycle_snapshot_has_metrics", (snapshot,), {}),
+        ("lifecycle_is_past_due", ("2026-01-01T00:00:00+00:00",), {}),
+        ("lifecycle_past_due_resolved", (post,), {}),
+        ("lifecycle_last_state_change", (), {"asset": asset, "plan": plan, "post": post, "snapshot": snapshot}),
+        ("parse_lifecycle_time", ("2026-01-01T00:00:00+00:00",), {}),
+        ("lifecycle_mismatch", (), {"asset": asset, "plan": plan, "post": post, "snapshot": snapshot, "context_fingerprint": "abc"}),
+        ("lifecycle_post_meta", (post,), {}),
+        ("lifecycle_fingerprint", ({"caption": "hello"},), {}),
+        ("canonical_lifecycle_context", ({"render_recipe": None, "caption": "hello"},), {}),
+        ("compact_lifecycle_post", (post,), {}),
+        ("compact_lifecycle_snapshot", (snapshot,), {}),
     ]
 
 
@@ -4590,6 +4701,93 @@ def test_core_services_delegates_multi_blocker_unlock_methods_to_repository() ->
         ("multi_blocker_combo_difficulty", (["audio_failure"],), {}),
         ("multi_blocker_best_combo", ([], 1), {}),
         ("multi_blocker_minimal_fix_set", ([],), {"current_inventory": 0, "required_inventory": 1}),
+    ]
+
+
+def test_core_services_delegates_lifecycle_reporting_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeLifecycleReporting:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.lifecycle_reporting = FakeLifecycleReporting()
+    asset = {"id": "asset_1"}
+    plan = {"id": "plan_1"}
+    post = {"id": "post_1"}
+    snapshot = {"id": "snapshot_1"}
+
+    assert services.campaign_readiness("may", user_id="user_1") == {"method": "campaign_readiness"}
+    assert services.lifecycle_report("may", user_id="user_1", include_threadsdash="off") == {"method": "lifecycle_report"}
+    assert services.creator_os_lifecycle_dashboard(campaign="may", user_id="user_1") == {"method": "creator_os_lifecycle_dashboard"}
+    assert services.creator_os_lifecycle_bucket({"currentState": "published"}) == {"method": "creator_os_lifecycle_bucket"}
+    assert services.lifecycle_snapshots_by_asset("campaign_1") == {"method": "lifecycle_snapshots_by_asset"}
+    assert services.lifecycle_threadsdash_indexes(campaign_slug="may", user_id="user_1", include_threadsdash="off", threadsdash_posts=[]) == {
+        "method": "lifecycle_threadsdash_indexes",
+    }
+    assert services.lifecycle_row(campaign={"id": "campaign_1", "slug": "may"}, asset=asset, plan=plan, assignments=[], snapshots=[], threadsdash_posts=[]) == {
+        "method": "lifecycle_row",
+    }
+    assert services.derive_lifecycle_state(asset=asset, plan=plan, assignments=[], readiness={}, post=post, snapshot=snapshot, mismatch={}, media_issue=None) == {
+        "method": "derive_lifecycle_state",
+    }
+    assert services.lifecycle_blocking_reason(["missing_audit"]) == {"method": "lifecycle_blocking_reason"}
+    assert services.lifecycle_media_validation_issue(asset=asset, post=post) == {"method": "lifecycle_media_validation_issue"}
+    assert services.latest_lifecycle_post([post]) == {"method": "latest_lifecycle_post"}
+    assert services.lifecycle_snapshot_has_metrics(snapshot) == {"method": "lifecycle_snapshot_has_metrics"}
+    assert services.lifecycle_is_past_due("2026-01-01T00:00:00+00:00") == {"method": "lifecycle_is_past_due"}
+    assert services.lifecycle_past_due_resolved(post) == {"method": "lifecycle_past_due_resolved"}
+    assert services.lifecycle_last_state_change(asset=asset, plan=plan, post=post, snapshot=snapshot) == {"method": "lifecycle_last_state_change"}
+    assert services.parse_lifecycle_time("2026-01-01T00:00:00+00:00") == {"method": "parse_lifecycle_time"}
+    assert services.lifecycle_mismatch(asset=asset, plan=plan, post=post, snapshot=snapshot, context_fingerprint="abc") == {
+        "method": "lifecycle_mismatch",
+    }
+    assert services.lifecycle_post_meta(post) == {"method": "lifecycle_post_meta"}
+    assert services.lifecycle_fingerprint({"caption": "hello"}) == {"method": "lifecycle_fingerprint"}
+    assert services.canonical_lifecycle_context({"render_recipe": None, "caption": "hello"}) == {"method": "canonical_lifecycle_context"}
+    assert services.compact_lifecycle_post(post) == {"method": "compact_lifecycle_post"}
+    assert services.compact_lifecycle_snapshot(snapshot) == {"method": "compact_lifecycle_snapshot"}
+
+    assert calls == [
+        ("campaign_readiness", ("may",), {"user_id": "user_1"}),
+        ("lifecycle_report", ("may",), {"user_id": "user_1", "include_threadsdash": "off"}),
+        ("creator_os_lifecycle_dashboard", (), {"campaign": "may", "user_id": "user_1"}),
+        ("creator_os_lifecycle_bucket", ({"currentState": "published"},), {}),
+        ("lifecycle_snapshots_by_asset", ("campaign_1",), {}),
+        (
+            "lifecycle_threadsdash_indexes",
+            (),
+            {"campaign_slug": "may", "user_id": "user_1", "include_threadsdash": "off", "threadsdash_posts": []},
+        ),
+        (
+            "lifecycle_row",
+            (),
+            {"campaign": {"id": "campaign_1", "slug": "may"}, "asset": asset, "plan": plan, "assignments": [], "snapshots": [], "threadsdash_posts": []},
+        ),
+        (
+            "derive_lifecycle_state",
+            (),
+            {"asset": asset, "plan": plan, "assignments": [], "readiness": {}, "post": post, "snapshot": snapshot, "mismatch": {}, "media_issue": None},
+        ),
+        ("lifecycle_blocking_reason", (["missing_audit"],), {}),
+        ("lifecycle_media_validation_issue", (), {"asset": asset, "post": post}),
+        ("latest_lifecycle_post", ([post],), {}),
+        ("lifecycle_snapshot_has_metrics", (snapshot,), {}),
+        ("lifecycle_is_past_due", ("2026-01-01T00:00:00+00:00",), {}),
+        ("lifecycle_past_due_resolved", (post,), {}),
+        ("lifecycle_last_state_change", (), {"asset": asset, "plan": plan, "post": post, "snapshot": snapshot}),
+        ("parse_lifecycle_time", ("2026-01-01T00:00:00+00:00",), {}),
+        ("lifecycle_mismatch", (), {"asset": asset, "plan": plan, "post": post, "snapshot": snapshot, "context_fingerprint": "abc"}),
+        ("lifecycle_post_meta", (post,), {}),
+        ("lifecycle_fingerprint", ({"caption": "hello"},), {}),
+        ("canonical_lifecycle_context", ({"render_recipe": None, "caption": "hello"},), {}),
+        ("compact_lifecycle_post", (post,), {}),
+        ("compact_lifecycle_snapshot", (snapshot,), {}),
     ]
 
 
