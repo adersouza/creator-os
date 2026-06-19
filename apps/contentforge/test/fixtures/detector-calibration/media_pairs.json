@@ -1,0 +1,73 @@
+{
+  "schema": "contentforge.detector_calibration_pairs.v1",
+  "notes": [
+    "Recorded edge measurements for known source/variant media pairs.",
+    "The fixture pins detector threshold semantics without requiring heavyweight local SSCD model files in CI."
+  ],
+  "pairs": [
+    {
+      "id": "pdq_hamming_31_match",
+      "detector": "pdq",
+      "source": "known_collision_source.png",
+      "target": "known_collision_pdq_hamming_31.png",
+      "measurement": { "hammingDistance": 31 },
+      "expected": { "rawVerdict": "match", "campaignVerdict": "fail", "campaignUploadReady": false }
+    },
+    {
+      "id": "pdq_hamming_40_gate_gap",
+      "detector": "pdq",
+      "source": "known_collision_source.png",
+      "target": "known_safe_target_boundary_pdq_hamming_40.png",
+      "measurement": { "hammingDistance": 40 },
+      "expected": { "rawVerdict": "distinct", "campaignVerdict": "fail", "campaignUploadReady": false }
+    },
+    {
+      "id": "pdq_hamming_41_distinct",
+      "detector": "pdq",
+      "source": "known_collision_source.png",
+      "target": "known_distinct_pdq_hamming_41.png",
+      "measurement": { "hammingDistance": 41 },
+      "expected": { "rawVerdict": "distinct", "campaignVerdict": "pass", "campaignUploadReady": true }
+    },
+    {
+      "id": "sscd_cosine_0_75_copy",
+      "detector": "sscd",
+      "source": "known_copy_source.png",
+      "target": "known_copy_sscd_cosine_0_75.png",
+      "measurement": { "cosineSimilarity": 0.75 },
+      "expected": { "rawVerdict": "copy", "campaignVerdict": "fail", "campaignUploadReady": false }
+    },
+    {
+      "id": "sscd_cosine_0_50_gate_boundary",
+      "detector": "sscd",
+      "source": "known_copy_source.png",
+      "target": "known_safe_target_boundary_sscd_cosine_0_50.png",
+      "measurement": { "cosineSimilarity": 0.5 },
+      "expected": { "rawVerdict": "similar", "campaignVerdict": "fail", "campaignUploadReady": false }
+    },
+    {
+      "id": "sscd_cosine_0_49_distinct",
+      "detector": "sscd",
+      "source": "known_copy_source.png",
+      "target": "known_distinct_sscd_cosine_0_49.png",
+      "measurement": { "cosineSimilarity": 0.49 },
+      "expected": { "rawVerdict": "distinct", "campaignVerdict": "pass", "campaignUploadReady": true }
+    },
+    {
+      "id": "tmk_similarity_0_70_filter",
+      "detector": "tmk",
+      "source": "known_temporal_source.mp4",
+      "target": "known_temporal_tmk_similarity_0_70.mp4",
+      "measurement": { "temporalSimilarity": 0.7 },
+      "expected": { "rawVerdict": "likely_match" }
+    },
+    {
+      "id": "tmk_similarity_0_69_distinct",
+      "detector": "tmk",
+      "source": "known_temporal_source.mp4",
+      "target": "known_distinct_tmk_similarity_0_69.mp4",
+      "measurement": { "temporalSimilarity": 0.69 },
+      "expected": { "rawVerdict": "distinct" }
+    }
+  ]
+}
