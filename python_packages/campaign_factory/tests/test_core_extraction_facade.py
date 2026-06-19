@@ -17,6 +17,7 @@ from campaign_factory.events import EventRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.models import ModelRepository
+from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
@@ -69,6 +70,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.creative_knowledge.conn is factory.conn
         assert isinstance(factory.services.tribev2, TribeV2Repository)
         assert factory.services.tribev2.conn is factory.conn
+        assert isinstance(factory.services.operator_review, OperatorReviewRepository)
+        assert factory.services.operator_review.conn is factory.conn
     finally:
         factory.close()
 
@@ -3229,4 +3232,267 @@ def test_audit_report_facade_delegates_to_audit_payload_module(monkeypatch) -> N
     assert calls == [
         ("audit", factory, "audit_1"),
         ("payload", factory, {"id": "audit_2"}),
+    ]
+
+
+def test_operator_review_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def operator_inventory_review_batch_plan(self, *args, **kwargs):
+            calls.append(("operator_inventory_review_batch_plan", args, kwargs))
+            return {"schema": "creator_os.operator_inventory_review_batch_plan.v1"}
+
+        def operator_inventory_review_batch_summary(self, *args, **kwargs):
+            calls.append(("operator_inventory_review_batch_summary", args, kwargs))
+            return {"schema": "creator_os.operator_inventory_review_batch_summary.v1"}
+
+        def operator_review_simulator(self, *args, **kwargs):
+            calls.append(("operator_review_simulator", args, kwargs))
+            return {"schema": "creator_os.operator_review_simulator.v1", "reviewBatch": []}
+
+        def operator_review_scenarios(self, *args, **kwargs):
+            calls.append(("operator_review_scenarios", args, kwargs))
+            return {"schema": "creator_os.operator_review_scenarios.v1"}
+
+        def operator_review_efficiency_report(self, *args, **kwargs):
+            calls.append(("operator_review_efficiency_report", args, kwargs))
+            return {"schema": "creator_os.operator_review_efficiency_report.v1"}
+
+        def operator_review_minimum_certification_path(self, *args, **kwargs):
+            calls.append(("operator_review_minimum_certification_path", args, kwargs))
+            return {"schema": "creator_os.operator_review_minimum_certification_path.v1"}
+
+        def operator_review_master_report(self, *args, **kwargs):
+            calls.append(("operator_review_master_report", args, kwargs))
+            return {"schema": "creator_os.operator_review_master_report.v1"}
+
+        def operator_review_execution_order(self, *args, **kwargs):
+            calls.append(("operator_review_execution_order", args, kwargs))
+            return [{"assetId": "asset_1"}]
+
+        def operator_review_batch_priority(self, *args, **kwargs):
+            calls.append(("operator_review_batch_priority", args, kwargs))
+            return 1
+
+        def operator_review_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_scenario(self, *args, **kwargs):
+            calls.append(("operator_review_scenario", args, kwargs))
+            return {"approvalRate": kwargs["approval_rate"]}
+
+        def operator_review_minimum_path(self, *args, **kwargs):
+            calls.append(("operator_review_minimum_path", args, kwargs))
+            return {"minimumAssetsReviewedToPass25Gate": 1}
+
+        def operator_review_highest_roi_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_highest_roi_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_lowest_risk_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_lowest_risk_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_batch_order_labels(self, *args, **kwargs):
+            calls.append(("operator_review_batch_order_labels", args, kwargs))
+            return ["caption_only"]
+
+        def operator_review_candidate_eligible(self, *args, **kwargs):
+            calls.append(("operator_review_candidate_eligible", args, kwargs))
+            return True
+
+        def operator_review_candidate_row(self, *args, **kwargs):
+            calls.append(("operator_review_candidate_row", args, kwargs))
+            return {"assetId": args[0]["assetId"]}
+
+        def operator_review_actions(self, *args, **kwargs):
+            calls.append(("operator_review_actions", args, kwargs))
+            return ["operator_visual_review"]
+
+    factory.services = FakeServices()
+
+    assert factory.operator_inventory_review_batch_plan(creator="Test")["schema"] == "creator_os.operator_inventory_review_batch_plan.v1"
+    assert factory.operator_inventory_review_batch_summary(creator="Test")["schema"] == "creator_os.operator_inventory_review_batch_summary.v1"
+    assert factory.operator_review_simulator(creator="Test")["schema"] == "creator_os.operator_review_simulator.v1"
+    assert factory.operator_review_scenarios(creator="Test")["schema"] == "creator_os.operator_review_scenarios.v1"
+    assert factory.operator_review_efficiency_report(creator="Test")["schema"] == "creator_os.operator_review_efficiency_report.v1"
+    assert factory.operator_review_minimum_certification_path(creator="Test")["schema"] == "creator_os.operator_review_minimum_certification_path.v1"
+    assert factory.operator_review_master_report(creator="Test")["schema"] == "creator_os.operator_review_master_report.v1"
+    assert factory._operator_review_execution_order([{"assetId": "asset_1"}]) == [{"assetId": "asset_1"}]
+    assert factory._operator_review_batch_priority(["discoverability_failure"]) == 1
+    assert factory._operator_review_batch_type(["instagram_post_caption_quality_failed"]) == "caption_only"
+    assert factory._operator_review_scenario([], current_inventory=0, required_inventory=1, approval_rate=50) == {"approvalRate": 50}
+    assert factory._operator_review_minimum_path([], current_inventory=0, required_inventory=1) == {"minimumAssetsReviewedToPass25Gate": 1}
+    assert factory._operator_review_highest_roi_batch_type([]) == "caption_only"
+    assert factory._operator_review_lowest_risk_batch_type([]) == "caption_only"
+    assert factory._operator_review_batch_order_labels([]) == ["caption_only"]
+    assert factory._operator_review_candidate_eligible({"assetId": "asset_1"}) is True
+    assert factory._operator_review_candidate_row({"assetId": "asset_1"}) == {"assetId": "asset_1"}
+    assert factory._operator_review_actions(["operator_visual_review_required"]) == ["operator_visual_review"]
+
+    assert calls == [
+        ("operator_inventory_review_batch_plan", (), {
+            "creator": "Test",
+            "campaign_slug": None,
+            "content_surface": "reel",
+            "required_inventory": 225,
+            "current_inventory": None,
+            "target_unlock": None,
+            "max_batch_size": None,
+        }),
+        ("operator_inventory_review_batch_summary", (), {"creator": "Test"}),
+        ("operator_review_simulator", (), {
+            "creator": "Test",
+            "campaign_slug": None,
+            "content_surface": "reel",
+            "required_inventory": 225,
+            "current_inventory": None,
+            "approval_rates": None,
+        }),
+        ("operator_review_scenarios", (), {"creator": "Test"}),
+        ("operator_review_efficiency_report", (), {"creator": "Test"}),
+        ("operator_review_minimum_certification_path", (), {"creator": "Test"}),
+        ("operator_review_master_report", (), {"creator": "Test"}),
+        ("operator_review_execution_order", ([{"assetId": "asset_1"}],), {}),
+        ("operator_review_batch_priority", (["discoverability_failure"],), {}),
+        ("operator_review_batch_type", (["instagram_post_caption_quality_failed"],), {}),
+        ("operator_review_scenario", ([],), {
+            "current_inventory": 0,
+            "required_inventory": 1,
+            "approval_rate": 50,
+        }),
+        ("operator_review_minimum_path", ([],), {"current_inventory": 0, "required_inventory": 1}),
+        ("operator_review_highest_roi_batch_type", ([],), {}),
+        ("operator_review_lowest_risk_batch_type", ([],), {}),
+        ("operator_review_batch_order_labels", ([],), {}),
+        ("operator_review_candidate_eligible", ({"assetId": "asset_1"},), {}),
+        ("operator_review_candidate_row", ({"assetId": "asset_1"},), {}),
+        ("operator_review_actions", (["operator_visual_review_required"],), {}),
+    ]
+
+
+def test_core_services_delegates_operator_review_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeOperatorReview:
+        def operator_inventory_review_batch_plan(self, *args, **kwargs):
+            calls.append(("operator_inventory_review_batch_plan", args, kwargs))
+            return {"schema": "creator_os.operator_inventory_review_batch_plan.v1"}
+
+        def operator_inventory_review_batch_summary(self, *args, **kwargs):
+            calls.append(("operator_inventory_review_batch_summary", args, kwargs))
+            return {"schema": "creator_os.operator_inventory_review_batch_summary.v1"}
+
+        def operator_review_simulator(self, *args, **kwargs):
+            calls.append(("operator_review_simulator", args, kwargs))
+            return {"schema": "creator_os.operator_review_simulator.v1"}
+
+        def operator_review_scenarios(self, *args, **kwargs):
+            calls.append(("operator_review_scenarios", args, kwargs))
+            return {"schema": "creator_os.operator_review_scenarios.v1"}
+
+        def operator_review_efficiency_report(self, *args, **kwargs):
+            calls.append(("operator_review_efficiency_report", args, kwargs))
+            return {"schema": "creator_os.operator_review_efficiency_report.v1"}
+
+        def operator_review_minimum_certification_path(self, *args, **kwargs):
+            calls.append(("operator_review_minimum_certification_path", args, kwargs))
+            return {"schema": "creator_os.operator_review_minimum_certification_path.v1"}
+
+        def operator_review_master_report(self, *args, **kwargs):
+            calls.append(("operator_review_master_report", args, kwargs))
+            return {"schema": "creator_os.operator_review_master_report.v1"}
+
+        def operator_review_execution_order(self, *args, **kwargs):
+            calls.append(("operator_review_execution_order", args, kwargs))
+            return []
+
+        def operator_review_batch_priority(self, *args, **kwargs):
+            calls.append(("operator_review_batch_priority", args, kwargs))
+            return 1
+
+        def operator_review_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_scenario(self, *args, **kwargs):
+            calls.append(("operator_review_scenario", args, kwargs))
+            return {"approvalRate": kwargs["approval_rate"]}
+
+        def operator_review_minimum_path(self, *args, **kwargs):
+            calls.append(("operator_review_minimum_path", args, kwargs))
+            return {}
+
+        def operator_review_highest_roi_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_highest_roi_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_lowest_risk_batch_type(self, *args, **kwargs):
+            calls.append(("operator_review_lowest_risk_batch_type", args, kwargs))
+            return "caption_only"
+
+        def operator_review_batch_order_labels(self, *args, **kwargs):
+            calls.append(("operator_review_batch_order_labels", args, kwargs))
+            return ["caption_only"]
+
+        def operator_review_candidate_eligible(self, *args, **kwargs):
+            calls.append(("operator_review_candidate_eligible", args, kwargs))
+            return True
+
+        def operator_review_candidate_row(self, *args, **kwargs):
+            calls.append(("operator_review_candidate_row", args, kwargs))
+            return {"assetId": args[0]["assetId"]}
+
+        def operator_review_actions(self, *args, **kwargs):
+            calls.append(("operator_review_actions", args, kwargs))
+            return ["operator_visual_review"]
+
+    services.operator_review = FakeOperatorReview()
+
+    assert services.operator_inventory_review_batch_plan(creator="Test")["schema"] == "creator_os.operator_inventory_review_batch_plan.v1"
+    assert services.operator_inventory_review_batch_summary(creator="Test")["schema"] == "creator_os.operator_inventory_review_batch_summary.v1"
+    assert services.operator_review_simulator(creator="Test")["schema"] == "creator_os.operator_review_simulator.v1"
+    assert services.operator_review_scenarios(creator="Test")["schema"] == "creator_os.operator_review_scenarios.v1"
+    assert services.operator_review_efficiency_report(creator="Test")["schema"] == "creator_os.operator_review_efficiency_report.v1"
+    assert services.operator_review_minimum_certification_path(creator="Test")["schema"] == "creator_os.operator_review_minimum_certification_path.v1"
+    assert services.operator_review_master_report(creator="Test")["schema"] == "creator_os.operator_review_master_report.v1"
+    assert services.operator_review_execution_order([]) == []
+    assert services.operator_review_batch_priority(["discoverability_failure"]) == 1
+    assert services.operator_review_batch_type(["instagram_post_caption_quality_failed"]) == "caption_only"
+    assert services.operator_review_scenario([], current_inventory=0, required_inventory=1, approval_rate=75) == {"approvalRate": 75}
+    assert services.operator_review_minimum_path([], current_inventory=0, required_inventory=1) == {}
+    assert services.operator_review_highest_roi_batch_type([]) == "caption_only"
+    assert services.operator_review_lowest_risk_batch_type([]) == "caption_only"
+    assert services.operator_review_batch_order_labels([]) == ["caption_only"]
+    assert services.operator_review_candidate_eligible({"assetId": "asset_1"}) is True
+    assert services.operator_review_candidate_row({"assetId": "asset_1"}) == {"assetId": "asset_1"}
+    assert services.operator_review_actions(["operator_visual_review_required"]) == ["operator_visual_review"]
+
+    assert calls == [
+        ("operator_inventory_review_batch_plan", (), {"creator": "Test"}),
+        ("operator_inventory_review_batch_summary", (), {"creator": "Test"}),
+        ("operator_review_simulator", (), {"creator": "Test"}),
+        ("operator_review_scenarios", (), {"creator": "Test"}),
+        ("operator_review_efficiency_report", (), {"creator": "Test"}),
+        ("operator_review_minimum_certification_path", (), {"creator": "Test"}),
+        ("operator_review_master_report", (), {"creator": "Test"}),
+        ("operator_review_execution_order", ([],), {}),
+        ("operator_review_batch_priority", (["discoverability_failure"],), {}),
+        ("operator_review_batch_type", (["instagram_post_caption_quality_failed"],), {}),
+        ("operator_review_scenario", ([],), {
+            "current_inventory": 0,
+            "required_inventory": 1,
+            "approval_rate": 75,
+        }),
+        ("operator_review_minimum_path", ([],), {"current_inventory": 0, "required_inventory": 1}),
+        ("operator_review_highest_roi_batch_type", ([],), {}),
+        ("operator_review_lowest_risk_batch_type", ([],), {}),
+        ("operator_review_batch_order_labels", ([],), {}),
+        ("operator_review_candidate_eligible", ({"assetId": "asset_1"},), {}),
+        ("operator_review_candidate_row", ({"assetId": "asset_1"},), {}),
+        ("operator_review_actions", (["operator_visual_review_required"],), {}),
     ]

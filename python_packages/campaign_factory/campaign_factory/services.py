@@ -16,6 +16,7 @@ from .events import EventRepository
 from .exceptions import ExceptionRepository
 from .graph import GraphRepository
 from .models import ModelRepository
+from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .tribev2 import TribeV2Repository
@@ -84,6 +85,8 @@ class CoreServices:
         video_exts: set[str],
         autonomy_level: Callable[[], str],
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
+        multi_blocker_inventory_unlock_report: Callable[..., dict[str, Any]],
+        multi_blocker_repair_minutes: dict[str, int],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -284,6 +287,12 @@ class CoreServices:
             creative_knowledge_result=creative_knowledge_result,
             image_exts=image_exts,
             video_exts=video_exts,
+        )
+        self.operator_review = OperatorReviewRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            multi_blocker_inventory_unlock_report=multi_blocker_inventory_unlock_report,
+            repair_minutes=multi_blocker_repair_minutes,
         )
 
     def ensure_graph_node(
@@ -1480,6 +1489,82 @@ class CoreServices:
 
     def tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
         return self.tribev2.tribev2_confidence_level(sample_size, statistically_interesting)
+
+    def operator_inventory_review_batch_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_inventory_review_batch_plan(**kwargs)
+
+    def operator_inventory_review_batch_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_inventory_review_batch_summary(**kwargs)
+
+    def operator_review_simulator(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_review_simulator(**kwargs)
+
+    def operator_review_scenarios(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_review_scenarios(**kwargs)
+
+    def operator_review_efficiency_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_review_efficiency_report(**kwargs)
+
+    def operator_review_minimum_certification_path(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_review_minimum_certification_path(**kwargs)
+
+    def operator_review_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.operator_review.operator_review_master_report(**kwargs)
+
+    def operator_review_execution_order(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.operator_review.operator_review_execution_order(rows)
+
+    def operator_review_batch_priority(self, repair_classes: list[str]) -> int:
+        return self.operator_review.operator_review_batch_priority(repair_classes)
+
+    def operator_review_batch_type(self, repair_classes: list[str]) -> str:
+        return self.operator_review.operator_review_batch_type(repair_classes)
+
+    def operator_review_scenario(
+        self,
+        ordered_rows: list[dict[str, Any]],
+        *,
+        current_inventory: int,
+        required_inventory: int,
+        approval_rate: int,
+    ) -> dict[str, Any]:
+        return self.operator_review.operator_review_scenario(
+            ordered_rows,
+            current_inventory=current_inventory,
+            required_inventory=required_inventory,
+            approval_rate=approval_rate,
+        )
+
+    def operator_review_minimum_path(
+        self,
+        ordered_rows: list[dict[str, Any]],
+        *,
+        current_inventory: int,
+        required_inventory: int,
+    ) -> dict[str, Any]:
+        return self.operator_review.operator_review_minimum_path(
+            ordered_rows,
+            current_inventory=current_inventory,
+            required_inventory=required_inventory,
+        )
+
+    def operator_review_highest_roi_batch_type(self, rows: list[dict[str, Any]]) -> str:
+        return self.operator_review.operator_review_highest_roi_batch_type(rows)
+
+    def operator_review_lowest_risk_batch_type(self, rows: list[dict[str, Any]]) -> str:
+        return self.operator_review.operator_review_lowest_risk_batch_type(rows)
+
+    def operator_review_batch_order_labels(self, rows: list[dict[str, Any]]) -> list[str]:
+        return self.operator_review.operator_review_batch_order_labels(rows)
+
+    def operator_review_candidate_eligible(self, asset: dict[str, Any]) -> bool:
+        return self.operator_review.operator_review_candidate_eligible(asset)
+
+    def operator_review_candidate_row(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.operator_review.operator_review_candidate_row(asset)
+
+    def operator_review_actions(self, repair_classes: list[str]) -> list[str]:
+        return self.operator_review.operator_review_actions(repair_classes)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
