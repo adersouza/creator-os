@@ -16,6 +16,7 @@ from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
 from .discoverability import DiscoverabilityRepository
 from .distribution import DistributionRepository
+from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
 from .exceptions import ExceptionRepository
 from .graph import GraphRepository
@@ -68,6 +69,12 @@ class CoreServices:
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
+        creator_os_draft_items: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        creator_os_local_schedule_safe_assets: Callable[[str], list[dict[str, Any]]],
+        creator_os_schedule_safe_drafts: Callable[[str, list[dict[str, Any]]], list[dict[str, Any]]],
+        creator_os_draft_exclusion_reason: Callable[[dict[str, Any]], str | None],
+        creator_os_execution_draft_blockers: Callable[[str, list[dict[str, Any]]], list[str]],
+        creator_os_gap_blocking_reason: Callable[[str | None, list[str], dict[str, Any]], str],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
@@ -362,6 +369,17 @@ class CoreServices:
             empty_surface_totals=empty_surface_totals,
             content_surfaces=content_surfaces,
         )
+        self.draft_inventory_gap = DraftInventoryGapRepository(
+            conn,
+            creator_label=creator_label,
+            creator_os_draft_items=creator_os_draft_items,
+            creator_os_local_schedule_safe_assets=creator_os_local_schedule_safe_assets,
+            creator_os_schedule_safe_drafts=creator_os_schedule_safe_drafts,
+            creator_os_draft_exclusion_reason=creator_os_draft_exclusion_reason,
+            creator_os_execution_draft_blockers=creator_os_execution_draft_blockers,
+            creator_os_gap_blocking_reason=creator_os_gap_blocking_reason,
+            utc_now=utc_now,
+        )
         self.surface_registration = SurfaceRegistrationRepository(
             conn,
             slugify=slugify,
@@ -532,6 +550,23 @@ class CoreServices:
 
     def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
         return self.events.jobs_for_campaign(campaign_slug, limit=limit)
+
+    def creator_os_draft_inventory_gap(
+        self,
+        *,
+        creator: str,
+        threadsdash_report: dict[str, Any] | None = None,
+        schedule_plan: dict[str, Any] | None = None,
+        time_plan: dict[str, Any] | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.draft_inventory_gap.creator_os_draft_inventory_gap(
+            creator=creator,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
+            generated_at=generated_at,
+        )
 
     def create_pipeline_job(
         self,
