@@ -578,7 +578,7 @@ class CampaignFactory:
             surface_handoff_readiness_report=self.surface_handoff_readiness_report,
             surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
             surface_report_assets=self._surface_report_assets,
-            build_surface_readiness=self._build_surface_readiness,
+            build_surface_readiness=lambda *args, **kwargs: self._build_surface_readiness(*args, **kwargs),
             asset_matches_creator=self._asset_matches_creator,
             latest_audit_for_asset=self._latest_audit_for_asset,
             reservation_adjusted_inventory=self._reservation_adjusted_inventory,
@@ -631,7 +631,6 @@ class CampaignFactory:
             exception_queue_report=self.exception_queue_report,
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             parent_factory_production_scorecard=self.parent_factory_production_scorecard,
-            multi_surface_inventory_audit=self.multi_surface_inventory_audit,
             build_surface_inventory=lambda *args, **kwargs: self._build_surface_inventory(*args, **kwargs),
             truthy=self._truthy,
             surface_readiness_scorecard=self.surface_readiness_scorecard,
@@ -13734,21 +13733,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        built = self._build_surface_inventory(creator=creator_label, campaign_slug=campaign_slug)
-        inventory = built["inventoryBySurface"]
-        missing = [
-            surface
-            for surface, counts in inventory.items()
-            if counts["total"] == 0 or counts["scheduleSafe"] == 0
-        ]
-        return {
-            "schema": "campaign_factory.multi_surface_inventory_audit.v1",
-            "creator": creator_label,
-            "inventoryBySurface": inventory,
-            "surfacesMissingInventory": missing,
-            "wouldWrite": False,
-        }
+        return self.services.multi_surface_inventory_audit(creator=creator, campaign_slug=campaign_slug)
 
     def account_surface_obligations_plan(
         self,
@@ -13881,32 +13866,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        assets_by_surface = {surface: [] for surface in CONTENT_SURFACES}
-        inventory = {
-            surface: {"total": 0, "scheduleSafe": 0}
-            for surface in CONTENT_SURFACES
-        }
-        assets = self._surface_report_assets(creator=creator_label, campaign_slug=campaign_slug)
-        readiness_items = self._build_surface_readiness(assets)
-        readiness_by_asset = {item.get("assetId"): item for item in readiness_items}
-        for asset in assets:
-            surface = normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
-            if surface not in inventory:
-                continue
-            assets_by_surface[surface].append(asset)
-            inventory[surface]["total"] += 1
-            if (readiness_by_asset.get(asset.get("id")) or {}).get("canHandoff"):
-                inventory[surface]["scheduleSafe"] += 1
-        return {
-            "creator": creator_label,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "assets": assets,
-            "assetsBySurface": assets_by_surface,
-            "readiness": readiness_items,
-            "inventoryBySurface": inventory,
-            "wouldWrite": False,
-        }
+        return self.services.build_surface_inventory(creator=creator, campaign_slug=campaign_slug)
 
     def _build_surface_status(
         self,

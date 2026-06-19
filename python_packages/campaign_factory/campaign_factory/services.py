@@ -35,6 +35,7 @@ from .recommendation_accuracy import RecommendationAccuracyRepository
 from .readiness_report import ReadinessReportRepository
 from .story_management import StoryManagementRepository
 from .surface_handoff import SurfaceHandoffRepository
+from .surface_inventory import SurfaceInventoryRepository
 from .surface_requirements import SurfaceRequirementsRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_summary import SurfaceSummaryRepository
@@ -124,7 +125,6 @@ class CoreServices:
         exception_queue_report: Callable[[], dict[str, Any]],
         reel_factory_parent_metrics: Callable[[], dict[str, Any]],
         parent_factory_production_scorecard: Callable[[], dict[str, Any]],
-        multi_surface_inventory_audit: Callable[..., dict[str, Any]],
         build_surface_inventory: Callable[..., dict[str, Any]],
         truthy: Callable[[Any], bool],
         surface_readiness_scorecard: Callable[[], dict[str, Any]],
@@ -283,11 +283,21 @@ class CoreServices:
             model_account_profile=self.models.model_account_profile,
             account_compatible_with_model=self.models.account_compatible_with_model,
         )
+        self.surface_inventory = SurfaceInventoryRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            build_surface_inventory_for_audit=build_surface_inventory,
+            content_surfaces=content_surfaces,
+        )
         self.surface_requirements = SurfaceRequirementsRepository(
             conn,
             creator_label=creator_label,
             normalize_content_surface=normalize_content_surface,
-            multi_surface_inventory_audit=multi_surface_inventory_audit,
+            multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
             build_surface_inventory=build_surface_inventory,
             content_surfaces=content_surfaces,
         )
@@ -430,7 +440,7 @@ class CoreServices:
             creator_content_needs=self.surface_requirements.creator_content_needs,
             account_content_needs=self.surface_requirements.account_content_needs,
             account_surface_obligations_plan=self.surface_requirements.account_surface_obligations_plan,
-            multi_surface_inventory_audit=multi_surface_inventory_audit,
+            multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
             surface_gap_report=self.surface_requirements.surface_gap_report,
             empty_surface_totals=self.surface_requirements.empty_surface_totals,
             content_surfaces=content_surfaces,
@@ -1794,6 +1804,22 @@ class CoreServices:
 
     def creator_story_summary(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.creator_story_summary(**kwargs)
+
+    def multi_surface_inventory_audit(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_inventory.multi_surface_inventory_audit(creator=creator, campaign_slug=campaign_slug)
+
+    def build_surface_inventory(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_inventory.build_surface_inventory(creator=creator, campaign_slug=campaign_slug)
 
     def account_surface_obligations_plan(self, *, creator: str, date: str) -> dict[str, Any]:
         return self.surface_requirements.account_surface_obligations_plan(creator=creator, date=date)

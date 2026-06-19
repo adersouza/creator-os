@@ -37,6 +37,7 @@ from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_handoff import SurfaceHandoffRepository
+from campaign_factory.surface_inventory import SurfaceInventoryRepository
 from campaign_factory.surface_requirements import SurfaceRequirementsRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
@@ -95,6 +96,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.story_management.conn is factory.conn
         assert isinstance(factory.services.surface_handoff, SurfaceHandoffRepository)
         assert factory.services.surface_handoff.conn is factory.conn
+        assert isinstance(factory.services.surface_inventory, SurfaceInventoryRepository)
+        assert factory.services.surface_inventory.conn is factory.conn
         assert isinstance(factory.services.surface_requirements, SurfaceRequirementsRepository)
         assert factory.services.surface_requirements.conn is factory.conn
         assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
@@ -239,6 +242,33 @@ def test_campaign_factory_delegates_surface_summary_methods_to_services() -> Non
             {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
         ),
         ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
+
+
+def test_campaign_factory_delegates_surface_inventory_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def multi_surface_inventory_audit(self, *args, **kwargs):
+            calls.append(("multi_surface_inventory_audit", args, kwargs))
+            return {"schema": "campaign_factory.multi_surface_inventory_audit.v1"}
+
+        def build_surface_inventory(self, *args, **kwargs):
+            calls.append(("build_surface_inventory", args, kwargs))
+            return {"schema": "campaign_factory.surface_inventory.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.multi_surface_inventory_audit(creator="Stacey", campaign_slug="summer") == {
+        "schema": "campaign_factory.multi_surface_inventory_audit.v1",
+    }
+    assert factory._build_surface_inventory(creator="Stacey", campaign_slug="summer") == {
+        "schema": "campaign_factory.surface_inventory.v1",
+    }
+    assert calls == [
+        ("multi_surface_inventory_audit", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+        ("build_surface_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
     ]
 
 
@@ -1618,6 +1648,33 @@ def test_core_services_delegates_surface_summary_methods_to_surface_summary_repo
             {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
         ),
         ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
+
+
+def test_core_services_delegates_surface_inventory_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeSurfaceInventory:
+        def multi_surface_inventory_audit(self, *args, **kwargs):
+            calls.append(("multi_surface_inventory_audit", args, kwargs))
+            return {"schema": "campaign_factory.multi_surface_inventory_audit.v1"}
+
+        def build_surface_inventory(self, *args, **kwargs):
+            calls.append(("build_surface_inventory", args, kwargs))
+            return {"schema": "campaign_factory.surface_inventory.v1"}
+
+    services.surface_inventory = FakeSurfaceInventory()
+
+    assert services.multi_surface_inventory_audit(creator="Stacey", campaign_slug="summer") == {
+        "schema": "campaign_factory.multi_surface_inventory_audit.v1",
+    }
+    assert services.build_surface_inventory(creator="Stacey", campaign_slug="summer") == {
+        "schema": "campaign_factory.surface_inventory.v1",
+    }
+    assert calls == [
+        ("multi_surface_inventory_audit", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+        ("build_surface_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
     ]
 
 
