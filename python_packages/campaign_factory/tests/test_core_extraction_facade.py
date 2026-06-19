@@ -9,6 +9,7 @@ from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
+from campaign_factory.campaign_overview import CampaignOverviewRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
@@ -87,8 +88,65 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.account_memory.conn is factory.conn
         assert isinstance(factory.services.recommendation_accuracy_repo, RecommendationAccuracyRepository)
         assert factory.services.recommendation_accuracy_repo.conn is factory.conn
+        assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
+        assert factory.services.campaign_overview.conn is factory.conn
     finally:
         factory.close()
+
+
+def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def campaign_health(self, *args, **kwargs):
+            calls.append(("campaign_health", args, kwargs))
+            return {"schema": "campaign_factory.campaign_health.v1", "campaign": args[0]}
+
+        def asset_detail(self, *args, **kwargs):
+            calls.append(("asset_detail", args, kwargs))
+            return {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": args[0]}}
+
+        def assign_asset_account(self, *args, **kwargs):
+            calls.append(("assign_asset_account", args, kwargs))
+            return {"rendered_asset_id": args[0], "instagram_account_id": kwargs["instagram_account_id"]}
+
+        def assignments_for_asset(self, *args, **kwargs):
+            calls.append(("assignments_for_asset", args, kwargs))
+            return [{"rendered_asset_id": args[0]}]
+
+        def assignments_for_campaign(self, *args, **kwargs):
+            calls.append(("assignments_for_campaign", args, kwargs))
+            return [{"campaign": args[0]}]
+
+    factory.services = FakeServices()
+
+    assert factory.campaign_health("may") == {"schema": "campaign_factory.campaign_health.v1", "campaign": "may"}
+    assert factory.asset_detail("asset_1") == {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": "asset_1"}}
+    assert factory.assign_asset_account(
+        "asset_1",
+        account_id="acct_1",
+        instagram_account_id="ig_1",
+        planned_window_start="2026-05-15T10:00:00-04:00",
+        planned_window_end="2026-05-15T12:00:00-04:00",
+        notes="morning test",
+    ) == {"rendered_asset_id": "asset_1", "instagram_account_id": "ig_1"}
+    assert factory.assignments_for_asset("asset_1") == [{"rendered_asset_id": "asset_1"}]
+    assert factory.assignments_for_campaign("may") == [{"campaign": "may"}]
+
+    assert calls == [
+        ("campaign_health", ("may",), {}),
+        ("asset_detail", ("asset_1",), {}),
+        ("assign_asset_account", ("asset_1",), {
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "planned_window_start": "2026-05-15T10:00:00-04:00",
+            "planned_window_end": "2026-05-15T12:00:00-04:00",
+            "notes": "morning test",
+        }),
+        ("assignments_for_asset", ("asset_1",), {}),
+        ("assignments_for_campaign", ("may",), {}),
+    ]
 
 
 def test_core_service_facade_methods_delegate_to_services() -> None:
@@ -1215,6 +1273,61 @@ def test_core_services_delegates_recommendation_accuracy_methods_to_recommendati
         ("recommendation_audio_selection", ("rec_1",), {}),
         ("recommendation_audio_match_status", ({"audioRecommendations": {"recommendations": []}}, {"id": "audsel_1"}), {}),
         ("recommendation_outcome_snapshot_ids", ({"snapshots": [{"id": "perf_1"}]}, {}), {}),
+    ]
+
+
+def test_core_services_delegates_campaign_overview_methods_to_campaign_overview_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCampaignOverview:
+        def campaign_health(self, *args, **kwargs):
+            calls.append(("campaign_health", args, kwargs))
+            return {"schema": "campaign_factory.campaign_health.v1", "campaign": args[0]}
+
+        def asset_detail(self, *args, **kwargs):
+            calls.append(("asset_detail", args, kwargs))
+            return {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": args[0]}}
+
+        def assign_asset_account(self, *args, **kwargs):
+            calls.append(("assign_asset_account", args, kwargs))
+            return {"rendered_asset_id": args[0], "instagram_account_id": kwargs["instagram_account_id"]}
+
+        def assignments_for_asset(self, *args, **kwargs):
+            calls.append(("assignments_for_asset", args, kwargs))
+            return [{"rendered_asset_id": args[0]}]
+
+        def assignments_for_campaign(self, *args, **kwargs):
+            calls.append(("assignments_for_campaign", args, kwargs))
+            return [{"campaign": args[0]}]
+
+    services.campaign_overview = FakeCampaignOverview()
+
+    assert services.campaign_health("may") == {"schema": "campaign_factory.campaign_health.v1", "campaign": "may"}
+    assert services.asset_detail("asset_1") == {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": "asset_1"}}
+    assert services.assign_asset_account(
+        "asset_1",
+        account_id="acct_1",
+        instagram_account_id="ig_1",
+        planned_window_start="2026-05-15T10:00:00-04:00",
+        planned_window_end="2026-05-15T12:00:00-04:00",
+        notes="morning test",
+    ) == {"rendered_asset_id": "asset_1", "instagram_account_id": "ig_1"}
+    assert services.assignments_for_asset("asset_1") == [{"rendered_asset_id": "asset_1"}]
+    assert services.assignments_for_campaign("may") == [{"campaign": "may"}]
+
+    assert calls == [
+        ("campaign_health", ("may",), {}),
+        ("asset_detail", ("asset_1",), {}),
+        ("assign_asset_account", ("asset_1",), {
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "planned_window_start": "2026-05-15T10:00:00-04:00",
+            "planned_window_end": "2026-05-15T12:00:00-04:00",
+            "notes": "morning test",
+        }),
+        ("assignments_for_asset", ("asset_1",), {}),
+        ("assignments_for_campaign", ("may",), {}),
     ]
 
 

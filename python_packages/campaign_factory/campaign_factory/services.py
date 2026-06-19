@@ -9,6 +9,7 @@ from .asset_import import AssetImportRepository
 from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
+from .campaign_overview import CampaignOverviewRepository
 from .config import Settings
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
@@ -87,6 +88,11 @@ class CoreServices:
         aggregate_performance: Callable[..., dict[str, Any]],
         performance_quality_score: Callable[[dict[str, Any]], int | None],
         audio_selection_payload: Callable[[str], dict[str, Any]],
+        jobs_for_campaign: Callable[..., list[dict[str, Any]]],
+        audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        events_for_asset: Callable[..., list[dict[str, Any]]],
+        performance_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        audit_report_payload: Callable[[dict[str, Any]], dict[str, Any]],
         recommended_story_intent_for_date: Callable[..., str],
         recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
@@ -272,6 +278,23 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             audio_selection_payload=audio_selection_payload,
+        )
+        self.campaign_overview = CampaignOverviewRepository(
+            conn,
+            new_id=new_id,
+            utc_now=utc_now,
+            campaign_by_slug=self.campaign_by_slug,
+            assets_for_campaign=self.asset_import.assets_for_campaign,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+            jobs_for_campaign=jobs_for_campaign,
+            audio_workflow_summary=audio_workflow_summary,
+            rendered_asset=self.rendered_asset,
+            record_event=self.events.record_event,
+            events_for_asset=events_for_asset,
+            performance_for_asset=performance_for_asset,
+            ranking=ranking,
+            audit_report_payload=audit_report_payload,
         )
         self.exceptions = ExceptionRepository(
             conn,
@@ -796,6 +819,37 @@ class CoreServices:
 
     def parse_datetime(self, value: Any):
         return self.recommendation_accuracy_repo.parse_datetime(value)
+
+    def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
+        return self.campaign_overview.campaign_health(campaign_slug)
+
+    def asset_detail(self, rendered_asset_id: str) -> dict[str, Any]:
+        return self.campaign_overview.asset_detail(rendered_asset_id)
+
+    def assign_asset_account(
+        self,
+        rendered_asset_id: str,
+        *,
+        account_id: str | None = None,
+        instagram_account_id: str | None = None,
+        planned_window_start: str | None = None,
+        planned_window_end: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.campaign_overview.assign_asset_account(
+            rendered_asset_id,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            notes=notes,
+        )
+
+    def assignments_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+        return self.campaign_overview.assignments_for_asset(rendered_asset_id)
+
+    def assignments_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
+        return self.campaign_overview.assignments_for_campaign(campaign_slug)
 
     def create_creative_plan(
         self,
