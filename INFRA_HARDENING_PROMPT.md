@@ -33,6 +33,7 @@
   - OPEN TD infra PRs at refresh time: none.
   - Vercel preview `PENDING`/`UNSTABLE` on merged PRs was not treated as a code failure by itself; local gates were run before merge.
 - **Live migration apply status, refreshed on 2026-06-19:** TD repo migrations through `20260619162040_drop_unused_account_cohort_niche_indexes.sql` are now applied to live Supabase project `apsrvwxfoomhtswlhczo`. The first four unapplied migrations were applied by `supabase db push --linked --include-all`; the remaining concurrent index migrations were applied statement-by-statement through `supabase db query --linked` and recorded with `supabase migration repair --linked --status applied` because the CLI migration runner failed on `DROP INDEX CONCURRENTLY` inside a pipeline.
+- **Publish-worker production verification, refreshed on 2026-06-19:** TD `main` is at `ccfaaa124 fix(cron): bundle pipeline contract runtime directory`; production deployment `dpl_6wv2N7KYCcWZqmaJTdm1Kip28v65` shows repeated `/api/cron/publish-worker` 200s over the final verification window. Vercel production log queries for `publish-worker`, `generated-schemas`, `Cannot find module`, and error-level logs showed no recurrence of `Cannot find module '/var/task/pipeline_contracts/generated-schemas'`. Local runtime proof also found `.vercel/output/functions/api/cron/publish-worker.func/pipeline_contracts/generated-schemas.js`, and `tests/unit/serverless-runtime-imports.test.ts`, `npm run compat:check`, `npm run typecheck`, and `npm run build` passed.
 - **D3 is in termination-audit mode, not open-ended cleanup.** Do not duplicate the table-family batches already opened/applied:
   - TD #147: `campaign_factory_*` zero-scan index batch.
   - TD #152: `scheduler_decisions` zero-scan account/run indexes; preserves the active `created_at`, BRIN retention, workspace, and group indexes.
@@ -108,15 +109,17 @@
 
 ## Track B — Crons (7.5 → 9.5). All TD. Independent, parallelizable.
 
-**B1 — Stop the publish-worker/scheduler overlap (AUDIT §2 HIGH→mitigated).** Filter publish-worker Phases 3–4 to `scheduler_version < 2`, matching `dawn-planner`/`account-state-evaluator`. Test: a v2+ workspace item is dispatched by scheduler only.
+**Status refresh (2026-06-19):** B1–B5 are merged to TD `main` via TD #142–#146 and remain listed below as the implementation ledger. The extra publish-worker runtime packaging miss is also closed by TD #184/#186 and verified in production logs.
 
-**B2 — Cap watchdog recoveries (AUDIT §2 MED).** Add a recovery-attempt ceiling to the >30m-scheduled reset path; dead-letter on exhaustion (mirror the publishing-stuck 3-retry path). Test: an item that fails N recoveries lands in `dead_letter`, stops re-alerting.
+**B1 — Stop the publish-worker/scheduler overlap (AUDIT §2 HIGH→mitigated).** Status: merged in TD #142. Filter publish-worker Phases 3–4 to `scheduler_version < 2`, matching `dawn-planner`/`account-state-evaluator`. Test: a v2+ workspace item is dispatched by scheduler only.
 
-**B3 — Redispatch overdue IG instead of dead-ending to draft (AUDIT §2 MED).** `campaign-schedule-recovery` re-queues to the scheduler (or emits a draft-backlog alert) rather than silently resetting to `draft`. Test: an overdue IG post is re-dispatched, not stranded.
+**B2 — Cap watchdog recoveries (AUDIT §2 MED).** Status: merged in TD #143. Add a recovery-attempt ceiling to the >30m-scheduled reset path; dead-letter on exhaustion (mirror the publishing-stuck 3-retry path). Test: an item that fails N recoveries lands in `dead_letter`, stops re-alerting.
 
-**B4 — De-risk `reconcile-daily` timeout (AUDIT §2 MED).** Paginate/shard the per-account Meta scan across runs (cursor in a table) so a single run stays well under 300s at 200+ accounts. Test: a 500-account fixture completes within budget across runs.
+**B3 — Redispatch overdue IG instead of dead-ending to draft (AUDIT §2 MED).** Status: merged in TD #144. `campaign-schedule-recovery` re-queues to the scheduler (or emits a draft-backlog alert) rather than silently resetting to `draft`. Test: an overdue IG post is re-dispatched, not stranded.
 
-**B5 — Optional enforced budget cap (AUDIT §2 MED).** Promote `cost-digest` from alert-only to an enforced ceiling that pauses a workspace at 100% of `AI_DAILY_SPEND_LIMIT_USD` (owner-gated flag). Test: spend at cap flips the pause flag.
+**B4 — De-risk `reconcile-daily` timeout (AUDIT §2 MED).** Status: merged in TD #145. Paginate/shard the per-account Meta scan across runs (cursor in a table) so a single run stays well under 300s at 200+ accounts. Test: a 500-account fixture completes within budget across runs.
+
+**B5 — Optional enforced budget cap (AUDIT §2 MED).** Status: merged in TD #150. Promote `cost-digest` from alert-only to an enforced ceiling that pauses a workspace at 100% of `AI_DAILY_SPEND_LIMIT_USD` (owner-gated flag). Test: spend at cap flips the pause flag.
 
 ---
 
