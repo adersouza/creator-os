@@ -36,6 +36,7 @@ from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepos
 from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
+from campaign_factory.surface_handoff import SurfaceHandoffRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.tribev2 import TribeV2Repository
@@ -91,6 +92,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.operator_review.conn is factory.conn
         assert isinstance(factory.services.story_management, StoryManagementRepository)
         assert factory.services.story_management.conn is factory.conn
+        assert isinstance(factory.services.surface_handoff, SurfaceHandoffRepository)
+        assert factory.services.surface_handoff.conn is factory.conn
         assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
         assert factory.services.surface_summary.conn is factory.conn
         assert isinstance(factory.services.draft_inventory_gap, DraftInventoryGapRepository)
@@ -3910,6 +3913,122 @@ def test_core_services_delegates_carousel_integrity_methods_to_repository() -> N
         }),
         ("carousel_production_readiness", (), {}),
         ("carousel_proof_gap_analysis", (), {}),
+    ]
+
+
+def test_surface_handoff_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def surface_handoff_readiness_report(self, *args, **kwargs):
+            calls.append(("surface_handoff_readiness_report", args, kwargs))
+            return {"schema": "campaign_factory.surface_handoff_readiness_report.v1"}
+
+        def surface_draft_proof(self, *args, **kwargs):
+            calls.append(("surface_draft_proof", args, kwargs))
+            return {"schema": "campaign_factory.surface_draft_proof.v1"}
+
+        def surface_report_assets(self, *args, **kwargs):
+            calls.append(("surface_report_assets", args, kwargs))
+            return [{"id": "asset_surface"}]
+
+        def build_surface_readiness(self, *args, **kwargs):
+            calls.append(("build_surface_readiness", args, kwargs))
+            return [{"assetId": "asset_surface"}]
+
+        def surface_draft_payload_for_readiness(self, *args, **kwargs):
+            calls.append(("surface_draft_payload_for_readiness", args, kwargs))
+            return {"assetId": args[0]["assetId"]}
+
+    factory.services = FakeServices()
+
+    assert factory.surface_handoff_readiness_report(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_surface",
+    ) == {"schema": "campaign_factory.surface_handoff_readiness_report.v1"}
+    assert factory.surface_draft_proof(
+        creator="Stacey",
+        campaign="may",
+        rendered_asset_id="asset_surface",
+    ) == {"schema": "campaign_factory.surface_draft_proof.v1"}
+    assert factory._surface_report_assets(creator="Stacey", campaign_slug="may") == [{"id": "asset_surface"}]
+    assert factory._build_surface_readiness([{"id": "asset_surface"}]) == [{"assetId": "asset_surface"}]
+    assert factory._surface_draft_payload_for_readiness({"assetId": "asset_surface"}) == {"assetId": "asset_surface"}
+
+    assert calls == [
+        ("surface_handoff_readiness_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_surface",
+        }),
+        ("surface_draft_proof", (), {
+            "creator": "Stacey",
+            "campaign": "may",
+            "rendered_asset_id": "asset_surface",
+        }),
+        ("surface_report_assets", (), {"creator": "Stacey", "campaign_slug": "may"}),
+        ("build_surface_readiness", ([{"id": "asset_surface"}],), {}),
+        ("surface_draft_payload_for_readiness", ({"assetId": "asset_surface"},), {}),
+    ]
+
+
+def test_core_services_delegates_surface_handoff_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeSurfaceHandoff:
+        def surface_handoff_readiness_report(self, *args, **kwargs):
+            calls.append(("surface_handoff_readiness_report", args, kwargs))
+            return {"schema": "campaign_factory.surface_handoff_readiness_report.v1"}
+
+        def surface_draft_proof(self, *args, **kwargs):
+            calls.append(("surface_draft_proof", args, kwargs))
+            return {"schema": "campaign_factory.surface_draft_proof.v1"}
+
+        def surface_report_assets(self, *args, **kwargs):
+            calls.append(("surface_report_assets", args, kwargs))
+            return [{"id": "asset_surface"}]
+
+        def build_surface_readiness(self, *args, **kwargs):
+            calls.append(("build_surface_readiness", args, kwargs))
+            return [{"assetId": "asset_surface"}]
+
+        def surface_draft_payload_for_readiness(self, *args, **kwargs):
+            calls.append(("surface_draft_payload_for_readiness", args, kwargs))
+            return {"assetId": args[0]["assetId"]}
+
+    services.surface_handoff = FakeSurfaceHandoff()
+
+    assert services.surface_handoff_readiness_report(
+        creator="Stacey",
+        campaign_slug="may",
+        rendered_asset_id="asset_surface",
+    ) == {"schema": "campaign_factory.surface_handoff_readiness_report.v1"}
+    assert services.surface_draft_proof(
+        creator="Stacey",
+        campaign="may",
+        rendered_asset_id="asset_surface",
+    ) == {"schema": "campaign_factory.surface_draft_proof.v1"}
+    assert services.surface_report_assets(creator="Stacey", campaign_slug="may") == [{"id": "asset_surface"}]
+    assert services.build_surface_readiness([{"id": "asset_surface"}]) == [{"assetId": "asset_surface"}]
+    assert services.surface_draft_payload_for_readiness({"assetId": "asset_surface"}) == {"assetId": "asset_surface"}
+
+    assert calls == [
+        ("surface_handoff_readiness_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": "may",
+            "rendered_asset_id": "asset_surface",
+        }),
+        ("surface_draft_proof", (), {
+            "creator": "Stacey",
+            "campaign": "may",
+            "rendered_asset_id": "asset_surface",
+        }),
+        ("surface_report_assets", (), {"creator": "Stacey", "campaign_slug": "may"}),
+        ("build_surface_readiness", ([{"id": "asset_surface"}],), {}),
+        ("surface_draft_payload_for_readiness", ({"assetId": "asset_surface"},), {}),
     ]
 
 
