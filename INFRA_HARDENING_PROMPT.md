@@ -20,7 +20,7 @@
 
 - **Current TD infra PR ledger, refreshed from GitHub on 2026-06-18:**
   - CLEAN / ready for review once owner chooses merge order: TD #131 A1 idempotent ingest, #132 A3 media ingest boundary, #133 C1 cross-reply retry, #134 C2 posts max duration, #135 D1 posts index diet, #136 D1 post-metric-history index diet, #137 C3 IG webhook fallback rejection, #138 C4 IG container TTL, #139 C5 media reuse override token, #140 C5 token refresh hygiene, #141 C6 Threads error taxonomy, #142 B1 publish-worker v2 filter, #143 B2 watchdog recovery cap.
-  - OPEN with Vercel pending/unstable at refresh time: TD #144 B3 overdue IG redispatch, #145 B4 reconcile-daily cursor, #146 D2 FK indexes, #147 D3 campaign-factory indexes, #148 D4 posts lease retry, #149 D6 default-deny RLS docs, #150 B5 AI spend cap pause, #151 D5 replay missing live tables, #152 D3 scheduler indexes, #153 D3 meta usage index, #154 D3 competitor indexes, #155 D3 account-DNA indexes, #156 D3 AI eval indexes, #157 D3 operator audit indexes.
+  - OPEN with Vercel pending/unstable at refresh time: TD #144 B3 overdue IG redispatch, #145 B4 reconcile-daily cursor, #146 D2 FK indexes, #147 D3 campaign-factory indexes, #148 D4 posts lease retry, #149 D6 default-deny RLS docs, #150 B5 AI spend cap pause, #151 D5 replay missing live tables, #152 D3 scheduler indexes, #153 D3 meta usage index, #154 D3 competitor indexes, #155 D3 account-DNA indexes, #156 D3 AI eval indexes, #157 D3 operator audit indexes, #158 D3 audit log index.
   - Do not interpret `UNSTABLE` here as a code failure by itself; these PRs were in Vercel pending state when refreshed.
 - **D3 is in progress, not complete.** Do not duplicate the table-family batches already opened:
   - TD #147: `campaign_factory_*` zero-scan index batch.
@@ -30,6 +30,7 @@
   - TD #155: `account_dna*` zero-scan voice-embedding, creator-DNA, example, and account-rule indexes; preserves active workspace/group, active-account, rule-scope, primary-key, and creator-DNA table indexes.
   - TD #156: `ai_eval_snapshots` zero-scan prompt-hash and user-suite indexes; preserves the active scope index and primary key.
   - TD #157: `operator_action_audit_logs` zero-scan user-created, intent, phase/outcome, and scope indexes; preserves the primary key and insert/select-id audit behavior.
+  - TD #158: `audit_logs` zero-scan reconciled `user_id` index; preserves the primary key, audit inserts, cleanup RPC, export coverage, and user-deletion cascade behavior.
 - Continue D3 one table family per PR, gated on live `pg_stat_user_indexes.idx_scan = 0` over the stated stats window and a code-path check proving the dropped index is not the active access path.
 - Keep `infra_lifecycle_map.html` in sync with each new D3 batch; the map should say batched/in-progress until the broader unused-index backlog is actually closed.
 
@@ -101,7 +102,7 @@
 
 **D2 — Add the 29 unindexed FK indexes (AUDIT §4 MED).** `CREATE INDEX CONCURRENTLY` on the FK columns the advisor flagged (prioritize hot-path `posts`/`auto_post_queue`/`publish_attempts`; skip truly-dead `manager_*` if those tables are being retired). Proof: advisor `unindexed_foreign_keys` clears.
 
-**D3 — Prune the 195 unused indexes outside the hot tables (AUDIT §4 MED).** Batched `DROP INDEX CONCURRENTLY`, one PR per table-family, each gated on `idx_scan = 0` over a stated window. This is the systemic "index-everything" cleanup; do it after D1. **Status:** initial batches are open for `campaign_factory_*` (TD #147), `scheduler_decisions` (TD #152), `meta_api_usage_snapshots` (TD #153), `competitor_top_posts` (TD #154), `account_dna*` (TD #155), `ai_eval_snapshots` (TD #156), and `operator_action_audit_logs` (TD #157); continue with the next live-zero-scan table family rather than rebasing these into one oversized PR.
+**D3 — Prune the 195 unused indexes outside the hot tables (AUDIT §4 MED).** Batched `DROP INDEX CONCURRENTLY`, one PR per table-family, each gated on `idx_scan = 0` over a stated window. This is the systemic "index-everything" cleanup; do it after D1. **Status:** initial batches are open for `campaign_factory_*` (TD #147), `scheduler_decisions` (TD #152), `meta_api_usage_snapshots` (TD #153), `competitor_top_posts` (TD #154), `account_dna*` (TD #155), `ai_eval_snapshots` (TD #156), `operator_action_audit_logs` (TD #157), and `audit_logs` (TD #158); continue with the next live-zero-scan table family rather than rebasing these into one oversized PR.
 
 **D4 — Settle the `posts` lease semantics (AUDIT §4 MED, ties to §1).** Confirm the publish worker takes `publish_locks` before *every* send and wire the day-old `next_retry_at` into a cron; document the two-mechanism (`publish_locks` + fingerprint) idempotency contract so it isn't re-litigated. Test: concurrent sends for one post serialize on the lock; `next_retry_at` drives a retry.
 
