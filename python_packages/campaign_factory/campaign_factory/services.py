@@ -27,6 +27,7 @@ from .events import EventRepository
 from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .finished_video import FinishedVideoRepository
+from .fresh_reel_production import FreshReelProductionRepository
 from .graph import GraphRepository
 from .inventory_planning import InventoryPlanningRepository
 from .inventory_perceptual import InventoryPerceptualRepository
@@ -654,6 +655,12 @@ class CoreServices:
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             explain_publishability=explain_publishability,
             ratio=ratio,
+        )
+        self.fresh_reel_production = FreshReelProductionRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1973,6 +1980,33 @@ class CoreServices:
 
     def schedule_safe_production_summary_key(self, stage: str) -> str:
         return self.schedule_safe_production.schedule_safe_production_summary_key(stage)
+
+    def fresh_schedule_safe_production_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.fresh_reel_production.fresh_schedule_safe_production_plan(**kwargs)
+
+    def fresh_reel_production_batch_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.fresh_reel_production.fresh_reel_production_batch_plan(**kwargs)
+
+    def fresh_reel_production_capacity_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.fresh_reel_production.fresh_reel_production_capacity_plan(**kwargs)
+
+    def fresh_reel_production_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.fresh_reel_production.fresh_reel_production_master_report(**kwargs)
+
+    def fresh_reel_current_schedule_safe_inventory(self, **kwargs: Any) -> int:
+        return self.fresh_reel_production.fresh_reel_current_schedule_safe_inventory(**kwargs)
+
+    def fresh_reel_downstream_schedule_safe_yield_pct(self) -> float:
+        return self.fresh_reel_production.fresh_reel_downstream_schedule_safe_yield_pct()
+
+    def fresh_reel_expected_stage_rows(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.fresh_reel_production.fresh_reel_expected_stage_rows(**kwargs)
+
+    def fresh_reel_stage_evidence(self, stage: str) -> str:
+        return self.fresh_reel_production.fresh_reel_stage_evidence(stage)
+
+    def fresh_reel_execution_batches(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.fresh_reel_production.fresh_reel_execution_batches(**kwargs)
 
     def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)

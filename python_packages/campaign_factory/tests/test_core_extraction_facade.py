@@ -27,6 +27,7 @@ from campaign_factory.events import EventRepository
 from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.finished_video import FinishedVideoRepository
+from campaign_factory.fresh_reel_production import FreshReelProductionRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.inventory_planning import InventoryPlanningRepository
 from campaign_factory.inventory_perceptual import InventoryPerceptualRepository
@@ -162,6 +163,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.inventory_recovery.conn is factory.conn
         assert isinstance(factory.services.schedule_safe_production, ScheduleSafeProductionRepository)
         assert factory.services.schedule_safe_production.conn is factory.conn
+        assert isinstance(factory.services.fresh_reel_production, FreshReelProductionRepository)
+        assert factory.services.fresh_reel_production.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -818,6 +821,99 @@ def test_campaign_factory_delegates_schedule_safe_production_methods_to_services
         ("schedule_safe_required_parents_per_day", (1.0, 1, 1), {}),
         ("schedule_safe_required_variants_per_day", (1.0, 1, 1), {}),
         ("schedule_safe_production_summary_key", ("raw_parent_reels",), {}),
+    ]
+
+
+def test_campaign_factory_delegates_fresh_reel_production_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.fresh_schedule_safe_production_plan(creator="Stacey", current_inventory=11) == {
+        "method": "fresh_schedule_safe_production_plan",
+    }
+    assert factory.fresh_reel_production_batch_plan(creator="Stacey") == {
+        "method": "fresh_reel_production_batch_plan",
+    }
+    assert factory.fresh_reel_production_capacity_plan(creator="Stacey") == {
+        "method": "fresh_reel_production_capacity_plan",
+    }
+    assert factory.fresh_reel_production_master_report(creator="Stacey") == {
+        "method": "fresh_reel_production_master_report",
+    }
+    assert factory._fresh_reel_current_schedule_safe_inventory(creator="Stacey", campaign_slug="summer") == {
+        "method": "fresh_reel_current_schedule_safe_inventory",
+    }
+    assert factory._fresh_reel_downstream_schedule_safe_yield_pct() == {
+        "method": "fresh_reel_downstream_schedule_safe_yield_pct",
+    }
+    assert factory._fresh_reel_expected_stage_rows(
+        raw_parent_candidates_needed=1,
+        parents_needed=1,
+        caption_families_needed=1,
+        caption_versions_needed=5,
+        variants_needed=15,
+    ) == {"method": "fresh_reel_expected_stage_rows"}
+    assert factory._fresh_reel_stage_evidence("parent_accepted") == {
+        "method": "fresh_reel_stage_evidence",
+    }
+    assert factory._fresh_reel_execution_batches(
+        fresh_needed=90,
+        downstream_yield_pct=68.1,
+        variants_per_parent=15,
+        batch_target=90,
+    ) == {"method": "fresh_reel_execution_batches"}
+
+    assert calls == [
+        (
+            "fresh_schedule_safe_production_plan",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": None,
+                "target_schedule_safe_inventory": 270,
+                "current_inventory": 11,
+                "caption_versions_per_parent": 5,
+                "variants_per_caption": 3,
+                "batch_schedule_safe_target": 90,
+            },
+        ),
+        ("fresh_reel_production_batch_plan", (), {"creator": "Stacey"}),
+        ("fresh_reel_production_capacity_plan", (), {"creator": "Stacey"}),
+        ("fresh_reel_production_master_report", (), {"creator": "Stacey"}),
+        ("fresh_reel_current_schedule_safe_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+        ("fresh_reel_downstream_schedule_safe_yield_pct", (), {}),
+        (
+            "fresh_reel_expected_stage_rows",
+            (),
+            {
+                "raw_parent_candidates_needed": 1,
+                "parents_needed": 1,
+                "caption_families_needed": 1,
+                "caption_versions_needed": 5,
+                "variants_needed": 15,
+            },
+        ),
+        ("fresh_reel_stage_evidence", ("parent_accepted",), {}),
+        (
+            "fresh_reel_execution_batches",
+            (),
+            {
+                "fresh_needed": 90,
+                "downstream_yield_pct": 68.1,
+                "variants_per_parent": 15,
+                "batch_target": 90,
+            },
+        ),
     ]
 
 
@@ -4090,6 +4186,87 @@ def test_core_services_delegates_schedule_safe_production_methods_to_repository(
         ("schedule_safe_required_parents_per_day", (1.0, 1, 1), {}),
         ("schedule_safe_required_variants_per_day", (1.0, 1, 1), {}),
         ("schedule_safe_production_summary_key", ("raw_parent_reels",), {}),
+    ]
+
+
+def test_core_services_delegates_fresh_reel_production_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeFreshReelProduction:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.fresh_reel_production = FakeFreshReelProduction()
+
+    assert services.fresh_schedule_safe_production_plan(creator="Stacey", current_inventory=11) == {
+        "method": "fresh_schedule_safe_production_plan",
+    }
+    assert services.fresh_reel_production_batch_plan(creator="Stacey") == {
+        "method": "fresh_reel_production_batch_plan",
+    }
+    assert services.fresh_reel_production_capacity_plan(creator="Stacey") == {
+        "method": "fresh_reel_production_capacity_plan",
+    }
+    assert services.fresh_reel_production_master_report(creator="Stacey") == {
+        "method": "fresh_reel_production_master_report",
+    }
+    assert services.fresh_reel_current_schedule_safe_inventory(creator="Stacey", campaign_slug="summer") == {
+        "method": "fresh_reel_current_schedule_safe_inventory",
+    }
+    assert services.fresh_reel_downstream_schedule_safe_yield_pct() == {
+        "method": "fresh_reel_downstream_schedule_safe_yield_pct",
+    }
+    assert services.fresh_reel_expected_stage_rows(
+        raw_parent_candidates_needed=1,
+        parents_needed=1,
+        caption_families_needed=1,
+        caption_versions_needed=5,
+        variants_needed=15,
+    ) == {"method": "fresh_reel_expected_stage_rows"}
+    assert services.fresh_reel_stage_evidence("parent_accepted") == {
+        "method": "fresh_reel_stage_evidence",
+    }
+    assert services.fresh_reel_execution_batches(
+        fresh_needed=90,
+        downstream_yield_pct=68.1,
+        variants_per_parent=15,
+        batch_target=90,
+    ) == {"method": "fresh_reel_execution_batches"}
+
+    assert calls == [
+        ("fresh_schedule_safe_production_plan", (), {"creator": "Stacey", "current_inventory": 11}),
+        ("fresh_reel_production_batch_plan", (), {"creator": "Stacey"}),
+        ("fresh_reel_production_capacity_plan", (), {"creator": "Stacey"}),
+        ("fresh_reel_production_master_report", (), {"creator": "Stacey"}),
+        ("fresh_reel_current_schedule_safe_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+        ("fresh_reel_downstream_schedule_safe_yield_pct", (), {}),
+        (
+            "fresh_reel_expected_stage_rows",
+            (),
+            {
+                "raw_parent_candidates_needed": 1,
+                "parents_needed": 1,
+                "caption_families_needed": 1,
+                "caption_versions_needed": 5,
+                "variants_needed": 15,
+            },
+        ),
+        ("fresh_reel_stage_evidence", ("parent_accepted",), {}),
+        (
+            "fresh_reel_execution_batches",
+            (),
+            {
+                "fresh_needed": 90,
+                "downstream_yield_pct": 68.1,
+                "variants_per_parent": 15,
+                "batch_target": 90,
+            },
+        ),
     ]
 
 
