@@ -34,6 +34,7 @@ from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .readiness_report import ReadinessReportRepository
 from .story_management import StoryManagementRepository
+from .surface_handoff import SurfaceHandoffRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_summary import SurfaceSummaryRepository
 from .tribev2 import TribeV2Repository
@@ -70,6 +71,7 @@ class CoreServices:
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
         build_surface_readiness: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        asset_matches_creator: Callable[[dict[str, Any], str], bool],
         reservation_adjusted_inventory: Callable[..., dict[str, int]],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
@@ -363,6 +365,15 @@ class CoreServices:
             ratio=ratio,
             score_fraction=score_fraction,
             wilson_lower_bound=wilson_lower_bound,
+        )
+        self.surface_handoff = SurfaceHandoffRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            asset_matches_creator=asset_matches_creator,
         )
         self.story_management = StoryManagementRepository(
             conn,
@@ -1999,6 +2010,46 @@ class CoreServices:
 
     def ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
         return self.surface_registration.ig_media_type_for_surface(surface, media_type)
+
+    def surface_handoff_readiness_report(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_handoff.surface_handoff_readiness_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def surface_draft_proof(
+        self,
+        *,
+        creator: str | None = None,
+        campaign: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_handoff.surface_draft_proof(
+            creator=creator,
+            campaign=campaign,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def surface_report_assets(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.surface_handoff.surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+
+    def build_surface_readiness(self, assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.surface_handoff.build_surface_readiness(assets)
+
+    def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
+        return self.surface_handoff.surface_draft_payload_for_readiness(readiness)
 
     def carousel_integrity_report(
         self,
