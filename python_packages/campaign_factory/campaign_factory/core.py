@@ -623,6 +623,7 @@ class CampaignFactory:
             operator_load_audit=self.operator_load_audit,
             failure_injection_suite=self.failure_injection_suite,
             idempotency_proof=self.idempotency_proof,
+            creator_os_live_100_account_readiness=self.creator_os_live_100_account_readiness,
             account_content_needs=self.account_content_needs,
             creator_content_needs=self.creator_content_needs,
             account_surface_obligations_plan=self.account_surface_obligations_plan,
@@ -6945,33 +6946,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def creator_os_live_scale_runbook(self) -> dict[str, Any]:
-        readiness = self.creator_os_live_100_account_readiness()
-        return {
-            "schema": "creator_os.live_scale_runbook.v1",
-            "canRun100AccountsToday": readiness["canRun100AccountsToday"],
-            "steps": [
-                {"step": "verify_actual_safe_accounts", "status": "passed" if readiness["actualAccounts"] >= 100 else "blocked", "wouldWrite": False},
-                {"step": "verify_schedule_safe_inventory_buffer", "status": "passed" if readiness["availableInventory"] >= readiness["requiredInventory"] else "blocked", "wouldWrite": False},
-                {"step": "verify_parent_factory_daily_capacity", "status": "passed" if readiness["availableParents"] >= readiness["requiredParentsPerDay"] else "blocked", "wouldWrite": False},
-                {"step": "review_unified_exception_queue", "status": "passed" if not readiness["blockingReasons"] else "blocked", "wouldWrite": False},
-            ],
-            "blockingReasons": readiness["blockingReasons"],
-            "wouldWrite": False,
-        }
+        return self.services.creator_os_live_scale_runbook()
 
     def creator_os_live_scale_scorecard(self) -> dict[str, Any]:
-        readiness = self.creator_os_live_100_account_readiness()
-        return {
-            "schema": "creator_os.live_scale_scorecard.v1",
-            "scores": {
-                "actualAccounts": self._score_fraction(readiness["actualAccounts"], 100),
-                "inventory": self._score_fraction(readiness["availableInventory"], readiness["requiredInventory"]),
-                "parentFactory": self._score_fraction(readiness["availableParents"], readiness["requiredParentsPerDay"]),
-                "exceptionRate": max(0.0, round(10 - readiness["expectedExceptionRate"], 1)),
-            },
-            "canRun100AccountsToday": readiness["canRun100AccountsToday"],
-            "wouldWrite": False,
-        }
+        return self.services.creator_os_live_scale_scorecard()
 
     def reserve_inventory_asset(
         self,
