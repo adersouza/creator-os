@@ -1,0 +1,378 @@
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+from pathlib import Path
+from typing import Any, Callable
+
+from .config import Settings
+from .persistence import json_load
+
+
+class ReferenceRepository:
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        settings: Settings,
+        *,
+        new_id: Callable[[str], str],
+        utc_now: Callable[[], str],
+        record_event: Callable[..., dict[str, Any]],
+        campaign_by_slug: Callable[[str], dict[str, Any]],
+        prepare_reel_inputs: Callable[..., dict[str, Any]],
+        discoverability_safe_content_contract: Callable[..., dict[str, Any]],
+        reference_hook_fallbacks: tuple[str, ...],
+    ) -> None:
+        self.conn = conn
+        self.settings = settings
+        self._new_id = new_id
+        self._utc_now = utc_now
+        self._record_event = record_event
+        self._campaign_by_slug = campaign_by_slug
+        self._prepare_reel_inputs = prepare_reel_inputs
+        self._discoverability_safe_content_contract = discoverability_safe_content_contract
+        self._reference_hook_fallbacks = reference_hook_fallbacks
+
+    def import_reference_bank(self, bank_path: Path, prompt_pack_path: Path | None = None) -> dict[str, Any]:
+        bank_path = Path(bank_path).expanduser().resolve()
+        if not bank_path.exists():
+            raise FileNotFoundError(f"reference bank not found: {bank_path}")
+        bank = json_load(bank_path.read_text(encoding="utf-8"), {})
+        clusters = bank.get("clusters") if isinstance(bank, dict) else None
+        if not isinstance(clusters, list):
+            raise ValueError("reference bank must contain a clusters array")
+        prompt_by_key = self.reference_prompt_pack_by_cluster(prompt_pack_path)
+        now = self._utc_now()
+        imported = 0
+        for idx, cluster in enumerate(clusters, 1):
+            cluster_key = str(cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}")
+            prompt = prompt_by_key.get(cluster_key) or {}
+            pattern_id = self._new_id("refpat")
+            existing = self.conn.execute("SELECT id FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
+            if existing:
+                pattern_id = existing["id"]
+            reference_ids = cluster.get("referenceIds") or prompt.get("referenceIds") or []
+            local_paths = cluster.get("localPaths") or cluster.get("referenceFiles") or []
+            public_urls = prompt.get("publicUrls") or []
+            prompt_template = cluster.get("promptTemplate") or {}
+            higgsfield_json = prompt.get("higgsfieldJson") or {}
+            caption_formulas = prompt.get("captionFormulas") or []
+            audio_recommendations = cluster.get("audioRecommendations") or prompt.get("audioRecommendations") or {}
+            self.conn.execute(
+                """
+                INSERT INTO reference_patterns (
+                  id, cluster_key, rank, label, visual_format, hook_type, caption_archetype,
+                  reference_ids_json, local_paths_json, public_urls_json, prompt_template_json,
+                  higgsfield_json, caption_formulas_json, audio_recommendations_json, raw_json, imported_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(cluster_key) DO UPDATE SET
+                  rank = excluded.rank,
+                  label = excluded.label,
+                  visual_format = excluded.visual_format,
+                  hook_type = excluded.hook_type,
+                  caption_archetype = excluded.caption_archetype,
+                  reference_ids_json = excluded.reference_ids_json,
+                  local_paths_json = excluded.local_paths_json,
+                  public_urls_json = excluded.public_urls_json,
+                  prompt_template_json = excluded.prompt_template_json,
+                  higgsfield_json = excluded.higgsfield_json,
+                  caption_formulas_json = excluded.caption_formulas_json,
+                  audio_recommendations_json = excluded.audio_recommendations_json,
+                  raw_json = excluded.raw_json,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    pattern_id,
+                    cluster_key,
+                    cluster.get("clusterRank") or cluster.get("rank") or idx,
+                    cluster.get("label") or cluster_key.replace("::", " / "),
+                    cluster.get("visualFormat"),
+                    cluster.get("hookType"),
+                    cluster.get("captionArchetype"),
+                    json.dumps(reference_ids, ensure_ascii=False),
+                    json.dumps(local_paths, ensure_ascii=False),
+                    json.dumps(public_urls, ensure_ascii=False),
+                    json.dumps(prompt_template, ensure_ascii=False, sort_keys=True),
+                    json.dumps(higgsfield_json, ensure_ascii=False, sort_keys=True),
+                    json.dumps(caption_formulas, ensure_ascii=False, sort_keys=True),
+                    json.dumps(audio_recommendations, ensure_ascii=False, sort_keys=True),
+                    json.dumps({"bank": cluster, "prompt": prompt}, ensure_ascii=False, sort_keys=True),
+                    now,
+                    now,
+                ),
+            )
+            imported += 1
+        self.conn.commit()
+        self._record_event(
+            "reference_bank_imported",
+            status="success",
+            message=f"Reference bank imported: {imported} patterns",
+            metadata={"bankPath": str(bank_path), "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None, "patterns": imported},
+        )
+        return {
+            "schema": "campaign_factory.reference_bank_import.v1",
+            "bankPath": str(bank_path),
+            "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
+            "patternsImported": imported,
+        }
+
+    def reference_prompt_pack_by_cluster(self, prompt_pack_path: Path | None) -> dict[str, dict[str, Any]]:
+        if prompt_pack_path is None:
+            default = self.settings.reference_reels_root / "learning" / "higgsfield_prompt_pack_top300.json"
+            prompt_pack_path = default if default.exists() else None
+        if prompt_pack_path is None:
+            return {}
+        prompt_pack_path = Path(prompt_pack_path).expanduser().resolve()
+        if not prompt_pack_path.exists():
+            return {}
+        payload = json_load(prompt_pack_path.read_text(encoding="utf-8"), {})
+        prompts = payload.get("prompts") if isinstance(payload, dict) else None
+        if not isinstance(prompts, list):
+            return {}
+        return {str(item.get("clusterKey")): item for item in prompts if item.get("clusterKey")}
+
+    def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
+        rows = self.conn.execute(
+            "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT ?",
+            (max(1, min(limit, 1000)),),
+        ).fetchall()
+        return {
+            "schema": "campaign_factory.reference_patterns.v1",
+            "count": len(rows),
+            "patterns": [self.reference_pattern_payload(dict(row)) for row in rows],
+        }
+
+    def reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        raw = json_load(row.get("raw_json") or "{}", {})
+        bank = raw.get("bank") if isinstance(raw, dict) else {}
+        return {
+            "id": row["id"],
+            "clusterKey": row["cluster_key"],
+            "rank": row["rank"],
+            "label": row["label"],
+            "visualFormat": row["visual_format"],
+            "hookType": row["hook_type"],
+            "captionArchetype": row["caption_archetype"],
+            "referenceIds": json_load(row["reference_ids_json"], []),
+            "localPaths": json_load(row["local_paths_json"], []),
+            "publicUrls": json_load(row["public_urls_json"], []),
+            "promptTemplate": json_load(row["prompt_template_json"], {}),
+            "higgsfieldJson": json_load(row["higgsfield_json"], {}),
+            "captionFormulas": json_load(row["caption_formulas_json"], []),
+            "audioRecommendations": json_load(row.get("audio_recommendations_json"), {}),
+            "suggestedFormats": (bank or {}).get("suggestedFormats") or ["reel"],
+            "suggestedVariantRecipes": (bank or {}).get("suggestedVariantRecipes") or [],
+            "raw": raw,
+            "importedAt": row["imported_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def select_reference_pattern(
+        self,
+        campaign_slug: str,
+        *,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        campaign = self._campaign_by_slug(campaign_slug)
+        if reference_pattern_id:
+            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE id = ?", (reference_pattern_id,)).fetchone()
+        elif cluster_key:
+            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
+        else:
+            pattern_row = self.conn.execute("SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT 1").fetchone()
+        if not pattern_row:
+            raise ValueError("reference pattern not found; run import-reference-bank first")
+        now = self._utc_now()
+        plan_id = self._new_id("refplan")
+        self.conn.execute(
+            """
+            INSERT INTO campaign_reference_plans
+            (id, campaign_id, reference_pattern_id, variant_count, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (plan_id, campaign["id"], pattern_row["id"], max(1, variant_count), notes, now, now),
+        )
+        self.conn.commit()
+        pattern = self.reference_pattern_payload(dict(pattern_row))
+        self._record_event(
+            "reference_pattern_selected",
+            campaign_id=campaign["id"],
+            status="success",
+            message=f"Reference pattern selected: {pattern['label']}",
+            metadata={"referencePatternId": pattern["id"], "clusterKey": pattern["clusterKey"], "variantCount": variant_count, "notes": notes},
+        )
+        return {
+            "schema": "campaign_factory.reference_pattern_selection.v1",
+            "campaign": campaign["slug"],
+            "planId": plan_id,
+            "variantCount": max(1, variant_count),
+            "pattern": pattern,
+            "hooks": self.reference_hooks(pattern, count=max(1, variant_count)),
+        }
+
+    def campaign_reference_plan(self, campaign_slug: str) -> dict[str, Any]:
+        campaign = self._campaign_by_slug(campaign_slug)
+        rows = self.conn.execute(
+            """
+            SELECT
+              crp.id AS plan_id, crp.variant_count, crp.notes, crp.created_at AS plan_created_at,
+              rp.*
+            FROM campaign_reference_plans crp
+            JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id
+            WHERE crp.campaign_id = ?
+            ORDER BY crp.created_at DESC
+            """,
+            (campaign["id"],),
+        ).fetchall()
+        plans = []
+        for row in rows:
+            row_dict = dict(row)
+            pattern = self.reference_pattern_payload(row_dict)
+            plans.append({
+                "planId": row_dict["plan_id"],
+                "variantCount": row_dict["variant_count"],
+                "notes": row_dict["notes"],
+                "createdAt": row_dict["plan_created_at"],
+                "pattern": pattern,
+                "hooks": self.reference_hooks(pattern, count=row_dict["variant_count"]),
+            })
+        return {"schema": "campaign_factory.reference_plan.v1", "campaign": campaign["slug"], "plans": plans}
+
+    def prepare_reel_from_reference(
+        self,
+        *,
+        campaign_slug: str,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        recipes: list[str] | None = None,
+        caption_color: str | None = "auto",
+        notes: str | None = None,
+        force_new: bool = True,
+    ) -> dict[str, Any]:
+        selection = self.select_reference_pattern(
+            campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            notes=notes,
+        )
+        pattern = selection["pattern"]
+        hooks = selection["hooks"]
+        if recipes is None:
+            raw_bank = (pattern.get("raw") or {}).get("bank") or {}
+            recipes = raw_bank.get("suggestedVariantRecipes") or None
+        prepare = self._prepare_reel_inputs(
+            campaign_slug=campaign_slug,
+            hooks=hooks,
+            recipes=recipes,
+            caption_color=caption_color,
+            notes=notes or f"reference pattern: {pattern['label']}",
+            force_new=force_new,
+        )
+        return {
+            "schema": "campaign_factory.prepare_from_reference.v1",
+            "campaign": campaign_slug,
+            "selection": selection,
+            "prepare": prepare,
+        }
+
+    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            """
+            SELECT rp.*
+            FROM campaign_reference_plans crp
+            JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id
+            WHERE crp.campaign_id = ?
+            ORDER BY crp.created_at DESC
+            LIMIT 1
+            """,
+            (campaign_id,),
+        ).fetchone()
+        return self.reference_pattern_payload(dict(row)) if row else None
+
+    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+        formulas = pattern.get("captionFormulas") or []
+        if not formulas:
+            formulas = [{"formula": (pattern.get("promptTemplate") or {}).get("captionBrief") or "short original hook"}]
+        candidates: list[tuple[str, int, str]] = []
+        seen: set[str] = set()
+        for formula_index, formula in enumerate(formulas):
+            for example in formula.get("exampleCaptions") or []:
+                text = str(example).strip()
+                normalized = " ".join(text.lower().split())
+                if text and normalized not in seen:
+                    seen.add(normalized)
+                    candidates.append((text, formula_index, "example_caption"))
+            text = str(formula.get("formula") or "").strip()
+            normalized = " ".join(text.lower().split())
+            if text and normalized not in seen:
+                seen.add(normalized)
+                candidates.append((text, formula_index, "caption_formula"))
+        safe_candidates = [
+            item for item in candidates
+            if self.reference_hook_is_schedule_safe(item[0])
+        ]
+        if safe_candidates:
+            candidates = safe_candidates
+        if not candidates:
+            for fallback in self._reference_hook_fallbacks:
+                candidates.append((fallback, 0, "simple_native_fallback"))
+        hooks = []
+        for idx in range(count):
+            text, formula_index, candidate_kind = candidates[idx % len(candidates)]
+            hooks.append({
+                "text": text,
+                "referenceClusterKey": pattern["clusterKey"],
+                "referenceLabel": pattern["label"],
+                "hookType": pattern.get("hookType"),
+                "captionArchetype": pattern.get("captionArchetype"),
+                "audioRecommendations": pattern.get("audioRecommendations") or {},
+                "formulaIndex": formula_index,
+                "candidateKind": candidate_kind,
+                "source": "reference_factory",
+            })
+        return hooks
+
+    def reference_hook_is_schedule_safe(self, text: str) -> bool:
+        normalized = " ".join(str(text or "").strip().split())
+        if not normalized:
+            return False
+        if "{" in normalized or "}" in normalized:
+            return False
+        if len(normalized) > 42:
+            return False
+        plain = (
+            normalized
+            .replace("’", "'")
+            .replace("‘", "'")
+            .replace("“", '"')
+            .replace("”", '"')
+            .replace("–", "-")
+            .replace("—", "-")
+        )
+        if any(ord(char) > 127 for char in plain):
+            return False
+        if len(plain.split()) > 7:
+            return False
+        if normalized.count("!") > 1:
+            return False
+        letters = [char for char in normalized if char.isalpha()]
+        if letters:
+            upper_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
+            if upper_ratio >= 0.75:
+                return False
+        if re.search(
+            r"\b(go\s+)?live\b|\bsubscribe\b|\bvip\b|\btonight\b|\bcan't resist\b|\bcant resist\b|\bgood boy\b|\btake it off\b",
+            normalized,
+            re.IGNORECASE,
+        ):
+            return False
+        if self._discoverability_safe_content_contract(normalized).get("discoverabilitySafe") is not True:
+            return False
+        return True

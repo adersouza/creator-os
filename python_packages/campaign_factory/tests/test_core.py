@@ -15770,13 +15770,13 @@ def test_phase2_decision_ledger_wrappers_share_query_helper(tmp_path: Path, monk
         add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
         cf.conn.commit()
         calls: list[dict[str, Any]] = []
-        original = cf._query_decision_ledger
+        original = cf.services.decision_ledger.query_decision_ledger
 
         def tracking_query(*args, **kwargs):
             calls.append(dict(kwargs))
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(cf, "_query_decision_ledger", tracking_query)
+        monkeypatch.setattr(cf.services.decision_ledger, "query_decision_ledger", tracking_query)
         source = {
             "creator": "Stacey",
             "date": "2026-06-06",

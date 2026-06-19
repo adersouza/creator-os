@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from typing import Any, Callable
 
 from .asset_import import AssetImportRepository
+from .caption import CaptionFamilyRepository
+from .carousel_integrity import CarouselIntegrityRepository
 from .config import Settings
+from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
+from .decision_ledger import DecisionLedgerRepository
+from .discoverability import DiscoverabilityRepository
+from .distribution import DistributionRepository
 from .events import EventRepository
+from .exceptions import ExceptionRepository
 from .graph import GraphRepository
 from .models import ModelRepository
+from .reference import ReferenceRepository
+from .surface_registration import SurfaceRegistrationRepository
+from .winner_expansion import WinnerExpansionRepository
 
 
 class CoreServices:
@@ -25,8 +34,51 @@ class CoreServices:
         utc_now: Callable[[], str],
         media_type_for_path: Callable[[Any], str],
         sha256_file: Callable[[Any], str],
+        probe_image_shape: Callable[[Any], dict[str, Any]],
+        probe_video_shape: Callable[[Any], dict[str, Any]],
+        ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        prepare_reel_inputs: Callable[..., dict[str, Any]],
+        discoverability_safe_content_contract: Callable[..., dict[str, Any]],
+        reference_hook_fallbacks: tuple[str, ...],
+        normalize_content_surface: Callable[[str | None], str],
+        campaign_dirs: Callable[[str, str], dict[str, Any]],
+        concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
+        explain_publishability: Callable[[str], dict[str, Any]],
+        surface_handoff_readiness_report: Callable[..., dict[str, Any]],
+        surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        surface_report_assets: Callable[..., list[dict[str, Any]]],
+        surface_draft_proof: Callable[..., dict[str, Any]],
+        asset_components: Callable[[str], list[dict[str, Any]]],
+        instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
+        text_hash: Callable[[str], str],
+        validate_instagram_trial_reel_intent: Callable[..., str | None],
+        variant_lineage_for_asset: Callable[[str], dict[str, Any]],
+        ranking: Callable[[str], dict[str, Any]],
+        dashboard: Callable[[str], dict[str, Any]],
+        creator_label: Callable[[Any], str],
+        build_creative_knowledge_base: Callable[..., dict[str, Any]],
+        creator_os_target_date: Callable[..., str],
+        creator_os_daily_plan: Callable[..., dict[str, Any]],
+        creator_content_needs: Callable[..., dict[str, Any]],
+        recommended_story_intent_for_date: Callable[..., str],
+        recommended_story_style_for_intent: Callable[[str], str],
+        story_mix_plan: Callable[..., dict[str, Any]],
+        story_calendar_plan: Callable[..., dict[str, Any]],
+        json_load: Callable[[Any, Any], Any],
+        parent_factory_yield_waterfall: Callable[..., dict[str, Any]],
+        ratio: Callable[[Any, Any], float],
+        score_fraction: Callable[[Any, Any], float],
+        wilson_lower_bound: Callable[..., float],
+        story_source_blockers: Callable[[list[dict[str, Any]]], list[str]],
+        normalize_story_enum: Callable[[Any, set[str]], str | None],
+        story_intents: set[str],
+        story_goals: set[str],
+        story_styles: set[str],
+        ig_media_type_by_surface: dict[str, str],
+        autonomy_level: Callable[[], str],
+        recommendation_proof_summary: Callable[[str], dict[str, Any]],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -92,6 +144,130 @@ class CoreServices:
             assets_for_campaign=self.asset_import.assets_for_campaign,
             rendered_for_campaign=rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
+        )
+        self.reference = ReferenceRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            utc_now=utc_now,
+            record_event=self.events.record_event,
+            campaign_by_slug=self.campaign_by_slug,
+            prepare_reel_inputs=prepare_reel_inputs,
+            discoverability_safe_content_contract=discoverability_safe_content_contract,
+            reference_hook_fallbacks=reference_hook_fallbacks,
+        )
+        self.caption_family = CaptionFamilyRepository(
+            conn,
+            utc_now=utc_now,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            concept_for_parent_asset=concept_for_parent_asset,
+            explain_publishability=explain_publishability,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            instagram_post_caption_for_asset=instagram_post_caption_for_asset,
+            text_hash=text_hash,
+        )
+        self.distribution = DistributionRepository(
+            conn,
+            new_id=new_id,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            campaign_by_slug=self.campaign_by_slug,
+            record_event=self.events.record_event,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+            validate_instagram_trial_reel_intent=validate_instagram_trial_reel_intent,
+            variant_lineage_for_asset=variant_lineage_for_asset,
+            ranking=ranking,
+            dashboard=dashboard,
+            model_account_profile=self.models.model_account_profile,
+            account_compatible_with_model=self.models.account_compatible_with_model,
+        )
+        self.decision_ledger = DecisionLedgerRepository(
+            conn,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            creator_os_target_date=creator_os_target_date,
+            creator_os_daily_plan=creator_os_daily_plan,
+            creator_content_needs=creator_content_needs,
+            recommended_story_intent_for_date=recommended_story_intent_for_date,
+            recommended_story_style_for_intent=recommended_story_style_for_intent,
+            story_mix_plan=story_mix_plan,
+            story_calendar_plan=story_calendar_plan,
+            normalize_content_surface=normalize_content_surface,
+        )
+        self.exceptions = ExceptionRepository(
+            conn,
+            sanitize_for_storage=sanitize_for_storage,
+            json_load=json_load,
+            utc_now=utc_now,
+            campaign_by_slug=self.campaign_by_slug,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            autonomy_level=autonomy_level,
+            recommendation_proof_summary=recommendation_proof_summary,
+        )
+        self.discoverability = DiscoverabilityRepository(
+            conn,
+            json_load=json_load,
+            parent_factory_yield_waterfall=parent_factory_yield_waterfall,
+            ratio=ratio,
+            score_fraction=score_fraction,
+            wilson_lower_bound=wilson_lower_bound,
+        )
+        self.surface_registration = SurfaceRegistrationRepository(
+            conn,
+            slugify=slugify,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            campaign_dirs=campaign_dirs,
+            surface_handoff_readiness_report=surface_handoff_readiness_report,
+            record_event=self.events.record_event,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            probe_image_shape=probe_image_shape,
+            probe_video_shape=probe_video_shape,
+            ratio_label_from_shape=ratio_label_from_shape,
+            story_source_blockers=story_source_blockers,
+            normalize_story_enum=normalize_story_enum,
+            story_intents=story_intents,
+            story_goals=story_goals,
+            story_styles=story_styles,
+            ig_media_type_by_surface=ig_media_type_by_surface,
+        )
+        self.carousel_integrity = CarouselIntegrityRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            surface_draft_proof=surface_draft_proof,
+            asset_components=asset_components,
+        )
+        self.winner_expansion = WinnerExpansionRepository(
+            conn,
+            campaign_by_slug=self.campaign_by_slug,
+            rendered_asset=self.rendered_asset,
+            concept_for_parent_asset=concept_for_parent_asset,
+            explain_publishability=explain_publishability,
+        )
+        self.creative_knowledge = CreativeKnowledgeRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            build_creative_knowledge_base=build_creative_knowledge_base,
         )
 
     def ensure_graph_node(
@@ -355,6 +531,769 @@ class CoreServices:
 
     def asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
         return self.creative_planning.asset_creative_plan_id(asset)
+
+    def import_reference_bank(self, bank_path: Any, prompt_pack_path: Any | None = None) -> dict[str, Any]:
+        return self.reference.import_reference_bank(bank_path, prompt_pack_path)
+
+    def reference_prompt_pack_by_cluster(self, prompt_pack_path: Any | None) -> dict[str, dict[str, Any]]:
+        return self.reference.reference_prompt_pack_by_cluster(prompt_pack_path)
+
+    def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
+        return self.reference.reference_patterns(limit=limit)
+
+    def reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.reference.reference_pattern_payload(row)
+
+    def select_reference_pattern(
+        self,
+        campaign_slug: str,
+        *,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.reference.select_reference_pattern(
+            campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            notes=notes,
+        )
+
+    def campaign_reference_plan(self, campaign_slug: str) -> dict[str, Any]:
+        return self.reference.campaign_reference_plan(campaign_slug)
+
+    def prepare_reel_from_reference(
+        self,
+        *,
+        campaign_slug: str,
+        cluster_key: str | None = None,
+        reference_pattern_id: str | None = None,
+        variant_count: int = 5,
+        recipes: list[str] | None = None,
+        caption_color: str | None = "auto",
+        notes: str | None = None,
+        force_new: bool = True,
+    ) -> dict[str, Any]:
+        return self.reference.prepare_reel_from_reference(
+            campaign_slug=campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            recipes=recipes,
+            caption_color=caption_color,
+            notes=notes,
+            force_new=force_new,
+        )
+
+    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+        return self.reference.active_reference_pattern_for_campaign(campaign_id)
+
+    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+        return self.reference.reference_hooks(pattern, count=count)
+
+    def reference_hook_is_schedule_safe(self, text: str) -> bool:
+        return self.reference.reference_hook_is_schedule_safe(text)
+
+    def caption_family_plan(
+        self,
+        *,
+        creator: str | None,
+        parent_asset_id: str,
+        requested_caption_versions: int = 5,
+        style: str = "ig_short",
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        return self.caption_family.caption_family_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            requested_caption_versions=requested_caption_versions,
+            style=style,
+            dry_run=dry_run,
+        )
+
+    def caption_family_create(
+        self,
+        *,
+        creator: str | None,
+        parent_asset_id: str,
+        requested_caption_versions: int = 5,
+        style: str = "ig_short",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        return self.caption_family.caption_family_create(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            requested_caption_versions=requested_caption_versions,
+            style=style,
+            dry_run=dry_run,
+        )
+
+    def planned_caption_version(
+        self,
+        *,
+        caption_family_id: str,
+        parent: dict[str, Any],
+        concept: dict[str, Any] | None,
+        index: int,
+        angle: str,
+        base_burned: str,
+        base_hashtags: list[str],
+        style: str,
+        caption_source: str,
+    ) -> dict[str, Any]:
+        return self.caption_family.planned_caption_version(
+            caption_family_id=caption_family_id,
+            parent=parent,
+            concept=concept,
+            index=index,
+            angle=angle,
+            base_burned=base_burned,
+            base_hashtags=base_hashtags,
+            style=style,
+            caption_source=caption_source,
+        )
+
+    def caption_family_hashtags(self, raw_tags: Any) -> list[str]:
+        return self.caption_family.caption_family_hashtags(raw_tags)
+
+    def caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
+        return self.caption_family.caption_version_by_id(caption_version_id)
+
+    def caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.caption_family.caption_version_payload(row)
+
+    def create_distribution_plan(
+        self,
+        rendered_asset_id: str,
+        *,
+        surface: str = "regular_reel",
+        account_id: str | None = None,
+        instagram_account_id: str | None = None,
+        planned_window_start: str | None = None,
+        planned_window_end: str | None = None,
+        paired_rendered_asset_id: str | None = None,
+        reason_code: str | None = None,
+        smart_link: str | None = None,
+        cta_text: str | None = None,
+        instagram_trial_reels: bool = False,
+        trial_graduation_strategy: str | None = None,
+    ) -> dict[str, Any]:
+        return self.distribution.create_distribution_plan(
+            rendered_asset_id,
+            surface=surface,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            paired_rendered_asset_id=paired_rendered_asset_id,
+            reason_code=reason_code,
+            smart_link=smart_link,
+            cta_text=cta_text,
+            instagram_trial_reels=instagram_trial_reels,
+            trial_graduation_strategy=trial_graduation_strategy,
+        )
+
+    def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
+        return self.distribution.distribution_plan(plan_id)
+
+    def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+        return self.distribution.distribution_plans_for_asset(rendered_asset_id)
+
+    def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
+        return self.distribution.distribution_plans_for_campaign(campaign_slug)
+
+    def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
+        return self.distribution.clear_distribution_plans_for_campaign(campaign_slug)
+
+    def distribution_plan_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.distribution.distribution_plan_payload(row)
+
+    def plan_distribution(
+        self,
+        campaign_slug: str,
+        *,
+        user_id: str,
+        mode: str = "preview",
+        strategy: str = "trial-heavy",
+        replace: bool = True,
+        fallback_hours: list[int] | None = None,
+    ) -> dict[str, Any]:
+        return self.distribution.plan_distribution(
+            campaign_slug,
+            user_id=user_id,
+            mode=mode,
+            strategy=strategy,
+            replace=replace,
+            fallback_hours=fallback_hours,
+        )
+
+    def next_distribution_account(
+        self,
+        profile: dict[str, Any] | None,
+        model_slug: str,
+        cursors: dict[str, int],
+    ) -> str | None:
+        return self.distribution.next_distribution_account(profile, model_slug, cursors)
+
+    def distribution_slots(self, hours: list[int], count: int) -> list[Any]:
+        return self.distribution.distribution_slots(hours, count)
+
+    def next_valid_distribution_slot(
+        self,
+        slots: list[Any],
+        start_index: int,
+        account_id: str,
+        asset: dict[str, Any],
+        account_day_counts: dict[tuple[str, str], int],
+        account_last_time: dict[str, Any],
+        caption_day_counts: dict[tuple[str, str], int],
+        source_week_counts: dict[tuple[str, str], int],
+        warnings: list[dict[str, Any]],
+    ) -> tuple[Any | None, int]:
+        return self.distribution.next_valid_distribution_slot(
+            slots,
+            start_index,
+            account_id,
+            asset,
+            account_day_counts,
+            account_last_time,
+            caption_day_counts,
+            source_week_counts,
+            warnings,
+        )
+
+    def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.distribution.distribution_summary(campaign_slug)
+
+    def latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        return self.distribution.latest_distribution_plan_for_asset(rendered_asset_id)
+
+    def decision_ledger_preview(
+        self,
+        *,
+        creator: str,
+        date: str | None = None,
+        threadsdash_report: dict[str, Any] | None = None,
+        schedule_plan: dict[str, Any] | None = None,
+        time_plan: dict[str, Any] | None = None,
+        winner_expansion_report: dict[str, Any] | None = None,
+        winner_expansion_plan: dict[str, Any] | None = None,
+        variant_inventory_plan: dict[str, Any] | None = None,
+        variant_metrics_rollup: dict[str, Any] | None = None,
+        account_tiers: dict[str, Any] | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_preview(
+            creator=creator,
+            date=date,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
+            winner_expansion_report=winner_expansion_report,
+            winner_expansion_plan=winner_expansion_plan,
+            variant_inventory_plan=variant_inventory_plan,
+            variant_metrics_rollup=variant_metrics_rollup,
+            account_tiers=account_tiers,
+            generated_at=generated_at,
+        )
+
+    def decision_ledger_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_report(**kwargs)
+
+    def decision_ledger_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_summary(**kwargs)
+
+    def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_creator(creator=creator, **kwargs)
+
+    def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_account(account_id=account_id, creator=creator, **kwargs)
+
+    def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_surface(surface=surface, creator=creator, **kwargs)
+
+    def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_decision_type(
+            decision_type=decision_type,
+            creator=creator,
+            **kwargs,
+        )
+
+    def query_decision_ledger(self, **kwargs: Any) -> dict[str, Any]:
+        return self.decision_ledger.query_decision_ledger(**kwargs)
+
+    def create_exception(
+        self,
+        *,
+        reason_code: str,
+        severity: str = "medium",
+        campaign_id: str | None = None,
+        account_id: str | None = None,
+        entity_graph_id: str | None = None,
+        recommendation_item_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        return self.exceptions.create_exception(
+            reason_code=reason_code,
+            severity=severity,
+            campaign_id=campaign_id,
+            account_id=account_id,
+            entity_graph_id=entity_graph_id,
+            recommendation_item_id=recommendation_item_id,
+            payload=payload,
+            commit=commit,
+        )
+
+    def exception(self, exception_id: str) -> dict[str, Any]:
+        return self.exceptions.exception(exception_id)
+
+    def exceptions_report(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
+        return self.exceptions.exceptions(campaign_slug, status=status)
+
+    def trust_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.exceptions.trust_summary(campaign_slug)
+
+    def resolve_exception(
+        self,
+        exception_id: str,
+        *,
+        resolution: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.resolve_exception(exception_id, resolution=resolution, operator=operator)
+
+    def snooze_exception(
+        self,
+        exception_id: str,
+        *,
+        until: str | None = None,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.snooze_exception(exception_id, until=until, reason=reason, operator=operator)
+
+    def reopen_exception(
+        self,
+        exception_id: str,
+        *,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.reopen_exception(exception_id, reason=reason, operator=operator)
+
+    def update_exception_status(
+        self,
+        exception_id: str,
+        status: str,
+        *,
+        resolution: dict[str, Any] | None = None,
+        snoozed_until: str | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.update_exception_status(
+            exception_id,
+            status,
+            resolution=resolution,
+            snoozed_until=snoozed_until,
+        )
+
+    def exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.exceptions.exception_payload(row)
+
+    def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
+        return self.discoverability.discoverability_safe_content_contract(*values)
+
+    def discoverability_intake_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_intake_gate(payload)
+
+    def discoverability_generation_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_generation_gate(payload)
+
+    def discoverability_pre_render_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.discoverability.discoverability_pre_render_gate(payload)
+
+    def discoverability_violation_origin_map(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_violation_origin_map()
+
+    def parent_factory_discoverability_loss_analysis(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.discoverability.parent_factory_discoverability_loss_analysis(waterfall=waterfall)
+
+    def parent_factory_waterfall_after_discoverability(self) -> dict[str, Any]:
+        return self.discoverability.parent_factory_waterfall_after_discoverability()
+
+    def discoverability_prevention_audit(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_prevention_audit()
+
+    def discoverability_prevention_scorecard(self) -> dict[str, Any]:
+        return self.discoverability.discoverability_prevention_scorecard()
+
+    def parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
+        return self.discoverability.parent_factory_observed_discoverability_terms()
+
+    def parent_factory_captured_discoverability_evidence(self) -> list[dict[str, str]]:
+        return self.discoverability.parent_factory_captured_discoverability_evidence()
+
+    def discoverability_text_values(self, payload: dict[str, Any]) -> list[str]:
+        return self.discoverability.discoverability_text_values(payload)
+
+    def discoverability_loss_category(self, reason: str, matched_text: str) -> str:
+        return self.discoverability.discoverability_loss_category(reason, matched_text)
+
+    def discoverability_prevention_stage(self, category: str) -> str:
+        return self.discoverability.discoverability_prevention_stage(category)
+
+    def discoverability_gate_fields(self, payload: dict[str, Any], allowed_fields: set[str]) -> list[tuple[str, str]]:
+        return self.discoverability.discoverability_gate_fields(payload, allowed_fields)
+
+    def discoverability_gate_result(self, gate: str, fields: list[tuple[str, str]]) -> dict[str, Any]:
+        return self.discoverability.discoverability_gate_result(gate, fields)
+
+    def discoverability_origin_stage(self, source_field: str, reason: str) -> str:
+        return self.discoverability.discoverability_origin_stage(source_field, reason)
+
+    def post_discoverability_downstream_confidence(self) -> dict[str, Any]:
+        return self.discoverability.post_discoverability_downstream_confidence()
+
+    def discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
+        return self.discoverability.discoverability_evidence_for_fields(fields)
+
+    def register_surface_asset(
+        self,
+        *,
+        input_path: Any,
+        surface: str,
+        creator: str,
+        campaign_slug: str,
+        instagram_post_caption: str | None = None,
+        target_ratio: str | None = None,
+        model_slug: str | None = None,
+        operator: str | None = None,
+        alt_text: list[str] | None = None,
+        story_asset_class: str | None = None,
+        story_cta_type: str | None = None,
+        story_cta_text: str | None = None,
+        story_cta_target_url: str | None = None,
+        story_intent: str | None = None,
+        story_goal: str | None = None,
+        story_style: str | None = None,
+        snapchat_username: str | None = None,
+        snapchat_display_name: str | None = None,
+        snapchat_cta_text: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_registration.register_surface_asset(
+            input_path=input_path,
+            surface=surface,
+            creator=creator,
+            campaign_slug=campaign_slug,
+            instagram_post_caption=instagram_post_caption,
+            target_ratio=target_ratio,
+            model_slug=model_slug,
+            operator=operator,
+            alt_text=alt_text,
+            story_asset_class=story_asset_class,
+            story_cta_type=story_cta_type,
+            story_cta_text=story_cta_text,
+            story_cta_target_url=story_cta_target_url,
+            story_intent=story_intent,
+            story_goal=story_goal,
+            story_style=story_style,
+            snapchat_username=snapchat_username,
+            snapchat_display_name=snapchat_display_name,
+            snapchat_cta_text=snapchat_cta_text,
+        )
+
+    def surface_registration_components(
+        self,
+        *,
+        input_path: Any,
+        surface: str,
+        target_ratio: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.surface_registration.surface_registration_components(
+            input_path=input_path,
+            surface=surface,
+            target_ratio=target_ratio,
+        )
+
+    def surface_registration_component(self, path: Any, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
+        return self.surface_registration.surface_registration_component(path, surface=surface, target_ratio=target_ratio)
+
+    def stage_surface_registration_file(
+        self,
+        path: Any,
+        rendered_dir: Any,
+        *,
+        content_surface: str,
+        content_hash: str,
+        component_index: int,
+    ) -> Any:
+        return self.surface_registration.stage_surface_registration_file(
+            path,
+            rendered_dir,
+            content_surface=content_surface,
+            content_hash=content_hash,
+            component_index=component_index,
+        )
+
+    def surface_registration_aspect_ratio_safe(self, ratio: Any, surface: str) -> bool:
+        return self.surface_registration.aspect_ratio_safe(ratio, surface)
+
+    def ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
+        return self.surface_registration.ig_media_type_for_surface(surface, media_type)
+
+    def carousel_integrity_report(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_integrity_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_child_metrics_plan(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        rendered_asset_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_child_metrics_plan(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_report_assets(
+        self,
+        *,
+        creator: str | None,
+        campaign_slug: str | None,
+        rendered_asset_id: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_report_assets(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
+
+    def carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_integrity_for_asset(asset)
+
+    def carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_component_signature(components)
+
+    def carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
+        return self.carousel_integrity.carousel_media_item_signature(media_items)
+
+    def carousel_signature_payload(
+        self,
+        signature: list[dict[str, Any]],
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_signature_payload(signature, extra=extra)
+
+    def carousel_boundary_result(
+        self,
+        boundary: str,
+        before: list[dict[str, Any]],
+        after: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_boundary_result(boundary, before, after)
+
+    def carousel_meta_child_payload_preview(
+        self,
+        *,
+        asset: dict[str, Any],
+        draft: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
+
+    def winner_expansion_plan(
+        self,
+        *,
+        creator: str | None = None,
+        parent_asset_id: str,
+        target_variants: int = 10,
+        preset: str = "caption_safe_v2",
+    ) -> dict[str, Any]:
+        return self.winner_expansion.winner_expansion_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            target_variants=target_variants,
+            preset=preset,
+        )
+
+    def winner_expansion_report(
+        self,
+        campaign_slug: str,
+        *,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.winner_expansion.winner_expansion_report(
+            campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
+        return self.winner_expansion.winner_variant_candidate(variant_payload, rendered)
+
+    def winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return self.winner_expansion.winner_variant_candidate_decision(candidate)
+
+    def latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
+        return self.winner_expansion.latest_variant_audit_result(variant_asset_id)
+
+    def contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.winner_expansion.contentforge_result_from_operations(operations)
+
+    def operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
+        return self.winner_expansion.operation_family_from_operations(operations)
+
+    def score_value(self, value: Any) -> int:
+        return self.winner_expansion.score_value(value)
+
+    def variant_inventory_primary_blocking_reason(self, failures: list[str]) -> str:
+        return self.winner_expansion.variant_inventory_primary_blocking_reason(failures)
+
+    def variant_inventory_quality_risk(self, parent_asset_id: str) -> str:
+        return self.winner_expansion.variant_inventory_quality_risk(parent_asset_id)
+
+    def variant_inventory_winner_rank(
+        self,
+        *,
+        campaign_id: str,
+        parent_asset_id: str,
+        parent_reel_id: str,
+    ) -> dict[str, Any]:
+        return self.winner_expansion.variant_inventory_winner_rank(
+            campaign_id=campaign_id,
+            parent_asset_id=parent_asset_id,
+            parent_reel_id=parent_reel_id,
+        )
+
+    def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+        return self.winner_expansion.variant_asset_payload(row)
+
+    def winner_registry(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_registry(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def concept_registry(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.concept_registry(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_patterns(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_patterns(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_knowledge_base(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_knowledge_base(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_memory_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
+        return self.creative_knowledge.winner_memory_rows(creator=creator, campaign_slug=campaign_slug)
+
+    def winner_memory_item(
+        self,
+        row: dict[str, Any],
+        *,
+        min_views: int,
+        min_reach: int,
+        min_followers: int,
+    ) -> dict[str, Any] | None:
+        return self.creative_knowledge.winner_memory_item(
+            row,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_concept_name(self, row: dict[str, Any]) -> str:
+        return self.creative_knowledge.winner_concept_name(row)
+
+    def posting_window_label(self, published_at: Any) -> str:
+        return self.creative_knowledge.posting_window_label(published_at)
+
+    def winner_pattern_group(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        key_field: str,
+        label_field: str | None,
+        output_key: str,
+        output_label: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.creative_knowledge.winner_pattern_group(
+            items,
+            key_field=key_field,
+            label_field=label_field,
+            output_key=output_key,
+            output_label=output_label,
+        )
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()

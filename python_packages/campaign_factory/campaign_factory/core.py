@@ -20,9 +20,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
 
-from .caption_outcome import build_caption_outcome_context, column_values, load_context_json
+from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
@@ -86,21 +85,6 @@ CREATIVE_RISK_BLOCK_THRESHOLD = 51
 CREATIVE_RISK_CAUTION_THRESHOLD = 21
 CONTENTFORGE_VARIANT_PRESETS = {"caption_safe", "caption_safe_v2", "strong_safe", "subtle", "balanced", "strong"}
 CONTENTFORGE_VARIANT_PACK_SCHEMAS = {"contentforge.variant_pack.v1", "contentforge.variant_pack.v2"}
-WINNER_EXPANSION_OPERATION_FAMILIES = [
-    "cover_frame",
-    "timing_trim",
-    "caption_lane_timing",
-    "crop_zoom_family",
-    "color_profile",
-    "audio_offset",
-]
-WINNER_EXPANSION_THRESHOLDS = {
-    "qualityScore": 90,
-    "captionReadabilityScore": 95,
-    "focalSafetyScore": 95,
-    "operationDiversityScore": 25,
-    "differenceScore": 20,
-}
 CONTENT_SURFACES = ("reel", "story", "feed_single", "feed_carousel")
 CONTENT_SURFACE_ALIASES = {
     "regular_reel": "reel",
@@ -125,16 +109,6 @@ IG_MEDIA_TYPE_BY_SURFACE = {
     "feed_carousel": "CAROUSEL",
 }
 TRIAL_GRADUATION_STRATEGIES = {"MANUAL", "SS_PERFORMANCE"}
-DISCOVERABILITY_SAFE_CONTENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("url", re.compile(r"https?://|www\.", re.IGNORECASE)),
-    ("dm_reference", re.compile(r"\b(dm|dms|direct\s+message|message\s+me|inbox\s+me)\b", re.IGNORECASE)),
-    ("dm_reference", re.compile(r"\b(text|txt)\s+me\b|\btexting\s+me\b", re.IGNORECASE)),
-    ("link_reference", re.compile(r"\b(link\s*in\s*bio|bio\s*link|tap\s+link|click\s+link|link)\b", re.IGNORECASE)),
-    ("subscription_cta", re.compile(r"\b(join\s+my\s+page|subscribe\s+here)\b", re.IGNORECASE)),
-    ("of_reference", re.compile(r"\b(onlyfans|fansly)\b", re.IGNORECASE)),
-    ("of_reference", re.compile(r"(^|[^A-Za-z0-9_])#?OF(?![A-Za-z0-9_])")),
-    ("off_platform_reference", re.compile(r"\b(snapchat|snap\s+me|telegram|whatsapp|linktree|beacons)\b", re.IGNORECASE)),
-)
 STORY_INTENTS = {
     "snapchat_promo",
     "reel_teaser",
@@ -182,42 +156,6 @@ DEFAULT_STORY_CALENDAR = {
     "Friday": "snapchat_promo",
     "Saturday": "lifestyle",
     "Sunday": "casual_selfie",
-}
-CAPTION_FAMILY_ANGLES = [
-    "question_bait",
-    "flirty_tease",
-    "pov",
-    "outfit_vote",
-    "validation_hook",
-    "reply_bait",
-    "soft_cta",
-]
-CAPTION_FAMILY_CTA_BY_ANGLE = {
-    "question_bait": "tell me yes or no",
-    "flirty_tease": "save this for later",
-    "pov": "send this to someone",
-    "outfit_vote": "vote in the comments",
-    "validation_hook": "drop a yes if this is you",
-    "reply_bait": "be honest in the comments",
-    "soft_cta": "follow for more",
-}
-CAPTION_FAMILY_BURNED_TEMPLATES = {
-    "question_bait": "{base}?",
-    "flirty_tease": "{base} but softer",
-    "pov": "pov: {base}",
-    "outfit_vote": "{base} - which one?",
-    "validation_hook": "{base} if you needed a sign",
-    "reply_bait": "{base} - be honest",
-    "soft_cta": "{base} if this is your vibe",
-}
-CAPTION_FAMILY_POST_TEMPLATES = {
-    "question_bait": "quick question: {base}",
-    "flirty_tease": "this one felt too good not to post",
-    "pov": "pov: you needed this reminder today",
-    "outfit_vote": "which look wins?",
-    "validation_hook": "if this is your sign, take it",
-    "reply_bait": "be honest, would you post this?",
-    "soft_cta": "more like this soon",
 }
 SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = (
     "new fit today",
@@ -624,8 +562,51 @@ class CampaignFactory:
             utc_now=utc_now,
             media_type_for_path=media_type_for_path,
             sha256_file=sha256_file,
+            probe_image_shape=probe_image_shape,
+            probe_video_shape=probe_video_shape,
+            ratio_label_from_shape=ratio_label_from_shape,
             rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=self._dashboard_rendered_asset,
+            prepare_reel_inputs=self.prepare_reel_inputs,
+            discoverability_safe_content_contract=self.discoverability_safe_content_contract,
+            reference_hook_fallbacks=SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
+            normalize_content_surface=normalize_content_surface,
+            campaign_dirs=self.campaign_dirs,
+            concept_for_parent_asset=self._concept_for_parent_asset,
+            explain_publishability=self.explain_publishability,
+            surface_handoff_readiness_report=self.surface_handoff_readiness_report,
+            surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
+            surface_report_assets=self._surface_report_assets,
+            surface_draft_proof=self.surface_draft_proof,
+            asset_components=self._asset_components,
+            instagram_post_caption_for_asset=self._instagram_post_caption_for_asset,
+            text_hash=self._text_hash,
+            validate_instagram_trial_reel_intent=self._validate_instagram_trial_reel_intent,
+            variant_lineage_for_asset=self._variant_lineage_for_asset,
+            ranking=self.ranking,
+            dashboard=self.dashboard,
+            creator_label=self._creator_label,
+            build_creative_knowledge_base=lambda *args, **kwargs: self._build_creative_knowledge_base(*args, **kwargs),
+            creator_os_target_date=self._creator_os_target_date,
+            creator_os_daily_plan=self.creator_os_daily_plan,
+            creator_content_needs=self.creator_content_needs,
+            recommended_story_intent_for_date=self._recommended_story_intent_for_date,
+            recommended_story_style_for_intent=self._recommended_story_style_for_intent,
+            story_mix_plan=self.story_mix_plan,
+            story_calendar_plan=self.story_calendar_plan,
+            json_load=json_load,
+            parent_factory_yield_waterfall=self.parent_factory_yield_waterfall,
+            ratio=self._ratio,
+            score_fraction=self._score_fraction,
+            wilson_lower_bound=self._wilson_lower_bound,
+            story_source_blockers=self._story_source_blockers,
+            normalize_story_enum=self._normalize_story_enum,
+            story_intents=STORY_INTENTS,
+            story_goals=STORY_GOALS,
+            story_styles=STORY_STYLES,
+            ig_media_type_by_surface=IG_MEDIA_TYPE_BY_SURFACE,
+            autonomy_level=self.autonomy_level,
+            recommendation_proof_summary=self._recommendation_proof_summary,
         )
         self.settings.campaigns_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1036,168 +1017,25 @@ class CampaignFactory:
         payload: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
-        if severity not in EXCEPTION_SEVERITIES:
-            severity = "medium"
-        key = f"{campaign_id or ''}:{reason_code}:{entity_graph_id or ''}:{recommendation_item_id or ''}:{account_id or ''}"
-        exception_id = f"ex_{hashlib.sha256(key.encode('utf-8')).hexdigest()[:12]}"
-        now = utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO trust_exceptions (
-              id, status, severity, reason_code, entity_graph_id, recommendation_item_id,
-              campaign_id, account_id, payload_json, resolution_json, created_at, updated_at
-            )
-            VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              status = CASE WHEN trust_exceptions.status = 'resolved' THEN trust_exceptions.status ELSE 'open' END,
-              severity = excluded.severity,
-              payload_json = excluded.payload_json,
-              updated_at = excluded.updated_at
-            """,
-            (
-                exception_id,
-                severity,
-                reason_code,
-                entity_graph_id,
-                recommendation_item_id,
-                campaign_id,
-                account_id,
-                json.dumps(sanitize_for_storage(payload or {}), ensure_ascii=False, sort_keys=True),
-                now,
-                now,
-            ),
+        return self.services.create_exception(
+            reason_code=reason_code,
+            severity=severity,
+            campaign_id=campaign_id,
+            account_id=account_id,
+            entity_graph_id=entity_graph_id,
+            recommendation_item_id=recommendation_item_id,
+            payload=payload,
+            commit=commit,
         )
-        exception_graph_id = self.ensure_graph_node(
-            "trust_exception",
-            local_table="trust_exceptions",
-            local_id=exception_id,
-            payload={"reasonCode": reason_code, "severity": severity, "campaignId": campaign_id, "accountId": account_id},
-        )
-        self.ensure_graph_edge(entity_graph_id, exception_graph_id, "entity_to_trust_exception", evidence={"reasonCode": reason_code})
-        if recommendation_item_id:
-            rec_graph_id = self.graph_id_for("recommendation_items", recommendation_item_id, entity_type="recommendation_item")
-            self.ensure_graph_edge(rec_graph_id, exception_graph_id, "recommendation_item_to_trust_exception", evidence={"reasonCode": reason_code})
-        if commit:
-            self.conn.commit()
-        return self.exception(exception_id)
 
     def exception(self, exception_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM trust_exceptions WHERE id = ?", (exception_id,)).fetchone()
-        if not row:
-            raise ValueError(f"exception not found: {exception_id}")
-        return self._exception_payload(dict(row))
+        return self.services.exception(exception_id)
 
     def exceptions(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
-        params: list[Any] = []
-        where = []
-        campaign = None
-        if campaign_slug:
-            campaign = self.campaign_by_slug(campaign_slug)
-            where.append("campaign_id = ?")
-            params.append(campaign["id"])
-        if status and status != "all":
-            if status not in EXCEPTION_STATUSES:
-                raise ValueError(f"exception status must be one of {sorted(EXCEPTION_STATUSES)}")
-            where.append("status = ?")
-            params.append(status)
-        sql = "SELECT * FROM trust_exceptions"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, updated_at DESC"
-        rows = self.conn.execute(sql, params).fetchall()
-        return {
-            "schema": "campaign_factory.exceptions.v1",
-            "campaign": campaign_slug,
-            "status": status,
-            "generatedAt": utc_now(),
-            "exceptions": [self._exception_payload(dict(row)) for row in rows],
-        }
+        return self.services.exceptions_report(campaign_slug, status=status)
 
     def trust_summary(self, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        account_rows = self.conn.execute(
-            "SELECT confidence, sample_size FROM account_memory WHERE campaign_id = ?",
-            (campaign["id"],),
-        ).fetchall()
-        exception_rows = self.conn.execute(
-            "SELECT status, severity FROM trust_exceptions WHERE campaign_id = ?",
-            (campaign["id"],),
-        ).fetchall()
-        lifecycle_rows = self.conn.execute(
-            """
-            SELECT ri.status, COUNT(*) AS count
-            FROM recommendation_items ri
-            JOIN recommendation_runs rr ON rr.id = ri.run_id
-            WHERE rr.campaign_id = ?
-            GROUP BY ri.status
-            """,
-            (campaign["id"],),
-        ).fetchall()
-        accepted_waiting = self.conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM recommendation_items ri
-            JOIN recommendation_runs rr ON rr.id = ri.run_id
-            WHERE rr.campaign_id = ? AND ri.status = 'accepted'
-            """,
-            (campaign["id"],),
-        ).fetchone()[0]
-        blocked_jobs = self.conn.execute(
-            "SELECT COUNT(*) FROM pipeline_jobs WHERE campaign_id = ? AND status = 'failed'",
-            (campaign["id"],),
-        ).fetchone()[0]
-        open_exceptions = [dict(row) for row in exception_rows if row["status"] in {"open", "snoozed"}]
-        severity_counts = {severity: 0 for severity in ("critical", "high", "medium", "low")}
-        for row in open_exceptions:
-            severity = row.get("severity") if row.get("severity") in severity_counts else "medium"
-            severity_counts[severity] += 1
-        account_confidence_counts = {level: 0 for level in ("high", "medium", "low")}
-        for row in account_rows:
-            confidence = row["confidence"] if row["confidence"] in account_confidence_counts else "low"
-            account_confidence_counts[confidence] += 1
-        recommended_action = "ready_for_level_2_execution"
-        if severity_counts["critical"] or severity_counts["high"]:
-            recommended_action = "review_high_severity_exceptions"
-        elif accepted_waiting:
-            recommended_action = "execute_accepted_recommendations"
-        elif not account_rows:
-            recommended_action = "rebuild_account_memory_after_metrics_sync"
-        elif blocked_jobs:
-            recommended_action = "inspect_failed_pipeline_jobs"
-        trust_score = 100
-        trust_score -= severity_counts["critical"] * 30
-        trust_score -= severity_counts["high"] * 20
-        trust_score -= severity_counts["medium"] * 8
-        trust_score -= severity_counts["low"] * 3
-        trust_score -= int(blocked_jobs) * 10
-        if not account_rows:
-            trust_score -= 15
-        trust_score = int(max(0, min(100, trust_score)))
-        return {
-            "schema": "campaign_factory.trust_summary.v1",
-            "campaign": campaign["slug"],
-            "generatedAt": utc_now(),
-            "autonomyLevel": self.autonomy_level(),
-            "trustScore": trust_score,
-            "recommendedAction": recommended_action,
-            "accountMemory": {
-                "accountCount": len(account_rows),
-                "confidenceCounts": account_confidence_counts,
-                "totalSamples": sum(int(row["sample_size"] or 0) for row in account_rows),
-            },
-            "exceptions": {
-                "openCount": len(open_exceptions),
-                "severityCounts": severity_counts,
-            },
-            "recommendations": {
-                "statusCounts": {row["status"]: int(row["count"]) for row in lifecycle_rows},
-                "acceptedWaitingExecution": int(accepted_waiting),
-                "proof": self._recommendation_proof_summary(campaign["id"]),
-            },
-            "pipeline": {
-                "failedJobs": int(blocked_jobs),
-            },
-        }
+        return self.services.trust_summary(campaign_slug)
 
     def recommendation_accuracy(
         self,
@@ -1736,13 +1574,13 @@ class CampaignFactory:
         return parsed.astimezone(timezone.utc)
 
     def resolve_exception(self, exception_id: str, *, resolution: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self._update_exception_status(exception_id, "resolved", resolution={"resolution": resolution, "operator": operator, "resolvedAt": utc_now()})
+        return self.services.resolve_exception(exception_id, resolution=resolution, operator=operator)
 
     def snooze_exception(self, exception_id: str, *, until: str | None = None, reason: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self._update_exception_status(exception_id, "snoozed", snoozed_until=until, resolution={"reason": reason, "operator": operator, "snoozedAt": utc_now()})
+        return self.services.snooze_exception(exception_id, until=until, reason=reason, operator=operator)
 
     def reopen_exception(self, exception_id: str, *, reason: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self._update_exception_status(exception_id, "open", resolution={"reason": reason, "operator": operator, "reopenedAt": utc_now()})
+        return self.services.reopen_exception(exception_id, reason=reason, operator=operator)
 
     def _update_exception_status(
         self,
@@ -1752,48 +1590,15 @@ class CampaignFactory:
         resolution: dict[str, Any] | None = None,
         snoozed_until: str | None = None,
     ) -> dict[str, Any]:
-        if status not in EXCEPTION_STATUSES:
-            raise ValueError(f"exception status must be one of {sorted(EXCEPTION_STATUSES)}")
-        now = utc_now()
-        resolved_at = now if status == "resolved" else None
-        cursor = self.conn.execute(
-            """
-            UPDATE trust_exceptions
-            SET status = ?, resolution_json = ?, snoozed_until = ?, resolved_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                status,
-                json.dumps(sanitize_for_storage(resolution or {}), ensure_ascii=False, sort_keys=True),
-                snoozed_until if status == "snoozed" else None,
-                resolved_at,
-                now,
-                exception_id,
-            ),
+        return self.services.update_exception_status(
+            exception_id,
+            status,
+            resolution=resolution,
+            snoozed_until=snoozed_until,
         )
-        if cursor.rowcount == 0:
-            raise ValueError(f"exception not found: {exception_id}")
-        self.conn.commit()
-        return self.exception(exception_id)
 
     def _exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "status": row["status"],
-            "severity": row["severity"],
-            "reasonCode": row["reason_code"],
-            "entityGraphId": row["entity_graph_id"],
-            "recommendationItemId": row["recommendation_item_id"],
-            "campaignId": row["campaign_id"],
-            "accountId": row["account_id"],
-            "payload": json_load(row["payload_json"], {}),
-            "resolution": json_load(row["resolution_json"], {}),
-            "snoozedUntil": row["snoozed_until"],
-            "resolvedAt": row["resolved_at"],
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-            "graphId": self.graph_id_for("trust_exceptions", row["id"]),
-        }
+        return self.services.exception_payload(row)
 
     def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
         campaign = self.campaign_by_slug(campaign_slug)
@@ -1804,88 +1609,7 @@ class CampaignFactory:
         return [self.pipeline_job_payload(dict(row)) for row in rows]
 
     def import_reference_bank(self, bank_path: Path, prompt_pack_path: Path | None = None) -> dict[str, Any]:
-        bank_path = Path(bank_path).expanduser().resolve()
-        if not bank_path.exists():
-            raise FileNotFoundError(f"reference bank not found: {bank_path}")
-        bank = json_load(bank_path.read_text(encoding="utf-8"), {})
-        clusters = bank.get("clusters") if isinstance(bank, dict) else None
-        if not isinstance(clusters, list):
-            raise ValueError("reference bank must contain a clusters array")
-        prompt_by_key = self._reference_prompt_pack_by_cluster(prompt_pack_path)
-        now = utc_now()
-        imported = 0
-        for idx, cluster in enumerate(clusters, 1):
-            cluster_key = str(cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}")
-            prompt = prompt_by_key.get(cluster_key) or {}
-            pattern_id = new_id("refpat")
-            existing = self.conn.execute("SELECT id FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
-            if existing:
-                pattern_id = existing["id"]
-            reference_ids = cluster.get("referenceIds") or prompt.get("referenceIds") or []
-            local_paths = cluster.get("localPaths") or cluster.get("referenceFiles") or []
-            public_urls = prompt.get("publicUrls") or []
-            prompt_template = cluster.get("promptTemplate") or {}
-            higgsfield_json = prompt.get("higgsfieldJson") or {}
-            caption_formulas = prompt.get("captionFormulas") or []
-            audio_recommendations = cluster.get("audioRecommendations") or prompt.get("audioRecommendations") or {}
-            self.conn.execute(
-                """
-                INSERT INTO reference_patterns (
-                  id, cluster_key, rank, label, visual_format, hook_type, caption_archetype,
-                  reference_ids_json, local_paths_json, public_urls_json, prompt_template_json,
-                  higgsfield_json, caption_formulas_json, audio_recommendations_json, raw_json, imported_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(cluster_key) DO UPDATE SET
-                  rank = excluded.rank,
-                  label = excluded.label,
-                  visual_format = excluded.visual_format,
-                  hook_type = excluded.hook_type,
-                  caption_archetype = excluded.caption_archetype,
-                  reference_ids_json = excluded.reference_ids_json,
-                  local_paths_json = excluded.local_paths_json,
-                  public_urls_json = excluded.public_urls_json,
-                  prompt_template_json = excluded.prompt_template_json,
-                  higgsfield_json = excluded.higgsfield_json,
-                  caption_formulas_json = excluded.caption_formulas_json,
-                  audio_recommendations_json = excluded.audio_recommendations_json,
-                  raw_json = excluded.raw_json,
-                  updated_at = excluded.updated_at
-                """,
-                (
-                    pattern_id,
-                    cluster_key,
-                    cluster.get("clusterRank") or cluster.get("rank") or idx,
-                    cluster.get("label") or cluster_key.replace("::", " / "),
-                    cluster.get("visualFormat"),
-                    cluster.get("hookType"),
-                    cluster.get("captionArchetype"),
-                    json.dumps(reference_ids, ensure_ascii=False),
-                    json.dumps(local_paths, ensure_ascii=False),
-                    json.dumps(public_urls, ensure_ascii=False),
-                    json.dumps(prompt_template, ensure_ascii=False, sort_keys=True),
-                    json.dumps(higgsfield_json, ensure_ascii=False, sort_keys=True),
-                    json.dumps(caption_formulas, ensure_ascii=False, sort_keys=True),
-                    json.dumps(audio_recommendations, ensure_ascii=False, sort_keys=True),
-                    json.dumps({"bank": cluster, "prompt": prompt}, ensure_ascii=False, sort_keys=True),
-                    now,
-                    now,
-                ),
-            )
-            imported += 1
-        self.conn.commit()
-        self.record_event(
-            "reference_bank_imported",
-            status="success",
-            message=f"Reference bank imported: {imported} patterns",
-            metadata={"bankPath": str(bank_path), "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None, "patterns": imported},
-        )
-        return {
-            "schema": "campaign_factory.reference_bank_import.v1",
-            "bankPath": str(bank_path),
-            "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
-            "patternsImported": imported,
-        }
+        return self.services.import_reference_bank(bank_path, prompt_pack_path)
 
     def import_audio_catalog(self, catalog_path: Path) -> dict[str, Any]:
         return self.import_audio_memory(catalog_path)
@@ -2405,55 +2129,13 @@ class CampaignFactory:
         return bool(re.fullmatch(r"(tiktok|instagram) audio [0-9a-z_-]+", normalized))
 
     def _reference_prompt_pack_by_cluster(self, prompt_pack_path: Path | None) -> dict[str, dict[str, Any]]:
-        if prompt_pack_path is None:
-            default = self.settings.reference_reels_root / "learning" / "higgsfield_prompt_pack_top300.json"
-            prompt_pack_path = default if default.exists() else None
-        if prompt_pack_path is None:
-            return {}
-        prompt_pack_path = Path(prompt_pack_path).expanduser().resolve()
-        if not prompt_pack_path.exists():
-            return {}
-        payload = json_load(prompt_pack_path.read_text(encoding="utf-8"), {})
-        prompts = payload.get("prompts") if isinstance(payload, dict) else None
-        if not isinstance(prompts, list):
-            return {}
-        return {str(item.get("clusterKey")): item for item in prompts if item.get("clusterKey")}
+        return self.services.reference_prompt_pack_by_cluster(prompt_pack_path)
 
     def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
-        rows = self.conn.execute(
-            "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT ?",
-            (max(1, min(limit, 1000)),),
-        ).fetchall()
-        return {
-            "schema": "campaign_factory.reference_patterns.v1",
-            "count": len(rows),
-            "patterns": [self._reference_pattern_payload(dict(row)) for row in rows],
-        }
+        return self.services.reference_patterns(limit=limit)
 
     def _reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        raw = json_load(row.get("raw_json") or "{}", {})
-        bank = raw.get("bank") if isinstance(raw, dict) else {}
-        return {
-            "id": row["id"],
-            "clusterKey": row["cluster_key"],
-            "rank": row["rank"],
-            "label": row["label"],
-            "visualFormat": row["visual_format"],
-            "hookType": row["hook_type"],
-            "captionArchetype": row["caption_archetype"],
-            "referenceIds": json_load(row["reference_ids_json"], []),
-            "localPaths": json_load(row["local_paths_json"], []),
-            "publicUrls": json_load(row["public_urls_json"], []),
-            "promptTemplate": json_load(row["prompt_template_json"], {}),
-            "higgsfieldJson": json_load(row["higgsfield_json"], {}),
-            "captionFormulas": json_load(row["caption_formulas_json"], []),
-            "audioRecommendations": json_load(row.get("audio_recommendations_json"), {}),
-            "suggestedFormats": (bank or {}).get("suggestedFormats") or ["reel"],
-            "suggestedVariantRecipes": (bank or {}).get("suggestedVariantRecipes") or [],
-            "raw": raw,
-            "importedAt": row["imported_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.reference_pattern_payload(row)
 
     def _audio_catalog_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row["raw_json"], {})
@@ -3478,70 +3160,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         variant_count: int = 5,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        if reference_pattern_id:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE id = ?", (reference_pattern_id,)).fetchone()
-        elif cluster_key:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
-        else:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT 1").fetchone()
-        if not pattern_row:
-            raise ValueError("reference pattern not found; run import-reference-bank first")
-        now = utc_now()
-        plan_id = new_id("refplan")
-        self.conn.execute(
-            """
-            INSERT INTO campaign_reference_plans
-            (id, campaign_id, reference_pattern_id, variant_count, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (plan_id, campaign["id"], pattern_row["id"], max(1, variant_count), notes, now, now),
+        return self.services.select_reference_pattern(
+            campaign_slug,
+            cluster_key=cluster_key,
+            reference_pattern_id=reference_pattern_id,
+            variant_count=variant_count,
+            notes=notes,
         )
-        self.conn.commit()
-        pattern = self._reference_pattern_payload(dict(pattern_row))
-        self.record_event(
-            "reference_pattern_selected",
-            campaign_id=campaign["id"],
-            status="success",
-            message=f"Reference pattern selected: {pattern['label']}",
-            metadata={"referencePatternId": pattern["id"], "clusterKey": pattern["clusterKey"], "variantCount": variant_count, "notes": notes},
-        )
-        return {
-            "schema": "campaign_factory.reference_pattern_selection.v1",
-            "campaign": campaign["slug"],
-            "planId": plan_id,
-            "variantCount": max(1, variant_count),
-            "pattern": pattern,
-            "hooks": self.reference_hooks(pattern, count=max(1, variant_count)),
-        }
 
     def campaign_reference_plan(self, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            """
-            SELECT
-              crp.id AS plan_id, crp.variant_count, crp.notes, crp.created_at AS plan_created_at,
-              rp.*
-            FROM campaign_reference_plans crp
-            JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id
-            WHERE crp.campaign_id = ?
-            ORDER BY crp.created_at DESC
-            """,
-            (campaign["id"],),
-        ).fetchall()
-        plans = []
-        for row in rows:
-            row_dict = dict(row)
-            pattern = self._reference_pattern_payload(row_dict)
-            plans.append({
-                "planId": row_dict["plan_id"],
-                "variantCount": row_dict["variant_count"],
-                "notes": row_dict["notes"],
-                "createdAt": row_dict["plan_created_at"],
-                "pattern": pattern,
-                "hooks": self.reference_hooks(pattern, count=row_dict["variant_count"]),
-            })
-        return {"schema": "campaign_factory.reference_plan.v1", "campaign": campaign["slug"], "plans": plans}
+        return self.services.campaign_reference_plan(campaign_slug)
 
     def prepare_reel_from_reference(
         self,
@@ -3555,127 +3183,25 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         notes: str | None = None,
         force_new: bool = True,
     ) -> dict[str, Any]:
-        selection = self.select_reference_pattern(
-            campaign_slug,
+        return self.services.prepare_reel_from_reference(
+            campaign_slug=campaign_slug,
             cluster_key=cluster_key,
             reference_pattern_id=reference_pattern_id,
             variant_count=variant_count,
-            notes=notes,
-        )
-        pattern = selection["pattern"]
-        hooks = selection["hooks"]
-        if recipes is None:
-            raw_bank = (pattern.get("raw") or {}).get("bank") or {}
-            recipes = raw_bank.get("suggestedVariantRecipes") or None
-        prepare = self.prepare_reel_inputs(
-            campaign_slug=campaign_slug,
-            hooks=hooks,
             recipes=recipes,
             caption_color=caption_color,
-            notes=notes or f"reference pattern: {pattern['label']}",
+            notes=notes,
             force_new=force_new,
         )
-        return {
-            "schema": "campaign_factory.prepare_from_reference.v1",
-            "campaign": campaign_slug,
-            "selection": selection,
-            "prepare": prepare,
-        }
 
     def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            """
-            SELECT rp.*
-            FROM campaign_reference_plans crp
-            JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id
-            WHERE crp.campaign_id = ?
-            ORDER BY crp.created_at DESC
-            LIMIT 1
-            """,
-            (campaign_id,),
-        ).fetchone()
-        return self._reference_pattern_payload(dict(row)) if row else None
+        return self.services.active_reference_pattern_for_campaign(campaign_id)
 
     def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
-        formulas = pattern.get("captionFormulas") or []
-        if not formulas:
-            formulas = [{"formula": (pattern.get("promptTemplate") or {}).get("captionBrief") or "short original hook"}]
-        candidates: list[tuple[str, int, str]] = []
-        seen: set[str] = set()
-        for formula_index, formula in enumerate(formulas):
-            for example in formula.get("exampleCaptions") or []:
-                text = str(example).strip()
-                normalized = " ".join(text.lower().split())
-                if text and normalized not in seen:
-                    seen.add(normalized)
-                    candidates.append((text, formula_index, "example_caption"))
-            text = str(formula.get("formula") or "").strip()
-            normalized = " ".join(text.lower().split())
-            if text and normalized not in seen:
-                seen.add(normalized)
-                candidates.append((text, formula_index, "caption_formula"))
-        safe_candidates = [
-            item for item in candidates
-            if self._reference_hook_is_schedule_safe(item[0])
-        ]
-        if safe_candidates:
-            candidates = safe_candidates
-        if not candidates:
-            for fallback in SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL:
-                candidates.append((fallback, 0, "simple_native_fallback"))
-        hooks = []
-        for idx in range(count):
-            text, formula_index, candidate_kind = candidates[idx % len(candidates)]
-            hooks.append({
-                "text": text,
-                "referenceClusterKey": pattern["clusterKey"],
-                "referenceLabel": pattern["label"],
-                "hookType": pattern.get("hookType"),
-                "captionArchetype": pattern.get("captionArchetype"),
-                "audioRecommendations": pattern.get("audioRecommendations") or {},
-                "formulaIndex": formula_index,
-                "candidateKind": candidate_kind,
-                "source": "reference_factory",
-            })
-        return hooks
+        return self.services.reference_hooks(pattern, count=count)
 
     def _reference_hook_is_schedule_safe(self, text: str) -> bool:
-        normalized = " ".join(str(text or "").strip().split())
-        if not normalized:
-            return False
-        if "{" in normalized or "}" in normalized:
-            return False
-        if len(normalized) > 42:
-            return False
-        plain = (
-            normalized
-            .replace("’", "'")
-            .replace("‘", "'")
-            .replace("“", '"')
-            .replace("”", '"')
-            .replace("–", "-")
-            .replace("—", "-")
-        )
-        if any(ord(char) > 127 for char in plain):
-            return False
-        if len(plain.split()) > 7:
-            return False
-        if normalized.count("!") > 1:
-            return False
-        letters = [char for char in normalized if char.isalpha()]
-        if letters:
-            upper_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
-            if upper_ratio >= 0.75:
-                return False
-        if re.search(
-            r"\b(go\s+)?live\b|\bsubscribe\b|\bvip\b|\btonight\b|\bcan't resist\b|\bcant resist\b|\bgood boy\b|\btake it off\b",
-            normalized,
-            re.IGNORECASE,
-        ):
-            return False
-        if self.discoverability_safe_content_contract(normalized).get("discoverabilitySafe") is not True:
-            return False
-        return True
+        return self.services.reference_hook_is_schedule_safe(text)
 
     def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
         pools = {
@@ -3794,100 +3320,20 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
     ) -> dict[str, Any]:
-        asset = self.rendered_asset(rendered_asset_id)
-        now = utc_now()
-        plan_id = new_id("dist")
-        distribution_surface = _normalize_distribution_surface(surface)
-        asset_content_surface = normalize_content_surface(asset.get("content_surface"))
-        content_surface = normalize_content_surface(surface)
-        if distribution_surface in {"regular_reel", "trial_reel"}:
-            content_surface = "reel"
-        if instagram_trial_reels and asset_content_surface != "reel":
-            raise ValueError("Instagram Trial Reels require reel content")
-        normalized_strategy = self._validate_instagram_trial_reel_intent(
-            content_surface=content_surface,
-            distribution_surface=distribution_surface,
-            media_type=str(asset.get("media_type") or "video"),
+        return self.services.create_distribution_plan(
+            rendered_asset_id,
+            surface=surface,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            paired_rendered_asset_id=paired_rendered_asset_id,
+            reason_code=reason_code,
+            smart_link=smart_link,
+            cta_text=cta_text,
             instagram_trial_reels=instagram_trial_reels,
             trial_graduation_strategy=trial_graduation_strategy,
         )
-        caption_columns = column_values(load_context_json(asset.get("caption_outcome_context_json")))
-        variant_lineage = self._variant_lineage_for_asset(rendered_asset_id)
-        self.conn.execute(
-            """
-            INSERT INTO distribution_plans
-            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, surface, content_surface,
-             concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
-             variant_operations_json,
-             planned_window_start, planned_window_end, paired_rendered_asset_id, reason_code,
-             smart_link, cta_text, instagram_trial_reels, trial_graduation_strategy,
-             caption_hash, caption_text, caption_bank, caption_banks_json,
-             creator_mix, creator_model, frame_type, length_class, format_class, caption_fit_version,
-             suitability_decision, suitability_reason, source_clip, caption_outcome_context_json,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                plan_id,
-                asset["campaign_id"],
-                rendered_asset_id,
-                account_id,
-                instagram_account_id,
-                distribution_surface,
-                content_surface,
-                variant_lineage.get("concept_id"),
-                variant_lineage.get("parent_reel_id"),
-                variant_lineage.get("variant_family_id"),
-                variant_lineage.get("variant_id"),
-                variant_lineage.get("variant_index"),
-                json.dumps(sanitize_for_storage(variant_lineage.get("variant_operations") or []), ensure_ascii=False, sort_keys=True),
-                planned_window_start,
-                planned_window_end,
-                paired_rendered_asset_id,
-                reason_code,
-                smart_link,
-                cta_text,
-                1 if instagram_trial_reels else 0,
-                normalized_strategy,
-                caption_columns["caption_hash"],
-                caption_columns["caption_text"],
-                caption_columns["caption_bank"],
-                caption_columns["caption_banks_json"],
-                caption_columns["creator_mix"],
-                caption_columns["creator_model"],
-                caption_columns["frame_type"],
-                caption_columns["length_class"],
-                caption_columns["format_class"],
-                caption_columns["caption_fit_version"],
-                caption_columns["suitability_decision"],
-                caption_columns["suitability_reason"],
-                caption_columns["source_clip"],
-                caption_columns["caption_outcome_context_json"],
-                now,
-                now,
-            ),
-        )
-        self.record_event(
-            "distribution_plan_created",
-            campaign_id=asset["campaign_id"],
-            source_asset_id=asset["source_asset_id"],
-            rendered_asset_id=rendered_asset_id,
-            status="success",
-            message=f"Distribution plan created: {distribution_surface}",
-            metadata={
-                "distributionPlanId": plan_id,
-                "surface": distribution_surface,
-                "accountId": account_id,
-                "instagramAccountId": instagram_account_id,
-                "pairedRenderedAssetId": paired_rendered_asset_id,
-                "reasonCode": reason_code,
-                "instagramTrialReels": bool(instagram_trial_reels),
-                "trialGraduationStrategy": normalized_strategy,
-            },
-            commit=False,
-        )
-        self.conn.commit()
-        return self.distribution_plan(plan_id) or {}
 
     def _validate_instagram_trial_reel_intent(
         self,
@@ -3916,71 +3362,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return strategy
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute("SELECT * FROM distribution_plans WHERE id = ?", (plan_id,)).fetchone()
-        return self._distribution_plan_payload(dict(row)) if row else None
+        return self.services.distribution_plan(plan_id)
 
     def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ? ORDER BY created_at",
-            (rendered_asset_id,),
-        ).fetchall()
-        return [self._distribution_plan_payload(dict(row)) for row in rows]
+        return self.services.distribution_plans_for_asset(rendered_asset_id)
 
     def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE campaign_id = ? ORDER BY created_at",
-            (campaign["id"],),
-        ).fetchall()
-        return [self._distribution_plan_payload(dict(row)) for row in rows]
+        return self.services.distribution_plans_for_campaign(campaign_slug)
 
     def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
-        campaign = self.campaign_by_slug(campaign_slug)
-        count = self.conn.execute(
-            "SELECT COUNT(*) AS count FROM distribution_plans WHERE campaign_id = ?",
-            (campaign["id"],),
-        ).fetchone()["count"]
-        self.conn.execute("DELETE FROM distribution_plans WHERE campaign_id = ?", (campaign["id"],))
-        self.record_event(
-            "distribution_plans_cleared",
-            campaign_id=campaign["id"],
-            status="info",
-            message=f"Cleared {count} distribution plan rows",
-            metadata={"campaign": campaign_slug, "cleared": count},
-            commit=False,
-        )
-        self.conn.commit()
-        return int(count or 0)
+        return self.services.clear_distribution_plans_for_campaign(campaign_slug)
 
     def _distribution_plan_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "campaignId": row["campaign_id"],
-            "renderedAssetId": row["rendered_asset_id"],
-            "accountId": row["account_id"],
-            "instagramAccountId": row["instagram_account_id"],
-            "surface": row["surface"],
-            "contentSurface": row.get("content_surface") or normalize_content_surface(row["surface"]),
-            "plannedWindowStart": row["planned_window_start"],
-            "plannedWindowEnd": row["planned_window_end"],
-            "pairedRenderedAssetId": row["paired_rendered_asset_id"],
-            "reasonCode": row["reason_code"],
-            "smartLink": row["smart_link"],
-            "ctaText": row["cta_text"],
-            "instagramTrialReels": bool(row.get("instagram_trial_reels")),
-            "instagram_trial_reels": bool(row.get("instagram_trial_reels")),
-            "trialGraduationStrategy": row.get("trial_graduation_strategy"),
-            "trial_graduation_strategy": row.get("trial_graduation_strategy"),
-            "conceptId": row.get("concept_id"),
-            "parentReelId": row.get("parent_reel_id"),
-            "variantFamilyId": row.get("variant_family_id"),
-            "variantId": row.get("variant_id"),
-            "variantIndex": row.get("variant_index"),
-            "variantOperations": json_load(row.get("variant_operations_json"), []),
-            "captionOutcomeContext": load_context_json(row.get("caption_outcome_context_json")),
-            "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"],
-        }
+        return self.services.distribution_plan_payload(row)
 
     def plan_distribution(
         self,
@@ -3992,151 +3386,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         replace: bool = True,
         fallback_hours: list[int] | None = None,
     ) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        schedule_mode = _normalize_schedule_mode(mode)
-        normalized_strategy = (strategy or "trial-heavy").strip().lower().replace("_", "-")
-        if normalized_strategy not in {"trial-heavy"}:
-            raise ValueError("only trial-heavy distribution strategy is supported")
-        pipeline_job = self.create_pipeline_job(
-            "distribution_plan",
-            campaign["id"],
-            {
-                "campaign": campaign_slug,
-                "userId": user_id,
-                "mode": schedule_mode,
-                "strategy": normalized_strategy,
-                "replace": replace,
-            },
+        return self.services.plan_distribution(
+            campaign_slug,
+            user_id=user_id,
+            mode=mode,
+            strategy=strategy,
+            replace=replace,
+            fallback_hours=fallback_hours,
         )
-        self.start_pipeline_job(pipeline_job["id"])
-        try:
-            cleared = self.clear_distribution_plans_for_campaign(campaign_slug) if replace else 0
-            ranking = self.ranking(campaign_slug)
-            ranking_by_asset = ranking.get("byAsset") or {}
-            dashboard = self.dashboard(campaign_slug)
-            eligible_assets = [
-                asset for asset in dashboard.get("rendered", [])
-                if asset.get("review_state") in {"approved", "review_ready"}
-                and not (asset.get("export_readiness") or {}).get("blockingReasons")
-            ]
-            eligible_assets.sort(
-                key=lambda asset: (ranking_by_asset.get(asset["id"]) or {}).get("score", 0),
-                reverse=True,
-            )
-            total = len(eligible_assets)
-            regular_count = math.ceil(total * 0.20) if total else 0
-            trial_count = math.floor(total * 0.60)
-            if total and regular_count + trial_count == 0:
-                trial_count = 1
-            primary_assets = eligible_assets[:regular_count + trial_count]
-            profile_cache: dict[str, dict[str, Any] | None] = {}
-            account_cursors: dict[str, int] = {}
-            account_day_counts: dict[tuple[str, str], int] = {}
-            account_last_time: dict[str, datetime] = {}
-            caption_day_counts: dict[tuple[str, str], int] = {}
-            source_week_counts: dict[tuple[str, str], int] = {}
-            planned = []
-            unplanned = []
-            warnings: list[dict[str, Any]] = []
-            slots = self._distribution_slots(fallback_hours or [10, 14, 18], len(primary_assets) + len(primary_assets))
-            slot_index = 0
-            for index, asset in enumerate(primary_assets):
-                model_slug = asset.get("model_slug") or asset.get("modelId") or ""
-                profile = profile_cache.setdefault(model_slug, self.model_account_profile(model_slug))
-                account_id = self._next_distribution_account(profile, model_slug, account_cursors)
-                if not account_id:
-                    unplanned.append({"renderedAssetId": asset["id"], "reason": "no_compatible_account"})
-                    continue
-                surface = "regular_reel" if index < regular_count else "trial_reel"
-                reason_code = "high_confidence_reel" if surface == "regular_reel" else "test_uncertain_winner"
-                slot, slot_index = self._next_valid_distribution_slot(
-                    slots,
-                    slot_index,
-                    account_id,
-                    asset,
-                    account_day_counts,
-                    account_last_time,
-                    caption_day_counts,
-                    source_week_counts,
-                    warnings,
-                )
-                if not slot:
-                    unplanned.append({"renderedAssetId": asset["id"], "reason": "no_available_time_slot"})
-                    continue
-                plan = self.create_distribution_plan(
-                    asset["id"],
-                    surface=surface,
-                    instagram_account_id=account_id,
-                    planned_window_start=slot.isoformat(),
-                    reason_code=reason_code,
-                    smart_link=(profile or {}).get("defaultSmartLink"),
-                    cta_text=(profile or {}).get("storyCtaText") if surface == "story_cta" else None,
-                )
-                planned.append(plan)
-                if (profile or {}).get("storyCtaText") or (profile or {}).get("defaultSmartLink"):
-                    story_slot = slot + timedelta(hours=2)
-                    story_plan = self.create_distribution_plan(
-                        asset["id"],
-                        surface="story_cta",
-                        instagram_account_id=account_id,
-                        planned_window_start=story_slot.isoformat(),
-                        paired_rendered_asset_id=asset["id"],
-                        reason_code="cta_followup",
-                        smart_link=(profile or {}).get("defaultSmartLink"),
-                        cta_text=(profile or {}).get("storyCtaText") or "new post is up",
-                    )
-                    planned.append(story_plan)
-            surface_counts: dict[str, int] = {}
-            for plan in planned:
-                surface_counts[plan["surface"]] = surface_counts.get(plan["surface"], 0) + 1
-            result = {
-                "schema": "campaign_factory.distribution_plan_run.v1",
-                "campaign": campaign["slug"],
-                "userId": user_id,
-                "mode": schedule_mode,
-                "strategy": normalized_strategy,
-                "generatedAt": utc_now(),
-                "pipelineJobId": pipeline_job["id"],
-                "clearedPlans": cleared,
-                "eligibleAssets": total,
-                "plannedCount": len(planned),
-                "unplannedCount": len(unplanned) + max(0, total - len(primary_assets)),
-                "surfaceCounts": surface_counts,
-                "planned": planned,
-                "unplanned": unplanned + [
-                    {"renderedAssetId": asset["id"], "reason": "bottom_twenty_unplanned"}
-                    for asset in eligible_assets[len(primary_assets):]
-                ],
-                "warnings": warnings,
-            }
-            self.record_event(
-                "distribution_planned",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="success" if not warnings else "warning",
-                message=f"Distribution planned: {len(planned)} plans across {len(surface_counts)} surfaces",
-                metadata={
-                    "mode": schedule_mode,
-                    "strategy": normalized_strategy,
-                    "surfaceCounts": surface_counts,
-                    "plannedCount": len(planned),
-                    "unplannedCount": result["unplannedCount"],
-                    "warningCount": len(warnings),
-                },
-            )
-            self.finish_pipeline_job(pipeline_job["id"], result)
-            return result
-        except Exception as exc:
-            self.record_event(
-                "distribution_planned",
-                campaign_id=campaign["id"],
-                pipeline_job_id=pipeline_job["id"],
-                status="failure",
-                message=f"Distribution planning failed: {exc}",
-                metadata={"error": str(exc), "mode": schedule_mode, "strategy": normalized_strategy},
-            )
-            self.fail_pipeline_job(pipeline_job["id"], str(exc))
-            raise
 
     def _next_distribution_account(
         self,
@@ -4144,34 +3401,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         model_slug: str,
         cursors: dict[str, int],
     ) -> str | None:
-        allowed = [str(item) for item in (profile or {}).get("allowedInstagramAccountIds") or [] if str(item).strip()]
-        if not allowed:
-            return None
-        cursor_key = (profile or {}).get("modelSlug") or model_slug or "default"
-        index = cursors.get(cursor_key, 0)
-        account_id = allowed[index % len(allowed)]
-        cursors[cursor_key] = index + 1
-        compatible, _, _ = self.account_compatible_with_model(model_slug, instagram_account_id=account_id)
-        return account_id if compatible else None
+        return self.services.next_distribution_account(profile, model_slug, cursors)
 
     def _distribution_slots(self, hours: list[int], count: int) -> list[datetime]:
-        local_tz = ZoneInfo("America/New_York")
-        now = datetime.now(timezone.utc)
-        local_start_date = (now.astimezone(local_tz) + timedelta(days=1)).date()
-        slots = []
-        day = 0
-        safe_hours = [hour for hour in hours if 0 <= int(hour) <= 23] or [10, 14, 18]
-        while len(slots) < max(1, count * 4):
-            current_day = local_start_date + timedelta(days=day)
-            for hour in safe_hours:
-                local_slot = datetime.combine(current_day, datetime_time(hour=int(hour)), tzinfo=local_tz)
-                slot = local_slot.astimezone(timezone.utc)
-                if slot > now:
-                    slots.append(slot)
-                    if len(slots) >= max(1, count * 4):
-                        break
-            day += 1
-        return slots
+        return self.services.distribution_slots(hours, count)
 
     def _next_valid_distribution_slot(
         self,
@@ -4185,29 +3418,17 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         source_week_counts: dict[tuple[str, str], int],
         warnings: list[dict[str, Any]],
     ) -> tuple[datetime | None, int]:
-        caption_hash = asset.get("caption_hash") or asset.get("captionHash") or asset.get("content_hash") or asset["id"]
-        source_id = asset.get("source_asset_id") or asset.get("sourceAssetId") or asset["id"]
-        for offset in range(len(slots)):
-            index = start_index + offset
-            slot = slots[index % len(slots)]
-            day_key = slot.date().isoformat()
-            week_key = f"{slot.isocalendar().year}-W{slot.isocalendar().week:02d}"
-            if account_day_counts.get((account_id, day_key), 0) >= 1:
-                continue
-            if account_id in account_last_time and abs((slot - account_last_time[account_id]).total_seconds()) < 4 * 3600:
-                continue
-            if caption_day_counts.get((account_id, f"{day_key}:{caption_hash}"), 0) >= 1:
-                warnings.append({"type": "caption_reuse_avoided", "renderedAssetId": asset["id"], "instagramAccountId": account_id})
-                continue
-            if source_week_counts.get((account_id, f"{week_key}:{source_id}"), 0) >= 1:
-                warnings.append({"type": "source_family_reuse_avoided", "renderedAssetId": asset["id"], "instagramAccountId": account_id})
-                continue
-            account_day_counts[(account_id, day_key)] = account_day_counts.get((account_id, day_key), 0) + 1
-            account_last_time[account_id] = slot
-            caption_day_counts[(account_id, f"{day_key}:{caption_hash}")] = caption_day_counts.get((account_id, f"{day_key}:{caption_hash}"), 0) + 1
-            source_week_counts[(account_id, f"{week_key}:{source_id}")] = source_week_counts.get((account_id, f"{week_key}:{source_id}"), 0) + 1
-            return slot, index + 1
-        return None, start_index
+        return self.services.next_valid_distribution_slot(
+            slots,
+            start_index,
+            account_id,
+            asset,
+            account_day_counts,
+            account_last_time,
+            caption_day_counts,
+            source_week_counts,
+            warnings,
+        )
 
     def import_folder(
         self,
@@ -4351,63 +3572,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         style: str = "ig_short",
         dry_run: bool = True,
     ) -> dict[str, Any]:
-        requested = max(1, min(10, int(requested_caption_versions or 5)))
-        parent = self.rendered_asset(parent_asset_id)
-        concept = self._concept_for_parent_asset(parent_asset_id)
-        content_surface = normalize_content_surface(parent.get("content_surface"))
-        publishability = (
-            self.explain_publishability(parent_asset_id)
-            if content_surface == "reel"
-            else {"publishableCandidate": self._surface_handoff_readiness_for_asset(parent).get("canHandoff")}
+        return self.services.caption_family_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            requested_caption_versions=requested_caption_versions,
+            style=style,
+            dry_run=dry_run,
         )
-        caption_context = load_context_json(parent.get("caption_outcome_context_json"))
-        post_caption = self._instagram_post_caption_for_asset(parent, caption_context)
-        base_burned = str(post_caption.get("burned_caption_text") or parent.get("caption") or "").strip()
-        camp_id = parent.get('campaign_id', '')
-        caption_family_id = f"cfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{style}'.encode('utf-8')).hexdigest()[:12]}"
-        caption_bank = parent.get("caption_bank") or caption_context.get("caption_bank") or "unknown_caption_bank"
-        caption_source = f"existing_caption_bank:{caption_bank}"
-        base_hashtags = self._caption_family_hashtags(post_caption.get("hashtags") or [])
-        planned_versions = [
-            self._planned_caption_version(
-                caption_family_id=caption_family_id,
-                parent=parent,
-                concept=concept,
-                index=index,
-                angle=CAPTION_FAMILY_ANGLES[(index - 1) % len(CAPTION_FAMILY_ANGLES)],
-                base_burned=base_burned,
-                base_hashtags=base_hashtags,
-                style=style,
-                caption_source=caption_source,
-            )
-            for index in range(1, requested + 1)
-        ]
-        blocking: list[str] = []
-        if not concept:
-            blocking.append("parent_reel_not_registered")
-        if not publishability.get("publishableCandidate"):
-            blocking.append(str(publishability.get("blockingReason") or "parent_reel_not_publishable"))
-        if any(not version.get("burnedCaptionText") for version in planned_versions):
-            blocking.append("blank_burned_caption")
-        if any(not version.get("instagramPostCaption") for version in planned_versions):
-            blocking.append("blank_instagram_post_caption")
-        can_proceed = not blocking
-        return {
-            "schema": "campaign_factory.caption_family_plan.v1",
-            "creator": creator,
-            "parentAssetId": parent_asset_id,
-            "parentReelId": concept.get("parentReelId") if concept else parent.get("parent_reel_id"),
-            "conceptId": concept.get("conceptId") if concept else parent.get("concept_id"),
-            "captionFamilyId": caption_family_id,
-            "requestedCaptionVersions": requested,
-            "style": style,
-            "plannedVersions": planned_versions,
-            "canProceed": can_proceed,
-            "blockingReason": blocking[0] if blocking else "",
-            "blockingReasons": blocking,
-            "wouldWrite": False,
-            "dryRun": bool(dry_run),
-        }
 
     def caption_family_create(
         self,
@@ -4418,99 +3589,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         style: str = "ig_short",
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        plan = self.caption_family_plan(
+        return self.services.caption_family_create(
             creator=creator,
             parent_asset_id=parent_asset_id,
             requested_caption_versions=requested_caption_versions,
             style=style,
-            dry_run=True,
+            dry_run=dry_run,
         )
-        if dry_run or not plan.get("canProceed"):
-            return {**plan, "schema": "campaign_factory.caption_family_create.v1", "createdCaptionVersions": 0, "wouldWrite": False}
-        parent = self.rendered_asset(parent_asset_id)
-        now = utc_now()
-        self.conn.execute(
-            """
-            INSERT INTO caption_families
-            (id, campaign_id, concept_id, parent_reel_id, parent_asset_id, creator,
-             requested_count, style, status, metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-            ON CONFLICT(parent_asset_id, style) DO UPDATE SET
-              requested_count = MAX(requested_count, excluded.requested_count),
-              status = 'active',
-              metadata_json = excluded.metadata_json,
-              updated_at = excluded.updated_at
-            """,
-            (
-                plan["captionFamilyId"],
-                parent["campaign_id"],
-                plan["conceptId"],
-                plan["parentReelId"],
-                parent_asset_id,
-                creator,
-                plan["requestedCaptionVersions"],
-                style,
-                json.dumps({"source": "caption_family_create", "dryRun": False}, ensure_ascii=False, sort_keys=True),
-                now,
-                now,
-            ),
-        )
-        created = 0
-        for version in plan["plannedVersions"]:
-            self.conn.execute(
-                """
-                INSERT INTO caption_versions
-                (id, caption_family_id, campaign_id, concept_id, parent_reel_id, parent_asset_id,
-                 variant_family_id, caption_family_index, burned_caption_text, burned_caption_hash,
-                 instagram_post_caption, instagram_post_caption_hash, caption_cta, hashtags_json,
-                 post_caption_style, caption_angle, caption_source, status, metadata_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-                ON CONFLICT(caption_family_id, caption_family_index) DO UPDATE SET
-                  burned_caption_text = excluded.burned_caption_text,
-                  burned_caption_hash = excluded.burned_caption_hash,
-                  instagram_post_caption = excluded.instagram_post_caption,
-                  instagram_post_caption_hash = excluded.instagram_post_caption_hash,
-                  caption_cta = excluded.caption_cta,
-                  hashtags_json = excluded.hashtags_json,
-                  post_caption_style = excluded.post_caption_style,
-                  caption_angle = excluded.caption_angle,
-                  caption_source = excluded.caption_source,
-                  status = 'active',
-                  metadata_json = excluded.metadata_json,
-                  updated_at = excluded.updated_at
-                """,
-                (
-                    version["captionVersionId"],
-                    plan["captionFamilyId"],
-                    parent["campaign_id"],
-                    plan["conceptId"],
-                    plan["parentReelId"],
-                    parent_asset_id,
-                    None,
-                    version["captionFamilyIndex"],
-                    version["burnedCaptionText"],
-                    version["burnedCaptionHash"],
-                    version["instagramPostCaption"],
-                    version["instagramPostCaptionHash"],
-                    version["captionCta"],
-                    json.dumps(version["hashtags"], ensure_ascii=False, sort_keys=True),
-                    version["postCaptionStyle"],
-                    version["captionAngle"],
-                    version["captionSource"],
-                    json.dumps({"wouldRender": False, "wouldExport": False, "wouldSchedule": False}, ensure_ascii=False, sort_keys=True),
-                    now,
-                    now,
-                ),
-            )
-            created += 1
-        self.conn.commit()
-        return {
-            **plan,
-            "schema": "campaign_factory.caption_family_create.v1",
-            "createdCaptionVersions": created,
-            "wouldWrite": True,
-            "dryRun": False,
-        }
 
     def _planned_caption_version(
         self,
@@ -4525,64 +3610,20 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         style: str,
         caption_source: str,
     ) -> dict[str, Any]:
-        if style == "blank_instagram_post_caption":
-            burned_caption = base_burned
-            instagram_caption = ""
-            caption_cta = ""
-            hashtags: list[str] = []
-        else:
-            burned_caption = CAPTION_FAMILY_BURNED_TEMPLATES[angle].format(base=base_burned).strip()
-            instagram_base = CAPTION_FAMILY_POST_TEMPLATES[angle].format(base=base_burned).strip()
-            caption_cta = CAPTION_FAMILY_CTA_BY_ANGLE[angle]
-            hashtags = base_hashtags[:5]
-            synthetic = {
-                **parent,
-                "caption": burned_caption,
-                "captionGeneration": {
-                    "instagram_post_caption": instagram_base,
-                    "caption_cta": caption_cta,
-                    "hashtags": hashtags,
-                    "post_caption_style": style,
-                },
-            }
-            normalized = self._instagram_post_caption_for_asset(synthetic, {"caption_text": burned_caption})
-            instagram_caption = str(normalized.get("instagram_post_caption") or "").strip()
-            hashtags = list(normalized.get("hashtags") or [])[:5]
-        burned_hash = self._text_hash(burned_caption) if burned_caption else ""
-        instagram_hash = self._text_hash(instagram_caption) if instagram_caption else ""
-        version_key = ":".join(str(part or "") for part in (caption_family_id, index, burned_hash, instagram_hash, angle))
-        return {
-            "captionVersionId": f"cver_{hashlib.sha256(version_key.encode('utf-8')).hexdigest()[:12]}",
-            "captionFamilyId": caption_family_id,
-            "captionFamilyIndex": index,
-            "parentAssetId": parent["id"],
-            "parentReelId": concept.get("parentReelId") if concept else parent.get("parent_reel_id"),
-            "burnedCaptionText": burned_caption,
-            "burnedCaptionHash": burned_hash,
-            "instagramPostCaption": instagram_caption,
-            "instagramPostCaptionHash": instagram_hash,
-            "captionCta": caption_cta or "",
-            "hashtags": hashtags,
-            "postCaptionStyle": style,
-            "captionAngle": angle,
-            "captionSource": caption_source,
-            "wouldWrite": False,
-        }
+        return self.services.planned_caption_version(
+            caption_family_id=caption_family_id,
+            parent=parent,
+            concept=concept,
+            index=index,
+            angle=angle,
+            base_burned=base_burned,
+            base_hashtags=base_hashtags,
+            style=style,
+            caption_source=caption_source,
+        )
 
     def _caption_family_hashtags(self, raw_tags: Any) -> list[str]:
-        if not isinstance(raw_tags, list):
-            return []
-        hashtags: list[str] = []
-        for tag in raw_tags:
-            if not isinstance(tag, str):
-                continue
-            cleaned = re.sub(r"[^A-Za-z0-9_]", "", tag.strip().lstrip("#"))
-            value = f"#{cleaned}" if cleaned else ""
-            if value and value not in hashtags:
-                hashtags.append(value)
-            if len(hashtags) >= 5:
-                break
-        return hashtags
+        return self.services.caption_family_hashtags(raw_tags)
 
     def variant_plan(
         self,
@@ -6538,166 +5579,25 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         account_tiers: dict[str, Any] | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        timestamp = generated_at or utc_now()
-        target_date = self._creator_os_target_date(date=date, generated_at=timestamp)
-        daily = self.creator_os_daily_plan(
-            creators=[creator_label],
+        return self.services.decision_ledger_preview(
+            creator=creator,
+            date=date,
             threadsdash_report=threadsdash_report or {},
             schedule_plan=schedule_plan,
             time_plan=time_plan,
             winner_expansion_report=winner_expansion_report,
             winner_expansion_plan=winner_expansion_plan,
+            variant_inventory_plan=variant_inventory_plan,
             variant_metrics_rollup=variant_metrics_rollup,
-            date=target_date,
-            generated_at=timestamp,
+            account_tiers=account_tiers,
+            generated_at=generated_at,
         )
-        decisions: list[dict[str, Any]] = []
-        creator_row = daily["creators"][0] if daily.get("creators") else {}
-        if int(creator_row.get("inventoryShortfall") or 0) > 0:
-            decisions.append(self._manager_decision_entry(
-                decision_type="inventory_shortfall",
-                reason="insufficient_schedule_safe_drafts",
-                timestamp=timestamp,
-                creator=creator_label,
-                source_system="creator_os.daily_plan",
-                explanation=(
-                    f"{creator_label} needs {creator_row.get('accountsNeedingPostsToday') or 0} posts today "
-                    f"but only {creator_row.get('validatedDraftsAvailable') or 0} validated schedule-safe drafts are available."
-                ),
-                payload={
-                    "inventoryShortfall": int(creator_row.get("inventoryShortfall") or 0),
-                    "validatedDraftsAvailable": int(creator_row.get("validatedDraftsAvailable") or 0),
-                    "accountsNeedingPostsToday": int(creator_row.get("accountsNeedingPostsToday") or 0),
-                },
-                context_snapshot={
-                    "managerDecision": creator_row.get("managerDecision"),
-                    "managerReason": creator_row.get("managerReason"),
-                    "nextSafeActions": creator_row.get("nextSafeActions") or [],
-                },
-            ))
-
-        decisions.extend(self._decision_entries_from_account_content_needs(
-            creator=creator_label,
-            date=target_date,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self._decision_entries_from_daily_plan_accounts(
-            daily=daily,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self._decision_entries_from_winner_expansion_report(
-            report=winner_expansion_report,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self._decision_entries_from_variant_inventory_plan(
-            plan=variant_inventory_plan,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self._decision_entries_from_winner_expansion_plan(
-            plan=winner_expansion_plan,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-
-        story_intent = str(creator_row.get("recommendedStoryIntent") or self._recommended_story_intent_for_date(target_date, creator=creator_label))
-        story_style = str(creator_row.get("recommendedStoryStyle") or self._recommended_story_style_for_intent(story_intent))
-        decisions.append(self._manager_decision_entry(
-            decision_type="story_intent_recommended",
-            reason="creator_story_mix_plan",
-            timestamp=timestamp,
-            creator=creator_label,
-            surface="story",
-            source_system="story_mix_plan",
-            explanation=f"Creator OS recommends a {story_intent} Story using {story_style} styling based on the current Story mix/calendar plan.",
-            payload={
-                "storyIntent": story_intent,
-                "storyStyle": story_style,
-                "storyGoal": self._story_goal_for_intent(story_intent),
-            },
-            context_snapshot={
-                "storyMixPlan": self.story_mix_plan(creator=creator_label).get("storyMix"),
-                "storyCalendarPlan": self.story_calendar_plan(creator=creator_label).get("calendar"),
-                "recommendedStoryIntent": story_intent,
-                "recommendedStoryStyle": story_style,
-            },
-        ))
-
-        if isinstance(account_tiers, dict):
-            for account in account_tiers.get("accounts") or []:
-                if not isinstance(account, dict):
-                    continue
-                tier = str(account.get("tier") or account.get("accountTier") or "")
-                if not tier:
-                    continue
-                decisions.append(self._manager_decision_entry(
-                    decision_type="account_tier_classified",
-                    reason=f"account_tier_{tier}",
-                    timestamp=timestamp,
-                    creator=creator_label,
-                    account_id=str(account.get("accountId") or ""),
-                    source_system="account_tier_engine",
-                    explanation=f"Account was classified as {tier}, which determines the recommended posting guidance.",
-                    payload={"accountTier": tier, "postingGuidance": account.get("postingGuidance") or {}},
-                    context_snapshot=account,
-                ))
-
-        decisions = self._dedupe_manager_decisions(decisions)
-        return {
-            "schema": "creator_os.decision_ledger_preview.v1",
-            "generatedAt": timestamp,
-            "creator": creator_label,
-            "date": target_date,
-            "decisionCount": len(decisions),
-            "decisionTypesSupported": self._manager_decision_types_supported(),
-            "decisions": decisions,
-            "wouldWrite": False,
-            "inputs": {
-                "dailyPlanSchema": daily.get("schema"),
-                "threadsdashReportSchema": (threadsdash_report or {}).get("schema") if isinstance(threadsdash_report, dict) else None,
-                "schedulePlanSchema": schedule_plan.get("schema") if isinstance(schedule_plan, dict) else None,
-                "timePlanSchema": time_plan.get("schema") if isinstance(time_plan, dict) else None,
-                "winnerExpansionReportSchema": winner_expansion_report.get("schema") if isinstance(winner_expansion_report, dict) else None,
-                "winnerExpansionPlanSchema": winner_expansion_plan.get("schema") if isinstance(winner_expansion_plan, dict) else None,
-                "variantInventoryPlanSchema": variant_inventory_plan.get("schema") if isinstance(variant_inventory_plan, dict) else None,
-            },
-        }
 
     def decision_ledger_report(self, **kwargs: Any) -> dict[str, Any]:
-        preview = self._query_decision_ledger(**kwargs)
-        preview["schema"] = "creator_os.decision_ledger_report.v1"
-        return preview
+        return self.services.decision_ledger_report(**kwargs)
 
     def decision_ledger_summary(self, **kwargs: Any) -> dict[str, Any]:
-        report = self._query_decision_ledger(**kwargs)
-        decisions = report.get("decisions") or []
-        by_type: dict[str, int] = {}
-        by_surface: dict[str, int] = {}
-        by_reason: dict[str, int] = {}
-        for decision in decisions:
-            decision_type = str(decision.get("decisionType") or "")
-            reason = str(decision.get("reason") or "")
-            surface = str(decision.get("surface") or "")
-            if decision_type:
-                by_type[decision_type] = by_type.get(decision_type, 0) + 1
-            if reason:
-                by_reason[reason] = by_reason.get(reason, 0) + 1
-            if surface:
-                by_surface[surface] = by_surface.get(surface, 0) + 1
-        return {
-            "schema": "creator_os.decision_ledger_summary.v1",
-            "generatedAt": report.get("generatedAt"),
-            "creator": report.get("creator"),
-            "date": report.get("date"),
-            "decisionCount": len(decisions),
-            "decisionCountsByType": by_type,
-            "decisionCountsBySurface": by_surface,
-            "decisionCountsByReason": by_reason,
-            "wouldWrite": False,
-        }
+        return self.services.decision_ledger_summary(**kwargs)
 
     def creator_os_200_account_acceptance_suite(
         self,
@@ -9278,61 +8178,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def parent_factory_discoverability_loss_analysis(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
-        source = waterfall or self.parent_factory_yield_waterfall()
-        stage_losses = {row["stage"]: int(row.get("lossCount") or 0) for row in source.get("stages") or []}
-        discoverability_stage_loss = int(stage_losses.get("discoverability_safety_pass") or 0)
-        categories = {
-            "dm_language": 0,
-            "link_language": 0,
-            "off_platform_reference": 0,
-            "onlyfans_reference": 0,
-            "telegram_reference": 0,
-            "snapchat_reference": 0,
-            "whatsapp_reference": 0,
-            "bio_reference": 0,
-            "cta_language": 0,
-            "other": 0,
-        }
-        captured_evidence = self._parent_factory_captured_discoverability_evidence()
-        evidence_source = captured_evidence or self._parent_factory_observed_discoverability_terms()
-        for term in evidence_source:
-            categories[self._discoverability_loss_category(term.get("reason", ""), term.get("matchedText", ""))] += 1
-        observed_failures = sum(categories.values())
-        if discoverability_stage_loss > observed_failures:
-            categories["other"] += discoverability_stage_loss - observed_failures
-        total = max(discoverability_stage_loss, sum(categories.values()))
-        generation_categories = {
-            "off_platform_reference",
-            "onlyfans_reference",
-            "telegram_reference",
-            "snapchat_reference",
-            "whatsapp_reference",
-        }
-        caption_categories = {"dm_language", "link_language", "bio_reference", "cta_language"}
-        generation_count = sum(categories[name] for name in generation_categories)
-        caption_count = sum(categories[name] for name in caption_categories)
-        registration_count = categories["other"]
-        rows = [
-            {
-                "category": category,
-                "frequency": count,
-                "percentOfDiscoverabilityFailures": round((count / total) * 100, 1) if total else 0,
-                "preventableAt": self._discoverability_prevention_stage(category),
-                "wouldWrite": False,
-            }
-            for category, count in categories.items()
-        ]
-        return {
-            "schema": "creator_os.parent_factory_discoverability_loss_analysis.v1",
-            "discoverabilityStageLoss": discoverability_stage_loss,
-            "capturedEvidenceCount": len(captured_evidence),
-            "observedClassifiedFailures": observed_failures,
-            "discoverabilityRejectionCategories": rows,
-            "percentPreventableAtGeneration": round((generation_count / total) * 100, 1) if total else 0,
-            "percentPreventableAtCaptionCreation": round((caption_count / total) * 100, 1) if total else 0,
-            "percentPreventableAtRegistration": round((registration_count / total) * 100, 1) if total else 0,
-            "wouldWrite": False,
-        }
+        return self.services.parent_factory_discoverability_loss_analysis(waterfall=waterfall)
 
     def parent_factory_quality_gate_analysis(self) -> dict[str, Any]:
         waterfall = self.parent_factory_yield_waterfall()
@@ -9416,67 +8262,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def discoverability_intake_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        fields = self._discoverability_gate_fields(payload, {
-            "source_caption",
-            "source_prompt",
-            "content_perception",
-            "reference_caption",
-        })
-        return self._discoverability_gate_result("intake", fields)
+        return self.services.discoverability_intake_gate(payload)
 
     def discoverability_generation_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        fields = self._discoverability_gate_fields(payload, {
-            "source_caption",
-            "source_prompt",
-            "content_perception",
-            "reference_caption",
-            "prompt",
-            "hook",
-            "hooks",
-            "generated_caption",
-            "caption_text",
-            "caption_cta",
-            "instagram_post_caption",
-        })
-        return self._discoverability_gate_result("generation", fields)
+        return self.services.discoverability_generation_gate(payload)
 
     def discoverability_pre_render_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        fields = self._discoverability_gate_fields(payload, set(payload.keys()))
-        return self._discoverability_gate_result("pre_render", fields)
+        return self.services.discoverability_pre_render_gate(payload)
 
     def discoverability_violation_origin_map(self) -> dict[str, Any]:
-        evidence = self._parent_factory_captured_discoverability_evidence()
-        fallback = self._parent_factory_observed_discoverability_terms()
-        source = evidence or fallback
-        stages: dict[str, int] = {
-            "source_content_perception": 0,
-            "prompt_generation": 0,
-            "caption_generation": 0,
-            "burned_caption_generation": 0,
-            "caption_family_generation": 0,
-            "parent_registration": 0,
-            "publishability_validation": 0,
-        }
-        for item in source:
-            stage = self._discoverability_origin_stage(str(item.get("sourceField") or ""), str(item.get("reason") or ""))
-            stages[stage] = stages.get(stage, 0) + 1
-        if not any(stages.values()):
-            stages["publishability_validation"] = int(self.parent_factory_discoverability_loss_analysis().get("discoverabilityStageLoss") or 0)
-        total = sum(stages.values())
-        before_render = sum(stages[name] for name in ("source_content_perception", "prompt_generation", "caption_generation", "caption_family_generation"))
-        before_registration = before_render + stages["burned_caption_generation"]
-        first = next((stage for stage, count in stages.items() if count > 0), "publishability_validation")
-        earliest = first if first != "publishability_validation" else "caption_generation"
-        return {
-            "schema": "creator_os.discoverability_violation_origin_map.v1",
-            "whereViolationsFirstAppear": first,
-            "earliestPreventableStage": earliest,
-            "percentPreventableBeforeRender": round((before_render / total) * 100, 1) if total else 0,
-            "percentPreventableBeforeRegistration": round((before_registration / total) * 100, 1) if total else 0,
-            "stageCounts": stages,
-            "evidenceSource": "captured_rejection_evidence" if evidence else "observed_caption_scan",
-            "wouldWrite": False,
-        }
+        return self.services.discoverability_violation_origin_map()
 
     def parent_factory_recoverable_yield(self) -> dict[str, Any]:
         waterfall = self.parent_factory_yield_waterfall(required_parents_per_day=53)
@@ -9568,39 +8363,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def parent_factory_waterfall_after_discoverability(self) -> dict[str, Any]:
-        current = self.parent_factory_yield_waterfall(required_parents_per_day=53)
-        current_stages = current.get("stages") or []
-        raw = int(current_stages[0].get("outputCount") or 0) if current_stages else 0
-        stages = []
-        previous = raw
-        for row in current_stages:
-            stage = row["stage"]
-            if stage == "discoverability_safety_pass":
-                continue
-            if stage == "raw_candidate":
-                output = raw
-            elif stage in {"publishability_pass", "handoff_ready", "schedule_safe", "parent_accepted"}:
-                output = previous
-            else:
-                output = int(row.get("outputCount") or 0)
-            stages.append({
-                "stage": stage,
-                "inputCount": previous if stage != "raw_candidate" else output,
-                "outputCount": output,
-                "yieldPct": round(self._ratio(output, previous if stage != "raw_candidate" else output) * 100, 1),
-                "lossCount": max(0, (previous if stage != "raw_candidate" else output) - output),
-                "wouldWrite": False,
-            })
-            previous = output
-        downstream = self._post_discoverability_downstream_confidence()
-        return {
-            "schema": "creator_os.parent_factory_waterfall_after_discoverability.v1",
-            "discoverabilityRemoved": True,
-            "stages": stages,
-            "theoreticalAcceptedParents": previous,
-            "downstreamEvidence": downstream,
-            "wouldWrite": False,
-        }
+        return self.services.parent_factory_waterfall_after_discoverability()
 
     def parent_factory_true_yield_model(self) -> dict[str, Any]:
         current = self.parent_factory_yield_waterfall(required_parents_per_day=53)
@@ -10992,34 +9755,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def discoverability_prevention_audit(self) -> dict[str, Any]:
-        evidence = self._parent_factory_captured_discoverability_evidence()
-        before_render = sum(1 for item in evidence if item.get("failedStage") in {"discoverability_generation_gate", "discoverability_pre_render_gate"})
-        after_render = sum(1 for item in evidence if item.get("failedStage") in {"discoverability_post_render_gate"})
-        at_publishability = sum(1 for item in evidence if item.get("failedStage") in {"discoverability_safety_pass", "publishability_pass"})
-        fallback = self.parent_factory_discoverability_loss_analysis()
-        if before_render + after_render + at_publishability == 0:
-            at_publishability = int(fallback.get("observedClassifiedFailures") or 0)
-        return {
-            "schema": "creator_os.discoverability_prevention_audit.v1",
-            "violationsCaughtBeforeRender": before_render,
-            "violationsCaughtAfterRender": after_render,
-            "violationsCaughtAtPublishability": at_publishability,
-            "preventionRatePct": round((before_render / max(1, before_render + after_render + at_publishability)) * 100, 1),
-            "goal": "move_discoverability_failures_before_render",
-            "wouldWrite": False,
-        }
+        return self.services.discoverability_prevention_audit()
 
     def discoverability_prevention_scorecard(self) -> dict[str, Any]:
-        audit = self.discoverability_prevention_audit()
-        total = audit["violationsCaughtBeforeRender"] + audit["violationsCaughtAfterRender"] + audit["violationsCaughtAtPublishability"]
-        score = self._score_fraction(audit["violationsCaughtBeforeRender"], total or 1)
-        return {
-            "schema": "creator_os.discoverability_prevention_scorecard.v1",
-            "score": score,
-            "upstreamPreventionReady": score >= 8,
-            "audit": audit,
-            "wouldWrite": False,
-        }
+        return self.services.discoverability_prevention_scorecard()
 
     def story_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
         asset = self._certification_asset_for_surface("story", rendered_asset_id=rendered_asset_id)
@@ -12086,110 +10825,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return sorted(fixes, key=lambda item: (-float(item["estimatedYieldLiftPct"]), -int(item["frequency"]), item["fix"]))
 
     def _parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
-        terms: list[dict[str, str]] = []
-        seen: set[tuple[str, str, str]] = set()
-        rows = [
-            dict(row)
-            for row in self.conn.execute(
-                "SELECT id, caption, caption_outcome_context_json, caption_generation_json FROM rendered_assets"
-            ).fetchall()
-        ]
-        for row in rows:
-            values = [row.get("caption")]
-            for column in ("caption_outcome_context_json", "caption_generation_json"):
-                payload = json_load(row.get(column), {})
-                if not isinstance(payload, dict):
-                    continue
-                values.extend(self._discoverability_text_values(payload))
-            contract = self.discoverability_safe_content_contract(*values)
-            for term in contract.get("blockedTerms") or []:
-                reason = str(term.get("reason") or "")
-                matched = str(term.get("matchedText") or "")
-                key = (str(row.get("id") or ""), reason, matched.lower())
-                if key in seen:
-                    continue
-                seen.add(key)
-                terms.append({"reason": reason, "matchedText": matched})
-        return terms
+        return self.services.parent_factory_observed_discoverability_terms()
 
     def _parent_factory_captured_discoverability_evidence(self) -> list[dict[str, str]]:
-        rows = [
-            dict(row)
-            for row in self.conn.execute(
-                """
-                SELECT failed_stage, failure_category, matched_text, source_field, policy_version
-                FROM asset_rejection_evidence
-                WHERE policy_version LIKE 'discoverability_safe%'
-                   OR failed_stage LIKE 'discoverability%'
-                ORDER BY created_at, id
-                """
-            ).fetchall()
-        ]
-        return [
-            {
-                "failedStage": str(row.get("failed_stage") or ""),
-                "reason": str(row.get("failure_category") or ""),
-                "matchedText": str(row.get("matched_text") or ""),
-                "sourceField": str(row.get("source_field") or ""),
-                "policyVersion": str(row.get("policy_version") or ""),
-            }
-            for row in rows
-        ]
+        return self.services.parent_factory_captured_discoverability_evidence()
 
     def _discoverability_text_values(self, payload: dict[str, Any]) -> list[str]:
-        values: list[str] = []
-        for key in (
-            "caption_text",
-            "burned_caption_text",
-            "instagram_post_caption",
-            "caption",
-            "captionCta",
-            "caption_cta",
-            "ctaText",
-            "story_cta_text",
-            "snapchat_cta_text",
-        ):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                values.append(value)
-        for key in ("hashtags", "caption_banks", "captionSceneTags", "reelSceneTags"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                values.extend(str(item) for item in value if str(item).strip())
-        for value in payload.values():
-            if isinstance(value, dict):
-                values.extend(self._discoverability_text_values(value))
-        return values
+        return self.services.discoverability_text_values(payload)
 
     def _discoverability_loss_category(self, reason: str, matched_text: str) -> str:
-        reason_norm = str(reason or "").lower()
-        matched_norm = str(matched_text or "").lower()
-        if "dm" in reason_norm or "direct" in matched_norm or matched_norm in {"dm", "dms"} or "message me" in matched_norm:
-            return "dm_language"
-        if "onlyfans" in matched_norm or "fansly" in matched_norm or reason_norm == "of_reference":
-            return "onlyfans_reference"
-        if "telegram" in matched_norm:
-            return "telegram_reference"
-        if "snap" in matched_norm:
-            return "snapchat_reference"
-        if "whatsapp" in matched_norm:
-            return "whatsapp_reference"
-        if "bio" in matched_norm or "linktree" in matched_norm or "beacons" in matched_norm:
-            return "bio_reference"
-        if reason_norm in {"url", "link_reference"} or "link" in matched_norm or "www." in matched_norm:
-            return "link_language"
-        if "subscribe" in matched_norm or "join my page" in matched_norm or reason_norm == "subscription_cta":
-            return "cta_language"
-        if reason_norm == "off_platform_reference":
-            return "off_platform_reference"
-        return "other"
+        return self.services.discoverability_loss_category(reason, matched_text)
 
     def _discoverability_prevention_stage(self, category: str) -> str:
-        if category in {"dm_language", "link_language", "bio_reference", "cta_language"}:
-            return "caption_creation"
-        if category in {"off_platform_reference", "onlyfans_reference", "telegram_reference", "snapchat_reference", "whatsapp_reference"}:
-            return "generation"
-        return "registration"
+        return self.services.discoverability_prevention_stage(category)
 
     def _parent_factory_human_bottleneck(self, *, required: int, rejection: dict[str, Any]) -> dict[str, Any]:
         repair_minutes = 0
@@ -12221,63 +10869,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         )
 
     def _discoverability_gate_fields(self, payload: dict[str, Any], allowed_fields: set[str]) -> list[tuple[str, str]]:
-        fields: list[tuple[str, str]] = []
-        for key, value in (payload or {}).items():
-            if key not in allowed_fields:
-                continue
-            if isinstance(value, str) and value.strip():
-                fields.append((key, value))
-            elif isinstance(value, list):
-                text = " ".join(str(item) for item in value if str(item).strip())
-                if text:
-                    fields.append((key, text))
-        return fields
+        return self.services.discoverability_gate_fields(payload, allowed_fields)
 
     def _discoverability_gate_result(self, gate: str, fields: list[tuple[str, str]]) -> dict[str, Any]:
-        violations = self._discoverability_evidence_for_fields(fields)
-        return {
-            "schema": f"campaign_factory.discoverability_{gate}_gate.v1",
-            "gate": gate,
-            "canProceed": not violations,
-            "violations": violations,
-            "policyVersion": "discoverability_safe_v1",
-            "nextAction": "reject_before_render" if violations else "continue",
-            "wouldWrite": False,
-        }
+        return self.services.discoverability_gate_result(gate, fields)
 
     def _discoverability_origin_stage(self, source_field: str, reason: str) -> str:
-        field = source_field.lower()
-        reason_norm = reason.lower()
-        if "source" in field or "perception" in field or "reference" in field:
-            return "source_content_perception"
-        if "prompt" in field:
-            return "prompt_generation"
-        if "caption_family" in field or "caption_version" in field:
-            return "caption_family_generation"
-        if "burned" in field:
-            return "burned_caption_generation"
-        if "caption" in field or reason_norm in {"dm_language", "link_language", "bio_reference", "cta_language"}:
-            return "caption_generation"
-        if "asset" in field or "registration" in field:
-            return "parent_registration"
-        return "publishability_validation"
+        return self.services.discoverability_origin_stage(source_field, reason)
 
     def _post_discoverability_downstream_confidence(self) -> dict[str, Any]:
-        current = self.parent_factory_yield_waterfall(required_parents_per_day=53)
-        stage_counts = {row["stage"]: int(row.get("outputCount") or 0) for row in current.get("stages") or []}
-        clean = int(stage_counts.get("discoverability_safety_pass") or 0)
-        accepted = int(stage_counts.get("parent_accepted") or 0)
-        pass_rate = self._ratio(accepted, clean)
-        confidence_adjusted = self._wilson_lower_bound(successes=accepted, trials=clean)
-        return {
-            "cleanCandidatesObserved": clean,
-            "acceptedCleanCandidatesObserved": accepted,
-            "measuredDownstreamPassRate": round(pass_rate, 4),
-            "confidenceAdjustedPassRate": round(confidence_adjusted, 4),
-            "confidenceMethod": "wilson_lower_bound_95pct",
-            "nextActualRejectionCategory": "none_measured_after_discoverability" if clean == accepted else "downstream_rejection_observed",
-            "wouldWrite": False,
-        }
+        return self.services.post_discoverability_downstream_confidence()
 
     def _wilson_lower_bound(self, *, successes: int, trials: int, z: float = 1.96) -> float:
         if trials <= 0:
@@ -12581,48 +11182,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return sorted(rows, key=lambda row: (-int(row["lines"]), row["file"]))
 
     def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        report = self._query_decision_ledger(creator=creator_label, **kwargs)
-        decisions = report.get("decisions") or []
-        return self._manager_decision_filtered_report(
-            schema="creator_os.decision_ledger_by_creator.v1",
-            report=report,
-            decisions=decisions,
-            extra={"creator": creator_label},
-        )
+        return self.services.decision_ledger_by_creator(creator=creator, **kwargs)
 
     def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        account_key = str(account_id or "").strip()
-        report = self._query_decision_ledger(creator=creator, account_id=account_key, **kwargs)
-        decisions = report.get("decisions") or []
-        return self._manager_decision_filtered_report(
-            schema="creator_os.decision_ledger_by_account.v1",
-            report=report,
-            decisions=decisions,
-            extra={"accountId": account_key},
-        )
+        return self.services.decision_ledger_by_account(account_id=account_id, creator=creator, **kwargs)
 
     def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        normalized_surface = normalize_content_surface(surface)
-        report = self._query_decision_ledger(creator=creator, surface=normalized_surface, **kwargs)
-        decisions = report.get("decisions") or []
-        return self._manager_decision_filtered_report(
-            schema="creator_os.decision_ledger_by_surface.v1",
-            report=report,
-            decisions=decisions,
-            extra={"surface": normalized_surface},
-        )
+        return self.services.decision_ledger_by_surface(surface=surface, creator=creator, **kwargs)
 
     def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        normalized_type = str(decision_type or "").strip()
-        report = self._query_decision_ledger(creator=creator, decision_type=normalized_type, **kwargs)
-        decisions = report.get("decisions") or []
-        return self._manager_decision_filtered_report(
-            schema="creator_os.decision_ledger_by_decision_type.v1",
-            report=report,
-            decisions=decisions,
-            extra={"decisionType": normalized_type},
-        )
+        return self.services.decision_ledger_by_decision_type(decision_type=decision_type, creator=creator, **kwargs)
 
     def _query_decision_ledger(
         self,
@@ -12633,26 +11202,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         decision_type: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        report = self.decision_ledger_preview(creator=creator, **kwargs)
-        decisions = list(report.get("decisions") or [])
-        creator_label = self._creator_label(creator)
-        decisions = [
-            entry for entry in decisions
-            if self._creator_label(entry.get("creator")) == creator_label
-        ]
-        if account_id is not None:
-            account_key = str(account_id or "").strip()
-            decisions = [entry for entry in decisions if str(entry.get("accountId") or "") == account_key]
-        if surface is not None:
-            normalized_surface = normalize_content_surface(surface)
-            decisions = [entry for entry in decisions if normalize_content_surface(entry.get("surface")) == normalized_surface]
-        if decision_type is not None:
-            normalized_type = str(decision_type or "").strip()
-            decisions = [entry for entry in decisions if str(entry.get("decisionType") or "") == normalized_type]
-        result = dict(report)
-        result["decisions"] = decisions
-        result["decisionCount"] = len(decisions)
-        return result
+        return self.services.query_decision_ledger(
+            creator=creator,
+            account_id=account_id,
+            surface=surface,
+            decision_type=decision_type,
+            **kwargs,
+        )
 
     def _manager_decision_filtered_report(
         self,
@@ -12662,16 +11218,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         decisions: list[dict[str, Any]],
         extra: dict[str, Any],
     ) -> dict[str, Any]:
-        return {
-            "schema": schema,
-            "generatedAt": report.get("generatedAt"),
-            "creator": report.get("creator"),
-            "date": report.get("date"),
-            **extra,
-            "decisionCount": len(decisions),
-            "decisions": decisions,
-            "wouldWrite": False,
-        }
+        return self.services.decision_ledger.manager_decision_filtered_report(
+            schema=schema,
+            report=report,
+            decisions=decisions,
+            extra=extra,
+        )
 
     def _decision_entries_from_account_content_needs(
         self,
@@ -12680,41 +11232,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         date: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        entries: list[dict[str, Any]] = []
-        try:
-            needs = self.creator_content_needs(creator=creator, date=date)
-        except Exception:
-            return entries
-        for account in needs.get("accounts") or []:
-            if not isinstance(account, dict):
-                continue
-            for obligation in account.get("obligations") or []:
-                if not isinstance(obligation, dict) or not obligation.get("needed"):
-                    continue
-                surface = normalize_content_surface(obligation.get("surface"))
-                decision_type = f"account_needs_{surface}"
-                reason = self._manager_obligation_reason(obligation)
-                entries.append(self._manager_decision_entry(
-                    decision_type=decision_type,
-                    reason=reason,
-                    timestamp=timestamp,
-                    creator=creator,
-                    account_id=str(account.get("accountId") or ""),
-                    surface=surface,
-                    source_system="account_content_requirements",
-                    explanation=self._manager_obligation_explanation(obligation),
-                    payload={
-                        "account": account.get("account"),
-                        "instagramAccountId": account.get("instagramAccountId"),
-                        "surface": surface,
-                        "required": obligation.get("required"),
-                        "completed": obligation.get("completed"),
-                        "scheduled": obligation.get("scheduled"),
-                        "remaining": obligation.get("remaining"),
-                    },
-                    context_snapshot=obligation,
-                ))
-        return entries
+        return self.services.decision_ledger.decision_entries_from_account_content_needs(
+            creator=creator,
+            date=date,
+            timestamp=timestamp,
+        )
 
     def _decision_entries_from_daily_plan_accounts(
         self,
@@ -12723,25 +11245,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        entries: list[dict[str, Any]] = []
-        for account in daily.get("accounts") or []:
-            if not isinstance(account, dict):
-                continue
-            if account.get("state") != "blocked":
-                continue
-            reason = str(account.get("blockedReason") or "account_blocked")
-            entries.append(self._manager_decision_entry(
-                decision_type="account_blocked",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                account_id=str(account.get("accountId") or ""),
-                source_system="creator_os.daily_plan",
-                explanation=f"Account is blocked for scheduling because {reason}.",
-                payload={"accountTier": account.get("accountTier"), "username": account.get("username")},
-                context_snapshot=account,
-            ))
-        return entries
+        return self.services.decision_ledger.decision_entries_from_daily_plan_accounts(
+            daily=daily,
+            creator=creator,
+            timestamp=timestamp,
+        )
 
     def _decision_entries_from_winner_expansion_report(
         self,
@@ -12750,37 +11258,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        if not isinstance(report, dict):
-            return []
-        entries: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for winner in [item for item in (report.get("winners") or report.get("recommendations") or []) if isinstance(item, dict)]:
-            key = str(winner.get("postId") or winner.get("assetId") or winner.get("parentAssetId") or "")
-            if key in seen:
-                continue
-            seen.add(key)
-            reason = str(winner.get("reason") or winner.get("winnerReason") or "manual_winner")
-            asset_id = str(winner.get("assetId") or winner.get("parentAssetId") or "")
-            entries.append(self._manager_decision_entry(
-                decision_type="winner_selected",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                rendered_asset_id=asset_id,
-                parent_asset_id=asset_id,
-                source_system="winner_expansion_report",
-                explanation=f"Asset {asset_id or key} was selected as a winner because {reason}.",
-                payload={
-                    "postId": winner.get("postId"),
-                    "assetId": asset_id,
-                    "parentReelId": winner.get("parentReelId"),
-                    "variantFamilyId": winner.get("variantFamilyId"),
-                    "winnerReason": reason,
-                    "recommendedAction": winner.get("recommendedAction"),
-                },
-                context_snapshot=winner,
-            ))
-        return entries
+        return self.services.decision_ledger.decision_entries_from_winner_expansion_report(
+            report=report,
+            creator=creator,
+            timestamp=timestamp,
+        )
 
     def _decision_entries_from_variant_inventory_plan(
         self,
@@ -12789,31 +11271,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        if not isinstance(plan, dict):
-            return []
-        entries: list[dict[str, Any]] = []
-        for batch in plan.get("executionBatches") or []:
-            if not isinstance(batch, dict):
-                continue
-            parent_asset_id = str(batch.get("parentAssetId") or "")
-            entries.append(self._manager_decision_entry(
-                decision_type="parent_selected",
-                reason="variant_inventory_plan",
-                timestamp=timestamp,
-                creator=creator,
-                parent_asset_id=parent_asset_id,
-                source_system="variant_inventory_plan",
-                explanation=f"Parent asset {parent_asset_id} was selected for ContentForge expansion to satisfy inventory planning.",
-                payload={
-                    "parentAssetId": parent_asset_id,
-                    "requestedVariants": batch.get("requestedVariants"),
-                    "minimumRecommended": batch.get("minimumRecommended"),
-                    "operationFamilies": batch.get("operationFamilies") or [],
-                    "preset": batch.get("preset"),
-                },
-                context_snapshot=batch,
-            ))
-        return entries
+        return self.services.decision_ledger.decision_entries_from_variant_inventory_plan(
+            plan=plan,
+            creator=creator,
+            timestamp=timestamp,
+        )
 
     def _decision_entries_from_winner_expansion_plan(
         self,
@@ -12822,36 +11284,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        if not isinstance(plan, dict):
-            return []
-        parent_asset_id = str(plan.get("parentAssetId") or "")
-        rejected = plan.get("rejectedExistingVariants") if isinstance(plan.get("rejectedExistingVariants"), dict) else {}
-        mapping = {
-            "lowQuality": ("low_quality", "caption_readability_below_threshold"),
-            "duplicateSiblings": ("duplicate_sibling", "duplicate_sibling"),
-            "notUploadReady": ("not_upload_ready", "not_upload_ready"),
-        }
-        entries: list[dict[str, Any]] = []
-        for key, (reason, example_reason) in mapping.items():
-            count = int(rejected.get(key) or 0)
-            if count <= 0:
-                continue
-            entries.append(self._manager_decision_entry(
-                decision_type="variant_rejected",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                parent_asset_id=parent_asset_id,
-                source_system="winner_expansion_plan",
-                explanation=f"{count} existing sibling variant(s) were rejected for {example_reason}.",
-                payload={
-                    "parentAssetId": parent_asset_id,
-                    "rejectedCount": count,
-                    "rejectionFamily": key,
-                },
-                context_snapshot=plan,
-            ))
-        return entries
+        return self.services.decision_ledger.decision_entries_from_winner_expansion_plan(
+            plan=plan,
+            creator=creator,
+            timestamp=timestamp,
+        )
 
     def _manager_decision_entry(
         self,
@@ -12870,103 +11307,36 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         payload: dict[str, Any] | None = None,
         context_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        decision_payload = sanitize_for_storage(payload or {})
-        context = sanitize_for_storage(context_snapshot or {})
-        stable_key = json.dumps({
-            "decisionType": decision_type,
-            "reason": reason,
-            "timestamp": timestamp,
-            "creator": creator,
-            "accountId": account_id,
-            "surface": surface,
-            "renderedAssetId": rendered_asset_id,
-            "parentAssetId": parent_asset_id,
-            "variantId": variant_id,
-            "payload": decision_payload,
-        }, ensure_ascii=False, sort_keys=True)
-        return {
-            "decisionId": f"mdec_preview_{hashlib.sha256(stable_key.encode('utf-8')).hexdigest()[:16]}",
-            "decisionType": decision_type,
-            "reason": reason,
-            "timestamp": timestamp,
-            "creator": self._creator_label(creator) if creator else None,
-            "accountId": account_id or "",
-            "surface": normalize_content_surface(surface) if surface else "",
-            "renderedAssetId": rendered_asset_id or "",
-            "parentAssetId": parent_asset_id or "",
-            "variantId": variant_id or "",
-            "sourceSystem": source_system,
-            "explanation": explanation,
-            "contextSnapshot": context,
-            **decision_payload,
-            "wouldWrite": False,
-        }
+        return self.services.decision_ledger.manager_decision_entry(
+            decision_type=decision_type,
+            reason=reason,
+            timestamp=timestamp,
+            source_system=source_system,
+            explanation=explanation,
+            creator=creator,
+            account_id=account_id,
+            surface=surface,
+            rendered_asset_id=rendered_asset_id,
+            parent_asset_id=parent_asset_id,
+            variant_id=variant_id,
+            payload=payload,
+            context_snapshot=context_snapshot,
+        )
 
     def _dedupe_manager_decisions(self, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        seen: set[str] = set()
-        unique: list[dict[str, Any]] = []
-        for decision in decisions:
-            key = str(decision.get("decisionId") or "")
-            if key and key in seen:
-                continue
-            if key:
-                seen.add(key)
-            unique.append(decision)
-        return unique
+        return self.services.decision_ledger.dedupe_manager_decisions(decisions)
 
     def _manager_decision_types_supported(self) -> list[str]:
-        return [
-            "inventory_shortfall",
-            "account_needs_reel",
-            "account_needs_story",
-            "account_needs_feed_single",
-            "account_needs_feed_carousel",
-            "account_blocked",
-            "account_tier_classified",
-            "winner_selected",
-            "parent_selected",
-            "variant_rejected",
-            "story_intent_recommended",
-        ]
+        return self.services.decision_ledger.manager_decision_types_supported()
 
     def _manager_obligation_reason(self, obligation: dict[str, Any]) -> str:
-        surface = normalize_content_surface(obligation.get("surface"))
-        cadence = str(obligation.get("cadence") or "")
-        if surface == "story" and cadence == "daily":
-            return "daily_story_requirement"
-        if cadence.endswith("_per_day"):
-            return f"{surface}_{cadence}_requirement"
-        if cadence == "weekly":
-            return f"weekly_{surface}_requirement"
-        if cadence == "every_other_day":
-            return f"every_other_day_{surface}_requirement"
-        return f"{surface}_requirement"
+        return self.services.decision_ledger.manager_obligation_reason(obligation)
 
     def _manager_obligation_explanation(self, obligation: dict[str, Any]) -> str:
-        surface = normalize_content_surface(obligation.get("surface"))
-        required = int(obligation.get("required") or 0)
-        completed = int(obligation.get("completed") or 0)
-        scheduled = int(obligation.get("scheduled") or 0)
-        remaining = int(obligation.get("remaining") or 0)
-        cadence = str(obligation.get("cadence") or "configured")
-        if surface == "story" and cadence == "daily":
-            return "Account requires one Story every day and none has been completed today." if remaining == 1 and completed == 0 and scheduled == 0 else f"Account has a daily Story requirement with {remaining} Story obligation(s) still remaining today."
-        return f"Account requires {required} {surface} item(s) for cadence {cadence}; {completed} completed, {scheduled} scheduled, {remaining} remaining."
+        return self.services.decision_ledger.manager_obligation_explanation(obligation)
 
     def _story_goal_for_intent(self, intent: str) -> str:
-        return {
-            "snapchat_promo": "traffic",
-            "reel_teaser": "reel_support",
-            "casual_selfie": "audience_warming",
-            "mirror_selfie": "audience_warming",
-            "outfit_check": "engagement",
-            "gym_selfie": "audience_warming",
-            "bedroom_selfie": "retention",
-            "lifestyle": "retention",
-            "behind_the_scenes": "retention",
-            "engagement": "engagement",
-            "profile_visit": "profile_visit",
-        }.get(intent, "audience_warming")
+        return self.services.decision_ledger.story_goal_for_intent(intent)
 
     def _creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
         items = []
@@ -14210,83 +12580,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         target_variants: int = 10,
         preset: str = "caption_safe_v2",
     ) -> dict[str, Any]:
-        target = max(1, min(30, int(target_variants or 10)))
-        contentforge_preset = preset if preset in {"caption_safe_v2", "strong_safe"} else "caption_safe_v2"
-        parent = self.rendered_asset(parent_asset_id)
-        concept = self._concept_for_parent_asset(parent_asset_id)
-        can_proceed = concept is not None and bool(self.explain_publishability(parent_asset_id).get("publishableCandidate"))
-        family_row = self.conn.execute(
-            """
-            SELECT * FROM variant_families
-            WHERE parent_asset_id = ? AND contentforge_preset = ?
-            ORDER BY created_at, id
-            LIMIT 1
-            """,
-            (parent_asset_id, contentforge_preset),
-        ).fetchone()
-        camp_id = parent.get("campaign_id", "")
-        variant_family_id = (
-            family_row["id"]
-            if family_row
-            else f"vfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{contentforge_preset}:winner_expansion'.encode('utf-8')).hexdigest()[:12]}"
+        return self.services.winner_expansion_plan(
+            creator=creator,
+            parent_asset_id=parent_asset_id,
+            target_variants=target_variants,
+            preset=preset,
         )
-        rows = self.conn.execute(
-            """
-            SELECT * FROM variant_assets
-            WHERE parent_asset_id = ?
-            ORDER BY variant_index, created_at, id
-            """,
-            (parent_asset_id,),
-        ).fetchall()
-        valid_existing: list[dict[str, Any]] = []
-        rejected = {"lowQuality": 0, "duplicateSiblings": 0, "notUploadReady": 0}
-        seen_fingerprints: set[str] = set()
-        seen_families: set[str] = set()
-        for row in rows:
-            payload = self._variant_asset_payload(row)
-            rendered = self.rendered_asset(payload["variantAssetId"])
-            candidate = self._winner_variant_candidate(payload, rendered)
-            family_name = str(candidate.get("familyName") or "unknown")
-            fingerprint = str(candidate.get("contentFingerprint") or candidate.get("sourceFingerprint") or payload["variantAssetId"])
-            if fingerprint in seen_fingerprints or family_name in seen_families:
-                rejected["duplicateSiblings"] += 1
-                continue
-            decision = self._winner_variant_candidate_decision(candidate)
-            if not decision["recommended"]:
-                if "not_upload_ready" in decision["blockingReasons"]:
-                    rejected["notUploadReady"] += 1
-                else:
-                    rejected["lowQuality"] += 1
-                continue
-            seen_fingerprints.add(fingerprint)
-            seen_families.add(family_name)
-            valid_existing.append(candidate)
-        recommended_new = max(0, target - len(valid_existing))
-        missing_families = [family for family in WINNER_EXPANSION_OPERATION_FAMILIES if family not in seen_families]
-        operation_families: list[str] = []
-        while len(operation_families) < recommended_new:
-            source_families = missing_families if missing_families else WINNER_EXPANSION_OPERATION_FAMILIES
-            for family in source_families:
-                if len(operation_families) >= recommended_new:
-                    break
-                operation_families.append(family)
-            missing_families = []
-        return {
-            "schema": "campaign_factory.winner_expansion_plan.v1",
-            "creator": creator,
-            "parentAssetId": parent_asset_id,
-            "parentReelId": concept.get("parentReelId") if concept else None,
-            "variantFamilyId": variant_family_id,
-            "existingVariants": len(valid_existing),
-            "recommendedNewVariants": recommended_new,
-            "operationFamilies": operation_families,
-            "canProceed": bool(can_proceed),
-            "blockingReason": "" if can_proceed else "parent_reel_not_registered_or_not_publishable",
-            "wouldWrite": False,
-            "preset": contentforge_preset,
-            "thresholds": dict(WINNER_EXPANSION_THRESHOLDS),
-            "rejectedExistingVariants": rejected,
-        }
 
     def variant_inventory_plan(
         self,
@@ -14484,66 +12783,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int | None = None,
         min_followers: int = 1,
     ) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ? AND metrics_eligible = 1
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign["id"],),
-        ).fetchall()
-        reach_floor = min_reach if min_reach is not None else min_views
-        winners = []
-        seen_posts: set[str] = set()
-        for row in rows:
-            data = dict(row)
-            post_id = data.get("post_id")
-            if not post_id or str(post_id) in seen_posts:
-                continue
-            raw = json_load(data.get("raw_json"), {})
-            metrics = {
-                "views": int(data.get("views") or 0),
-                "reach": int(data.get("reach") or 0),
-                "followers": int(raw.get("followers") or 0) if isinstance(raw, dict) else 0,
-                "likes": int(data.get("likes") or 0),
-                "comments": int(data.get("comments") or 0),
-                "shares": int(data.get("shares") or 0),
-                "saves": int(data.get("saves") or 0),
-            }
-            reason = ""
-            if metrics["views"] >= min_views:
-                reason = "high_views"
-            elif metrics["reach"] >= reach_floor:
-                reason = "high_reach"
-            elif metrics["followers"] >= min_followers:
-                reason = "follower_growth"
-            if not reason:
-                continue
-            seen_posts.add(str(post_id))
-            winners.append({
-                "postId": post_id,
-                "assetId": data.get("rendered_asset_id") or "",
-                "parentReelId": data.get("parent_reel_id") or "",
-                "variantFamilyId": data.get("variant_family_id") or "",
-                "reason": reason,
-                "recommendedAction": "create_more_variants" if data.get("parent_reel_id") else "make_similar_reel",
-                "wouldWrite": False,
-                "metrics": metrics,
-            })
-        return {
-            "schema": "campaign_factory.winner_expansion_report.v1",
-            "campaign": campaign["slug"],
-            "generatedAt": utc_now(),
-            "minViews": min_views,
-            "minReach": reach_floor,
-            "minFollowers": min_followers,
-            "wouldWrite": False,
-            "manualReviewOnly": True,
-            "winners": winners,
-            "recommendations": winners,
-            "summary": {"winnerCount": len(winners)},
-        }
+        return self.services.winner_expansion_report(
+            campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
 
     def winner_registry(
         self,
@@ -14554,46 +12799,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int | None = None,
         min_followers: int = 1,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        knowledge = self._build_creative_knowledge_base(
-            creator=creator_label,
+        return self.services.winner_registry(
+            creator=creator,
             campaign_slug=campaign_slug,
-            minimum_sample_size=1,
-            limit=10,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
         )
-        rows = knowledge["rows"]
-        reach_floor = min_reach if min_reach is not None else min_views
-        winners: list[dict[str, Any]] = []
-        seen_posts: set[str] = set()
-        for row in rows:
-            post_id = str(row.get("post_id") or "").strip()
-            if not post_id or post_id in seen_posts:
-                continue
-            winner = self._winner_memory_item(
-                row,
-                min_views=min_views,
-                min_reach=reach_floor,
-                min_followers=min_followers,
-            )
-            seen_posts.add(post_id)
-            if winner:
-                winners.append(winner)
-        return {
-            "schema": "campaign_factory.winner_registry.v1",
-            "creator": creator_label,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "minViews": min_views,
-            "minReach": reach_floor,
-            "minFollowers": min_followers,
-            "summary": {
-                "winnerCount": len(winners),
-                "totalViews": sum(int((item.get("metrics") or {}).get("views") or 0) for item in winners),
-                "totalReach": sum(int((item.get("metrics") or {}).get("reach") or 0) for item in winners),
-            },
-            "winners": winners,
-            "wouldWrite": False,
-        }
 
     def concept_registry(
         self,
@@ -14604,28 +12816,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int | None = None,
         min_followers: int = 1,
     ) -> dict[str, Any]:
-        winners = self.winner_registry(
+        return self.services.concept_registry(
             creator=creator,
             campaign_slug=campaign_slug,
             min_views=min_views,
             min_reach=min_reach,
             min_followers=min_followers,
         )
-        concepts = self._winner_pattern_group(
-            winners.get("winners") or [],
-            key_field="conceptId",
-            label_field="conceptName",
-            output_key="conceptId",
-            output_label="conceptName",
-        )
-        return {
-            "schema": "campaign_factory.concept_registry.v1",
-            "creator": winners["creator"],
-            "campaign": winners.get("campaign"),
-            "generatedAt": utc_now(),
-            "concepts": concepts,
-            "wouldWrite": False,
-        }
 
     def winner_patterns(
         self,
@@ -14636,29 +12833,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int | None = None,
         min_followers: int = 1,
     ) -> dict[str, Any]:
-        winners = self.winner_registry(
+        return self.services.winner_patterns(
             creator=creator,
             campaign_slug=campaign_slug,
             min_views=min_views,
             min_reach=min_reach,
             min_followers=min_followers,
         )
-        items = winners.get("winners") or []
-        patterns = {
-            "topConcepts": self._winner_pattern_group(items, key_field="conceptId", label_field="conceptName", output_key="conceptId", output_label="conceptName"),
-            "topAudioFamilies": self._winner_pattern_group(items, key_field="audioId", label_field=None, output_key="audioId", output_label=None),
-            "topCaptionAngles": self._winner_pattern_group(items, key_field="captionAngle", label_field=None, output_key="captionAngle", output_label=None),
-            "topPostingWindows": self._winner_pattern_group(items, key_field="postingWindow", label_field=None, output_key="postingWindow", output_label=None),
-        }
-        return {
-            "schema": "campaign_factory.winner_patterns.v1",
-            "creator": winners["creator"],
-            "campaign": winners.get("campaign"),
-            "generatedAt": utc_now(),
-            "winnerCount": winners["summary"]["winnerCount"],
-            **patterns,
-            "wouldWrite": False,
-        }
 
     def winner_knowledge_base(
         self,
@@ -14669,50 +12850,16 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int | None = None,
         min_followers: int = 1,
     ) -> dict[str, Any]:
-        registry = self.winner_registry(
+        return self.services.winner_knowledge_base(
             creator=creator,
             campaign_slug=campaign_slug,
             min_views=min_views,
             min_reach=min_reach,
             min_followers=min_followers,
         )
-        concepts = self.concept_registry(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            min_views=min_views,
-            min_reach=min_reach,
-            min_followers=min_followers,
-        )
-        patterns = self.winner_patterns(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            min_views=min_views,
-            min_reach=min_reach,
-            min_followers=min_followers,
-        )
-        return {
-            "schema": "campaign_factory.winner_knowledge_base.v1",
-            "creator": registry["creator"],
-            "campaign": registry.get("campaign"),
-            "generatedAt": utc_now(),
-            "conceptRegistry": concepts.get("concepts") or [],
-            "winnerRegistry": registry,
-            "winnerPatterns": {
-                "topConcepts": patterns.get("topConcepts") or [],
-                "topAudioFamilies": patterns.get("topAudioFamilies") or [],
-                "topCaptionAngles": patterns.get("topCaptionAngles") or [],
-                "topPostingWindows": patterns.get("topPostingWindows") or [],
-            },
-            "wouldWrite": False,
-        }
 
     def _winner_memory_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self._build_creative_knowledge_base(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=1,
-            limit=10,
-        )["rows"]
+        return self.services.winner_memory_rows(creator=creator, campaign_slug=campaign_slug)
 
     def _winner_memory_item(
         self,
@@ -14722,91 +12869,18 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         min_reach: int,
         min_followers: int,
     ) -> dict[str, Any] | None:
-        raw = json_load(row.get("raw_json"), {})
-        metrics = {
-            "views": int(row.get("views") or 0),
-            "reach": int(row.get("reach") or 0),
-            "likes": int(row.get("likes") or 0),
-            "comments": int(row.get("comments") or 0),
-            "shares": int(row.get("shares") or 0),
-            "saves": int(row.get("saves") or 0),
-            "followers": int(raw.get("followers") or 0) if isinstance(raw, dict) else 0,
-        }
-        reason = ""
-        primary_metric = ""
-        threshold = 0
-        if metrics["views"] >= min_views:
-            reason = "high_views"
-            primary_metric = "views"
-            threshold = min_views
-        elif metrics["reach"] >= min_reach:
-            reason = "high_reach"
-            primary_metric = "reach"
-            threshold = min_reach
-        elif metrics["followers"] >= min_followers:
-            reason = "follower_growth"
-            primary_metric = "followers"
-            threshold = min_followers
-        if not reason:
-            return None
-        concept_name = self._winner_concept_name(row)
-        posting_window = self._posting_window_label(row.get("published_at"))
-        return {
-            "postId": row.get("post_id") or "",
-            "assetId": row.get("rendered_asset_id") or "",
-            "sourceAssetId": row.get("source_asset_id") or "",
-            "campaign": row.get("campaign_slug"),
-            "conceptId": row.get("concept_id") or "",
-            "conceptName": concept_name,
-            "parentReelId": row.get("parent_reel_id") or "",
-            "variantFamilyId": row.get("variant_family_id") or "",
-            "variantId": row.get("variant_id") or "",
-            "audioId": row.get("audio_id") or "",
-            "captionAngle": row.get("caption_angle") or "",
-            "captionHash": row.get("caption_hash") or "",
-            "captionFamilyId": row.get("caption_family_id") or "",
-            "captionVersionId": row.get("caption_version_id") or "",
-            "postingWindow": posting_window,
-            "publishedAt": row.get("published_at"),
-            "reason": reason,
-            "why": {
-                "reason": reason,
-                "primaryMetric": primary_metric,
-                "primaryMetricValue": metrics[primary_metric],
-                "threshold": threshold,
-                "visibleMetricFields": ["views", "reach", "followers", "likes", "comments", "shares", "saves"],
-            },
-            "metrics": metrics,
-            "wouldWrite": False,
-        }
+        return self.services.winner_memory_item(
+            row,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
 
     def _winner_concept_name(self, row: dict[str, Any]) -> str:
-        metadata = json_load(row.get("concept_metadata_json"), {})
-        if isinstance(metadata, dict):
-            for key in ("conceptName", "concept_name", "concept", "label", "name", "title"):
-                value = str(metadata.get(key) or "").strip()
-                if value:
-                    return value
-        context = load_context_json(row.get("caption_outcome_context_json"))
-        if isinstance(context, dict):
-            for key in ("conceptName", "concept_name", "concept", "caption_angle"):
-                value = str(context.get(key) or "").strip()
-                if value:
-                    return value
-        return str(row.get("concept_id") or "unknown").strip() or "unknown"
+        return self.services.winner_concept_name(row)
 
     def _posting_window_label(self, published_at: Any) -> str:
-        text = str(published_at or "").strip()
-        if not text:
-            return ""
-        try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return ""
-        hour = parsed.hour
-        suffix = "am" if hour < 12 else "pm"
-        display_hour = hour % 12 or 12
-        return f"{display_hour}{suffix}"
+        return self.services.posting_window_label(published_at)
 
     def _winner_pattern_group(
         self,
@@ -14817,39 +12891,12 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         output_key: str,
         output_label: str | None,
     ) -> list[dict[str, Any]]:
-        grouped: dict[str, dict[str, Any]] = {}
-        for item in items:
-            key = str(item.get(key_field) or "").strip()
-            if not key:
-                continue
-            entry = grouped.setdefault(
-                key,
-                {
-                    output_key: key,
-                    "winnerCount": 0,
-                    "totalViews": 0,
-                    "totalReach": 0,
-                    "postIds": [],
-                },
-            )
-            if output_label:
-                label = str(item.get(label_field or "") or key).strip() or key
-                entry[output_label] = label
-            metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
-            entry["winnerCount"] += 1
-            entry["totalViews"] += int(metrics.get("views") or 0)
-            entry["totalReach"] += int(metrics.get("reach") or 0)
-            entry["postIds"].append(item.get("postId"))
-        for entry in grouped.values():
-            count = max(1, int(entry["winnerCount"]))
-            entry["averageViews"] = round(int(entry["totalViews"]) / count, 2)
-        return sorted(
-            grouped.values(),
-            key=lambda item: (
-                -int(item.get("winnerCount") or 0),
-                -int(item.get("totalViews") or 0),
-                str(item.get(output_label or output_key) or item.get(output_key) or ""),
-            ),
+        return self.services.winner_pattern_group(
+            items,
+            key_field=key_field,
+            label_field=label_field,
+            output_key=output_key,
+            output_label=output_label,
         )
 
     def creative_knowledge_base(
@@ -16479,113 +14526,28 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def _winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
-        operation_result = self._contentforge_result_from_operations(variant_payload.get("variantOperations") or [])
-        audit_result = self._latest_variant_audit_result(variant_payload.get("variantAssetId") or "")
-        merged = {**operation_result, **audit_result}
-        readiness = merged.get("readinessSummary") if isinstance(merged.get("readinessSummary"), dict) else {}
-        return {
-            "variantId": variant_payload.get("variantId"),
-            "variantAssetId": variant_payload.get("variantAssetId"),
-            "variantFamilyId": variant_payload.get("variantFamilyId"),
-            "parentAssetId": variant_payload.get("parentAssetId"),
-            "familyName": merged.get("familyName")
-            or (merged.get("variantFamilyRecipe") or {}).get("familyName")
-            or self._operation_family_from_operations(variant_payload.get("variantOperations") or []),
-            "uploadReady": bool(merged.get("uploadReady") if "uploadReady" in merged else readiness.get("uploadReady")),
-            "qualityScore": self._score_value(merged.get("qualityScore")),
-            "captionReadabilityScore": self._score_value(merged.get("captionReadabilityScore")),
-            "focalSafetyScore": self._score_value(merged.get("focalSafetyScore")),
-            "operationDiversityScore": self._score_value(merged.get("operationDiversityScore")),
-            "differenceScore": self._score_value(merged.get("differenceScore")),
-            "contentFingerprint": variant_payload.get("contentFingerprint") or rendered.get("content_hash") or rendered.get("contentHash"),
-            "sourceFingerprint": variant_payload.get("sourceFingerprint"),
-        }
+        return self.services.winner_variant_candidate(variant_payload, rendered)
 
     def _winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
-        blocking: list[str] = []
-        if candidate.get("uploadReady") is not True:
-            blocking.append("not_upload_ready")
-        for field, minimum in WINNER_EXPANSION_THRESHOLDS.items():
-            if self._score_value(candidate.get(field)) < minimum:
-                blocking.append(f"{field}_below_minimum")
-        return {"recommended": not blocking, "blockingReasons": blocking}
+        return self.services.winner_variant_candidate_decision(candidate)
 
     def _latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
-        row = self.conn.execute(
-            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
-            (variant_asset_id,),
-        ).fetchone()
-        if not row or not row["report_path"]:
-            return {}
-        try:
-            report = json_load(Path(row["report_path"]).read_text(encoding="utf-8"), {})
-        except OSError:
-            return {}
-        variant = report.get("variant") if isinstance(report.get("variant"), dict) else {}
-        readiness = report.get("readinessSummary") if isinstance(report.get("readinessSummary"), dict) else {}
-        return {**variant, "readinessSummary": readiness}
+        return self.services.latest_variant_audit_result(variant_asset_id)
 
     def _contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
-        for operation in operations:
-            if not isinstance(operation, dict):
-                continue
-            result = operation.get("result")
-            if operation.get("type") == "contentforge_result" and isinstance(result, dict):
-                return result
-        return {}
+        return self.services.contentforge_result_from_operations(operations)
 
     def _operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
-        for operation in operations:
-            if not isinstance(operation, dict):
-                continue
-            family = operation.get("familyName")
-            if family:
-                return str(family)
-            result = operation.get("result") if isinstance(operation.get("result"), dict) else {}
-            family = result.get("familyName") or (result.get("variantFamilyRecipe") or {}).get("familyName")
-            if family:
-                return str(family)
-        return None
+        return self.services.operation_family_from_operations(operations)
 
     def _score_value(self, value: Any) -> int:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            return 0
-        if not math.isfinite(parsed):
-            return 0
-        return max(0, min(100, int(round(parsed))))
+        return self.services.score_value(value)
 
     def _variant_inventory_primary_blocking_reason(self, failures: list[str]) -> str:
-        priority = [
-            "quarantined_asset",
-            "embedded_audio_missing",
-            "missing_audio",
-            "missing_instagram_post_caption",
-            "caption_placement_qc_failed",
-            "missing_burned_captions",
-            "readiness_failed",
-        ]
-        for reason in priority:
-            if reason in failures:
-                return reason
-        return failures[0] if failures else "publishability_blocked"
+        return self.services.variant_inventory_primary_blocking_reason(failures)
 
     def _variant_inventory_quality_risk(self, parent_asset_id: str) -> str:
-        row = self.conn.execute(
-            "SELECT score, status, overall_verdict FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
-            (parent_asset_id,),
-        ).fetchone()
-        if not row:
-            return "high"
-        score = self._score_value(row["score"])
-        if row["overall_verdict"] == "fail" or row["status"] not in {"pass", "approved_candidate"}:
-            return "high"
-        if score >= WINNER_EXPANSION_THRESHOLDS["qualityScore"]:
-            return "low"
-        if score >= 80:
-            return "medium"
-        return "high"
+        return self.services.variant_inventory_quality_risk(parent_asset_id)
 
     def _variant_inventory_winner_rank(
         self,
@@ -16594,55 +14556,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         parent_asset_id: str,
         parent_reel_id: str,
     ) -> dict[str, Any]:
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ?
-              AND metrics_eligible = 1
-              AND (rendered_asset_id = ? OR parent_reel_id = ?)
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign_id, parent_asset_id, parent_reel_id),
-        ).fetchall()
-        best_score = 0
-        best_metrics: dict[str, int] = {}
-        for row in rows:
-            data = dict(row)
-            raw = json_load(data.get("raw_json"), {})
-            metrics = {
-                "views": int(data.get("views") or 0),
-                "reach": int(data.get("reach") or 0),
-                "followers": int(raw.get("followers") or 0) if isinstance(raw, dict) else 0,
-                "likes": int(data.get("likes") or 0),
-                "comments": int(data.get("comments") or 0),
-                "shares": int(data.get("shares") or 0),
-                "saves": int(data.get("saves") or 0),
-            }
-            score = (
-                metrics["views"]
-                + metrics["reach"]
-                + (metrics["followers"] * 100)
-                + (metrics["likes"] * 5)
-                + (metrics["comments"] * 10)
-                + (metrics["shares"] * 15)
-                + (metrics["saves"] * 15)
-            )
-            if score > best_score:
-                best_score = score
-                best_metrics = metrics
-        return {
-            "hasWinnerMetrics": best_score > 0,
-            "score": best_score,
-            "metrics": best_metrics,
-        }
+        return self.services.variant_inventory_winner_rank(
+            campaign_id=campaign_id,
+            parent_asset_id=parent_asset_id,
+            parent_reel_id=parent_reel_id,
+        )
 
     def _caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
-        if not caption_version_id:
-            return None
-        row = self.conn.execute("SELECT * FROM caption_versions WHERE id = ?", (caption_version_id,)).fetchone()
-        if not row:
-            return None
-        return self._caption_version_payload(row)
+        return self.services.caption_version_by_id(caption_version_id)
 
     def _concept_for_parent_asset(self, parent_asset_id: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT * FROM concepts WHERE parent_asset_id = ? ORDER BY updated_at DESC LIMIT 1", (parent_asset_id,)).fetchone()
@@ -16727,30 +14648,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def _caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
-        if row is None:
-            return {}
-        data = dict(row)
-        return {
-            "captionVersionId": data["id"],
-            "captionFamilyId": data["caption_family_id"],
-            "campaignId": data["campaign_id"],
-            "conceptId": data["concept_id"],
-            "parentReelId": data["parent_reel_id"],
-            "parentAssetId": data["parent_asset_id"],
-            "variantFamilyId": data.get("variant_family_id"),
-            "captionFamilyIndex": data["caption_family_index"],
-            "burnedCaptionText": data["burned_caption_text"],
-            "burnedCaptionHash": data["burned_caption_hash"],
-            "instagramPostCaption": data["instagram_post_caption"],
-            "instagramPostCaptionHash": data["instagram_post_caption_hash"],
-            "captionCta": data.get("caption_cta") or "",
-            "hashtags": json_load(data.get("hashtags_json"), []),
-            "postCaptionStyle": data.get("post_caption_style"),
-            "captionAngle": data.get("caption_angle"),
-            "captionSource": data.get("caption_source"),
-            "status": data.get("status"),
-            "metadata": json_load(data.get("metadata_json"), {}),
-        }
+        return self.services.caption_version_payload(row)
 
     def _variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
         if row is None:
@@ -18222,384 +16120,27 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         snapchat_display_name: str | None = None,
         snapchat_cta_text: str | None = None,
     ) -> dict[str, Any]:
-        content_surface = normalize_content_surface(surface)
-        if content_surface not in {"feed_single", "story", "feed_carousel"}:
-            raise ValueError("register-surface-asset supports feed_single, story, and feed_carousel")
-        creator_label = self._creator_label(creator)
-        model = self.upsert_model(slugify(model_slug or creator_label), creator_label)
-        campaign = self.upsert_campaign(campaign_slug, model["slug"], platform="instagram")
-        dirs = self.campaign_dirs(model["slug"], campaign["slug"])
-        post_caption = (instagram_post_caption or "").strip()
-        if content_surface in {"feed_single", "feed_carousel"} and not post_caption:
-            raise ValueError("instagram_post_caption is required for feed_single and feed_carousel")
-        components = self._surface_registration_components(
+        return self.services.register_surface_asset(
             input_path=input_path,
-            surface=content_surface,
+            surface=surface,
+            creator=creator,
+            campaign_slug=campaign_slug,
+            instagram_post_caption=instagram_post_caption,
             target_ratio=target_ratio,
+            model_slug=model_slug,
+            operator=operator,
+            alt_text=alt_text,
+            story_asset_class=story_asset_class,
+            story_cta_type=story_cta_type,
+            story_cta_text=story_cta_text,
+            story_cta_target_url=story_cta_target_url,
+            story_intent=story_intent,
+            story_goal=story_goal,
+            story_style=story_style,
+            snapchat_username=snapchat_username,
+            snapchat_display_name=snapchat_display_name,
+            snapchat_cta_text=snapchat_cta_text,
         )
-        if content_surface == "feed_single" and components[0]["mediaType"] != "image":
-            raise ValueError("feed_single registration requires an image file")
-        if content_surface == "story" and components[0]["mediaType"] not in {"image", "video"}:
-            raise ValueError("story registration requires an image or video file")
-        if content_surface == "story":
-            story_source_blockers = self._story_source_blockers(components)
-            if story_source_blockers:
-                raise ValueError(f"story source is not story-native: {', '.join(story_source_blockers)}")
-        if content_surface == "feed_carousel":
-            if not (2 <= len(components) <= 10):
-                raise ValueError("carousel requires 2 to 10 components")
-            if not self._aspect_ratio_safe(components[0]["aspectRatio"], "feed_carousel"):
-                raise ValueError("carousel cover aspect ratio is not safe")
-
-        component_hashes = [item["contentHash"] for item in components]
-        content_hash = component_hashes[0] if len(component_hashes) == 1 else hashlib.sha256("|".join(component_hashes).encode("utf-8")).hexdigest()
-        staged_components = [
-            {
-                **item,
-                "stagedPath": self._stage_surface_registration_file(
-                    item["path"],
-                    dirs["rendered"],
-                    content_surface=content_surface,
-                    content_hash=item["contentHash"],
-                    component_index=index,
-                ),
-            }
-            for index, item in enumerate(components)
-        ]
-        representative = staged_components[0]
-        now = utc_now()
-        scoped_key = hashlib.sha256(f"{campaign['id']}:{content_hash}".encode("utf-8")).hexdigest()[:12]
-        source_asset_id = f"src_surface_{scoped_key}"
-        render_job_id = f"render_surface_{scoped_key}"
-        rendered_id = f"asset_surface_{scoped_key}"
-        media_type = representative["mediaType"] if content_surface != "feed_carousel" else "carousel"
-        ratio = target_ratio or representative.get("aspectRatio") or "9:16"
-        caption_hash_value = hashlib.sha256(post_caption.lower().encode("utf-8")).hexdigest() if post_caption else None
-        ig_media_type = self._ig_media_type_for_surface(content_surface, media_type)
-        source_prompt = {
-            "schema": "campaign_factory.surface_asset_registration.v1",
-            "contentSurface": content_surface,
-            "igMediaType": ig_media_type,
-            "inputPaths": [str(item["path"]) for item in components],
-            "stagedPaths": [str(item["stagedPath"]) for item in staged_components],
-            "operator": operator,
-            "instagramPostCaptionPresent": bool(post_caption),
-        }
-        caption_context = {
-            "schema": "campaign_factory.caption_outcome_context.v1",
-            "creator_mix": creator_label,
-            "creator_model": creator_label,
-            "render_recipe": "surface_asset_registered",
-            "content_surface": content_surface,
-            "instagram_post_caption_hash": caption_hash_value,
-            "visualQcStatus": "passed",
-            "identityVerificationStatus": "passed",
-            "visualQc": {"status": "passed"},
-            "identityVerification": {"status": "passed"},
-        }
-        caption_generation = {
-            "schema": "campaign_factory.surface_asset_caption_generation.v1",
-            "instagram_post_caption": post_caption,
-            "instagramPostCaption": post_caption,
-            "instagramPostCaptionHash": caption_hash_value,
-            "captionOutcomeContext": caption_context,
-            "allow_empty_instagram_post_caption": content_surface == "story" and not post_caption,
-            "operatorReview": {
-                "operator": operator,
-                "approvedAt": now,
-            },
-        }
-        if content_surface == "story":
-            caption_generation.update({
-                "story_asset_class": (story_asset_class or "").strip() or None,
-                "story_cta_type": (story_cta_type or "").strip() or None,
-                "story_cta_text": (story_cta_text or "").strip() or None,
-                "story_cta_target_url": (story_cta_target_url or "").strip() or None,
-                "story_intent": self._normalize_story_enum(story_intent, STORY_INTENTS),
-                "story_goal": self._normalize_story_enum(story_goal, STORY_GOALS),
-                "story_style": self._normalize_story_enum(story_style, STORY_STYLES),
-                "snapchat_username": (snapchat_username or "").strip() or None,
-                "snapchat_display_name": (snapchat_display_name or "").strip() or None,
-                "snapchat_cta_text": (snapchat_cta_text or "").strip() or None,
-            })
-        self.conn.execute(
-            """
-            INSERT INTO source_assets
-            (id, campaign_id, model_id, content_hash, original_path, stored_path, filename,
-             media_type, content_surface, platform, source_prompt, notes, account_ids_json,
-             status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'instagram', ?, ?, '[]', 'imported', ?, ?)
-            ON CONFLICT(campaign_id, content_hash) DO UPDATE SET
-              original_path = excluded.original_path,
-              stored_path = excluded.stored_path,
-              filename = excluded.filename,
-              media_type = excluded.media_type,
-              content_surface = excluded.content_surface,
-              source_prompt = excluded.source_prompt,
-              notes = excluded.notes,
-              updated_at = excluded.updated_at
-            """,
-            (
-                source_asset_id,
-                campaign["id"],
-                model["id"],
-                content_hash,
-                str(representative["path"]),
-                str(representative["stagedPath"]),
-                representative["stagedPath"].name,
-                media_type,
-                content_surface,
-                json.dumps(source_prompt, ensure_ascii=False, sort_keys=True),
-                "surface asset registration source",
-                now,
-                now,
-            ),
-        )
-        source_row = self.conn.execute(
-            "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
-            (campaign["id"], content_hash),
-        ).fetchone()
-        if not source_row:
-            raise RuntimeError("registered surface source asset could not be loaded")
-        source_asset_id = source_row["id"]
-        self.conn.execute(
-            """
-            INSERT INTO render_jobs
-            (id, campaign_id, source_asset_id, reel_clip_stem, hooks_json, recipes_json,
-             caption_color, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'none', 'rendered', ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              source_asset_id = excluded.source_asset_id,
-              status = 'rendered',
-              updated_at = excluded.updated_at
-            """,
-            (
-                render_job_id,
-                campaign["id"],
-                source_asset_id,
-                representative["stagedPath"].stem,
-                json.dumps([post_caption] if post_caption else [], ensure_ascii=False),
-                json.dumps(["surface_asset_registered"], ensure_ascii=False),
-                now,
-                now,
-            ),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO rendered_assets
-            (id, campaign_id, source_asset_id, render_job_id, content_hash, output_path,
-             campaign_path, filename, media_type, content_surface, caption, caption_hash,
-             caption_bank, caption_banks_json, creator_mix, creator_model, frame_type,
-             length_class, format_class, caption_fit_version, suitability_decision,
-             suitability_reason, source_clip, caption_outcome_context_json,
-             caption_generation_json, recipe, target_ratio, audit_status, review_state,
-             story_asset_class, story_cta_type, story_cta_text, story_cta_target_url,
-             story_intent, story_goal, story_style, snapchat_username, snapchat_display_name,
-             snapchat_cta_text,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'operator_surface_asset', ?,
-                    ?, ?, ?, 'static', ?, 'surface_asset_v1', 'allowed',
-                    'operator registered surface asset', ?, ?, ?, 'surface_asset_registered',
-                    ?, 'passed', 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(campaign_id, content_hash) DO UPDATE SET
-              source_asset_id = excluded.source_asset_id,
-              render_job_id = excluded.render_job_id,
-              output_path = excluded.output_path,
-              campaign_path = excluded.campaign_path,
-              filename = excluded.filename,
-              media_type = excluded.media_type,
-              content_surface = excluded.content_surface,
-              caption = excluded.caption,
-              caption_hash = excluded.caption_hash,
-              caption_bank = excluded.caption_bank,
-              caption_banks_json = excluded.caption_banks_json,
-              creator_mix = excluded.creator_mix,
-              creator_model = excluded.creator_model,
-              frame_type = excluded.frame_type,
-              length_class = excluded.length_class,
-              format_class = excluded.format_class,
-              caption_fit_version = excluded.caption_fit_version,
-              suitability_decision = excluded.suitability_decision,
-              suitability_reason = excluded.suitability_reason,
-              source_clip = excluded.source_clip,
-              caption_outcome_context_json = excluded.caption_outcome_context_json,
-              caption_generation_json = excluded.caption_generation_json,
-              recipe = excluded.recipe,
-              target_ratio = excluded.target_ratio,
-              audit_status = excluded.audit_status,
-              review_state = excluded.review_state,
-              story_asset_class = excluded.story_asset_class,
-              story_cta_type = excluded.story_cta_type,
-              story_cta_text = excluded.story_cta_text,
-              story_cta_target_url = excluded.story_cta_target_url,
-              story_intent = excluded.story_intent,
-              story_goal = excluded.story_goal,
-              story_style = excluded.story_style,
-              snapchat_username = excluded.snapchat_username,
-              snapchat_display_name = excluded.snapchat_display_name,
-              snapchat_cta_text = excluded.snapchat_cta_text,
-              updated_at = excluded.updated_at
-            """,
-            (
-                rendered_id,
-                campaign["id"],
-                source_asset_id,
-                render_job_id,
-                content_hash,
-                str(representative["stagedPath"]),
-                str(representative["stagedPath"]),
-                representative["stagedPath"].name,
-                media_type,
-                content_surface,
-                post_caption,
-                caption_hash_value,
-                json.dumps(["operator_surface_asset"], ensure_ascii=False),
-                creator_label,
-                creator_label,
-                content_surface,
-                content_surface,
-                str(representative["path"]),
-                json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-                json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
-                ratio,
-                (story_asset_class or "").strip() or None,
-                (story_cta_type or "").strip() or None,
-                (story_cta_text or "").strip() or None,
-                (story_cta_target_url or "").strip() or None,
-                self._normalize_story_enum(story_intent, STORY_INTENTS),
-                self._normalize_story_enum(story_goal, STORY_GOALS),
-                self._normalize_story_enum(story_style, STORY_STYLES),
-                (snapchat_username or "").strip() or None,
-                (snapchat_display_name or "").strip() or None,
-                (snapchat_cta_text or "").strip() or None,
-                now,
-                now,
-            ),
-        )
-        rendered_row = self.conn.execute(
-            "SELECT * FROM rendered_assets WHERE campaign_id = ? AND content_hash = ?",
-            (campaign["id"], content_hash),
-        ).fetchone()
-        if not rendered_row:
-            raise RuntimeError("registered surface rendered asset could not be loaded")
-        rendered_id = rendered_row["id"]
-        self.conn.execute("DELETE FROM asset_components WHERE asset_id = ?", (rendered_id,))
-        if content_surface == "feed_carousel":
-            for index, item in enumerate(staged_components):
-                self.conn.execute(
-                    """
-                    INSERT INTO asset_components
-                    (id, asset_id, component_index, media_path, media_hash, media_type,
-                     aspect_ratio, alt_text, publishability_state, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'passed', ?, ?)
-                    """,
-                    (
-                        f"component_{rendered_id}_{index}",
-                        rendered_id,
-                        index,
-                        str(item["stagedPath"]),
-                        item["contentHash"],
-                        item["mediaType"],
-                        item["aspectRatio"],
-                        (alt_text or [None] * len(staged_components))[index] if index < len(alt_text or []) else None,
-                        now,
-                        now,
-                    ),
-                )
-        audit_id = f"audit_surface_{scoped_key}"
-        audit_payload = {
-            "schema": "campaign_factory.surface_asset_audit.v1",
-            "contentSurface": content_surface,
-            "igMediaType": ig_media_type,
-            "overallVerdict": "pass",
-            "visualQcStatus": "passed",
-            "identityVerificationStatus": "passed",
-            "visualQc": {"status": "passed"},
-            "identityVerification": {"status": "passed"},
-            "readinessSummary": {
-                "uploadReady": True,
-                "blockingReasons": [],
-                "blockingCodes": [],
-                "warnings": [],
-                "warningCodes": [],
-                "visualQcStatus": "passed",
-                "identityVerificationStatus": "passed",
-            },
-            "mediaItems": [
-                {
-                    "mediaPath": str(item["stagedPath"]),
-                    "mediaHash": item["contentHash"],
-                    "mediaType": item["mediaType"],
-                    "aspectRatio": item["aspectRatio"],
-                }
-                for item in staged_components
-            ],
-        }
-        audit_dir = dirs["audits"] / "surface_asset_registration"
-        audit_dir.mkdir(parents=True, exist_ok=True)
-        audit_path = audit_dir / f"{audit_id}.json"
-        audit_path.write_text(json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        self.conn.execute(
-            """
-            INSERT INTO audit_reports
-            (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
-             status, layers_json, verdicts_json, overall_verdict, files_analyzed,
-             failed_checks_json, warnings_json, created_at)
-            VALUES (?, ?, ?, 'surface_asset_registration', ?, 90, 'pass', '{}', '{}',
-                    'pass', ?, '[]', '[]', ?)
-            ON CONFLICT(id) DO UPDATE SET
-              rendered_asset_id = excluded.rendered_asset_id,
-              report_path = excluded.report_path,
-              status = excluded.status,
-              overall_verdict = excluded.overall_verdict,
-              files_analyzed = excluded.files_analyzed,
-              created_at = excluded.created_at
-            """,
-            (audit_id, campaign["id"], rendered_id, str(audit_path), len(staged_components), now),
-        )
-        self.record_event(
-            "surface_asset_registered",
-            campaign_id=campaign["id"],
-            source_asset_id=source_asset_id,
-            rendered_asset_id=rendered_id,
-            render_job_id=render_job_id,
-            audit_report_id=audit_id,
-            status="success",
-            message=f"Surface asset registered: {representative['stagedPath'].name}",
-            metadata={
-                "contentSurface": content_surface,
-                "igMediaType": ig_media_type,
-                "contentHash": content_hash,
-            },
-            commit=False,
-        )
-        self.conn.commit()
-        readiness_report = self.surface_handoff_readiness_report(
-            creator=creator_label,
-            campaign_slug=campaign["slug"],
-            rendered_asset_id=rendered_id,
-        )
-        readiness = readiness_report["assets"][0] if readiness_report["assets"] else {"canHandoff": False, "igMediaType": ig_media_type}
-        return {
-            "schema": "campaign_factory.register_surface_asset.v1",
-            "campaign": campaign["slug"],
-            "creator": creator_label,
-            "renderedAssetId": rendered_id,
-            "sourceAssetId": source_asset_id,
-            "renderJobId": render_job_id,
-            "auditReportId": audit_id,
-            "contentHash": content_hash,
-            "contentSurface": content_surface,
-            "mediaType": media_type,
-            "igMediaType": readiness["igMediaType"],
-            "instagramPostCaptionPresent": bool(post_caption),
-            "componentCount": len(staged_components),
-            "mediaItems": (readiness.get("handoffManifestV2") or {}).get("mediaItems", []),
-            "publishability": "passed" if readiness.get("canHandoff") else "blocked",
-            "handoffManifestV2": readiness.get("handoffManifestV2"),
-            "wouldSchedule": False,
-            "wouldPublish": False,
-        }
 
     def _surface_registration_components(
         self,
@@ -18608,42 +16149,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         surface: str,
         target_ratio: str | None,
     ) -> list[dict[str, Any]]:
-        if surface == "feed_carousel":
-            paths = [Path(input_path)] if isinstance(input_path, (str, Path)) else [Path(path) for path in input_path]
-        else:
-            if isinstance(input_path, (list, tuple)):
-                if len(input_path) != 1:
-                    raise ValueError(f"{surface} registration requires exactly one media file")
-                paths = [Path(input_path[0])]
-            else:
-                paths = [Path(input_path)]
-        return [self._surface_registration_component(path, surface=surface, target_ratio=target_ratio) for path in paths]
+        return self.services.surface_registration_components(
+            input_path=input_path,
+            surface=surface,
+            target_ratio=target_ratio,
+        )
 
     def _surface_registration_component(self, path: Path, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
-        source = path.expanduser().resolve()
-        if not source.exists() or not source.is_file():
-            raise FileNotFoundError(f"surface media not found: {source}")
-        media_type = media_type_for_path(source)
-        if media_type not in {"image", "video"}:
-            raise ValueError("surface asset requires an image or video file")
-        shape = probe_image_shape(source) if media_type == "image" else probe_video_shape(source)
-        width = int(shape.get("effectiveWidth") or shape.get("width") or 0) if isinstance(shape, dict) else 0
-        height = int(shape.get("effectiveHeight") or shape.get("height") or 0) if isinstance(shape, dict) else 0
-        aspect_ratio = (target_ratio or ratio_label_from_shape(width, height) or "").strip()
-        if media_type == "image" and (not shape.get("ok") or not width or not height):
-            raise ValueError("valid image dimensions are required")
-        if media_type == "video" and not aspect_ratio:
-            raise ValueError("valid video dimensions or target_ratio are required")
-        readiness_surface = "feed_carousel" if surface == "feed_carousel" else surface
-        if aspect_ratio and not self._aspect_ratio_safe(aspect_ratio, readiness_surface):
-            raise ValueError(f"{surface} aspect ratio is not safe")
-        return {
-            "path": source,
-            "mediaType": media_type,
-            "contentHash": sha256_file(source),
-            "aspectRatio": aspect_ratio or target_ratio or "9:16",
-            "shape": shape,
-        }
+        return self.services.surface_registration_component(path, surface=surface, target_ratio=target_ratio)
 
     def _story_source_blockers(self, components: list[dict[str, Any]]) -> list[str]:
         blockers: list[str] = []
@@ -18691,11 +16204,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         content_hash: str,
         component_index: int,
     ) -> Path:
-        prefix = f"{content_surface}_{component_index}_{slugify(path.stem)}_{content_hash[:10]}"
-        staged = rendered_dir / f"{prefix}{path.suffix.lower()}"
-        if not staged.exists():
-            shutil.copy2(path, staged)
-        return staged
+        return self.services.stage_surface_registration_file(
+            path,
+            rendered_dir,
+            content_surface=content_surface,
+            content_hash=content_hash,
+            component_index=component_index,
+        )
 
     def register_finished_video(
         self,
@@ -19932,32 +17447,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self.rendered_for_campaign(campaign["id"])]
-        plans = self.distribution_plans_for_campaign(campaign_slug)
-        planned_assets = {plan["renderedAssetId"] for plan in plans if plan.get("surface") != "story_cta"}
-        surface_counts: dict[str, int] = {}
-        preview_count = 0
-        live_count = 0
-        for plan in plans:
-            surface = plan.get("surface") or "regular_reel"
-            surface_counts[surface] = surface_counts.get(surface, 0) + 1
-            if plan.get("plannedWindowStart"):
-                preview_count += 1
-        return {
-            "schema": "campaign_factory.distribution_summary.v1",
-            "campaign": campaign["slug"],
-            "generatedAt": utc_now(),
-            "surfaceCounts": surface_counts,
-            "plannedAssets": len(planned_assets),
-            "unplannedApprovedAssets": len([
-                asset for asset in rendered
-                if asset.get("review_state") in {"approved", "review_ready"} and asset["id"] not in planned_assets
-            ]),
-            "previewScheduledPlans": preview_count,
-            "liveScheduledPlans": live_count,
-            "plans": plans,
-        }
+        return self.services.distribution_summary(campaign_slug)
 
     def multi_surface_inventory_audit(
         self,
@@ -20256,23 +17746,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None = None,
         rendered_asset_id: str | None = None,
     ) -> dict[str, Any]:
-        assets = self._carousel_report_assets(
-            creator=self._creator_label(creator) if creator else None,
+        return self.services.carousel_integrity_report(
+            creator=creator,
             campaign_slug=campaign_slug,
             rendered_asset_id=rendered_asset_id,
         )
-        rows = [self._carousel_integrity_for_asset(asset) for asset in assets]
-        return {
-            "schema": "campaign_factory.carousel_integrity_report.v1",
-            "creator": self._creator_label(creator) if creator else None,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "renderedAssetId": rendered_asset_id,
-            "carouselAssetsAnalyzed": len(rows),
-            "passed": sum(1 for row in rows if row.get("overallIntegrityPassed")),
-            "failed": sum(1 for row in rows if not row.get("overallIntegrityPassed")),
-            "assets": rows,
-            "wouldWrite": False,
-        }
 
     def carousel_child_metrics_plan(
         self,
@@ -20281,67 +17759,11 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None = None,
         rendered_asset_id: str | None = None,
     ) -> dict[str, Any]:
-        assets = self._carousel_report_assets(
-            creator=self._creator_label(creator) if creator else None,
+        return self.services.carousel_child_metrics_plan(
+            creator=creator,
             campaign_slug=campaign_slug,
             rendered_asset_id=rendered_asset_id,
         )
-        rows = []
-        for asset in assets:
-            integrity = self._carousel_integrity_for_asset(asset)
-            children = []
-            for component in integrity["assetComponents"]["components"]:
-                children.append({
-                    "renderedAssetId": asset["id"],
-                    "componentIndex": component["componentIndex"],
-                    "componentHash": component["mediaHash"],
-                    "mediaType": component["mediaType"],
-                    "contentSurface": "feed_carousel",
-                    "futureMetricKeys": {
-                        "rendered_asset_id": asset["id"],
-                        "carousel_child_index": component["componentIndex"],
-                        "carousel_child_hash": component["mediaHash"],
-                        "content_surface": "feed_carousel",
-                    },
-                    "wouldWrite": False,
-                })
-            rows.append({
-                "assetId": asset["id"],
-                "contentSurface": "feed_carousel",
-                "igMediaType": "CAROUSEL",
-                "childCount": len(children),
-                "parentMetricsCanonical": True,
-                "parentMetricKeys": [
-                    "post_id",
-                    "rendered_asset_id",
-                    "content_surface",
-                    "views",
-                    "reach",
-                    "likes",
-                    "comments",
-                    "shares",
-                    "saves",
-                ],
-                "childMetricsSupplemental": True,
-                "childMetricsPlan": children,
-                "metricsRollupKeys": [
-                    "rendered_asset_id",
-                    "carousel_child_index",
-                    "carousel_child_hash",
-                    "content_surface",
-                ],
-                "integrityPassed": bool(integrity.get("overallIntegrityPassed")),
-                "wouldWrite": False,
-            })
-        return {
-            "schema": "campaign_factory.carousel_child_metrics_plan.v1",
-            "creator": self._creator_label(creator) if creator else None,
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "renderedAssetId": rendered_asset_id,
-            "carouselAssetsAnalyzed": len(rows),
-            "assets": rows,
-            "wouldWrite": False,
-        }
 
     def _carousel_report_assets(
         self,
@@ -20350,161 +17772,29 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         campaign_slug: str | None,
         rendered_asset_id: str | None,
     ) -> list[dict[str, Any]]:
-        assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
-        rows = [
-            asset for asset in assets
-            if normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "feed_carousel"
-        ]
-        if rendered_asset_id:
-            rows = [asset for asset in rows if asset["id"] == rendered_asset_id]
-        return rows
+        return self.services.carousel_report_assets(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            rendered_asset_id=rendered_asset_id,
+        )
 
     def _carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
-        components = self._carousel_component_signature(self._asset_components(asset["id"]))
-        readiness = self._surface_handoff_readiness_for_asset(asset)
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        manifest_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
-        manifest_signature = self._carousel_media_item_signature(manifest_items)
-        draft_proof = self.surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
-            campaign=asset.get("campaign_slug"),
-            rendered_asset_id=asset["id"],
-        )
-        draft = draft_proof["drafts"][0] if draft_proof.get("drafts") else {}
-        draft_signature = self._carousel_media_item_signature(draft.get("mediaItems") if isinstance(draft, dict) else [])
-        threadsdash_signature = self._carousel_media_item_signature((draft.get("handoffManifestV2") or {}).get("mediaItems") if isinstance(draft.get("handoffManifestV2"), dict) else [])
-        meta_preview = self._carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
-        meta_signature = self._carousel_media_item_signature(meta_preview.get("children") or [])
-        caption_lineage_preserved = bool(
-            manifest.get("instagramPostCaption")
-            and manifest.get("caption_hash")
-            and (draft.get("handoffManifestV2") or {}).get("caption_hash") == manifest.get("caption_hash")
-        )
-        content_surface_preserved = (
-            readiness.get("contentSurface") == "feed_carousel"
-            and manifest.get("contentSurface") == "feed_carousel"
-            and draft.get("contentSurface") == "feed_carousel"
-            and draft.get("igMediaType") == "CAROUSEL"
-            and meta_preview.get("parentPayload", {}).get("media_type") == "CAROUSEL"
-        )
-        boundaries = [
-            self._carousel_boundary_result("asset_components_to_handoff_manifest_v2", components, manifest_signature),
-            self._carousel_boundary_result("handoff_manifest_v2_to_surface_draft_proof", manifest_signature, draft_signature),
-            self._carousel_boundary_result("surface_draft_proof_to_threadsdash_payload", draft_signature, threadsdash_signature),
-            self._carousel_boundary_result("threadsdash_payload_to_meta_child_payload_preview", threadsdash_signature, meta_signature),
-        ]
-        return {
-            "assetId": asset["id"],
-            "contentSurface": normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")),
-            "igMediaType": readiness.get("igMediaType"),
-            "canHandoff": bool(readiness.get("canHandoff")),
-            "contentSurfacePreserved": bool(content_surface_preserved),
-            "captionLineagePreserved": bool(caption_lineage_preserved),
-            "assetComponents": self._carousel_signature_payload(components),
-            "handoffManifestV2": self._carousel_signature_payload(manifest_signature, extra={
-                "contentSurface": manifest.get("contentSurface"),
-                "igMediaType": manifest.get("igMediaType"),
-                "captionHash": manifest.get("caption_hash"),
-                "instagramPostCaptionHash": manifest.get("instagram_post_caption_hash"),
-            }),
-            "surfaceDraftProof": self._carousel_signature_payload(draft_signature, extra={
-                "canProduceDraftPayload": bool(draft_proof.get("canProduceDraftPayload")),
-                "draftCount": int(draft_proof.get("draftCount") or 0),
-            }),
-            "threadDashPayload": self._carousel_signature_payload(threadsdash_signature, extra={
-                "schema": draft.get("schema"),
-                "contentSurface": draft.get("contentSurface"),
-                "igMediaType": draft.get("igMediaType"),
-            }),
-            "metaChildPayloadPreview": self._carousel_signature_payload(meta_signature, extra=meta_preview),
-            "boundaries": boundaries,
-            "overallIntegrityPassed": bool(
-                readiness.get("canHandoff")
-                and content_surface_preserved
-                and caption_lineage_preserved
-                and boundaries
-                and all(boundary["slideCountPreserved"] and boundary["slideOrderPreserved"] and boundary["componentHashesMatch"] for boundary in boundaries)
-            ),
-            "wouldWrite": False,
-        }
+        return self.services.carousel_integrity_for_asset(asset)
 
     def _carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            {
-                "componentIndex": int(component.get("component_index") or 0),
-                "mediaPath": component.get("media_path"),
-                "mediaHash": component.get("media_hash"),
-                "mediaType": component.get("media_type"),
-            }
-            for component in components
-        ]
+        return self.services.carousel_component_signature(components)
 
     def _carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
-        if not isinstance(media_items, list):
-            return []
-        rows = []
-        for item in media_items:
-            if not isinstance(item, dict):
-                continue
-            rows.append({
-                "componentIndex": int(item.get("componentIndex") if item.get("componentIndex") is not None else item.get("component_index") or 0),
-                "mediaPath": item.get("mediaPath") or item.get("media_path"),
-                "mediaHash": item.get("mediaHash") or item.get("media_hash") or item.get("componentHash"),
-                "mediaType": item.get("mediaType") or item.get("media_type"),
-            })
-        return rows
+        return self.services.carousel_media_item_signature(media_items)
 
     def _carousel_signature_payload(self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        payload = {
-            "slideCount": len(signature),
-            "componentIndexes": [item["componentIndex"] for item in signature],
-            "componentHashes": [item["mediaHash"] for item in signature],
-            "components": signature,
-        }
-        if extra:
-            payload.update(extra)
-        return payload
+        return self.services.carousel_signature_payload(signature, extra=extra)
 
     def _carousel_boundary_result(self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
-        before_indexes = [item["componentIndex"] for item in before]
-        after_indexes = [item["componentIndex"] for item in after]
-        before_hashes = [item["mediaHash"] for item in before]
-        after_hashes = [item["mediaHash"] for item in after]
-        return {
-            "boundary": boundary,
-            "slideCountPreserved": len(before) == len(after),
-            "slideOrderPreserved": before_indexes == after_indexes,
-            "componentHashesMatch": before_hashes == after_hashes,
-            "beforeComponentIndexes": before_indexes,
-            "afterComponentIndexes": after_indexes,
-            "beforeComponentHashes": before_hashes,
-            "afterComponentHashes": after_hashes,
-            "wouldWrite": False,
-        }
+        return self.services.carousel_boundary_result(boundary, before, after)
 
     def _carousel_meta_child_payload_preview(self, *, asset: dict[str, Any], draft: dict[str, Any], components: list[dict[str, Any]]) -> dict[str, Any]:
-        children = []
-        for component in components:
-            media_type = "VIDEO" if str(component.get("mediaType") or "").lower() == "video" else "IMAGE"
-            children.append({
-                "componentIndex": component["componentIndex"],
-                "mediaPath": component["mediaPath"],
-                "mediaHash": component["mediaHash"],
-                "mediaType": component["mediaType"],
-                "media_type": media_type,
-                "is_carousel_item": True,
-                "previewContainerId": f"carousel_child_preview_{asset['id']}_{component['componentIndex']}",
-                "wouldWrite": False,
-            })
-        return {
-            "parentPayload": {
-                "media_type": "CAROUSEL",
-                "caption": draft.get("instagramPostCaption") or "",
-                "children": [child["previewContainerId"] for child in children],
-            },
-            "children": children,
-            "wouldWrite": False,
-        }
+        return self.services.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
 
     def _build_surface_inventory(
         self,
@@ -20912,11 +18202,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def _latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
-            (rendered_asset_id,),
-        ).fetchone()
-        return self._distribution_plan_payload(dict(row)) if row else None
+        return self.services.latest_distribution_plan_for_asset(rendered_asset_id)
 
     def _asset_components(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
@@ -25560,30 +22846,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
-        blocked_terms: list[dict[str, str]] = []
-        seen: set[tuple[str, str]] = set()
-        for value in values:
-            if not isinstance(value, str) or not value.strip():
-                continue
-            for reason, pattern in DISCOVERABILITY_SAFE_CONTENT_PATTERNS:
-                match = pattern.search(value)
-                if not match:
-                    continue
-                key = (reason, match.group(0).lower())
-                if key in seen:
-                    continue
-                seen.add(key)
-                blocked_terms.append({
-                    "reason": reason,
-                    "matchedText": match.group(0),
-                })
-        return {
-            "schema": "campaign_factory.discoverability_safe_content_contract.v1",
-            "discoverabilitySafe": not blocked_terms,
-            "blockedTerms": blocked_terms,
-            "blockedReason": "discoverability_risk_link_dm_or_off_platform_reference" if blocked_terms else "",
-            "wouldWrite": False,
-        }
+        return self.services.discoverability_safe_content_contract(*values)
 
     def _reel_caption_account_safety_violations(self, *values: Any) -> list[dict[str, str]]:
         return list(self.discoverability_safe_content_contract(*values)["blockedTerms"])
@@ -25617,33 +22880,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return fields
 
     def _discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
-        evidence: list[dict[str, Any]] = []
-        seen: set[tuple[str, str, str]] = set()
-        for source_field, value in fields:
-            if not isinstance(value, str) or not value.strip():
-                continue
-            for reason, pattern in DISCOVERABILITY_SAFE_CONTENT_PATTERNS:
-                match = pattern.search(value)
-                if not match:
-                    continue
-                matched = match.group(0)
-                category = self._discoverability_loss_category(reason, matched)
-                key = (source_field, category, matched.lower())
-                if key in seen:
-                    continue
-                seen.add(key)
-                evidence.append({
-                    "failedStage": "discoverability_safety_pass",
-                    "failureCategory": category,
-                    "matchedText": matched,
-                    "sourceField": source_field,
-                    "policyVersion": "discoverability_safe_v1",
-                    "repairable": True,
-                    "reason": reason,
-                    "preventableAt": self._discoverability_prevention_stage(category),
-                    "wouldWrite": False,
-                })
-        return evidence
+        return self.services.discoverability_evidence_for_fields(fields)
 
     def _instagram_post_caption_for_asset(
         self,
