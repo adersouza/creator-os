@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">7.3</b>/10</span>
+  <span class="score">system <b id="hsys">7.8</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -143,7 +143,7 @@
 <!-- ============ INTELLIGENCE AUDIT ============ -->
 <section id="intel">
   <h2>Intelligence / Quality / Safety Audit <span style="color:var(--dim);font-weight:400;font-size:12px">(2026-06-18 · full detail in INTELLIGENCE_AUDIT.md)</span></h2>
-  <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code + reconciled for PR #44.</p>
+  <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code and reconciled through Track 9 PRs #189/#191/#192/#193.</p>
   <div class="note" style="border-left:3px solid var(--accent)">
     <b>Root pattern across all three:</b> the right signals already EXIST in the code but were computed-and-ignored. <b>PDQ/SSCD detectors → now BLOCKING (Track S, PR #54)</b>, and <b>Campaign Factory rendered assets now persist PDQ clusters for cross-account cooldowns.</b> <b>Campaign Factory safe-zone/readability/hook/deterministic watchability/creative warnings → now BLOCKING for fan-out</b>, and supplied/configured Higgsfield virality/video-analysis reports now block when requested. Reel Factory readiness can also require post-render virality sidecars, and Reel Factory can generate zero-cost operator/configured-provider report request sidecars. Selected reference-pattern structure now feeds front-generation prompt assembly, supplied video-analysis sidecars feed Winner-DNA extraction, and ThreadsDashboard PR #130 adds dashboard frame/keyframe perceptual hashes. <b>The remaining fixes are deferred calibration, not core wiring.</b>
   </div>
@@ -207,22 +207,22 @@ const STATUS={works:'var(--works)',half:'var(--half)',orphan:'var(--orphan)',gap
 const STLABEL={works:'works',half:'half-manual',orphan:'orphan/stub',gap:'gap',primitive:'primitive',done:'shipped ✓'};
 
 const COMPONENTS=[
-  {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:6.6,sub:[6,7,6,6,8],files:29,nodes:615,status:'works',
+  {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:7.8,sub:[8,8,7,8,8],files:29,nodes:615,status:'works',
    keyfiles:['learning.py:460 — writes higgsfield_prompt_pack_top*.json','reference_intake.py (2858 lines)','patterns.py / public_metrics.py (dup _caption_archetype bug)'],
-   notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','P1-4: doc/code drift on Grok/Ollama; latent KeyError bug']},
-  {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:7.6,sub:[7,8,8,7,8],files:107,nodes:2512,status:'works',
+   notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','Track 9 PR #189 raised reference_intake coverage to the target band and pinned the caption-archetype regression']},
+  {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:8.3,sub:[8,8,8,9,8],files:107,nodes:2512,status:'works',
    keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
-   notes:['Generation primitive is REAL','GAP 2 CLOSED — now reachable from control brain via front_generation_stage (E, PR #46/#47)','Also drives zero-AI still→MP4 path (E2, PR #45)','Verify pyproject module list before fresh install']},
-  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:6.1,sub:[6,7,6,4,7],files:60,nodes:2622,status:'works',
-   keyfiles:['core.py — 27k-line god-class, 847 methods (P1-3, still the maint drag)','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
-   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py god-class remains the maintainability drag (4/10); A–G avoided growing it']},
-  {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:7.0,sub:[7,7,8,6,7],files:113,nodes:779,status:'works',
+   notes:['Generation primitive is REAL','GAP 2 CLOSED — now reachable from control brain via front_generation_stage (E, PR #46/#47)','Also drives zero-AI still→MP4 path (E2, PR #45)','Track 9 PR #193 fixed packaging metadata and added adapter/golden tests']},
+  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:7.3,sub:[7,7,7,6,8],files:60,nodes:2622,status:'works',
+   keyfiles:['core.py — shrinking facade; inventory planning/reservations/perceptual/recovery extracted through PR #195','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
+   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py decomposition is active behind characterization tests; inventory domain extracted through PR #195']},
+  {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:8.0,sub:[8,8,8,8,8],files:113,nodes:779,status:'works',
    keyfiles:['app/api/.../similarity/route.js — PDQ/SSCD collision gate (PR #54)','lib/pdq_check.py · lib/sscd_check.py · lib/reference_db.py','forensics_check.py'],
-   notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','P1-5: large untested surface']},
+   notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','Track 9 PR #191/#192 added similarity/pipeline tests and detector calibration fixtures']},
   {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.7,sub:[9,9,9,8,9],files:2102,nodes:16975,status:'works',
    keyfiles:['Separate product repo (ThreadsDashboard) — dashboard work is upstream','draftIngest.ts:449 — upsert posts as draft','publishing.ts:199 — Meta Graph media_publish'],
    notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Base publish chain (draft→schedule→QStash→publish→metrics) real & working','✓ Autoposter hardening AP0–AP3 SHIPPED to TD main (ec2190b5e) — race/metrics/chain + retry/taxonomy/quota/idempotency/token/scope/audio + transitionPostStatus chokepoint + account-health auto-backoff; 379 tests pass. See Autoposter Map']},
-  {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:6.7,sub:[6,null,4,null,7],files:32,nodes:1620,status:'works',
+  {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:7.5,sub:[8,null,7,null,8],files:32,nodes:1620,status:'works',
    keyfiles:['packages/pipeline_contracts/__init__.py — hand-rolled validator','typescript/ — ~12 hand-coded validators','schemas/*.json — 16 contracts'],
    notes:['Canonical source; compatibility copies must stay byte-synced','Validators use canonical schema-backed checks']},
 ];
@@ -447,12 +447,12 @@ const ROADMAP=[
     {k:'✅',id:'I-rigor',t:'Normalize + recency-decay + confidence',n:'Campaign Factory scoring uses account-median reward, 21d decay, shrinkage, explicit unmeasured state',ref:'current slice'},
   ]},
   {track:'Production-grade — path to ≥9/10 (INTELLIGENCE_AUDIT.md · Track 9)',goal:'after capability tracks land each part at ~7–8, the jump to ≥9 is tests + decomposition + drift-proofing — rigor, not features',items:[
-    {k:'◻',id:'9-codegen',t:'Contract codegen (do FIRST)',n:'generate validators from JSON schemas (py+ts) so the two sides cannot drift; round-trip tests + CI byte-sync. Contracts 6.7→7.5',ref:'pending'},
-    {k:'◻',id:'9-char',t:'Characterization tests around core.py',n:'lock current behavior BEFORE refactor — the safety net for the god-class split',ref:'pending'},
-    {k:'◻',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py · similarity/route.js · pipeline.js — safety+learning-critical, ~80% cover. RefFactory→7.8, CForge→8.0',ref:'pending'},
-    {k:'◻',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures asserting PDQ ≤31 · SSCD ≥0.75 hold (drift guard)',ref:'pending'},
-    {k:'◻',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield/Kling adapter w/ fixtures; caption + E2 still→MP4 golden output; fix pyproject P0-1. Reel 7.6→8.3',ref:'pending'},
-    {k:'◻',id:'9-core',t:'Decompose core.py (do LAST)',n:'27k-line / 847-method god-class → modules behind interfaces. Biggest lever, highest risk, now net-protected. Campaign 6.1→7.3+, maint 4→8',ref:'pending'},
+    {k:'✅',id:'9-codegen',t:'Contract codegen / drift-proofing',n:'schema runtime/codegen path and byte-sync contract checks are protected by pnpm check:contracts',ref:'landed'},
+    {k:'✅',id:'9-char',t:'Characterization tests around core.py',n:'merged before extraction; core.py decomposition now proceeds behind the behavior net',ref:'PR #88+'},
+    {k:'✅',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py coverage target hit; ContentForge similarity/route + pipeline safety tests landed',ref:'PR #189/#191'},
+    {k:'✅',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures now assert PDQ, SSCD, and TMK thresholds against drift',ref:'PR #192'},
+    {k:'✅',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield adapter fixtures; caption wrap/safe-zone and E2 still→MP4 golden assertions; packaging fixed',ref:'PR #193'},
+    {k:'⏳',id:'9-core',t:'Decompose core.py (continuing)',n:'god-class is actively shrinking behind characterization tests; inventory domain extracted through recovery/perceptual/reservation slices',ref:'PR #195'},
     {k:'✅',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'DONE: ~16 TD branches merged to TD main (ec2190b5e); 31 files / 379 tests pass, compat+typecheck+build green. Autoposter 8.2→8.7',ref:'TD main'},
   ]},
 ];

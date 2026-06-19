@@ -4,6 +4,20 @@
 
 **The premise:** the capability tracks (Intelligence, Quality, AP) lift each part to ~7–8. The jump to **≥9** is engineering rigor — **tests + drift-proofing**, not features. These items are independent, mostly parallelizable, and low-risk.
 
+## Execution ledger
+
+All Track-9 rigor PRs are now landed on `origin/main` as of 2026-06-19:
+
+| PR | Status | Merge commit | Outcome |
+| --- | --- | --- | --- |
+| PR 1 — contract codegen / schema drift-proofing | Landed before this execution window | See `packages/pipeline_contracts` generated schema/runtime-import history and `pnpm check:contracts` gate | Drift checks and generated schema/runtime import path established before deeper rigor/core work. |
+| PR 2 — test `reference_intake.py` | Merged in PR #189 | `429c422` | Added focused Reference Factory intake rigor coverage; `reference_factory.reference_intake` coverage moved 77% -> 80%; pinned the known caption-archetype regression without changing runtime behavior. |
+| PR 3 — test ContentForge similarity route + pipeline | Merged in PR #191 | `ed96da0` | Added regression coverage for detector failure posture, blocking-vs-advisory decisions, comparison-set behavior, and image pipeline quality-gate rejection accounting. |
+| PR 4 — ContentForge detector calibration fixtures | Merged in PR #192 | `12256dc` | Added PDQ/SSCD/TMK calibration fixtures and threshold assertions, plus additive machine-readable temporal detector thresholds. |
+| PR 5 — Reel Factory adapter + golden tests | Merged in PR #193 | `95a2a50` | Added a tested Higgsfield CLI adapter with timeout/partial/quota fixtures, packaging metadata coverage, caption safe-zone wrapping checks, and still-to-MP4 ffprobe golden assertions. |
+
+Follow-up posture: this prompt is now historical/completed for PRs 1-5. Continue production-grade work through `CORE_PY_DECOMPOSITION_PLAN.md`; keep each future `core.py` extraction behind characterization/focused behavior tests and green repo gates.
+
 ---
 
 ## Prompt to give Codex
