@@ -32,6 +32,7 @@ from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
+from campaign_factory.publishability import PublishabilityRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
@@ -77,6 +78,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.reel_execution.conn is factory.conn
         assert isinstance(factory.services.variant_lineage, VariantLineageRepository)
         assert factory.services.variant_lineage.conn is factory.conn
+        assert isinstance(factory.services.publishability, PublishabilityRepository)
+        assert factory.services.publishability.conn is factory.conn
         assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
         assert factory.services.caption_family.conn is factory.conn
         assert isinstance(factory.services.distribution, DistributionRepository)
@@ -1338,6 +1341,304 @@ def test_core_services_delegates_variant_lineage_methods_to_repository() -> None
         ("variant_lineage_asset_payload", ({"id": "var_1"},), {}),
         ("variant_usage_payload", ({"id": "usage_1"},), {}),
         ("variant_rollup_group", ([{"variantId": "var_1"}], "variantId", "variantId"), {}),
+    ]
+
+
+def test_campaign_factory_delegates_publishability_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def local_export_readiness(self, *args, **kwargs):
+            calls.append(("local_export_readiness", args, kwargs))
+            return {"state": "ready"}
+
+        def explain_publishability(self, *args, **kwargs):
+            calls.append(("explain_publishability", args, kwargs))
+            return {"schema": "campaign_factory.publishability_check.v1"}
+
+        def capture_publishability_rejection_evidence(self, *args, **kwargs):
+            calls.append(("capture_publishability_rejection_evidence", args, kwargs))
+            return {"schema": "campaign_factory.rejection_evidence_capture.v1"}
+
+        def capture_publishability_rejection_evidence_from_result(self, *args, **kwargs):
+            calls.append(("capture_publishability_rejection_evidence_from_result", args, kwargs))
+            return {"capturedCount": 1}
+
+        def capture_discoverability_gate_rejection_evidence(self, *args, **kwargs):
+            calls.append(("capture_discoverability_gate_rejection_evidence", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_gate_rejection_capture.v1"}
+
+        def record_proof_run(self, *args, **kwargs):
+            calls.append(("record_proof_run", args, kwargs))
+            return {"id": "proof_1"}
+
+        def publishability_discoverability_fields(self, *args, **kwargs):
+            calls.append(("publishability_discoverability_fields", args, kwargs))
+            return [("asset_caption", "caption")]
+
+        def instagram_post_caption_quality(self, *args, **kwargs):
+            calls.append(("instagram_post_caption_quality", args, kwargs))
+            return {"passed": True}
+
+        def caption_quality_repair_plan(self, *args, **kwargs):
+            calls.append(("caption_quality_repair_plan", args, kwargs))
+            return {"schema": "campaign_factory.caption_quality_repair_plan.v1"}
+
+        def caption_quality_recovery_class(self, *args, **kwargs):
+            calls.append(("caption_quality_recovery_class", args, kwargs))
+            return "recoverableByCaptionRewrite"
+
+        def suggest_simple_instagram_post_caption(self, *args, **kwargs):
+            calls.append(("suggest_simple_instagram_post_caption", args, kwargs))
+            return "Simple caption."
+
+        def publishability_check(self, *args, **kwargs):
+            calls.append(("publishability_check", args, kwargs))
+            return {"decision": "pass"}
+
+    factory.services = FakeServices()
+
+    assert factory._local_export_readiness({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}) == {"state": "ready"}
+    assert factory.explain_publishability("asset_1", distribution_plan_id="plan_1") == {
+        "schema": "campaign_factory.publishability_check.v1",
+    }
+    assert factory.capture_publishability_rejection_evidence("asset_1") == {
+        "schema": "campaign_factory.rejection_evidence_capture.v1",
+    }
+    assert factory._capture_publishability_rejection_evidence_from_result("asset_1", {"decision": "blocked"}, commit=False) == {
+        "capturedCount": 1,
+    }
+    assert factory._capture_discoverability_gate_rejection_evidence(
+        gate_result={"violations": []},
+        failed_stage="pre_render",
+        campaign_id="camp_1",
+        source_asset_id="src_1",
+        rendered_asset_id="asset_1",
+        content_surface="reel",
+        commit=False,
+    ) == {"schema": "campaign_factory.discoverability_gate_rejection_capture.v1"}
+    assert factory.record_proof_run(
+        campaign_id="camp_1",
+        rendered_asset_id="asset_1",
+        distribution_plan_id="plan_1",
+        threadsdash_draft_id="draft_1",
+        threadsdash_post_id="post_1",
+        status="passed",
+        current_state="publishable_candidate",
+        blocking_reason=None,
+        root_cause=None,
+        metrics_eligible=True,
+        metadata={"ok": True},
+        proof_run_id="proof_1",
+        commit=False,
+    ) == {"id": "proof_1"}
+    assert factory._publishability_discoverability_fields(
+        asset={"caption": "caption"},
+        caption_text="caption",
+        caption_context={},
+        post_caption={},
+    ) == [("asset_caption", "caption")]
+    assert factory._instagram_post_caption_quality({"instagram_post_caption": "caption"}) == {"passed": True}
+    assert factory.caption_quality_repair_plan(creator="Stacey", campaign_slug="daily", content_surface="reel", limit=1) == {
+        "schema": "campaign_factory.caption_quality_repair_plan.v1",
+    }
+    assert factory._caption_quality_recovery_class(["instagram_post_caption_too_long"]) == "recoverableByCaptionRewrite"
+    assert factory._suggest_simple_instagram_post_caption(
+        asset_id="asset_1",
+        current_caption="old caption",
+        burned_caption="burned caption",
+    ) == "Simple caption."
+    assert factory._publishability_check({"id": "asset_1"}, {"overallVerdict": "pass"}, distribution_plan={"id": "plan_1"}) == {
+        "decision": "pass",
+    }
+
+    assert calls == [
+        ("local_export_readiness", ({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}), {}),
+        ("explain_publishability", ("asset_1",), {"distribution_plan_id": "plan_1"}),
+        ("capture_publishability_rejection_evidence", ("asset_1",), {}),
+        ("capture_publishability_rejection_evidence_from_result", ("asset_1", {"decision": "blocked"}), {"commit": False}),
+        ("capture_discoverability_gate_rejection_evidence", (), {
+            "gate_result": {"violations": []},
+            "failed_stage": "pre_render",
+            "campaign_id": "camp_1",
+            "source_asset_id": "src_1",
+            "rendered_asset_id": "asset_1",
+            "content_surface": "reel",
+            "commit": False,
+        }),
+        ("record_proof_run", (), {
+            "campaign_id": "camp_1",
+            "rendered_asset_id": "asset_1",
+            "distribution_plan_id": "plan_1",
+            "threadsdash_draft_id": "draft_1",
+            "threadsdash_post_id": "post_1",
+            "status": "passed",
+            "current_state": "publishable_candidate",
+            "blocking_reason": None,
+            "root_cause": None,
+            "metrics_eligible": True,
+            "metadata": {"ok": True},
+            "proof_run_id": "proof_1",
+            "commit": False,
+        }),
+        ("publishability_discoverability_fields", (), {
+            "asset": {"caption": "caption"},
+            "caption_text": "caption",
+            "caption_context": {},
+            "post_caption": {},
+        }),
+        ("instagram_post_caption_quality", ({"instagram_post_caption": "caption"},), {}),
+        ("caption_quality_repair_plan", (), {
+            "creator": "Stacey",
+            "campaign_slug": "daily",
+            "content_surface": "reel",
+            "limit": 1,
+        }),
+        ("caption_quality_recovery_class", (["instagram_post_caption_too_long"],), {}),
+        ("suggest_simple_instagram_post_caption", (), {
+            "asset_id": "asset_1",
+            "current_caption": "old caption",
+            "burned_caption": "burned caption",
+        }),
+        ("publishability_check", ({"id": "asset_1"}, {"overallVerdict": "pass"}), {"distribution_plan": {"id": "plan_1"}}),
+    ]
+
+
+def test_core_services_delegates_publishability_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakePublishability:
+        def local_export_readiness(self, *args, **kwargs):
+            calls.append(("local_export_readiness", args, kwargs))
+            return {"state": "ready"}
+
+        def explain_publishability(self, *args, **kwargs):
+            calls.append(("explain_publishability", args, kwargs))
+            return {"schema": "campaign_factory.publishability_check.v1"}
+
+        def capture_publishability_rejection_evidence(self, *args, **kwargs):
+            calls.append(("capture_publishability_rejection_evidence", args, kwargs))
+            return {"schema": "campaign_factory.rejection_evidence_capture.v1"}
+
+        def capture_publishability_rejection_evidence_from_result(self, *args, **kwargs):
+            calls.append(("capture_publishability_rejection_evidence_from_result", args, kwargs))
+            return {"capturedCount": 1}
+
+        def capture_discoverability_gate_rejection_evidence(self, *args, **kwargs):
+            calls.append(("capture_discoverability_gate_rejection_evidence", args, kwargs))
+            return {"schema": "campaign_factory.discoverability_gate_rejection_capture.v1"}
+
+        def record_proof_run(self, *args, **kwargs):
+            calls.append(("record_proof_run", args, kwargs))
+            return {"id": "proof_1"}
+
+        def publishability_discoverability_fields(self, *args, **kwargs):
+            calls.append(("publishability_discoverability_fields", args, kwargs))
+            return [("asset_caption", "caption")]
+
+        def instagram_post_caption_quality(self, *args, **kwargs):
+            calls.append(("instagram_post_caption_quality", args, kwargs))
+            return {"passed": True}
+
+        def caption_quality_repair_plan(self, *args, **kwargs):
+            calls.append(("caption_quality_repair_plan", args, kwargs))
+            return {"schema": "campaign_factory.caption_quality_repair_plan.v1"}
+
+        def caption_quality_recovery_class(self, *args, **kwargs):
+            calls.append(("caption_quality_recovery_class", args, kwargs))
+            return "recoverableByCaptionRewrite"
+
+        def suggest_simple_instagram_post_caption(self, *args, **kwargs):
+            calls.append(("suggest_simple_instagram_post_caption", args, kwargs))
+            return "Simple caption."
+
+        def publishability_check(self, *args, **kwargs):
+            calls.append(("publishability_check", args, kwargs))
+            return {"decision": "pass"}
+
+    services.publishability = FakePublishability()
+
+    assert services.local_export_readiness({"id": "asset_1"}, None) == {"state": "ready"}
+    assert services.explain_publishability("asset_1", distribution_plan_id="plan_1") == {
+        "schema": "campaign_factory.publishability_check.v1",
+    }
+    assert services.capture_publishability_rejection_evidence("asset_1") == {
+        "schema": "campaign_factory.rejection_evidence_capture.v1",
+    }
+    assert services.capture_publishability_rejection_evidence_from_result("asset_1", {"decision": "blocked"}, commit=False) == {
+        "capturedCount": 1,
+    }
+    assert services.capture_discoverability_gate_rejection_evidence(
+        gate_result={"violations": []},
+        failed_stage="pre_render",
+        commit=False,
+    ) == {"schema": "campaign_factory.discoverability_gate_rejection_capture.v1"}
+    assert services.record_proof_run(campaign_id="camp_1", rendered_asset_id="asset_1") == {"id": "proof_1"}
+    assert services.publishability_discoverability_fields(
+        asset={"caption": "caption"},
+        caption_text="caption",
+        caption_context={},
+        post_caption={},
+    ) == [("asset_caption", "caption")]
+    assert services.instagram_post_caption_quality({"instagram_post_caption": "caption"}) == {"passed": True}
+    assert services.caption_quality_repair_plan(creator="Stacey") == {
+        "schema": "campaign_factory.caption_quality_repair_plan.v1",
+    }
+    assert services.caption_quality_recovery_class(["instagram_post_caption_too_long"]) == "recoverableByCaptionRewrite"
+    assert services.suggest_simple_instagram_post_caption(
+        asset_id="asset_1",
+        current_caption="old caption",
+        burned_caption="burned caption",
+    ) == "Simple caption."
+    assert services.publishability_check({"id": "asset_1"}, distribution_plan={"id": "plan_1"}) == {"decision": "pass"}
+
+    assert calls == [
+        ("local_export_readiness", ({"id": "asset_1"}, None), {}),
+        ("explain_publishability", ("asset_1",), {"distribution_plan_id": "plan_1"}),
+        ("capture_publishability_rejection_evidence", ("asset_1",), {}),
+        ("capture_publishability_rejection_evidence_from_result", ("asset_1", {"decision": "blocked"}), {"commit": False}),
+        ("capture_discoverability_gate_rejection_evidence", (), {
+            "gate_result": {"violations": []},
+            "failed_stage": "pre_render",
+            "commit": False,
+        }),
+        ("record_proof_run", (), {
+            "campaign_id": "camp_1",
+            "rendered_asset_id": "asset_1",
+            "distribution_plan_id": None,
+            "threadsdash_draft_id": None,
+            "threadsdash_post_id": None,
+            "status": "started",
+            "current_state": "creative_approved",
+            "blocking_reason": None,
+            "root_cause": None,
+            "metrics_eligible": False,
+            "metadata": None,
+            "proof_run_id": None,
+            "commit": True,
+        }),
+        ("publishability_discoverability_fields", (), {
+            "asset": {"caption": "caption"},
+            "caption_text": "caption",
+            "caption_context": {},
+            "post_caption": {},
+        }),
+        ("instagram_post_caption_quality", ({"instagram_post_caption": "caption"},), {}),
+        ("caption_quality_repair_plan", (), {
+            "creator": "Stacey",
+            "campaign_slug": None,
+            "content_surface": None,
+            "limit": 200,
+        }),
+        ("caption_quality_recovery_class", (["instagram_post_caption_too_long"],), {}),
+        ("suggest_simple_instagram_post_caption", (), {
+            "asset_id": "asset_1",
+            "current_caption": "old caption",
+            "burned_caption": "burned caption",
+        }),
+        ("publishability_check", ({"id": "asset_1"}, None), {"distribution_plan": {"id": "plan_1"}}),
     ]
 
 

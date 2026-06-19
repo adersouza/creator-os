@@ -31,6 +31,7 @@ from .live_scale import LiveScaleRepository
 from .models import ModelRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
+from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .readiness_report import ReadinessReportRepository
@@ -80,6 +81,19 @@ class CoreServices:
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
         capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
+        distribution_plan_payload: Callable[[dict[str, Any]], dict[str, Any]],
+        verification_id: Callable[..., str],
+        caption_lineage_sidecar: Callable[[str], dict[str, Any]],
+        active_quarantine_for_asset: Callable[[str], dict[str, Any] | None],
+        audio_segment_for_asset: Callable[[dict[str, Any]], dict[str, Any] | None],
+        cover_frame_for_asset: Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any] | None],
+        audio_intent_claims_embedded_media: Callable[[dict[str, Any]], bool],
+        embedded_audio_verified: Callable[[str], bool | None],
+        discoverability_evidence_for_fields: Callable[[list[tuple[str, str]]], list[dict[str, Any]]],
+        reference_hook_is_schedule_safe: Callable[[str], bool],
+        audio_intent_is_attached: Callable[[dict[str, Any], str | None], bool],
+        requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
+        ig_media_type_for_surface: Callable[[str, str], str],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
@@ -351,6 +365,34 @@ class CoreServices:
             performance_snapshot_payload=performance_snapshot_payload,
             aggregate_performance=aggregate_performance,
             register_variant_asset=register_variant_asset,
+        )
+        self.publishability = PublishabilityRepository(
+            conn,
+            utc_now=utc_now,
+            sanitize_for_storage=sanitize_for_storage,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            distribution_plan_payload=distribution_plan_payload,
+            latest_audit_for_asset=latest_audit_for_asset,
+            verification_id=verification_id,
+            text_hash=text_hash,
+            caption_lineage_sidecar=caption_lineage_sidecar,
+            variant_lineage_for_asset=self.variant_lineage.variant_lineage_for_asset,
+            active_quarantine_for_asset=active_quarantine_for_asset,
+            audio_selection_for_asset=audio_selection_for_asset,
+            audio_segment_for_asset=audio_segment_for_asset,
+            cover_frame_for_asset=cover_frame_for_asset,
+            instagram_post_caption_for_asset=instagram_post_caption_for_asset,
+            content_trust_status_blockers=content_trust_status_blockers,
+            audio_intent_claims_embedded_media=audio_intent_claims_embedded_media,
+            embedded_audio_verified=embedded_audio_verified,
+            discoverability_safe_content_contract=discoverability_safe_content_contract,
+            discoverability_evidence_for_fields=discoverability_evidence_for_fields,
+            reference_hook_is_schedule_safe=reference_hook_is_schedule_safe,
+            audio_intent_is_attached=audio_intent_is_attached,
+            requires_operator_visual_review_for_handoff=requires_operator_visual_review_for_handoff,
+            surface_report_assets=surface_report_assets,
+            ig_media_type_for_surface=ig_media_type_for_surface,
         )
         self.distribution = DistributionRepository(
             conn,
@@ -3280,3 +3322,125 @@ class CoreServices:
 
     def variant_rollup_group(self, snapshots: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
         return self.variant_lineage.variant_rollup_group(snapshots, key, output_key)
+
+    def local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
+        return self.publishability.local_export_readiness(asset, latest_audit)
+
+    def explain_publishability(
+        self,
+        rendered_asset_id: str,
+        *,
+        distribution_plan_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.publishability.explain_publishability(
+            rendered_asset_id,
+            distribution_plan_id=distribution_plan_id,
+        )
+
+    def capture_publishability_rejection_evidence(self, rendered_asset_id: str) -> dict[str, Any]:
+        return self.publishability.capture_publishability_rejection_evidence(rendered_asset_id)
+
+    def capture_publishability_rejection_evidence_from_result(
+        self,
+        rendered_asset_id: str,
+        result: dict[str, Any],
+        *,
+        commit: bool,
+    ) -> dict[str, Any]:
+        return self.publishability.capture_publishability_rejection_evidence_from_result(
+            rendered_asset_id,
+            result,
+            commit=commit,
+        )
+
+    def capture_discoverability_gate_rejection_evidence(self, **kwargs: Any) -> dict[str, Any]:
+        return self.publishability.capture_discoverability_gate_rejection_evidence(**kwargs)
+
+    def record_proof_run(
+        self,
+        *,
+        campaign_id: str | None,
+        rendered_asset_id: str,
+        distribution_plan_id: str | None = None,
+        threadsdash_draft_id: str | None = None,
+        threadsdash_post_id: str | None = None,
+        status: str = "started",
+        current_state: str = "creative_approved",
+        blocking_reason: str | None = None,
+        root_cause: str | None = None,
+        metrics_eligible: bool = False,
+        metadata: dict[str, Any] | None = None,
+        proof_run_id: str | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        return self.publishability.record_proof_run(
+            campaign_id=campaign_id,
+            rendered_asset_id=rendered_asset_id,
+            distribution_plan_id=distribution_plan_id,
+            threadsdash_draft_id=threadsdash_draft_id,
+            threadsdash_post_id=threadsdash_post_id,
+            status=status,
+            current_state=current_state,
+            blocking_reason=blocking_reason,
+            root_cause=root_cause,
+            metrics_eligible=metrics_eligible,
+            metadata=metadata,
+            proof_run_id=proof_run_id,
+            commit=commit,
+        )
+
+    def publishability_discoverability_fields(
+        self,
+        *,
+        asset: dict[str, Any],
+        caption_text: str,
+        caption_context: dict[str, Any],
+        post_caption: dict[str, Any],
+    ) -> list[tuple[str, str]]:
+        return self.publishability.publishability_discoverability_fields(
+            asset=asset,
+            caption_text=caption_text,
+            caption_context=caption_context,
+            post_caption=post_caption,
+        )
+
+    def instagram_post_caption_quality(self, post_caption: dict[str, Any]) -> dict[str, Any]:
+        return self.publishability.instagram_post_caption_quality(post_caption)
+
+    def caption_quality_repair_plan(
+        self,
+        *,
+        creator: str | None = None,
+        campaign_slug: str | None = None,
+        content_surface: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        return self.publishability.caption_quality_repair_plan(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            content_surface=content_surface,
+            limit=limit,
+        )
+
+    def caption_quality_recovery_class(self, quality_reasons: list[str]) -> str:
+        return self.publishability.caption_quality_recovery_class(quality_reasons)
+
+    def suggest_simple_instagram_post_caption(self, *, asset_id: str, current_caption: str, burned_caption: str) -> str:
+        return self.publishability.suggest_simple_instagram_post_caption(
+            asset_id=asset_id,
+            current_caption=current_caption,
+            burned_caption=burned_caption,
+        )
+
+    def publishability_check(
+        self,
+        asset: dict[str, Any],
+        latest_audit: dict[str, Any] | None = None,
+        *,
+        distribution_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.publishability.publishability_check(
+            asset,
+            latest_audit,
+            distribution_plan=distribution_plan,
+        )
