@@ -212,6 +212,7 @@ def main():
             "failCount": fail_count,
             "avgSimilarity": round(avg_sim, 4) if avg_sim is not None else None,
             "sourceFrames": len(src_hashes),
+            "thresholds": {"filter": 0.70, "exact": 0.90},
         },
     }))
 
