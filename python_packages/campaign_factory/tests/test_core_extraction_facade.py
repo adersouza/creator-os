@@ -38,6 +38,7 @@ from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.make_batch import MakeBatchRepository
 from campaign_factory.models import ModelRepository
+from campaign_factory.multi_blocker_unlock import MultiBlockerUnlockRepository
 from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.publishability import PublishabilityRepository
@@ -168,6 +169,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.fresh_reel_production.conn is factory.conn
         assert isinstance(factory.services.contentforge_visual_qc, ContentForgeVisualQCRepository)
         assert factory.services.contentforge_visual_qc.conn is factory.conn
+        assert isinstance(factory.services.multi_blocker_unlock, MultiBlockerUnlockRepository)
+        assert factory.services.multi_blocker_unlock.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -1011,6 +1014,81 @@ def test_campaign_factory_delegates_contentforge_visual_qc_methods_to_services()
             {},
         ),
         ("contentforge_visual_qc_answer", ({"failureCategory": "operator_visual_review_required"}, 1), {}),
+    ]
+
+
+def test_campaign_factory_delegates_multi_blocker_unlock_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.multi_blocker_inventory_unlock_report(creator="Stacey", current_inventory=11) == {
+        "method": "multi_blocker_inventory_unlock_report",
+    }
+    assert factory.multi_blocker_inventory_unlock_plan(creator="Stacey") == {
+        "method": "multi_blocker_inventory_unlock_plan",
+    }
+    assert factory.inventory_unlock_minimal_fix_set(creator="Stacey") == {
+        "method": "inventory_unlock_minimal_fix_set",
+    }
+    assert factory.inventory_unlock_master_report(creator="Stacey") == {
+        "method": "inventory_unlock_master_report",
+    }
+    assert factory._multi_blocker_asset_row({"assetId": "asset_1", "blockingReasons": ["missing_audio"]}) == {
+        "method": "multi_blocker_asset_row",
+    }
+    assert factory._multi_blocker_repair_class("missing_audio") == {"method": "multi_blocker_repair_class"}
+    assert factory._multi_blocker_combo_rows([], current_inventory=0, required_inventory=1) == {
+        "method": "multi_blocker_combo_rows",
+    }
+    assert factory._multi_blocker_assets_unlocked([], ["audio_failure"]) == {
+        "method": "multi_blocker_assets_unlocked",
+    }
+    assert factory._multi_blocker_estimated_minutes([], ["audio_failure"]) == {
+        "method": "multi_blocker_estimated_minutes",
+    }
+    assert factory._multi_blocker_combo_difficulty(["audio_failure"]) == {
+        "method": "multi_blocker_combo_difficulty",
+    }
+    assert factory._multi_blocker_best_combo([], 1) == {
+        "method": "multi_blocker_best_combo",
+    }
+    assert factory._multi_blocker_minimal_fix_set([], current_inventory=0, required_inventory=1) == {
+        "method": "multi_blocker_minimal_fix_set",
+    }
+
+    assert calls == [
+        (
+            "multi_blocker_inventory_unlock_report",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": None,
+                "content_surface": "reel",
+                "required_inventory": 225,
+                "current_inventory": 11,
+            },
+        ),
+        ("multi_blocker_inventory_unlock_plan", (), {"creator": "Stacey"}),
+        ("inventory_unlock_minimal_fix_set", (), {"creator": "Stacey"}),
+        ("inventory_unlock_master_report", (), {"creator": "Stacey"}),
+        ("multi_blocker_asset_row", ({"assetId": "asset_1", "blockingReasons": ["missing_audio"]},), {}),
+        ("multi_blocker_repair_class", ("missing_audio",), {}),
+        ("multi_blocker_combo_rows", ([],), {"current_inventory": 0, "required_inventory": 1}),
+        ("multi_blocker_assets_unlocked", ([], ["audio_failure"]), {}),
+        ("multi_blocker_estimated_minutes", ([], ["audio_failure"]), {}),
+        ("multi_blocker_combo_difficulty", (["audio_failure"],), {}),
+        ("multi_blocker_best_combo", ([], 1), {}),
+        ("multi_blocker_minimal_fix_set", ([],), {"current_inventory": 0, "required_inventory": 1}),
     ]
 
 
@@ -4447,6 +4525,71 @@ def test_core_services_delegates_contentforge_visual_qc_methods_to_repository() 
             {},
         ),
         ("contentforge_visual_qc_answer", ({"failureCategory": "operator_visual_review_required"}, 1), {}),
+    ]
+
+
+def test_core_services_delegates_multi_blocker_unlock_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeMultiBlockerUnlock:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.multi_blocker_unlock = FakeMultiBlockerUnlock()
+
+    assert services.multi_blocker_inventory_unlock_report(creator="Stacey", current_inventory=11) == {
+        "method": "multi_blocker_inventory_unlock_report",
+    }
+    assert services.multi_blocker_inventory_unlock_plan(creator="Stacey") == {
+        "method": "multi_blocker_inventory_unlock_plan",
+    }
+    assert services.inventory_unlock_minimal_fix_set(creator="Stacey") == {
+        "method": "inventory_unlock_minimal_fix_set",
+    }
+    assert services.inventory_unlock_master_report(creator="Stacey") == {
+        "method": "inventory_unlock_master_report",
+    }
+    assert services.multi_blocker_asset_row({"assetId": "asset_1", "blockingReasons": ["missing_audio"]}) == {
+        "method": "multi_blocker_asset_row",
+    }
+    assert services.multi_blocker_repair_class("missing_audio") == {"method": "multi_blocker_repair_class"}
+    assert services.multi_blocker_combo_rows([], current_inventory=0, required_inventory=1) == {
+        "method": "multi_blocker_combo_rows",
+    }
+    assert services.multi_blocker_assets_unlocked([], ["audio_failure"]) == {
+        "method": "multi_blocker_assets_unlocked",
+    }
+    assert services.multi_blocker_estimated_minutes([], ["audio_failure"]) == {
+        "method": "multi_blocker_estimated_minutes",
+    }
+    assert services.multi_blocker_combo_difficulty(["audio_failure"]) == {
+        "method": "multi_blocker_combo_difficulty",
+    }
+    assert services.multi_blocker_best_combo([], 1) == {
+        "method": "multi_blocker_best_combo",
+    }
+    assert services.multi_blocker_minimal_fix_set([], current_inventory=0, required_inventory=1) == {
+        "method": "multi_blocker_minimal_fix_set",
+    }
+
+    assert calls == [
+        ("multi_blocker_inventory_unlock_report", (), {"creator": "Stacey", "current_inventory": 11}),
+        ("multi_blocker_inventory_unlock_plan", (), {"creator": "Stacey"}),
+        ("inventory_unlock_minimal_fix_set", (), {"creator": "Stacey"}),
+        ("inventory_unlock_master_report", (), {"creator": "Stacey"}),
+        ("multi_blocker_asset_row", ({"assetId": "asset_1", "blockingReasons": ["missing_audio"]},), {}),
+        ("multi_blocker_repair_class", ("missing_audio",), {}),
+        ("multi_blocker_combo_rows", ([],), {"current_inventory": 0, "required_inventory": 1}),
+        ("multi_blocker_assets_unlocked", ([], ["audio_failure"]), {}),
+        ("multi_blocker_estimated_minutes", ([], ["audio_failure"]), {}),
+        ("multi_blocker_combo_difficulty", (["audio_failure"],), {}),
+        ("multi_blocker_best_combo", ([], 1), {}),
+        ("multi_blocker_minimal_fix_set", ([],), {"current_inventory": 0, "required_inventory": 1}),
     ]
 
 
