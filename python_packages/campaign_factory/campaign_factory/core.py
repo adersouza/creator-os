@@ -629,6 +629,8 @@ class CampaignFactory:
             inventory_production_requirements=self.inventory_production_requirements,
             exception_queue_report=self.exception_queue_report,
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
+            parent_factory_production_scorecard=self.parent_factory_production_scorecard,
+            carousel_certification_proof=self.carousel_certification_proof,
             account_content_needs=self.account_content_needs,
             creator_content_needs=self.creator_content_needs,
             account_surface_obligations_plan=self.account_surface_obligations_plan,
@@ -7899,56 +7901,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         }
 
     def creator_os_certification_report(self) -> dict[str, Any]:
-        live = self.creator_os_live_100_account_readiness()
-        parent = self.parent_factory_production_scorecard()
-        prevention = self.discoverability_prevention_scorecard()
-        story = self.story_certification_proof()
-        carousel = self.carousel_certification_proof()
-        reels_certified = True
-        feed_single_certified = True
-        account_health_certified = True
-        discoverability_certified = bool(prevention.get("score", 0) >= 8 or parent.get("canMeetRequiredParentsPerDay"))
-        inventory_certified = bool(parent.get("canMeetRequiredParentsPerDay"))
-        learning_certified = True
-        scheduling_certified = True
-        publishing_certified = True
-        proof_flags = {
-            "reelsCertified": reels_certified,
-            "feedSingleCertified": feed_single_certified,
-            "storyCertified": story.get("status") == "passed",
-            "carouselCertified": carousel.get("status") == "passed",
-            "accountHealthCertified": account_health_certified,
-            "discoverabilityCertified": discoverability_certified,
-            "inventoryCertified": inventory_certified,
-            "learningCertified": learning_certified,
-            "schedulingCertified": scheduling_certified,
-            "publishingCertified": publishing_certified,
-            "100AccountCertified": bool(live.get("safeToRun100Accounts") or live.get("canRun100AccountsToday")),
-        }
-        blockers = []
-        if not proof_flags["100AccountCertified"]:
-            blockers.append("live_100_account_proof_missing")
-        if not proof_flags["inventoryCertified"]:
-            blockers.append("53_parent_day_throughput_not_proven")
-        if not proof_flags["discoverabilityCertified"]:
-            blockers.append("discoverability_prevention_not_upstream_enough")
-        blockers.extend(story.get("blockers") or [])
-        blockers.extend(carousel.get("blockers") or [])
-        final_rating = round((sum(1 for passed in proof_flags.values() if passed) / len(proof_flags)) * 10, 1)
-        return {
-            "schema": "creator_os.certification_report.v1",
-            **proof_flags,
-            "finalRating": final_rating,
-            "remainingBlockers": sorted(set(blockers)),
-            "evidence": {
-                "live100": live,
-                "parentFactory": parent,
-                "discoverabilityPrevention": prevention,
-                "story": story,
-                "carousel": carousel,
-            },
-            "wouldWrite": False,
-        }
+        return self.services.creator_os_certification_report()
 
     def failure_injection_suite(self) -> dict[str, Any]:
         scenarios = [
