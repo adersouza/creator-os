@@ -28,6 +28,7 @@ from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .finished_video import FinishedVideoRepository
 from .graph import GraphRepository
+from .inventory_planning import InventoryPlanningRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .models import ModelRepository
@@ -187,6 +188,8 @@ class CoreServices:
         parent_factory_yield_waterfall: Callable[..., dict[str, Any]],
         ratio: Callable[[Any, Any], float],
         score_fraction: Callable[[Any, Any], float],
+        road_to_accounts_payload: Callable[..., dict[str, Any]],
+        exception_next_action: Callable[[str], str],
         wilson_lower_bound: Callable[..., float],
         story_source_blockers: Callable[[list[dict[str, Any]]], list[str]],
         normalize_story_enum: Callable[[Any, set[str]], str | None],
@@ -564,6 +567,19 @@ class CoreServices:
             upsert_campaign=self.models.upsert_campaign,
             campaign_dirs=campaign_dirs,
             record_event=self.events.record_event,
+        )
+        self.inventory_planning = InventoryPlanningRepository(
+            conn,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            build_surface_inventory=build_surface_inventory,
+            ratio=ratio,
+            score_fraction=score_fraction,
+            road_to_accounts_payload=road_to_accounts_payload,
+            exception_next_action=exception_next_action,
+            content_surfaces=content_surfaces,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1742,6 +1758,72 @@ class CoreServices:
 
     def archive_duplicate_confidence(self, item: dict[str, Any]) -> str:
         return self.archive_quality.archive_duplicate_confidence(item)
+
+    def inventory_slo_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_slo_report(**kwargs)
+
+    def inventory_buffer_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_buffer_report(**kwargs)
+
+    def inventory_factory_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_factory_audit(**kwargs)
+
+    def inventory_yield_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_yield_analysis(**kwargs)
+
+    def inventory_buffer_policy_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_buffer_policy_plan(**kwargs)
+
+    def inventory_slo_enforcement_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_slo_enforcement_audit(**kwargs)
+
+    def inventory_consumption_simulation(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_consumption_simulation(**kwargs)
+
+    def inventory_production_requirements(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_production_requirements(**kwargs)
+
+    def road_to_200_accounts(self) -> dict[str, Any]:
+        return self.inventory_planning.road_to_200_accounts()
+
+    def inventory_exception_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_exception_audit(**kwargs)
+
+    def inventory_factory_readiness_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_factory_readiness_report(**kwargs)
+
+    def inventory_factory_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_factory_master_report(**kwargs)
+
+    def inventory_autopilot_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_autopilot_plan(**kwargs)
+
+    def inventory_shortage_repair_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_shortage_repair_plan(**kwargs)
+
+    def inventory_buffer_protection_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_planning.inventory_buffer_protection_report(**kwargs)
+
+    def inventory_slo_surface_targets(self, minimum_buffer: int) -> dict[str, int]:
+        return self.inventory_planning.inventory_slo_surface_targets(minimum_buffer)
+
+    def inventory_health(self, *, current: int, minimum: int) -> str:
+        return self.inventory_planning.inventory_health(current=current, minimum=minimum)
+
+    def inventory_stage_counts(self, *, creator: str | None = None, campaign_slug: str | None = None) -> dict[str, int]:
+        return self.inventory_planning.inventory_stage_counts(creator=creator, campaign_slug=campaign_slug)
+
+    def inventory_count_related(self, table: str, column: str, asset_ids: set[str]) -> int:
+        return self.inventory_planning.inventory_count_related(table, column, asset_ids)
+
+    def inventory_limiting_stage(self, counts: dict[str, int]) -> str:
+        return self.inventory_planning.inventory_limiting_stage(counts)
+
+    def inventory_loss_by_stage(self, counts: dict[str, int]) -> dict[str, int]:
+        return self.inventory_planning.inventory_loss_by_stage(counts)
+
+    def inventory_repair_actions(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
+        return self.inventory_planning.inventory_repair_actions(policy)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.campaign_overview.campaign_health(campaign_slug)
