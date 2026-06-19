@@ -5,6 +5,7 @@ from pathlib import Path
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.asset_import import AssetImportRepository
+from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
 from campaign_factory.config import Settings
@@ -78,6 +79,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.story_management.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
+        assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
+        assert factory.services.autonomy.conn is factory.conn
     finally:
         factory.close()
 
@@ -177,6 +180,18 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         def assets_for_campaign(self, *args, **kwargs):
             calls.append(("assets_for_campaign", args, kwargs))
             return [{"id": "src_1"}]
+
+        def autonomy_level(self, *args, **kwargs):
+            calls.append(("autonomy_level", args, kwargs))
+            return "level_2"
+
+        def set_autonomy_level(self, *args, **kwargs):
+            calls.append(("set_autonomy_level", args, kwargs))
+            return {"schema": "campaign_factory.autonomy_policy.v1", "level": args[0]}
+
+        def autonomy_policy(self, *args, **kwargs):
+            calls.append(("autonomy_policy", args, kwargs))
+            return {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
 
         def create_creative_plan(self, *args, **kwargs):
             calls.append(("create_creative_plan", args, kwargs))
@@ -352,6 +367,9 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         notes="notes",
     ) == {"imported": []}
     assert factory.assets_for_campaign("camp_1") == [{"id": "src_1"}]
+    assert factory.autonomy_level() == "level_2"
+    assert factory.set_autonomy_level("level_3") == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_3"}
+    assert factory.autonomy_policy() == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
     assert factory.create_creative_plan(name="daily", target_account="@creator") == {
         "schema": "campaign_factory.creative_plan.v1",
         "name": "daily",
@@ -491,6 +509,9 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             "notes": "notes",
         }),
         ("assets_for_campaign", ("camp_1",), {}),
+        ("autonomy_level", (), {}),
+        ("set_autonomy_level", ("level_3",), {}),
+        ("autonomy_policy", (), {}),
         ("create_creative_plan", (), {
             "name": "daily",
             "platform": "instagram",
@@ -830,6 +851,36 @@ def test_core_services_delegates_asset_import_methods_to_asset_import_repository
             "notes": "notes",
         }),
         ("assets_for_campaign", ("camp_1",), {}),
+    ]
+
+
+def test_core_services_delegates_autonomy_methods_to_autonomy_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAutonomy:
+        def autonomy_level(self, *args, **kwargs):
+            calls.append(("autonomy_level", args, kwargs))
+            return "level_2"
+
+        def set_autonomy_level(self, *args, **kwargs):
+            calls.append(("set_autonomy_level", args, kwargs))
+            return {"schema": "campaign_factory.autonomy_policy.v1", "level": args[0]}
+
+        def autonomy_policy(self, *args, **kwargs):
+            calls.append(("autonomy_policy", args, kwargs))
+            return {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
+
+    services.autonomy = FakeAutonomy()
+
+    assert services.autonomy_level() == "level_2"
+    assert services.set_autonomy_level("level_3") == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_3"}
+    assert services.autonomy_policy() == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
+
+    assert calls == [
+        ("autonomy_level", (), {}),
+        ("set_autonomy_level", ("level_3",), {}),
+        ("autonomy_policy", (), {}),
     ]
 
 

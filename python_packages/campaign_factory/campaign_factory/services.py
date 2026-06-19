@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .account_health import AccountHealthRepository
 from .asset_import import AssetImportRepository
+from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
 from .config import Settings
@@ -98,7 +99,8 @@ class CoreServices:
         ig_media_type_by_surface: dict[str, str],
         image_exts: set[str],
         video_exts: set[str],
-        autonomy_level: Callable[[], str],
+        autonomy_levels: set[str],
+        default_autonomy_level: str,
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
         multi_blocker_inventory_unlock_report: Callable[..., dict[str, Any]],
         multi_blocker_repair_minutes: dict[str, int],
@@ -232,6 +234,13 @@ class CoreServices:
             story_calendar_plan=story_calendar_plan,
             normalize_content_surface=normalize_content_surface,
         )
+        self.autonomy = AutonomyPolicyRepository(
+            conn,
+            autonomy_levels=autonomy_levels,
+            default_autonomy_level=default_autonomy_level,
+            json_load=json_load,
+            utc_now=utc_now,
+        )
         self.exceptions = ExceptionRepository(
             conn,
             sanitize_for_storage=sanitize_for_storage,
@@ -241,7 +250,7 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
-            autonomy_level=autonomy_level,
+            autonomy_level=self.autonomy.autonomy_level,
             recommendation_proof_summary=recommendation_proof_summary,
         )
         self.discoverability = DiscoverabilityRepository(
@@ -555,6 +564,15 @@ class CoreServices:
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         return self.asset_import.assets_for_campaign(campaign_id)
+
+    def autonomy_level(self) -> str:
+        return self.autonomy.autonomy_level()
+
+    def set_autonomy_level(self, level: str) -> dict[str, Any]:
+        return self.autonomy.set_autonomy_level(level)
+
+    def autonomy_policy(self) -> dict[str, Any]:
+        return self.autonomy.autonomy_policy()
 
     def create_creative_plan(
         self,
