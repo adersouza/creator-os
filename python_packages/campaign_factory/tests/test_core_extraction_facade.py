@@ -20,6 +20,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
+from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
 
 
@@ -66,6 +67,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.winner_expansion.conn is factory.conn
         assert isinstance(factory.services.creative_knowledge, CreativeKnowledgeRepository)
         assert factory.services.creative_knowledge.conn is factory.conn
+        assert isinstance(factory.services.tribev2, TribeV2Repository)
+        assert factory.services.tribev2.conn is factory.conn
     finally:
         factory.close()
 
@@ -1836,6 +1839,459 @@ def test_creative_knowledge_facade_delegates_to_core_services() -> None:
             "output_key": "conceptId",
             "output_label": None,
         }),
+    ]
+
+
+def test_core_services_delegates_tribev2_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeTribeV2:
+        def tribev2_reel_analysis(self, *args, **kwargs):
+            calls.append(("tribev2_reel_analysis", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_reel_analysis.v1"}
+
+        def tribev2_reel_review(self, *args, **kwargs):
+            calls.append(("tribev2_reel_review", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_reel_review.v1"}
+
+        def tribev2_holdout_pilot_review(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_pilot_review", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_holdout_pilot_review.v1"}
+
+        def tribev2_review_both_bucket(self, *args, **kwargs):
+            calls.append(("tribev2_review_both_bucket", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def tribev2_review_item(self, *args, **kwargs):
+            calls.append(("tribev2_review_item", args, kwargs))
+            return {"renderedAssetId": "asset_1"}
+
+        def tribev2_holdout_bucket_rows(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_bucket_rows", args, kwargs))
+            return {"top20": [], "middle20": [], "bottom20": []}
+
+        def tribev2_holdout_bucket_summary(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_bucket_summary", args, kwargs))
+            return {"bucket": args[0]}
+
+        def tribev2_average_metrics(self, *args, **kwargs):
+            calls.append(("tribev2_average_metrics", args, kwargs))
+            return {"views": 10.0}
+
+        def tribev2_average_scores(self, *args, **kwargs):
+            calls.append(("tribev2_average_scores", args, kwargs))
+            return {"meanAbsActivation": 0.1}
+
+        def average_row_field(self, *args, **kwargs):
+            calls.append(("average_row_field", args, kwargs))
+            return 10.0
+
+        def tribev2_preview_path(self, *args, **kwargs):
+            calls.append(("tribev2_preview_path", args, kwargs))
+            return "/tmp/preview.mp4"
+
+        def write_tribev2_review_contact_sheet(self, *args, **kwargs):
+            calls.append(("write_tribev2_review_contact_sheet", args, kwargs))
+            return "/tmp/review.html"
+
+        def write_tribev2_holdout_contact_sheet(self, *args, **kwargs):
+            calls.append(("write_tribev2_holdout_contact_sheet", args, kwargs))
+            return "/tmp/holdout.html"
+
+        def tribev2_contact_sheet_cards(self, *args, **kwargs):
+            calls.append(("tribev2_contact_sheet_cards", args, kwargs))
+            return ["<article></article>"]
+
+        def tribev2_contact_sheet_html(self, *args, **kwargs):
+            calls.append(("tribev2_contact_sheet_html", args, kwargs))
+            return "<html></html>"
+
+        def tribev2_extract_thumbnail(self, *args, **kwargs):
+            calls.append(("tribev2_extract_thumbnail", args, kwargs))
+            return "/tmp/thumb.jpg"
+
+        def tribev2_reel_analysis_rows(self, *args, **kwargs):
+            calls.append(("tribev2_reel_analysis_rows", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def tribev2_score_for_snapshot(self, *args, **kwargs):
+            calls.append(("tribev2_score_for_snapshot", args, kwargs))
+            return {"id": "tribe_1"}
+
+        def pearson_correlation(self, *args, **kwargs):
+            calls.append(("pearson_correlation", args, kwargs))
+            return 0.5
+
+        def tribev2_bucket_summary(self, *args, **kwargs):
+            calls.append(("tribev2_bucket_summary", args, kwargs))
+            return {"sampleSize": 1}
+
+        def tribev2_bucket_lift(self, *args, **kwargs):
+            calls.append(("tribev2_bucket_lift", args, kwargs))
+            return {"avgViews": 100.0}
+
+        def tribev2_metric_quality(self, *args, **kwargs):
+            calls.append(("tribev2_metric_quality", args, kwargs))
+            return {"views": {"usableForCorrelation": True}}
+
+        def tribev2_signal_summary(self, *args, **kwargs):
+            calls.append(("tribev2_signal_summary", args, kwargs))
+            return {"strongestSignal": "meanAbsActivation:views"}
+
+        def tribev2_confidence_level(self, *args, **kwargs):
+            calls.append(("tribev2_confidence_level", args, kwargs))
+            return "medium"
+
+    services.tribev2 = FakeTribeV2()
+
+    ranked = [{"renderedAssetId": "asset_1"}]
+    item = {"rank": 1, "previewPath": "/tmp/preview.mp4"}
+    buckets = {"top20": {"items": []}}
+
+    assert services.tribev2_reel_analysis(creator="Stacey", campaign_slug="May", limit=2) == {
+        "schema": "campaign_factory.tribev2_reel_analysis.v1",
+    }
+    assert services.tribev2_reel_review(creator="Stacey", campaign_slug="May", bucket="both") == {
+        "schema": "campaign_factory.tribev2_reel_review.v1",
+    }
+    assert services.tribev2_holdout_pilot_review(creator="Stacey", campaign_slug="May") == {
+        "schema": "campaign_factory.tribev2_holdout_pilot_review.v1",
+    }
+    assert services.tribev2_review_both_bucket(ranked, 1) == [{"renderedAssetId": "asset_1"}]
+    assert services.tribev2_review_item(
+        ranked[0],
+        rank=1,
+        sort_field="meanAbsActivation",
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == {"renderedAssetId": "asset_1"}
+    assert services.tribev2_holdout_bucket_rows(ranked) == {"top20": [], "middle20": [], "bottom20": []}
+    assert services.tribev2_holdout_bucket_summary("top20", ranked, limit=1) == {"bucket": "top20"}
+    assert services.tribev2_average_metrics(ranked) == {"views": 10.0}
+    assert services.tribev2_average_scores(ranked) == {"meanAbsActivation": 0.1}
+    assert services.average_row_field(ranked, "views") == 10.0
+    assert services.tribev2_preview_path(ranked[0]) == "/tmp/preview.mp4"
+    assert services.write_tribev2_review_contact_sheet(
+        [item],
+        creator="Stacey",
+        title="Review",
+        blind_mode=True,
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == "/tmp/review.html"
+    assert services.write_tribev2_holdout_contact_sheet(buckets, creator="Stacey") == "/tmp/holdout.html"
+    assert services.tribev2_contact_sheet_cards(
+        [item],
+        Path("/tmp"),
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == ["<article></article>"]
+    assert services.tribev2_contact_sheet_html(title="Review", body="<p>body</p>") == "<html></html>"
+    assert services.tribev2_extract_thumbnail("/tmp/preview.mp4", Path("/tmp"), item) == "/tmp/thumb.jpg"
+    assert services.tribev2_reel_analysis_rows(creator="Stacey", campaign_slug="May") == [
+        {"renderedAssetId": "asset_1"},
+    ]
+    assert services.tribev2_score_for_snapshot({"rendered_asset_id": "asset_1"}) == {"id": "tribe_1"}
+    assert services.pearson_correlation([1.0, 2.0], [3.0, 4.0]) == 0.5
+    assert services.tribev2_bucket_summary(ranked) == {"sampleSize": 1}
+    assert services.tribev2_bucket_lift({"avgViews": 2}, {"avgViews": 1}) == {"avgViews": 100.0}
+    assert services.tribev2_metric_quality(ranked, ["views"]) == {"views": {"usableForCorrelation": True}}
+    assert services.tribev2_signal_summary(
+        {"meanAbsActivation": {"views": 0.5}},
+        sample_size=20,
+        metric_quality={"views": {"usableForCorrelation": True}},
+    ) == {"strongestSignal": "meanAbsActivation:views"}
+    assert services.tribev2_confidence_level(20, True) == "medium"
+
+    assert calls == [
+        ("tribev2_reel_analysis", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "minimum_sample_size": 3,
+            "limit": 2,
+        }),
+        ("tribev2_reel_review", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "sort_by": "meanAbsActivation",
+            "bucket": "both",
+            "limit": 12,
+            "contact_sheet": False,
+            "show_metrics": None,
+            "show_tribe_score": True,
+            "blind_mode": False,
+        }),
+        ("tribev2_holdout_pilot_review", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "limit": 20,
+            "contact_sheet": False,
+        }),
+        ("tribev2_review_both_bucket", (ranked, 1), {}),
+        ("tribev2_review_item", (ranked[0],), {
+            "rank": 1,
+            "sort_field": "meanAbsActivation",
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("tribev2_holdout_bucket_rows", (ranked,), {}),
+        ("tribev2_holdout_bucket_summary", ("top20", ranked), {"limit": 1}),
+        ("tribev2_average_metrics", (ranked,), {}),
+        ("tribev2_average_scores", (ranked,), {}),
+        ("average_row_field", (ranked, "views"), {}),
+        ("tribev2_preview_path", (ranked[0],), {}),
+        ("write_tribev2_review_contact_sheet", ([item],), {
+            "creator": "Stacey",
+            "title": "Review",
+            "blind_mode": True,
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("write_tribev2_holdout_contact_sheet", (buckets,), {"creator": "Stacey"}),
+        ("tribev2_contact_sheet_cards", ([item], Path("/tmp")), {
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("tribev2_contact_sheet_html", (), {"title": "Review", "body": "<p>body</p>"}),
+        ("tribev2_extract_thumbnail", ("/tmp/preview.mp4", Path("/tmp"), item), {}),
+        ("tribev2_reel_analysis_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("tribev2_score_for_snapshot", ({"rendered_asset_id": "asset_1"},), {}),
+        ("pearson_correlation", ([1.0, 2.0], [3.0, 4.0]), {}),
+        ("tribev2_bucket_summary", (ranked,), {}),
+        ("tribev2_bucket_lift", ({"avgViews": 2}, {"avgViews": 1}), {}),
+        ("tribev2_metric_quality", (ranked, ["views"]), {}),
+        ("tribev2_signal_summary", ({"meanAbsActivation": {"views": 0.5}},), {
+            "sample_size": 20,
+            "metric_quality": {"views": {"usableForCorrelation": True}},
+        }),
+        ("tribev2_confidence_level", (20, True), {}),
+    ]
+
+
+def test_tribev2_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def tribev2_reel_analysis(self, *args, **kwargs):
+            calls.append(("tribev2_reel_analysis", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_reel_analysis.v1"}
+
+        def tribev2_reel_review(self, *args, **kwargs):
+            calls.append(("tribev2_reel_review", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_reel_review.v1"}
+
+        def tribev2_holdout_pilot_review(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_pilot_review", args, kwargs))
+            return {"schema": "campaign_factory.tribev2_holdout_pilot_review.v1"}
+
+        def tribev2_review_both_bucket(self, *args, **kwargs):
+            calls.append(("tribev2_review_both_bucket", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def tribev2_review_item(self, *args, **kwargs):
+            calls.append(("tribev2_review_item", args, kwargs))
+            return {"renderedAssetId": "asset_1"}
+
+        def tribev2_holdout_bucket_rows(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_bucket_rows", args, kwargs))
+            return {"top20": [], "middle20": [], "bottom20": []}
+
+        def tribev2_holdout_bucket_summary(self, *args, **kwargs):
+            calls.append(("tribev2_holdout_bucket_summary", args, kwargs))
+            return {"bucket": args[0]}
+
+        def tribev2_average_metrics(self, *args, **kwargs):
+            calls.append(("tribev2_average_metrics", args, kwargs))
+            return {"views": 10.0}
+
+        def tribev2_average_scores(self, *args, **kwargs):
+            calls.append(("tribev2_average_scores", args, kwargs))
+            return {"meanAbsActivation": 0.1}
+
+        def average_row_field(self, *args, **kwargs):
+            calls.append(("average_row_field", args, kwargs))
+            return 10.0
+
+        def tribev2_preview_path(self, *args, **kwargs):
+            calls.append(("tribev2_preview_path", args, kwargs))
+            return "/tmp/preview.mp4"
+
+        def write_tribev2_review_contact_sheet(self, *args, **kwargs):
+            calls.append(("write_tribev2_review_contact_sheet", args, kwargs))
+            return "/tmp/review.html"
+
+        def write_tribev2_holdout_contact_sheet(self, *args, **kwargs):
+            calls.append(("write_tribev2_holdout_contact_sheet", args, kwargs))
+            return "/tmp/holdout.html"
+
+        def tribev2_contact_sheet_cards(self, *args, **kwargs):
+            calls.append(("tribev2_contact_sheet_cards", args, kwargs))
+            return ["<article></article>"]
+
+        def tribev2_contact_sheet_html(self, *args, **kwargs):
+            calls.append(("tribev2_contact_sheet_html", args, kwargs))
+            return "<html></html>"
+
+        def tribev2_extract_thumbnail(self, *args, **kwargs):
+            calls.append(("tribev2_extract_thumbnail", args, kwargs))
+            return "/tmp/thumb.jpg"
+
+        def tribev2_reel_analysis_rows(self, *args, **kwargs):
+            calls.append(("tribev2_reel_analysis_rows", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def tribev2_score_for_snapshot(self, *args, **kwargs):
+            calls.append(("tribev2_score_for_snapshot", args, kwargs))
+            return {"id": "tribe_1"}
+
+        def pearson_correlation(self, *args, **kwargs):
+            calls.append(("pearson_correlation", args, kwargs))
+            return 0.5
+
+        def tribev2_bucket_summary(self, *args, **kwargs):
+            calls.append(("tribev2_bucket_summary", args, kwargs))
+            return {"sampleSize": 1}
+
+        def tribev2_bucket_lift(self, *args, **kwargs):
+            calls.append(("tribev2_bucket_lift", args, kwargs))
+            return {"avgViews": 100.0}
+
+        def tribev2_metric_quality(self, *args, **kwargs):
+            calls.append(("tribev2_metric_quality", args, kwargs))
+            return {"views": {"usableForCorrelation": True}}
+
+        def tribev2_signal_summary(self, *args, **kwargs):
+            calls.append(("tribev2_signal_summary", args, kwargs))
+            return {"strongestSignal": "meanAbsActivation:views"}
+
+        def tribev2_confidence_level(self, *args, **kwargs):
+            calls.append(("tribev2_confidence_level", args, kwargs))
+            return "medium"
+
+    factory.services = FakeServices()
+    ranked = [{"renderedAssetId": "asset_1"}]
+    item = {"rank": 1, "previewPath": "/tmp/preview.mp4"}
+    buckets = {"top20": {"items": []}}
+
+    assert factory.tribev2_reel_analysis(creator="Stacey", campaign_slug="May", limit=2) == {
+        "schema": "campaign_factory.tribev2_reel_analysis.v1",
+    }
+    assert factory.tribev2_reel_review(creator="Stacey", campaign_slug="May", bucket="both") == {
+        "schema": "campaign_factory.tribev2_reel_review.v1",
+    }
+    assert factory.tribev2_holdout_pilot_review(creator="Stacey", campaign_slug="May") == {
+        "schema": "campaign_factory.tribev2_holdout_pilot_review.v1",
+    }
+    assert factory._tribev2_review_both_bucket(ranked, 1) == [{"renderedAssetId": "asset_1"}]
+    assert factory._tribev2_review_item(
+        ranked[0],
+        rank=1,
+        sort_field="meanAbsActivation",
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == {"renderedAssetId": "asset_1"}
+    assert factory._tribev2_holdout_bucket_rows(ranked) == {"top20": [], "middle20": [], "bottom20": []}
+    assert factory._tribev2_holdout_bucket_summary("top20", ranked, limit=1) == {"bucket": "top20"}
+    assert factory._tribev2_average_metrics(ranked) == {"views": 10.0}
+    assert factory._tribev2_average_scores(ranked) == {"meanAbsActivation": 0.1}
+    assert factory._average_row_field(ranked, "views") == 10.0
+    assert factory._tribev2_preview_path(ranked[0]) == "/tmp/preview.mp4"
+    assert factory._write_tribev2_review_contact_sheet(
+        [item],
+        creator="Stacey",
+        title="Review",
+        blind_mode=True,
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == "/tmp/review.html"
+    assert factory._write_tribev2_holdout_contact_sheet(buckets, creator="Stacey") == "/tmp/holdout.html"
+    assert factory._tribev2_contact_sheet_cards(
+        [item],
+        Path("/tmp"),
+        show_metrics=False,
+        show_tribe_score=True,
+    ) == ["<article></article>"]
+    assert factory._tribev2_contact_sheet_html(title="Review", body="<p>body</p>") == "<html></html>"
+    assert factory._tribev2_extract_thumbnail("/tmp/preview.mp4", Path("/tmp"), item) == "/tmp/thumb.jpg"
+    assert factory._tribev2_reel_analysis_rows(creator="Stacey", campaign_slug="May") == [
+        {"renderedAssetId": "asset_1"},
+    ]
+    assert factory._tribev2_score_for_snapshot({"rendered_asset_id": "asset_1"}) == {"id": "tribe_1"}
+    assert factory._pearson_correlation([1.0, 2.0], [3.0, 4.0]) == 0.5
+    assert factory._tribev2_bucket_summary(ranked) == {"sampleSize": 1}
+    assert factory._tribev2_bucket_lift({"avgViews": 2}, {"avgViews": 1}) == {"avgViews": 100.0}
+    assert factory._tribev2_metric_quality(ranked, ["views"]) == {"views": {"usableForCorrelation": True}}
+    assert factory._tribev2_signal_summary(
+        {"meanAbsActivation": {"views": 0.5}},
+        sample_size=20,
+        metric_quality={"views": {"usableForCorrelation": True}},
+    ) == {"strongestSignal": "meanAbsActivation:views"}
+    assert factory._tribev2_confidence_level(20, True) == "medium"
+
+    assert calls == [
+        ("tribev2_reel_analysis", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "minimum_sample_size": 3,
+            "limit": 2,
+        }),
+        ("tribev2_reel_review", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "sort_by": "meanAbsActivation",
+            "bucket": "both",
+            "limit": 12,
+            "contact_sheet": False,
+            "show_metrics": None,
+            "show_tribe_score": True,
+            "blind_mode": False,
+        }),
+        ("tribev2_holdout_pilot_review", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "limit": 20,
+            "contact_sheet": False,
+        }),
+        ("tribev2_review_both_bucket", (ranked, 1), {}),
+        ("tribev2_review_item", (ranked[0],), {
+            "rank": 1,
+            "sort_field": "meanAbsActivation",
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("tribev2_holdout_bucket_rows", (ranked,), {}),
+        ("tribev2_holdout_bucket_summary", ("top20", ranked), {"limit": 1}),
+        ("tribev2_average_metrics", (ranked,), {}),
+        ("tribev2_average_scores", (ranked,), {}),
+        ("average_row_field", (ranked, "views"), {}),
+        ("tribev2_preview_path", (ranked[0],), {}),
+        ("write_tribev2_review_contact_sheet", ([item],), {
+            "creator": "Stacey",
+            "title": "Review",
+            "blind_mode": True,
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("write_tribev2_holdout_contact_sheet", (buckets,), {"creator": "Stacey"}),
+        ("tribev2_contact_sheet_cards", ([item], Path("/tmp")), {
+            "show_metrics": False,
+            "show_tribe_score": True,
+        }),
+        ("tribev2_contact_sheet_html", (), {"title": "Review", "body": "<p>body</p>"}),
+        ("tribev2_extract_thumbnail", ("/tmp/preview.mp4", Path("/tmp"), item), {}),
+        ("tribev2_reel_analysis_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("tribev2_score_for_snapshot", ({"rendered_asset_id": "asset_1"},), {}),
+        ("pearson_correlation", ([1.0, 2.0], [3.0, 4.0]), {}),
+        ("tribev2_bucket_summary", (ranked,), {}),
+        ("tribev2_bucket_lift", ({"avgViews": 2}, {"avgViews": 1}), {}),
+        ("tribev2_metric_quality", (ranked, ["views"]), {}),
+        ("tribev2_signal_summary", ({"meanAbsActivation": {"views": 0.5}},), {
+            "sample_size": 20,
+            "metric_quality": {"views": {"usableForCorrelation": True}},
+        }),
+        ("tribev2_confidence_level", (20, True), {}),
     ]
 
 
