@@ -29,6 +29,7 @@ from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.finished_video import FinishedVideoRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.inventory_planning import InventoryPlanningRepository
+from campaign_factory.inventory_reservations import InventoryReservationRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
@@ -151,6 +152,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.archive_quality.conn is factory.conn
         assert isinstance(factory.services.inventory_planning, InventoryPlanningRepository)
         assert factory.services.inventory_planning.conn is factory.conn
+        assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
+        assert factory.services.inventory_reservations.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
         assert factory.services.campaign_overview.conn is factory.conn
     finally:
@@ -532,6 +535,93 @@ def test_campaign_factory_delegates_inventory_planning_methods_to_services() -> 
         ("inventory_limiting_stage", ({"scheduleSafeAssets": 0},), {}),
         ("inventory_loss_by_stage", ({"parentAssets": 1},), {}),
         ("inventory_repair_actions", ({"shortfall": 1},), {}),
+    ]
+
+
+def test_campaign_factory_delegates_inventory_reservation_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def reserve_inventory_asset(self, *args, **kwargs):
+            calls.append(("reserve_inventory_asset", args, kwargs))
+            return {"reservation_id": "invres_1"}
+
+        def expire_inventory_reservations(self, *args, **kwargs):
+            calls.append(("expire_inventory_reservations", args, kwargs))
+            return 2
+
+        def release_inventory_reservation(self, *args, **kwargs):
+            calls.append(("release_inventory_reservation", args, kwargs))
+            return {"status": "released"}
+
+        def inventory_uniqueness_conflicts(self, *args, **kwargs):
+            calls.append(("inventory_uniqueness_conflicts", args, kwargs))
+            return [{"assetId": "asset_2"}]
+
+        def reservation_adjusted_inventory(self, *args, **kwargs):
+            calls.append(("reservation_adjusted_inventory", args, kwargs))
+            return {"netInventory": 1}
+
+    factory.services = FakeServices()
+
+    assert factory.reserve_inventory_asset(
+        "asset_1",
+        account_id="acct_1",
+        surface="feed_single",
+        reserved_by="test",
+        expires_at="2026-01-02T00:00:00+00:00",
+        idempotency_key="idem_1",
+        metadata={"sourceFamilyId": "family_1"},
+        reuse_cooldown_days=3,
+        override_reason="manual",
+    ) == {"reservation_id": "invres_1"}
+    assert factory._expire_inventory_reservations(now="2026-01-03T00:00:00+00:00", commit=False) == 2
+    assert factory.release_inventory_reservation("invres_1", status="cancelled") == {"status": "released"}
+    assert factory._inventory_uniqueness_conflicts(
+        {"id": "asset_1", "campaign_id": "campaign_1"},
+        uniqueness={"sourceFamilyId": "family_1"},
+        surface="feed_single",
+        cooldown_days=3,
+        account_id="acct_1",
+    ) == [{"assetId": "asset_2"}]
+    assert factory._reservation_adjusted_inventory(
+        [{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],
+        content_surface="feed_single",
+    ) == {"netInventory": 1}
+
+    assert calls == [
+        (
+            "reserve_inventory_asset",
+            ("asset_1",),
+            {
+                "account_id": "acct_1",
+                "surface": "feed_single",
+                "reserved_by": "test",
+                "expires_at": "2026-01-02T00:00:00+00:00",
+                "idempotency_key": "idem_1",
+                "metadata": {"sourceFamilyId": "family_1"},
+                "reuse_cooldown_days": 3,
+                "override_reason": "manual",
+            },
+        ),
+        ("expire_inventory_reservations", (), {"now": "2026-01-03T00:00:00+00:00", "commit": False}),
+        ("release_inventory_reservation", ("invres_1",), {"status": "cancelled"}),
+        (
+            "inventory_uniqueness_conflicts",
+            ({"id": "asset_1", "campaign_id": "campaign_1"},),
+            {
+                "uniqueness": {"sourceFamilyId": "family_1"},
+                "surface": "feed_single",
+                "cooldown_days": 3,
+                "account_id": "acct_1",
+            },
+        ),
+        (
+            "reservation_adjusted_inventory",
+            ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
+            {"content_surface": "feed_single"},
+        ),
     ]
 
 
@@ -3352,6 +3442,93 @@ def test_core_services_delegates_inventory_planning_methods_to_repository() -> N
         ("inventory_limiting_stage", ({"scheduleSafeAssets": 0},), {}),
         ("inventory_loss_by_stage", ({"parentAssets": 1},), {}),
         ("inventory_repair_actions", ({"shortfall": 1},), {}),
+    ]
+
+
+def test_core_services_delegates_inventory_reservation_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeInventoryReservations:
+        def reserve_inventory_asset(self, *args, **kwargs):
+            calls.append(("reserve_inventory_asset", args, kwargs))
+            return {"reservation_id": "invres_1"}
+
+        def expire_inventory_reservations(self, *args, **kwargs):
+            calls.append(("expire_inventory_reservations", args, kwargs))
+            return 2
+
+        def release_inventory_reservation(self, *args, **kwargs):
+            calls.append(("release_inventory_reservation", args, kwargs))
+            return {"status": "released"}
+
+        def inventory_uniqueness_conflicts(self, *args, **kwargs):
+            calls.append(("inventory_uniqueness_conflicts", args, kwargs))
+            return [{"assetId": "asset_2"}]
+
+        def reservation_adjusted_inventory(self, *args, **kwargs):
+            calls.append(("reservation_adjusted_inventory", args, kwargs))
+            return {"netInventory": 1}
+
+    services.inventory_reservations = FakeInventoryReservations()
+
+    assert services.reserve_inventory_asset(
+        "asset_1",
+        account_id="acct_1",
+        surface="feed_single",
+        reserved_by="test",
+        expires_at="2026-01-02T00:00:00+00:00",
+        idempotency_key="idem_1",
+        metadata={"sourceFamilyId": "family_1"},
+        reuse_cooldown_days=3,
+        override_reason="manual",
+    ) == {"reservation_id": "invres_1"}
+    assert services.expire_inventory_reservations(now="2026-01-03T00:00:00+00:00", commit=False) == 2
+    assert services.release_inventory_reservation("invres_1", status="cancelled") == {"status": "released"}
+    assert services.inventory_uniqueness_conflicts(
+        {"id": "asset_1", "campaign_id": "campaign_1"},
+        uniqueness={"sourceFamilyId": "family_1"},
+        surface="feed_single",
+        cooldown_days=3,
+        account_id="acct_1",
+    ) == [{"assetId": "asset_2"}]
+    assert services.reservation_adjusted_inventory(
+        [{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],
+        content_surface="feed_single",
+    ) == {"netInventory": 1}
+
+    assert calls == [
+        (
+            "reserve_inventory_asset",
+            ("asset_1",),
+            {
+                "account_id": "acct_1",
+                "surface": "feed_single",
+                "reserved_by": "test",
+                "expires_at": "2026-01-02T00:00:00+00:00",
+                "idempotency_key": "idem_1",
+                "metadata": {"sourceFamilyId": "family_1"},
+                "reuse_cooldown_days": 3,
+                "override_reason": "manual",
+            },
+        ),
+        ("expire_inventory_reservations", (), {"now": "2026-01-03T00:00:00+00:00", "commit": False}),
+        ("release_inventory_reservation", ("invres_1",), {"status": "cancelled"}),
+        (
+            "inventory_uniqueness_conflicts",
+            ({"id": "asset_1", "campaign_id": "campaign_1"},),
+            {
+                "uniqueness": {"sourceFamilyId": "family_1"},
+                "surface": "feed_single",
+                "cooldown_days": 3,
+                "account_id": "acct_1",
+            },
+        ),
+        (
+            "reservation_adjusted_inventory",
+            ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
+            {"content_surface": "feed_single"},
+        ),
     ]
 
 
