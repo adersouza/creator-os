@@ -15,6 +15,7 @@ from .carousel_integrity import CarouselIntegrityRepository
 from .campaign_overview import CampaignOverviewRepository
 from .certification import CertificationRepository
 from .config import Settings
+from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .core_complexity import CoreComplexityRepository
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
@@ -661,6 +662,16 @@ class CoreServices:
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
+        )
+        self.contentforge_visual_qc = ContentForgeVisualQCRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            schedule_safe_production_assets=self.schedule_safe_production.schedule_safe_production_assets,
+            schedule_safe_is_variant_asset=self.schedule_safe_production.schedule_safe_is_variant_asset,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            explain_publishability=explain_publishability,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -2007,6 +2018,56 @@ class CoreServices:
 
     def fresh_reel_execution_batches(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.fresh_reel_production.fresh_reel_execution_batches(**kwargs)
+
+    def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)
+
+    def contentforge_visual_qc_waterfall(self, **kwargs: Any) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_waterfall(**kwargs)
+
+    def contentforge_visual_qc_loss_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_loss_analysis(**kwargs)
+
+    def contentforge_visual_qc_repair_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_repair_plan(**kwargs)
+
+    def contentforge_visual_qc_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_master_report(**kwargs)
+
+    def contentforge_visual_qc_failure_for_asset(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_for_asset(asset, surface)
+
+    def contentforge_visual_qc_failure_category(
+        self,
+        asset: dict[str, Any],
+        blockers: list[str],
+        readiness: dict[str, Any],
+        publishability: dict[str, Any],
+    ) -> str:
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_category(asset, blockers, readiness, publishability)
+
+    def contentforge_non_visual_gates_pass(
+        self,
+        checks: dict[str, Any],
+        readiness: dict[str, Any],
+        publishability: dict[str, Any],
+        non_visual_blockers: list[str],
+    ) -> bool:
+        return self.contentforge_visual_qc.contentforge_non_visual_gates_pass(
+            checks,
+            readiness,
+            publishability,
+            non_visual_blockers,
+        )
+
+    def contentforge_visual_qc_category_rows(self, failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_category_rows(failures)
+
+    def contentforge_visual_qc_recovered_inventory(self, failures: list[dict[str, Any]], categories: list[str]) -> int:
+        return self.contentforge_visual_qc.contentforge_visual_qc_recovered_inventory(failures, categories)
+
+    def contentforge_visual_qc_answer(self, top: dict[str, Any], total_failures: int) -> str:
+        return self.contentforge_visual_qc.contentforge_visual_qc_answer(top, total_failures)
 
     def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
