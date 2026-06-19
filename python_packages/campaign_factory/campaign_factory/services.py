@@ -16,6 +16,7 @@ from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
 from .discoverability import DiscoverabilityRepository
 from .distribution import DistributionRepository
+from .daily_plan import DailyPlanRepository
 from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
 from .exceptions import ExceptionRepository
@@ -75,6 +76,22 @@ class CoreServices:
         creator_os_draft_exclusion_reason: Callable[[dict[str, Any]], str | None],
         creator_os_execution_draft_blockers: Callable[[str, list[dict[str, Any]]], list[str]],
         creator_os_gap_blocking_reason: Callable[[str | None, list[str], dict[str, Any]], str],
+        creator_os_account_health_report: Callable[..., dict[str, Any]],
+        creator_os_account_health_decision: Callable[..., dict[str, Any]],
+        creator_os_tier_posting_guidance: Callable[[str], dict[str, Any]],
+        creator_os_account_surface_status: Callable[..., dict[str, Any]],
+        creator_os_draft_has_instagram_post_caption: Callable[[dict[str, Any]], bool],
+        creator_os_post_time: Callable[[Any], str | None],
+        creator_os_recommended_post_count: Callable[[str, bool], int],
+        creator_os_account_tier_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        creator_os_account_health_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        creator_os_surface_summary_for_creator: Callable[..., dict[str, Any]],
+        creator_os_inventory_for_creator: Callable[..., dict[str, Any]],
+        creator_os_draft_exclusion_counts: Callable[[str, list[dict[str, Any]]], dict[str, int]],
+        creator_os_winner_recommendations: Callable[..., list[dict[str, Any]]],
+        creator_os_manager_decision: Callable[..., dict[str, Any]],
+        creator_os_blocked_account_breakdown: Callable[[list[dict[str, Any]]], dict[str, int]],
+        creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
@@ -380,6 +397,33 @@ class CoreServices:
             creator_os_gap_blocking_reason=creator_os_gap_blocking_reason,
             utc_now=utc_now,
         )
+        self.daily_plan = DailyPlanRepository(
+            conn,
+            creator_label=creator_label,
+            creator_os_target_date=creator_os_target_date,
+            creator_os_draft_items=creator_os_draft_items,
+            creator_os_account_health_report=creator_os_account_health_report,
+            creator_os_account_health_decision=creator_os_account_health_decision,
+            creator_os_tier_posting_guidance=creator_os_tier_posting_guidance,
+            creator_os_account_surface_status=creator_os_account_surface_status,
+            creator_os_draft_exclusion_reason=creator_os_draft_exclusion_reason,
+            creator_os_draft_has_instagram_post_caption=creator_os_draft_has_instagram_post_caption,
+            creator_os_post_time=creator_os_post_time,
+            creator_os_recommended_post_count=creator_os_recommended_post_count,
+            creator_os_account_tier_summary=creator_os_account_tier_summary,
+            creator_os_account_health_summary=creator_os_account_health_summary,
+            creator_os_surface_summary_for_creator=creator_os_surface_summary_for_creator,
+            creator_os_inventory_for_creator=creator_os_inventory_for_creator,
+            creator_os_draft_exclusion_counts=creator_os_draft_exclusion_counts,
+            creator_os_winner_recommendations=creator_os_winner_recommendations,
+            creator_os_manager_decision=creator_os_manager_decision,
+            creator_os_blocked_account_breakdown=creator_os_blocked_account_breakdown,
+            recommended_story_intent_for_date=recommended_story_intent_for_date,
+            creator_os_recommended_inventory=creator_os_recommended_inventory,
+            recommended_story_style_for_intent=recommended_story_style_for_intent,
+            creator_os_draft_inventory_gap=self.draft_inventory_gap.creator_os_draft_inventory_gap,
+            utc_now=utc_now,
+        )
         self.surface_registration = SurfaceRegistrationRepository(
             conn,
             slugify=slugify,
@@ -565,6 +609,31 @@ class CoreServices:
             threadsdash_report=threadsdash_report,
             schedule_plan=schedule_plan,
             time_plan=time_plan,
+            generated_at=generated_at,
+        )
+
+    def creator_os_daily_plan(
+        self,
+        *,
+        creators: list[str] | None = None,
+        threadsdash_report: dict[str, Any] | None = None,
+        schedule_plan: dict[str, Any] | None = None,
+        time_plan: dict[str, Any] | None = None,
+        winner_expansion_report: dict[str, Any] | None = None,
+        winner_expansion_plan: dict[str, Any] | None = None,
+        variant_metrics_rollup: dict[str, Any] | None = None,
+        date: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.daily_plan.creator_os_daily_plan(
+            creators=creators,
+            threadsdash_report=threadsdash_report,
+            schedule_plan=schedule_plan,
+            time_plan=time_plan,
+            winner_expansion_report=winner_expansion_report,
+            winner_expansion_plan=winner_expansion_plan,
+            variant_metrics_rollup=variant_metrics_rollup,
+            date=date,
             generated_at=generated_at,
         )
 
