@@ -7,6 +7,7 @@ from .asset_import import AssetImportRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
 from .config import Settings
+from .creative_knowledge import CreativeKnowledgeRepository
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
 from .discoverability import DiscoverabilityRepository
@@ -57,6 +58,7 @@ class CoreServices:
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
+        build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
@@ -260,6 +262,12 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             concept_for_parent_asset=concept_for_parent_asset,
             explain_publishability=explain_publishability,
+        )
+        self.creative_knowledge = CreativeKnowledgeRepository(
+            conn,
+            slugify=slugify,
+            creator_label=creator_label,
+            build_creative_knowledge_base=build_creative_knowledge_base,
         )
 
     def ensure_graph_node(
@@ -1177,6 +1185,115 @@ class CoreServices:
 
     def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
         return self.winner_expansion.variant_asset_payload(row)
+
+    def winner_registry(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_registry(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def concept_registry(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.concept_registry(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_patterns(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_patterns(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_knowledge_base(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        min_views: int = 1000,
+        min_reach: int | None = None,
+        min_followers: int = 1,
+    ) -> dict[str, Any]:
+        return self.creative_knowledge.winner_knowledge_base(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_memory_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
+        return self.creative_knowledge.winner_memory_rows(creator=creator, campaign_slug=campaign_slug)
+
+    def winner_memory_item(
+        self,
+        row: dict[str, Any],
+        *,
+        min_views: int,
+        min_reach: int,
+        min_followers: int,
+    ) -> dict[str, Any] | None:
+        return self.creative_knowledge.winner_memory_item(
+            row,
+            min_views=min_views,
+            min_reach=min_reach,
+            min_followers=min_followers,
+        )
+
+    def winner_concept_name(self, row: dict[str, Any]) -> str:
+        return self.creative_knowledge.winner_concept_name(row)
+
+    def posting_window_label(self, published_at: Any) -> str:
+        return self.creative_knowledge.posting_window_label(published_at)
+
+    def winner_pattern_group(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        key_field: str,
+        label_field: str | None,
+        output_key: str,
+        output_label: str | None,
+    ) -> list[dict[str, Any]]:
+        return self.creative_knowledge.winner_pattern_group(
+            items,
+            key_field=key_field,
+            label_field=label_field,
+            output_key=output_key,
+            output_label=output_label,
+        )
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
