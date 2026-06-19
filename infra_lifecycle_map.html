@@ -135,7 +135,7 @@
 </main>
 <script>
 const DOMAINS=[
-  {id:'seam',name:'⭐ Cross-repo seam',now:6.5,ceil:9.5,cap:'No idempotency key on the boundary; media-URL hydration only on the dead legacy path; failed write can read as success; backward sync manual + uncontracted.'},
+  {id:'seam',name:'⭐ Cross-repo seam',now:7.0,ceil:9.5,cap:'Idempotent ingest and media URL boundary are enforced; failed write can no longer read as success. Remaining caps: backward sync manual + uncontracted, schema validators can drift.'},
   {id:'crons',name:'Vercel crons (26)',now:7.5,ceil:9.5,cap:'Strong self-healing + lock hygiene already. Caps: publish-worker/scheduler */5 overlap, no max-recovery-count, overdue-IG dead-ends to draft, reconcile-daily timeout, no hard budget cap.'},
   {id:'backend',name:'Vercel backend (~130)',now:7.0,ceil:9.5,cap:'Good auth + error taxonomy. Caps: cross-reply 200-masking, manual-publish timeout, IG-webhook fallback [verify], IG-container TTL [verify], stale-token retention, override-token TTL.'},
   {id:'schema',name:'Supabase schema (206 tbl)',now:7.0,ceil:9.5,cap:'Tenant isolation + hot-path indexing already correct. Caps: posts/post_metric_history over-indexing, 29 unindexed FKs, 195 unused indexes, posts lease in flux, 6 out-of-band tables.'},
@@ -152,7 +152,7 @@ document.getElementById('domGrid').innerHTML=DOMAINS.map(d=>`
 // findings: sev HIGH|MED|LOW|POS ; tid = fix-track id in INFRA_HARDENING_PROMPT.md
 const F={
  seam:[
-  {sev:'HIGH',t:'HTTP ingest never hydrates media URLs — assumes media already remote',ev:'threadsdash.py:82,556 · hydration only in _write_supabase (legacy) :1087/1112',d:'Drafts can land in <b>posts</b> with empty <code>media_urls</code>, failing only at async IG publish. Boundary-assert remote URLs on both sides.',tid:'A3'},
+  {sev:'DONE',t:'HTTP ingest rejects unresolved or local media URLs before write',ev:'A3 landed: creator-os pre-POST remote media guard · TD ingest remote media guard',d:'Campaign Factory exports now require each media item to resolve to an <code>http(s)</code> URL before dashboard ingest. ThreadsDashboard rejects missing/local media URLs again at the ingest boundary, so drafts cannot land with empty media and fail later at async IG publish.',tid:'A3'},
   {sev:'DONE',t:'2xx-with-empty-postIds no longer records a successful export',ev:'A2 landed: bounded POST retry · empty postIds treated as retriable · read-back by post key before export success',d:'Dashboard ingest success now has to produce post IDs or reconcile rows by Campaign Factory post key. If TD validates but fails to write, creator-os records a failure and leaves <code>threadsdash_exports</code> untouched.',tid:'A2'},
   {sev:'DONE',t:'Duplicate-post race on campaign_factory_post_key — closed by DB idempotency',ev:'A1 landed: unique partial index on posts.campaign_factory_post_key · TD unique-violation noop · creator-os X-Idempotency-Key',d:'Concurrent/retried Campaign Factory draft ingest now has a database-backed idempotency boundary. One writer creates the post; racing writers return the existing post id instead of creating duplicates or surfacing a 500.',tid:'A1'},
   {sev:'MED',t:'Forward contract enforced by two hand-rolled validators that can drift',ev:'draftIngest.ts:382–524 · schema vendored in 5+ copies',d:'TD adds 10+ imperative checks not in the shared JSON schema. Same drift TRACK9 PR-1 codegen targets — the seam is the strongest case for it.',tid:'A5'},

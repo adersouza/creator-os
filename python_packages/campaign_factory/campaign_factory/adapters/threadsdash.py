@@ -263,7 +263,11 @@ def _variant_assignment_for_destination(
     return assignment
 
 
-def _campaign_factory_manifest_blockers(payload: dict[str, Any]) -> list[str]:
+def _campaign_factory_manifest_blockers(
+    payload: dict[str, Any],
+    *,
+    require_remote_media_urls: bool = False,
+) -> list[str]:
     blockers: list[str] = []
     for idx, draft in enumerate(payload.get("drafts") or []):
         meta = ((draft.get("metadata") or {}).get("campaign_factory") or {}) if isinstance(draft.get("metadata"), dict) else {}
@@ -350,7 +354,57 @@ def _campaign_factory_manifest_blockers(payload: dict[str, Any]) -> list[str]:
             blockers.append(f"{rendered_asset_id}:handoff_manifest.instagram_post_caption_hash_mismatch")
         if meta.get("quarantined"):
             blockers.append(f"{rendered_asset_id}:quarantined_asset")
+        if require_remote_media_urls:
+            blockers.extend(_remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id))
     return sorted(set(blockers))
+
+
+def _is_remote_media_url(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    parsed = urlparse(value.strip())
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _media_item_url(item: Any) -> str | None:
+    if isinstance(item, str):
+        return item.strip() or None
+    if not isinstance(item, dict):
+        return None
+    for key in ("url", "publicUrl", "public_url", "file_url", "storage_url"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _remote_media_url_blockers(draft: dict[str, Any], *, rendered_asset_id: str) -> list[str]:
+    metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
+    meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
+    manifest = meta.get("handoff_manifest") if isinstance(meta.get("handoff_manifest"), dict) else {}
+    draft_media = draft.get("media") if isinstance(draft.get("media"), list) else []
+    draft_media_items = draft.get("mediaItems") if isinstance(draft.get("mediaItems"), list) else []
+    draft_media_urls = draft.get("media_urls") if isinstance(draft.get("media_urls"), list) else []
+    manifest_media_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
+    manifest_media_items = manifest_media_items or (manifest.get("media_items") if isinstance(manifest.get("media_items"), list) else [])
+    groups = [draft_media, draft_media_items, draft_media_urls, manifest_media_items]
+    expected_count = max((len(group) for group in groups), default=0)
+    if expected_count == 0:
+        return [f"{rendered_asset_id}:media_remote_url_missing"]
+
+    blockers: list[str] = []
+    for index in range(expected_count):
+        candidates = [
+            _media_item_url(group[index])
+            for group in groups
+            if index < len(group)
+        ]
+        if not any(_is_remote_media_url(url) for url in candidates if url):
+            blockers.append(f"{rendered_asset_id}:media_item_{index}_remote_url_missing")
+        for url in candidates:
+            if url and not _is_remote_media_url(url):
+                blockers.append(f"{rendered_asset_id}:media_item_{index}_url_not_remote")
+    return blockers
 
 
 def _draft_destinations_for_asset(
@@ -508,7 +562,15 @@ def export_threadsdash(
         ]
         if not dry_run and publishability_blockers:
             raise ValueError(f"export blocked by publishability: {', '.join(publishability_blockers)}")
-        manifest_blockers = _campaign_factory_manifest_blockers(payload)
+        uses_dashboard_ingest = (
+            not dry_run
+            and not _legacy_supabase_writes_enabled()
+            and normalized_schedule_mode == "draft"
+        )
+        manifest_blockers = _campaign_factory_manifest_blockers(
+            payload,
+            require_remote_media_urls=uses_dashboard_ingest,
+        )
         if not dry_run and manifest_blockers:
             raise ValueError(f"export blocked by handoff manifest: {', '.join(manifest_blockers)}")
         if not dry_run and writes_non_draft_rows and not readiness["liveExportAllowed"]:
