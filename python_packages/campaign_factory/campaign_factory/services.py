@@ -34,6 +34,7 @@ from .inventory_planning import InventoryPlanningRepository
 from .inventory_perceptual import InventoryPerceptualRepository
 from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
+from .lifecycle_reporting import LifecycleReportingRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .make_batch import MakeBatchRepository
@@ -915,6 +916,17 @@ class CoreServices:
             reservation_adjusted_inventory=self.inventory_reservations.reservation_adjusted_inventory,
             exception_queue_report=exception_queue_report,
         )
+        self.lifecycle_reporting = LifecycleReportingRepository(
+            conn,
+            campaign_by_slug=self.campaign_by_slug,
+            dashboard=dashboard,
+            jobs_for_campaign=self.events.jobs_for_campaign,
+            distribution_plans_for_campaign=self.distribution.distribution_plans_for_campaign,
+            assignments_for_campaign=self.campaign_overview.assignments_for_campaign,
+            performance_snapshot_payload=performance_snapshot_payload,
+            active_quarantine_for_asset=active_quarantine_for_asset,
+            utc_now=utc_now,
+        )
         self.certification = CertificationRepository(
             conn,
             creator_os_live_100_account_readiness=self.live_scale.creator_os_live_100_account_readiness,
@@ -1018,6 +1030,72 @@ class CoreServices:
 
     def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
         return self.events.jobs_for_campaign(campaign_slug, limit=limit)
+
+    def campaign_readiness(self, campaign_slug: str, **kwargs: Any) -> dict[str, Any]:
+        return self.lifecycle_reporting.campaign_readiness(campaign_slug, **kwargs)
+
+    def lifecycle_report(self, campaign_slug: str, **kwargs: Any) -> dict[str, Any]:
+        return self.lifecycle_reporting.lifecycle_report(campaign_slug, **kwargs)
+
+    def creator_os_lifecycle_dashboard(self, **kwargs: Any) -> dict[str, Any]:
+        return self.lifecycle_reporting.creator_os_lifecycle_dashboard(**kwargs)
+
+    def creator_os_lifecycle_bucket(self, row: dict[str, Any]) -> str:
+        return self.lifecycle_reporting.creator_os_lifecycle_bucket(row)
+
+    def lifecycle_snapshots_by_asset(self, campaign_id: str) -> dict[str, list[dict[str, Any]]]:
+        return self.lifecycle_reporting.lifecycle_snapshots_by_asset(campaign_id)
+
+    def lifecycle_threadsdash_indexes(self, **kwargs: Any) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], dict[str, Any]]:
+        return self.lifecycle_reporting.lifecycle_threadsdash_indexes(**kwargs)
+
+    def lifecycle_row(self, **kwargs: Any) -> dict[str, Any]:
+        return self.lifecycle_reporting.lifecycle_row(**kwargs)
+
+    def derive_lifecycle_state(self, **kwargs: Any) -> tuple[str, str | None, str]:
+        return self.lifecycle_reporting.derive_lifecycle_state(**kwargs)
+
+    def lifecycle_blocking_reason(self, blocking: list[Any]) -> str:
+        return self.lifecycle_reporting.lifecycle_blocking_reason(blocking)
+
+    def lifecycle_media_validation_issue(self, **kwargs: Any) -> dict[str, Any] | None:
+        return self.lifecycle_reporting.lifecycle_media_validation_issue(**kwargs)
+
+    def latest_lifecycle_post(self, posts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return self.lifecycle_reporting.latest_lifecycle_post(posts)
+
+    def lifecycle_snapshot_has_metrics(self, snapshot: dict[str, Any]) -> bool:
+        return self.lifecycle_reporting.lifecycle_snapshot_has_metrics(snapshot)
+
+    def lifecycle_is_past_due(self, scheduled_for: Any) -> bool:
+        return self.lifecycle_reporting.lifecycle_is_past_due(scheduled_for)
+
+    def lifecycle_past_due_resolved(self, post: dict[str, Any] | None) -> bool:
+        return self.lifecycle_reporting.lifecycle_past_due_resolved(post)
+
+    def lifecycle_last_state_change(self, **kwargs: Any) -> str | None:
+        return self.lifecycle_reporting.lifecycle_last_state_change(**kwargs)
+
+    def parse_lifecycle_time(self, value: Any) -> Any:
+        return self.lifecycle_reporting.parse_lifecycle_time(value)
+
+    def lifecycle_mismatch(self, **kwargs: Any) -> dict[str, Any]:
+        return self.lifecycle_reporting.lifecycle_mismatch(**kwargs)
+
+    def lifecycle_post_meta(self, post: dict[str, Any]) -> dict[str, Any]:
+        return self.lifecycle_reporting.lifecycle_post_meta(post)
+
+    def lifecycle_fingerprint(self, value: Any) -> str:
+        return self.lifecycle_reporting.lifecycle_fingerprint(value)
+
+    def canonical_lifecycle_context(self, value: Any) -> Any:
+        return self.lifecycle_reporting.canonical_lifecycle_context(value)
+
+    def compact_lifecycle_post(self, post: dict[str, Any] | None) -> dict[str, Any] | None:
+        return self.lifecycle_reporting.compact_lifecycle_post(post)
+
+    def compact_lifecycle_snapshot(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+        return self.lifecycle_reporting.compact_lifecycle_snapshot(snapshot)
 
     def creator_os_draft_inventory_gap(
         self,
