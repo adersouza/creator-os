@@ -3622,6 +3622,38 @@ def test_carousel_integrity_facade_delegates_to_core_services() -> None:
             calls.append(("carousel_meta_child_payload_preview", args, kwargs))
             return {"children": []}
 
+        def carousel_certification_proof(self, *args, **kwargs):
+            calls.append(("carousel_certification_proof", args, kwargs))
+            return {"schema": "creator_os.carousel_certification_proof.v1"}
+
+        def certification_asset_for_surface(self, *args, **kwargs):
+            calls.append(("certification_asset_for_surface", args, kwargs))
+            return {"id": "asset_carousel"}
+
+        def latest_proof_run_for_asset(self, *args, **kwargs):
+            calls.append(("latest_proof_run_for_asset", args, kwargs))
+            return {"id": "proof_carousel"}
+
+        def latest_surface_metric_for_asset(self, *args, **kwargs):
+            calls.append(("latest_surface_metric_for_asset", args, kwargs))
+            return {"id": "metric_carousel"}
+
+        def empty_surface_certification_audit(self, *args, **kwargs):
+            calls.append(("empty_surface_certification_audit", args, kwargs))
+            return {"contentSurface": args[0]}
+
+        def surface_certification_audit(self, *args, **kwargs):
+            calls.append(("surface_certification_audit", args, kwargs))
+            return {"contentSurface": kwargs["asset"]["content_surface"]}
+
+        def carousel_production_readiness(self, *args, **kwargs):
+            calls.append(("carousel_production_readiness", args, kwargs))
+            return {"schema": "creator_os.carousel_production_readiness.v1"}
+
+        def carousel_proof_gap_analysis(self, *args, **kwargs):
+            calls.append(("carousel_proof_gap_analysis", args, kwargs))
+            return {"schema": "creator_os.carousel_proof_gap_analysis.v1"}
+
     factory.services = FakeServices()
 
     assert factory.carousel_integrity_report(
@@ -3651,6 +3683,25 @@ def test_carousel_integrity_facade_delegates_to_core_services() -> None:
         draft={},
         components=[],
     ) == {"children": []}
+    assert factory.carousel_certification_proof(rendered_asset_id="asset_carousel") == {
+        "schema": "creator_os.carousel_certification_proof.v1",
+    }
+    assert factory._certification_asset_for_surface("feed_carousel", rendered_asset_id="asset_carousel") == {
+        "id": "asset_carousel",
+    }
+    assert factory._latest_proof_run_for_asset("asset_carousel") == {"id": "proof_carousel"}
+    assert factory._latest_surface_metric_for_asset("asset_carousel", "feed_carousel") == {"id": "metric_carousel"}
+    assert factory._empty_surface_certification_audit("feed_carousel") == {"contentSurface": "feed_carousel"}
+    assert factory._surface_certification_audit(
+        asset={"content_surface": "feed_carousel"},
+        readiness={},
+        draft_payload={},
+        proof_run=None,
+        metrics=None,
+        carousel_integrity={},
+    ) == {"contentSurface": "feed_carousel"}
+    assert factory.carousel_production_readiness() == {"schema": "creator_os.carousel_production_readiness.v1"}
+    assert factory.carousel_proof_gap_analysis() == {"schema": "creator_os.carousel_proof_gap_analysis.v1"}
 
     assert calls == [
         ("carousel_integrity_report", (), {
@@ -3678,6 +3729,21 @@ def test_carousel_integrity_facade_delegates_to_core_services() -> None:
             "draft": {},
             "components": [],
         }),
+        ("carousel_certification_proof", (), {"rendered_asset_id": "asset_carousel"}),
+        ("certification_asset_for_surface", ("feed_carousel",), {"rendered_asset_id": "asset_carousel"}),
+        ("latest_proof_run_for_asset", ("asset_carousel",), {}),
+        ("latest_surface_metric_for_asset", ("asset_carousel", "feed_carousel"), {}),
+        ("empty_surface_certification_audit", ("feed_carousel",), {}),
+        ("surface_certification_audit", (), {
+            "asset": {"content_surface": "feed_carousel"},
+            "readiness": {},
+            "draft_payload": {},
+            "proof_run": None,
+            "metrics": None,
+            "carousel_integrity": {},
+        }),
+        ("carousel_production_readiness", (), {}),
+        ("carousel_proof_gap_analysis", (), {}),
     ]
 
 
@@ -3722,6 +3788,38 @@ def test_core_services_delegates_carousel_integrity_methods_to_repository() -> N
             calls.append(("carousel_meta_child_payload_preview", args, kwargs))
             return {"children": []}
 
+        def carousel_certification_proof(self, *args, **kwargs):
+            calls.append(("carousel_certification_proof", args, kwargs))
+            return {"schema": "creator_os.carousel_certification_proof.v1"}
+
+        def certification_asset_for_surface(self, *args, **kwargs):
+            calls.append(("certification_asset_for_surface", args, kwargs))
+            return {"id": "asset_carousel"}
+
+        def latest_proof_run_for_asset(self, *args, **kwargs):
+            calls.append(("latest_proof_run_for_asset", args, kwargs))
+            return {"id": "proof_carousel"}
+
+        def latest_surface_metric_for_asset(self, *args, **kwargs):
+            calls.append(("latest_surface_metric_for_asset", args, kwargs))
+            return {"id": "metric_carousel"}
+
+        def empty_surface_certification_audit(self, *args, **kwargs):
+            calls.append(("empty_surface_certification_audit", args, kwargs))
+            return {"contentSurface": args[0]}
+
+        def surface_certification_audit(self, *args, **kwargs):
+            calls.append(("surface_certification_audit", args, kwargs))
+            return {"contentSurface": kwargs["asset"]["content_surface"]}
+
+        def carousel_production_readiness(self, *args, **kwargs):
+            calls.append(("carousel_production_readiness", args, kwargs))
+            return {"schema": "creator_os.carousel_production_readiness.v1"}
+
+        def carousel_proof_gap_analysis(self, *args, **kwargs):
+            calls.append(("carousel_proof_gap_analysis", args, kwargs))
+            return {"schema": "creator_os.carousel_proof_gap_analysis.v1"}
+
     services.carousel_integrity = FakeCarouselIntegrity()
 
     assert services.carousel_integrity_report(
@@ -3751,6 +3849,25 @@ def test_core_services_delegates_carousel_integrity_methods_to_repository() -> N
         draft={},
         components=[],
     ) == {"children": []}
+    assert services.carousel_certification_proof(rendered_asset_id="asset_carousel") == {
+        "schema": "creator_os.carousel_certification_proof.v1",
+    }
+    assert services.certification_asset_for_surface("feed_carousel", rendered_asset_id="asset_carousel") == {
+        "id": "asset_carousel",
+    }
+    assert services.latest_proof_run_for_asset("asset_carousel") == {"id": "proof_carousel"}
+    assert services.latest_surface_metric_for_asset("asset_carousel", "feed_carousel") == {"id": "metric_carousel"}
+    assert services.empty_surface_certification_audit("feed_carousel") == {"contentSurface": "feed_carousel"}
+    assert services.surface_certification_audit(
+        asset={"content_surface": "feed_carousel"},
+        readiness={},
+        draft_payload={},
+        proof_run=None,
+        metrics=None,
+        carousel_integrity={},
+    ) == {"contentSurface": "feed_carousel"}
+    assert services.carousel_production_readiness() == {"schema": "creator_os.carousel_production_readiness.v1"}
+    assert services.carousel_proof_gap_analysis() == {"schema": "creator_os.carousel_proof_gap_analysis.v1"}
 
     assert calls == [
         ("carousel_integrity_report", (), {
@@ -3778,6 +3895,21 @@ def test_core_services_delegates_carousel_integrity_methods_to_repository() -> N
             "draft": {},
             "components": [],
         }),
+        ("carousel_certification_proof", (), {"rendered_asset_id": "asset_carousel"}),
+        ("certification_asset_for_surface", ("feed_carousel",), {"rendered_asset_id": "asset_carousel"}),
+        ("latest_proof_run_for_asset", ("asset_carousel",), {}),
+        ("latest_surface_metric_for_asset", ("asset_carousel", "feed_carousel"), {}),
+        ("empty_surface_certification_audit", ("feed_carousel",), {}),
+        ("surface_certification_audit", (), {
+            "asset": {"content_surface": "feed_carousel"},
+            "readiness": {},
+            "draft_payload": {},
+            "proof_run": None,
+            "metrics": None,
+            "carousel_integrity": {},
+        }),
+        ("carousel_production_readiness", (), {}),
+        ("carousel_proof_gap_analysis", (), {}),
     ]
 
 

@@ -626,7 +626,6 @@ class CampaignFactory:
             exception_queue_report=self.exception_queue_report,
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             parent_factory_production_scorecard=self.parent_factory_production_scorecard,
-            carousel_certification_proof=self.carousel_certification_proof,
             account_content_needs=self.account_content_needs,
             creator_content_needs=self.creator_content_needs,
             account_surface_obligations_plan=self.account_surface_obligations_plan,
@@ -7679,137 +7678,19 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return self.services.story_certification_proof(rendered_asset_id=rendered_asset_id)
 
     def carousel_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
-        asset = self._certification_asset_for_surface("feed_carousel", rendered_asset_id=rendered_asset_id)
-        blockers: list[str] = []
-        if not asset:
-            blockers.append("carousel_asset_missing")
-            return {
-                "schema": "creator_os.carousel_certification_proof.v1",
-                "carouselCreated": False,
-                "carouselValidated": False,
-                "carouselPublished": False,
-                "slideOrderPreserved": False,
-                "slideHashesPreserved": False,
-                "parentMetricsImported": False,
-                "lifecycleReconciled": False,
-                "status": "blocked",
-                "blockers": blockers,
-                "audit": self._empty_surface_certification_audit("feed_carousel"),
-                "wouldWrite": False,
-            }
-        readiness = self._surface_handoff_readiness_for_asset(asset)
-        draft = self.surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
-            campaign=asset.get("campaign_slug"),
-            rendered_asset_id=asset["id"],
-        )
-        draft_payload = draft["drafts"][0] if draft.get("drafts") else {}
-        integrity = self._carousel_integrity_for_asset(asset)
-        proof_run = self._latest_proof_run_for_asset(asset["id"])
-        metrics = self._latest_surface_metric_for_asset(asset["id"], "feed_carousel")
-        created = normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "feed_carousel"
-        validated = bool(readiness.get("canHandoff") and draft.get("canProduceDraftPayload") and integrity.get("overallIntegrityPassed"))
-        published = bool(
-            metrics
-            or (proof_run and proof_run.get("threadsdash_post_id") and str(proof_run.get("current_state") or "").lower() in {"published", "metrics_imported", "complete", "completed"})
-        )
-        boundaries = integrity.get("boundaries") if isinstance(integrity.get("boundaries"), list) else []
-        slide_order = bool(boundaries and all(boundary.get("slideOrderPreserved") for boundary in boundaries))
-        slide_hashes = bool(boundaries and all(boundary.get("componentHashesMatch") for boundary in boundaries))
-        metrics_imported = bool(metrics)
-        if not validated:
-            blockers.append("carousel_validation_failed")
-            blockers.extend(str(reason) for reason in readiness.get("blockingReasons") or [])
-        if not published:
-            blockers.append("carousel_publish_evidence_missing")
-        if not slide_order:
-            blockers.append("carousel_slide_order_not_certified")
-        if not slide_hashes:
-            blockers.append("carousel_slide_hashes_not_certified")
-        if not metrics_imported:
-            blockers.append("carousel_parent_metrics_evidence_missing")
-        lifecycle = bool(created and validated and published and slide_order and slide_hashes and metrics_imported)
-        return {
-            "schema": "creator_os.carousel_certification_proof.v1",
-            "carouselCreated": bool(created),
-            "carouselValidated": bool(validated),
-            "carouselPublished": bool(published),
-            "slideOrderPreserved": slide_order,
-            "slideHashesPreserved": slide_hashes,
-            "parentMetricsImported": metrics_imported,
-            "lifecycleReconciled": lifecycle,
-            "status": "passed" if lifecycle else "blocked",
-            "blockers": sorted(set(blockers)),
-            "audit": self._surface_certification_audit(
-                asset=asset,
-                readiness=readiness,
-                draft_payload=draft_payload,
-                proof_run=proof_run,
-                metrics=metrics,
-                carousel_integrity=integrity,
-            ),
-            "wouldWrite": False,
-        }
+        return self.services.carousel_certification_proof(rendered_asset_id=rendered_asset_id)
 
     def _certification_asset_for_surface(self, surface: str, *, rendered_asset_id: str | None = None) -> dict[str, Any] | None:
-        params: list[Any] = []
-        where = ["COALESCE(r.content_surface, s.content_surface) = ?"]
-        params.append(normalize_content_surface(surface))
-        if rendered_asset_id:
-            where.append("r.id = ?")
-            params.append(rendered_asset_id)
-        query = """
-            SELECT r.*, c.slug AS campaign_slug, s.media_type AS source_media_type,
-                   s.content_surface AS source_content_surface, m.slug AS model_slug, m.name AS model_name
-            FROM rendered_assets r
-            JOIN campaigns c ON c.id = r.campaign_id
-            JOIN source_assets s ON s.id = r.source_asset_id
-            JOIN models m ON m.id = s.model_id
-            WHERE """ + " AND ".join(where) + """
-            ORDER BY
-              EXISTS(SELECT 1 FROM performance_snapshots p WHERE p.rendered_asset_id = r.id AND p.content_surface = COALESCE(r.content_surface, s.content_surface)) DESC,
-              EXISTS(SELECT 1 FROM proof_runs pr WHERE pr.rendered_asset_id = r.id AND pr.threadsdash_post_id IS NOT NULL) DESC,
-              r.created_at DESC,
-              r.id DESC
-            LIMIT 1
-        """
-        row = self.conn.execute(query, params).fetchone()
-        return dict(row) if row else None
+        return self.services.certification_asset_for_surface(surface, rendered_asset_id=rendered_asset_id)
 
     def _latest_proof_run_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            """
-            SELECT * FROM proof_runs
-            WHERE rendered_asset_id = ?
-            ORDER BY COALESCE(completed_at, updated_at, started_at, created_at) DESC, id DESC
-            LIMIT 1
-            """,
-            (rendered_asset_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        return self.services.latest_proof_run_for_asset(rendered_asset_id)
 
     def _latest_surface_metric_for_asset(self, rendered_asset_id: str, surface: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE rendered_asset_id = ? AND content_surface = ?
-            ORDER BY snapshot_at DESC, created_at DESC, id DESC
-            LIMIT 1
-            """,
-            (rendered_asset_id, normalize_content_surface(surface)),
-        ).fetchone()
-        return dict(row) if row else None
+        return self.services.latest_surface_metric_for_asset(rendered_asset_id, surface)
 
     def _empty_surface_certification_audit(self, surface: str) -> dict[str, Any]:
-        return {
-            "contentSurface": normalize_content_surface(surface),
-            "manifestV2": {},
-            "mediaRequirements": {"passed": False},
-            "publishPayload": {},
-            "metricsPayload": {},
-            "lifecycle": {},
-            "wouldWrite": False,
-        }
+        return self.services.empty_surface_certification_audit(surface)
 
     def _surface_certification_audit(
         self,
@@ -7821,53 +7702,14 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         metrics: dict[str, Any] | None,
         carousel_integrity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        metrics_payload = {
-            "postId": metrics.get("post_id"),
-            "contentSurface": metrics.get("content_surface"),
-            "snapshotAt": metrics.get("snapshot_at"),
-            "views": metrics.get("views"),
-            "reach": metrics.get("reach"),
-        } if metrics else {}
-        return {
-            "contentSurface": readiness.get("contentSurface"),
-            "igMediaType": readiness.get("igMediaType"),
-            "manifestV2": {
-                "present": bool(manifest),
-                "contentSurface": manifest.get("contentSurface"),
-                "igMediaType": manifest.get("igMediaType"),
-                "mediaItems": manifest.get("mediaItems") or [],
-            },
-            "mediaRequirements": {
-                "passed": bool(readiness.get("canHandoff")),
-                "blockingReasons": readiness.get("blockingReasons") or [],
-                "mediaType": readiness.get("mediaType"),
-            },
-            "publishPayload": {
-                "present": bool(draft_payload),
-                "contentSurface": draft_payload.get("contentSurface"),
-                "igMediaType": draft_payload.get("igMediaType"),
-                "mediaItems": draft_payload.get("mediaItems") or [],
-                "threadDashCompatible": bool(draft_payload.get("schema") == "threadsdash.surface_draft.preview.v1"),
-            },
-            "metricsPayload": metrics_payload,
-            "lifecycle": {
-                "proofRunId": proof_run.get("id") if proof_run else None,
-                "currentState": proof_run.get("current_state") if proof_run else None,
-                "status": proof_run.get("status") if proof_run else None,
-                "threadsdashDraftId": proof_run.get("threadsdash_draft_id") if proof_run else None,
-                "threadsdashPostId": proof_run.get("threadsdash_post_id") if proof_run else None,
-                "metricsEligible": bool((proof_run or {}).get("metrics_eligible")),
-            },
-            "carouselIntegrity": carousel_integrity or {},
-            "asset": {
-                "assetId": asset.get("id"),
-                "campaign": asset.get("campaign_slug"),
-                "contentHash": asset.get("content_hash"),
-                "captionHash": asset.get("caption_hash"),
-            },
-            "wouldWrite": False,
-        }
+        return self.services.surface_certification_audit(
+            asset=asset,
+            readiness=readiness,
+            draft_payload=draft_payload,
+            proof_run=proof_run,
+            metrics=metrics,
+            carousel_integrity=carousel_integrity,
+        )
 
     def story_production_readiness(self) -> dict[str, Any]:
         return self.services.story_production_readiness()
@@ -7876,25 +7718,10 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return self.services.story_proof_gap_analysis()
 
     def carousel_production_readiness(self) -> dict[str, Any]:
-        scorecard = self.surface_readiness_scorecard()
-        carousel = (scorecard.get("surfaces") or {}).get("feed_carousel", {})
-        return {
-            "schema": "creator_os.carousel_production_readiness.v1",
-            "publishProofMissing": not bool(carousel.get("publishProof")),
-            "metricsProofMissing": not bool(carousel.get("metricsProof")),
-            "blockingContracts": list(carousel.get("blockers") or []),
-            "rating": carousel.get("rating", 0),
-            "wouldWrite": False,
-        }
+        return self.services.carousel_production_readiness()
 
     def carousel_proof_gap_analysis(self) -> dict[str, Any]:
-        readiness = self.carousel_production_readiness()
-        return {
-            **readiness,
-            "schema": "creator_os.carousel_proof_gap_analysis.v1",
-            "nextProofsRequired": ["carousel_publish_proof", "carousel_metrics_proof"] if readiness["publishProofMissing"] or readiness["metricsProofMissing"] else [],
-            "wouldWrite": False,
-        }
+        return self.services.carousel_proof_gap_analysis()
 
     def creator_os_certification_report(self) -> dict[str, Any]:
         return self.services.creator_os_certification_report()

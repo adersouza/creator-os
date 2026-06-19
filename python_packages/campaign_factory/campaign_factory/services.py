@@ -117,7 +117,6 @@ class CoreServices:
         exception_queue_report: Callable[[], dict[str, Any]],
         reel_factory_parent_metrics: Callable[[], dict[str, Any]],
         parent_factory_production_scorecard: Callable[[], dict[str, Any]],
-        carousel_certification_proof: Callable[..., dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -476,6 +475,7 @@ class CoreServices:
             surface_report_assets=surface_report_assets,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             surface_draft_proof=surface_draft_proof,
+            surface_readiness_scorecard=surface_readiness_scorecard,
             asset_components=asset_components,
         )
         self.winner_expansion = WinnerExpansionRepository(
@@ -578,7 +578,7 @@ class CoreServices:
             parent_factory_production_scorecard=parent_factory_production_scorecard,
             discoverability_prevention_scorecard=self.discoverability.discoverability_prevention_scorecard,
             story_certification_proof=self.story_management.story_certification_proof,
-            carousel_certification_proof=carousel_certification_proof,
+            carousel_certification_proof=self.carousel_integrity.carousel_certification_proof,
         )
         self.core_complexity = CoreComplexityRepository(conn, settings)
 
@@ -2072,6 +2072,30 @@ class CoreServices:
         components: list[dict[str, Any]],
     ) -> dict[str, Any]:
         return self.carousel_integrity.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
+
+    def carousel_certification_proof(self, **kwargs: Any) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_certification_proof(**kwargs)
+
+    def certification_asset_for_surface(self, surface: str, *, rendered_asset_id: str | None = None) -> dict[str, Any] | None:
+        return self.carousel_integrity.certification_asset_for_surface(surface, rendered_asset_id=rendered_asset_id)
+
+    def latest_proof_run_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        return self.carousel_integrity.latest_proof_run_for_asset(rendered_asset_id)
+
+    def latest_surface_metric_for_asset(self, rendered_asset_id: str, surface: str) -> dict[str, Any] | None:
+        return self.carousel_integrity.latest_surface_metric_for_asset(rendered_asset_id, surface)
+
+    def empty_surface_certification_audit(self, surface: str) -> dict[str, Any]:
+        return self.carousel_integrity.empty_surface_certification_audit(surface)
+
+    def surface_certification_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self.carousel_integrity.surface_certification_audit(**kwargs)
+
+    def carousel_production_readiness(self) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_production_readiness()
+
+    def carousel_proof_gap_analysis(self) -> dict[str, Any]:
+        return self.carousel_integrity.carousel_proof_gap_analysis()
 
     def winner_expansion_plan(
         self,
