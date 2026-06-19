@@ -28,6 +28,7 @@ from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.finished_video import FinishedVideoRepository
 from campaign_factory.graph import GraphRepository
+from campaign_factory.inventory_planning import InventoryPlanningRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
@@ -148,6 +149,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.recommendations.conn is factory.conn
         assert isinstance(factory.services.archive_quality, ArchiveQualityRepository)
         assert factory.services.archive_quality.conn is factory.conn
+        assert isinstance(factory.services.inventory_planning, InventoryPlanningRepository)
+        assert factory.services.inventory_planning.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
         assert factory.services.campaign_overview.conn is factory.conn
     finally:
@@ -374,6 +377,161 @@ def test_campaign_factory_delegates_surface_inventory_methods_to_services() -> N
     assert calls == [
         ("multi_surface_inventory_audit", (), {"creator": "Stacey", "campaign_slug": "summer"}),
         ("build_surface_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+    ]
+
+
+def test_campaign_factory_delegates_inventory_planning_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    public_calls = [
+        ("inventory_slo_report", {"accounts": 2}),
+        ("inventory_buffer_report", {"accounts": 2}),
+        ("inventory_factory_audit", {"creator": "Stacey"}),
+        ("inventory_yield_analysis", {"campaign_slug": "summer"}),
+        ("inventory_buffer_policy_plan", {"creator": "Stacey", "surface": "reel", "daily_demand": 4}),
+        ("inventory_slo_enforcement_audit", {"creators": ["Stacey"], "accounts": 2}),
+        ("inventory_consumption_simulation", {"available_inventory": 8, "account_tiers": [1, 2]}),
+        ("inventory_production_requirements", {"accounts": 2}),
+        ("road_to_200_accounts", {}),
+        ("inventory_exception_audit", {"execution_readiness": {"blockers": ["missing_audio"]}}),
+        ("inventory_factory_readiness_report", {"accounts": 2, "available_inventory": 8}),
+        ("inventory_factory_master_report", {"accounts": 2, "available_inventory": 8}),
+        ("inventory_autopilot_plan", {"accounts": 2, "available_inventory": 1}),
+        ("inventory_shortage_repair_plan", {"accounts": 2, "available_inventory": 1}),
+        ("inventory_buffer_protection_report", {"accounts": 2, "available_inventory": 1}),
+    ]
+    for method, kwargs in public_calls:
+        assert getattr(factory, method)(**kwargs) == {"method": method}
+
+    assert factory._inventory_slo_surface_targets(8) == {"method": "inventory_slo_surface_targets"}
+    assert factory._inventory_health(current=1, minimum=2) == {"method": "inventory_health"}
+    assert factory._inventory_stage_counts(creator="Stacey") == {"method": "inventory_stage_counts"}
+    assert factory._inventory_count_related("caption_families", "parent_asset_id", {"asset_1"}) == {
+        "method": "inventory_count_related",
+    }
+    assert factory._inventory_limiting_stage({"scheduleSafeAssets": 0}) == {"method": "inventory_limiting_stage"}
+    assert factory._inventory_loss_by_stage({"parentAssets": 1}) == {"method": "inventory_loss_by_stage"}
+    assert factory._inventory_repair_actions({"shortfall": 1}) == {"method": "inventory_repair_actions"}
+
+    assert calls == [
+        (
+            "inventory_slo_report",
+            (),
+            {
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "creators": 3,
+                "minimum_inventory_days": 3,
+                "current_validated_drafts": 0,
+                "current_drafts_by_surface": None,
+            },
+        ),
+        ("inventory_buffer_report", (), {"accounts": 2}),
+        (
+            "inventory_factory_audit",
+            (),
+            {"creator": "Stacey", "campaign_slug": None, "accounts": 200, "posts_per_account_per_day": 3},
+        ),
+        ("inventory_yield_analysis", (), {"creator": None, "campaign_slug": "summer"}),
+        (
+            "inventory_buffer_policy_plan",
+            (),
+            {
+                "creator": "Stacey",
+                "surface": "reel",
+                "daily_demand": 4,
+                "buffer_target_days": 3,
+                "available_inventory": None,
+            },
+        ),
+        (
+            "inventory_slo_enforcement_audit",
+            (),
+            {
+                "creators": ["Stacey"],
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "minimum_inventory_days": 3,
+                "available_by_creator_surface": None,
+            },
+        ),
+        (
+            "inventory_consumption_simulation",
+            (),
+            {"available_inventory": 8, "account_tiers": [1, 2], "posts_per_account_per_day": 3},
+        ),
+        (
+            "inventory_production_requirements",
+            (),
+            {
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "variants_per_parent": 15,
+                "variant_to_validated_yield": 0.85,
+                "validated_to_schedule_safe_yield": 0.90,
+            },
+        ),
+        ("road_to_200_accounts", (), {}),
+        (
+            "inventory_exception_audit",
+            (),
+            {
+                "execution_readiness": {"blockers": ["missing_audio"]},
+                "surface_readiness_report": None,
+                "publishability_report": None,
+            },
+        ),
+        (
+            "inventory_factory_readiness_report",
+            (),
+            {
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "available_inventory": 8,
+                "execution_readiness": None,
+            },
+        ),
+        (
+            "inventory_factory_master_report",
+            (),
+            {
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "available_inventory": 8,
+                "execution_readiness": None,
+            },
+        ),
+        (
+            "inventory_autopilot_plan",
+            (),
+            {
+                "accounts": 2,
+                "posts_per_account_per_day": 3,
+                "available_inventory": 1,
+                "buffer_target_days": 3,
+                "surface": "reel",
+            },
+        ),
+        ("inventory_shortage_repair_plan", (), {"accounts": 2, "available_inventory": 1}),
+        ("inventory_buffer_protection_report", (), {"accounts": 2, "available_inventory": 1}),
+        ("inventory_slo_surface_targets", (8,), {}),
+        ("inventory_health", (), {"current": 1, "minimum": 2}),
+        ("inventory_stage_counts", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("inventory_count_related", ("caption_families", "parent_asset_id", {"asset_1"}), {}),
+        ("inventory_limiting_stage", ({"scheduleSafeAssets": 0},), {}),
+        ("inventory_loss_by_stage", ({"parentAssets": 1},), {}),
+        ("inventory_repair_actions", ({"shortfall": 1},), {}),
     ]
 
 
@@ -3138,6 +3296,62 @@ def test_core_services_delegates_surface_inventory_methods_to_repository() -> No
     assert calls == [
         ("multi_surface_inventory_audit", (), {"creator": "Stacey", "campaign_slug": "summer"}),
         ("build_surface_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
+    ]
+
+
+def test_core_services_delegates_inventory_planning_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeInventoryPlanning:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.inventory_planning = FakeInventoryPlanning()
+
+    public_calls = [
+        ("inventory_slo_report", {"accounts": 2}),
+        ("inventory_buffer_report", {"accounts": 2}),
+        ("inventory_factory_audit", {"creator": "Stacey"}),
+        ("inventory_yield_analysis", {"campaign_slug": "summer"}),
+        ("inventory_buffer_policy_plan", {"creator": "Stacey", "surface": "reel", "daily_demand": 4}),
+        ("inventory_slo_enforcement_audit", {"creators": ["Stacey"], "accounts": 2}),
+        ("inventory_consumption_simulation", {"available_inventory": 8, "account_tiers": [1, 2]}),
+        ("inventory_production_requirements", {"accounts": 2}),
+        ("road_to_200_accounts", {}),
+        ("inventory_exception_audit", {"execution_readiness": {"blockers": ["missing_audio"]}}),
+        ("inventory_factory_readiness_report", {"accounts": 2, "available_inventory": 8}),
+        ("inventory_factory_master_report", {"accounts": 2, "available_inventory": 8}),
+        ("inventory_autopilot_plan", {"accounts": 2, "available_inventory": 1}),
+        ("inventory_shortage_repair_plan", {"accounts": 2, "available_inventory": 1}),
+        ("inventory_buffer_protection_report", {"accounts": 2, "available_inventory": 1}),
+    ]
+    for method, kwargs in public_calls:
+        assert getattr(services, method)(**kwargs) == {"method": method}
+
+    assert services.inventory_slo_surface_targets(8) == {"method": "inventory_slo_surface_targets"}
+    assert services.inventory_health(current=1, minimum=2) == {"method": "inventory_health"}
+    assert services.inventory_stage_counts(creator="Stacey") == {"method": "inventory_stage_counts"}
+    assert services.inventory_count_related("caption_families", "parent_asset_id", {"asset_1"}) == {
+        "method": "inventory_count_related",
+    }
+    assert services.inventory_limiting_stage({"scheduleSafeAssets": 0}) == {"method": "inventory_limiting_stage"}
+    assert services.inventory_loss_by_stage({"parentAssets": 1}) == {"method": "inventory_loss_by_stage"}
+    assert services.inventory_repair_actions({"shortfall": 1}) == {"method": "inventory_repair_actions"}
+
+    assert calls == [
+        *[(method, (), kwargs) for method, kwargs in public_calls],
+        ("inventory_slo_surface_targets", (8,), {}),
+        ("inventory_health", (), {"current": 1, "minimum": 2}),
+        ("inventory_stage_counts", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("inventory_count_related", ("caption_families", "parent_asset_id", {"asset_1"}), {}),
+        ("inventory_limiting_stage", ({"scheduleSafeAssets": 0},), {}),
+        ("inventory_loss_by_stage", ({"parentAssets": 1},), {}),
+        ("inventory_repair_actions", ({"shortfall": 1},), {}),
     ]
 
 
