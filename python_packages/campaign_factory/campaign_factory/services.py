@@ -38,6 +38,7 @@ from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .make_batch import MakeBatchRepository
 from .models import ModelRepository
+from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
 from .publishability import PublishabilityRepository
@@ -672,6 +673,12 @@ class CoreServices:
             build_surface_readiness=build_surface_readiness,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             explain_publishability=explain_publishability,
+        )
+        self.multi_blocker_unlock = MultiBlockerUnlockRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -2068,6 +2075,42 @@ class CoreServices:
 
     def contentforge_visual_qc_answer(self, top: dict[str, Any], total_failures: int) -> str:
         return self.contentforge_visual_qc.contentforge_visual_qc_answer(top, total_failures)
+
+    def multi_blocker_inventory_unlock_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_inventory_unlock_report(**kwargs)
+
+    def multi_blocker_inventory_unlock_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_inventory_unlock_plan(**kwargs)
+
+    def inventory_unlock_minimal_fix_set(self, **kwargs: Any) -> dict[str, Any]:
+        return self.multi_blocker_unlock.inventory_unlock_minimal_fix_set(**kwargs)
+
+    def inventory_unlock_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.multi_blocker_unlock.inventory_unlock_master_report(**kwargs)
+
+    def multi_blocker_asset_row(self, readiness: dict[str, Any]) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_asset_row(readiness)
+
+    def multi_blocker_repair_class(self, reason: str) -> str:
+        return self.multi_blocker_unlock.multi_blocker_repair_class(reason)
+
+    def multi_blocker_combo_rows(self, blocked_assets: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+        return self.multi_blocker_unlock.multi_blocker_combo_rows(blocked_assets, **kwargs)
+
+    def multi_blocker_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
+        return self.multi_blocker_unlock.multi_blocker_assets_unlocked(blocked_assets, repair_classes)
+
+    def multi_blocker_estimated_minutes(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
+        return self.multi_blocker_unlock.multi_blocker_estimated_minutes(blocked_assets, repair_classes)
+
+    def multi_blocker_combo_difficulty(self, repair_classes: list[str]) -> str:
+        return self.multi_blocker_unlock.multi_blocker_combo_difficulty(repair_classes)
+
+    def multi_blocker_best_combo(self, combo_rows: list[dict[str, Any]], size: int) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_best_combo(combo_rows, size)
+
+    def multi_blocker_minimal_fix_set(self, combo_rows: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_minimal_fix_set(combo_rows, **kwargs)
 
     def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
