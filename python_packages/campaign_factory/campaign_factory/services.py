@@ -23,6 +23,7 @@ from .events import EventRepository
 from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .graph import GraphRepository
+from .live_scale import LiveScaleRepository
 from .models import ModelRepository
 from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
@@ -109,6 +110,7 @@ class CoreServices:
         operator_load_audit: Callable[[], dict[str, Any]],
         failure_injection_suite: Callable[[], dict[str, Any]],
         idempotency_proof: Callable[[], dict[str, Any]],
+        creator_os_live_100_account_readiness: Callable[[], dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -544,6 +546,11 @@ class CoreServices:
             failure_injection_suite=failure_injection_suite,
             idempotency_proof=idempotency_proof,
         )
+        self.live_scale = LiveScaleRepository(
+            conn,
+            creator_os_live_100_account_readiness=creator_os_live_100_account_readiness,
+            score_fraction=score_fraction,
+        )
 
     def ensure_graph_node(
         self,
@@ -739,6 +746,12 @@ class CoreServices:
 
     def creator_os_9_5_readiness_report(self) -> dict[str, Any]:
         return self.readiness_report.creator_os_9_5_readiness_report()
+
+    def creator_os_live_scale_runbook(self) -> dict[str, Any]:
+        return self.live_scale.creator_os_live_scale_runbook()
+
+    def creator_os_live_scale_scorecard(self) -> dict[str, Any]:
+        return self.live_scale.creator_os_live_scale_scorecard()
 
     def create_pipeline_job(
         self,

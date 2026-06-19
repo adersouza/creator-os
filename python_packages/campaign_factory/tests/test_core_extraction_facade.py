@@ -24,6 +24,7 @@ from campaign_factory.events import EventRepository
 from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
+from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
@@ -98,6 +99,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.acceptance_suite.conn is factory.conn
         assert isinstance(factory.services.readiness_report, ReadinessReportRepository)
         assert factory.services.readiness_report.conn is factory.conn
+        assert isinstance(factory.services.live_scale, LiveScaleRepository)
+        assert factory.services.live_scale.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4195,6 +4198,64 @@ def test_core_services_delegates_readiness_report_methods_to_repository(tmp_path
             ("surface_readiness_scorecard", (), {}),
             ("creator_os_10_0_readiness_report", (), {}),
             ("creator_os_9_5_readiness_report", (), {}),
+        ]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_live_scale_report_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_live_scale_runbook(self):
+            calls.append(("creator_os_live_scale_runbook", (), {}))
+            return {"schema": "creator_os.live_scale_runbook.v1"}
+
+        def creator_os_live_scale_scorecard(self):
+            calls.append(("creator_os_live_scale_scorecard", (), {}))
+            return {"schema": "creator_os.live_scale_scorecard.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_live_scale_runbook() == {"schema": "creator_os.live_scale_runbook.v1"}
+    assert factory.creator_os_live_scale_scorecard() == {"schema": "creator_os.live_scale_scorecard.v1"}
+    assert calls == [
+        ("creator_os_live_scale_runbook", (), {}),
+        ("creator_os_live_scale_scorecard", (), {}),
+    ]
+
+
+def test_core_services_delegates_live_scale_report_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeLiveScale:
+            conn = factory.conn
+
+            def creator_os_live_scale_runbook(self):
+                calls.append(("creator_os_live_scale_runbook", (), {}))
+                return {"schema": "creator_os.live_scale_runbook.v1"}
+
+            def creator_os_live_scale_scorecard(self):
+                calls.append(("creator_os_live_scale_scorecard", (), {}))
+                return {"schema": "creator_os.live_scale_scorecard.v1"}
+
+        factory.services.live_scale = FakeLiveScale()
+
+        assert factory.services.creator_os_live_scale_runbook() == {"schema": "creator_os.live_scale_runbook.v1"}
+        assert factory.services.creator_os_live_scale_scorecard() == {"schema": "creator_os.live_scale_scorecard.v1"}
+        assert calls == [
+            ("creator_os_live_scale_runbook", (), {}),
+            ("creator_os_live_scale_scorecard", (), {}),
         ]
     finally:
         factory.close()
