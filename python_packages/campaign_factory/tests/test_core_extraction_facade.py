@@ -24,6 +24,7 @@ from campaign_factory.events import EventRepository
 from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.graph import GraphRepository
+from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.operator_review import OperatorReviewRepository
@@ -101,6 +102,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.readiness_report.conn is factory.conn
         assert isinstance(factory.services.live_scale, LiveScaleRepository)
         assert factory.services.live_scale.conn is factory.conn
+        assert isinstance(factory.services.live_acceptance, LiveAcceptanceRepository)
+        assert factory.services.live_acceptance.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4334,6 +4337,218 @@ def test_core_services_delegates_live_scale_report_methods_to_repository(tmp_pat
                     "required_parents": 30,
                 },
             ),
+        ]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_live_account_acceptance_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_live_account_acceptance(self, **kwargs):
+            calls.append(("creator_os_live_account_acceptance", (), kwargs))
+            return {"schema": "creator_os.live_account_acceptance.v1"}
+
+        def creator_os_staged_live_acceptance(self, **kwargs):
+            calls.append(("creator_os_staged_live_acceptance", (), kwargs))
+            return {"schema": "creator_os.staged_live_acceptance.v1"}
+
+        def live_acceptance_actuals(self, **kwargs):
+            calls.append(("live_acceptance_actuals", (), kwargs))
+            return {"metricsImported": True}
+
+        def live_acceptance_missed_dispatches(self, report):
+            calls.append(("live_acceptance_missed_dispatches", (report,), {}))
+            return 1
+
+        def live_acceptance_duplicate_publishes(self, report):
+            calls.append(("live_acceptance_duplicate_publishes", (report,), {}))
+            return 2
+
+        def live_acceptance_restricted_scheduled(self, report):
+            calls.append(("live_acceptance_restricted_scheduled", (report,), {}))
+            return 3
+
+        def live_acceptance_surface_contract_violations(self, report):
+            calls.append(("live_acceptance_surface_contract_violations", (report,), {}))
+            return 4
+
+        def live_acceptance_metrics_imported(self):
+            calls.append(("live_acceptance_metrics_imported", (), {}))
+            return True
+
+        def live_acceptance_blocker_for(self, key):
+            calls.append(("live_acceptance_blocker_for", (key,), {}))
+            return "metrics_not_imported"
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_live_account_acceptance(account_target=10, content_surface="reel") == {
+        "schema": "creator_os.live_account_acceptance.v1",
+    }
+    assert factory.creator_os_staged_live_acceptance(stages=[10], content_surface="reel") == {
+        "schema": "creator_os.staged_live_acceptance.v1",
+    }
+    assert factory._live_acceptance_actuals(
+        account_target=10,
+        threadsdash_report={"missedDispatchCount": 1},
+        required_inventory=30,
+        available_inventory=20,
+        exception_count=1,
+    ) == {"metricsImported": True}
+    assert factory._live_acceptance_missed_dispatches({"missedDispatchCount": 1}) == 1
+    assert factory._live_acceptance_duplicate_publishes({"duplicatePublishes": 2}) == 2
+    assert factory._live_acceptance_restricted_scheduled({"restrictedAccountsScheduled": 3}) == 3
+    assert factory._live_acceptance_surface_contract_violations({"surfaceContractViolations": 4}) == 4
+    assert factory._live_acceptance_metrics_imported() is True
+    assert factory._live_acceptance_blocker_for("metricsImported") == "metrics_not_imported"
+
+    assert calls == [
+        (
+            "creator_os_live_account_acceptance",
+            (),
+            {
+                "account_target": 10,
+                "posts_per_account_per_day": 3,
+                "buffer_days": 3,
+                "content_surface": "reel",
+                "threadsdash_report": None,
+            },
+        ),
+        (
+            "creator_os_staged_live_acceptance",
+            (),
+            {"stages": [10], "content_surface": "reel", "threadsdash_report": None},
+        ),
+        (
+            "live_acceptance_actuals",
+            (),
+            {
+                "account_target": 10,
+                "threadsdash_report": {"missedDispatchCount": 1},
+                "required_inventory": 30,
+                "available_inventory": 20,
+                "exception_count": 1,
+            },
+        ),
+        ("live_acceptance_missed_dispatches", ({"missedDispatchCount": 1},), {}),
+        ("live_acceptance_duplicate_publishes", ({"duplicatePublishes": 2},), {}),
+        ("live_acceptance_restricted_scheduled", ({"restrictedAccountsScheduled": 3},), {}),
+        ("live_acceptance_surface_contract_violations", ({"surfaceContractViolations": 4},), {}),
+        ("live_acceptance_metrics_imported", (), {}),
+        ("live_acceptance_blocker_for", ("metricsImported",), {}),
+    ]
+
+
+def test_core_services_delegates_live_account_acceptance_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeLiveAcceptance:
+            conn = factory.conn
+
+            def creator_os_live_account_acceptance(self, **kwargs):
+                calls.append(("creator_os_live_account_acceptance", (), kwargs))
+                return {"schema": "creator_os.live_account_acceptance.v1"}
+
+            def creator_os_staged_live_acceptance(self, **kwargs):
+                calls.append(("creator_os_staged_live_acceptance", (), kwargs))
+                return {"schema": "creator_os.staged_live_acceptance.v1"}
+
+            def live_acceptance_actuals(self, **kwargs):
+                calls.append(("live_acceptance_actuals", (), kwargs))
+                return {"metricsImported": True}
+
+            def live_acceptance_missed_dispatches(self, report):
+                calls.append(("live_acceptance_missed_dispatches", (report,), {}))
+                return 1
+
+            def live_acceptance_duplicate_publishes(self, report):
+                calls.append(("live_acceptance_duplicate_publishes", (report,), {}))
+                return 2
+
+            def live_acceptance_restricted_scheduled(self, report):
+                calls.append(("live_acceptance_restricted_scheduled", (report,), {}))
+                return 3
+
+            def live_acceptance_surface_contract_violations(self, report):
+                calls.append(("live_acceptance_surface_contract_violations", (report,), {}))
+                return 4
+
+            def live_acceptance_metrics_imported(self):
+                calls.append(("live_acceptance_metrics_imported", (), {}))
+                return True
+
+            def live_acceptance_blocker_for(self, key):
+                calls.append(("live_acceptance_blocker_for", (key,), {}))
+                return "metrics_not_imported"
+
+        factory.services.live_acceptance = FakeLiveAcceptance()
+
+        assert factory.services.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single") == {
+            "schema": "creator_os.live_account_acceptance.v1",
+        }
+        assert factory.services.creator_os_staged_live_acceptance(stages=[10], content_surface="feed_single") == {
+            "schema": "creator_os.staged_live_acceptance.v1",
+        }
+        assert factory.services.live_acceptance_actuals(
+            account_target=10,
+            threadsdash_report={},
+            required_inventory=30,
+            available_inventory=20,
+            exception_count=1,
+        ) == {"metricsImported": True}
+        assert factory.services.live_acceptance_missed_dispatches({"missedDispatchCount": 1}) == 1
+        assert factory.services.live_acceptance_duplicate_publishes({"duplicatePublishes": 2}) == 2
+        assert factory.services.live_acceptance_restricted_scheduled({"restrictedAccountsScheduled": 3}) == 3
+        assert factory.services.live_acceptance_surface_contract_violations({"surfaceContractViolations": 4}) == 4
+        assert factory.services.live_acceptance_metrics_imported() is True
+        assert factory.services.live_acceptance_blocker_for("metricsImported") == "metrics_not_imported"
+
+        assert calls == [
+            (
+                "creator_os_live_account_acceptance",
+                (),
+                {
+                    "account_target": 10,
+                    "posts_per_account_per_day": 3,
+                    "buffer_days": 3,
+                    "content_surface": "feed_single",
+                    "threadsdash_report": None,
+                },
+            ),
+            (
+                "creator_os_staged_live_acceptance",
+                (),
+                {"stages": [10], "content_surface": "feed_single", "threadsdash_report": None},
+            ),
+            (
+                "live_acceptance_actuals",
+                (),
+                {
+                    "account_target": 10,
+                    "threadsdash_report": {},
+                    "required_inventory": 30,
+                    "available_inventory": 20,
+                    "exception_count": 1,
+                },
+            ),
+            ("live_acceptance_missed_dispatches", ({"missedDispatchCount": 1},), {}),
+            ("live_acceptance_duplicate_publishes", ({"duplicatePublishes": 2},), {}),
+            ("live_acceptance_restricted_scheduled", ({"restrictedAccountsScheduled": 3},), {}),
+            ("live_acceptance_surface_contract_violations", ({"surfaceContractViolations": 4},), {}),
+            ("live_acceptance_metrics_imported", (), {}),
+            ("live_acceptance_blocker_for", ("metricsImported",), {}),
         ]
     finally:
         factory.close()

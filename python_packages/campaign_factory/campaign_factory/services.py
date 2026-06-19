@@ -23,6 +23,7 @@ from .events import EventRepository
 from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .graph import GraphRepository
+from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .models import ModelRepository
 from .operator_review import OperatorReviewRepository
@@ -65,6 +66,8 @@ class CoreServices:
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
+        build_surface_readiness: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        reservation_adjusted_inventory: Callable[..., dict[str, int]],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
@@ -558,6 +561,15 @@ class CoreServices:
             reel_factory_parent_metrics=reel_factory_parent_metrics,
             score_fraction=score_fraction,
         )
+        self.live_acceptance = LiveAcceptanceRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            actual_account_operational_counts=self.live_scale.actual_account_operational_counts,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            reservation_adjusted_inventory=reservation_adjusted_inventory,
+            exception_queue_report=exception_queue_report,
+        )
 
     def ensure_graph_node(
         self,
@@ -782,6 +794,71 @@ class CoreServices:
             available_parents=available_parents,
             required_parents=required_parents,
         )
+
+    def creator_os_live_account_acceptance(
+        self,
+        *,
+        account_target: int,
+        posts_per_account_per_day: int = 3,
+        buffer_days: int = 3,
+        content_surface: str | None = None,
+        threadsdash_report: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.live_acceptance.creator_os_live_account_acceptance(
+            account_target=account_target,
+            posts_per_account_per_day=posts_per_account_per_day,
+            buffer_days=buffer_days,
+            content_surface=content_surface,
+            threadsdash_report=threadsdash_report,
+        )
+
+    def creator_os_staged_live_acceptance(
+        self,
+        *,
+        stages: list[int] | None = None,
+        content_surface: str | None = None,
+        threadsdash_report: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.live_acceptance.creator_os_staged_live_acceptance(
+            stages=stages,
+            content_surface=content_surface,
+            threadsdash_report=threadsdash_report,
+        )
+
+    def live_acceptance_actuals(
+        self,
+        *,
+        account_target: int,
+        threadsdash_report: dict[str, Any],
+        required_inventory: int,
+        available_inventory: int,
+        exception_count: int,
+    ) -> dict[str, Any]:
+        return self.live_acceptance.live_acceptance_actuals(
+            account_target=account_target,
+            threadsdash_report=threadsdash_report,
+            required_inventory=required_inventory,
+            available_inventory=available_inventory,
+            exception_count=exception_count,
+        )
+
+    def live_acceptance_missed_dispatches(self, report: dict[str, Any]) -> int:
+        return self.live_acceptance.live_acceptance_missed_dispatches(report)
+
+    def live_acceptance_duplicate_publishes(self, report: dict[str, Any]) -> int:
+        return self.live_acceptance.live_acceptance_duplicate_publishes(report)
+
+    def live_acceptance_restricted_scheduled(self, report: dict[str, Any]) -> int:
+        return self.live_acceptance.live_acceptance_restricted_scheduled(report)
+
+    def live_acceptance_surface_contract_violations(self, report: dict[str, Any]) -> int:
+        return self.live_acceptance.live_acceptance_surface_contract_violations(report)
+
+    def live_acceptance_metrics_imported(self) -> bool:
+        return self.live_acceptance.live_acceptance_metrics_imported()
+
+    def live_acceptance_blocker_for(self, key: str) -> str:
+        return self.live_acceptance.live_acceptance_blocker_for(key)
 
     def create_pipeline_job(
         self,
