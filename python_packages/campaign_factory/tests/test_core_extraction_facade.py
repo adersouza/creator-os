@@ -20,6 +20,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.services import CoreServices
+from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
@@ -72,6 +73,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.tribev2.conn is factory.conn
         assert isinstance(factory.services.operator_review, OperatorReviewRepository)
         assert factory.services.operator_review.conn is factory.conn
+        assert isinstance(factory.services.story_management, StoryManagementRepository)
+        assert factory.services.story_management.conn is factory.conn
     finally:
         factory.close()
 
@@ -3495,4 +3498,184 @@ def test_core_services_delegates_operator_review_methods_to_repository() -> None
         ("operator_review_candidate_eligible", ({"assetId": "asset_1"},), {}),
         ("operator_review_candidate_row", ({"assetId": "asset_1"},), {}),
         ("operator_review_actions", (["operator_visual_review_required"],), {}),
+    ]
+
+
+def test_story_management_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def story_inventory_report(self, *args, **kwargs):
+            calls.append(("story_inventory_report", args, kwargs))
+            return {"schema": "campaign_factory.story_inventory_report.v1"}
+
+        def story_intent_report(self, *args, **kwargs):
+            calls.append(("story_intent_report", args, kwargs))
+            return {"schema": "campaign_factory.story_intent_report.v1"}
+
+        def story_mix_plan(self, *args, **kwargs):
+            calls.append(("story_mix_plan", args, kwargs))
+            return {"schema": "campaign_factory.story_mix_plan.v1"}
+
+        def story_calendar_plan(self, *args, **kwargs):
+            calls.append(("story_calendar_plan", args, kwargs))
+            return {"schema": "campaign_factory.story_calendar_plan.v1"}
+
+        def story_intent_summary(self, *args, **kwargs):
+            calls.append(("story_intent_summary", args, kwargs))
+            return {"schema": "campaign_factory.story_intent_summary.v1"}
+
+        def story_metadata_payload(self, *args, **kwargs):
+            calls.append(("story_metadata_payload", args, kwargs))
+            return {"storyIntent": "reel_teaser"}
+
+        def story_intent_value(self, *args, **kwargs):
+            calls.append(("story_intent_value", args, kwargs))
+            return "reel_teaser"
+
+        def story_goal_value(self, *args, **kwargs):
+            calls.append(("story_goal_value", args, kwargs))
+            return "reel_support"
+
+        def story_style_value(self, *args, **kwargs):
+            calls.append(("story_style_value", args, kwargs))
+            return "raw_phone"
+
+        def normalize_story_enum(self, *args, **kwargs):
+            calls.append(("normalize_story_enum", args, kwargs))
+            return "reel_teaser"
+
+        def story_quality_gate_v1(self, *args, **kwargs):
+            calls.append(("story_quality_gate_v1", args, kwargs))
+            return {"schema": "campaign_factory.story_quality_gate_v1"}
+
+        def story_quality_report(self, *args, **kwargs):
+            calls.append(("story_quality_report", args, kwargs))
+            return {"schema": "campaign_factory.story_quality_report.v1"}
+
+        def story_quality_gate_for_asset(self, *args, **kwargs):
+            calls.append(("story_quality_gate_for_asset", args, kwargs))
+            return {"storyQualityGatePassed": True}
+
+        def story_quality_metadata(self, *args, **kwargs):
+            calls.append(("story_quality_metadata", args, kwargs))
+            return {"storySafeZoneScore": 100}
+
+        def bounded_score(self, *args, **kwargs):
+            calls.append(("bounded_score", args, kwargs))
+            return 95
+
+        def story_black_bar_check(self, *args, **kwargs):
+            calls.append(("story_black_bar_check", args, kwargs))
+            return {"blackBarsDetected": False}
+
+        def story_no_text_check(self, *args, **kwargs):
+            calls.append(("story_no_text_check", args, kwargs))
+            return {"required": False, "passed": True}
+
+        def story_ocr_frame_paths(self, *args, **kwargs):
+            calls.append(("story_ocr_frame_paths", args, kwargs))
+            return [Path("/tmp/frame.png")]
+
+        def story_ocr_detect_text(self, *args, **kwargs):
+            calls.append(("story_ocr_detect_text", args, kwargs))
+            return []
+
+        def pixel_region_black(self, *args, **kwargs):
+            calls.append(("pixel_region_black", args, kwargs))
+            return False
+
+        def story_gap_report(self, *args, **kwargs):
+            calls.append(("story_gap_report", args, kwargs))
+            return {"schema": "campaign_factory.story_gap_report.v1"}
+
+        def account_story_status(self, *args, **kwargs):
+            calls.append(("account_story_status", args, kwargs))
+            return {"schema": "campaign_factory.account_story_status.v1"}
+
+        def creator_story_summary(self, *args, **kwargs):
+            calls.append(("creator_story_summary", args, kwargs))
+            return {"schema": "campaign_factory.creator_story_summary.v1"}
+
+        def story_certification_proof(self, *args, **kwargs):
+            calls.append(("story_certification_proof", args, kwargs))
+            return {"schema": "creator_os.story_certification_proof.v1"}
+
+        def story_production_readiness(self, *args, **kwargs):
+            calls.append(("story_production_readiness", args, kwargs))
+            return {"schema": "creator_os.story_production_readiness.v1"}
+
+        def story_proof_gap_analysis(self, *args, **kwargs):
+            calls.append(("story_proof_gap_analysis", args, kwargs))
+            return {"schema": "creator_os.story_proof_gap_analysis.v1"}
+
+        def story_source_blockers(self, *args, **kwargs):
+            calls.append(("story_source_blockers", args, kwargs))
+            return ["story_source_must_be_raw_not_rendered_reel_asset"]
+
+        def story_existing_asset_source_blockers(self, *args, **kwargs):
+            calls.append(("story_existing_asset_source_blockers", args, kwargs))
+            return ["story_source_must_be_raw_not_approved_reel_asset"]
+
+    factory.services = FakeServices()
+
+    assert factory.story_inventory_report(creator="Stacey")["schema"] == "campaign_factory.story_inventory_report.v1"
+    assert factory.story_intent_report(creator="Stacey")["schema"] == "campaign_factory.story_intent_report.v1"
+    assert factory.story_mix_plan(creator="Stacey")["schema"] == "campaign_factory.story_mix_plan.v1"
+    assert factory.story_calendar_plan(creator="Stacey")["schema"] == "campaign_factory.story_calendar_plan.v1"
+    assert factory.story_intent_summary(creator="Stacey")["schema"] == "campaign_factory.story_intent_summary.v1"
+    assert factory._story_metadata_payload({"id": "asset_1"}) == {"storyIntent": "reel_teaser"}
+    assert factory._story_intent_value({"id": "asset_1"}) == "reel_teaser"
+    assert factory._story_goal_value({"id": "asset_1"}) == "reel_support"
+    assert factory._story_style_value({"id": "asset_1"}) == "raw_phone"
+    assert factory._normalize_story_enum("Reel Teaser", {"reel_teaser"}) == "reel_teaser"
+    assert factory.story_quality_gate_v1("asset_1")["schema"] == "campaign_factory.story_quality_gate_v1"
+    assert factory.story_quality_report(creator="Stacey")["schema"] == "campaign_factory.story_quality_report.v1"
+    assert factory._story_quality_gate_for_asset({"id": "asset_1"}) == {"storyQualityGatePassed": True}
+    assert factory._story_quality_metadata({"id": "asset_1"}) == {"storySafeZoneScore": 100}
+    assert factory._bounded_score("95", default=100) == 95
+    assert factory._story_black_bar_check(Path("/tmp/story.png"), media_type="image") == {"blackBarsDetected": False}
+    assert factory._story_no_text_check(Path("/tmp/story.png"), media_type="image", quality={}) == {"required": False, "passed": True}
+    assert factory._story_ocr_frame_paths(Path("/tmp/story.mp4"), media_type="video") == [Path("/tmp/frame.png")]
+    assert factory._story_ocr_detect_text(Path("/tmp/frame.png"), frame_index=0) == []
+    assert factory._pixel_region_black([], x0=0, x1=1, y0=0, y1=1) is False
+    assert factory.story_gap_report(creator="Stacey", date="2026-06-06")["schema"] == "campaign_factory.story_gap_report.v1"
+    assert factory.account_story_status(account_id="acct_1", creator="Stacey", date="2026-06-06")["schema"] == "campaign_factory.account_story_status.v1"
+    assert factory.creator_story_summary(creator="Stacey", date="2026-06-06")["schema"] == "campaign_factory.creator_story_summary.v1"
+    assert factory.story_certification_proof(rendered_asset_id="asset_1")["schema"] == "creator_os.story_certification_proof.v1"
+    assert factory.story_production_readiness()["schema"] == "creator_os.story_production_readiness.v1"
+    assert factory.story_proof_gap_analysis()["schema"] == "creator_os.story_proof_gap_analysis.v1"
+    assert factory._story_source_blockers([{"path": "/campaign_factory/02_rendered/story.png"}]) == ["story_source_must_be_raw_not_rendered_reel_asset"]
+    assert factory._story_existing_asset_source_blockers({"id": "asset_1"}) == ["story_source_must_be_raw_not_approved_reel_asset"]
+
+    assert calls == [
+        ("story_inventory_report", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("story_intent_report", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("story_mix_plan", (), {"creator": "Stacey"}),
+        ("story_calendar_plan", (), {"creator": "Stacey"}),
+        ("story_intent_summary", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("story_metadata_payload", ({"id": "asset_1"},), {}),
+        ("story_intent_value", ({"id": "asset_1"},), {}),
+        ("story_goal_value", ({"id": "asset_1"},), {}),
+        ("story_style_value", ({"id": "asset_1"},), {}),
+        ("normalize_story_enum", ("Reel Teaser", {"reel_teaser"}), {}),
+        ("story_quality_gate_v1", ("asset_1",), {}),
+        ("story_quality_report", (), {"creator": "Stacey", "campaign_slug": None}),
+        ("story_quality_gate_for_asset", ({"id": "asset_1"},), {}),
+        ("story_quality_metadata", ({"id": "asset_1"},), {}),
+        ("bounded_score", ("95",), {"default": 100}),
+        ("story_black_bar_check", (Path("/tmp/story.png"),), {"media_type": "image"}),
+        ("story_no_text_check", (Path("/tmp/story.png"),), {"media_type": "image", "quality": {}}),
+        ("story_ocr_frame_paths", (Path("/tmp/story.mp4"),), {"media_type": "video"}),
+        ("story_ocr_detect_text", (Path("/tmp/frame.png"),), {"frame_index": 0}),
+        ("pixel_region_black", ([],), {"x0": 0, "x1": 1, "y0": 0, "y1": 1}),
+        ("story_gap_report", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("account_story_status", (), {"account_id": "acct_1", "creator": "Stacey", "date": "2026-06-06"}),
+        ("creator_story_summary", (), {"creator": "Stacey", "date": "2026-06-06"}),
+        ("story_certification_proof", (), {"rendered_asset_id": "asset_1"}),
+        ("story_production_readiness", (), {}),
+        ("story_proof_gap_analysis", (), {}),
+        ("story_source_blockers", ([{"path": "/campaign_factory/02_rendered/story.png"}],), {}),
+        ("story_existing_asset_source_blockers", ({"id": "asset_1"},), {}),
     ]

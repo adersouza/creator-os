@@ -18,6 +18,7 @@ from .graph import GraphRepository
 from .models import ModelRepository
 from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
+from .story_management import StoryManagementRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .tribev2 import TribeV2Repository
 from .winner_expansion import WinnerExpansionRepository
@@ -38,6 +39,7 @@ class CoreServices:
         sha256_file: Callable[[Any], str],
         probe_image_shape: Callable[[Any], dict[str, Any]],
         probe_video_shape: Callable[[Any], dict[str, Any]],
+        read_png_rgb_pixels: Callable[[Any], dict[str, Any]],
         ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
@@ -65,7 +67,17 @@ class CoreServices:
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
         creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
+        account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
+        build_surface_inventory: Callable[..., dict[str, Any]],
+        last_surface_posted_at: Callable[..., str | None],
+        truthy: Callable[[Any], bool],
+        surface_readiness_scorecard: Callable[[], dict[str, Any]],
+        certification_asset_for_surface: Callable[..., dict[str, Any] | None],
+        latest_proof_run_for_asset: Callable[[str], dict[str, Any] | None],
+        latest_surface_metric_for_asset: Callable[[str, str], dict[str, Any] | None],
+        empty_surface_certification_audit: Callable[[str], dict[str, Any]],
+        surface_certification_audit: Callable[..., dict[str, Any]],
         recommended_story_intent_for_date: Callable[..., str],
         recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
@@ -80,6 +92,8 @@ class CoreServices:
         story_intents: set[str],
         story_goals: set[str],
         story_styles: set[str],
+        default_story_mix: dict[str, int],
+        default_story_calendar: dict[str, str],
         ig_media_type_by_surface: dict[str, str],
         image_exts: set[str],
         video_exts: set[str],
@@ -231,6 +245,36 @@ class CoreServices:
             score_fraction=score_fraction,
             wilson_lower_bound=wilson_lower_bound,
         )
+        self.story_management = StoryManagementRepository(
+            conn,
+            creator_label=creator_label,
+            slugify=slugify,
+            json_load=json_load,
+            normalize_content_surface=normalize_content_surface,
+            media_type_for_path=media_type_for_path,
+            probe_image_shape=probe_image_shape,
+            probe_video_shape=probe_video_shape,
+            read_png_rgb_pixels=read_png_rgb_pixels,
+            rendered_asset=self.rendered_asset,
+            build_surface_inventory=build_surface_inventory,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            account_content_needs=account_content_needs,
+            creator_content_needs=creator_content_needs,
+            last_surface_posted_at=last_surface_posted_at,
+            truthy=truthy,
+            surface_readiness_scorecard=surface_readiness_scorecard,
+            certification_asset_for_surface=certification_asset_for_surface,
+            surface_draft_proof=surface_draft_proof,
+            latest_proof_run_for_asset=latest_proof_run_for_asset,
+            latest_surface_metric_for_asset=latest_surface_metric_for_asset,
+            empty_surface_certification_audit=empty_surface_certification_audit,
+            surface_certification_audit=surface_certification_audit,
+            default_story_mix=default_story_mix,
+            default_story_calendar=default_story_calendar,
+            story_intents=story_intents,
+            story_goals=story_goals,
+            story_styles=story_styles,
+        )
         self.surface_registration = SurfaceRegistrationRepository(
             conn,
             slugify=slugify,
@@ -247,7 +291,7 @@ class CoreServices:
             probe_image_shape=probe_image_shape,
             probe_video_shape=probe_video_shape,
             ratio_label_from_shape=ratio_label_from_shape,
-            story_source_blockers=story_source_blockers,
+            story_source_blockers=self.story_management.story_source_blockers,
             normalize_story_enum=normalize_story_enum,
             story_intents=story_intents,
             story_goals=story_goals,
@@ -953,6 +997,90 @@ class CoreServices:
 
     def discoverability_prevention_scorecard(self) -> dict[str, Any]:
         return self.discoverability.discoverability_prevention_scorecard()
+
+    def story_inventory_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_inventory_report(**kwargs)
+
+    def story_intent_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_intent_report(**kwargs)
+
+    def story_mix_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_mix_plan(**kwargs)
+
+    def story_calendar_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_calendar_plan(**kwargs)
+
+    def story_intent_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_intent_summary(**kwargs)
+
+    def story_metadata_payload(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.story_management.story_metadata_payload(asset)
+
+    def story_intent_value(self, asset: dict[str, Any]) -> str | None:
+        return self.story_management.story_intent_value(asset)
+
+    def story_goal_value(self, asset: dict[str, Any]) -> str | None:
+        return self.story_management.story_goal_value(asset)
+
+    def story_style_value(self, asset: dict[str, Any]) -> str | None:
+        return self.story_management.story_style_value(asset)
+
+    def normalize_story_enum(self, value: Any, allowed: set[str]) -> str | None:
+        return self.story_management.normalize_story_enum(value, allowed)
+
+    def story_quality_gate_v1(self, rendered_asset_id: str) -> dict[str, Any]:
+        return self.story_management.story_quality_gate_v1(rendered_asset_id)
+
+    def story_quality_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_quality_report(**kwargs)
+
+    def story_quality_gate_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.story_management.story_quality_gate_for_asset(asset)
+
+    def story_quality_metadata(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.story_management.story_quality_metadata(asset)
+
+    def bounded_score(self, value: Any, *, default: int) -> int:
+        return self.story_management.bounded_score(value, default=default)
+
+    def story_black_bar_check(self, media_path: Any, *, media_type: str) -> dict[str, Any]:
+        return self.story_management.story_black_bar_check(media_path, media_type=media_type)
+
+    def story_no_text_check(self, media_path: Any, *, media_type: str, quality: dict[str, Any]) -> dict[str, Any]:
+        return self.story_management.story_no_text_check(media_path, media_type=media_type, quality=quality)
+
+    def story_ocr_frame_paths(self, media_path: Any, *, media_type: str) -> list[Any]:
+        return self.story_management.story_ocr_frame_paths(media_path, media_type=media_type)
+
+    def story_ocr_detect_text(self, image_path: Any, *, frame_index: int) -> list[dict[str, Any]]:
+        return self.story_management.story_ocr_detect_text(image_path, frame_index=frame_index)
+
+    def pixel_region_black(self, rows: list[list[tuple[int, int, int]]], *, x0: int, x1: int, y0: int, y1: int) -> bool:
+        return self.story_management.pixel_region_black(rows, x0=x0, x1=x1, y0=y0, y1=y1)
+
+    def story_gap_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_gap_report(**kwargs)
+
+    def account_story_status(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.account_story_status(**kwargs)
+
+    def creator_story_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.creator_story_summary(**kwargs)
+
+    def story_certification_proof(self, **kwargs: Any) -> dict[str, Any]:
+        return self.story_management.story_certification_proof(**kwargs)
+
+    def story_production_readiness(self) -> dict[str, Any]:
+        return self.story_management.story_production_readiness()
+
+    def story_proof_gap_analysis(self) -> dict[str, Any]:
+        return self.story_management.story_proof_gap_analysis()
+
+    def story_source_blockers(self, components: list[dict[str, Any]]) -> list[str]:
+        return self.story_management.story_source_blockers(components)
+
+    def story_existing_asset_source_blockers(self, asset: dict[str, Any]) -> list[str]:
+        return self.story_management.story_existing_asset_source_blockers(asset)
 
     def parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
         return self.discoverability.parent_factory_observed_discoverability_terms()
