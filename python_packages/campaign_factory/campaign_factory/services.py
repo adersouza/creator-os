@@ -43,6 +43,7 @@ from .recommendation_accuracy import RecommendationAccuracyRepository
 from .recommendations import RecommendationRepository
 from .readiness_report import ReadinessReportRepository
 from .reel_execution import ReelExecutionRepository
+from .schedule_safe_production import ScheduleSafeProductionRepository
 from .story_management import StoryManagementRepository
 from .surface_handoff import SurfaceHandoffRepository
 from .surface_inventory import SurfaceInventoryRepository
@@ -607,6 +608,15 @@ class CoreServices:
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
+        )
+        self.schedule_safe_production = ScheduleSafeProductionRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            explain_publishability=explain_publishability,
+            ratio=ratio,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1878,6 +1888,54 @@ class CoreServices:
 
     def inventory_recovery_priorities(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return self.inventory_recovery.inventory_recovery_priorities(rows)
+
+    def schedule_safe_production_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_report(**kwargs)
+
+    def schedule_safe_production_waterfall(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_waterfall(**kwargs)
+
+    def schedule_safe_production_loss_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_loss_analysis(**kwargs)
+
+    def schedule_safe_production_capacity_model(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_capacity_model(**kwargs)
+
+    def schedule_safe_production_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_master_report(**kwargs)
+
+    def schedule_safe_production_assets(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.schedule_safe_production.schedule_safe_production_assets(**kwargs)
+
+    def schedule_safe_asset_created_at(self, asset: dict[str, Any]) -> Any:
+        return self.schedule_safe_production.schedule_safe_asset_created_at(asset)
+
+    def schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
+        return self.schedule_safe_production.schedule_safe_production_waterfall_rows(assets, surface)
+
+    def schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
+        return self.schedule_safe_production.schedule_safe_is_variant_asset(asset)
+
+    def schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
+        return self.schedule_safe_production.schedule_safe_related_count(table, column, asset_ids)
+
+    def schedule_safe_production_variant_checks(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_variant_checks(asset, surface)
+
+    def schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_largest_loss(waterfall)
+
+    def schedule_safe_production_capacity(self, **kwargs: Any) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_capacity(**kwargs)
+
+    def schedule_safe_required_parents_per_day(self, produced_per_day: float, produced: int, parent_count: int) -> int:
+        return self.schedule_safe_production.schedule_safe_required_parents_per_day(produced_per_day, produced, parent_count)
+
+    def schedule_safe_required_variants_per_day(self, produced_per_day: float, produced: int, variant_count: int) -> int:
+        return self.schedule_safe_production.schedule_safe_required_variants_per_day(produced_per_day, produced, variant_count)
+
+    def schedule_safe_production_summary_key(self, stage: str) -> str:
+        return self.schedule_safe_production.schedule_safe_production_summary_key(stage)
 
     def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
