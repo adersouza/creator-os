@@ -34,6 +34,7 @@ from .operator_review import OperatorReviewRepository
 from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
+from .recommendations import RecommendationRepository
 from .readiness_report import ReadinessReportRepository
 from .reel_execution import ReelExecutionRepository
 from .story_management import StoryManagementRepository
@@ -95,6 +96,9 @@ class CoreServices:
         requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
         ig_media_type_for_surface: Callable[[str, str], str],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
+        ensure_graph_edge_strict: Callable[..., str | None],
+        performance_summary: Callable[[str], dict[str, Any]],
+        recommend_audio: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
@@ -166,6 +170,7 @@ class CoreServices:
         account_reward_baselines: Callable[[list[dict[str, Any]]], dict[str, float]],
         aggregate_performance: Callable[..., dict[str, Any]],
         performance_quality_score: Callable[[dict[str, Any]], int | None],
+        performance_planning_score: Callable[[dict[str, Any]], int | None],
         audio_selection_payload: Callable[[str], dict[str, Any]],
         audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         events_for_asset: Callable[..., list[dict[str, Any]]],
@@ -509,6 +514,42 @@ class CoreServices:
             autonomy_level=self.autonomy.autonomy_level,
             recommendation_proof_summary=recommendation_proof_summary,
             normalize_content_surface=normalize_content_surface,
+        )
+        self.recommendations = RecommendationRepository(
+            conn,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            campaign_by_slug=self.campaign_by_slug,
+            graph_id_for=self.graph.graph_id_for,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            ensure_graph_edge_strict=ensure_graph_edge_strict,
+            record_event=self.events.record_event,
+            performance_summary=performance_summary,
+            ranking=ranking,
+            active_reference_pattern_for_campaign=self.reference.active_reference_pattern_for_campaign,
+            reference_pattern_payload=self.reference.reference_pattern_payload,
+            performance_snapshot_payload=performance_snapshot_payload,
+            account_reward_baselines=account_reward_baselines,
+            aggregate_performance=aggregate_performance,
+            performance_quality_score=performance_quality_score,
+            performance_planning_score=performance_planning_score,
+            rendered_asset=self.rendered_asset,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+            assignments_for_asset=self.campaign_overview.assignments_for_asset,
+            account_memory_for=self.account_memory.account_memory_for,
+            recommend_audio=recommend_audio,
+            autonomy_level=self.autonomy.autonomy_level,
+            create_exception=self.exceptions.create_exception,
+            exception_payload=self.exceptions.exception_payload,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            prepare_reel_from_reference=self.reference.prepare_reel_from_reference,
+            run_reel_factory=self.reel_execution.run_reel_factory,
+            sync_reel_outputs=self.reel_execution.sync_reel_outputs,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1376,6 +1417,270 @@ class CoreServices:
 
     def parse_datetime(self, value: Any):
         return self.recommendation_accuracy_repo.parse_datetime(value)
+
+
+    def recommend_next_batch(
+        self,
+        campaign_slug: str,
+        *,
+        count: int = 20,
+        account: str | None = None,
+        persist: bool = False,
+    ) -> dict[str, Any]:
+        return self.recommendations.recommend_next_batch(
+            campaign_slug,
+            count=count,
+            account=account,
+            persist=persist,
+        )
+
+    def recommendation_runs(self, campaign_slug: str, *, limit: int = 10) -> dict[str, Any]:
+        return self.recommendations.recommendation_runs(campaign_slug, limit=limit)
+
+    def top_reference_pattern(self) -> dict[str, Any] | None:
+        return self.recommendations.top_reference_pattern()
+
+    def ranked_reference_patterns_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+        return self.recommendations.ranked_reference_patterns_for_campaign(campaign_id)
+
+    def ranked_variation_presets_for_campaign(self, campaign_id: str, *, account: str | None = None) -> list[dict[str, Any]]:
+        return self.recommendations.ranked_variation_presets_for_campaign(campaign_id, account=account)
+
+    def compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
+        return self.recommendations.compact_recommendation_rankings(rankings, limit=limit)
+
+    def recommendation_reference_pattern_evidence(self, rankings: list[dict[str, Any]], selected_pattern: dict[str, Any] | None) -> dict[str, Any]:
+        return self.recommendations.recommendation_reference_pattern_evidence(rankings, selected_pattern)
+
+    def recommendation_variation_preset_evidence(self, rankings: list[dict[str, Any]], selected_preset: str | None) -> dict[str, Any]:
+        return self.recommendations.recommendation_variation_preset_evidence(rankings, selected_preset)
+
+    def latest_recommendation_trust_context(self, campaign_id: str, *, account: str | None) -> dict[str, Any]:
+        return self.recommendations.latest_recommendation_trust_context(campaign_id, account=account)
+
+    def apply_recommendation_trust(
+        self,
+        *,
+        score: int | float,
+        confidence: str,
+        confidence_reason: str,
+        recommendation_trust: dict[str, Any],
+    ) -> tuple[int, str, str, list[str]]:
+        return self.recommendations.apply_recommendation_trust(
+            score=score,
+            confidence=confidence,
+            confidence_reason=confidence_reason,
+            recommendation_trust=recommendation_trust,
+        )
+
+    def recommendation_item_payload(self, **kwargs: Any) -> dict[str, Any]:
+        return self.recommendations.recommendation_item_payload(**kwargs)
+
+    def reference_only_recommendation_item(self, **kwargs: Any) -> dict[str, Any] | None:
+        return self.recommendations.reference_only_recommendation_item(**kwargs)
+
+    def write_recommendation_graph_edges(self, **kwargs: Any) -> None:
+        self.recommendations.write_recommendation_graph_edges(**kwargs)
+
+    def write_audio_recommendation_graph_edges(self, **kwargs: Any) -> None:
+        self.recommendations.write_audio_recommendation_graph_edges(**kwargs)
+
+    def stored_recommendation_item_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.recommendations.stored_recommendation_item_payload(row)
+
+    def exceptions_for_recommendation(self, recommendation_item_id: str) -> list[dict[str, Any]]:
+        return self.recommendations.exceptions_for_recommendation(recommendation_item_id)
+
+    def recommendation_item(self, recommendation_item_id: str) -> dict[str, Any]:
+        return self.recommendations.recommendation_item(recommendation_item_id)
+
+    def accept_recommendation_item(
+        self,
+        recommendation_item_id: str,
+        *,
+        operator: str | None = None,
+        notes: str | None = None,
+        admin_override: bool = False,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.recommendations.accept_recommendation_item(
+            recommendation_item_id,
+            operator=operator,
+            notes=notes,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
+
+    def reject_recommendation_item(
+        self,
+        recommendation_item_id: str,
+        *,
+        reason: str | None = None,
+        operator: str | None = None,
+        notes: str | None = None,
+        admin_override: bool = False,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.recommendations.reject_recommendation_item(
+            recommendation_item_id,
+            reason=reason,
+            operator=operator,
+            notes=notes,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
+
+    def link_recommendation_item(
+        self,
+        recommendation_item_id: str,
+        *,
+        source_asset_id: str | None = None,
+        render_job_id: str | None = None,
+        rendered_asset_id: str | None = None,
+        post_id: str | None = None,
+        performance_snapshot_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
+        admin_override: bool = False,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.recommendations.link_recommendation_item(
+            recommendation_item_id,
+            source_asset_id=source_asset_id,
+            render_job_id=render_job_id,
+            rendered_asset_id=rendered_asset_id,
+            post_id=post_id,
+            performance_snapshot_id=performance_snapshot_id,
+            evidence=evidence,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
+
+    def measure_recommendation_item(
+        self,
+        recommendation_item_id: str,
+        *,
+        performance_snapshot_id: str | None = None,
+        admin_override: bool = False,
+        override_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self.recommendations.measure_recommendation_item(
+            recommendation_item_id,
+            performance_snapshot_id=performance_snapshot_id,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
+
+    def execute_accepted_recommendation(
+        self,
+        recommendation_item_id: str,
+        *,
+        mode: str = "level_2",
+        force: bool = False,
+        dry_run_render: bool = False,
+        run_audit: bool = True,
+        contentforge_base_url: str | None = None,
+    ) -> dict[str, Any]:
+        return self.recommendations.execute_accepted_recommendation(
+            recommendation_item_id,
+            mode=mode,
+            force=force,
+            dry_run_render=dry_run_render,
+            run_audit=run_audit,
+            contentforge_base_url=contentforge_base_url,
+        )
+
+    def compact_execution_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        return self.recommendations.compact_execution_result(result)
+
+    def create_trust_exceptions_for_recommendation(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.recommendations.create_trust_exceptions_for_recommendation(**kwargs)
+
+    def asset_has_final_audio_proof(self, asset: dict[str, Any]) -> bool:
+        return self.recommendations.asset_has_final_audio_proof(asset)
+
+    def recommendation_item_row(self, recommendation_item_id: str) -> dict[str, Any]:
+        return self.recommendations.recommendation_item_row(recommendation_item_id)
+
+    def recommendation_item_campaign(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.recommendations.recommendation_item_campaign(row)
+
+    def update_recommendation_lifecycle(self, recommendation_item_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.recommendations.update_recommendation_lifecycle(recommendation_item_id, **kwargs)
+
+    def validate_recommendation_transition(
+        self,
+        current_status: str,
+        next_status: str,
+        *,
+        admin_override: bool = False,
+        override_reason: str | None = None,
+    ) -> None:
+        return self.recommendations.validate_recommendation_transition(
+            current_status,
+            next_status,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
+
+    def recommendation_baseline_payload(
+        self,
+        baseline_summary: dict[str, Any],
+        *,
+        baseline_score: int | None,
+        threshold: int,
+    ) -> dict[str, Any]:
+        return self.recommendations.recommendation_baseline_payload(
+            baseline_summary,
+            baseline_score=baseline_score,
+            threshold=threshold,
+        )
+
+    def recommendation_performance_rows(self, row: dict[str, Any]) -> list[sqlite3.Row]:
+        return self.recommendations.recommendation_performance_rows(row)
+
+    def best_asset_history_score(self, asset: dict[str, Any]) -> int | None:
+        return self.recommendations.best_asset_history_score(asset)
+
+    def reference_pattern_score(self, pattern: dict[str, Any] | None) -> int:
+        return self.recommendations.reference_pattern_score(pattern)
+
+    def recommendation_account_score(self, asset: dict[str, Any], account: str | None) -> int:
+        return self.recommendations.recommendation_account_score(asset, account)
+
+    def recommendation_account_fit_evidence(
+        self,
+        campaign_id: str,
+        asset: dict[str, Any],
+        account: str | None,
+    ) -> dict[str, Any]:
+        return self.recommendations.recommendation_account_fit_evidence(campaign_id, asset, account)
+
+    def operational_recommendation_score(self, asset: dict[str, Any]) -> int:
+        return self.recommendations.operational_recommendation_score(asset)
+
+    def recommendation_confidence(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> tuple[str, str]:
+        return self.recommendations.recommendation_confidence(asset, pattern)
+
+    def recommendation_data_quality(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> dict[str, Any]:
+        return self.recommendations.recommendation_data_quality(asset, pattern)
+
+    def recommendation_reasons(self, **kwargs: Any) -> list[str]:
+        return self.recommendations.recommendation_reasons(**kwargs)
+
+    def asset_target_account(self, asset: dict[str, Any]) -> str | None:
+        return self.recommendations.asset_target_account(asset)
+
+    def recommendation_reference_summary(self, pattern: dict[str, Any] | None) -> dict[str, Any] | None:
+        return self.recommendations.recommendation_reference_summary(pattern)
+
+    def first_suggested_recipe(self, pattern: dict[str, Any] | None) -> str | None:
+        return self.recommendations.first_suggested_recipe(pattern)
+
+    def hook_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+        return self.recommendations.hook_guidance(pattern, asset)
+
+    def caption_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+        return self.recommendations.caption_guidance(pattern, asset)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.campaign_overview.campaign_health(campaign_slug)
