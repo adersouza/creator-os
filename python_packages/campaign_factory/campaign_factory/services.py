@@ -18,6 +18,7 @@ from .graph import GraphRepository
 from .models import ModelRepository
 from .reference import ReferenceRepository
 from .surface_registration import SurfaceRegistrationRepository
+from .tribev2 import TribeV2Repository
 from .winner_expansion import WinnerExpansionRepository
 
 
@@ -59,6 +60,8 @@ class CoreServices:
         dashboard: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
+        creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
+        creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
         creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
@@ -77,6 +80,8 @@ class CoreServices:
         story_goals: set[str],
         story_styles: set[str],
         ig_media_type_by_surface: dict[str, str],
+        image_exts: set[str],
+        video_exts: set[str],
         autonomy_level: Callable[[], str],
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
     ) -> None:
@@ -268,6 +273,17 @@ class CoreServices:
             slugify=slugify,
             creator_label=creator_label,
             build_creative_knowledge_base=build_creative_knowledge_base,
+        )
+        self.tribev2 = TribeV2Repository(
+            conn,
+            settings,
+            slugify=slugify,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            creative_knowledge_rows=creative_knowledge_rows,
+            creative_knowledge_result=creative_knowledge_result,
+            image_exts=image_exts,
+            video_exts=video_exts,
         )
 
     def ensure_graph_node(
@@ -1294,6 +1310,176 @@ class CoreServices:
             output_key=output_key,
             output_label=output_label,
         )
+
+    def tribev2_reel_analysis(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        minimum_sample_size: int = 3,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.tribev2.tribev2_reel_analysis(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
+
+    def tribev2_reel_review(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        sort_by: str = "meanAbsActivation",
+        bucket: str = "top",
+        limit: int = 12,
+        contact_sheet: bool = False,
+        show_metrics: bool | None = None,
+        show_tribe_score: bool = True,
+        blind_mode: bool = False,
+    ) -> dict[str, Any]:
+        return self.tribev2.tribev2_reel_review(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            sort_by=sort_by,
+            bucket=bucket,
+            limit=limit,
+            contact_sheet=contact_sheet,
+            show_metrics=show_metrics,
+            show_tribe_score=show_tribe_score,
+            blind_mode=blind_mode,
+        )
+
+    def tribev2_holdout_pilot_review(
+        self,
+        *,
+        creator: str,
+        campaign_slug: str | None = None,
+        limit: int = 20,
+        contact_sheet: bool = False,
+    ) -> dict[str, Any]:
+        return self.tribev2.tribev2_holdout_pilot_review(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            limit=limit,
+            contact_sheet=contact_sheet,
+        )
+
+    def tribev2_review_both_bucket(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        return self.tribev2.tribev2_review_both_bucket(ranked, limit)
+
+    def tribev2_review_item(
+        self,
+        row: dict[str, Any],
+        *,
+        rank: int,
+        sort_field: str,
+        show_metrics: bool = True,
+        show_tribe_score: bool = True,
+    ) -> dict[str, Any]:
+        return self.tribev2.tribev2_review_item(
+            row,
+            rank=rank,
+            sort_field=sort_field,
+            show_metrics=show_metrics,
+            show_tribe_score=show_tribe_score,
+        )
+
+    def tribev2_holdout_bucket_rows(self, ranked: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        return self.tribev2.tribev2_holdout_bucket_rows(ranked)
+
+    def tribev2_holdout_bucket_summary(self, name: str, rows: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+        return self.tribev2.tribev2_holdout_bucket_summary(name, rows, limit=limit)
+
+    def tribev2_average_metrics(self, rows: list[dict[str, Any]]) -> dict[str, float]:
+        return self.tribev2.tribev2_average_metrics(rows)
+
+    def tribev2_average_scores(self, rows: list[dict[str, Any]]) -> dict[str, float]:
+        return self.tribev2.tribev2_average_scores(rows)
+
+    def average_row_field(self, rows: list[dict[str, Any]], field: str) -> float:
+        return self.tribev2.average_row_field(rows, field)
+
+    def tribev2_preview_path(self, row: dict[str, Any]) -> str:
+        return self.tribev2.tribev2_preview_path(row)
+
+    def write_tribev2_review_contact_sheet(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        creator: str,
+        title: str = "TRIBE v2 Review",
+        blind_mode: bool = False,
+        show_metrics: bool = True,
+        show_tribe_score: bool = True,
+    ) -> str:
+        return self.tribev2.write_tribev2_review_contact_sheet(
+            items,
+            creator=creator,
+            title=title,
+            blind_mode=blind_mode,
+            show_metrics=show_metrics,
+            show_tribe_score=show_tribe_score,
+        )
+
+    def write_tribev2_holdout_contact_sheet(self, buckets: dict[str, Any], *, creator: str) -> str:
+        return self.tribev2.write_tribev2_holdout_contact_sheet(buckets, creator=creator)
+
+    def tribev2_contact_sheet_cards(
+        self,
+        items: list[dict[str, Any]],
+        root: Any,
+        *,
+        show_metrics: bool,
+        show_tribe_score: bool,
+    ) -> list[str]:
+        return self.tribev2.tribev2_contact_sheet_cards(
+            items,
+            root,
+            show_metrics=show_metrics,
+            show_tribe_score=show_tribe_score,
+        )
+
+    def tribev2_contact_sheet_html(self, *, title: str, body: str) -> str:
+        return self.tribev2.tribev2_contact_sheet_html(title=title, body=body)
+
+    def tribev2_extract_thumbnail(self, preview_path: str, output_dir: Any, item: dict[str, Any]) -> str:
+        return self.tribev2.tribev2_extract_thumbnail(preview_path, output_dir, item)
+
+    def tribev2_reel_analysis_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
+        return self.tribev2.tribev2_reel_analysis_rows(creator=creator, campaign_slug=campaign_slug)
+
+    def tribev2_score_for_snapshot(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        return self.tribev2.tribev2_score_for_snapshot(row)
+
+    def pearson_correlation(self, xs: list[float], ys: list[float]) -> float | None:
+        return self.tribev2.pearson_correlation(xs, ys)
+
+    def tribev2_bucket_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.tribev2.tribev2_bucket_summary(rows)
+
+    def tribev2_bucket_lift(self, top: dict[str, Any], bottom: dict[str, Any]) -> dict[str, Any]:
+        return self.tribev2.tribev2_bucket_lift(top, bottom)
+
+    def tribev2_metric_quality(self, rows: list[dict[str, Any]], metric_fields: list[str]) -> dict[str, Any]:
+        return self.tribev2.tribev2_metric_quality(rows, metric_fields)
+
+    def tribev2_signal_summary(
+        self,
+        correlations: dict[str, dict[str, float | None]],
+        *,
+        sample_size: int,
+        metric_quality: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.tribev2.tribev2_signal_summary(
+            correlations,
+            sample_size=sample_size,
+            metric_quality=metric_quality,
+        )
+
+    def tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
+        return self.tribev2.tribev2_confidence_level(sample_size, statistically_interesting)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
