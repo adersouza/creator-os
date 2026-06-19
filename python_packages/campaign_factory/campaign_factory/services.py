@@ -27,6 +27,7 @@ from .models import ModelRepository
 from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
+from .readiness_report import ReadinessReportRepository
 from .story_management import StoryManagementRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_summary import SurfaceSummaryRepository
@@ -100,6 +101,14 @@ class CoreServices:
         creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_os_execution_readiness: Callable[..., dict[str, Any]],
+        inventory_slo_report: Callable[..., dict[str, Any]],
+        surface_maturity_audit: Callable[[], dict[str, Any]],
+        exception_queue_priority_report: Callable[[], dict[str, Any]],
+        parent_factory_autopilot_plan: Callable[..., dict[str, Any]],
+        inventory_autopilot_plan: Callable[..., dict[str, Any]],
+        operator_load_audit: Callable[[], dict[str, Any]],
+        failure_injection_suite: Callable[[], dict[str, Any]],
+        idempotency_proof: Callable[[], dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
         account_surface_obligations_plan: Callable[..., dict[str, Any]],
@@ -523,6 +532,18 @@ class CoreServices:
             creator_os_account_health_report=creator_os_account_health_report,
             content_surfaces=content_surfaces,
         )
+        self.readiness_report = ReadinessReportRepository(
+            conn,
+            creator_os_200_account_acceptance_suite=self.acceptance_suite.creator_os_200_account_acceptance_suite,
+            inventory_slo_report=inventory_slo_report,
+            surface_maturity_audit=surface_maturity_audit,
+            exception_queue_priority_report=exception_queue_priority_report,
+            parent_factory_autopilot_plan=parent_factory_autopilot_plan,
+            inventory_autopilot_plan=inventory_autopilot_plan,
+            operator_load_audit=operator_load_audit,
+            failure_injection_suite=failure_injection_suite,
+            idempotency_proof=idempotency_proof,
+        )
 
     def ensure_graph_node(
         self,
@@ -703,6 +724,21 @@ class CoreServices:
             mixed_surfaces=mixed_surfaces,
             generated_at=generated_at,
         )
+
+    def creator_os_100_account_proof(self) -> dict[str, Any]:
+        return self.readiness_report.creator_os_100_account_proof()
+
+    def creator_os_volume_acceptance_suite(self) -> dict[str, Any]:
+        return self.readiness_report.creator_os_volume_acceptance_suite()
+
+    def surface_readiness_scorecard(self) -> dict[str, Any]:
+        return self.readiness_report.surface_readiness_scorecard()
+
+    def creator_os_10_0_readiness_report(self) -> dict[str, Any]:
+        return self.readiness_report.creator_os_10_0_readiness_report()
+
+    def creator_os_9_5_readiness_report(self) -> dict[str, Any]:
+        return self.readiness_report.creator_os_9_5_readiness_report()
 
     def create_pipeline_job(
         self,

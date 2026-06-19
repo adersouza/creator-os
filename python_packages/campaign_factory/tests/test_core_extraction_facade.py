@@ -28,6 +28,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
+from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
@@ -95,6 +96,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.execution_readiness.conn is factory.conn
         assert isinstance(factory.services.acceptance_suite, AcceptanceSuiteRepository)
         assert factory.services.acceptance_suite.conn is factory.conn
+        assert isinstance(factory.services.readiness_report, ReadinessReportRepository)
+        assert factory.services.readiness_report.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4099,6 +4102,100 @@ def test_core_services_delegates_creator_os_200_account_acceptance_suite_to_repo
                 "generated_at": "2026-06-08T12:00:00+00:00",
             },
         )]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_readiness_report_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_100_account_proof(self):
+            calls.append(("creator_os_100_account_proof", (), {}))
+            return {"schema": "creator_os.100_account_proof.v1"}
+
+        def creator_os_volume_acceptance_suite(self):
+            calls.append(("creator_os_volume_acceptance_suite", (), {}))
+            return {"schema": "creator_os.volume_acceptance_suite.v1"}
+
+        def surface_readiness_scorecard(self):
+            calls.append(("surface_readiness_scorecard", (), {}))
+            return {"schema": "creator_os.surface_readiness_scorecard.v1"}
+
+        def creator_os_10_0_readiness_report(self):
+            calls.append(("creator_os_10_0_readiness_report", (), {}))
+            return {"schema": "creator_os.10_0_readiness_report.v1"}
+
+        def creator_os_9_5_readiness_report(self):
+            calls.append(("creator_os_9_5_readiness_report", (), {}))
+            return {"schema": "creator_os.9_5_readiness_report.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_100_account_proof() == {"schema": "creator_os.100_account_proof.v1"}
+    assert factory.creator_os_volume_acceptance_suite() == {"schema": "creator_os.volume_acceptance_suite.v1"}
+    assert factory.surface_readiness_scorecard() == {"schema": "creator_os.surface_readiness_scorecard.v1"}
+    assert factory.creator_os_10_0_readiness_report() == {"schema": "creator_os.10_0_readiness_report.v1"}
+    assert factory.creator_os_9_5_readiness_report() == {"schema": "creator_os.9_5_readiness_report.v1"}
+    assert calls == [
+        ("creator_os_100_account_proof", (), {}),
+        ("creator_os_volume_acceptance_suite", (), {}),
+        ("surface_readiness_scorecard", (), {}),
+        ("creator_os_10_0_readiness_report", (), {}),
+        ("creator_os_9_5_readiness_report", (), {}),
+    ]
+
+
+def test_core_services_delegates_readiness_report_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeReadinessReport:
+            conn = factory.conn
+
+            def creator_os_100_account_proof(self):
+                calls.append(("creator_os_100_account_proof", (), {}))
+                return {"schema": "creator_os.100_account_proof.v1"}
+
+            def creator_os_volume_acceptance_suite(self):
+                calls.append(("creator_os_volume_acceptance_suite", (), {}))
+                return {"schema": "creator_os.volume_acceptance_suite.v1"}
+
+            def surface_readiness_scorecard(self):
+                calls.append(("surface_readiness_scorecard", (), {}))
+                return {"schema": "creator_os.surface_readiness_scorecard.v1"}
+
+            def creator_os_10_0_readiness_report(self):
+                calls.append(("creator_os_10_0_readiness_report", (), {}))
+                return {"schema": "creator_os.10_0_readiness_report.v1"}
+
+            def creator_os_9_5_readiness_report(self):
+                calls.append(("creator_os_9_5_readiness_report", (), {}))
+                return {"schema": "creator_os.9_5_readiness_report.v1"}
+
+        factory.services.readiness_report = FakeReadinessReport()
+
+        assert factory.services.creator_os_100_account_proof() == {"schema": "creator_os.100_account_proof.v1"}
+        assert factory.services.creator_os_volume_acceptance_suite() == {"schema": "creator_os.volume_acceptance_suite.v1"}
+        assert factory.services.surface_readiness_scorecard() == {"schema": "creator_os.surface_readiness_scorecard.v1"}
+        assert factory.services.creator_os_10_0_readiness_report() == {"schema": "creator_os.10_0_readiness_report.v1"}
+        assert factory.services.creator_os_9_5_readiness_report() == {"schema": "creator_os.9_5_readiness_report.v1"}
+        assert calls == [
+            ("creator_os_100_account_proof", (), {}),
+            ("creator_os_volume_acceptance_suite", (), {}),
+            ("surface_readiness_scorecard", (), {}),
+            ("creator_os_10_0_readiness_report", (), {}),
+            ("creator_os_9_5_readiness_report", (), {}),
+        ]
     finally:
         factory.close()
 
