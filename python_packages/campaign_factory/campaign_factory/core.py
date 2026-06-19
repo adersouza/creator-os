@@ -631,14 +631,8 @@ class CampaignFactory:
             exception_queue_report=self.exception_queue_report,
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             parent_factory_production_scorecard=self.parent_factory_production_scorecard,
-            account_content_needs=self.account_content_needs,
-            creator_content_needs=self.creator_content_needs,
-            account_surface_obligations_plan=self.account_surface_obligations_plan,
             multi_surface_inventory_audit=self.multi_surface_inventory_audit,
-            surface_gap_report=self.surface_gap_report,
-            empty_surface_totals=self._empty_surface_totals,
             build_surface_inventory=lambda *args, **kwargs: self._build_surface_inventory(*args, **kwargs),
-            last_surface_posted_at=lambda *args, **kwargs: self._last_surface_posted_at(*args, **kwargs),
             truthy=self._truthy,
             surface_readiness_scorecard=self.surface_readiness_scorecard,
             certification_asset_for_surface=self._certification_asset_for_surface,
@@ -13762,57 +13756,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         date: str,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        target_date = datetime.fromisoformat(date).date()
-        rows = self.conn.execute(
-            """
-            SELECT r.*, a.handle, a.external_id
-            FROM account_content_requirements r
-            LEFT JOIN accounts a ON a.id = r.account_id
-            WHERE r.active = 1 AND LOWER(r.creator) = LOWER(?)
-            ORDER BY r.account_id, r.content_surface
-            """,
-            (creator_label,),
-        ).fetchall()
-        by_account: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            req = dict(row)
-            account_id = req["account_id"]
-            account = by_account.setdefault(
-                account_id,
-                {
-                    "accountId": account_id,
-                    "instagramAccountId": req.get("external_id"),
-                    "username": req.get("handle"),
-                    "surfaceStatus": {
-                        surface: {"needed": False, "scheduled": False, "completed": False, "blockedReason": ""}
-                        for surface in CONTENT_SURFACES
-                    },
-                },
-            )
-            surface = normalize_content_surface(req.get("content_surface"))
-            if surface not in CONTENT_SURFACES:
-                continue
-            active_today = self._requirement_active_on_date(req, target_date)
-            scheduled = self._surface_scheduled_for_account(account_id, req.get("external_id"), surface, target_date)
-            completed = self._surface_completed_for_account(account_id, req.get("external_id"), surface, target_date)
-            needed = active_today and not scheduled and not completed
-            blocked = ""
-            if needed and self.multi_surface_inventory_audit(creator=creator_label)["inventoryBySurface"][surface]["scheduleSafe"] == 0:
-                blocked = "inventory_missing"
-            account["surfaceStatus"][surface] = {
-                "needed": bool(needed),
-                "scheduled": bool(scheduled),
-                "completed": bool(completed),
-                "blockedReason": blocked,
-            }
-        return {
-            "schema": "campaign_factory.account_surface_obligations_plan.v1",
-            "creator": creator_label,
-            "date": target_date.isoformat(),
-            "accounts": list(by_account.values()),
-            "wouldWrite": False,
-        }
+        return self.services.account_surface_obligations_plan(creator=creator, date=date)
 
     def account_content_needs(
         self,
@@ -13821,49 +13765,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator) if creator else None
-        target_date = datetime.fromisoformat(date).date()
-        rows = self._account_content_requirement_rows(
-            creator=creator_label,
-            account_id=account_id,
-        )
-        obligations = [
-            self._content_obligation_for_requirement(dict(row), target_date)
-            for row in rows
-        ]
-        surface_status = {
-            surface: {
-                "needed": False,
-                "scheduled": 0,
-                "completed": 0,
-                "blocked": False,
-                "overdue": False,
-                "blockedReason": "",
-            }
-            for surface in CONTENT_SURFACES
-        }
-        for obligation in obligations:
-            surface_status[obligation["surface"]] = {
-                "needed": obligation["needed"],
-                "scheduled": obligation["scheduled"],
-                "completed": obligation["completed"],
-                "blocked": obligation["blocked"],
-                "overdue": obligation["overdue"],
-                "blockedReason": obligation["blockedReason"],
-            }
-        account_row = self._account_row_for_requirement_account(account_id)
-        return {
-            "schema": "campaign_factory.account_content_needs.v1",
-            "creator": creator_label,
-            "date": target_date.isoformat(),
-            "accountId": account_row.get("id") if account_row else account_id,
-            "account": account_row.get("handle") if account_row else account_id,
-            "instagramAccountId": account_row.get("external_id") if account_row else None,
-            "surfaceRequirementsTracked": list(CONTENT_SURFACES),
-            "obligations": obligations,
-            "surfaceStatus": surface_status,
-            "wouldWrite": False,
-        }
+        return self.services.account_content_needs(account_id=account_id, creator=creator, date=date)
 
     def account_surface_status(
         self,
@@ -13872,23 +13774,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        needs = self.account_content_needs(
-            account_id=account_id,
-            creator=creator,
-            date=date,
-        )
-        return {
-            "schema": "campaign_factory.account_surface_status.v1",
-            "creator": needs.get("creator"),
-            "date": needs.get("date"),
-            "accountId": needs.get("accountId"),
-            "account": needs.get("account"),
-            "instagramAccountId": needs.get("instagramAccountId"),
-            "trackedStates": list(CONTENT_SURFACES),
-            "surfaceStatus": needs.get("surfaceStatus") or {},
-            "obligations": needs.get("obligations") or [],
-            "wouldWrite": False,
-        }
+        return self.services.account_surface_status(account_id=account_id, creator=creator, date=date)
 
     def creator_content_needs(
         self,
@@ -13896,38 +13782,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         date: str,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        target_date = datetime.fromisoformat(date).date()
-        rows = self._account_content_requirement_rows(creator=creator_label)
-        by_account: dict[str, list[dict[str, Any]]] = {}
-        for row in rows:
-            by_account.setdefault(row["account_id"], []).append(dict(row))
-        accounts: list[dict[str, Any]] = []
-        totals = self._empty_surface_totals()
-        for account_id in sorted(by_account):
-            obligations = [
-                self._content_obligation_for_requirement(req, target_date)
-                for req in sorted(by_account[account_id], key=lambda item: normalize_content_surface(item.get("content_surface")))
-            ]
-            account_row = self._account_row_for_requirement_account(account_id)
-            for obligation in obligations:
-                self._add_obligation_to_totals(totals, obligation)
-            accounts.append({
-                "accountId": account_row.get("id") if account_row else account_id,
-                "account": account_row.get("handle") if account_row else account_id,
-                "instagramAccountId": account_row.get("external_id") if account_row else None,
-                "obligations": obligations,
-            })
-        return {
-            "schema": "campaign_factory.creator_content_needs.v1",
-            "creator": creator_label,
-            "date": target_date.isoformat(),
-            "accountsAnalyzed": len(accounts),
-            "surfaceRequirementsTracked": list(CONTENT_SURFACES),
-            "accounts": accounts,
-            "totalsBySurface": totals,
-            "wouldWrite": False,
-        }
+        return self.services.creator_content_needs(creator=creator, date=date)
 
     def surface_gap_report(
         self,
@@ -13935,36 +13790,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         date: str,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        status = self._build_surface_status(creator=creator_label, date=date)
-        needs = status["needs"]
-        inventory = status["inventoryBySurface"]
-        gaps: dict[str, dict[str, Any]] = {}
-        for surface in CONTENT_SURFACES:
-            totals = needs["totalsBySurface"].get(surface) or {}
-            needed = int(totals.get("remaining") or 0)
-            available = int((inventory.get(surface) or {}).get("scheduleSafe") or 0)
-            shortfall = max(0, needed - available)
-            gaps[surface] = {
-                "surface": surface,
-                "required": int(totals.get("required") or 0),
-                "completed": int(totals.get("completed") or 0),
-                "scheduled": int(totals.get("scheduled") or 0),
-                "needed": needed,
-                "available": available,
-                "shortfall": shortfall,
-                "blocked": shortfall > 0,
-                "blockedReason": "inventory_shortfall" if shortfall > 0 else "",
-            }
-        return {
-            "schema": "campaign_factory.surface_gap_report.v1",
-            "creator": creator_label,
-            "date": datetime.fromisoformat(date).date().isoformat(),
-            "accountsAnalyzed": needs["accountsAnalyzed"],
-            "surfaceRequirementsTracked": list(CONTENT_SURFACES),
-            "surfaceGaps": gaps,
-            "wouldWrite": False,
-        }
+        return self.services.surface_gap_report(creator=creator, date=date)
 
     def surface_handoff_readiness_report(
         self,
@@ -14088,16 +13914,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str,
         date: str,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        needs = self.creator_content_needs(creator=creator_label, date=date)
-        inventory = self._build_surface_inventory(creator=creator_label).get("inventoryBySurface") or {}
-        return {
-            "creator": creator_label,
-            "date": datetime.fromisoformat(date).date().isoformat(),
-            "needs": needs,
-            "inventoryBySurface": inventory,
-            "wouldWrite": False,
-        }
+        return self.services.build_surface_status(creator=creator, date=date)
 
     def _build_surface_readiness(self, assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return self.services.build_surface_readiness(assets)
@@ -14146,147 +13963,31 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         creator: str | None = None,
         account_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        clauses = ["r.active = 1"]
-        params: list[Any] = []
-        if creator:
-            clauses.append("LOWER(r.creator) = LOWER(?)")
-            params.append(creator)
-        if account_id:
-            clauses.append("(r.account_id = ? OR a.external_id = ? OR a.handle = ?)")
-            params.extend([account_id, account_id, account_id])
-        rows = self.conn.execute(
-            f"""
-            SELECT r.*, a.handle, a.external_id
-            FROM account_content_requirements r
-            LEFT JOIN accounts a ON a.id = r.account_id
-            WHERE {" AND ".join(clauses)}
-            ORDER BY r.account_id, r.content_surface
-            """,
-            params,
-        ).fetchall()
-        return [dict(row) for row in rows]
+        return self.services.account_content_requirement_rows(creator=creator, account_id=account_id)
 
     def _account_row_for_requirement_account(self, account_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            """
-            SELECT * FROM accounts
-            WHERE id = ? OR external_id = ? OR handle = ?
-            LIMIT 1
-            """,
-            (account_id, account_id, account_id),
-        ).fetchone()
-        return dict(row) if row else None
+        return self.services.account_row_for_requirement_account(account_id)
 
     def _content_obligation_for_requirement(self, requirement: dict[str, Any], target_date: datetime.date) -> dict[str, Any]:
-        surface = normalize_content_surface(requirement.get("content_surface"))
-        required = self._required_content_count(requirement, target_date)
-        completed = self._surface_completed_count(
-            requirement["account_id"],
-            requirement.get("external_id"),
-            surface,
-            target_date,
-        )
-        scheduled = self._surface_scheduled_count(
-            requirement["account_id"],
-            requirement.get("external_id"),
-            surface,
-            target_date,
-        )
-        remaining = max(0, required - completed - scheduled)
-        return {
-            "account": requirement.get("handle") or requirement.get("external_id") or requirement["account_id"],
-            "accountId": requirement["account_id"],
-            "instagramAccountId": requirement.get("external_id"),
-            "surface": surface,
-            "cadence": requirement.get("cadence") or "daily",
-            "required": required,
-            "completed": completed,
-            "scheduled": scheduled,
-            "remaining": remaining,
-            "needed": remaining > 0,
-            "blocked": False,
-            "overdue": False,
-            "blockedReason": "",
-        }
+        return self.services.content_obligation_for_requirement(requirement, target_date)
 
     def _required_content_count(self, requirement: dict[str, Any], target_date: datetime.date) -> int:
-        if not self._requirement_active_on_date(requirement, target_date):
-            return 0
-        cadence = str(requirement.get("cadence") or "daily").strip().lower()
-        per_day = re.fullmatch(r"(\d+)[_-]per[_-]day", cadence)
-        if per_day:
-            return max(0, int(per_day.group(1)))
-        if cadence in {"every_other_day", "alternate_days", "every_2_days", "every-other-day"}:
-            if target_date.toordinal() % 2:
-                return 0
-        try:
-            return max(0, int(requirement.get("max_per_day") or 0))
-        except (TypeError, ValueError):
-            return 0
+        return self.services.required_content_count(requirement, target_date)
 
     def _empty_surface_totals(self) -> dict[str, dict[str, int]]:
-        return {
-            surface: {
-                "required": 0,
-                "completed": 0,
-                "scheduled": 0,
-                "remaining": 0,
-                "accountsNeeding": 0,
-            }
-            for surface in CONTENT_SURFACES
-        }
+        return self.services.empty_surface_totals()
 
     def _add_obligation_to_totals(self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]) -> None:
-        surface = obligation["surface"]
-        if surface not in totals:
-            return
-        totals[surface]["required"] += int(obligation.get("required") or 0)
-        totals[surface]["completed"] += int(obligation.get("completed") or 0)
-        totals[surface]["scheduled"] += int(obligation.get("scheduled") or 0)
-        totals[surface]["remaining"] += int(obligation.get("remaining") or 0)
-        if obligation.get("needed"):
-            totals[surface]["accountsNeeding"] += 1
+        self.services.add_obligation_to_totals(totals, obligation)
 
     def _requirement_active_on_date(self, requirement: dict[str, Any], target_date: datetime.date) -> bool:
-        allowed_days = json_load(requirement.get("allowed_days"), [])
-        if isinstance(allowed_days, list) and allowed_days:
-            normalized_days = {int(day) for day in allowed_days if str(day).isdigit()}
-            if target_date.weekday() not in normalized_days and ((target_date.weekday() + 1) % 7) not in normalized_days:
-                return False
-        cadence = str(requirement.get("cadence") or "daily").lower()
-        if cadence in {"daily", "every_day"}:
-            return True
-        if cadence in {"weekly", "once_weekly"}:
-            return True
-        return True
+        return self.services.requirement_active_on_date(requirement, target_date)
 
     def _surface_scheduled_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> int:
-        start = f"{target_date.isoformat()}T00:00:00"
-        end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
-        row = self.conn.execute(
-            """
-            SELECT COUNT(DISTINCT id) AS count FROM distribution_plans
-            WHERE content_surface = ?
-              AND (account_id = ? OR instagram_account_id = ?)
-              AND planned_window_start >= ? AND planned_window_start < ?
-            """,
-            (surface, account_id, instagram_account_id, start, end),
-        ).fetchone()
-        return int(row["count"] or 0) if row else 0
+        return self.services.surface_scheduled_count(account_id, instagram_account_id, surface, target_date)
 
     def _surface_completed_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> int:
-        start = f"{target_date.isoformat()}T00:00:00"
-        end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
-        row = self.conn.execute(
-            """
-            SELECT COUNT(DISTINCT post_id) AS count FROM performance_snapshots
-            WHERE content_surface = ?
-              AND (account_id = ? OR instagram_account_id = ?)
-              AND published_at >= ? AND published_at < ?
-            """,
-            (surface, account_id, instagram_account_id, start, end),
-        ).fetchone()
-        return int(row["count"] or 0) if row else 0
+        return self.services.surface_completed_count(account_id, instagram_account_id, surface, target_date)
 
     def _last_surface_posted_at(
         self,
@@ -14296,49 +13997,18 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         surface: str,
         before_date: datetime.date,
     ) -> str | None:
-        end = f"{before_date.isoformat()}T00:00:00"
-        row = self.conn.execute(
-            """
-            SELECT published_at FROM performance_snapshots
-            WHERE content_surface = ?
-              AND (account_id = ? OR instagram_account_id = ?)
-              AND published_at < ?
-            ORDER BY published_at DESC
-            LIMIT 1
-            """,
-            (surface, account_id, instagram_account_id, end),
-        ).fetchone()
-        return str(row["published_at"]) if row and row["published_at"] else None
+        return self.services.last_surface_posted_at(
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            surface=surface,
+            before_date=before_date,
+        )
 
     def _surface_scheduled_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> bool:
-        start = f"{target_date.isoformat()}T00:00:00"
-        end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
-        row = self.conn.execute(
-            """
-            SELECT 1 FROM distribution_plans
-            WHERE content_surface = ?
-              AND (account_id = ? OR instagram_account_id = ?)
-              AND planned_window_start >= ? AND planned_window_start < ?
-            LIMIT 1
-            """,
-            (surface, account_id, instagram_account_id, start, end),
-        ).fetchone()
-        return bool(row)
+        return self.services.surface_scheduled_for_account(account_id, instagram_account_id, surface, target_date)
 
     def _surface_completed_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> bool:
-        start = f"{target_date.isoformat()}T00:00:00"
-        end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
-        row = self.conn.execute(
-            """
-            SELECT 1 FROM performance_snapshots
-            WHERE content_surface = ?
-              AND (account_id = ? OR instagram_account_id = ?)
-              AND published_at >= ? AND published_at < ?
-            LIMIT 1
-            """,
-            (surface, account_id, instagram_account_id, start, end),
-        ).fetchone()
-        return bool(row)
+        return self.services.surface_completed_for_account(account_id, instagram_account_id, surface, target_date)
 
     def _default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
         for campaign in campaigns:

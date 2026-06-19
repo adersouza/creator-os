@@ -35,6 +35,7 @@ from .recommendation_accuracy import RecommendationAccuracyRepository
 from .readiness_report import ReadinessReportRepository
 from .story_management import StoryManagementRepository
 from .surface_handoff import SurfaceHandoffRepository
+from .surface_requirements import SurfaceRequirementsRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_summary import SurfaceSummaryRepository
 from .tribev2 import TribeV2Repository
@@ -123,14 +124,8 @@ class CoreServices:
         exception_queue_report: Callable[[], dict[str, Any]],
         reel_factory_parent_metrics: Callable[[], dict[str, Any]],
         parent_factory_production_scorecard: Callable[[], dict[str, Any]],
-        account_content_needs: Callable[..., dict[str, Any]],
-        creator_content_needs: Callable[..., dict[str, Any]],
-        account_surface_obligations_plan: Callable[..., dict[str, Any]],
         multi_surface_inventory_audit: Callable[..., dict[str, Any]],
-        surface_gap_report: Callable[..., dict[str, Any]],
-        empty_surface_totals: Callable[[], dict[str, dict[str, int]]],
         build_surface_inventory: Callable[..., dict[str, Any]],
-        last_surface_posted_at: Callable[..., str | None],
         truthy: Callable[[Any], bool],
         surface_readiness_scorecard: Callable[[], dict[str, Any]],
         certification_asset_for_surface: Callable[..., dict[str, Any] | None],
@@ -288,6 +283,14 @@ class CoreServices:
             model_account_profile=self.models.model_account_profile,
             account_compatible_with_model=self.models.account_compatible_with_model,
         )
+        self.surface_requirements = SurfaceRequirementsRepository(
+            conn,
+            creator_label=creator_label,
+            normalize_content_surface=normalize_content_surface,
+            multi_surface_inventory_audit=multi_surface_inventory_audit,
+            build_surface_inventory=build_surface_inventory,
+            content_surfaces=content_surfaces,
+        )
         self.decision_ledger = DecisionLedgerRepository(
             conn,
             sanitize_for_storage=sanitize_for_storage,
@@ -295,7 +298,7 @@ class CoreServices:
             creator_label=creator_label,
             creator_os_target_date=creator_os_target_date,
             creator_os_daily_plan=creator_os_daily_plan,
-            creator_content_needs=creator_content_needs,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
             recommended_story_intent_for_date=recommended_story_intent_for_date,
             recommended_story_style_for_intent=recommended_story_style_for_intent,
             story_mix_plan=story_mix_plan,
@@ -403,9 +406,9 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             build_surface_inventory=build_surface_inventory,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
-            account_content_needs=account_content_needs,
-            creator_content_needs=creator_content_needs,
-            last_surface_posted_at=last_surface_posted_at,
+            account_content_needs=self.surface_requirements.account_content_needs,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
+            last_surface_posted_at=self.surface_requirements.last_surface_posted_at,
             truthy=truthy,
             surface_readiness_scorecard=surface_readiness_scorecard,
             certification_asset_for_surface=certification_asset_for_surface,
@@ -424,12 +427,12 @@ class CoreServices:
             conn,
             creator_label=creator_label,
             creator_os_target_date=creator_os_target_date,
-            creator_content_needs=creator_content_needs,
-            account_content_needs=account_content_needs,
-            account_surface_obligations_plan=account_surface_obligations_plan,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
+            account_content_needs=self.surface_requirements.account_content_needs,
+            account_surface_obligations_plan=self.surface_requirements.account_surface_obligations_plan,
             multi_surface_inventory_audit=multi_surface_inventory_audit,
-            surface_gap_report=surface_gap_report,
-            empty_surface_totals=empty_surface_totals,
+            surface_gap_report=self.surface_requirements.surface_gap_report,
+            empty_surface_totals=self.surface_requirements.empty_surface_totals,
             content_surfaces=content_surfaces,
         )
         self.draft_inventory_gap = DraftInventoryGapRepository(
@@ -1791,6 +1794,89 @@ class CoreServices:
 
     def creator_story_summary(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.creator_story_summary(**kwargs)
+
+    def account_surface_obligations_plan(self, *, creator: str, date: str) -> dict[str, Any]:
+        return self.surface_requirements.account_surface_obligations_plan(creator=creator, date=date)
+
+    def account_content_needs(
+        self,
+        *,
+        account_id: str,
+        creator: str | None = None,
+        date: str,
+    ) -> dict[str, Any]:
+        return self.surface_requirements.account_content_needs(account_id=account_id, creator=creator, date=date)
+
+    def account_surface_status(
+        self,
+        *,
+        account_id: str,
+        creator: str | None = None,
+        date: str,
+    ) -> dict[str, Any]:
+        return self.surface_requirements.account_surface_status(account_id=account_id, creator=creator, date=date)
+
+    def creator_content_needs(self, *, creator: str, date: str) -> dict[str, Any]:
+        return self.surface_requirements.creator_content_needs(creator=creator, date=date)
+
+    def surface_gap_report(self, *, creator: str, date: str) -> dict[str, Any]:
+        return self.surface_requirements.surface_gap_report(creator=creator, date=date)
+
+    def build_surface_status(self, *, creator: str, date: str) -> dict[str, Any]:
+        return self.surface_requirements.build_surface_status(creator=creator, date=date)
+
+    def account_content_requirement_rows(
+        self,
+        *,
+        creator: str | None = None,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.surface_requirements.account_content_requirement_rows(creator=creator, account_id=account_id)
+
+    def account_row_for_requirement_account(self, account_id: str) -> dict[str, Any] | None:
+        return self.surface_requirements.account_row_for_requirement_account(account_id)
+
+    def content_obligation_for_requirement(self, requirement: dict[str, Any], target_date: Any) -> dict[str, Any]:
+        return self.surface_requirements.content_obligation_for_requirement(requirement, target_date)
+
+    def required_content_count(self, requirement: dict[str, Any], target_date: Any) -> int:
+        return self.surface_requirements.required_content_count(requirement, target_date)
+
+    def empty_surface_totals(self) -> dict[str, dict[str, int]]:
+        return self.surface_requirements.empty_surface_totals()
+
+    def add_obligation_to_totals(self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]) -> None:
+        self.surface_requirements.add_obligation_to_totals(totals, obligation)
+
+    def requirement_active_on_date(self, requirement: dict[str, Any], target_date: Any) -> bool:
+        return self.surface_requirements.requirement_active_on_date(requirement, target_date)
+
+    def surface_scheduled_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> int:
+        return self.surface_requirements.surface_scheduled_count(account_id, instagram_account_id, surface, target_date)
+
+    def surface_completed_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> int:
+        return self.surface_requirements.surface_completed_count(account_id, instagram_account_id, surface, target_date)
+
+    def last_surface_posted_at(
+        self,
+        *,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        before_date: Any,
+    ) -> str | None:
+        return self.surface_requirements.last_surface_posted_at(
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            surface=surface,
+            before_date=before_date,
+        )
+
+    def surface_scheduled_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> bool:
+        return self.surface_requirements.surface_scheduled_for_account(account_id, instagram_account_id, surface, target_date)
+
+    def surface_completed_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> bool:
+        return self.surface_requirements.surface_completed_for_account(account_id, instagram_account_id, surface, target_date)
 
     def creator_surface_summary(
         self,
