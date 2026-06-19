@@ -29,6 +29,7 @@ from .exceptions import ExceptionRepository
 from .finished_video import FinishedVideoRepository
 from .graph import GraphRepository
 from .inventory_planning import InventoryPlanningRepository
+from .inventory_reservations import InventoryReservationRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
 from .models import ModelRepository
@@ -110,7 +111,8 @@ class CoreServices:
         asset_matches_creator: Callable[[dict[str, Any], str], bool],
         latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
         content_trust_status_blockers: Callable[..., tuple[list[str], dict[str, str]]],
-        reservation_adjusted_inventory: Callable[..., dict[str, int]],
+        ensure_rendered_asset_perceptual_metadata: Callable[..., dict[str, Any]],
+        asset_uniqueness_values: Callable[..., dict[str, str]],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
@@ -508,6 +510,16 @@ class CoreServices:
             ranking=ranking,
             audit_report_payload=audit_report_payload,
         )
+        self.inventory_reservations = InventoryReservationRepository(
+            conn,
+            new_id=new_id,
+            utc_now=utc_now,
+            normalize_content_surface=normalize_content_surface,
+            rendered_asset=self.rendered_asset,
+            ensure_rendered_asset_perceptual_metadata=ensure_rendered_asset_perceptual_metadata,
+            asset_uniqueness_values=asset_uniqueness_values,
+            default_reservation_ttl_days=7,
+        )
         self.exceptions = ExceptionRepository(
             conn,
             sanitize_for_storage=sanitize_for_storage,
@@ -813,7 +825,7 @@ class CoreServices:
             actual_account_operational_counts=self.live_scale.actual_account_operational_counts,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
-            reservation_adjusted_inventory=reservation_adjusted_inventory,
+            reservation_adjusted_inventory=self.inventory_reservations.reservation_adjusted_inventory,
             exception_queue_report=exception_queue_report,
         )
         self.certification = CertificationRepository(
@@ -1824,6 +1836,21 @@ class CoreServices:
 
     def inventory_repair_actions(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
         return self.inventory_planning.inventory_repair_actions(policy)
+
+    def reserve_inventory_asset(self, asset_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_reservations.reserve_inventory_asset(asset_id, **kwargs)
+
+    def expire_inventory_reservations(self, **kwargs: Any) -> int:
+        return self.inventory_reservations.expire_inventory_reservations(**kwargs)
+
+    def release_inventory_reservation(self, reservation_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_reservations.release_inventory_reservation(reservation_id, **kwargs)
+
+    def inventory_uniqueness_conflicts(self, asset: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+        return self.inventory_reservations.inventory_uniqueness_conflicts(asset, **kwargs)
+
+    def reservation_adjusted_inventory(self, readiness_rows: list[dict[str, Any]], **kwargs: Any) -> dict[str, int]:
+        return self.inventory_reservations.reservation_adjusted_inventory(readiness_rows, **kwargs)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.campaign_overview.campaign_health(campaign_slug)
