@@ -24,6 +24,7 @@ from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
 from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
+from .finished_video import FinishedVideoRepository
 from .graph import GraphRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
@@ -63,6 +64,8 @@ class CoreServices:
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         prepare_reel_inputs: Callable[..., dict[str, Any]],
+        make_batch: Callable[..., dict[str, Any]],
+        load_source_lineage: Callable[[Any | None], dict[str, Any]],
         discoverability_safe_content_contract: Callable[..., dict[str, Any]],
         reference_hook_fallbacks: tuple[str, ...],
         normalize_content_surface: Callable[[str | None], str],
@@ -249,6 +252,20 @@ class CoreServices:
             prepare_reel_inputs=prepare_reel_inputs,
             discoverability_safe_content_contract=discoverability_safe_content_contract,
             reference_hook_fallbacks=reference_hook_fallbacks,
+        )
+        self.finished_video = FinishedVideoRepository(
+            conn,
+            settings,
+            slugify=slugify,
+            media_type_for_path=media_type_for_path,
+            sha256_file=sha256_file,
+            probe_video_shape=probe_video_shape,
+            json_load=json_load,
+            utc_now=utc_now,
+            make_batch=make_batch,
+            creative_plan=self.creative_planning.creative_plan,
+            load_source_lineage=load_source_lineage,
+            record_creative_plan_event=self.creative_planning.record_creative_plan_event,
         )
         self.caption_family = CaptionFamilyRepository(
             conn,
@@ -1403,6 +1420,61 @@ class CoreServices:
 
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
         return self.reference.reference_hook_is_schedule_safe(text)
+
+    def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+        return self.finished_video.finished_video_hooks(format_type, pattern, count=count)
+
+    def intake_finished_video(
+        self,
+        *,
+        input_path: Any,
+        model_slug: str,
+        platform: str = "instagram",
+        goal: str = "reach",
+        reference_pattern: str | None = "auto",
+        campaign_slug: str | None = None,
+        contentforge_base_url: str | None = None,
+        user_id: str | None = None,
+        dry_run_export: bool = True,
+        variant_count: int = 10,
+        workers: int = 3,
+        recipes: list[str] | None = None,
+        creative_plan: str | None = None,
+        style_lane: str | None = None,
+        source_lineage_path: Any | None = None,
+    ) -> dict[str, Any]:
+        return self.finished_video.intake_finished_video(
+            input_path=input_path,
+            model_slug=model_slug,
+            platform=platform,
+            goal=goal,
+            reference_pattern=reference_pattern,
+            campaign_slug=campaign_slug,
+            contentforge_base_url=contentforge_base_url,
+            user_id=user_id,
+            dry_run_export=dry_run_export,
+            variant_count=variant_count,
+            workers=workers,
+            recipes=recipes,
+            creative_plan=creative_plan,
+            style_lane=style_lane,
+            source_lineage_path=source_lineage_path,
+        )
+
+    def finished_video_preflight(self, probe: dict[str, Any]) -> list[dict[str, str]]:
+        return self.finished_video.finished_video_preflight(probe)
+
+    def finished_video_style_lane_format(self, style_lane: str | None) -> str | None:
+        return self.finished_video.finished_video_style_lane_format(style_lane)
+
+    def finished_video_caption_band(self, format_type: str) -> str:
+        return self.finished_video.finished_video_caption_band(format_type)
+
+    def finished_video_caption_font(self, format_type: str) -> str:
+        return self.finished_video.finished_video_caption_font(format_type)
+
+    def classify_finished_video_format(self, path: Any) -> str:
+        return self.finished_video.classify_finished_video_format(path)
 
     def caption_family_plan(
         self,
