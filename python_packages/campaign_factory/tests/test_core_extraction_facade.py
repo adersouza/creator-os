@@ -4465,6 +4465,30 @@ def test_exception_facade_delegates_to_core_services() -> None:
             calls.append(("exception_payload", args, kwargs))
             return {"id": args[0]["id"]}
 
+        def exception_queue_report(self, *args, **kwargs):
+            calls.append(("exception_queue_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_report.v1"}
+
+        def exception_queue_summary(self, *args, **kwargs):
+            calls.append(("exception_queue_summary", args, kwargs))
+            return {"schema": "creator_os.exception_queue_summary.v1"}
+
+        def exception_queue_priority_report(self, *args, **kwargs):
+            calls.append(("exception_queue_priority_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_priority_report.v1"}
+
+        def exception_queue_owner_report(self, *args, **kwargs):
+            calls.append(("exception_queue_owner_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_owner_report.v1"}
+
+        def exception_severity_for_reason(self, *args, **kwargs):
+            calls.append(("exception_severity_for_reason", args, kwargs))
+            return "critical"
+
+        def exception_next_action(self, *args, **kwargs):
+            calls.append(("exception_next_action", args, kwargs))
+            return "repair_caption_contract"
+
     factory.services = FakeServices()
 
     assert factory.create_exception(
@@ -4490,6 +4514,16 @@ def test_exception_facade_delegates_to_core_services() -> None:
         snoozed_until=None,
     ) == {"status": "resolved"}
     assert factory._exception_payload({"id": "ex_1"}) == {"id": "ex_1"}
+    assert factory.exception_queue_report(daily_plan={"accounts": []}) == {"schema": "creator_os.exception_queue_report.v1"}
+    assert factory.exception_queue_summary(execution_readiness={"blockers": []}) == {"schema": "creator_os.exception_queue_summary.v1"}
+    assert factory.exception_queue_priority_report(publishability_report={"assets": []}) == {
+        "schema": "creator_os.exception_queue_priority_report.v1",
+    }
+    assert factory.exception_queue_owner_report(surface_readiness_report={"items": []}) == {
+        "schema": "creator_os.exception_queue_owner_report.v1",
+    }
+    assert factory._exception_severity_for_reason("inventory_shortfall") == "critical"
+    assert factory._exception_next_action("caption_blocked") == "repair_caption_contract"
 
     assert calls == [
         ("create_exception", (), {
@@ -4517,6 +4551,12 @@ def test_exception_facade_delegates_to_core_services() -> None:
             "snoozed_until": None,
         }),
         ("exception_payload", ({"id": "ex_1"},), {}),
+        ("exception_queue_report", (), {"daily_plan": {"accounts": []}, "execution_readiness": None, "publishability_report": None, "surface_readiness_report": None}),
+        ("exception_queue_summary", (), {"execution_readiness": {"blockers": []}}),
+        ("exception_queue_priority_report", (), {"publishability_report": {"assets": []}}),
+        ("exception_queue_owner_report", (), {"surface_readiness_report": {"items": []}}),
+        ("exception_severity_for_reason", ("inventory_shortfall",), {}),
+        ("exception_next_action", ("caption_blocked",), {}),
     ]
 
 
@@ -4561,6 +4601,50 @@ def test_core_services_delegates_exception_methods_to_exception_repository() -> 
             calls.append(("exception_payload", args, kwargs))
             return {"id": args[0]["id"]}
 
+        def exception_queue_report(self, *args, **kwargs):
+            calls.append(("exception_queue_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_report.v1"}
+
+        def exception_queue_summary(self, *args, **kwargs):
+            calls.append(("exception_queue_summary", args, kwargs))
+            return {"schema": "creator_os.exception_queue_summary.v1"}
+
+        def exception_queue_priority_report(self, *args, **kwargs):
+            calls.append(("exception_queue_priority_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_priority_report.v1"}
+
+        def exception_queue_owner_report(self, *args, **kwargs):
+            calls.append(("exception_queue_owner_report", args, kwargs))
+            return {"schema": "creator_os.exception_queue_owner_report.v1"}
+
+        def exception_queue_item(self, *args, **kwargs):
+            calls.append(("exception_queue_item", args, kwargs))
+            return {"exceptionId": "exception_1"}
+
+        def exception_severity_for_reason(self, *args, **kwargs):
+            calls.append(("exception_severity_for_reason", args, kwargs))
+            return "critical"
+
+        def exception_next_action(self, *args, **kwargs):
+            calls.append(("exception_next_action", args, kwargs))
+            return "fill_validated_inventory_buffer"
+
+        def exception_category_for_reason(self, *args, **kwargs):
+            calls.append(("exception_category_for_reason", args, kwargs))
+            return "inventory"
+
+        def exception_owner_for_category(self, *args, **kwargs):
+            calls.append(("exception_owner_for_category", args, kwargs))
+            return "campaign_factory_operator"
+
+        def exception_repairable(self, *args, **kwargs):
+            calls.append(("exception_repairable", args, kwargs))
+            return True
+
+        def exception_resolution_minutes(self, *args, **kwargs):
+            calls.append(("exception_resolution_minutes", args, kwargs))
+            return 30
+
     services.exceptions = FakeExceptions()
 
     assert services.create_exception(reason_code="missing_account_assignment", severity="high") == {"id": "ex_1"}
@@ -4576,6 +4660,29 @@ def test_core_services_delegates_exception_methods_to_exception_repository() -> 
         "status": "resolved",
     }
     assert services.exception_payload({"id": "ex_1"}) == {"id": "ex_1"}
+    assert services.exception_queue_report(daily_plan={"accounts": []}) == {"schema": "creator_os.exception_queue_report.v1"}
+    assert services.exception_queue_summary(execution_readiness={"blockers": []}) == {"schema": "creator_os.exception_queue_summary.v1"}
+    assert services.exception_queue_priority_report(publishability_report={"assets": []}) == {
+        "schema": "creator_os.exception_queue_priority_report.v1",
+    }
+    assert services.exception_queue_owner_report(surface_readiness_report={"items": []}) == {
+        "schema": "creator_os.exception_queue_owner_report.v1",
+    }
+    assert services.exception_queue_item(
+        severity="critical",
+        system="inventory",
+        account="",
+        asset="asset_1",
+        reason="inventory_shortfall",
+        next_action="fill_validated_inventory_buffer",
+        count=2,
+    ) == {"exceptionId": "exception_1"}
+    assert services.exception_severity_for_reason("inventory_shortfall") == "critical"
+    assert services.exception_next_action("inventory_shortfall") == "fill_validated_inventory_buffer"
+    assert services.exception_category_for_reason("inventory_shortfall", "inventory") == "inventory"
+    assert services.exception_owner_for_category("inventory", "daily_plan") == "campaign_factory_operator"
+    assert services.exception_repairable("inventory_shortfall") is True
+    assert services.exception_resolution_minutes("inventory_shortfall", count=2) == 30
 
     assert calls == [
         ("create_exception", (), {
@@ -4603,6 +4710,25 @@ def test_core_services_delegates_exception_methods_to_exception_repository() -> 
             "snoozed_until": None,
         }),
         ("exception_payload", ({"id": "ex_1"},), {}),
+        ("exception_queue_report", (), {"daily_plan": {"accounts": []}, "execution_readiness": None, "publishability_report": None, "surface_readiness_report": None}),
+        ("exception_queue_summary", (), {"execution_readiness": {"blockers": []}}),
+        ("exception_queue_priority_report", (), {"publishability_report": {"assets": []}}),
+        ("exception_queue_owner_report", (), {"surface_readiness_report": {"items": []}}),
+        ("exception_queue_item", (), {
+            "severity": "critical",
+            "system": "inventory",
+            "account": "",
+            "asset": "asset_1",
+            "reason": "inventory_shortfall",
+            "next_action": "fill_validated_inventory_buffer",
+            "count": 2,
+        }),
+        ("exception_severity_for_reason", ("inventory_shortfall",), {}),
+        ("exception_next_action", ("inventory_shortfall",), {}),
+        ("exception_category_for_reason", ("inventory_shortfall", "inventory"), {}),
+        ("exception_owner_for_category", ("inventory", "daily_plan"), {}),
+        ("exception_repairable", ("inventory_shortfall",), {}),
+        ("exception_resolution_minutes", ("inventory_shortfall",), {"count": 2}),
     ]
 
 

@@ -375,6 +375,7 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             autonomy_level=self.autonomy.autonomy_level,
             recommendation_proof_summary=recommendation_proof_summary,
+            normalize_content_surface=normalize_content_surface,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1708,6 +1709,69 @@ class CoreServices:
 
     def exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.exceptions.exception_payload(row)
+
+    def exception_queue_report(
+        self,
+        *,
+        daily_plan: dict[str, Any] | None = None,
+        execution_readiness: dict[str, Any] | None = None,
+        publishability_report: dict[str, Any] | None = None,
+        surface_readiness_report: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.exception_queue_report(
+            daily_plan=daily_plan,
+            execution_readiness=execution_readiness,
+            publishability_report=publishability_report,
+            surface_readiness_report=surface_readiness_report,
+        )
+
+    def exception_queue_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.exceptions.exception_queue_summary(**kwargs)
+
+    def exception_queue_priority_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.exceptions.exception_queue_priority_report(**kwargs)
+
+    def exception_queue_owner_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.exceptions.exception_queue_owner_report(**kwargs)
+
+    def exception_queue_item(
+        self,
+        *,
+        severity: str,
+        system: str,
+        account: Any,
+        asset: Any,
+        reason: str,
+        next_action: str,
+        count: int | None = None,
+    ) -> dict[str, Any]:
+        return self.exceptions.exception_queue_item(
+            severity=severity,
+            system=system,
+            account=account,
+            asset=asset,
+            reason=reason,
+            next_action=next_action,
+            count=count,
+        )
+
+    def exception_severity_for_reason(self, reason: str) -> str:
+        return self.exceptions.exception_severity_for_reason(reason)
+
+    def exception_next_action(self, reason: str) -> str:
+        return self.exceptions.exception_next_action(reason)
+
+    def exception_category_for_reason(self, reason: str, system: str) -> str:
+        return self.exceptions.exception_category_for_reason(reason, system)
+
+    def exception_owner_for_category(self, category: str, system: str) -> str:
+        return self.exceptions.exception_owner_for_category(category, system)
+
+    def exception_repairable(self, reason: str) -> bool:
+        return self.exceptions.exception_repairable(reason)
+
+    def exception_resolution_minutes(self, reason: str, *, count: int | None = None) -> int:
+        return self.exceptions.exception_resolution_minutes(reason, count=count)
 
     def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
         return self.discoverability.discoverability_safe_content_contract(*values)
