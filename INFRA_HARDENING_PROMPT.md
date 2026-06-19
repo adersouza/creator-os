@@ -6,13 +6,22 @@
 - **creator-os** (`main` protected; feature branch → PR; CI: contracts/architecture/hygiene/secret-scan/scorecard/CodeQL/python/javascript/sbom; `pnpm check:contracts` green after any schema change).
 - **ThreadsDashboard** (`main`; feature branch → PR; never push `main`; each PR adds the test that proves it).
 
+**First step every turn — reconcile current truth before choosing work:**
+- Check current `ThreadsDashboard` `origin/main`, open PRs, merged PRs, and migration files.
+- Check current `creator-os` `origin/main` docs/map state before editing planning docs.
+- Treat `ThreadsDashboard` merged PRs and repo migrations as authoritative for "landed in code."
+- Treat live Supabase as authoritative for current runtime DB state, but **do not duplicate work** just because live still has an index or table state that a merged repo migration already changes.
+- If local `creator-os` is dirty or behind, do not overwrite it; use a clean worktree from `origin/main` for docs/map updates.
+- If the docs, live DB, and repo migrations disagree, pause long enough to name the disagreement and choose the source of truth explicitly before implementing.
+
 **Non-negotiables (carry from the existing tracks):**
 - One logical change per PR; each adds the test/migration that proves it.
 - **As each track lands, flip the matching finding in `infra_lifecycle_map.html`** (its own standalone dashboard — same flip-the-roadmap contract as `creator_os_map.html`/`autoposter_map.html`, but a separate file). Each finding card carries its track ID (A1…D6). Otherwise the map goes stale on the first merge.
 - Quality/safety floor only goes **up**. The media-reuse override TTL and distinctness guards are *detect-and-respect* hardening — never weaken them.
-- DB changes: `CREATE INDEX CONCURRENTLY` / `CREATE UNIQUE INDEX CONCURRENTLY` only (no table locks on prod); additive migrations; regenerate `src/types/supabase.ts`.
+- DB changes: `CREATE INDEX CONCURRENTLY` / `CREATE UNIQUE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` where relevant (no table locks on prod); additive migrations except proven-unused index drops; regenerate `src/types/supabase.ts` after schema-shape changes.
 - Schema-shape changes that cross the repo boundary → new **versioned** contract, `pnpm check:contracts` green.
 - The two `[verify]` findings (IG-webhook fallback, IG-container TTL) must be **traced and confirmed before** their fix PR — if already safe, the PR is just a regression test + comment.
+- Keep each runtime slice to one finding or table family. Cross-repo seam work can use paired PRs only when both sides are required for the same seam guarantee.
 
 ---
 
@@ -56,6 +65,8 @@
   - TD #183: `account_health_snapshots` zero-scan score-tier helper index; preserves the primary key, active account-scope unique lookup, workspace helper, and auto-disabled recovery index.
   - TD #184: follow-up Vercel packaging fix that explicitly includes `pipeline_contracts/generated-schemas.js` in every function bundling `pipeline_contracts/typescript.js`, closing the publish-worker runtime module miss.
 - Continue D3 one table family per PR, gated on live `pg_stat_user_indexes.idx_scan = 0` over the stated stats window and a code-path check proving the dropped index is not the active access path.
+- For D3, live state is evidence, not the work queue. Before opening a new index-diet slice, subtract every table/index family already covered by merged TD PRs and existing migration files, even if the live DB has not applied that migration yet.
+- Never drop a primary, constraint-backed, unique-business-logic, D2 FK-support, recovery/watchdog, TTL/expiry-cleanup, or guardrail index just because `idx_scan = 0`; preserve it or land a regression/proof note instead.
 - Keep `infra_lifecycle_map.html` in sync with each new D3 batch; the map should say batched/in-progress until the broader unused-index backlog is actually closed.
 
 ---
