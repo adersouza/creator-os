@@ -30,6 +30,7 @@ from campaign_factory.finished_video import FinishedVideoRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.inventory_planning import InventoryPlanningRepository
 from campaign_factory.inventory_perceptual import InventoryPerceptualRepository
+from campaign_factory.inventory_recovery import InventoryRecoveryRepository
 from campaign_factory.inventory_reservations import InventoryReservationRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
@@ -153,6 +154,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.archive_quality.conn is factory.conn
         assert isinstance(factory.services.inventory_planning, InventoryPlanningRepository)
         assert factory.services.inventory_planning.conn is factory.conn
+        assert isinstance(factory.services.inventory_recovery, InventoryRecoveryRepository)
+        assert factory.services.inventory_recovery.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -538,6 +541,78 @@ def test_campaign_factory_delegates_inventory_planning_methods_to_services() -> 
         ("inventory_limiting_stage", ({"scheduleSafeAssets": 0},), {}),
         ("inventory_loss_by_stage", ({"parentAssets": 1},), {}),
         ("inventory_repair_actions", ({"shortfall": 1},), {}),
+    ]
+
+
+def test_campaign_factory_delegates_inventory_recovery_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.inventory_recovery_report(creator="Stacey", required_inventory=3) == {
+        "method": "inventory_recovery_report",
+    }
+    assert factory.inventory_recovery_priority_report(creator="Stacey") == {
+        "method": "inventory_recovery_priority_report",
+    }
+    assert factory.inventory_recovery_by_blocker(creator="Stacey") == {
+        "method": "inventory_recovery_by_blocker",
+    }
+    assert factory.inventory_recovery_master_report(creator="Stacey") == {
+        "method": "inventory_recovery_master_report",
+    }
+    assert factory._inventory_recovery_blocked_asset({"assetId": "asset_1"}) == {
+        "method": "inventory_recovery_blocked_asset",
+    }
+    assert factory._inventory_recovery_class_for_blocker("missing_audio") == {
+        "method": "inventory_recovery_class_for_blocker",
+    }
+    assert factory._inventory_recovery_class_rows([{"assetId": "asset_1"}]) == {
+        "method": "inventory_recovery_class_rows",
+    }
+    assert factory._inventory_recovery_assets_unlocked(
+        [{"repairClasses": ["audio_failure"]}],
+        ["audio_failure"],
+    ) == {"method": "inventory_recovery_assets_unlocked"}
+    assert factory._inventory_recovery_priorities([{"repairClass": "audio_failure"}]) == {
+        "method": "inventory_recovery_priorities",
+    }
+
+    assert calls == [
+        (
+            "inventory_recovery_report",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": None,
+                "content_surface": None,
+                "required_inventory": 3,
+                "account_target": 25,
+                "posts_per_account_per_day": 3,
+                "buffer_days": 3,
+            },
+        ),
+        ("inventory_recovery_priority_report", (), {"creator": "Stacey"}),
+        ("inventory_recovery_by_blocker", (), {"creator": "Stacey"}),
+        ("inventory_recovery_master_report", (), {"creator": "Stacey"}),
+        ("inventory_recovery_blocked_asset", ({"assetId": "asset_1"},), {}),
+        ("inventory_recovery_class_for_blocker", ("missing_audio",), {}),
+        ("inventory_recovery_class_rows", ([{"assetId": "asset_1"}],), {}),
+        (
+            "inventory_recovery_assets_unlocked",
+            ([{"repairClasses": ["audio_failure"]}], ["audio_failure"]),
+            {},
+        ),
+        ("inventory_recovery_priorities", ([{"repairClass": "audio_failure"}],), {}),
     ]
 
 
@@ -3577,6 +3652,66 @@ def test_core_services_delegates_inventory_reservation_methods_to_repository() -
             ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
             {"content_surface": "feed_single"},
         ),
+    ]
+
+
+def test_core_services_delegates_inventory_recovery_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeInventoryRecovery:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.inventory_recovery = FakeInventoryRecovery()
+
+    assert services.inventory_recovery_report(creator="Stacey", required_inventory=3) == {
+        "method": "inventory_recovery_report",
+    }
+    assert services.inventory_recovery_priority_report(creator="Stacey") == {
+        "method": "inventory_recovery_priority_report",
+    }
+    assert services.inventory_recovery_by_blocker(creator="Stacey") == {
+        "method": "inventory_recovery_by_blocker",
+    }
+    assert services.inventory_recovery_master_report(creator="Stacey") == {
+        "method": "inventory_recovery_master_report",
+    }
+    assert services.inventory_recovery_blocked_asset({"assetId": "asset_1"}) == {
+        "method": "inventory_recovery_blocked_asset",
+    }
+    assert services.inventory_recovery_class_for_blocker("missing_audio") == {
+        "method": "inventory_recovery_class_for_blocker",
+    }
+    assert services.inventory_recovery_class_rows([{"assetId": "asset_1"}]) == {
+        "method": "inventory_recovery_class_rows",
+    }
+    assert services.inventory_recovery_assets_unlocked(
+        [{"repairClasses": ["audio_failure"]}],
+        ["audio_failure"],
+    ) == {"method": "inventory_recovery_assets_unlocked"}
+    assert services.inventory_recovery_priorities([{"repairClass": "audio_failure"}]) == {
+        "method": "inventory_recovery_priorities",
+    }
+
+    assert calls == [
+        ("inventory_recovery_report", (), {"creator": "Stacey", "required_inventory": 3}),
+        ("inventory_recovery_priority_report", (), {"creator": "Stacey"}),
+        ("inventory_recovery_by_blocker", (), {"creator": "Stacey"}),
+        ("inventory_recovery_master_report", (), {"creator": "Stacey"}),
+        ("inventory_recovery_blocked_asset", ({"assetId": "asset_1"},), {}),
+        ("inventory_recovery_class_for_blocker", ("missing_audio",), {}),
+        ("inventory_recovery_class_rows", ([{"assetId": "asset_1"}],), {}),
+        (
+            "inventory_recovery_assets_unlocked",
+            ([{"repairClasses": ["audio_failure"]}], ["audio_failure"]),
+            {},
+        ),
+        ("inventory_recovery_priorities", ([{"repairClass": "audio_failure"}],), {}),
     ]
 
 

@@ -30,6 +30,7 @@ from .finished_video import FinishedVideoRepository
 from .graph import GraphRepository
 from .inventory_planning import InventoryPlanningRepository
 from .inventory_perceptual import InventoryPerceptualRepository
+from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
@@ -600,6 +601,12 @@ class CoreServices:
             road_to_accounts_payload=road_to_accounts_payload,
             exception_next_action=exception_next_action,
             content_surfaces=content_surfaces,
+        )
+        self.inventory_recovery = InventoryRecoveryRepository(
+            conn,
+            normalize_content_surface=normalize_content_surface,
+            surface_report_assets=surface_report_assets,
+            build_surface_readiness=build_surface_readiness,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1844,6 +1851,33 @@ class CoreServices:
 
     def inventory_repair_actions(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
         return self.inventory_planning.inventory_repair_actions(policy)
+
+    def inventory_recovery_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_recovery.inventory_recovery_report(**kwargs)
+
+    def inventory_recovery_priority_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_recovery.inventory_recovery_priority_report(**kwargs)
+
+    def inventory_recovery_by_blocker(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_recovery.inventory_recovery_by_blocker(**kwargs)
+
+    def inventory_recovery_master_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_recovery.inventory_recovery_master_report(**kwargs)
+
+    def inventory_recovery_blocked_asset(self, readiness: dict[str, Any]) -> dict[str, Any]:
+        return self.inventory_recovery.inventory_recovery_blocked_asset(readiness)
+
+    def inventory_recovery_class_for_blocker(self, reason: str) -> str:
+        return self.inventory_recovery.inventory_recovery_class_for_blocker(reason)
+
+    def inventory_recovery_class_rows(self, blocked_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.inventory_recovery.inventory_recovery_class_rows(blocked_assets)
+
+    def inventory_recovery_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repaired_classes: list[str]) -> int:
+        return self.inventory_recovery.inventory_recovery_assets_unlocked(blocked_assets, repaired_classes)
+
+    def inventory_recovery_priorities(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.inventory_recovery.inventory_recovery_priorities(rows)
 
     def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
