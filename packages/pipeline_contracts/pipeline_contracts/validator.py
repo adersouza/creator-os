@@ -17,6 +17,7 @@ AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_SCHEMA = "campaign_draft_payload.v1.schema.json"
 AUDIO_CATALOG_EXPORT_SCHEMA = "audio_catalog_export.v1.schema.json"
 PERFORMANCE_SYNC_SCHEMA = "performance_sync.v1.schema.json"
+POST_METRIC_HISTORY_READ_SCHEMA = "post_metric_history.read.v1.schema.json"
 CAPTION_OUTCOME_CONTEXT_SCHEMA = "caption_outcome_context.v1.schema.json"
 PATTERN_CARD_SCHEMA = "pattern_card.v1.schema.json"
 VIDEO_ANALYSIS_SCHEMA = "video_analysis.v1.schema.json"
@@ -37,6 +38,7 @@ SCHEMA_NAMES = {
     "threadsdash_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "audio_catalog_export": AUDIO_CATALOG_EXPORT_SCHEMA,
     "performance_sync": PERFORMANCE_SYNC_SCHEMA,
+    "post_metric_history_read": POST_METRIC_HISTORY_READ_SCHEMA,
     "caption_outcome_context": CAPTION_OUTCOME_CONTEXT_SCHEMA,
     "campaign_factory_caption_outcome_context": CAPTION_OUTCOME_CONTEXT_SCHEMA,
     "pattern_card": PATTERN_CARD_SCHEMA,
@@ -137,6 +139,10 @@ def validate_performance_sync(value: Any) -> None:
     validate_contract(value, PERFORMANCE_SYNC_SCHEMA)
 
 
+def validate_post_metric_history_read(value: Any) -> None:
+    validate_contract(value, POST_METRIC_HISTORY_READ_SCHEMA)
+
+
 def validate_caption_outcome_context(value: Any) -> None:
     validate_contract(value, CAPTION_OUTCOME_CONTEXT_SCHEMA)
 
@@ -220,6 +226,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "campaign_draft_payload.v1.example.json": validate_campaign_draft_payload,
         "audio_catalog_export.v1.example.json": validate_audio_catalog_export,
         "performance_sync.v1.example.json": validate_performance_sync,
+        "post_metric_history.read.v1.example.json": validate_post_metric_history_read,
         "caption_outcome_context.v1.example.json": validate_caption_outcome_context,
         "pattern_card.v1.example.json": validate_pattern_card,
         "video_analysis.v1.example.json": validate_video_analysis,

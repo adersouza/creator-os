@@ -19,6 +19,7 @@ from pipeline_contracts import (
     validate_motion_edit_render,
     validate_pattern_card,
     validate_performance_sync,
+    validate_post_metric_history_read,
     validate_repurposing_plan,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
@@ -40,6 +41,7 @@ def test_named_validators_accept_examples():
     validate_caption_outcome_context(load_example("caption_outcome_context"))
     validate_audio_catalog_export(load_example("audio_catalog_export"))
     validate_performance_sync(load_example("performance_sync"))
+    validate_post_metric_history_read(load_example("post_metric_history.read"))
     validate_repurposing_plan(load_example("repurposing_plan"))
     validate_recommendation_next_batch(load_example("recommendation_next_batch"))
     validate_pattern_card(load_example("pattern_card"))
@@ -84,6 +86,14 @@ def test_performance_sync_requires_pipeline_causal_ids():
 
     with pytest.raises(ContractValidationError, match="pipelineJobId"):
         validate_performance_sync(payload)
+
+
+def test_post_metric_history_read_requires_selected_source_columns():
+    payload = load_example("post_metric_history.read")
+    del payload["rows"][0]["views_count"]
+
+    with pytest.raises(ContractValidationError, match="views_count"):
+        validate_post_metric_history_read(payload)
 
 
 def test_campaign_draft_payload_keeps_graph_ids_optional_for_legacy_metadata():
