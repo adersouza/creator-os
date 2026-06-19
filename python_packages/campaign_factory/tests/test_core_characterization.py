@@ -112,6 +112,76 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
     return cf.rendered_asset("asset_1")
 
 
+def add_schedule_safe_asset(
+    cf: CampaignFactory,
+    tmp_path: Path,
+    *,
+    asset_id: str,
+    content_surface: str = "feed_single",
+    media_type: str = "image",
+) -> dict[str, Any]:
+    campaign_slug = "stacey_surface_inventory_20260606"
+    try:
+        campaign = cf.campaign_by_slug(campaign_slug)
+    except ValueError:
+        folder = tmp_path / "surface_inputs"
+        folder.mkdir(exist_ok=True)
+        (folder / "surface-source.jpg").write_bytes(b"source-image")
+        cf.import_folder(folder, campaign_slug=campaign_slug, model_slug="stacey")
+        campaign = cf.campaign_by_slug(campaign_slug)
+    source = cf.assets_for_campaign(campaign["id"])[0]
+    suffix = ".mp4" if media_type == "video" else ".png"
+    media_path = tmp_path / f"{asset_id}{suffix}"
+    media_path.write_bytes(f"surface-{asset_id}".encode("utf-8"))
+    caption_context = {
+        "schema": "campaign_factory.caption_outcome_context.v1",
+        "caption_hash": f"caption_hash_{asset_id}",
+        "caption_text": "burned caption",
+        "creator_mix": "Stacey",
+        "render_recipe": "surface_fixture",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
+    }
+    metadata = {
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed", "score": 0.95},
+        "sourceFamilyId": f"family_{asset_id}",
+        "perceptualFingerprint": f"fingerprint_{asset_id}",
+        "perceptualClusterId": f"cluster_{asset_id}",
+    }
+    now = "2026-06-06T00:00:00+00:00"
+    cf.conn.execute(
+        """
+        INSERT INTO rendered_assets
+        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
+         caption, caption_hash, caption_outcome_context_json, caption_generation_json,
+         recipe, target_ratio, audit_status, review_state, creator_mix, creator_model,
+         content_surface, media_type, metadata_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'burned caption', ?, ?, ?, 'surface_fixture', '1:1',
+                'passed', 'approved', 'Stacey', 'Stacey', ?, ?, ?, ?, ?)
+        """,
+        (
+            asset_id,
+            campaign["id"],
+            source["id"],
+            f"hash_{asset_id}",
+            str(media_path),
+            str(media_path),
+            media_path.name,
+            f"caption_hash_{asset_id}",
+            json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
+            json.dumps({"instagram_post_caption": "new post"}, ensure_ascii=False, sort_keys=True),
+            content_surface,
+            media_type,
+            json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+            now,
+            now,
+        ),
+    )
+    cf.conn.commit()
+    return cf.rendered_asset(asset_id)
+
+
 def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
@@ -714,6 +784,439 @@ def test_tier2_planning_distribution_exceptions_discoverability_and_decision_cha
                 "trust_exceptions": 1,
                 "caption_families": 0,
                 "caption_versions": 0,
+            },
+        }
+    finally:
+        cf.close()
+
+
+def test_inventory_planning_reports_characterization(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        before = cf.conn.total_changes
+        readiness = {
+            "schema": "creator_os.execution_readiness.v1",
+            "blockers": [
+                "missing_instagram_post_caption",
+                "embedded_audio_invalid",
+                "missing_instagram_post_caption",
+            ],
+        }
+
+        slo = cf.inventory_slo_report(
+            accounts=2,
+            posts_per_account_per_day=2,
+            creators=2,
+            minimum_inventory_days=2,
+            current_validated_drafts=3,
+            current_drafts_by_surface={"reel": 2, "story": 1},
+        )
+        buffer = cf.inventory_buffer_report(
+            accounts=2,
+            posts_per_account_per_day=2,
+            creators=2,
+            minimum_inventory_days=2,
+            current_validated_drafts=10,
+        )
+        audit = cf.inventory_factory_audit(accounts=2, posts_per_account_per_day=2)
+        yield_report = cf.inventory_yield_analysis()
+        buffer_plan = cf.inventory_buffer_policy_plan(
+            creator="Stacey",
+            surface="reel",
+            daily_demand=4,
+            buffer_target_days=2,
+            available_inventory=3,
+        )
+        enforcement = cf.inventory_slo_enforcement_audit(
+            creators=["Stacey", "Lola"],
+            accounts=2,
+            posts_per_account_per_day=2,
+            minimum_inventory_days=2,
+            available_by_creator_surface={
+                "Stacey": {"reel": 4, "story": 2, "feed_single": 0, "feed_carousel": 0},
+                "Lola": {"reel": 0, "story": 0, "feed_single": 0, "feed_carousel": 0},
+            },
+        )
+        simulation = cf.inventory_consumption_simulation(
+            available_inventory=8,
+            account_tiers=[1, 2],
+            posts_per_account_per_day=2,
+        )
+        production = cf.inventory_production_requirements(
+            accounts=2,
+            posts_per_account_per_day=2,
+            variants_per_parent=4,
+            variant_to_validated_yield=0.5,
+            validated_to_schedule_safe_yield=0.5,
+        )
+        road = cf.road_to_200_accounts()
+        exceptions = cf.inventory_exception_audit(execution_readiness=readiness)
+        readiness_report = cf.inventory_factory_readiness_report(
+            accounts=2,
+            posts_per_account_per_day=2,
+            available_inventory=8,
+            execution_readiness=readiness,
+        )
+        master = cf.inventory_factory_master_report(
+            accounts=2,
+            posts_per_account_per_day=2,
+            available_inventory=8,
+            execution_readiness=readiness,
+        )
+        autopilot = cf.inventory_autopilot_plan(accounts=2, posts_per_account_per_day=2, available_inventory=1)
+        repair = cf.inventory_shortage_repair_plan(accounts=2, posts_per_account_per_day=2, available_inventory=1)
+        protection = cf.inventory_buffer_protection_report(accounts=2, posts_per_account_per_day=2, available_inventory=1)
+
+        assert cf.conn.total_changes == before
+        assert normalize({
+            "slo": {
+                "schema": slo["schema"],
+                "minimumValidatedDraftBuffer": slo["minimumValidatedDraftBuffer"],
+                "minimumDraftsPerCreator": slo["minimumDraftsPerCreator"],
+                "minimumDraftsPerSurface": slo["minimumDraftsPerSurface"],
+                "currentDraftsPerSurface": slo["currentDraftsPerSurface"],
+                "draftShortfall": slo["draftShortfall"],
+                "inventoryHealth": slo["inventoryHealth"],
+                "wouldWrite": slo["wouldWrite"],
+            },
+            "buffer": {
+                "schema": buffer["schema"],
+                "draftSurplus": buffer["draftSurplus"],
+                "bufferDaysAvailable": buffer["bufferDaysAvailable"],
+                "inventoryHealth": buffer["inventoryHealth"],
+                "wouldWrite": buffer["wouldWrite"],
+            },
+            "audit": {
+                "schema": audit["schema"],
+                "dailyDemand": audit["dailyDemand"],
+                "limitingStage": audit["limitingStage"],
+                "scheduleSafeInventoryCapacity": audit["scheduleSafeInventoryCapacity"],
+                "wouldWrite": audit["wouldWrite"],
+            },
+            "yield": {
+                "schema": yield_report["schema"],
+                "stageCounts": yield_report["stageCounts"],
+                "largestDropoff": yield_report["largestDropoff"],
+                "wouldWrite": yield_report["wouldWrite"],
+            },
+            "bufferPlan": buffer_plan,
+            "enforcement": {
+                "schema": enforcement["schema"],
+                "minimumPerCreator": enforcement["minimumPerCreator"],
+                "minimumPerSurface": enforcement["minimumPerSurface"],
+                "highestRiskCreator": enforcement["highestRiskCreator"],
+                "highestRiskSurface": enforcement["highestRiskSurface"],
+                "violationCount": len(enforcement["violations"]),
+                "wouldWrite": enforcement["wouldWrite"],
+            },
+            "simulation": simulation,
+            "production": production,
+            "road": {
+                "schema": road["schema"],
+                "requiredInventoryBuffer": road["requiredInventoryBuffer"],
+                "requiredDailyProduction": road["requiredDailyProduction"],
+                "wouldWrite": road["wouldWrite"],
+            },
+            "exceptions": {
+                "schema": exceptions["schema"],
+                "topLossReason": exceptions["topLossReason"],
+                "lossReasons": [(item["reason"], item["count"]) for item in exceptions["inventoryLossReasons"][:2]],
+                "wouldWrite": exceptions["wouldWrite"],
+            },
+            "readiness": {
+                "schema": readiness_report["schema"],
+                "inventoryBufferScore": readiness_report["inventoryBufferScore"],
+                "inventoryExceptionScore": readiness_report["inventoryExceptionScore"],
+                "overallInventoryReadiness": readiness_report["overallInventoryReadiness"],
+                "wouldWrite": readiness_report["wouldWrite"],
+            },
+            "master": {
+                "schema": master["schema"],
+                "overallInventoryReadiness": master["currentInventoryReadiness"]["overallInventoryReadiness"],
+                "requirementsFor200Accounts": master["requirementsFor200Accounts"]["requiredInventoryBuffer"],
+                "requirementsFor500Accounts": master["requirementsFor500Accounts"]["requiredInventoryBuffer"],
+                "wouldWrite": master["wouldWrite"],
+            },
+            "autopilot": {
+                "schema": autopilot["schema"],
+                "shortfall": autopilot["shortfall"],
+                "repairActionCount": len(autopilot["repairActions"]),
+                "wouldWrite": autopilot["wouldWrite"],
+            },
+            "repair": {
+                "schema": repair["schema"],
+                "shortfall": repair["shortfall"],
+                "repairActionCount": len(repair["repairActions"]),
+                "wouldWrite": repair["wouldWrite"],
+            },
+            "protection": {
+                "schema": protection["schema"],
+                "shortfall": protection["shortfall"],
+                "health": protection["health"],
+                "wouldWrite": protection["wouldWrite"],
+            },
+        }) == {
+            "slo": {
+                "schema": "creator_os.inventory_slo_report.v1",
+                "minimumValidatedDraftBuffer": 8,
+                "minimumDraftsPerCreator": {"Creator 1": 4, "Creator 2": 4},
+                "minimumDraftsPerSurface": {"feed_carousel": 0, "feed_single": 1, "reel": 4, "story": 3},
+                "currentDraftsPerSurface": {"feed_carousel": 0, "feed_single": 0, "reel": 2, "story": 1},
+                "draftShortfall": 5,
+                "inventoryHealth": "critical",
+                "wouldWrite": False,
+            },
+            "buffer": {
+                "schema": "creator_os.inventory_buffer_report.v1",
+                "draftSurplus": 2,
+                "bufferDaysAvailable": 2.5,
+                "inventoryHealth": "healthy",
+                "wouldWrite": False,
+            },
+            "audit": {
+                "schema": "creator_os.inventory_factory_audit.v1",
+                "dailyDemand": 4,
+                "limitingStage": "validated_inventory",
+                "scheduleSafeInventoryCapacity": 0,
+                "wouldWrite": False,
+            },
+            "yield": {
+                "schema": "creator_os.inventory_yield_analysis.v1",
+                "stageCounts": {
+                    "parentAssets": 0,
+                    "captionFamilies": 0,
+                    "captionVersions": 0,
+                    "variantAssets": 0,
+                    "validatedAssets": 0,
+                    "publishableAssets": 0,
+                    "scheduleSafeAssets": 0,
+                },
+                "largestDropoff": "parent_to_variant",
+                "wouldWrite": False,
+            },
+            "bufferPlan": {
+                "schema": "creator_os.inventory_buffer_policy_plan.v1",
+                "creator": "Stacey",
+                "surface": "reel",
+                "dailyDemand": 4,
+                "bufferTargetDays": 2,
+                "requiredInventory": 8,
+                "availableInventory": 3,
+                "shortfall": 5,
+                "health": "critical",
+                "wouldWrite": False,
+            },
+            "enforcement": {
+                "schema": "creator_os.inventory_slo_enforcement_audit.v1",
+                "minimumPerCreator": 4,
+                "minimumPerSurface": {"feed_carousel": 0, "feed_single": 0, "reel": 2, "story": 2},
+                "highestRiskCreator": "Lola",
+                "highestRiskSurface": "reel",
+                "violationCount": 2,
+                "wouldWrite": False,
+            },
+            "simulation": {
+                "schema": "creator_os.inventory_consumption_simulation.v1",
+                "availableInventory": 8,
+                "simulations": [
+                    {
+                        "accounts": 1,
+                        "dailyDemand": 2,
+                        "inventoryConsumed": 2,
+                        "daysUntilEmpty": 4,
+                        "requiredProductionRate": 2,
+                        "warmingEnabled": True,
+                        "accountHealthEnabled": True,
+                        "discoverabilityEnabled": True,
+                        "wouldWrite": False,
+                    },
+                    {
+                        "accounts": 2,
+                        "dailyDemand": 4,
+                        "inventoryConsumed": 4,
+                        "daysUntilEmpty": 2,
+                        "requiredProductionRate": 4,
+                        "warmingEnabled": True,
+                        "accountHealthEnabled": True,
+                        "discoverabilityEnabled": True,
+                        "wouldWrite": False,
+                    },
+                ],
+                "wouldWrite": False,
+            },
+            "production": {
+                "schema": "creator_os.inventory_production_requirements.v1",
+                "accounts": 2,
+                "postsPerDay": 4,
+                "requiredParentsPerDay": 4,
+                "requiredCaptionFamiliesPerDay": 4,
+                "requiredCaptionVersionsPerDay": 6,
+                "requiredVariantsPerDay": 16,
+                "requiredValidatedDraftsPerDay": 4,
+                "assumptions": {
+                    "variantsPerParent": 4,
+                    "variantToValidatedYield": 0.5,
+                    "validatedToScheduleSafeYield": 0.5,
+                },
+                "wouldWrite": False,
+            },
+            "road": {
+                "schema": "creator_os.road_to_200_accounts.v1",
+                "requiredInventoryBuffer": "1800 schedule-safe drafts",
+                "requiredDailyProduction": "600 schedule-safe drafts/day",
+                "wouldWrite": False,
+            },
+            "exceptions": {
+                "schema": "creator_os.inventory_exception_audit.v1",
+                "topLossReason": "missing_instagram_post_caption",
+                "lossReasons": [("missing_instagram_post_caption", 2), ("embedded_audio_invalid", 1)],
+                "wouldWrite": False,
+            },
+            "readiness": {
+                "schema": "creator_os.inventory_factory_readiness_report.v1",
+                "inventoryBufferScore": 6.7,
+                "inventoryExceptionScore": 5.0,
+                "overallInventoryReadiness": 3.7,
+                "wouldWrite": False,
+            },
+            "master": {
+                "schema": "creator_os.inventory_factory_master_report.v1",
+                "overallInventoryReadiness": 3.7,
+                "requirementsFor200Accounts": "1200 schedule-safe drafts",
+                "requirementsFor500Accounts": "3000 schedule-safe drafts",
+                "wouldWrite": False,
+            },
+            "autopilot": {
+                "schema": "creator_os.inventory_autopilot_plan.v1",
+                "shortfall": 11,
+                "repairActionCount": 2,
+                "wouldWrite": False,
+            },
+            "repair": {
+                "schema": "creator_os.inventory_shortage_repair_plan.v1",
+                "shortfall": 11,
+                "repairActionCount": 2,
+                "wouldWrite": False,
+            },
+            "protection": {
+                "schema": "creator_os.inventory_buffer_protection_report.v1",
+                "shortfall": 11,
+                "health": "critical",
+                "wouldWrite": False,
+            },
+        }
+    finally:
+        cf.close()
+
+
+def test_inventory_reservation_and_net_inventory_characterization(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        for index in range(2):
+            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+        for index in range(5):
+            add_schedule_safe_asset(cf, tmp_path, asset_id=f"asset_inventory_{index}")
+
+        reservation = cf.reserve_inventory_asset(
+            "asset_inventory_0",
+            surface="feed_single",
+            reserved_by="characterization",
+            idempotency_key="inventory_characterization_asset_0",
+        )
+        same_reservation = cf.reserve_inventory_asset(
+            "asset_inventory_0",
+            surface="feed_single",
+            reserved_by="characterization",
+            idempotency_key="inventory_characterization_asset_0",
+        )
+        cf.assign_asset_account("asset_inventory_1", instagram_account_id="ig_1")
+
+        acceptance = cf.creator_os_live_account_acceptance(
+            account_target=1,
+            posts_per_account_per_day=1,
+            buffer_days=1,
+            content_surface="feed_single",
+        )
+        released = cf.release_inventory_reservation(reservation["reservation_id"])
+        after_release = cf.creator_os_live_account_acceptance(
+            account_target=1,
+            posts_per_account_per_day=1,
+            buffer_days=1,
+            content_surface="feed_single",
+        )
+
+        assert normalize({
+            "reservation": {
+                "sameIdempotentRow": reservation["id"] == same_reservation["id"],
+                "assetId": reservation["asset_id"],
+                "surface": reservation["surface"],
+                "reservedBy": reservation["reserved_by"],
+                "status": reservation["status"],
+                "sourceFamilyId": reservation["source_family_id"],
+                "perceptualClusterId": reservation["perceptual_cluster_id"],
+                "idempotencyKey": reservation["idempotency_key"],
+            },
+            "acceptance": {
+                "schema": acceptance["schema"],
+                "grossInventory": acceptance["grossInventory"],
+                "reservedInventory": acceptance["reservedInventory"],
+                "usedInventory": acceptance["usedInventory"],
+                "cooldownBlockedInventory": acceptance["cooldownBlockedInventory"],
+                "netInventory": acceptance["netInventory"],
+                "availableInventory": acceptance["availableInventory"],
+                "requiredInventory": acceptance["requiredInventory"],
+                "acceptancePassed": acceptance["acceptancePassed"],
+                "blockingReasons": acceptance["blockingReasons"],
+                "wouldWrite": acceptance["wouldWrite"],
+            },
+            "released": {
+                "assetId": released["asset_id"],
+                "status": released["status"],
+                "reservationIdMatches": released["reservation_id"] == reservation["reservation_id"],
+            },
+            "afterRelease": {
+                "reservedInventory": after_release["reservedInventory"],
+                "usedInventory": after_release["usedInventory"],
+                "netInventory": after_release["netInventory"],
+                "acceptancePassed": after_release["acceptancePassed"],
+                "wouldWrite": after_release["wouldWrite"],
+            },
+        }) == {
+            "reservation": {
+                "sameIdempotentRow": True,
+                "assetId": "asset_inventory_0",
+                "surface": "feed_single",
+                "reservedBy": "characterization",
+                "status": "pending",
+                "sourceFamilyId": "family_asset_inventory_0",
+                "perceptualClusterId": "cluster_asset_inventory_0",
+                "idempotencyKey": "inventory_characterization_asset_0",
+            },
+            "acceptance": {
+                "schema": "creator_os.live_account_acceptance.v1",
+                "grossInventory": 5,
+                "reservedInventory": 1,
+                "usedInventory": 1,
+                "cooldownBlockedInventory": 0,
+                "netInventory": 3,
+                "availableInventory": 3,
+                "requiredInventory": 1,
+                "acceptancePassed": False,
+                "blockingReasons": ["metrics_not_imported"],
+                "wouldWrite": False,
+            },
+            "released": {
+                "assetId": "asset_inventory_0",
+                "status": "released",
+                "reservationIdMatches": True,
+            },
+            "afterRelease": {
+                "reservedInventory": 0,
+                "usedInventory": 1,
+                "netInventory": 4,
+                "acceptancePassed": False,
+                "wouldWrite": False,
             },
         }
     finally:
