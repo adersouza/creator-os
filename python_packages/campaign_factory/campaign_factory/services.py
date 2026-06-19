@@ -29,6 +29,7 @@ from .exceptions import ExceptionRepository
 from .finished_video import FinishedVideoRepository
 from .graph import GraphRepository
 from .inventory_planning import InventoryPlanningRepository
+from .inventory_perceptual import InventoryPerceptualRepository
 from .inventory_reservations import InventoryReservationRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
@@ -111,8 +112,8 @@ class CoreServices:
         asset_matches_creator: Callable[[dict[str, Any], str], bool],
         latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
         content_trust_status_blockers: Callable[..., tuple[list[str], dict[str, str]]],
-        ensure_rendered_asset_perceptual_metadata: Callable[..., dict[str, Any]],
-        asset_uniqueness_values: Callable[..., dict[str, str]],
+        compute_pdq_fingerprint: Callable[..., dict[str, Any]],
+        pdq_hamming_distance: Callable[[str, str], int | None],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
@@ -510,14 +511,21 @@ class CoreServices:
             ranking=ranking,
             audit_report_payload=audit_report_payload,
         )
+        self.inventory_perceptual = InventoryPerceptualRepository(
+            conn,
+            rendered_asset=self.rendered_asset,
+            compute_pdq_fingerprint=compute_pdq_fingerprint,
+            pdq_hamming_distance=pdq_hamming_distance,
+            sanitize_for_storage=sanitize_for_storage,
+        )
         self.inventory_reservations = InventoryReservationRepository(
             conn,
             new_id=new_id,
             utc_now=utc_now,
             normalize_content_surface=normalize_content_surface,
             rendered_asset=self.rendered_asset,
-            ensure_rendered_asset_perceptual_metadata=ensure_rendered_asset_perceptual_metadata,
-            asset_uniqueness_values=asset_uniqueness_values,
+            ensure_rendered_asset_perceptual_metadata=self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata,
+            asset_uniqueness_values=self.inventory_perceptual.asset_uniqueness_values,
             default_reservation_ttl_days=7,
         )
         self.exceptions = ExceptionRepository(
@@ -1836,6 +1844,15 @@ class CoreServices:
 
     def inventory_repair_actions(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
         return self.inventory_planning.inventory_repair_actions(policy)
+
+    def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
+        return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
+
+    def ensure_rendered_asset_perceptual_metadata(self, rendered_asset_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata(rendered_asset_id, **kwargs)
+
+    def pdq_cluster_id_for_fingerprint(self, **kwargs: Any) -> str:
+        return self.inventory_perceptual.pdq_cluster_id_for_fingerprint(**kwargs)
 
     def reserve_inventory_asset(self, asset_id: str, **kwargs: Any) -> dict[str, Any]:
         return self.inventory_reservations.reserve_inventory_asset(asset_id, **kwargs)
