@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from campaign_factory import audit_payload, exports, readiness
+from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
@@ -75,6 +76,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.operator_review.conn is factory.conn
         assert isinstance(factory.services.story_management, StoryManagementRepository)
         assert factory.services.story_management.conn is factory.conn
+        assert isinstance(factory.services.account_health, AccountHealthRepository)
+        assert factory.services.account_health.conn is factory.conn
     finally:
         factory.close()
 
@@ -3678,4 +3681,148 @@ def test_story_management_facade_delegates_to_core_services() -> None:
         ("story_proof_gap_analysis", (), {}),
         ("story_source_blockers", ([{"path": "/campaign_factory/02_rendered/story.png"}],), {}),
         ("story_existing_asset_source_blockers", ({"id": "asset_1"},), {}),
+    ]
+
+
+def test_account_health_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_account_tiers(self, *args, **kwargs):
+            calls.append(("creator_os_account_tiers", args, kwargs))
+            return {"schema": "creator_os.account_tiers.v1"}
+
+        def creator_os_account_health_report(self, *args, **kwargs):
+            calls.append(("creator_os_account_health_report", args, kwargs))
+            return {"schema": "creator_os.account_health_report.v1"}
+
+        def creator_os_restricted_account_report(self, *args, **kwargs):
+            calls.append(("creator_os_restricted_account_report", args, kwargs))
+            return {"schema": "creator_os.restricted_account_report.v1"}
+
+        def creator_os_manual_review_queue(self, *args, **kwargs):
+            calls.append(("creator_os_manual_review_queue", args, kwargs))
+            return {"schema": "creator_os.manual_review_queue.v1"}
+
+        def creator_os_account_warmup_report(self, *args, **kwargs):
+            calls.append(("creator_os_account_warmup_report", args, kwargs))
+            return {"schema": "creator_os.account_warmup_report.v1"}
+
+        def creator_os_execution_account_health_blockers(self, *args, **kwargs):
+            calls.append(("creator_os_execution_account_health_blockers", args, kwargs))
+            return ["account_link_sharing_restricted"]
+
+        def creator_os_execution_account_health_warnings(self, *args, **kwargs):
+            calls.append(("creator_os_execution_account_health_warnings", args, kwargs))
+            return ["recommendation_eligibility_unknown_conservative_cadence"]
+
+        def creator_os_account_tier_summary(self, *args, **kwargs):
+            calls.append(("creator_os_account_tier_summary", args, kwargs))
+            return {"warming": 1, "normal": 0, "growth": 0, "winner": 0, "resting": 0, "blocked": 0}
+
+        def creator_os_account_health_decision(self, *args, **kwargs):
+            calls.append(("creator_os_account_health_decision", args, kwargs))
+            return {"accountId": args[0]["accountId"], "safeToSchedule": False}
+
+        def creator_os_account_health_summary(self, *args, **kwargs):
+            calls.append(("creator_os_account_health_summary", args, kwargs))
+            return {"accounts": 1}
+
+        def creator_os_recommendation_eligibility(self, *args, **kwargs):
+            calls.append(("creator_os_recommendation_eligibility", args, kwargs))
+            return "eligible"
+
+        def creator_os_restriction_status(self, *args, **kwargs):
+            calls.append(("creator_os_restriction_status", args, kwargs))
+            return {"active": False}
+
+        def creator_os_maturity_score(self, *args, **kwargs):
+            calls.append(("creator_os_maturity_score", args, kwargs))
+            return 60
+
+        def creator_os_warming_stage(self, *args, **kwargs):
+            calls.append(("creator_os_warming_stage", args, kwargs))
+            return "mature"
+
+        def creator_os_creative_risk(self, *args, **kwargs):
+            calls.append(("creator_os_creative_risk", args, kwargs))
+            return {"creativeRiskScore": 0}
+
+        def creator_os_similarity_budget(self, *args, **kwargs):
+            calls.append(("creator_os_similarity_budget", args, kwargs))
+            return {"blocked": False}
+
+        def creator_os_account_tier_from_health(self, *args, **kwargs):
+            calls.append(("creator_os_account_tier_from_health", args, kwargs))
+            return "normal"
+
+        def creator_os_cadence_overrides(self, *args, **kwargs):
+            calls.append(("creator_os_cadence_overrides", args, kwargs))
+            return {"maxPostsPerDay": 1}
+
+        def creator_os_account_over_cadence(self, *args, **kwargs):
+            calls.append(("creator_os_account_over_cadence", args, kwargs))
+            return False
+
+        def creator_os_account_tier(self, *args, **kwargs):
+            calls.append(("creator_os_account_tier", args, kwargs))
+            return "normal"
+
+        def creator_os_numeric(self, *args, **kwargs):
+            calls.append(("creator_os_numeric", args, kwargs))
+            return 3.0
+
+        def creator_os_tier_posting_guidance(self, *args, **kwargs):
+            calls.append(("creator_os_tier_posting_guidance", args, kwargs))
+            return {"recommendedPostCount": 1}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_account_tiers(creator="Stacey")["schema"] == "creator_os.account_tiers.v1"
+    assert factory.creator_os_account_health_report(creator="Stacey")["schema"] == "creator_os.account_health_report.v1"
+    assert factory.creator_os_restricted_account_report(creator="Stacey")["schema"] == "creator_os.restricted_account_report.v1"
+    assert factory.creator_os_manual_review_queue(creator="Stacey")["schema"] == "creator_os.manual_review_queue.v1"
+    assert factory.creator_os_account_warmup_report(creator="Stacey")["schema"] == "creator_os.account_warmup_report.v1"
+    assert factory._creator_os_execution_account_health_blockers({"accounts": []}) == ["account_link_sharing_restricted"]
+    assert factory._creator_os_execution_account_health_warnings({"accounts": []}) == ["recommendation_eligibility_unknown_conservative_cadence"]
+    assert factory._creator_os_account_tier_summary([{"accountTier": "warming"}])["warming"] == 1
+    assert factory._creator_os_account_health_decision({"accountId": "ig_1"}, missed=[]) == {"accountId": "ig_1", "safeToSchedule": False}
+    assert factory._creator_os_account_health_summary([{"safeToSchedule": False}]) == {"accounts": 1}
+    assert factory._creator_os_recommendation_eligibility({"recommendationEligible": True}) == "eligible"
+    assert factory._creator_os_restriction_status({}) == {"active": False}
+    assert factory._creator_os_maturity_score({"accountAgeDays": 30}) == 60
+    assert factory._creator_os_warming_stage({}, maturity_score=60) == "mature"
+    assert factory._creator_os_creative_risk({}) == {"creativeRiskScore": 0}
+    assert factory._creator_os_similarity_budget({}) == {"blocked": False}
+    assert factory._creator_os_account_tier_from_health({}, trust_state="normal", maturity_score=60) == "normal"
+    assert factory._creator_os_cadence_overrides({}, warming_stage="mature", maturity_score=60) == {"maxPostsPerDay": 1}
+    assert factory._creator_os_account_over_cadence({}, {"maxPostsPerDay": 1}) is False
+    assert factory._creator_os_account_tier({}, state="safe", blocked_reason="") == "normal"
+    assert factory._creator_os_numeric("3") == 3.0
+    assert factory._creator_os_tier_posting_guidance("normal") == {"recommendedPostCount": 1}
+
+    assert calls == [
+        ("creator_os_account_tiers", (), {"creator": "Stacey", "threadsdash_report": None, "generated_at": None}),
+        ("creator_os_account_health_report", (), {"creator": "Stacey", "threadsdash_report": None, "generated_at": None}),
+        ("creator_os_restricted_account_report", (), {"creator": "Stacey", "threadsdash_report": None, "generated_at": None}),
+        ("creator_os_manual_review_queue", (), {"creator": "Stacey", "threadsdash_report": None, "generated_at": None}),
+        ("creator_os_account_warmup_report", (), {"creator": "Stacey", "threadsdash_report": None, "generated_at": None}),
+        ("creator_os_execution_account_health_blockers", ({"accounts": []},), {}),
+        ("creator_os_execution_account_health_warnings", ({"accounts": []},), {}),
+        ("creator_os_account_tier_summary", ([{"accountTier": "warming"}],), {"key": "accountTier"}),
+        ("creator_os_account_health_decision", ({"accountId": "ig_1"},), {"missed": []}),
+        ("creator_os_account_health_summary", ([{"safeToSchedule": False}],), {}),
+        ("creator_os_recommendation_eligibility", ({"recommendationEligible": True},), {}),
+        ("creator_os_restriction_status", ({},), {}),
+        ("creator_os_maturity_score", ({"accountAgeDays": 30},), {}),
+        ("creator_os_warming_stage", ({},), {"maturity_score": 60}),
+        ("creator_os_creative_risk", ({},), {}),
+        ("creator_os_similarity_budget", ({},), {}),
+        ("creator_os_account_tier_from_health", ({},), {"trust_state": "normal", "maturity_score": 60}),
+        ("creator_os_cadence_overrides", ({},), {"warming_stage": "mature", "maturity_score": 60}),
+        ("creator_os_account_over_cadence", ({}, {"maxPostsPerDay": 1}), {}),
+        ("creator_os_account_tier", ({},), {"state": "safe", "blocked_reason": ""}),
+        ("creator_os_numeric", ("3",), {}),
+        ("creator_os_tier_posting_guidance", ("normal",), {}),
     ]

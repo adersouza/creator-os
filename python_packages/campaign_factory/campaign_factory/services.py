@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Callable
 
+from .account_health import AccountHealthRepository
 from .asset_import import AssetImportRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
@@ -101,6 +102,12 @@ class CoreServices:
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
         multi_blocker_inventory_unlock_report: Callable[..., dict[str, Any]],
         multi_blocker_repair_minutes: dict[str, int],
+        account_trust_states: set[str],
+        recommendation_eligibility_states: set[str],
+        warming_stages: set[str],
+        content_surfaces: tuple[str, ...],
+        creative_risk_block_threshold: int,
+        creative_risk_caution_threshold: int,
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -337,6 +344,19 @@ class CoreServices:
             normalize_content_surface=normalize_content_surface,
             multi_blocker_inventory_unlock_report=multi_blocker_inventory_unlock_report,
             repair_minutes=multi_blocker_repair_minutes,
+        )
+        self.account_health = AccountHealthRepository(
+            conn,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            truthy=truthy,
+            normalize_content_surface=normalize_content_surface,
+            account_trust_states=account_trust_states,
+            recommendation_eligibility_states=recommendation_eligibility_states,
+            warming_stages=warming_stages,
+            content_surfaces=content_surfaces,
+            creative_risk_block_threshold=creative_risk_block_threshold,
+            creative_risk_caution_threshold=creative_risk_caution_threshold,
         )
 
     def ensure_graph_node(
@@ -1081,6 +1101,78 @@ class CoreServices:
 
     def story_existing_asset_source_blockers(self, asset: dict[str, Any]) -> list[str]:
         return self.story_management.story_existing_asset_source_blockers(asset)
+
+    def creator_os_account_tiers(self, **kwargs: Any) -> dict[str, Any]:
+        return self.account_health.creator_os_account_tiers(**kwargs)
+
+    def creator_os_account_health_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.account_health.creator_os_account_health_report(**kwargs)
+
+    def creator_os_restricted_account_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.account_health.creator_os_restricted_account_report(**kwargs)
+
+    def creator_os_manual_review_queue(self, **kwargs: Any) -> dict[str, Any]:
+        return self.account_health.creator_os_manual_review_queue(**kwargs)
+
+    def creator_os_account_warmup_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.account_health.creator_os_account_warmup_report(**kwargs)
+
+    def creator_os_execution_account_health_blockers(self, account_health: dict[str, Any]) -> list[str]:
+        return self.account_health.creator_os_execution_account_health_blockers(account_health)
+
+    def creator_os_execution_account_health_warnings(self, account_health: dict[str, Any]) -> list[str]:
+        return self.account_health.creator_os_execution_account_health_warnings(account_health)
+
+    def creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
+        return self.account_health.creator_os_account_tier_summary(accounts, key=key)
+
+    def creator_os_account_health_decision(self, account: dict[str, Any], *, missed: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.account_health.creator_os_account_health_decision(account, missed=missed)
+
+    def creator_os_account_health_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.account_health.creator_os_account_health_summary(rows)
+
+    def creator_os_account_trust_state(self, account: dict[str, Any]) -> str:
+        return self.account_health.creator_os_account_trust_state(account)
+
+    def creator_os_recommendation_eligibility(self, account: dict[str, Any]) -> str:
+        return self.account_health.creator_os_recommendation_eligibility(account)
+
+    def creator_os_restriction_status(self, account: dict[str, Any]) -> dict[str, Any]:
+        return self.account_health.creator_os_restriction_status(account)
+
+    def creator_os_maturity_score(self, account: dict[str, Any]) -> int:
+        return self.account_health.creator_os_maturity_score(account)
+
+    def creator_os_warming_stage(self, account: dict[str, Any], *, maturity_score: int) -> str:
+        return self.account_health.creator_os_warming_stage(account, maturity_score=maturity_score)
+
+    def creator_os_creative_risk(self, account: dict[str, Any]) -> dict[str, Any]:
+        return self.account_health.creator_os_creative_risk(account)
+
+    def creator_os_similarity_budget(self, account: dict[str, Any]) -> dict[str, Any]:
+        return self.account_health.creator_os_similarity_budget(account)
+
+    def creator_os_account_tier_from_health(self, account: dict[str, Any], *, trust_state: str, maturity_score: int) -> str:
+        return self.account_health.creator_os_account_tier_from_health(account, trust_state=trust_state, maturity_score=maturity_score)
+
+    def creator_os_cadence_overrides(self, account: dict[str, Any], *, warming_stage: str, maturity_score: int) -> dict[str, Any]:
+        return self.account_health.creator_os_cadence_overrides(account, warming_stage=warming_stage, maturity_score=maturity_score)
+
+    def creator_os_account_over_cadence(self, account: dict[str, Any], guidance: dict[str, Any]) -> bool:
+        return self.account_health.creator_os_account_over_cadence(account, guidance)
+
+    def creator_os_account_tier(self, account: dict[str, Any], *, state: str, blocked_reason: str) -> str:
+        return self.account_health.creator_os_account_tier(account, state=state, blocked_reason=blocked_reason)
+
+    def creator_os_numeric(self, value: Any) -> float:
+        return self.account_health.creator_os_numeric(value)
+
+    def creator_os_tier_posting_guidance(self, tier: str) -> dict[str, Any]:
+        return self.account_health.creator_os_tier_posting_guidance(tier)
+
+    def creator_os_blocked_reason(self, account: dict[str, Any], missed: list[dict[str, Any]]) -> str:
+        return self.account_health.creator_os_blocked_reason(account, missed)
 
     def parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
         return self.discoverability.parent_factory_observed_discoverability_terms()
