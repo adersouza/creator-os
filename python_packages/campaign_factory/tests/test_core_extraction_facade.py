@@ -7,6 +7,7 @@ from campaign_factory.acceptance_suite import AcceptanceSuiteRepository
 from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
+from campaign_factory.archive_quality import ArchiveQualityRepository
 from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
@@ -145,10 +146,99 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.recommendation_accuracy_repo.conn is factory.conn
         assert isinstance(factory.services.recommendations, RecommendationRepository)
         assert factory.services.recommendations.conn is factory.conn
+        assert isinstance(factory.services.archive_quality, ArchiveQualityRepository)
+        assert factory.services.archive_quality.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
         assert factory.services.campaign_overview.conn is factory.conn
     finally:
         factory.close()
+
+
+def test_archive_quality_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def archive_inventory_report(self, *args, **kwargs):
+            calls.append(("archive_inventory_report", args, kwargs))
+            return {"schema": "campaign_factory.archive_inventory_report.v1"}
+
+        def archive_existing_content_duplicate(self, *args, **kwargs):
+            calls.append(("archive_existing_content_duplicate", args, kwargs))
+            return {"table": "source_assets", "id": args[0]}
+
+        def archive_recent_publish_duplicate(self, *args, **kwargs):
+            calls.append(("archive_recent_publish_duplicate", args, kwargs))
+            return {"table": "performance_snapshots", "id": args[0]}
+
+        def archive_candidate_quality_report(self, *args, **kwargs):
+            calls.append(("archive_candidate_quality_report", args, kwargs))
+            return {"schema": "campaign_factory.archive_candidate_quality_report.v1"}
+
+        def archive_crop_severity(self, *args, **kwargs):
+            calls.append(("archive_crop_severity", args, kwargs))
+            return ("low", 0, 0.0)
+
+        def archive_visual_quality_score(self, *args, **kwargs):
+            calls.append(("archive_visual_quality_score", args, kwargs))
+            return 98
+
+        def archive_duplicate_confidence(self, *args, **kwargs):
+            calls.append(("archive_duplicate_confidence", args, kwargs))
+            return "clear"
+
+    factory.services = FakeServices()
+    recent_cutoff = object()
+    assert factory.archive_inventory_report(
+        folder=Path("/tmp/archive"),
+        campaign_slug="stacey_archive_marketing_20260606",
+        creator="Stacey",
+        requested_count=2,
+        model_slug="stacey",
+        recent_days=14,
+    )["schema"] == "campaign_factory.archive_inventory_report.v1"
+    assert factory._archive_existing_content_duplicate("hash_1") == {"table": "source_assets", "id": "hash_1"}
+    assert factory._archive_recent_publish_duplicate("hash_1", recent_cutoff) == {
+        "table": "performance_snapshots",
+        "id": "hash_1",
+    }
+    assert factory.archive_candidate_quality_report(
+        inventory_report_path=Path("/tmp/archive_inventory.json"),
+        requested_count=2,
+        exclude_indices=[3],
+    )["schema"] == "campaign_factory.archive_candidate_quality_report.v1"
+    assert factory._archive_crop_severity({"effectiveAspectRatio": 9 / 16}) == ("low", 0, 0.0)
+    assert factory._archive_visual_quality_score({"height": 1920}, [], 0) == 98
+    assert factory._archive_duplicate_confidence({"duplicate": {}}) == "clear"
+
+    assert calls == [
+        (
+            "archive_inventory_report",
+            (),
+            {
+                "folder": Path("/tmp/archive"),
+                "campaign_slug": "stacey_archive_marketing_20260606",
+                "creator": "Stacey",
+                "requested_count": 2,
+                "model_slug": "stacey",
+                "recent_days": 14,
+            },
+        ),
+        ("archive_existing_content_duplicate", ("hash_1",), {}),
+        ("archive_recent_publish_duplicate", ("hash_1", recent_cutoff), {}),
+        (
+            "archive_candidate_quality_report",
+            (),
+            {
+                "inventory_report_path": Path("/tmp/archive_inventory.json"),
+                "requested_count": 2,
+                "exclude_indices": [3],
+            },
+        ),
+        ("archive_crop_severity", ({"effectiveAspectRatio": 9 / 16},), {}),
+        ("archive_visual_quality_score", ({"height": 1920}, [], 0), {}),
+        ("archive_duplicate_confidence", ({"duplicate": {}},), {}),
+    ]
 
 
 def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> None:
