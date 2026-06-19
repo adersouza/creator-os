@@ -4208,6 +4208,10 @@ def test_campaign_factory_delegates_live_scale_report_methods_to_services() -> N
     calls = []
 
     class FakeServices:
+        def creator_os_live_100_account_readiness(self):
+            calls.append(("creator_os_live_100_account_readiness", (), {}))
+            return {"schema": "creator_os.live_100_account_readiness.v1"}
+
         def creator_os_live_scale_runbook(self):
             calls.append(("creator_os_live_scale_runbook", (), {}))
             return {"schema": "creator_os.live_scale_runbook.v1"}
@@ -4216,13 +4220,48 @@ def test_campaign_factory_delegates_live_scale_report_methods_to_services() -> N
             calls.append(("creator_os_live_scale_scorecard", (), {}))
             return {"schema": "creator_os.live_scale_scorecard.v1"}
 
+        def actual_account_operational_counts(self):
+            calls.append(("actual_account_operational_counts", (), {}))
+            return {"totalAccounts": 100, "blockedAccounts": 0, "safeAccounts": 100, "warmingAccounts": 0}
+
+        def live_100_exact_shortfall(self, **kwargs):
+            calls.append(("live_100_exact_shortfall", (), kwargs))
+            return "accounts:5"
+
     factory.services = FakeServices()
 
+    assert factory.creator_os_live_100_account_readiness() == {"schema": "creator_os.live_100_account_readiness.v1"}
     assert factory.creator_os_live_scale_runbook() == {"schema": "creator_os.live_scale_runbook.v1"}
     assert factory.creator_os_live_scale_scorecard() == {"schema": "creator_os.live_scale_scorecard.v1"}
+    assert factory._actual_account_operational_counts() == {
+        "totalAccounts": 100,
+        "blockedAccounts": 0,
+        "safeAccounts": 100,
+        "warmingAccounts": 0,
+    }
+    assert factory._live_100_exact_shortfall(
+        accounts={"totalAccounts": 95, "blockedAccounts": 0},
+        available_inventory=100,
+        required_inventory=900,
+        available_parents=20,
+        required_parents=30,
+    ) == "accounts:5"
     assert calls == [
+        ("creator_os_live_100_account_readiness", (), {}),
         ("creator_os_live_scale_runbook", (), {}),
         ("creator_os_live_scale_scorecard", (), {}),
+        ("actual_account_operational_counts", (), {}),
+        (
+            "live_100_exact_shortfall",
+            (),
+            {
+                "accounts": {"totalAccounts": 95, "blockedAccounts": 0},
+                "available_inventory": 100,
+                "required_inventory": 900,
+                "available_parents": 20,
+                "required_parents": 30,
+            },
+        ),
     ]
 
 
@@ -4241,6 +4280,10 @@ def test_core_services_delegates_live_scale_report_methods_to_repository(tmp_pat
         class FakeLiveScale:
             conn = factory.conn
 
+            def creator_os_live_100_account_readiness(self):
+                calls.append(("creator_os_live_100_account_readiness", (), {}))
+                return {"schema": "creator_os.live_100_account_readiness.v1"}
+
             def creator_os_live_scale_runbook(self):
                 calls.append(("creator_os_live_scale_runbook", (), {}))
                 return {"schema": "creator_os.live_scale_runbook.v1"}
@@ -4249,13 +4292,48 @@ def test_core_services_delegates_live_scale_report_methods_to_repository(tmp_pat
                 calls.append(("creator_os_live_scale_scorecard", (), {}))
                 return {"schema": "creator_os.live_scale_scorecard.v1"}
 
+            def actual_account_operational_counts(self):
+                calls.append(("actual_account_operational_counts", (), {}))
+                return {"totalAccounts": 100, "blockedAccounts": 0, "safeAccounts": 100, "warmingAccounts": 0}
+
+            def live_100_exact_shortfall(self, **kwargs):
+                calls.append(("live_100_exact_shortfall", (), kwargs))
+                return "parent_inventory:10"
+
         factory.services.live_scale = FakeLiveScale()
 
+        assert factory.services.creator_os_live_100_account_readiness() == {"schema": "creator_os.live_100_account_readiness.v1"}
         assert factory.services.creator_os_live_scale_runbook() == {"schema": "creator_os.live_scale_runbook.v1"}
         assert factory.services.creator_os_live_scale_scorecard() == {"schema": "creator_os.live_scale_scorecard.v1"}
+        assert factory.services.actual_account_operational_counts() == {
+            "totalAccounts": 100,
+            "blockedAccounts": 0,
+            "safeAccounts": 100,
+            "warmingAccounts": 0,
+        }
+        assert factory.services.live_100_exact_shortfall(
+            accounts={"totalAccounts": 100, "blockedAccounts": 0},
+            available_inventory=900,
+            required_inventory=900,
+            available_parents=20,
+            required_parents=30,
+        ) == "parent_inventory:10"
         assert calls == [
+            ("creator_os_live_100_account_readiness", (), {}),
             ("creator_os_live_scale_runbook", (), {}),
             ("creator_os_live_scale_scorecard", (), {}),
+            ("actual_account_operational_counts", (), {}),
+            (
+                "live_100_exact_shortfall",
+                (),
+                {
+                    "accounts": {"totalAccounts": 100, "blockedAccounts": 0},
+                    "available_inventory": 900,
+                    "required_inventory": 900,
+                    "available_parents": 20,
+                    "required_parents": 30,
+                },
+            ),
         ]
     finally:
         factory.close()

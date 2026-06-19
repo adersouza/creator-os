@@ -623,7 +623,10 @@ class CampaignFactory:
             operator_load_audit=self.operator_load_audit,
             failure_injection_suite=self.failure_injection_suite,
             idempotency_proof=self.idempotency_proof,
-            creator_os_live_100_account_readiness=self.creator_os_live_100_account_readiness,
+            inventory_stage_counts=self._inventory_stage_counts,
+            inventory_production_requirements=self.inventory_production_requirements,
+            exception_queue_report=self.exception_queue_report,
+            reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             account_content_needs=self.account_content_needs,
             creator_content_needs=self.creator_content_needs,
             account_surface_obligations_plan=self.account_surface_obligations_plan,
@@ -6893,57 +6896,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return self.services.creator_os_10_0_readiness_report()
 
     def creator_os_live_100_account_readiness(self) -> dict[str, Any]:
-        accounts = self._actual_account_operational_counts()
-        available_inventory = self._inventory_stage_counts()["scheduleSafeAssets"]
-        required_inventory = 100 * 3 * 3
-        required_parents = int(self.inventory_production_requirements(accounts=100, posts_per_account_per_day=3).get("requiredParentsPerDay") or 0)
-        operator = self.operator_load_audit().get("scaleTiers", {}).get("100", {})
-        exceptions = self.exception_queue_report()
-        can_run = (
-            accounts["totalAccounts"] >= 100
-            and accounts["blockedAccounts"] == 0
-            and available_inventory >= required_inventory
-            and int(self._reel_factory_parent_metrics().get("scheduleSafe") or 0) >= required_parents
-        )
-        blockers = []
-        if accounts["totalAccounts"] < 100:
-            blockers.append("fewer_than_100_actual_accounts")
-        if accounts["blockedAccounts"] > 0:
-            blockers.append("actual_account_blockers_present")
-        if available_inventory < required_inventory:
-            blockers.append("actual_schedule_safe_inventory_below_100_account_buffer")
-        if int(self._reel_factory_parent_metrics().get("scheduleSafe") or 0) < required_parents:
-            blockers.append("actual_parent_inventory_below_required_daily_target")
-        return {
-            "schema": "creator_os.live_100_account_readiness.v1",
-            "canRun100AccountsToday": can_run,
-            "blockingReason": blockers[0] if blockers else "",
-            "blockingReasons": blockers,
-            "requiredInventory": required_inventory,
-            "availableInventory": available_inventory,
-            "requiredParentsPerDay": required_parents,
-            "availableParents": int(self._reel_factory_parent_metrics().get("scheduleSafe") or 0),
-            "actualAccounts": accounts["totalAccounts"],
-            "eligibleAccounts": accounts["safeAccounts"],
-            "restrictedAccounts": accounts["blockedAccounts"],
-            "warmingAccounts": accounts["warmingAccounts"],
-            "blockedAccounts": accounts["blockedAccounts"],
-            "validatedDraftBuffer": available_inventory,
-            "requiredBuffer": required_inventory,
-            "inventoryHealthy": available_inventory >= required_inventory,
-            "safeToRun100Accounts": can_run,
-            "exactShortfall": "" if can_run else self._live_100_exact_shortfall(
-                accounts=accounts,
-                available_inventory=available_inventory,
-                required_inventory=required_inventory,
-                available_parents=int(self._reel_factory_parent_metrics().get("scheduleSafe") or 0),
-                required_parents=required_parents,
-            ),
-            "expectedOperatorLoad": int(operator.get("estimatedHumanTouchesPerDay") or 0),
-            "expectedExceptionRate": round((int(exceptions.get("exceptionCount") or 0) / max(1, accounts["totalAccounts"])) * 100, 2),
-            "dataSource": "actual_current_state",
-            "wouldWrite": False,
-        }
+        return self.services.creator_os_live_100_account_readiness()
 
     def creator_os_live_scale_runbook(self) -> dict[str, Any]:
         return self.services.creator_os_live_scale_runbook()
@@ -8905,21 +8858,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         ]
 
     def _actual_account_operational_counts(self) -> dict[str, int]:
-        rows = [dict(row) for row in self.conn.execute("SELECT * FROM accounts").fetchall()]
-        blocked = 0
-        warming = 0
-        for row in rows:
-            status = " ".join(str(row.get(key) or "").lower() for key in ("status", "notes", "platform"))
-            if any(token in status for token in ("blocked", "restricted", "disabled", "reauth")):
-                blocked += 1
-            if "warm" in status:
-                warming += 1
-        return {
-            "totalAccounts": len(rows),
-            "blockedAccounts": blocked,
-            "safeAccounts": max(0, len(rows) - blocked),
-            "warmingAccounts": warming,
-        }
+        return self.services.actual_account_operational_counts()
 
     def _live_100_exact_shortfall(
         self,
@@ -8930,16 +8869,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         available_parents: int,
         required_parents: int,
     ) -> str:
-        parts = []
-        if int(accounts.get("totalAccounts") or 0) < 100:
-            parts.append(f"accounts:{100 - int(accounts.get('totalAccounts') or 0)}")
-        if int(accounts.get("blockedAccounts") or 0) > 0:
-            parts.append(f"restricted_accounts:{int(accounts.get('blockedAccounts') or 0)}")
-        if available_inventory < required_inventory:
-            parts.append(f"validated_draft_buffer:{required_inventory - available_inventory}")
-        if available_parents < required_parents:
-            parts.append(f"parent_inventory:{required_parents - available_parents}")
-        return ",".join(parts)
+        return self.services.live_100_exact_shortfall(
+            accounts=accounts,
+            available_inventory=available_inventory,
+            required_inventory=required_inventory,
+            available_parents=available_parents,
+            required_parents=required_parents,
+        )
 
     def _idempotency_evidence_for_path(self, name: str) -> str:
         return {
