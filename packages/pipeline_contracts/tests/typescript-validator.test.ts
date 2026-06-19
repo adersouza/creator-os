@@ -25,6 +25,13 @@ function example(name: string) {
 }
 
 describe("TypeScript pipeline contract validators", () => {
+	it("uses emitted JavaScript specifiers for generated schema imports", () => {
+		const source = readFileSync(resolve(__dirname, "../typescript/index.ts"), "utf-8");
+
+		expect(source).toContain('from "./generated-schemas.js"');
+		expect(source).not.toContain('from "./generated-schemas";');
+	});
+
 	it("loads generated schemas for every canonical contract", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"campaign_draft_payload.v1.schema.json",
