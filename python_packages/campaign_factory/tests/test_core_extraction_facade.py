@@ -28,6 +28,7 @@ from campaign_factory.graph import GraphRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
 from campaign_factory.models import ModelRepository
+from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
@@ -107,6 +108,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.live_acceptance.conn is factory.conn
         assert isinstance(factory.services.certification, CertificationRepository)
         assert factory.services.certification.conn is factory.conn
+        assert isinstance(factory.services.operational_proofs, OperationalProofRepository)
+        assert factory.services.operational_proofs.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -4595,6 +4598,100 @@ def test_core_services_delegates_creator_os_certification_report_to_repository(t
 
         assert factory.services.creator_os_certification_report() == {"schema": "creator_os.certification_report.v1"}
         assert calls == [("creator_os_certification_report", (), {})]
+    finally:
+        factory.close()
+
+
+def test_campaign_factory_delegates_operational_proof_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def failure_injection_suite(self):
+            calls.append(("failure_injection_suite", (), {}))
+            return {"schema": "creator_os.failure_injection_suite.v1"}
+
+        def idempotency_proof(self):
+            calls.append(("idempotency_proof", (), {}))
+            return {"schema": "creator_os.idempotency_proof.v1"}
+
+        def surface_maturity_audit(self):
+            calls.append(("surface_maturity_audit", (), {}))
+            return {"schema": "creator_os.surface_maturity_audit.v1"}
+
+        def operator_load_audit(self):
+            calls.append(("operator_load_audit", (), {}))
+            return {"schema": "creator_os.operator_load_audit.v1"}
+
+        def idempotency_evidence_for_path(self, name):
+            calls.append(("idempotency_evidence_for_path", (name,), {}))
+            return f"evidence:{name}"
+
+    factory.services = FakeServices()
+
+    assert factory.failure_injection_suite() == {"schema": "creator_os.failure_injection_suite.v1"}
+    assert factory.idempotency_proof() == {"schema": "creator_os.idempotency_proof.v1"}
+    assert factory.surface_maturity_audit() == {"schema": "creator_os.surface_maturity_audit.v1"}
+    assert factory.operator_load_audit() == {"schema": "creator_os.operator_load_audit.v1"}
+    assert factory._idempotency_evidence_for_path("schedule") == "evidence:schedule"
+    assert calls == [
+        ("failure_injection_suite", (), {}),
+        ("idempotency_proof", (), {}),
+        ("surface_maturity_audit", (), {}),
+        ("operator_load_audit", (), {}),
+        ("idempotency_evidence_for_path", ("schedule",), {}),
+    ]
+
+
+def test_core_services_delegates_operational_proof_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    calls = []
+
+    try:
+        class FakeOperationalProofs:
+            conn = factory.conn
+
+            def failure_injection_suite(self):
+                calls.append(("failure_injection_suite", (), {}))
+                return {"schema": "creator_os.failure_injection_suite.v1"}
+
+            def idempotency_proof(self):
+                calls.append(("idempotency_proof", (), {}))
+                return {"schema": "creator_os.idempotency_proof.v1"}
+
+            def surface_maturity_audit(self):
+                calls.append(("surface_maturity_audit", (), {}))
+                return {"schema": "creator_os.surface_maturity_audit.v1"}
+
+            def operator_load_audit(self):
+                calls.append(("operator_load_audit", (), {}))
+                return {"schema": "creator_os.operator_load_audit.v1"}
+
+            def idempotency_evidence_for_path(self, name):
+                calls.append(("idempotency_evidence_for_path", (name,), {}))
+                return f"evidence:{name}"
+
+        factory.services.operational_proofs = FakeOperationalProofs()
+
+        assert factory.services.failure_injection_suite() == {"schema": "creator_os.failure_injection_suite.v1"}
+        assert factory.services.idempotency_proof() == {"schema": "creator_os.idempotency_proof.v1"}
+        assert factory.services.surface_maturity_audit() == {"schema": "creator_os.surface_maturity_audit.v1"}
+        assert factory.services.operator_load_audit() == {"schema": "creator_os.operator_load_audit.v1"}
+        assert factory.services.idempotency_evidence_for_path("schedule") == "evidence:schedule"
+        assert calls == [
+            ("failure_injection_suite", (), {}),
+            ("idempotency_proof", (), {}),
+            ("surface_maturity_audit", (), {}),
+            ("operator_load_audit", (), {}),
+            ("idempotency_evidence_for_path", ("schedule",), {}),
+        ]
     finally:
         factory.close()
 
