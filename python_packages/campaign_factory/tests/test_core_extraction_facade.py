@@ -35,6 +35,7 @@ from campaign_factory.operator_review import OperatorReviewRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
+from campaign_factory.reel_execution import ReelExecutionRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_handoff import SurfaceHandoffRepository
@@ -71,6 +72,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.creative_planning.conn is factory.conn
         assert isinstance(factory.services.reference, ReferenceRepository)
         assert factory.services.reference.conn is factory.conn
+        assert isinstance(factory.services.reel_execution, ReelExecutionRepository)
+        assert factory.services.reel_execution.conn is factory.conn
         assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
         assert factory.services.caption_family.conn is factory.conn
         assert isinstance(factory.services.distribution, DistributionRepository)
@@ -620,6 +623,378 @@ def test_core_services_delegates_finished_video_registration_review_methods_to_r
                 "caption_placement_decision": None,
             },
         ),
+    ]
+
+
+def test_campaign_factory_delegates_reel_execution_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def prepare_reel_inputs(self, *args, **kwargs):
+            calls.append(("prepare_reel_inputs", args, kwargs))
+            return {"schema": "campaign_factory.prepare_reel_inputs.v1", "campaign": kwargs["campaign_slug"]}
+
+        def rotate_hooks_for_source(self, *args, **kwargs):
+            calls.append(("rotate_hooks_for_source", args, kwargs))
+            return ["second", "first"]
+
+        def reel_sidecar_hooks(self, *args, **kwargs):
+            calls.append(("reel_sidecar_hooks", args, kwargs))
+            return ["hook"], [{"hookIndex": 0}]
+
+        def next_reel_clip_number(self, *args, **kwargs):
+            calls.append(("next_reel_clip_number", args, kwargs))
+            return 4
+
+        def run_reel_factory(self, *args, **kwargs):
+            calls.append(("run_reel_factory", args, kwargs))
+            return {"returncode": 0, "pipelineJobId": "job_run"}
+
+        def sync_reel_outputs(self, *args, **kwargs):
+            calls.append(("sync_reel_outputs", args, kwargs))
+            return {"synced": [{"id": "asset_1"}], "pipelineJobId": "job_sync"}
+
+        def model_slug_for_campaign(self, *args, **kwargs):
+            calls.append(("model_slug_for_campaign", args, kwargs))
+            return "stacey"
+
+        def ratio_from_filename(self, *args, **kwargs):
+            calls.append(("ratio_from_filename", args, kwargs))
+            return "4:5"
+
+        def caption_generation_for_clip(self, *args, **kwargs):
+            calls.append(("caption_generation_for_clip", args, kwargs))
+            return {"generationId": "gen_1"}
+
+        def caption_outcome_context_for_reel_output(self, *args, **kwargs):
+            calls.append(("caption_outcome_context_for_reel_output", args, kwargs))
+            return {"caption_bank": "reel_factory_reference"}
+
+        def lineage_first_present(self, *args, **kwargs):
+            calls.append(("lineage_first_present", args, kwargs))
+            return "value"
+
+        def lineage_placement_decision(self, *args, **kwargs):
+            calls.append(("lineage_placement_decision", args, kwargs))
+            return {"status": "passed"}
+
+        def caption_lane_from_render_recipe(self, *args, **kwargs):
+            calls.append(("caption_lane_from_render_recipe", args, kwargs))
+            return "bottom"
+
+        def audio_intent_from_reference_recommendations(self, *args, **kwargs):
+            calls.append(("audio_intent_from_reference_recommendations", args, kwargs))
+            return {"schema": "pipeline.audio_intent.v1", "status": "attached"}
+
+        def backfill_synced_reel_output_lineage(self, *args, **kwargs):
+            calls.append(("backfill_synced_reel_output_lineage", args, kwargs))
+            return True
+
+    factory.services = FakeServices()
+
+    assert factory.prepare_reel_inputs(
+        campaign_slug="daily",
+        hooks=["first", "second"],
+        recipes=["v01_original"],
+        caption_color="auto",
+        notes="notes",
+        force_new=True,
+    ) == {"schema": "campaign_factory.prepare_reel_inputs.v1", "campaign": "daily"}
+    assert factory._rotate_hooks_for_source(["first", "second"], 1) == ["second", "first"]
+    assert factory._reel_sidecar_hooks([{"text": "hook"}]) == (["hook"], [{"hookIndex": 0}])
+    assert factory._next_reel_clip_number(Path("/tmp/raw")) == 4
+    assert factory.run_reel_factory(
+        campaign_slug="daily",
+        workers=2,
+        dry_run=True,
+        caption_band="safe",
+        caption_color="light",
+        caption_style="ig",
+        caption_font="Instagram Sans Condensed",
+        caption_placement_qc=False,
+        phone_finalize=False,
+        rerender_all=True,
+        max_outputs_per_clip=2,
+    ) == {"returncode": 0, "pipelineJobId": "job_run"}
+    assert factory.sync_reel_outputs(campaign_slug="daily") == {
+        "synced": [{"id": "asset_1"}],
+        "pipelineJobId": "job_sync",
+    }
+    assert factory._model_slug_for_campaign("camp_1") == "stacey"
+    assert factory._ratio_from_filename("clip_4x5_v01.mp4") == "4:5"
+    assert factory._caption_generation_for_clip("clip_001") == {"generationId": "gen_1"}
+    assert factory._caption_outcome_context_for_reel_output(
+        clip_stem="clip_001",
+        caption_text="caption",
+        caption_hash="hash_1",
+        recipe="caption_bg",
+        source_path="/tmp/source.mp4",
+        rendered_path="/tmp/rendered.mp4",
+        creator_model="stacey",
+        lineage={"captionPlacementPolicy": "focal_safe_v1"},
+    ) == {"caption_bank": "reel_factory_reference"}
+    assert factory._lineage_first_present({"captionBank": {"x": "value"}}, "x") == "value"
+    assert factory._lineage_placement_decision({"captionPlacementDecision": {"status": "passed"}}) == {
+        "status": "passed",
+    }
+    assert factory._caption_lane_from_render_recipe("caption_bg") == "bottom"
+    assert factory._audio_intent_from_reference_recommendations(
+        {"audioRecommendations": {"recommendations": [{"audioId": "track_1"}]}},
+        now="2026-06-01T00:00:00+00:00",
+    ) == {"schema": "pipeline.audio_intent.v1", "status": "attached"}
+    assert factory._backfill_synced_reel_output_lineage(
+        asset={"id": "asset_1"},
+        clip_stem="clip_001",
+        caption_text="caption",
+        recipe="caption_bg",
+        output_path="/tmp/output.mp4",
+        rendered_path="/tmp/rendered.mp4",
+        creator_model="stacey",
+        lineage={},
+    ) is True
+
+    assert calls == [
+        ("prepare_reel_inputs", (), {
+            "campaign_slug": "daily",
+            "hooks": ["first", "second"],
+            "recipes": ["v01_original"],
+            "caption_color": "auto",
+            "notes": "notes",
+            "force_new": True,
+        }),
+        ("rotate_hooks_for_source", (["first", "second"], 1), {}),
+        ("reel_sidecar_hooks", ([{"text": "hook"}],), {}),
+        ("next_reel_clip_number", (Path("/tmp/raw"),), {}),
+        ("run_reel_factory", (), {
+            "campaign_slug": "daily",
+            "workers": 2,
+            "dry_run": True,
+            "caption_band": "safe",
+            "caption_color": "light",
+            "caption_style": "ig",
+            "caption_font": "Instagram Sans Condensed",
+            "caption_placement_qc": False,
+            "phone_finalize": False,
+            "rerender_all": True,
+            "max_outputs_per_clip": 2,
+        }),
+        ("sync_reel_outputs", (), {"campaign_slug": "daily"}),
+        ("model_slug_for_campaign", ("camp_1",), {}),
+        ("ratio_from_filename", ("clip_4x5_v01.mp4",), {}),
+        ("caption_generation_for_clip", ("clip_001",), {}),
+        ("caption_outcome_context_for_reel_output", (), {
+            "clip_stem": "clip_001",
+            "caption_text": "caption",
+            "caption_hash": "hash_1",
+            "recipe": "caption_bg",
+            "source_path": "/tmp/source.mp4",
+            "rendered_path": "/tmp/rendered.mp4",
+            "creator_model": "stacey",
+            "lineage": {"captionPlacementPolicy": "focal_safe_v1"},
+        }),
+        ("lineage_first_present", ({"captionBank": {"x": "value"}}, "x"), {}),
+        ("lineage_placement_decision", ({"captionPlacementDecision": {"status": "passed"}},), {}),
+        ("caption_lane_from_render_recipe", ("caption_bg",), {}),
+        ("audio_intent_from_reference_recommendations", (
+            {"audioRecommendations": {"recommendations": [{"audioId": "track_1"}]}},
+        ), {"now": "2026-06-01T00:00:00+00:00"}),
+        ("backfill_synced_reel_output_lineage", (), {
+            "asset": {"id": "asset_1"},
+            "clip_stem": "clip_001",
+            "caption_text": "caption",
+            "recipe": "caption_bg",
+            "output_path": "/tmp/output.mp4",
+            "rendered_path": "/tmp/rendered.mp4",
+            "creator_model": "stacey",
+            "lineage": {},
+        }),
+    ]
+
+
+def test_core_services_delegates_reel_execution_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeReelExecution:
+        def prepare_reel_inputs(self, *args, **kwargs):
+            calls.append(("prepare_reel_inputs", args, kwargs))
+            return {"schema": "campaign_factory.prepare_reel_inputs.v1", "campaign": kwargs["campaign_slug"]}
+
+        def rotate_hooks_for_source(self, *args, **kwargs):
+            calls.append(("rotate_hooks_for_source", args, kwargs))
+            return ["second", "first"]
+
+        def reel_sidecar_hooks(self, *args, **kwargs):
+            calls.append(("reel_sidecar_hooks", args, kwargs))
+            return ["hook"], [{"hookIndex": 0}]
+
+        def next_reel_clip_number(self, *args, **kwargs):
+            calls.append(("next_reel_clip_number", args, kwargs))
+            return 4
+
+        def run_reel_factory(self, *args, **kwargs):
+            calls.append(("run_reel_factory", args, kwargs))
+            return {"returncode": 0, "pipelineJobId": "job_run"}
+
+        def sync_reel_outputs(self, *args, **kwargs):
+            calls.append(("sync_reel_outputs", args, kwargs))
+            return {"synced": [{"id": "asset_1"}], "pipelineJobId": "job_sync"}
+
+        def model_slug_for_campaign(self, *args, **kwargs):
+            calls.append(("model_slug_for_campaign", args, kwargs))
+            return "stacey"
+
+        def ratio_from_filename(self, *args, **kwargs):
+            calls.append(("ratio_from_filename", args, kwargs))
+            return "4:5"
+
+        def caption_generation_for_clip(self, *args, **kwargs):
+            calls.append(("caption_generation_for_clip", args, kwargs))
+            return {"generationId": "gen_1"}
+
+        def caption_outcome_context_for_reel_output(self, *args, **kwargs):
+            calls.append(("caption_outcome_context_for_reel_output", args, kwargs))
+            return {"caption_bank": "reel_factory_reference"}
+
+        def lineage_first_present(self, *args, **kwargs):
+            calls.append(("lineage_first_present", args, kwargs))
+            return "value"
+
+        def lineage_placement_decision(self, *args, **kwargs):
+            calls.append(("lineage_placement_decision", args, kwargs))
+            return {"status": "passed"}
+
+        def caption_lane_from_render_recipe(self, *args, **kwargs):
+            calls.append(("caption_lane_from_render_recipe", args, kwargs))
+            return "bottom"
+
+        def audio_intent_from_reference_recommendations(self, *args, **kwargs):
+            calls.append(("audio_intent_from_reference_recommendations", args, kwargs))
+            return {"schema": "pipeline.audio_intent.v1", "status": "attached"}
+
+        def backfill_synced_reel_output_lineage(self, *args, **kwargs):
+            calls.append(("backfill_synced_reel_output_lineage", args, kwargs))
+            return True
+
+    services.reel_execution = FakeReelExecution()
+
+    assert services.prepare_reel_inputs(
+        campaign_slug="daily",
+        hooks=["first", "second"],
+        recipes=["v01_original"],
+        caption_color="auto",
+        notes="notes",
+        force_new=True,
+    ) == {"schema": "campaign_factory.prepare_reel_inputs.v1", "campaign": "daily"}
+    assert services.rotate_hooks_for_source(["first", "second"], 1) == ["second", "first"]
+    assert services.reel_sidecar_hooks([{"text": "hook"}]) == (["hook"], [{"hookIndex": 0}])
+    assert services.next_reel_clip_number(Path("/tmp/raw")) == 4
+    assert services.run_reel_factory(
+        campaign_slug="daily",
+        workers=2,
+        dry_run=True,
+        caption_band="safe",
+        caption_color="light",
+        caption_style="ig",
+        caption_font="Instagram Sans Condensed",
+        caption_placement_qc=False,
+        phone_finalize=False,
+        rerender_all=True,
+        max_outputs_per_clip=2,
+    ) == {"returncode": 0, "pipelineJobId": "job_run"}
+    assert services.sync_reel_outputs(campaign_slug="daily") == {
+        "synced": [{"id": "asset_1"}],
+        "pipelineJobId": "job_sync",
+    }
+    assert services.model_slug_for_campaign("camp_1") == "stacey"
+    assert services.ratio_from_filename("clip_4x5_v01.mp4") == "4:5"
+    assert services.caption_generation_for_clip("clip_001") == {"generationId": "gen_1"}
+    assert services.caption_outcome_context_for_reel_output(
+        clip_stem="clip_001",
+        caption_text="caption",
+        caption_hash="hash_1",
+        recipe="caption_bg",
+        source_path="/tmp/source.mp4",
+        rendered_path="/tmp/rendered.mp4",
+        creator_model="stacey",
+        lineage={"captionPlacementPolicy": "focal_safe_v1"},
+    ) == {"caption_bank": "reel_factory_reference"}
+    assert services.lineage_first_present({"captionBank": {"x": "value"}}, "x") == "value"
+    assert services.lineage_placement_decision({"captionPlacementDecision": {"status": "passed"}}) == {
+        "status": "passed",
+    }
+    assert services.caption_lane_from_render_recipe("caption_bg") == "bottom"
+    assert services.audio_intent_from_reference_recommendations(
+        {"audioRecommendations": {"recommendations": [{"audioId": "track_1"}]}},
+        now="2026-06-01T00:00:00+00:00",
+    ) == {"schema": "pipeline.audio_intent.v1", "status": "attached"}
+    assert services.backfill_synced_reel_output_lineage(
+        asset={"id": "asset_1"},
+        clip_stem="clip_001",
+        caption_text="caption",
+        recipe="caption_bg",
+        output_path="/tmp/output.mp4",
+        rendered_path="/tmp/rendered.mp4",
+        creator_model="stacey",
+        lineage={},
+    ) is True
+
+    assert calls == [
+        ("prepare_reel_inputs", (), {
+            "campaign_slug": "daily",
+            "hooks": ["first", "second"],
+            "recipes": ["v01_original"],
+            "caption_color": "auto",
+            "notes": "notes",
+            "force_new": True,
+        }),
+        ("rotate_hooks_for_source", (["first", "second"], 1), {}),
+        ("reel_sidecar_hooks", ([{"text": "hook"}],), {}),
+        ("next_reel_clip_number", (Path("/tmp/raw"),), {}),
+        ("run_reel_factory", (), {
+            "campaign_slug": "daily",
+            "workers": 2,
+            "dry_run": True,
+            "caption_band": "safe",
+            "caption_color": "light",
+            "caption_style": "ig",
+            "caption_font": "Instagram Sans Condensed",
+            "caption_placement_qc": False,
+            "phone_finalize": False,
+            "rerender_all": True,
+            "max_outputs_per_clip": 2,
+        }),
+        ("sync_reel_outputs", (), {"campaign_slug": "daily"}),
+        ("model_slug_for_campaign", ("camp_1",), {}),
+        ("ratio_from_filename", ("clip_4x5_v01.mp4",), {}),
+        ("caption_generation_for_clip", ("clip_001",), {}),
+        ("caption_outcome_context_for_reel_output", (), {
+            "clip_stem": "clip_001",
+            "caption_text": "caption",
+            "caption_hash": "hash_1",
+            "recipe": "caption_bg",
+            "source_path": "/tmp/source.mp4",
+            "rendered_path": "/tmp/rendered.mp4",
+            "creator_model": "stacey",
+            "lineage": {"captionPlacementPolicy": "focal_safe_v1"},
+        }),
+        ("lineage_first_present", ({"captionBank": {"x": "value"}}, "x"), {}),
+        ("lineage_placement_decision", ({"captionPlacementDecision": {"status": "passed"}},), {}),
+        ("caption_lane_from_render_recipe", ("caption_bg",), {}),
+        ("audio_intent_from_reference_recommendations", (
+            {"audioRecommendations": {"recommendations": [{"audioId": "track_1"}]}},
+        ), {"now": "2026-06-01T00:00:00+00:00"}),
+        ("backfill_synced_reel_output_lineage", (), {
+            "asset": {"id": "asset_1"},
+            "clip_stem": "clip_001",
+            "caption_text": "caption",
+            "recipe": "caption_bg",
+            "output_path": "/tmp/output.mp4",
+            "rendered_path": "/tmp/rendered.mp4",
+            "creator_model": "stacey",
+            "lineage": {},
+        }),
     ]
 
 

@@ -34,6 +34,7 @@ from .operator_review import OperatorReviewRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .readiness_report import ReadinessReportRepository
+from .reel_execution import ReelExecutionRepository
 from .story_management import StoryManagementRepository
 from .surface_handoff import SurfaceHandoffRepository
 from .surface_inventory import SurfaceInventoryRepository
@@ -64,8 +65,10 @@ class CoreServices:
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         prepare_reel_inputs: Callable[..., dict[str, Any]],
+        reel_factory_python: Callable[[Any], str],
         make_batch: Callable[..., dict[str, Any]],
         load_source_lineage: Callable[[Any | None], dict[str, Any]],
+        discoverability_generation_gate: Callable[[dict[str, Any]], dict[str, Any]],
         discoverability_pre_render_gate: Callable[[dict[str, Any]], dict[str, Any]],
         discoverability_safe_content_contract: Callable[..., dict[str, Any]],
         capture_discoverability_gate_rejection_evidence: Callable[..., dict[str, Any]],
@@ -85,6 +88,7 @@ class CoreServices:
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
         instagram_post_caption_for_asset: Callable[..., dict[str, Any]],
+        suggest_simple_instagram_post_caption: Callable[..., str],
         text_hash: Callable[[str], str],
         validate_instagram_trial_reel_intent: Callable[..., str | None],
         variant_lineage_for_asset: Callable[[str], dict[str, Any]],
@@ -230,6 +234,30 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
+        )
+        self.reel_execution = ReelExecutionRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            utc_now=utc_now,
+            sha256_file=sha256_file,
+            sanitize_for_storage=sanitize_for_storage,
+            text_hash=text_hash,
+            campaign_by_slug=self.campaign_by_slug,
+            assets_for_campaign=self.asset_import.assets_for_campaign,
+            campaign_dirs=campaign_dirs,
+            reel_factory_python=reel_factory_python,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            record_event=self.events.record_event,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            discoverability_generation_gate=discoverability_generation_gate,
+            capture_discoverability_gate_rejection_evidence=capture_discoverability_gate_rejection_evidence,
+            suggest_simple_instagram_post_caption=suggest_simple_instagram_post_caption,
         )
         self.creative_planning = CreativePlanningRepository(
             conn,
@@ -1436,6 +1464,133 @@ class CoreServices:
 
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
         return self.reference.reference_hook_is_schedule_safe(text)
+
+    def prepare_reel_inputs(
+        self,
+        *,
+        campaign_slug: str,
+        hooks: list[str | dict[str, Any]],
+        recipes: list[str] | None = None,
+        caption_color: str | None = None,
+        notes: str | None = None,
+        force_new: bool = False,
+    ) -> dict[str, Any]:
+        return self.reel_execution.prepare_reel_inputs(
+            campaign_slug=campaign_slug,
+            hooks=hooks,
+            recipes=recipes,
+            caption_color=caption_color,
+            notes=notes,
+            force_new=force_new,
+        )
+
+    def rotate_hooks_for_source(self, hooks: list[str | dict[str, Any]], source_index: int) -> list[str | dict[str, Any]]:
+        return self.reel_execution.rotate_hooks_for_source(hooks, source_index)
+
+    def reel_sidecar_hooks(self, hooks: list[str | dict[str, Any]]) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
+        return self.reel_execution.reel_sidecar_hooks(hooks)
+
+    def next_reel_clip_number(self, raw_dir: Any) -> int:
+        return self.reel_execution.next_reel_clip_number(raw_dir)
+
+    def run_reel_factory(
+        self,
+        *,
+        campaign_slug: str,
+        workers: int = 3,
+        dry_run: bool = False,
+        caption_band: str = "auto",
+        caption_color: str = "light",
+        caption_style: str = "ig",
+        caption_font: str = "Instagram Sans Condensed",
+        caption_placement_qc: bool = True,
+        phone_finalize: bool = True,
+        rerender_all: bool = False,
+        max_outputs_per_clip: int | None = None,
+    ) -> dict[str, Any]:
+        return self.reel_execution.run_reel_factory(
+            campaign_slug=campaign_slug,
+            workers=workers,
+            dry_run=dry_run,
+            caption_band=caption_band,
+            caption_color=caption_color,
+            caption_style=caption_style,
+            caption_font=caption_font,
+            caption_placement_qc=caption_placement_qc,
+            phone_finalize=phone_finalize,
+            rerender_all=rerender_all,
+            max_outputs_per_clip=max_outputs_per_clip,
+        )
+
+    def sync_reel_outputs(self, *, campaign_slug: str) -> dict[str, Any]:
+        return self.reel_execution.sync_reel_outputs(campaign_slug=campaign_slug)
+
+    def model_slug_for_campaign(self, campaign_id: str) -> str:
+        return self.reel_execution.model_slug_for_campaign(campaign_id)
+
+    def ratio_from_filename(self, filename: str) -> str:
+        return self.reel_execution.ratio_from_filename(filename)
+
+    def caption_generation_for_clip(self, clip_stem: str) -> dict[str, Any]:
+        return self.reel_execution.caption_generation_for_clip(clip_stem)
+
+    def caption_outcome_context_for_reel_output(
+        self,
+        *,
+        clip_stem: str,
+        caption_text: str,
+        caption_hash: str | None,
+        recipe: str,
+        source_path: str,
+        rendered_path: str,
+        creator_model: str,
+        lineage: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.reel_execution.caption_outcome_context_for_reel_output(
+            clip_stem=clip_stem,
+            caption_text=caption_text,
+            caption_hash=caption_hash,
+            recipe=recipe,
+            source_path=source_path,
+            rendered_path=rendered_path,
+            creator_model=creator_model,
+            lineage=lineage,
+        )
+
+    def lineage_first_present(self, lineage: dict[str, Any] | None, key: str) -> Any:
+        return self.reel_execution.lineage_first_present(lineage, key)
+
+    def lineage_placement_decision(self, lineage: dict[str, Any] | None) -> dict[str, Any] | None:
+        return self.reel_execution.lineage_placement_decision(lineage)
+
+    def caption_lane_from_render_recipe(self, recipe: str | None) -> str:
+        return self.reel_execution.caption_lane_from_render_recipe(recipe)
+
+    def audio_intent_from_reference_recommendations(self, payload: dict[str, Any], *, now: str) -> dict[str, Any]:
+        return self.reel_execution.audio_intent_from_reference_recommendations(payload, now=now)
+
+    def backfill_synced_reel_output_lineage(
+        self,
+        *,
+        asset: dict[str, Any],
+        clip_stem: str,
+        caption_text: str,
+        recipe: str,
+        output_path: str,
+        rendered_path: str,
+        creator_model: str,
+        lineage: dict[str, Any] | None = None,
+    ) -> bool:
+        return self.reel_execution.backfill_synced_reel_output_lineage(
+            asset=asset,
+            clip_stem=clip_stem,
+            caption_text=caption_text,
+            recipe=recipe,
+            output_path=output_path,
+            rendered_path=rendered_path,
+            creator_model=creator_model,
+            lineage=lineage,
+        )
 
     def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
         return self.finished_video.finished_video_hooks(format_type, pattern, count=count)
