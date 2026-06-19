@@ -34,6 +34,7 @@ from campaign_factory.inventory_recovery import InventoryRecoveryRepository
 from campaign_factory.inventory_reservations import InventoryReservationRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
+from campaign_factory.make_batch import MakeBatchRepository
 from campaign_factory.models import ModelRepository
 from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
@@ -135,6 +136,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.live_scale.conn is factory.conn
         assert isinstance(factory.services.live_acceptance, LiveAcceptanceRepository)
         assert factory.services.live_acceptance.conn is factory.conn
+        assert isinstance(factory.services.make_batch_repo, MakeBatchRepository)
+        assert factory.services.make_batch_repo.conn is factory.conn
         assert isinstance(factory.services.certification, CertificationRepository)
         assert factory.services.certification.conn is factory.conn
         assert isinstance(factory.services.operational_proofs, OperationalProofRepository)
@@ -860,6 +863,165 @@ def test_campaign_factory_delegates_inventory_perceptual_methods_to_services() -
                 "fingerprint": "0" * 64,
             },
         ),
+    ]
+
+
+def test_campaign_factory_delegates_make_batch_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def make_batch(self, *args, **kwargs):
+            calls.append(("make_batch", args, kwargs))
+            return {"schema": "campaign_factory.make_batch.v1", "campaign": kwargs["campaign_slug"]}
+
+        def run_slideshow_pack(self, *args, **kwargs):
+            calls.append(("run_slideshow_pack", args, kwargs))
+            return {"schema": "campaign_factory.slideshow_pack.v1", "campaign": kwargs["campaign_slug"]}
+
+        def campaign_source_media_summary(self, *args, **kwargs):
+            calls.append(("campaign_source_media_summary", args, kwargs))
+            return {"video": 1, "image": 2}
+
+        def formats_for_batch(self, *args, **kwargs):
+            calls.append(("formats_for_batch", args, kwargs))
+            return ["reel", "slideshow"]
+
+    factory.services = FakeServices()
+
+    assert factory.make_batch(
+        folder=Path("/tmp/input"),
+        campaign_slug="daily",
+        model_slug="stacey",
+        output_format="auto",
+        variant_count=3,
+        reference_pattern="auto",
+        contentforge_base_url="http://contentforge.test",
+        user_id="user_1",
+        dry_run_export=False,
+        workers=2,
+        recipes=["v01_original"],
+        auto_approve_warning_only=False,
+        source_prompt="/tmp/prompt.json",
+        import_notes="notes",
+    ) == {"schema": "campaign_factory.make_batch.v1", "campaign": "daily"}
+    assert factory._run_slideshow_pack(
+        campaign_slug="daily",
+        variant_count=3,
+        title="Daily",
+        cluster_key="cluster_1",
+        media_types={"image"},
+    ) == {"schema": "campaign_factory.slideshow_pack.v1", "campaign": "daily"}
+    assert factory._campaign_source_media_summary("campaign_1") == {"video": 1, "image": 2}
+    assert factory._formats_for_batch("auto", {"video": 1, "image": 1}) == ["reel", "slideshow"]
+
+    assert calls == [
+        (
+            "make_batch",
+            (),
+            {
+                "folder": Path("/tmp/input"),
+                "campaign_slug": "daily",
+                "model_slug": "stacey",
+                "output_format": "auto",
+                "variant_count": 3,
+                "reference_pattern": "auto",
+                "contentforge_base_url": "http://contentforge.test",
+                "user_id": "user_1",
+                "dry_run_export": False,
+                "workers": 2,
+                "recipes": ["v01_original"],
+                "auto_approve_warning_only": False,
+                "source_prompt": "/tmp/prompt.json",
+                "import_notes": "notes",
+            },
+        ),
+        (
+            "run_slideshow_pack",
+            (),
+            {
+                "campaign_slug": "daily",
+                "variant_count": 3,
+                "title": "Daily",
+                "cluster_key": "cluster_1",
+                "media_types": {"image"},
+            },
+        ),
+        ("campaign_source_media_summary", ("campaign_1",), {}),
+        ("formats_for_batch", ("auto", {"video": 1, "image": 1}), {}),
+    ]
+
+
+def test_core_services_delegates_make_batch_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeMakeBatch:
+        def make_batch(self, *args, **kwargs):
+            calls.append(("make_batch", args, kwargs))
+            return {"schema": "campaign_factory.make_batch.v1", "campaign": kwargs["campaign_slug"]}
+
+        def run_slideshow_pack(self, *args, **kwargs):
+            calls.append(("run_slideshow_pack", args, kwargs))
+            return {"schema": "campaign_factory.slideshow_pack.v1", "campaign": kwargs["campaign_slug"]}
+
+        def campaign_source_media_summary(self, *args, **kwargs):
+            calls.append(("campaign_source_media_summary", args, kwargs))
+            return {"video": 2, "image": 1}
+
+        def formats_for_batch(self, *args, **kwargs):
+            calls.append(("formats_for_batch", args, kwargs))
+            return ["reel"]
+
+    services.make_batch_repo = FakeMakeBatch()
+
+    assert services.make_batch(
+        folder=Path("/tmp/input"),
+        campaign_slug="daily",
+        model_slug="stacey",
+    ) == {"schema": "campaign_factory.make_batch.v1", "campaign": "daily"}
+    assert services.run_slideshow_pack(
+        campaign_slug="daily",
+        variant_count=2,
+        title="Daily",
+    ) == {"schema": "campaign_factory.slideshow_pack.v1", "campaign": "daily"}
+    assert services.campaign_source_media_summary("campaign_1") == {"video": 2, "image": 1}
+    assert services.formats_for_batch("reel", {"video": 1, "image": 0}) == ["reel"]
+
+    assert calls == [
+        (
+            "make_batch",
+            (),
+            {
+                "folder": Path("/tmp/input"),
+                "campaign_slug": "daily",
+                "model_slug": "stacey",
+                "output_format": "auto",
+                "variant_count": 20,
+                "reference_pattern": "auto",
+                "contentforge_base_url": None,
+                "user_id": None,
+                "dry_run_export": True,
+                "workers": 3,
+                "recipes": None,
+                "auto_approve_warning_only": True,
+                "source_prompt": None,
+                "import_notes": None,
+            },
+        ),
+        (
+            "run_slideshow_pack",
+            (),
+            {
+                "campaign_slug": "daily",
+                "variant_count": 2,
+                "title": "Daily",
+                "cluster_key": None,
+                "media_types": None,
+            },
+        ),
+        ("campaign_source_media_summary", ("campaign_1",), {}),
+        ("formats_for_batch", ("reel", {"video": 1, "image": 0}), {}),
     ]
 
 
