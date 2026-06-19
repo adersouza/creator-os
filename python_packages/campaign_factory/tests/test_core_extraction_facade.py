@@ -37,6 +37,7 @@ from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepos
 from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.reel_execution import ReelExecutionRepository
 from campaign_factory.services import CoreServices
+from campaign_factory.variant_lineage import VariantLineageRepository
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_handoff import SurfaceHandoffRepository
 from campaign_factory.surface_inventory import SurfaceInventoryRepository
@@ -74,6 +75,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.reference.conn is factory.conn
         assert isinstance(factory.services.reel_execution, ReelExecutionRepository)
         assert factory.services.reel_execution.conn is factory.conn
+        assert isinstance(factory.services.variant_lineage, VariantLineageRepository)
+        assert factory.services.variant_lineage.conn is factory.conn
         assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
         assert factory.services.caption_family.conn is factory.conn
         assert isinstance(factory.services.distribution, DistributionRepository)
@@ -995,6 +998,346 @@ def test_core_services_delegates_reel_execution_methods_to_repository() -> None:
             "creator_model": "stacey",
             "lineage": {},
         }),
+    ]
+
+
+def test_campaign_factory_delegates_variant_lineage_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def register_parent_reel(self, *args, **kwargs):
+            calls.append(("register_parent_reel", args, kwargs))
+            return {"schema": "campaign_factory.parent_reel.v1", "parentAssetId": args[0]}
+
+        def variant_plan(self, *args, **kwargs):
+            calls.append(("variant_plan", args, kwargs))
+            return {"schema": "campaign_factory.variant_plan.v1", "parentAssetId": kwargs["parent_asset_id"]}
+
+        def generate_variants(self, *args, **kwargs):
+            calls.append(("generate_variants", args, kwargs))
+            return {"schema": "campaign_factory.generate_variants.v1", "status": "completed"}
+
+        def contentforge_variant_pack_blocked_result(self, *args, **kwargs):
+            calls.append(("contentforge_variant_pack_blocked_result", args, kwargs))
+            return {"schema": "campaign_factory.generate_variants.v1", "status": "blocked"}
+
+        def register_variant_asset(self, *args, **kwargs):
+            calls.append(("register_variant_asset", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def parent_variant_inventory(self, *args, **kwargs):
+            calls.append(("parent_variant_inventory", args, kwargs))
+            return {"schema": "campaign_factory.parent_variant_inventory.v1"}
+
+        def variant_metrics_rollup(self, *args, **kwargs):
+            calls.append(("variant_metrics_rollup", args, kwargs))
+            return {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+
+        def concept_for_parent_asset(self, *args, **kwargs):
+            calls.append(("concept_for_parent_asset", args, kwargs))
+            return {"conceptId": "concept_1"}
+
+        def variant_lineage_for_asset(self, *args, **kwargs):
+            calls.append(("variant_lineage_for_asset", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def concept_payload(self, *args, **kwargs):
+            calls.append(("concept_payload", args, kwargs))
+            return {"conceptId": "concept_1"}
+
+        def variant_family_payload(self, *args, **kwargs):
+            calls.append(("variant_family_payload", args, kwargs))
+            return {"variantFamilyId": "vfam_1"}
+
+        def variant_lineage_asset_payload(self, *args, **kwargs):
+            calls.append(("variant_lineage_asset_payload", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def variant_usage_payload(self, *args, **kwargs):
+            calls.append(("variant_usage_payload", args, kwargs))
+            return {"id": "usage_1"}
+
+        def variant_rollup_group(self, *args, **kwargs):
+            calls.append(("variant_rollup_group", args, kwargs))
+            return [{"variantId": "var_1"}]
+
+    factory.services = FakeServices()
+    error = TimeoutError("boom")
+
+    assert factory.register_parent_reel("asset_1", operator="tester", status="active", metadata={"ok": True}) == {
+        "schema": "campaign_factory.parent_reel.v1",
+        "parentAssetId": "asset_1",
+    }
+    assert factory.variant_plan(
+        parent_asset_id="asset_1",
+        caption_version_id="cver_1",
+        count=2,
+        contentforge_preset="caption_safe_v2",
+        cooldown_days=7,
+    ) == {"schema": "campaign_factory.variant_plan.v1", "parentAssetId": "asset_1"}
+    assert factory.generate_variants(
+        parent_asset_id="asset_1",
+        caption_version_id="cver_1",
+        count=2,
+        contentforge_preset="caption_safe_v2",
+        contentforge_base_url="http://contentforge.test",
+        source_media_path="/tmp/source.mp4",
+        contentforge_timeout_seconds=3,
+    ) == {"schema": "campaign_factory.generate_variants.v1", "status": "completed"}
+    assert factory._contentforge_variant_pack_blocked_result(
+        plan={"parentAssetId": "asset_1"},
+        blocking_reason="timeout",
+        endpoint="http://contentforge.test/api/variant-pack/jobs",
+        staged_source="source.mp4",
+        timeout_seconds=3,
+        error=error,
+        extra={"runId": "run_1"},
+    ) == {"schema": "campaign_factory.generate_variants.v1", "status": "blocked"}
+    assert factory.register_variant_asset(
+        parent_asset_id="asset_1",
+        variant_asset_id="asset_2",
+        variant_family_id="vfam_1",
+        variant_index=1,
+        operations=[{"type": "caption_safe"}],
+        caption_family_id="cfam_1",
+        caption_version_id="cver_1",
+        contentforge_run_id="run_1",
+        contentforge_preset="caption_safe_v2",
+        qc_status="passed",
+        cooldown_days=9,
+        commit=False,
+    ) == {"variantId": "var_1"}
+    assert factory.parent_variant_inventory("may") == {"schema": "campaign_factory.parent_variant_inventory.v1"}
+    assert factory.variant_metrics_rollup("may") == {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+    assert factory._concept_for_parent_asset("asset_1") == {"conceptId": "concept_1"}
+    assert factory._variant_lineage_for_asset("asset_2") == {"variantId": "var_1"}
+    assert factory._concept_payload({"id": "concept_1"}) == {"conceptId": "concept_1"}
+    assert factory._variant_family_payload({"id": "vfam_1"}) == {"variantFamilyId": "vfam_1"}
+    assert factory._variant_asset_payload({"id": "var_1"}) == {"variantId": "var_1"}
+    assert factory._variant_usage_payload({"id": "usage_1"}) == {"id": "usage_1"}
+    assert factory._variant_rollup_group([{"variantId": "var_1"}], "variantId", "variantId") == [{"variantId": "var_1"}]
+
+    assert calls == [
+        ("register_parent_reel", ("asset_1",), {"operator": "tester", "status": "active", "metadata": {"ok": True}}),
+        ("variant_plan", (), {
+            "parent_asset_id": "asset_1",
+            "caption_version_id": "cver_1",
+            "count": 2,
+            "contentforge_preset": "caption_safe_v2",
+            "cooldown_days": 7,
+        }),
+        ("generate_variants", (), {
+            "parent_asset_id": "asset_1",
+            "caption_version_id": "cver_1",
+            "count": 2,
+            "contentforge_preset": "caption_safe_v2",
+            "contentforge_base_url": "http://contentforge.test",
+            "source_media_path": "/tmp/source.mp4",
+            "contentforge_timeout_seconds": 3,
+        }),
+        ("contentforge_variant_pack_blocked_result", (), {
+            "plan": {"parentAssetId": "asset_1"},
+            "blocking_reason": "timeout",
+            "endpoint": "http://contentforge.test/api/variant-pack/jobs",
+            "staged_source": "source.mp4",
+            "timeout_seconds": 3,
+            "error": error,
+            "extra": {"runId": "run_1"},
+        }),
+        ("register_variant_asset", (), {
+            "parent_asset_id": "asset_1",
+            "variant_asset_id": "asset_2",
+            "variant_family_id": "vfam_1",
+            "variant_index": 1,
+            "operations": [{"type": "caption_safe"}],
+            "caption_family_id": "cfam_1",
+            "caption_version_id": "cver_1",
+            "contentforge_run_id": "run_1",
+            "contentforge_preset": "caption_safe_v2",
+            "qc_status": "passed",
+            "cooldown_days": 9,
+            "commit": False,
+        }),
+        ("parent_variant_inventory", ("may",), {}),
+        ("variant_metrics_rollup", ("may",), {}),
+        ("concept_for_parent_asset", ("asset_1",), {}),
+        ("variant_lineage_for_asset", ("asset_2",), {}),
+        ("concept_payload", ({"id": "concept_1"},), {}),
+        ("variant_family_payload", ({"id": "vfam_1"},), {}),
+        ("variant_lineage_asset_payload", ({"id": "var_1"},), {}),
+        ("variant_usage_payload", ({"id": "usage_1"},), {}),
+        ("variant_rollup_group", ([{"variantId": "var_1"}], "variantId", "variantId"), {}),
+    ]
+
+
+def test_core_services_delegates_variant_lineage_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeVariantLineage:
+        def register_parent_reel(self, *args, **kwargs):
+            calls.append(("register_parent_reel", args, kwargs))
+            return {"schema": "campaign_factory.parent_reel.v1", "parentAssetId": args[0]}
+
+        def variant_plan(self, *args, **kwargs):
+            calls.append(("variant_plan", args, kwargs))
+            return {"schema": "campaign_factory.variant_plan.v1", "parentAssetId": kwargs["parent_asset_id"]}
+
+        def generate_variants(self, *args, **kwargs):
+            calls.append(("generate_variants", args, kwargs))
+            return {"schema": "campaign_factory.generate_variants.v1", "status": "completed"}
+
+        def contentforge_variant_pack_blocked_result(self, *args, **kwargs):
+            calls.append(("contentforge_variant_pack_blocked_result", args, kwargs))
+            return {"schema": "campaign_factory.generate_variants.v1", "status": "blocked"}
+
+        def register_variant_asset(self, *args, **kwargs):
+            calls.append(("register_variant_asset", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def parent_variant_inventory(self, *args, **kwargs):
+            calls.append(("parent_variant_inventory", args, kwargs))
+            return {"schema": "campaign_factory.parent_variant_inventory.v1"}
+
+        def variant_metrics_rollup(self, *args, **kwargs):
+            calls.append(("variant_metrics_rollup", args, kwargs))
+            return {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+
+        def concept_for_parent_asset(self, *args, **kwargs):
+            calls.append(("concept_for_parent_asset", args, kwargs))
+            return {"conceptId": "concept_1"}
+
+        def variant_lineage_for_asset(self, *args, **kwargs):
+            calls.append(("variant_lineage_for_asset", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def concept_payload(self, *args, **kwargs):
+            calls.append(("concept_payload", args, kwargs))
+            return {"conceptId": "concept_1"}
+
+        def variant_family_payload(self, *args, **kwargs):
+            calls.append(("variant_family_payload", args, kwargs))
+            return {"variantFamilyId": "vfam_1"}
+
+        def variant_lineage_asset_payload(self, *args, **kwargs):
+            calls.append(("variant_lineage_asset_payload", args, kwargs))
+            return {"variantId": "var_1"}
+
+        def variant_usage_payload(self, *args, **kwargs):
+            calls.append(("variant_usage_payload", args, kwargs))
+            return {"id": "usage_1"}
+
+        def variant_rollup_group(self, *args, **kwargs):
+            calls.append(("variant_rollup_group", args, kwargs))
+            return [{"variantId": "var_1"}]
+
+    services.variant_lineage = FakeVariantLineage()
+    error = TimeoutError("boom")
+
+    assert services.register_parent_reel("asset_1", operator="tester", status="active", metadata={"ok": True}) == {
+        "schema": "campaign_factory.parent_reel.v1",
+        "parentAssetId": "asset_1",
+    }
+    assert services.variant_plan(
+        parent_asset_id="asset_1",
+        caption_version_id="cver_1",
+        count=2,
+        contentforge_preset="caption_safe_v2",
+        cooldown_days=7,
+    ) == {"schema": "campaign_factory.variant_plan.v1", "parentAssetId": "asset_1"}
+    assert services.generate_variants(
+        parent_asset_id="asset_1",
+        caption_version_id="cver_1",
+        count=2,
+        contentforge_preset="caption_safe_v2",
+        contentforge_base_url="http://contentforge.test",
+        source_media_path="/tmp/source.mp4",
+        contentforge_timeout_seconds=3,
+    ) == {"schema": "campaign_factory.generate_variants.v1", "status": "completed"}
+    assert services.contentforge_variant_pack_blocked_result(
+        plan={"parentAssetId": "asset_1"},
+        blocking_reason="timeout",
+        endpoint="http://contentforge.test/api/variant-pack/jobs",
+        staged_source="source.mp4",
+        timeout_seconds=3,
+        error=error,
+        extra={"runId": "run_1"},
+    ) == {"schema": "campaign_factory.generate_variants.v1", "status": "blocked"}
+    assert services.register_variant_asset(
+        parent_asset_id="asset_1",
+        variant_asset_id="asset_2",
+        variant_family_id="vfam_1",
+        variant_index=1,
+        operations=[{"type": "caption_safe"}],
+        caption_family_id="cfam_1",
+        caption_version_id="cver_1",
+        contentforge_run_id="run_1",
+        contentforge_preset="caption_safe_v2",
+        qc_status="passed",
+        cooldown_days=9,
+        commit=False,
+    ) == {"variantId": "var_1"}
+    assert services.parent_variant_inventory("may") == {"schema": "campaign_factory.parent_variant_inventory.v1"}
+    assert services.variant_metrics_rollup("may") == {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+    assert services.concept_for_parent_asset("asset_1") == {"conceptId": "concept_1"}
+    assert services.variant_lineage_for_asset("asset_2") == {"variantId": "var_1"}
+    assert services.concept_payload({"id": "concept_1"}) == {"conceptId": "concept_1"}
+    assert services.variant_family_payload({"id": "vfam_1"}) == {"variantFamilyId": "vfam_1"}
+    assert services.variant_lineage_asset_payload({"id": "var_1"}) == {"variantId": "var_1"}
+    assert services.variant_usage_payload({"id": "usage_1"}) == {"id": "usage_1"}
+    assert services.variant_rollup_group([{"variantId": "var_1"}], "variantId", "variantId") == [{"variantId": "var_1"}]
+
+    assert calls == [
+        ("register_parent_reel", ("asset_1",), {"operator": "tester", "status": "active", "metadata": {"ok": True}}),
+        ("variant_plan", (), {
+            "parent_asset_id": "asset_1",
+            "caption_version_id": "cver_1",
+            "count": 2,
+            "contentforge_preset": "caption_safe_v2",
+            "cooldown_days": 7,
+        }),
+        ("generate_variants", (), {
+            "parent_asset_id": "asset_1",
+            "caption_version_id": "cver_1",
+            "count": 2,
+            "contentforge_preset": "caption_safe_v2",
+            "contentforge_base_url": "http://contentforge.test",
+            "source_media_path": "/tmp/source.mp4",
+            "contentforge_timeout_seconds": 3,
+        }),
+        ("contentforge_variant_pack_blocked_result", (), {
+            "plan": {"parentAssetId": "asset_1"},
+            "blocking_reason": "timeout",
+            "endpoint": "http://contentforge.test/api/variant-pack/jobs",
+            "staged_source": "source.mp4",
+            "timeout_seconds": 3,
+            "error": error,
+            "extra": {"runId": "run_1"},
+        }),
+        ("register_variant_asset", (), {
+            "parent_asset_id": "asset_1",
+            "variant_asset_id": "asset_2",
+            "variant_family_id": "vfam_1",
+            "variant_index": 1,
+            "operations": [{"type": "caption_safe"}],
+            "caption_family_id": "cfam_1",
+            "caption_version_id": "cver_1",
+            "contentforge_run_id": "run_1",
+            "contentforge_preset": "caption_safe_v2",
+            "qc_status": "passed",
+            "cooldown_days": 9,
+            "commit": False,
+        }),
+        ("parent_variant_inventory", ("may",), {}),
+        ("variant_metrics_rollup", ("may",), {}),
+        ("concept_for_parent_asset", ("asset_1",), {}),
+        ("variant_lineage_for_asset", ("asset_2",), {}),
+        ("concept_payload", ({"id": "concept_1"},), {}),
+        ("variant_family_payload", ({"id": "vfam_1"},), {}),
+        ("variant_lineage_asset_payload", ({"id": "var_1"},), {}),
+        ("variant_usage_payload", ({"id": "usage_1"},), {}),
+        ("variant_rollup_group", ([{"variantId": "var_1"}], "variantId", "variantId"), {}),
     ]
 
 
