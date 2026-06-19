@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+	generatedPipelineContractSchemaManifest,
 	validateAudioIntentContract,
+	validateCampaignFactoryDraftPayload,
 	validateFrontGenerationPlan,
 	validateGeneratedAssetLineage,
 	validateMotionEditRender,
@@ -23,6 +25,13 @@ function example(name: string) {
 }
 
 describe("TypeScript pipeline contract validators", () => {
+	it("loads generated schemas for every canonical contract", () => {
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"campaign_draft_payload.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(18);
+	});
+
 	it("rejects missing required fields through AJV", () => {
 		const payload = example("audio_intent");
 		delete payload.gates.allow_publish;
@@ -30,6 +39,17 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(validateAudioIntentContract(payload)).toEqual(
 			expect.arrayContaining([
 				expect.stringContaining("allow_publish"),
+			]),
+		);
+	});
+
+	it("uses generated nested draft payload schemas, not hand-written shallow stubs", () => {
+		const payload = example("campaign_draft_payload");
+		payload.drafts[0].distributionSurface = 123;
+
+		expect(validateCampaignFactoryDraftPayload(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("distributionSurface"),
 			]),
 		);
 	});

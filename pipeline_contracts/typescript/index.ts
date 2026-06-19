@@ -1,4 +1,12 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+import {
+	generatedPipelineContractSchemaManifest,
+	generatedPipelineContractSchemas,
+} from "./generated-schemas";
+export {
+	generatedPipelineContractSchemaManifest,
+	generatedPipelineContractSchemas,
+} from "./generated-schemas";
 
 export const AUDIO_INTENT_SCHEMA_ID = "pipeline.audio_intent.v1" as const;
 export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
@@ -657,6 +665,14 @@ const ASSIGNED_NATIVE_AUDIO_STATUSES = new Set([
 
 const EXPORTABLE_ASSET_STATE_SET = new Set<string>(EXPORTABLE_ASSET_STATES);
 const ajv = new Ajv2020({ allErrors: true, strict: false });
+for (const schema of Object.values(generatedPipelineContractSchemas)) {
+	ajv.addSchema(schema, schema.$id);
+}
+for (const entry of generatedPipelineContractSchemaManifest) {
+	const schema =
+		generatedPipelineContractSchemas[entry.key as keyof typeof generatedPipelineContractSchemas];
+	ajv.addSchema(schema, entry.filename);
+}
 const ajvCache = new WeakMap<object, ValidateFunction>();
 
 function schemaErrors(schema: object, value: unknown, label: string): string[] {
@@ -1141,7 +1157,7 @@ export function validateHandoffManifestContract(
 }
 
 export function validateAudioIntentContract(value: unknown): string[] {
-	const errors = schemaErrors(audioIntentSchema, value, "audio_intent");
+	const errors = schemaErrors(generatedPipelineContractSchemas.audioIntent, value, "audio_intent");
 	if (!isRecord(value)) return ["audio_intent must be an object"];
 	if (value.schema !== AUDIO_INTENT_SCHEMA_ID) {
 		errors.push("audio_intent.schema must be pipeline.audio_intent.v1");
@@ -1176,7 +1192,7 @@ export function validateAudioIntentContract(value: unknown): string[] {
 }
 
 export function validateCaptionOutcomeContextContract(value: unknown): string[] {
-	const errors = schemaErrors(pipelineContractSchemas.captionOutcomeContext, value, "captionOutcomeContext");
+	const errors = schemaErrors(generatedPipelineContractSchemas.captionOutcomeContext, value, "captionOutcomeContext");
 	if (!isRecord(value)) return ["captionOutcomeContext must be an object"];
 	if (value.schema !== CAPTION_OUTCOME_CONTEXT_SCHEMA_ID) {
 		errors.push("captionOutcomeContext.schema must be campaign_factory.caption_outcome_context.v1");
@@ -1233,7 +1249,7 @@ export function validateCampaignFactoryDraftPayload(
 	value: unknown,
 	options: { strictGraphIds?: boolean } = {},
 ): string[] {
-	const errors = schemaErrors(campaignDraftPayloadSchema, value, "draft payload");
+	const errors = schemaErrors(generatedPipelineContractSchemas.campaignDraftPayload, value, "draft payload");
 	if (!isRecord(value)) return ["draft payload must be an object"];
 	if (value.schema !== CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID) {
 		errors.push("draft payload schema mismatch");
@@ -1311,7 +1327,7 @@ export function validateCampaignFactoryDraftPayload(
 }
 
 export function validateAudioCatalogExport(value: unknown): string[] {
-	const errors = schemaErrors(audioCatalogExportSchema, value, "audio catalog export");
+	const errors = schemaErrors(generatedPipelineContractSchemas.audioCatalogExport, value, "audio catalog export");
 	if (!isRecord(value)) return ["audio catalog export must be an object"];
 	if (value.schema !== AUDIO_CATALOG_EXPORT_SCHEMA_ID) {
 		errors.push("audio catalog export schema mismatch");
@@ -1336,7 +1352,7 @@ export function validateAudioCatalogExport(value: unknown): string[] {
 }
 
 export function validateRepurposingPlan(value: unknown): string[] {
-	const errors = schemaErrors(repurposingPlanSchema, value, "repurposing plan");
+	const errors = schemaErrors(generatedPipelineContractSchemas.repurposingPlan, value, "repurposing plan");
 	if (!isRecord(value)) return ["repurposing plan must be an object"];
 	if (value.schema !== REPURPOSING_PLAN_SCHEMA_ID) {
 		errors.push("repurposing plan schema mismatch");
@@ -1357,7 +1373,7 @@ export function validateRepurposingPlan(value: unknown): string[] {
 }
 
 export function validateVariantAssignment(value: unknown): string[] {
-	const errors = schemaErrors(variantAssignmentSchema, value, "variant assignment");
+	const errors = schemaErrors(generatedPipelineContractSchemas.variantAssignment, value, "variant assignment");
 	if (!isRecord(value)) return ["variant assignment must be an object"];
 	if (value.schema !== VARIANT_ASSIGNMENT_SCHEMA_ID) {
 		errors.push("variant assignment schema mismatch");
@@ -1387,7 +1403,7 @@ export function validateVariantAssignment(value: unknown): string[] {
 }
 
 export function validateMotionEditRender(value: unknown): string[] {
-	const errors = schemaErrors(motionEditRenderSchema, value, "motion edit render");
+	const errors = schemaErrors(generatedPipelineContractSchemas.motionEditRender, value, "motion edit render");
 	if (!isRecord(value)) return ["motion edit render must be an object"];
 	if (value.schema !== MOTION_EDIT_RENDER_SCHEMA_ID) {
 		errors.push("motion edit render schema mismatch");
@@ -1408,7 +1424,7 @@ export function validateMotionEditRender(value: unknown): string[] {
 }
 
 export function validateFrontGenerationPlan(value: unknown): string[] {
-	const errors = schemaErrors(frontGenerationPlanSchema, value, "front generation plan");
+	const errors = schemaErrors(generatedPipelineContractSchemas.frontGenerationPlan, value, "front generation plan");
 	if (!isRecord(value)) return ["front generation plan must be an object"];
 	if (value.schema !== FRONT_GENERATION_PLAN_SCHEMA_ID) {
 		errors.push("front generation plan schema mismatch");
@@ -1426,7 +1442,7 @@ export function validateFrontGenerationPlan(value: unknown): string[] {
 }
 
 export function validateGeneratedAssetLineage(value: unknown): string[] {
-	const errors = schemaErrors(pipelineContractSchemas.generatedAssetLineage, value, "generated asset lineage");
+	const errors = schemaErrors(generatedPipelineContractSchemas.generatedAssetLineage, value, "generated asset lineage");
 	if (!isRecord(value)) return ["generated asset lineage must be an object"];
 	if (value.schema !== GENERATED_ASSET_LINEAGE_SCHEMA_ID) {
 		errors.push("generated asset lineage schema mismatch");
@@ -1438,7 +1454,7 @@ export function validateGeneratedAssetLineage(value: unknown): string[] {
 }
 
 export function validateRecommendationAccuracyReport(value: unknown): string[] {
-	const errors = schemaErrors(pipelineContractSchemas.recommendationAccuracyReport, value, "recommendation accuracy report");
+	const errors = schemaErrors(generatedPipelineContractSchemas.recommendationAccuracyReport, value, "recommendation accuracy report");
 	if (!isRecord(value)) return ["recommendation accuracy report must be an object"];
 	if (value.schema !== RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID) {
 		errors.push("recommendation accuracy report schema mismatch");
@@ -1452,7 +1468,7 @@ export function validateRecommendationAccuracyReport(value: unknown): string[] {
 }
 
 export function validatePerformanceSync(value: unknown): string[] {
-	const errors = schemaErrors(performanceSyncSchema, value, "performance sync");
+	const errors = schemaErrors(generatedPipelineContractSchemas.performanceSync, value, "performance sync");
 	if (!isRecord(value)) return ["performance sync must be an object"];
 	if (value.schema !== PERFORMANCE_SYNC_SCHEMA_ID) {
 		errors.push("performance sync schema mismatch");
@@ -1475,7 +1491,7 @@ export function validatePerformanceSync(value: unknown): string[] {
 
 export function validatePostMetricHistoryRead(value: unknown): string[] {
 	const errors = schemaErrors(
-		postMetricHistoryReadSchema,
+		generatedPipelineContractSchemas.postMetricHistoryRead,
 		value,
 		"post metric history read",
 	);

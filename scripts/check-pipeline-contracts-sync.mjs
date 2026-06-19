@@ -7,6 +7,7 @@ const repoRoot = resolve(new URL("..", import.meta.url).pathname);
 const canonicalRoot = join(repoRoot, "packages", "pipeline_contracts");
 const canonicalSchemas = join(canonicalRoot, "schemas");
 const canonicalTypescript = join(canonicalRoot, "typescript", "index.ts");
+const canonicalGeneratedTypescript = join(canonicalRoot, "typescript", "generated-schemas.ts");
 
 const schemaMirrors = [
 	{
@@ -28,6 +29,11 @@ const fileMirrors = [
 		name: "root compatibility TypeScript exports",
 		canonical: canonicalTypescript,
 		path: join(repoRoot, "pipeline_contracts", "typescript", "index.ts"),
+	},
+	{
+		name: "root compatibility generated TypeScript schemas",
+		canonical: canonicalGeneratedTypescript,
+		path: join(repoRoot, "pipeline_contracts", "typescript", "generated-schemas.ts"),
 	},
 ];
 
@@ -59,6 +65,9 @@ if (!existsSync(canonicalSchemas)) {
 }
 if (!existsSync(canonicalTypescript)) {
 	failures.push(`missing canonical TypeScript exports: ${canonicalTypescript}`);
+}
+if (!existsSync(canonicalGeneratedTypescript)) {
+	failures.push(`missing canonical generated TypeScript schemas: ${canonicalGeneratedTypescript}`);
 }
 
 const canonicalSchemaFiles = listFiles(canonicalSchemas);
