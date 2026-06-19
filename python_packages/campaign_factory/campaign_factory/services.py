@@ -25,6 +25,7 @@ from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .story_management import StoryManagementRepository
 from .surface_registration import SurfaceRegistrationRepository
+from .surface_summary import SurfaceSummaryRepository
 from .tribev2 import TribeV2Repository
 from .winner_expansion import WinnerExpansionRepository
 
@@ -74,6 +75,10 @@ class CoreServices:
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         account_content_needs: Callable[..., dict[str, Any]],
         creator_content_needs: Callable[..., dict[str, Any]],
+        account_surface_obligations_plan: Callable[..., dict[str, Any]],
+        multi_surface_inventory_audit: Callable[..., dict[str, Any]],
+        surface_gap_report: Callable[..., dict[str, Any]],
+        empty_surface_totals: Callable[[], dict[str, dict[str, int]]],
         build_surface_inventory: Callable[..., dict[str, Any]],
         last_surface_posted_at: Callable[..., str | None],
         truthy: Callable[[Any], bool],
@@ -344,6 +349,18 @@ class CoreServices:
             story_intents=story_intents,
             story_goals=story_goals,
             story_styles=story_styles,
+        )
+        self.surface_summary = SurfaceSummaryRepository(
+            conn,
+            creator_label=creator_label,
+            creator_os_target_date=creator_os_target_date,
+            creator_content_needs=creator_content_needs,
+            account_content_needs=account_content_needs,
+            account_surface_obligations_plan=account_surface_obligations_plan,
+            multi_surface_inventory_audit=multi_surface_inventory_audit,
+            surface_gap_report=surface_gap_report,
+            empty_surface_totals=empty_surface_totals,
+            content_surfaces=content_surfaces,
         )
         self.surface_registration = SurfaceRegistrationRepository(
             conn,
@@ -1383,6 +1400,39 @@ class CoreServices:
 
     def creator_story_summary(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.creator_story_summary(**kwargs)
+
+    def creator_surface_summary(
+        self,
+        *,
+        creator: str,
+        date: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_summary.creator_surface_summary(creator=creator, date=date, generated_at=generated_at)
+
+    def account_surface_summary(
+        self,
+        *,
+        creator: str,
+        date: str | None = None,
+        account_id: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_summary.account_surface_summary(
+            creator=creator,
+            date=date,
+            account_id=account_id,
+            generated_at=generated_at,
+        )
+
+    def creator_surface_gap_report(
+        self,
+        *,
+        creator: str,
+        date: str | None = None,
+        generated_at: str | None = None,
+    ) -> dict[str, Any]:
+        return self.surface_summary.creator_surface_gap_report(creator=creator, date=date, generated_at=generated_at)
 
     def story_certification_proof(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.story_certification_proof(**kwargs)

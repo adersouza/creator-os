@@ -26,6 +26,7 @@ from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.story_management import StoryManagementRepository
+from campaign_factory.surface_summary import SurfaceSummaryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
@@ -80,6 +81,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.operator_review.conn is factory.conn
         assert isinstance(factory.services.story_management, StoryManagementRepository)
         assert factory.services.story_management.conn is factory.conn
+        assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
+        assert factory.services.surface_summary.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -162,6 +165,45 @@ def test_campaign_factory_delegates_jobs_for_campaign_to_services() -> None:
 
     assert factory.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
     assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
+
+
+def test_campaign_factory_delegates_surface_summary_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_surface_summary(self, *args, **kwargs):
+            calls.append(("creator_surface_summary", args, kwargs))
+            return {"schema": "creator_os.creator_surface_summary.v1"}
+
+        def account_surface_summary(self, *args, **kwargs):
+            calls.append(("account_surface_summary", args, kwargs))
+            return {"schema": "creator_os.account_surface_summary.v1"}
+
+        def creator_surface_gap_report(self, *args, **kwargs):
+            calls.append(("creator_surface_gap_report", args, kwargs))
+            return {"schema": "creator_os.creator_surface_gap_report.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_surface_summary(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.creator_surface_summary.v1",
+    }
+    assert factory.account_surface_summary(creator="Stacey", account_id="ig_1", generated_at="2026-06-06T12:00:00Z") == {
+        "schema": "creator_os.account_surface_summary.v1",
+    }
+    assert factory.creator_surface_gap_report(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.creator_surface_gap_report.v1",
+    }
+    assert calls == [
+        ("creator_surface_summary", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+        (
+            "account_surface_summary",
+            (),
+            {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
+        ),
+        ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
 
 
 def test_core_service_facade_methods_delegate_to_services() -> None:
@@ -1194,6 +1236,45 @@ def test_core_services_delegates_jobs_for_campaign_to_event_repository() -> None
 
     assert services.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
     assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
+
+
+def test_core_services_delegates_surface_summary_methods_to_surface_summary_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeSurfaceSummary:
+        def creator_surface_summary(self, *args, **kwargs):
+            calls.append(("creator_surface_summary", args, kwargs))
+            return {"schema": "creator_os.creator_surface_summary.v1"}
+
+        def account_surface_summary(self, *args, **kwargs):
+            calls.append(("account_surface_summary", args, kwargs))
+            return {"schema": "creator_os.account_surface_summary.v1"}
+
+        def creator_surface_gap_report(self, *args, **kwargs):
+            calls.append(("creator_surface_gap_report", args, kwargs))
+            return {"schema": "creator_os.creator_surface_gap_report.v1"}
+
+    services.surface_summary = FakeSurfaceSummary()
+
+    assert services.creator_surface_summary(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.creator_surface_summary.v1",
+    }
+    assert services.account_surface_summary(creator="Stacey", account_id="ig_1", generated_at="2026-06-06T12:00:00Z") == {
+        "schema": "creator_os.account_surface_summary.v1",
+    }
+    assert services.creator_surface_gap_report(creator="Stacey", date="2026-06-06") == {
+        "schema": "creator_os.creator_surface_gap_report.v1",
+    }
+    assert calls == [
+        ("creator_surface_summary", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+        (
+            "account_surface_summary",
+            (),
+            {"creator": "Stacey", "date": None, "account_id": "ig_1", "generated_at": "2026-06-06T12:00:00Z"},
+        ),
+        ("creator_surface_gap_report", (), {"creator": "Stacey", "date": "2026-06-06", "generated_at": None}),
+    ]
 
 
 def test_core_services_delegates_recommendation_accuracy_methods_to_recommendation_accuracy_repository() -> None:
