@@ -14,6 +14,7 @@ from campaign_factory.carousel_integrity import CarouselIntegrityRepository
 from campaign_factory.campaign_overview import CampaignOverviewRepository
 from campaign_factory.certification import CertificationRepository
 from campaign_factory.config import Settings
+from campaign_factory.contentforge_visual_qc import ContentForgeVisualQCRepository
 from campaign_factory.core import CampaignFactory
 from campaign_factory.core_complexity import CoreComplexityRepository
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
@@ -165,6 +166,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.schedule_safe_production.conn is factory.conn
         assert isinstance(factory.services.fresh_reel_production, FreshReelProductionRepository)
         assert factory.services.fresh_reel_production.conn is factory.conn
+        assert isinstance(factory.services.contentforge_visual_qc, ContentForgeVisualQCRepository)
+        assert factory.services.contentforge_visual_qc.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -914,6 +917,100 @@ def test_campaign_factory_delegates_fresh_reel_production_methods_to_services() 
                 "batch_target": 90,
             },
         ),
+    ]
+
+
+def test_campaign_factory_delegates_contentforge_visual_qc_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.contentforge_visual_qc_failure_report(creator="Stacey", current_inventory=11) == {
+        "method": "contentforge_visual_qc_failure_report",
+    }
+    assert factory.contentforge_visual_qc_waterfall(creator="Stacey") == {
+        "method": "contentforge_visual_qc_waterfall",
+    }
+    assert factory.contentforge_visual_qc_loss_analysis(creator="Stacey") == {
+        "method": "contentforge_visual_qc_loss_analysis",
+    }
+    assert factory.contentforge_visual_qc_repair_plan(creator="Stacey") == {
+        "method": "contentforge_visual_qc_repair_plan",
+    }
+    assert factory.contentforge_visual_qc_master_report(creator="Stacey") == {
+        "method": "contentforge_visual_qc_master_report",
+    }
+    assert factory._contentforge_visual_qc_failure_for_asset({"id": "asset_1"}, "reel") == {
+        "method": "contentforge_visual_qc_failure_for_asset",
+    }
+    assert factory._contentforge_visual_qc_failure_category(
+        {"id": "asset_1"},
+        ["operator_visual_review_required"],
+        {"canHandoff": False},
+        {"publishableCandidate": False},
+    ) == {"method": "contentforge_visual_qc_failure_category"}
+    assert factory._contentforge_non_visual_gates_pass({}, {}, {}, []) == {
+        "method": "contentforge_non_visual_gates_pass",
+    }
+    assert factory._contentforge_visual_qc_category_rows([
+        {"failureCategory": "operator_visual_review_required"},
+    ]) == {"method": "contentforge_visual_qc_category_rows"}
+    assert factory._contentforge_visual_qc_recovered_inventory([
+        {"failureCategory": "operator_visual_review_required", "estimatedInventoryGain": 1},
+    ], ["operator_visual_review_required"]) == {"method": "contentforge_visual_qc_recovered_inventory"}
+    assert factory._contentforge_visual_qc_answer({"failureCategory": "operator_visual_review_required"}, 1) == {
+        "method": "contentforge_visual_qc_answer",
+    }
+
+    assert calls == [
+        (
+            "contentforge_visual_qc_failure_report",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": None,
+                "content_surface": "reel",
+                "lookback_days": 1,
+                "current_inventory": 11,
+                "required_inventory": 225,
+            },
+        ),
+        ("contentforge_visual_qc_waterfall", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_loss_analysis", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_repair_plan", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_master_report", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_failure_for_asset", ({"id": "asset_1"}, "reel"), {}),
+        (
+            "contentforge_visual_qc_failure_category",
+            (
+                {"id": "asset_1"},
+                ["operator_visual_review_required"],
+                {"canHandoff": False},
+                {"publishableCandidate": False},
+            ),
+            {},
+        ),
+        ("contentforge_non_visual_gates_pass", ({}, {}, {}, []), {}),
+        (
+            "contentforge_visual_qc_category_rows",
+            ([{"failureCategory": "operator_visual_review_required"}],),
+            {},
+        ),
+        (
+            "contentforge_visual_qc_recovered_inventory",
+            ([{"failureCategory": "operator_visual_review_required", "estimatedInventoryGain": 1}], ["operator_visual_review_required"]),
+            {},
+        ),
+        ("contentforge_visual_qc_answer", ({"failureCategory": "operator_visual_review_required"}, 1), {}),
     ]
 
 
@@ -4267,6 +4364,89 @@ def test_core_services_delegates_fresh_reel_production_methods_to_repository() -
                 "batch_target": 90,
             },
         ),
+    ]
+
+
+def test_core_services_delegates_contentforge_visual_qc_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeContentForgeVisualQC:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.contentforge_visual_qc = FakeContentForgeVisualQC()
+
+    assert services.contentforge_visual_qc_failure_report(creator="Stacey", current_inventory=11) == {
+        "method": "contentforge_visual_qc_failure_report",
+    }
+    assert services.contentforge_visual_qc_waterfall(creator="Stacey") == {
+        "method": "contentforge_visual_qc_waterfall",
+    }
+    assert services.contentforge_visual_qc_loss_analysis(creator="Stacey") == {
+        "method": "contentforge_visual_qc_loss_analysis",
+    }
+    assert services.contentforge_visual_qc_repair_plan(creator="Stacey") == {
+        "method": "contentforge_visual_qc_repair_plan",
+    }
+    assert services.contentforge_visual_qc_master_report(creator="Stacey") == {
+        "method": "contentforge_visual_qc_master_report",
+    }
+    assert services.contentforge_visual_qc_failure_for_asset({"id": "asset_1"}, "reel") == {
+        "method": "contentforge_visual_qc_failure_for_asset",
+    }
+    assert services.contentforge_visual_qc_failure_category(
+        {"id": "asset_1"},
+        ["operator_visual_review_required"],
+        {"canHandoff": False},
+        {"publishableCandidate": False},
+    ) == {"method": "contentforge_visual_qc_failure_category"}
+    assert services.contentforge_non_visual_gates_pass({}, {}, {}, []) == {
+        "method": "contentforge_non_visual_gates_pass",
+    }
+    assert services.contentforge_visual_qc_category_rows([
+        {"failureCategory": "operator_visual_review_required"},
+    ]) == {"method": "contentforge_visual_qc_category_rows"}
+    assert services.contentforge_visual_qc_recovered_inventory([
+        {"failureCategory": "operator_visual_review_required", "estimatedInventoryGain": 1},
+    ], ["operator_visual_review_required"]) == {"method": "contentforge_visual_qc_recovered_inventory"}
+    assert services.contentforge_visual_qc_answer({"failureCategory": "operator_visual_review_required"}, 1) == {
+        "method": "contentforge_visual_qc_answer",
+    }
+
+    assert calls == [
+        ("contentforge_visual_qc_failure_report", (), {"creator": "Stacey", "current_inventory": 11}),
+        ("contentforge_visual_qc_waterfall", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_loss_analysis", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_repair_plan", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_master_report", (), {"creator": "Stacey"}),
+        ("contentforge_visual_qc_failure_for_asset", ({"id": "asset_1"}, "reel"), {}),
+        (
+            "contentforge_visual_qc_failure_category",
+            (
+                {"id": "asset_1"},
+                ["operator_visual_review_required"],
+                {"canHandoff": False},
+                {"publishableCandidate": False},
+            ),
+            {},
+        ),
+        ("contentforge_non_visual_gates_pass", ({}, {}, {}, []), {}),
+        (
+            "contentforge_visual_qc_category_rows",
+            ([{"failureCategory": "operator_visual_review_required"}],),
+            {},
+        ),
+        (
+            "contentforge_visual_qc_recovered_inventory",
+            ([{"failureCategory": "operator_visual_review_required", "estimatedInventoryGain": 1}], ["operator_visual_review_required"]),
+            {},
+        ),
+        ("contentforge_visual_qc_answer", ({"failureCategory": "operator_visual_review_required"}, 1), {}),
     ]
 
 
