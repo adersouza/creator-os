@@ -608,6 +608,11 @@ class CampaignFactory:
             aggregate_performance=self._aggregate_performance,
             performance_quality_score=self._performance_quality_score,
             audio_selection_payload=self._audio_selection_payload,
+            jobs_for_campaign=self.jobs_for_campaign,
+            audio_workflow_summary=self.audio_workflow_summary,
+            events_for_asset=self.events_for_asset,
+            performance_for_asset=self._performance_for_asset,
+            audit_report_payload=self._audit_report_payload,
             recommended_story_intent_for_date=self._recommended_story_intent_for_date,
             recommended_story_style_for_intent=self._recommended_story_style_for_intent,
             story_mix_plan=self.story_mix_plan,
@@ -16137,103 +16142,13 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return campaigns[0] if campaigns else None
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        sources = self.assets_for_campaign(campaign["id"])
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self.rendered_for_campaign(campaign["id"])]
-        jobs = self.jobs_for_campaign(campaign["slug"], limit=200)
-        audited = [asset for asset in rendered if asset.get("latest_audit")]
-        approved = [asset for asset in rendered if asset["review_state"] == "approved"]
-        rejected = [asset for asset in rendered if asset["review_state"] == "rejected"]
-        ready = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "ready"]
-        warning = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "warning"]
-        blocked = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "blocked"]
-        audio_workflow = self.audio_workflow_summary(rendered)
-        failed_jobs = self._unresolved_failed_jobs(jobs)
-        return {
-            "schema": "campaign_factory.campaign_health.v1",
-            "campaign": campaign["slug"],
-            "generatedAt": utc_now(),
-            "counts": {
-                "sourcesImported": len(sources),
-                "renderedAssets": len(rendered),
-                "auditedAssets": len(audited),
-                "approvedAssets": len(approved),
-                "rejectedAssets": len(rejected),
-                "exportReadyAssets": len(ready),
-                "warningAssets": len(warning),
-                "blockedAssets": len(blocked),
-                "failedJobs": len(failed_jobs),
-                "audioNeedsAudio": audio_workflow["counts"]["needs_audio"],
-                "audioSelectedNotAttached": audio_workflow["counts"]["selected_not_attached"],
-                "audioBlocked": audio_workflow["counts"]["blocked"],
-                "audioReady": audio_workflow["counts"]["ready"],
-            },
-            "audioWorkflow": audio_workflow,
-            "failedJobs": failed_jobs[:10],
-        }
+        return self.services.campaign_health(campaign_slug)
 
     def _unresolved_failed_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        latest_success_by_type: dict[str, str] = {}
-        for job in jobs:
-            if job["status"] != "succeeded":
-                continue
-            timestamp = job.get("finishedAt") or job.get("updatedAt") or job.get("createdAt") or ""
-            latest_success_by_type[job["jobType"]] = max(latest_success_by_type.get(job["jobType"], ""), timestamp)
-        unresolved = []
-        for job in jobs:
-            if job["status"] != "failed":
-                continue
-            failed_at = job.get("finishedAt") or job.get("updatedAt") or job.get("createdAt") or ""
-            if latest_success_by_type.get(job["jobType"], "") > failed_at:
-                continue
-            unresolved.append(job)
-        return unresolved
+        return self.services.campaign_overview.unresolved_failed_jobs(jobs)
 
     def asset_detail(self, rendered_asset_id: str) -> dict[str, Any]:
-        asset = self._dashboard_rendered_asset(self.rendered_asset(rendered_asset_id))
-        campaign = dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (asset["campaign_id"],)).fetchone())
-        source = dict(self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (asset["source_asset_id"],)).fetchone())
-        approvals = [
-            dict(row)
-            for row in self.conn.execute(
-                "SELECT * FROM approval_decisions WHERE rendered_asset_id = ? ORDER BY created_at DESC",
-                (rendered_asset_id,),
-            ).fetchall()
-        ]
-        audits = [
-            self._audit_report_payload(dict(row))
-            for row in self.conn.execute(
-                "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC",
-                (rendered_asset_id,),
-            ).fetchall()
-        ]
-        exports = [
-            dict(row)
-            for row in self.conn.execute(
-                """
-                SELECT * FROM threadsdash_exports
-                WHERE campaign_id = ? AND manifest_path IN (
-                  SELECT manifest_path FROM threadsdash_exports WHERE campaign_id = ?
-                )
-                ORDER BY created_at DESC
-                """,
-                (campaign["id"], campaign["id"]),
-            ).fetchall()
-        ]
-        assignments = self.assignments_for_asset(rendered_asset_id)
-        return {
-            "schema": "campaign_factory.asset_detail.v1",
-            "campaign": campaign,
-            "source": source,
-            "asset": asset,
-            "assignments": assignments,
-            "audits": audits,
-            "approvals": approvals,
-            "exports": exports,
-            "activity": self.events_for_asset(rendered_asset_id, limit=100),
-            "performance": self._performance_for_asset(asset),
-            "ranking": self.ranking(campaign["slug"])["byAsset"].get(rendered_asset_id),
-        }
+        return self.services.asset_detail(rendered_asset_id)
 
     def assign_asset_account(
         self,
@@ -16245,60 +16160,20 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         planned_window_end: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        asset = self.rendered_asset(rendered_asset_id)
-        if account_id:
-            row = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
-            if not row:
-                raise ValueError(f"account not found: {account_id}")
-        now = utc_now()
-        assignment_id = new_id("assign")
-        self.conn.execute(
-            """
-            INSERT INTO asset_account_assignments
-            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, planned_window_start,
-             planned_window_end, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                assignment_id,
-                asset["campaign_id"],
-                rendered_asset_id,
-                account_id,
-                instagram_account_id,
-                planned_window_start,
-                planned_window_end,
-                notes,
-                now,
-                now,
-            ),
+        return self.services.assign_asset_account(
+            rendered_asset_id,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_window_start=planned_window_start,
+            planned_window_end=planned_window_end,
+            notes=notes,
         )
-        self.record_event(
-            "asset_account_assigned",
-            campaign_id=asset["campaign_id"],
-            source_asset_id=asset["source_asset_id"],
-            rendered_asset_id=rendered_asset_id,
-            status="success",
-            message=f"Assigned asset to Instagram account {instagram_account_id or account_id or 'unassigned'}",
-            metadata={"assignmentId": assignment_id, "accountId": account_id, "instagramAccountId": instagram_account_id},
-            commit=False,
-        )
-        self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM asset_account_assignments WHERE id = ?", (assignment_id,)).fetchone())
 
     def assignments_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM asset_account_assignments WHERE rendered_asset_id = ? ORDER BY created_at",
-            (rendered_asset_id,),
-        ).fetchall()
-        return [dict(row) for row in rows]
+        return self.services.assignments_for_asset(rendered_asset_id)
 
     def assignments_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
-        campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM asset_account_assignments WHERE campaign_id = ? ORDER BY created_at",
-            (campaign["id"],),
-        ).fetchall()
-        return [dict(row) for row in rows]
+        return self.services.assignments_for_campaign(campaign_slug)
 
     def recommend_next_batch(
         self,
