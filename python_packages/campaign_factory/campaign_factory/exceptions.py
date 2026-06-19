@@ -24,6 +24,7 @@ class ExceptionRepository:
         graph_id_for: Callable[..., str | None],
         autonomy_level: Callable[[], str],
         recommendation_proof_summary: Callable[[str], dict[str, Any]],
+        normalize_content_surface: Callable[[str | None], str],
     ) -> None:
         self.conn = conn
         self._sanitize_for_storage = sanitize_for_storage
@@ -35,6 +36,7 @@ class ExceptionRepository:
         self._graph_id_for = graph_id_for
         self._autonomy_level = autonomy_level
         self._recommendation_proof_summary = recommendation_proof_summary
+        self._normalize_content_surface = normalize_content_surface
 
     def create_exception(
         self,
@@ -315,3 +317,275 @@ class ExceptionRepository:
             "updatedAt": row["updated_at"],
             "graphId": self._graph_id_for("trust_exceptions", row["id"]),
         }
+
+    def exception_queue_report(
+        self,
+        *,
+        daily_plan: dict[str, Any] | None = None,
+        execution_readiness: dict[str, Any] | None = None,
+        publishability_report: dict[str, Any] | None = None,
+        surface_readiness_report: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        exceptions: list[dict[str, Any]] = []
+        daily = daily_plan or {}
+        readiness = execution_readiness or {}
+        for account in daily.get("accounts") or []:
+            if not isinstance(account, dict):
+                continue
+            reason = str(account.get("blockedReason") or "")
+            if str(account.get("state") or "") == "blocked" and reason:
+                exceptions.append(self.exception_queue_item(
+                    severity="high",
+                    system="account_health",
+                    account=account.get("accountId"),
+                    asset="",
+                    reason=reason,
+                    next_action="resolve_account_blocker",
+                ))
+        for creator in daily.get("creators") or []:
+            if not isinstance(creator, dict):
+                continue
+            shortfall = int(creator.get("inventoryShortfall") or 0)
+            if shortfall > 0:
+                exceptions.append(self.exception_queue_item(
+                    severity="critical",
+                    system="inventory",
+                    account="",
+                    asset="",
+                    reason="inventory_shortfall",
+                    next_action="create_or_import_schedule_safe_inventory",
+                    count=shortfall,
+                ))
+            for surface, row in (creator.get("surfaceShortfalls") or {}).items():
+                if isinstance(row, dict) and int(row.get("shortfall") or 0) > 0:
+                    exceptions.append(self.exception_queue_item(
+                        severity="high",
+                        system="surface_inventory",
+                        account="",
+                        asset="",
+                        reason=f"{self._normalize_content_surface(surface)}_inventory_shortfall",
+                        next_action="fill_surface_inventory_buffer",
+                        count=int(row.get("shortfall") or 0),
+                    ))
+        for blocker in readiness.get("blockers") or []:
+            exceptions.append(self.exception_queue_item(
+                severity=self.exception_severity_for_reason(str(blocker)),
+                system="execution_readiness",
+                account="",
+                asset="",
+                reason=str(blocker),
+                next_action=self.exception_next_action(str(blocker)),
+            ))
+        for source, system in ((publishability_report or {}, "publishability"), (surface_readiness_report or {}, "surface_readiness")):
+            for item in source.get("assets") or source.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                for reason in item.get("blockingReasons") or item.get("failureReasons") or []:
+                    exceptions.append(self.exception_queue_item(
+                        severity=self.exception_severity_for_reason(str(reason)),
+                        system=system,
+                        account=item.get("accountId") or "",
+                        asset=item.get("assetId") or item.get("renderedAssetId") or "",
+                        reason=str(reason),
+                        next_action=self.exception_next_action(str(reason)),
+                    ))
+        return {
+            "schema": "creator_os.exception_queue_report.v1",
+            "exceptionCount": len(exceptions),
+            "exceptions": exceptions,
+            "wouldWrite": False,
+        }
+
+    def exception_queue_summary(self, **kwargs: Any) -> dict[str, Any]:
+        report = self.exception_queue_report(**kwargs)
+        by_severity: dict[str, int] = {}
+        by_system: dict[str, int] = {}
+        by_owner: dict[str, int] = {}
+        for item in report.get("exceptions") or []:
+            severity = str(item.get("severity") or "low")
+            system = str(item.get("system") or "unknown")
+            owner = str(item.get("owner") or "operator")
+            by_severity[severity] = by_severity.get(severity, 0) + 1
+            by_system[system] = by_system.get(system, 0) + 1
+            by_owner[owner] = by_owner.get(owner, 0) + 1
+        return {
+            "schema": "creator_os.exception_queue_summary.v1",
+            "exceptionCount": int(report.get("exceptionCount") or 0),
+            "bySeverity": dict(sorted(by_severity.items())),
+            "bySystem": dict(sorted(by_system.items())),
+            "byOwner": dict(sorted(by_owner.items())),
+            "largestQueue": max(by_system.items(), key=lambda item: item[1])[0] if by_system else "",
+            "wouldWrite": False,
+        }
+
+    def exception_queue_priority_report(self, **kwargs: Any) -> dict[str, Any]:
+        report = self.exception_queue_report(**kwargs)
+        rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        exceptions = sorted(
+            report.get("exceptions") or [],
+            key=lambda item: (
+                rank.get(str(item.get("severity") or "low"), 9),
+                -int(item.get("blockingInventory") or 0),
+                -int(item.get("blockingAccounts") or 0),
+                str(item.get("exceptionId") or ""),
+            ),
+        )
+        return {
+            "schema": "creator_os.exception_queue_priority_report.v1",
+            "exceptionCount": len(exceptions),
+            "exceptions": exceptions,
+            "topPriority": exceptions[0] if exceptions else None,
+            "wouldWrite": False,
+        }
+
+    def exception_queue_owner_report(self, **kwargs: Any) -> dict[str, Any]:
+        report = self.exception_queue_report(**kwargs)
+        grouped: dict[str, dict[str, Any]] = {}
+        for item in report.get("exceptions") or []:
+            owner = str(item.get("owner") or "operator")
+            row = grouped.setdefault(owner, {
+                "owner": owner,
+                "exceptionCount": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "estimatedResolutionMinutes": 0,
+                "blockingAccounts": 0,
+                "blockingInventory": 0,
+                "nextActions": [],
+                "wouldWrite": False,
+            })
+            severity = str(item.get("severity") or "low")
+            row["exceptionCount"] += 1
+            if severity in {"critical", "high", "medium", "low"}:
+                row[severity] += 1
+            row["estimatedResolutionMinutes"] += int(item.get("estimatedResolutionMinutes") or 0)
+            row["blockingAccounts"] += int(item.get("blockingAccounts") or 0)
+            row["blockingInventory"] += int(item.get("blockingInventory") or 0)
+            action = str(item.get("nextAction") or "")
+            if action and action not in row["nextActions"]:
+                row["nextActions"].append(action)
+        owners = sorted(grouped.values(), key=lambda row: (-int(row["critical"]), -int(row["high"]), -int(row["exceptionCount"]), row["owner"]))
+        return {
+            "schema": "creator_os.exception_queue_owner_report.v1",
+            "owners": owners,
+            "wouldWrite": False,
+        }
+
+    def exception_queue_item(
+        self,
+        *,
+        severity: str,
+        system: str,
+        account: Any,
+        asset: Any,
+        reason: str,
+        next_action: str,
+        count: int | None = None,
+    ) -> dict[str, Any]:
+        category = self.exception_category_for_reason(reason, system)
+        owner = self.exception_owner_for_category(category, system)
+        blocking_accounts = 1 if account else 0
+        blocking_inventory = int(count or 0) if "inventory" in category else 0
+        payload = {
+            "exceptionId": self._verification_id("exception", severity, system, account, asset, reason, count or 0),
+            "severity": severity,
+            "owner": owner,
+            "system": system,
+            "category": category,
+            "account": str(account or ""),
+            "accountId": str(account or ""),
+            "asset": str(asset or ""),
+            "assetId": str(asset or ""),
+            "reason": reason,
+            "nextAction": next_action,
+            "repairable": self.exception_repairable(reason),
+            "estimatedResolutionMinutes": self.exception_resolution_minutes(reason, count=count),
+            "blockingAccounts": blocking_accounts,
+            "blockingInventory": blocking_inventory,
+            "wouldWrite": False,
+        }
+        if count is not None:
+            payload["count"] = count
+        return payload
+
+    def exception_severity_for_reason(self, reason: str) -> str:
+        lowered = reason.lower()
+        if any(token in lowered for token in ("missed_dispatch", "handoff", "publishability", "embedded_audio", "inventory_shortfall")):
+            return "critical"
+        if any(token in lowered for token in ("caption", "restriction", "account", "quarantine")):
+            return "high"
+        if any(token in lowered for token in ("duplicate", "cooldown", "readiness")):
+            return "medium"
+        return "low"
+
+    def exception_next_action(self, reason: str) -> str:
+        lowered = reason.lower()
+        if "caption" in lowered:
+            return "repair_caption_contract"
+        if "audio" in lowered:
+            return "repair_or_replace_audio_valid_asset"
+        if "handoff" in lowered:
+            return "rebuild_handoff_manifest_preview"
+        if "inventory" in lowered:
+            return "fill_validated_inventory_buffer"
+        if "restriction" in lowered or "account" in lowered:
+            return "resolve_account_health_blocker"
+        if "missed_dispatch" in lowered:
+            return "resolve_missed_dispatch_before_new_schedule"
+        return "inspect_and_route_exception"
+
+    def exception_category_for_reason(self, reason: str, system: str) -> str:
+        lowered = f"{system} {reason}".lower()
+        if "inventory" in lowered:
+            return "inventory"
+        if "discoverability" in lowered or "caption" in lowered or "dm" in lowered or "link" in lowered:
+            return "discoverability"
+        if "publishability" in lowered or "handoff" in lowered or "metadata" in lowered:
+            return "publishability"
+        if "audio" in lowered:
+            return "audio"
+        if "restriction" in lowered or "account" in lowered or "reauth" in lowered:
+            return "account_health"
+        if "recommendation" in lowered:
+            return "recommendation_eligibility"
+        if "schedule" in lowered or "dispatch" in lowered:
+            return "schedule_blocker"
+        return "manual_review"
+
+    def exception_owner_for_category(self, category: str, system: str) -> str:
+        if category in {"inventory", "discoverability", "publishability", "audio"}:
+            return "campaign_factory_operator"
+        if category in {"account_health", "schedule_blocker"}:
+            return "threadsdashboard_operator"
+        if category == "recommendation_eligibility":
+            return "creative_kb_operator"
+        if system == "surface_readiness":
+            return "campaign_factory_operator"
+        return "operator"
+
+    def exception_repairable(self, reason: str) -> bool:
+        lowered = reason.lower()
+        if "duplicate_risk" in lowered or "manual_review_rejection" in lowered:
+            return False
+        return True
+
+    def exception_resolution_minutes(self, reason: str, *, count: int | None = None) -> int:
+        lowered = reason.lower()
+        base = 10
+        if "inventory" in lowered:
+            base = 30
+        elif "audio" in lowered:
+            base = 20
+        elif "caption" in lowered or "discoverability" in lowered:
+            base = 12
+        elif "account" in lowered or "restriction" in lowered or "reauth" in lowered:
+            base = 15
+        elif "handoff" in lowered or "metadata" in lowered:
+            base = 8
+        return base + min(120, max(0, int(count or 0)) // 10)
+
+    def _verification_id(self, prefix: str, *parts: Any) -> str:
+        digest = hashlib.sha256(":".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}_{digest}"
