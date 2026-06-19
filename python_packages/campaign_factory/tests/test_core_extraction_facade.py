@@ -43,6 +43,7 @@ from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepos
 from campaign_factory.recommendations import RecommendationRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.reel_execution import ReelExecutionRepository
+from campaign_factory.schedule_safe_production import ScheduleSafeProductionRepository
 from campaign_factory.services import CoreServices
 from campaign_factory.variant_lineage import VariantLineageRepository
 from campaign_factory.story_management import StoryManagementRepository
@@ -156,6 +157,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.inventory_planning.conn is factory.conn
         assert isinstance(factory.services.inventory_recovery, InventoryRecoveryRepository)
         assert factory.services.inventory_recovery.conn is factory.conn
+        assert isinstance(factory.services.schedule_safe_production, ScheduleSafeProductionRepository)
+        assert factory.services.schedule_safe_production.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -700,6 +703,118 @@ def test_campaign_factory_delegates_inventory_reservation_methods_to_services() 
             ([{"assetId": "asset_1", "canHandoff": True, "contentSurface": "feed_single"}],),
             {"content_surface": "feed_single"},
         ),
+    ]
+
+
+def test_campaign_factory_delegates_schedule_safe_production_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.schedule_safe_production_report(creator="Stacey", required_inventory=3) == {
+        "method": "schedule_safe_production_report",
+    }
+    assert factory.schedule_safe_production_waterfall(creator="Stacey") == {
+        "method": "schedule_safe_production_waterfall",
+    }
+    assert factory.schedule_safe_production_loss_analysis(creator="Stacey") == {
+        "method": "schedule_safe_production_loss_analysis",
+    }
+    assert factory.schedule_safe_production_capacity_model(creator="Stacey") == {
+        "method": "schedule_safe_production_capacity_model",
+    }
+    assert factory.schedule_safe_production_master_report(creator="Stacey") == {
+        "method": "schedule_safe_production_master_report",
+    }
+    assert factory._schedule_safe_production_assets(
+        creator="Stacey",
+        campaign_slug="summer",
+        content_surface="reel",
+        lookback_days=1,
+    ) == {"method": "schedule_safe_production_assets"}
+    assert factory._schedule_safe_asset_created_at({"created_at": "2026-01-01T00:00:00+00:00"}) == {
+        "method": "schedule_safe_asset_created_at",
+    }
+    assert factory._schedule_safe_production_waterfall_rows([{"id": "asset_1"}], "reel") == {
+        "method": "schedule_safe_production_waterfall_rows",
+    }
+    assert factory._schedule_safe_is_variant_asset({"variant_id": "variant_1"}) == {
+        "method": "schedule_safe_is_variant_asset",
+    }
+    assert factory._schedule_safe_related_count("caption_families", "parent_asset_id", {"asset_1"}) == {
+        "method": "schedule_safe_related_count",
+    }
+    assert factory._schedule_safe_production_variant_checks({"id": "asset_1"}, "reel") == {
+        "method": "schedule_safe_production_variant_checks",
+    }
+    assert factory._schedule_safe_production_largest_loss([{"stage": "x", "lossCount": 1}]) == {
+        "method": "schedule_safe_production_largest_loss",
+    }
+    assert factory._schedule_safe_production_capacity(
+        current_inventory=1,
+        daily_production=2.0,
+        required_for_25=3,
+    ) == {"method": "schedule_safe_production_capacity"}
+    assert factory._schedule_safe_required_parents_per_day(1.0, 1, 1) == {
+        "method": "schedule_safe_required_parents_per_day",
+    }
+    assert factory._schedule_safe_required_variants_per_day(1.0, 1, 1) == {
+        "method": "schedule_safe_required_variants_per_day",
+    }
+    assert factory._schedule_safe_production_summary_key("raw_parent_reels") == {
+        "method": "schedule_safe_production_summary_key",
+    }
+
+    assert calls == [
+        (
+            "schedule_safe_production_report",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": None,
+                "content_surface": "reel",
+                "lookback_days": 1,
+                "required_inventory": 3,
+                "current_inventory": None,
+            },
+        ),
+        ("schedule_safe_production_waterfall", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_loss_analysis", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_capacity_model", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_master_report", (), {"creator": "Stacey"}),
+        (
+            "schedule_safe_production_assets",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": "summer",
+                "content_surface": "reel",
+                "lookback_days": 1,
+            },
+        ),
+        ("schedule_safe_asset_created_at", ({"created_at": "2026-01-01T00:00:00+00:00"},), {}),
+        ("schedule_safe_production_waterfall_rows", ([{"id": "asset_1"}], "reel"), {}),
+        ("schedule_safe_is_variant_asset", ({"variant_id": "variant_1"},), {}),
+        ("schedule_safe_related_count", ("caption_families", "parent_asset_id", {"asset_1"}), {}),
+        ("schedule_safe_production_variant_checks", ({"id": "asset_1"}, "reel"), {}),
+        ("schedule_safe_production_largest_loss", ([{"stage": "x", "lossCount": 1}],), {}),
+        (
+            "schedule_safe_production_capacity",
+            (),
+            {"current_inventory": 1, "daily_production": 2.0, "required_for_25": 3},
+        ),
+        ("schedule_safe_required_parents_per_day", (1.0, 1, 1), {}),
+        ("schedule_safe_required_variants_per_day", (1.0, 1, 1), {}),
+        ("schedule_safe_production_summary_key", ("raw_parent_reels",), {}),
     ]
 
 
@@ -3712,6 +3827,107 @@ def test_core_services_delegates_inventory_recovery_methods_to_repository() -> N
             {},
         ),
         ("inventory_recovery_priorities", ([{"repairClass": "audio_failure"}],), {}),
+    ]
+
+
+def test_core_services_delegates_schedule_safe_production_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeScheduleSafeProduction:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.schedule_safe_production = FakeScheduleSafeProduction()
+
+    assert services.schedule_safe_production_report(creator="Stacey", required_inventory=3) == {
+        "method": "schedule_safe_production_report",
+    }
+    assert services.schedule_safe_production_waterfall(creator="Stacey") == {
+        "method": "schedule_safe_production_waterfall",
+    }
+    assert services.schedule_safe_production_loss_analysis(creator="Stacey") == {
+        "method": "schedule_safe_production_loss_analysis",
+    }
+    assert services.schedule_safe_production_capacity_model(creator="Stacey") == {
+        "method": "schedule_safe_production_capacity_model",
+    }
+    assert services.schedule_safe_production_master_report(creator="Stacey") == {
+        "method": "schedule_safe_production_master_report",
+    }
+    assert services.schedule_safe_production_assets(
+        creator="Stacey",
+        campaign_slug="summer",
+        content_surface="reel",
+        lookback_days=1,
+    ) == {"method": "schedule_safe_production_assets"}
+    assert services.schedule_safe_asset_created_at({"created_at": "2026-01-01T00:00:00+00:00"}) == {
+        "method": "schedule_safe_asset_created_at",
+    }
+    assert services.schedule_safe_production_waterfall_rows([{"id": "asset_1"}], "reel") == {
+        "method": "schedule_safe_production_waterfall_rows",
+    }
+    assert services.schedule_safe_is_variant_asset({"variant_id": "variant_1"}) == {
+        "method": "schedule_safe_is_variant_asset",
+    }
+    assert services.schedule_safe_related_count("caption_families", "parent_asset_id", {"asset_1"}) == {
+        "method": "schedule_safe_related_count",
+    }
+    assert services.schedule_safe_production_variant_checks({"id": "asset_1"}, "reel") == {
+        "method": "schedule_safe_production_variant_checks",
+    }
+    assert services.schedule_safe_production_largest_loss([{"stage": "x", "lossCount": 1}]) == {
+        "method": "schedule_safe_production_largest_loss",
+    }
+    assert services.schedule_safe_production_capacity(
+        current_inventory=1,
+        daily_production=2.0,
+        required_for_25=3,
+    ) == {"method": "schedule_safe_production_capacity"}
+    assert services.schedule_safe_required_parents_per_day(1.0, 1, 1) == {
+        "method": "schedule_safe_required_parents_per_day",
+    }
+    assert services.schedule_safe_required_variants_per_day(1.0, 1, 1) == {
+        "method": "schedule_safe_required_variants_per_day",
+    }
+    assert services.schedule_safe_production_summary_key("raw_parent_reels") == {
+        "method": "schedule_safe_production_summary_key",
+    }
+
+    assert calls == [
+        ("schedule_safe_production_report", (), {"creator": "Stacey", "required_inventory": 3}),
+        ("schedule_safe_production_waterfall", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_loss_analysis", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_capacity_model", (), {"creator": "Stacey"}),
+        ("schedule_safe_production_master_report", (), {"creator": "Stacey"}),
+        (
+            "schedule_safe_production_assets",
+            (),
+            {
+                "creator": "Stacey",
+                "campaign_slug": "summer",
+                "content_surface": "reel",
+                "lookback_days": 1,
+            },
+        ),
+        ("schedule_safe_asset_created_at", ({"created_at": "2026-01-01T00:00:00+00:00"},), {}),
+        ("schedule_safe_production_waterfall_rows", ([{"id": "asset_1"}], "reel"), {}),
+        ("schedule_safe_is_variant_asset", ({"variant_id": "variant_1"},), {}),
+        ("schedule_safe_related_count", ("caption_families", "parent_asset_id", {"asset_1"}), {}),
+        ("schedule_safe_production_variant_checks", ({"id": "asset_1"}, "reel"), {}),
+        ("schedule_safe_production_largest_loss", ([{"stage": "x", "lossCount": 1}],), {}),
+        (
+            "schedule_safe_production_capacity",
+            (),
+            {"current_inventory": 1, "daily_production": 2.0, "required_for_25": 3},
+        ),
+        ("schedule_safe_required_parents_per_day", (1.0, 1, 1), {}),
+        ("schedule_safe_required_variants_per_day", (1.0, 1, 1), {}),
+        ("schedule_safe_production_summary_key", ("raw_parent_reels",), {}),
     ]
 
 
