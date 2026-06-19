@@ -3941,6 +3941,22 @@ def test_surface_handoff_facade_delegates_to_core_services() -> None:
             calls.append(("surface_draft_payload_for_readiness", args, kwargs))
             return {"assetId": args[0]["assetId"]}
 
+        def surface_handoff_readiness_for_asset(self, *args, **kwargs):
+            calls.append(("surface_handoff_readiness_for_asset", args, kwargs))
+            return {"assetId": args[0]["id"], "canHandoff": True}
+
+        def requires_operator_visual_review_for_handoff(self, *args, **kwargs):
+            calls.append(("requires_operator_visual_review_for_handoff", args, kwargs))
+            return False
+
+        def asset_matches_creator(self, *args, **kwargs):
+            calls.append(("asset_matches_creator", args, kwargs))
+            return True
+
+        def asset_components(self, *args, **kwargs):
+            calls.append(("asset_components", args, kwargs))
+            return [{"asset_id": args[0], "component_index": 0}]
+
     factory.services = FakeServices()
 
     assert factory.surface_handoff_readiness_report(
@@ -3956,6 +3972,10 @@ def test_surface_handoff_facade_delegates_to_core_services() -> None:
     assert factory._surface_report_assets(creator="Stacey", campaign_slug="may") == [{"id": "asset_surface"}]
     assert factory._build_surface_readiness([{"id": "asset_surface"}]) == [{"assetId": "asset_surface"}]
     assert factory._surface_draft_payload_for_readiness({"assetId": "asset_surface"}) == {"assetId": "asset_surface"}
+    assert factory._surface_handoff_readiness_for_asset({"id": "asset_surface"}) == {"assetId": "asset_surface", "canHandoff": True}
+    assert factory._requires_operator_visual_review_for_handoff({"id": "asset_surface"}) is False
+    assert factory._asset_matches_creator({"id": "asset_surface"}, "Stacey") is True
+    assert factory._asset_components("asset_surface") == [{"asset_id": "asset_surface", "component_index": 0}]
 
     assert calls == [
         ("surface_handoff_readiness_report", (), {
@@ -3971,6 +3991,10 @@ def test_surface_handoff_facade_delegates_to_core_services() -> None:
         ("surface_report_assets", (), {"creator": "Stacey", "campaign_slug": "may"}),
         ("build_surface_readiness", ([{"id": "asset_surface"}],), {}),
         ("surface_draft_payload_for_readiness", ({"assetId": "asset_surface"},), {}),
+        ("surface_handoff_readiness_for_asset", ({"id": "asset_surface"},), {}),
+        ("requires_operator_visual_review_for_handoff", ({"id": "asset_surface"},), {}),
+        ("asset_matches_creator", ({"id": "asset_surface"}, "Stacey"), {}),
+        ("asset_components", ("asset_surface",), {}),
     ]
 
 
@@ -3999,6 +4023,22 @@ def test_core_services_delegates_surface_handoff_methods_to_repository() -> None
             calls.append(("surface_draft_payload_for_readiness", args, kwargs))
             return {"assetId": args[0]["assetId"]}
 
+        def surface_handoff_readiness_for_asset(self, *args, **kwargs):
+            calls.append(("surface_handoff_readiness_for_asset", args, kwargs))
+            return {"assetId": args[0]["id"], "canHandoff": True}
+
+        def requires_operator_visual_review_for_handoff(self, *args, **kwargs):
+            calls.append(("requires_operator_visual_review_for_handoff", args, kwargs))
+            return False
+
+        def asset_matches_creator(self, *args, **kwargs):
+            calls.append(("asset_matches_creator", args, kwargs))
+            return True
+
+        def asset_components(self, *args, **kwargs):
+            calls.append(("asset_components", args, kwargs))
+            return [{"asset_id": args[0], "component_index": 0}]
+
     services.surface_handoff = FakeSurfaceHandoff()
 
     assert services.surface_handoff_readiness_report(
@@ -4014,6 +4054,10 @@ def test_core_services_delegates_surface_handoff_methods_to_repository() -> None
     assert services.surface_report_assets(creator="Stacey", campaign_slug="may") == [{"id": "asset_surface"}]
     assert services.build_surface_readiness([{"id": "asset_surface"}]) == [{"assetId": "asset_surface"}]
     assert services.surface_draft_payload_for_readiness({"assetId": "asset_surface"}) == {"assetId": "asset_surface"}
+    assert services.surface_handoff_readiness_for_asset({"id": "asset_surface"}) == {"assetId": "asset_surface", "canHandoff": True}
+    assert services.requires_operator_visual_review_for_handoff({"id": "asset_surface"}) is False
+    assert services.asset_matches_creator({"id": "asset_surface"}, "Stacey") is True
+    assert services.asset_components("asset_surface") == [{"asset_id": "asset_surface", "component_index": 0}]
 
     assert calls == [
         ("surface_handoff_readiness_report", (), {
@@ -4029,6 +4073,10 @@ def test_core_services_delegates_surface_handoff_methods_to_repository() -> None
         ("surface_report_assets", (), {"creator": "Stacey", "campaign_slug": "may"}),
         ("build_surface_readiness", ([{"id": "asset_surface"}],), {}),
         ("surface_draft_payload_for_readiness", ({"assetId": "asset_surface"},), {}),
+        ("surface_handoff_readiness_for_asset", ({"id": "asset_surface"},), {}),
+        ("requires_operator_visual_review_for_handoff", ({"id": "asset_surface"},), {}),
+        ("asset_matches_creator", ({"id": "asset_surface"}, "Stacey"), {}),
+        ("asset_components", ("asset_surface",), {}),
     ]
 
 

@@ -72,6 +72,7 @@ class CoreServices:
         surface_report_assets: Callable[..., list[dict[str, Any]]],
         build_surface_readiness: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         asset_matches_creator: Callable[[dict[str, Any], str], bool],
+        latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
         reservation_adjusted_inventory: Callable[..., dict[str, int]],
         surface_draft_proof: Callable[..., dict[str, Any]],
         asset_components: Callable[[str], list[dict[str, Any]]],
@@ -79,6 +80,9 @@ class CoreServices:
         text_hash: Callable[[str], str],
         validate_instagram_trial_reel_intent: Callable[..., str | None],
         variant_lineage_for_asset: Callable[[str], dict[str, Any]],
+        story_quality_gate_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        story_style_value: Callable[[dict[str, Any]], str | None],
+        story_intent_value: Callable[[dict[str, Any]], str | None],
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
@@ -157,6 +161,7 @@ class CoreServices:
         story_intents: set[str],
         story_goals: set[str],
         story_styles: set[str],
+        story_native_proof_styles: set[str],
         default_story_mix: dict[str, int],
         default_story_calendar: dict[str, str],
         ig_media_type_by_surface: dict[str, str],
@@ -370,10 +375,20 @@ class CoreServices:
             conn,
             slugify=slugify,
             creator_label=creator_label,
-            surface_report_assets=surface_report_assets,
-            build_surface_readiness=build_surface_readiness,
-            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
-            asset_matches_creator=asset_matches_creator,
+            media_type_for_path=media_type_for_path,
+            normalize_content_surface=normalize_content_surface,
+            discoverability_safe_content_contract=discoverability_safe_content_contract,
+            explain_publishability=explain_publishability,
+            latest_distribution_plan_for_asset=self.distribution.latest_distribution_plan_for_asset,
+            latest_audit_for_asset=latest_audit_for_asset,
+            instagram_post_caption_for_asset=instagram_post_caption_for_asset,
+            variant_lineage_for_asset=variant_lineage_for_asset,
+            story_quality_gate_for_asset=story_quality_gate_for_asset,
+            story_style_value=story_style_value,
+            story_intent_value=story_intent_value,
+            truthy=truthy,
+            story_native_proof_styles=story_native_proof_styles,
+            ig_media_type_by_surface=ig_media_type_by_surface,
         )
         self.story_management = StoryManagementRepository(
             conn,
@@ -2050,6 +2065,35 @@ class CoreServices:
 
     def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
         return self.surface_handoff.surface_draft_payload_for_readiness(readiness)
+
+    def surface_handoff_readiness_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.surface_handoff.surface_handoff_readiness_for_asset(asset)
+
+    def requires_operator_visual_review_for_handoff(self, asset: dict[str, Any]) -> bool:
+        return self.surface_handoff.requires_operator_visual_review_for_handoff(asset)
+
+    def content_trust_status_blockers(
+        self,
+        asset: dict[str, Any],
+        latest_audit: dict[str, Any] | None,
+        caption_context: dict[str, Any] | None,
+    ) -> tuple[list[str], dict[str, str]]:
+        return self.surface_handoff.content_trust_status_blockers(asset, latest_audit, caption_context)
+
+    def asset_matches_creator(self, asset: dict[str, Any], creator: str) -> bool:
+        return self.surface_handoff.asset_matches_creator(asset, creator)
+
+    def asset_components(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+        return self.surface_handoff.asset_components(rendered_asset_id)
+
+    def surface_handoff_ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
+        return self.surface_handoff.ig_media_type_for_surface(surface, media_type)
+
+    def surface_handoff_aspect_ratio_safe(self, ratio: Any, surface: str) -> bool:
+        return self.surface_handoff.aspect_ratio_safe(ratio, surface)
+
+    def allows_blank_instagram_post_caption(self, asset: dict[str, Any]) -> bool:
+        return self.surface_handoff.allows_blank_instagram_post_caption(asset)
 
     def carousel_integrity_report(
         self,
