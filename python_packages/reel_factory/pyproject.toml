@@ -36,6 +36,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
+packages = ["experiments"]
 py-modules = [
   "ai_visual_qc",
   "analysis_reports",
@@ -51,6 +52,8 @@ py-modules = [
   "caption_generation_log",
   "caption_render",
   "caption_scene_fit",
+  "deprecated_generators",
+  "discoverability_safety",
   "embedding_index",
   "embedding_provider",
   "export_approved",
@@ -86,9 +89,11 @@ py-modules = [
   "readiness_check",
   "recipe_loader",
   "reel_gui",
+  "reel_motion_prompt",
   "reel_pipeline",
   "reel_url_import",
   "reference_analyzer",
+  "reference_grid_production",
   "render_plan",
   "render_queue",
   "review_truth",

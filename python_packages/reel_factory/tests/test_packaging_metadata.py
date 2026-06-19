@@ -25,6 +25,24 @@ def test_declared_py_modules_exist() -> None:
     assert missing == []
 
 
+def test_top_level_modules_are_declared_for_wheel_imports() -> None:
+    modules = set(_pyproject()["tool"]["setuptools"]["py-modules"])
+    actual = {path.stem for path in PACKAGE_ROOT.glob("*.py")}
+
+    assert sorted(actual - modules) == []
+
+
+def test_declared_packages_exist() -> None:
+    packages = _pyproject()["tool"]["setuptools"]["packages"]
+
+    missing = [
+        package for package in packages
+        if not (PACKAGE_ROOT / package.replace(".", "/") / "__init__.py").exists()
+    ]
+
+    assert missing == []
+
+
 def test_standalone_dependencies_are_pinned_and_resolvable() -> None:
     project = _pyproject()["project"]
 

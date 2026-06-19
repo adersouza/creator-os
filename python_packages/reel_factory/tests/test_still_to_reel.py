@@ -40,6 +40,30 @@ def _tone(path: Path) -> Path:
     return path
 
 
+def _probe_video(path: Path) -> dict:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate,nb_read_frames:format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"ffprobe video fixture unavailable: {result.stderr[-200:]}")
+    return json.loads(result.stdout or "{}")
+
+
 def test_motion_edit_dry_run_is_zero_cost_and_no_paid_command(tmp_path: Path) -> None:
     still = _still(tmp_path / "still.png")
     out = tmp_path / "out.mp4"
@@ -81,6 +105,15 @@ def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
     assert result["quality"]["status"] == "passed"
     assert result["quality"]["width"] == 1080
     assert result["quality"]["height"] == 1920
+    probe = _probe_video(out)
+    stream = probe["streams"][0]
+    duration = float(probe["format"]["duration"])
+    frame_count = int(stream.get("nb_read_frames") or 0)
+    assert stream["width"] == 1080
+    assert stream["height"] == 1920
+    assert stream["width"] / stream["height"] == 9 / 16
+    assert 0.9 <= duration <= 1.2
+    assert frame_count >= 10
     audio_intent = read_audio_intent(out)
     assert audio_intent is not None
     assert audio_intent["mode"] == "platform_auto_music"
