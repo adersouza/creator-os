@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any, Callable
 
 from .acceptance_suite import AcceptanceSuiteRepository
 from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
+from .archive_quality import ArchiveQualityRepository
 from .asset_import import AssetImportRepository
 from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
@@ -63,6 +65,7 @@ class CoreServices:
         sha256_file: Callable[[Any], str],
         probe_image_shape: Callable[[Any], dict[str, Any]],
         probe_video_shape: Callable[[Any], dict[str, Any]],
+        probe_video_metadata: Callable[[Any], dict[str, Any]],
         read_png_rgb_pixels: Callable[[Any], dict[str, Any]],
         ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
@@ -550,6 +553,17 @@ class CoreServices:
             prepare_reel_from_reference=self.reference.prepare_reel_from_reference,
             run_reel_factory=self.reel_execution.run_reel_factory,
             sync_reel_outputs=self.reel_execution.sync_reel_outputs,
+        )
+        self.archive_quality = ArchiveQualityRepository(
+            conn,
+            slugify=slugify,
+            utc_now=utc_now,
+            sha256_file=sha256_file,
+            probe_video_metadata=probe_video_metadata,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            campaign_dirs=campaign_dirs,
+            record_event=self.events.record_event,
         )
         self.discoverability = DiscoverabilityRepository(
             conn,
@@ -1681,6 +1695,53 @@ class CoreServices:
 
     def caption_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
         return self.recommendations.caption_guidance(pattern, asset)
+
+    def archive_inventory_report(
+        self,
+        *,
+        folder: Path,
+        campaign_slug: str,
+        creator: str = "Stacey",
+        requested_count: int = 25,
+        model_slug: str | None = None,
+        recent_days: int = 30,
+    ) -> dict[str, Any]:
+        return self.archive_quality.archive_inventory_report(
+            folder=folder,
+            campaign_slug=campaign_slug,
+            creator=creator,
+            requested_count=requested_count,
+            model_slug=model_slug,
+            recent_days=recent_days,
+        )
+
+    def archive_existing_content_duplicate(self, digest: str) -> dict[str, Any] | None:
+        return self.archive_quality.archive_existing_content_duplicate(digest)
+
+    def archive_recent_publish_duplicate(self, digest: str, recent_cutoff: Any) -> dict[str, Any] | None:
+        return self.archive_quality.archive_recent_publish_duplicate(digest, recent_cutoff)
+
+    def archive_candidate_quality_report(
+        self,
+        *,
+        inventory_report_path: Path,
+        requested_count: int = 25,
+        exclude_indices: list[int] | None = None,
+    ) -> dict[str, Any]:
+        return self.archive_quality.archive_candidate_quality_report(
+            inventory_report_path=inventory_report_path,
+            requested_count=requested_count,
+            exclude_indices=exclude_indices,
+        )
+
+    def archive_crop_severity(self, probe: dict[str, Any]) -> tuple[str, int, float | None]:
+        return self.archive_quality.archive_crop_severity(probe)
+
+    def archive_visual_quality_score(self, probe: dict[str, Any], warnings: list[Any], crop_score: int) -> int:
+        return self.archive_quality.archive_visual_quality_score(probe, warnings, crop_score)
+
+    def archive_duplicate_confidence(self, item: dict[str, Any]) -> str:
+        return self.archive_quality.archive_duplicate_confidence(item)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.campaign_overview.campaign_health(campaign_slug)
