@@ -25,6 +25,7 @@ from campaign_factory.draft_inventory_gap import DraftInventoryGapRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
+from campaign_factory.finished_video import FinishedVideoRepository
 from campaign_factory.graph import GraphRepository
 from campaign_factory.live_acceptance import LiveAcceptanceRepository
 from campaign_factory.live_scale import LiveScaleRepository
@@ -78,6 +79,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.decision_ledger.conn is factory.conn
         assert isinstance(factory.services.exceptions, ExceptionRepository)
         assert factory.services.exceptions.conn is factory.conn
+        assert isinstance(factory.services.finished_video, FinishedVideoRepository)
+        assert factory.services.finished_video.conn is factory.conn
         assert isinstance(factory.services.discoverability, DiscoverabilityRepository)
         assert factory.services.discoverability.conn is factory.conn
         assert isinstance(factory.services.surface_registration, SurfaceRegistrationRepository)
@@ -270,6 +273,191 @@ def test_campaign_factory_delegates_surface_inventory_methods_to_services() -> N
         ("multi_surface_inventory_audit", (), {"creator": "Stacey", "campaign_slug": "summer"}),
         ("build_surface_inventory", (), {"creator": "Stacey", "campaign_slug": "summer"}),
     ]
+
+
+def test_campaign_factory_delegates_finished_video_intake_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def intake_finished_video(self, *args, **kwargs):
+            calls.append(("intake_finished_video", args, kwargs))
+            return {"schema": "campaign_factory.finished_video_intake.v1", "campaign": kwargs["campaign_slug"]}
+
+        def finished_video_hooks(self, *args, **kwargs):
+            calls.append(("finished_video_hooks", args, kwargs))
+            return [{"text": "hook"}]
+
+        def finished_video_preflight(self, *args, **kwargs):
+            calls.append(("finished_video_preflight", args, kwargs))
+            return [{"code": "finished_video_not_reels_canvas"}]
+
+        def finished_video_style_lane_format(self, *args, **kwargs):
+            calls.append(("finished_video_style_lane_format", args, kwargs))
+            return "mirror_selfie"
+
+        def finished_video_caption_band(self, *args, **kwargs):
+            calls.append(("finished_video_caption_band", args, kwargs))
+            return "auto"
+
+        def finished_video_caption_font(self, *args, **kwargs):
+            calls.append(("finished_video_caption_font", args, kwargs))
+            return "Instagram Sans Condensed"
+
+        def classify_finished_video_format(self, *args, **kwargs):
+            calls.append(("classify_finished_video_format", args, kwargs))
+            return "selfie_video"
+
+    factory.services = FakeServices()
+
+    assert factory.intake_finished_video(
+        input_path=Path("/tmp/source.mp4"),
+        model_slug="stacey",
+        platform="instagram",
+        goal="reach",
+        reference_pattern="auto",
+        campaign_slug="daily",
+        contentforge_base_url="http://contentforge.test",
+        user_id="user_1",
+        dry_run_export=True,
+        variant_count=3,
+        workers=2,
+        recipes=["v01_original"],
+        creative_plan="plan_1",
+        style_lane="mirror",
+        source_lineage_path=Path("/tmp/lineage.json"),
+    ) == {"schema": "campaign_factory.finished_video_intake.v1", "campaign": "daily"}
+    assert factory.finished_video_hooks("mirror_selfie", {"clusterKey": "cluster"}, count=2) == [{"text": "hook"}]
+    assert factory._finished_video_preflight({"effectiveAspectRatio": 1.0}) == [
+        {"code": "finished_video_not_reels_canvas"},
+    ]
+    assert factory._finished_video_style_lane_format("mirror") == "mirror_selfie"
+    assert factory._finished_video_caption_band("mirror_selfie") == "auto"
+    assert factory._finished_video_caption_font("mirror_selfie") == "Instagram Sans Condensed"
+    assert factory._classify_finished_video_format(Path("/tmp/selfie.mp4")) == "selfie_video"
+
+    assert calls == [
+        (
+            "intake_finished_video",
+            (),
+            {
+                "input_path": Path("/tmp/source.mp4"),
+                "model_slug": "stacey",
+                "platform": "instagram",
+                "goal": "reach",
+                "reference_pattern": "auto",
+                "campaign_slug": "daily",
+                "contentforge_base_url": "http://contentforge.test",
+                "user_id": "user_1",
+                "dry_run_export": True,
+                "variant_count": 3,
+                "workers": 2,
+                "recipes": ["v01_original"],
+                "creative_plan": "plan_1",
+                "style_lane": "mirror",
+                "source_lineage_path": Path("/tmp/lineage.json"),
+            },
+        ),
+        ("finished_video_hooks", ("mirror_selfie", {"clusterKey": "cluster"}), {"count": 2}),
+        ("finished_video_preflight", ({"effectiveAspectRatio": 1.0},), {}),
+        ("finished_video_style_lane_format", ("mirror",), {}),
+        ("finished_video_caption_band", ("mirror_selfie",), {}),
+        ("finished_video_caption_font", ("mirror_selfie",), {}),
+        ("classify_finished_video_format", (Path("/tmp/selfie.mp4"),), {}),
+    ]
+
+
+def test_core_services_delegates_finished_video_intake_methods_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    try:
+        calls = []
+
+        def fake_intake_finished_video(*args, **kwargs):
+            calls.append(("intake_finished_video", args, kwargs))
+            return {"schema": "campaign_factory.finished_video_intake.v1", "campaign": kwargs["campaign_slug"]}
+
+        def fake_hooks(*args, **kwargs):
+            calls.append(("finished_video_hooks", args, kwargs))
+            return [{"text": "hook"}]
+
+        def fake_preflight(*args, **kwargs):
+            calls.append(("finished_video_preflight", args, kwargs))
+            return [{"code": "finished_video_probe_unavailable"}]
+
+        def fake_style(*args, **kwargs):
+            calls.append(("finished_video_style_lane_format", args, kwargs))
+            return "pov"
+
+        def fake_band(*args, **kwargs):
+            calls.append(("finished_video_caption_band", args, kwargs))
+            return "auto"
+
+        def fake_font(*args, **kwargs):
+            calls.append(("finished_video_caption_font", args, kwargs))
+            return "Instagram Sans Condensed"
+
+        def fake_classify(*args, **kwargs):
+            calls.append(("classify_finished_video_format", args, kwargs))
+            return "selfie_video"
+
+        factory.services.finished_video.intake_finished_video = fake_intake_finished_video
+        factory.services.finished_video.finished_video_hooks = fake_hooks
+        factory.services.finished_video.finished_video_preflight = fake_preflight
+        factory.services.finished_video.finished_video_style_lane_format = fake_style
+        factory.services.finished_video.finished_video_caption_band = fake_band
+        factory.services.finished_video.finished_video_caption_font = fake_font
+        factory.services.finished_video.classify_finished_video_format = fake_classify
+
+        assert factory.services.intake_finished_video(
+            input_path=Path("/tmp/source.mp4"),
+            model_slug="stacey",
+            campaign_slug="daily",
+        ) == {"schema": "campaign_factory.finished_video_intake.v1", "campaign": "daily"}
+        assert factory.services.finished_video_hooks("pov", {"clusterKey": "cluster"}) == [{"text": "hook"}]
+        assert factory.services.finished_video_preflight({}) == [{"code": "finished_video_probe_unavailable"}]
+        assert factory.services.finished_video_style_lane_format("pov") == "pov"
+        assert factory.services.finished_video_caption_band("pov") == "auto"
+        assert factory.services.finished_video_caption_font("pov") == "Instagram Sans Condensed"
+        assert factory.services.classify_finished_video_format(Path("/tmp/selfie.mp4")) == "selfie_video"
+
+        assert calls == [
+            (
+                "intake_finished_video",
+                (),
+                {
+                    "input_path": Path("/tmp/source.mp4"),
+                    "model_slug": "stacey",
+                    "platform": "instagram",
+                    "goal": "reach",
+                    "reference_pattern": "auto",
+                    "campaign_slug": "daily",
+                    "contentforge_base_url": None,
+                    "user_id": None,
+                    "dry_run_export": True,
+                    "variant_count": 10,
+                    "workers": 3,
+                    "recipes": None,
+                    "creative_plan": None,
+                    "style_lane": None,
+                    "source_lineage_path": None,
+                },
+            ),
+            ("finished_video_hooks", ("pov", {"clusterKey": "cluster"}), {"count": 5}),
+            ("finished_video_preflight", ({},), {}),
+            ("finished_video_style_lane_format", ("pov",), {}),
+            ("finished_video_caption_band", ("pov",), {}),
+            ("finished_video_caption_font", ("pov",), {}),
+            ("classify_finished_video_format", (Path("/tmp/selfie.mp4"),), {}),
+        ]
+    finally:
+        factory.close()
 
 
 def test_campaign_factory_delegates_surface_requirement_methods_to_services() -> None:
