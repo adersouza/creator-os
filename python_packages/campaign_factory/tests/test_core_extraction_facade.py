@@ -17,6 +17,7 @@ from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.discoverability import DiscoverabilityRepository
 from campaign_factory.distribution import DistributionRepository
+from campaign_factory.daily_plan import DailyPlanRepository
 from campaign_factory.draft_inventory_gap import DraftInventoryGapRepository
 from campaign_factory.events import EventRepository
 from campaign_factory.exceptions import ExceptionRepository
@@ -86,6 +87,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.surface_summary.conn is factory.conn
         assert isinstance(factory.services.draft_inventory_gap, DraftInventoryGapRepository)
         assert factory.services.draft_inventory_gap.conn is factory.conn
+        assert isinstance(factory.services.daily_plan, DailyPlanRepository)
+        assert factory.services.daily_plan.conn is factory.conn
         assert isinstance(factory.services.account_health, AccountHealthRepository)
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
@@ -240,6 +243,97 @@ def test_campaign_factory_delegates_creator_os_draft_inventory_gap_to_services()
             },
         ),
     ]
+
+
+def test_campaign_factory_delegates_creator_os_daily_plan_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_daily_plan(self, *args, **kwargs):
+            calls.append(("creator_os_daily_plan", args, kwargs))
+            return {"schema": "creator_os.daily_plan.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.creator_os_daily_plan(
+        creators=["Stacey"],
+        threadsdash_report={"schema": "threadsdash.report.v1"},
+        schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+        time_plan={"schema": "creator_os.time_plan.v1"},
+        winner_expansion_report={"schema": "winner.report.v1"},
+        winner_expansion_plan={"schema": "winner.plan.v1"},
+        variant_metrics_rollup={"schema": "variant.rollup.v1"},
+        date="2026-06-06",
+        generated_at="2026-06-06T12:00:00Z",
+    ) == {"schema": "creator_os.daily_plan.v1"}
+    assert calls == [
+        (
+            "creator_os_daily_plan",
+            (),
+            {
+                "creators": ["Stacey"],
+                "threadsdash_report": {"schema": "threadsdash.report.v1"},
+                "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+                "time_plan": {"schema": "creator_os.time_plan.v1"},
+                "winner_expansion_report": {"schema": "winner.report.v1"},
+                "winner_expansion_plan": {"schema": "winner.plan.v1"},
+                "variant_metrics_rollup": {"schema": "variant.rollup.v1"},
+                "date": "2026-06-06",
+                "generated_at": "2026-06-06T12:00:00Z",
+            },
+        ),
+    ]
+
+
+def test_core_services_delegates_creator_os_daily_plan_to_repository(tmp_path) -> None:
+    factory = CampaignFactory(Settings(
+        root=tmp_path,
+        db_path=tmp_path / "campaign_factory.sqlite",
+        reel_factory_root=tmp_path / "reel_factory",
+        contentforge_root=tmp_path / "contentforge",
+        threadsdash_root=tmp_path / "ThreadsDashboard",
+        campaigns_dir=tmp_path / "campaigns",
+    ))
+    try:
+        calls = []
+
+        def fake_daily_plan(*args, **kwargs):
+            calls.append(("creator_os_daily_plan", args, kwargs))
+            return {"schema": "creator_os.daily_plan.v1"}
+
+        factory.services.daily_plan.creator_os_daily_plan = fake_daily_plan
+
+        assert factory.services.creator_os_daily_plan(
+            creators=["Stacey"],
+            threadsdash_report={"schema": "threadsdash.report.v1"},
+            schedule_plan={"schema": "creator_os.schedule_plan.v1"},
+            time_plan={"schema": "creator_os.time_plan.v1"},
+            winner_expansion_report={"schema": "winner.report.v1"},
+            winner_expansion_plan={"schema": "winner.plan.v1"},
+            variant_metrics_rollup={"schema": "variant.rollup.v1"},
+            date="2026-06-06",
+            generated_at="2026-06-06T12:00:00Z",
+        ) == {"schema": "creator_os.daily_plan.v1"}
+        assert calls == [
+            (
+                "creator_os_daily_plan",
+                (),
+                {
+                    "creators": ["Stacey"],
+                    "threadsdash_report": {"schema": "threadsdash.report.v1"},
+                    "schedule_plan": {"schema": "creator_os.schedule_plan.v1"},
+                    "time_plan": {"schema": "creator_os.time_plan.v1"},
+                    "winner_expansion_report": {"schema": "winner.report.v1"},
+                    "winner_expansion_plan": {"schema": "winner.plan.v1"},
+                    "variant_metrics_rollup": {"schema": "variant.rollup.v1"},
+                    "date": "2026-06-06",
+                    "generated_at": "2026-06-06T12:00:00Z",
+                },
+            ),
+        ]
+    finally:
+        factory.close()
 
 
 def test_core_services_delegates_creator_os_draft_inventory_gap_to_repository(tmp_path) -> None:
