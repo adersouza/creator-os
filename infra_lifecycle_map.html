@@ -66,6 +66,7 @@
   .sevMED{background:rgba(210,153,34,.16);color:#e3b341}
   .sevLOW{background:rgba(139,151,168,.16);color:var(--dim)}
   .sevPOS{background:rgba(63,185,80,.16);color:#56d364}
+  .sevDONE{background:rgba(63,185,80,.16);color:#56d364}
   .tagline{font-size:11px;color:var(--dim);margin:2px 0 14px}
 </style>
 </head>
@@ -153,7 +154,7 @@ const F={
  seam:[
   {sev:'HIGH',t:'HTTP ingest never hydrates media URLs — assumes media already remote',ev:'threadsdash.py:82,556 · hydration only in _write_supabase (legacy) :1087/1112',d:'Drafts can land in <b>posts</b> with empty <code>media_urls</code>, failing only at async IG publish. Boundary-assert remote URLs on both sides.',tid:'A3'},
   {sev:'HIGH',t:'2xx-with-empty-postIds is recorded as a successful export',ev:'threadsdash.py:611 (verified) · hard HTTP errors ARE caught',d:'Outright failures are handled. Narrower confirmed gap: <code>status="exported"</code> + event success whenever <code>post_ids</code> resolves to <code>[]</code> — a 2xx with empty/partial postIds reads as success with no reconciliation. Treat empty-postIds-on-2xx as retriable; read back before marking exported.',tid:'A2'},
-  {sev:'MED',t:'Duplicate-post race on campaign_factory_post_key — latent, partially guarded',ev:'verified live: 0 dupes · no unique on post_key · partial-uniques posts_campaign_*_active_uniq cover plan-id / asset+acct+time',d:'<b>Downgraded from HIGH after live-DB check.</b> Visible duplicate blocked when plan-id or (account+asset+scheduled_for) present; residual gap on bare drafts. Add <code>UNIQUE INDEX CONCURRENTLY</code> on post_key + idempotency header to close fully.',tid:'A1'},
+  {sev:'DONE',t:'Duplicate-post race on campaign_factory_post_key — closed by DB idempotency',ev:'A1 landed: unique partial index on posts.campaign_factory_post_key · TD unique-violation noop · creator-os X-Idempotency-Key',d:'Concurrent/retried Campaign Factory draft ingest now has a database-backed idempotency boundary. One writer creates the post; racing writers return the existing post id instead of creating duplicates or surfacing a 500.',tid:'A1'},
   {sev:'MED',t:'Forward contract enforced by two hand-rolled validators that can drift',ev:'draftIngest.ts:382–524 · schema vendored in 5+ copies',d:'TD adds 10+ imperative checks not in the shared JSON schema. Same drift TRACK9 PR-1 codegen targets — the seam is the strongest case for it.',tid:'A5'},
   {sev:'MED',t:'Backward metric sync reads raw columns, uncontracted + manual',ev:'threadsdash.py:_select_threadsdash_post_metric_history · CLI only',d:'A TD column rename = silent NULL import. Not scheduled — loop can stall with no alert. Schedule it (or TD-push) + version a read contract.',tid:'A4'},
   {sev:'LOW',t:'Secret rotation well-built on TD, single-valued on creator-os',ev:'draftIngest.ts:299–330 (CURRENT/PREVIOUS/EXTRA, timing-safe)',d:'Rotation still needs both sides updated in one window. Document the order.',tid:'A1'},

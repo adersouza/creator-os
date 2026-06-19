@@ -4400,6 +4400,10 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         assert result["supabase"]["disabled"] is True
         assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
         assert captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        assert (
+            captured["headers"]["X-idempotency-key"]
+            == captured["body"]["drafts"][0]["metadata"]["campaign_factory"]["post_key"]
+        )
         assert captured["body"]["dryRun"] is False
         assert captured["body"]["drafts"][0]["instagramPostCaption"]
     finally:
