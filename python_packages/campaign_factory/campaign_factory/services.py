@@ -4,6 +4,7 @@ import sqlite3
 from typing import Any, Callable
 
 from .account_health import AccountHealthRepository
+from .account_memory import AccountMemoryRepository
 from .asset_import import AssetImportRepository
 from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
@@ -80,6 +81,10 @@ class CoreServices:
         latest_surface_metric_for_asset: Callable[[str, str], dict[str, Any] | None],
         empty_surface_certification_audit: Callable[[str], dict[str, Any]],
         surface_certification_audit: Callable[..., dict[str, Any]],
+        performance_snapshot_payload: Callable[[dict[str, Any]], dict[str, Any]],
+        account_reward_baselines: Callable[[list[dict[str, Any]]], dict[str, float]],
+        aggregate_performance: Callable[..., dict[str, Any]],
+        performance_quality_score: Callable[[dict[str, Any]], int | None],
         recommended_story_intent_for_date: Callable[..., str],
         recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
@@ -240,6 +245,20 @@ class CoreServices:
             default_autonomy_level=default_autonomy_level,
             json_load=json_load,
             utc_now=utc_now,
+        )
+        self.account_memory = AccountMemoryRepository(
+            conn,
+            utc_now=utc_now,
+            json_load=json_load,
+            sanitize_for_storage=sanitize_for_storage,
+            campaign_by_slug=self.campaign_by_slug,
+            graph_id_for=self.graph.graph_id_for,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            performance_snapshot_payload=performance_snapshot_payload,
+            account_reward_baselines=account_reward_baselines,
+            aggregate_performance=aggregate_performance,
+            performance_quality_score=performance_quality_score,
         )
         self.exceptions = ExceptionRepository(
             conn,
@@ -573,6 +592,61 @@ class CoreServices:
 
     def autonomy_policy(self) -> dict[str, Any]:
         return self.autonomy.autonomy_policy()
+
+    def rebuild_account_memory(self, campaign_slug: str) -> dict[str, Any]:
+        return self.account_memory.rebuild_account_memory(campaign_slug)
+
+    def account_memory_report(self, campaign_slug: str, account: str | None = None) -> dict[str, Any]:
+        return self.account_memory.account_memory(campaign_slug, account=account)
+
+    def account_memory_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.account_memory.account_memory_payload(row)
+
+    def account_memory_for(self, campaign_id: str, account_id: str | None) -> dict[str, Any] | None:
+        return self.account_memory.account_memory_for(campaign_id, account_id)
+
+    def account_pattern_stats_from_snapshots(
+        self,
+        campaign_id: str,
+        account_id: str,
+        snapshots: list[dict[str, Any]],
+        updated_at: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.account_memory.account_pattern_stats_from_snapshots(
+            campaign_id,
+            account_id,
+            snapshots,
+            updated_at,
+            account_baselines=account_baselines,
+        )
+
+    def account_posting_windows_from_snapshots(
+        self,
+        campaign_id: str,
+        account_id: str,
+        snapshots: list[dict[str, Any]],
+        updated_at: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.account_memory.account_posting_windows_from_snapshots(
+            campaign_id,
+            account_id,
+            snapshots,
+            updated_at,
+            account_baselines=account_baselines,
+        )
+
+    def account_fatigue_from_pattern_stats(self, pattern_stats: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.account_memory.account_fatigue_from_pattern_stats(pattern_stats)
+
+    def account_recommendation_outcomes(self, campaign_id: str, account_id: str, updated_at: str) -> dict[str, Any]:
+        return self.account_memory.account_recommendation_outcomes(campaign_id, account_id, updated_at)
+
+    def account_memory_confidence(self, sample_size: int, outcomes: dict[str, Any]) -> str:
+        return self.account_memory.account_memory_confidence(sample_size, outcomes)
 
     def create_creative_plan(
         self,

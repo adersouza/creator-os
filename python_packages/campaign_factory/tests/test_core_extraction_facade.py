@@ -4,6 +4,7 @@ from pathlib import Path
 
 from campaign_factory import audit_payload, exports, readiness
 from campaign_factory.account_health import AccountHealthRepository
+from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
@@ -81,6 +82,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.account_health.conn is factory.conn
         assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
         assert factory.services.autonomy.conn is factory.conn
+        assert isinstance(factory.services.account_memory, AccountMemoryRepository)
+        assert factory.services.account_memory.conn is factory.conn
     finally:
         factory.close()
 
@@ -192,6 +195,42 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         def autonomy_policy(self, *args, **kwargs):
             calls.append(("autonomy_policy", args, kwargs))
             return {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
+
+        def rebuild_account_memory(self, *args, **kwargs):
+            calls.append(("rebuild_account_memory", args, kwargs))
+            return {"schema": "campaign_factory.account_memory_rebuild.v1", "campaign": args[0]}
+
+        def account_memory_report(self, *args, **kwargs):
+            calls.append(("account_memory_report", args, kwargs))
+            return {"schema": "campaign_factory.account_memory.v1", "campaign": args[0]}
+
+        def account_memory_payload(self, *args, **kwargs):
+            calls.append(("account_memory_payload", args, kwargs))
+            return {"id": args[0]["id"], "accountId": args[0]["account_id"]}
+
+        def account_memory_for(self, *args, **kwargs):
+            calls.append(("account_memory_for", args, kwargs))
+            return {"accountId": args[1]}
+
+        def account_pattern_stats_from_snapshots(self, *args, **kwargs):
+            calls.append(("account_pattern_stats_from_snapshots", args, kwargs))
+            return [{"patternType": "recipe"}]
+
+        def account_posting_windows_from_snapshots(self, *args, **kwargs):
+            calls.append(("account_posting_windows_from_snapshots", args, kwargs))
+            return [{"weekday": 0}]
+
+        def account_fatigue_from_pattern_stats(self, *args, **kwargs):
+            calls.append(("account_fatigue_from_pattern_stats", args, kwargs))
+            return {"level": "low"}
+
+        def account_recommendation_outcomes(self, *args, **kwargs):
+            calls.append(("account_recommendation_outcomes", args, kwargs))
+            return {"measuredTotal": 0}
+
+        def account_memory_confidence(self, *args, **kwargs):
+            calls.append(("account_memory_confidence", args, kwargs))
+            return "low"
 
         def create_creative_plan(self, *args, **kwargs):
             calls.append(("create_creative_plan", args, kwargs))
@@ -370,6 +409,15 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
     assert factory.autonomy_level() == "level_2"
     assert factory.set_autonomy_level("level_3") == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_3"}
     assert factory.autonomy_policy() == {"schema": "campaign_factory.autonomy_policy.v1", "level": "level_2"}
+    assert factory.rebuild_account_memory("may") == {"schema": "campaign_factory.account_memory_rebuild.v1", "campaign": "may"}
+    assert factory.account_memory("may", account="ig_1") == {"schema": "campaign_factory.account_memory.v1", "campaign": "may"}
+    assert factory._account_memory_payload({"id": "acctmem_1", "account_id": "ig_1"}) == {"id": "acctmem_1", "accountId": "ig_1"}
+    assert factory._account_memory_for("camp_1", "ig_1") == {"accountId": "ig_1"}
+    assert factory._account_pattern_stats_from_snapshots("camp_1", "ig_1", [], "now") == [{"patternType": "recipe"}]
+    assert factory._account_posting_windows_from_snapshots("camp_1", "ig_1", [], "now") == [{"weekday": 0}]
+    assert factory._account_fatigue_from_pattern_stats([]) == {"level": "low"}
+    assert factory._account_recommendation_outcomes("camp_1", "ig_1", "now") == {"measuredTotal": 0}
+    assert factory._account_memory_confidence(1, {"measuredTotal": 0}) == "low"
     assert factory.create_creative_plan(name="daily", target_account="@creator") == {
         "schema": "campaign_factory.creative_plan.v1",
         "name": "daily",
@@ -512,6 +560,15 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         ("autonomy_level", (), {}),
         ("set_autonomy_level", ("level_3",), {}),
         ("autonomy_policy", (), {}),
+        ("rebuild_account_memory", ("may",), {}),
+        ("account_memory_report", ("may",), {"account": "ig_1"}),
+        ("account_memory_payload", ({"id": "acctmem_1", "account_id": "ig_1"},), {}),
+        ("account_memory_for", ("camp_1", "ig_1"), {}),
+        ("account_pattern_stats_from_snapshots", ("camp_1", "ig_1", [], "now"), {"account_baselines": None}),
+        ("account_posting_windows_from_snapshots", ("camp_1", "ig_1", [], "now"), {"account_baselines": None}),
+        ("account_fatigue_from_pattern_stats", ([],), {}),
+        ("account_recommendation_outcomes", ("camp_1", "ig_1", "now"), {}),
+        ("account_memory_confidence", (1, {"measuredTotal": 0}), {}),
         ("create_creative_plan", (), {
             "name": "daily",
             "platform": "instagram",
@@ -881,6 +938,72 @@ def test_core_services_delegates_autonomy_methods_to_autonomy_repository() -> No
         ("autonomy_level", (), {}),
         ("set_autonomy_level", ("level_3",), {}),
         ("autonomy_policy", (), {}),
+    ]
+
+
+def test_core_services_delegates_account_memory_methods_to_account_memory_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAccountMemory:
+        def rebuild_account_memory(self, *args, **kwargs):
+            calls.append(("rebuild_account_memory", args, kwargs))
+            return {"schema": "campaign_factory.account_memory_rebuild.v1", "campaign": args[0]}
+
+        def account_memory(self, *args, **kwargs):
+            calls.append(("account_memory", args, kwargs))
+            return {"schema": "campaign_factory.account_memory.v1", "campaign": args[0]}
+
+        def account_memory_payload(self, *args, **kwargs):
+            calls.append(("account_memory_payload", args, kwargs))
+            return {"id": args[0]["id"]}
+
+        def account_memory_for(self, *args, **kwargs):
+            calls.append(("account_memory_for", args, kwargs))
+            return {"accountId": args[1]}
+
+        def account_pattern_stats_from_snapshots(self, *args, **kwargs):
+            calls.append(("account_pattern_stats_from_snapshots", args, kwargs))
+            return [{"patternType": "recipe"}]
+
+        def account_posting_windows_from_snapshots(self, *args, **kwargs):
+            calls.append(("account_posting_windows_from_snapshots", args, kwargs))
+            return [{"weekday": 0}]
+
+        def account_fatigue_from_pattern_stats(self, *args, **kwargs):
+            calls.append(("account_fatigue_from_pattern_stats", args, kwargs))
+            return {"level": "low"}
+
+        def account_recommendation_outcomes(self, *args, **kwargs):
+            calls.append(("account_recommendation_outcomes", args, kwargs))
+            return {"measuredTotal": 0}
+
+        def account_memory_confidence(self, *args, **kwargs):
+            calls.append(("account_memory_confidence", args, kwargs))
+            return "low"
+
+    services.account_memory = FakeAccountMemory()
+
+    assert services.rebuild_account_memory("may") == {"schema": "campaign_factory.account_memory_rebuild.v1", "campaign": "may"}
+    assert services.account_memory_report("may", account="ig_1") == {"schema": "campaign_factory.account_memory.v1", "campaign": "may"}
+    assert services.account_memory_payload({"id": "acctmem_1"}) == {"id": "acctmem_1"}
+    assert services.account_memory_for("camp_1", "ig_1") == {"accountId": "ig_1"}
+    assert services.account_pattern_stats_from_snapshots("camp_1", "ig_1", [], "now") == [{"patternType": "recipe"}]
+    assert services.account_posting_windows_from_snapshots("camp_1", "ig_1", [], "now") == [{"weekday": 0}]
+    assert services.account_fatigue_from_pattern_stats([]) == {"level": "low"}
+    assert services.account_recommendation_outcomes("camp_1", "ig_1", "now") == {"measuredTotal": 0}
+    assert services.account_memory_confidence(1, {"measuredTotal": 0}) == "low"
+
+    assert calls == [
+        ("rebuild_account_memory", ("may",), {}),
+        ("account_memory", ("may",), {"account": "ig_1"}),
+        ("account_memory_payload", ({"id": "acctmem_1"},), {}),
+        ("account_memory_for", ("camp_1", "ig_1"), {}),
+        ("account_pattern_stats_from_snapshots", ("camp_1", "ig_1", [], "now"), {"account_baselines": None}),
+        ("account_posting_windows_from_snapshots", ("camp_1", "ig_1", [], "now"), {"account_baselines": None}),
+        ("account_fatigue_from_pattern_stats", ([],), {}),
+        ("account_recommendation_outcomes", ("camp_1", "ig_1", "now"), {}),
+        ("account_memory_confidence", (1, {"measuredTotal": 0}), {}),
     ]
 
 
