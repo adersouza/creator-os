@@ -34,6 +34,7 @@ from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
+from .make_batch import MakeBatchRepository
 from .models import ModelRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
@@ -61,6 +62,7 @@ class CoreServices:
         conn: sqlite3.Connection,
         settings: Settings,
         *,
+        factory_context: Any,
         new_id: Callable[[str], str],
         new_graph_id: Callable[[str], str],
         slugify: Callable[[str], str],
@@ -318,6 +320,41 @@ class CoreServices:
             prepare_reel_inputs=prepare_reel_inputs,
             discoverability_safe_content_contract=discoverability_safe_content_contract,
             reference_hook_fallbacks=reference_hook_fallbacks,
+        )
+        self.make_batch_repo = MakeBatchRepository(
+            conn,
+            settings,
+            factory_context=factory_context,
+            new_id=new_id,
+            utc_now=utc_now,
+            sha256_file=sha256_file,
+            media_type_for_path=media_type_for_path,
+            reel_factory_python=reel_factory_python,
+            subprocess_run=lambda *args, **kwargs: __import__("subprocess").run(*args, **kwargs),
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            set_pipeline_job_campaign=self.events.set_pipeline_job_campaign,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            record_event=self.events.record_event,
+            import_folder=self.asset_import.import_folder,
+            reference_patterns=self.reference.reference_patterns,
+            import_reference_bank=self.reference.import_reference_bank,
+            select_reference_pattern=self.reference.select_reference_pattern,
+            prepare_reel_from_reference=self.reference.prepare_reel_from_reference,
+            finished_video_hooks=lambda *args, **kwargs: self.finished_video.finished_video_hooks(*args, **kwargs),
+            finished_video_caption_band=lambda *args, **kwargs: self.finished_video.finished_video_caption_band(*args, **kwargs),
+            finished_video_caption_font=lambda *args, **kwargs: self.finished_video.finished_video_caption_font(*args, **kwargs),
+            prepare_reel_inputs=prepare_reel_inputs,
+            run_reel_factory=lambda *args, **kwargs: self.reel_execution.run_reel_factory(*args, **kwargs),
+            sync_reel_outputs=lambda *args, **kwargs: self.reel_execution.sync_reel_outputs(*args, **kwargs),
+            dashboard=dashboard,
+            campaign_health=self.campaign_health,
+            ranking=ranking,
+            campaign_by_slug=self.campaign_by_slug,
+            model_slug_for_campaign=self.reel_execution.model_slug_for_campaign,
+            campaign_dirs=campaign_dirs,
+            assets_for_campaign=self.asset_import.assets_for_campaign,
         )
         self.finished_video = FinishedVideoRepository(
             conn,
@@ -2247,6 +2284,64 @@ class CoreServices:
             creator_model=creator_model,
             lineage=lineage,
         )
+
+    def make_batch(
+        self,
+        *,
+        folder: Any,
+        campaign_slug: str,
+        model_slug: str,
+        output_format: str = "auto",
+        variant_count: int = 20,
+        reference_pattern: str | None = "auto",
+        contentforge_base_url: str | None = None,
+        user_id: str | None = None,
+        dry_run_export: bool = True,
+        workers: int = 3,
+        recipes: list[str] | None = None,
+        auto_approve_warning_only: bool = True,
+        source_prompt: str | None = None,
+        import_notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.make_batch_repo.make_batch(
+            folder=folder,
+            campaign_slug=campaign_slug,
+            model_slug=model_slug,
+            output_format=output_format,
+            variant_count=variant_count,
+            reference_pattern=reference_pattern,
+            contentforge_base_url=contentforge_base_url,
+            user_id=user_id,
+            dry_run_export=dry_run_export,
+            workers=workers,
+            recipes=recipes,
+            auto_approve_warning_only=auto_approve_warning_only,
+            source_prompt=source_prompt,
+            import_notes=import_notes,
+        )
+
+    def run_slideshow_pack(
+        self,
+        *,
+        campaign_slug: str,
+        variant_count: int,
+        title: str,
+        cluster_key: str | None = None,
+        media_types: set[str] | None = None,
+    ) -> dict[str, Any]:
+        return self.make_batch_repo.run_slideshow_pack(
+            campaign_slug=campaign_slug,
+            variant_count=variant_count,
+            title=title,
+            cluster_key=cluster_key,
+            media_types=media_types,
+        )
+
+    def campaign_source_media_summary(self, campaign_id: str) -> dict[str, int]:
+        return self.make_batch_repo.campaign_source_media_summary(campaign_id)
+
+    def formats_for_batch(self, selected_format: str, source_mix: dict[str, int]) -> list[str]:
+        return self.make_batch_repo.formats_for_batch(selected_format, source_mix)
 
     def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
         return self.finished_video.finished_video_hooks(format_type, pattern, count=count)
