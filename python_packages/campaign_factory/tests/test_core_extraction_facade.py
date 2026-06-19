@@ -8,6 +8,7 @@ from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
+from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
 from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.discoverability import DiscoverabilityRepository
@@ -63,6 +64,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.carousel_integrity.conn is factory.conn
         assert isinstance(factory.services.winner_expansion, WinnerExpansionRepository)
         assert factory.services.winner_expansion.conn is factory.conn
+        assert isinstance(factory.services.creative_knowledge, CreativeKnowledgeRepository)
+        assert factory.services.creative_knowledge.conn is factory.conn
     finally:
         factory.close()
 
@@ -1602,6 +1605,236 @@ def test_winner_expansion_facade_delegates_to_core_services() -> None:
             "campaign_id": "camp_1",
             "parent_asset_id": "asset_1",
             "parent_reel_id": "preel_1",
+        }),
+    ]
+
+
+def test_core_services_delegates_creative_knowledge_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreativeKnowledge:
+        def winner_registry(self, *args, **kwargs):
+            calls.append(("winner_registry", args, kwargs))
+            return {"schema": "campaign_factory.winner_registry.v1"}
+
+        def concept_registry(self, *args, **kwargs):
+            calls.append(("concept_registry", args, kwargs))
+            return {"schema": "campaign_factory.concept_registry.v1"}
+
+        def winner_patterns(self, *args, **kwargs):
+            calls.append(("winner_patterns", args, kwargs))
+            return {"schema": "campaign_factory.winner_patterns.v1"}
+
+        def winner_knowledge_base(self, *args, **kwargs):
+            calls.append(("winner_knowledge_base", args, kwargs))
+            return {"schema": "campaign_factory.winner_knowledge_base.v1"}
+
+        def winner_memory_rows(self, *args, **kwargs):
+            calls.append(("winner_memory_rows", args, kwargs))
+            return [{"post_id": "post_1"}]
+
+        def winner_memory_item(self, *args, **kwargs):
+            calls.append(("winner_memory_item", args, kwargs))
+            return {"postId": "post_1"}
+
+        def winner_concept_name(self, *args, **kwargs):
+            calls.append(("winner_concept_name", args, kwargs))
+            return "mirror selfie"
+
+        def posting_window_label(self, *args, **kwargs):
+            calls.append(("posting_window_label", args, kwargs))
+            return "6pm"
+
+        def winner_pattern_group(self, *args, **kwargs):
+            calls.append(("winner_pattern_group", args, kwargs))
+            return [{"conceptId": "concept_1"}]
+
+    services.creative_knowledge = FakeCreativeKnowledge()
+
+    assert services.winner_registry(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_registry.v1",
+    }
+    assert services.concept_registry(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.concept_registry.v1",
+    }
+    assert services.winner_patterns(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_patterns.v1",
+    }
+    assert services.winner_knowledge_base(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_knowledge_base.v1",
+    }
+    assert services.winner_memory_rows(creator="Stacey", campaign_slug="May") == [{"post_id": "post_1"}]
+    assert services.winner_memory_item({"post_id": "post_1"}, min_views=10, min_reach=10, min_followers=1) == {
+        "postId": "post_1",
+    }
+    assert services.winner_concept_name({"concept_id": "concept_1"}) == "mirror selfie"
+    assert services.posting_window_label("2026-06-06T18:12:00+00:00") == "6pm"
+    assert services.winner_pattern_group(
+        [{"conceptId": "concept_1"}],
+        key_field="conceptId",
+        label_field=None,
+        output_key="conceptId",
+        output_label=None,
+    ) == [{"conceptId": "concept_1"}]
+
+    assert calls == [
+        ("winner_registry", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("concept_registry", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_patterns", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_knowledge_base", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_memory_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("winner_memory_item", ({"post_id": "post_1"},), {
+            "min_views": 10,
+            "min_reach": 10,
+            "min_followers": 1,
+        }),
+        ("winner_concept_name", ({"concept_id": "concept_1"},), {}),
+        ("posting_window_label", ("2026-06-06T18:12:00+00:00",), {}),
+        ("winner_pattern_group", ([{"conceptId": "concept_1"}],), {
+            "key_field": "conceptId",
+            "label_field": None,
+            "output_key": "conceptId",
+            "output_label": None,
+        }),
+    ]
+
+
+def test_creative_knowledge_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def winner_registry(self, *args, **kwargs):
+            calls.append(("winner_registry", args, kwargs))
+            return {"schema": "campaign_factory.winner_registry.v1"}
+
+        def concept_registry(self, *args, **kwargs):
+            calls.append(("concept_registry", args, kwargs))
+            return {"schema": "campaign_factory.concept_registry.v1"}
+
+        def winner_patterns(self, *args, **kwargs):
+            calls.append(("winner_patterns", args, kwargs))
+            return {"schema": "campaign_factory.winner_patterns.v1"}
+
+        def winner_knowledge_base(self, *args, **kwargs):
+            calls.append(("winner_knowledge_base", args, kwargs))
+            return {"schema": "campaign_factory.winner_knowledge_base.v1"}
+
+        def winner_memory_rows(self, *args, **kwargs):
+            calls.append(("winner_memory_rows", args, kwargs))
+            return [{"post_id": "post_1"}]
+
+        def winner_memory_item(self, *args, **kwargs):
+            calls.append(("winner_memory_item", args, kwargs))
+            return {"postId": "post_1"}
+
+        def winner_concept_name(self, *args, **kwargs):
+            calls.append(("winner_concept_name", args, kwargs))
+            return "mirror selfie"
+
+        def posting_window_label(self, *args, **kwargs):
+            calls.append(("posting_window_label", args, kwargs))
+            return "6pm"
+
+        def winner_pattern_group(self, *args, **kwargs):
+            calls.append(("winner_pattern_group", args, kwargs))
+            return [{"conceptId": "concept_1"}]
+
+    factory.services = FakeServices()
+
+    assert factory.winner_registry(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_registry.v1",
+    }
+    assert factory.concept_registry(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.concept_registry.v1",
+    }
+    assert factory.winner_patterns(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_patterns.v1",
+    }
+    assert factory.winner_knowledge_base(creator="Stacey", campaign_slug="May", min_views=10) == {
+        "schema": "campaign_factory.winner_knowledge_base.v1",
+    }
+    assert factory._winner_memory_rows(creator="Stacey", campaign_slug="May") == [{"post_id": "post_1"}]
+    assert factory._winner_memory_item({"post_id": "post_1"}, min_views=10, min_reach=10, min_followers=1) == {
+        "postId": "post_1",
+    }
+    assert factory._winner_concept_name({"concept_id": "concept_1"}) == "mirror selfie"
+    assert factory._posting_window_label("2026-06-06T18:12:00+00:00") == "6pm"
+    assert factory._winner_pattern_group(
+        [{"conceptId": "concept_1"}],
+        key_field="conceptId",
+        label_field=None,
+        output_key="conceptId",
+        output_label=None,
+    ) == [{"conceptId": "concept_1"}]
+
+    assert calls == [
+        ("winner_registry", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("concept_registry", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_patterns", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_knowledge_base", (), {
+            "creator": "Stacey",
+            "campaign_slug": "May",
+            "min_views": 10,
+            "min_reach": None,
+            "min_followers": 1,
+        }),
+        ("winner_memory_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("winner_memory_item", ({"post_id": "post_1"},), {
+            "min_views": 10,
+            "min_reach": 10,
+            "min_followers": 1,
+        }),
+        ("winner_concept_name", ({"concept_id": "concept_1"},), {}),
+        ("posting_window_label", ("2026-06-06T18:12:00+00:00",), {}),
+        ("winner_pattern_group", ([{"conceptId": "concept_1"}],), {
+            "key_field": "conceptId",
+            "label_field": None,
+            "output_key": "conceptId",
+            "output_label": None,
         }),
     ]
 
