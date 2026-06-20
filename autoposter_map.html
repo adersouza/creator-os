@@ -150,15 +150,15 @@
 </section>
 
 <section id="plan">
-  <h2>Remaining autoposter closeout plan</h2>
-  <p class="sub">AP0–AP9 are shipped. What remains is production proof and narrow guardrail hardening, not another autoposter rebuild.</p>
+  <h2>Terminal autoposter closeout ledger</h2>
+  <p class="sub">AP0–AP9 are shipped. Remaining items are monitor-only triggers, upstream guardrails, or explicit non-goals.</p>
   <table>
-    <thead><tr><th>Order</th><th>Work</th><th>Repo</th><th>Done when</th></tr></thead>
+    <thead><tr><th>Status</th><th>Work</th><th>Repo</th><th>Stop condition / proof</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td>Monitor publish-worker, QStash delivery, retry/dead-letter growth, and account-health pauses over a real posting window.</td><td>ThreadsDashboard</td><td>Run reports stay green; alerting fires on synthetic or real degradation; no silent phase starvation.</td></tr>
-      <tr><td>2</td><td>Re-audit service-role routes touched by publish/cron paths for explicit account/workspace scope checks.</td><td>ThreadsDashboard</td><td>Representative negative tenant-isolation tests fail closed around publish execution paths.</td></tr>
-      <tr><td>3</td><td>Keep QStash signature verification and cron auth as load-bearing tests.</td><td>ThreadsDashboard</td><td>Invalid signatures/secrets reject before any publish, retry, replay, or DB mutation.</td></tr>
-      <tr><td>4</td><td>Leave account-linkage evasion out of scope.</td><td>Policy boundary</td><td>The system continues to make legitimate distinct content and respect account health; it does not hide coordinated operation.</td></tr>
+      <tr><td>Deferred / monitor</td><td>Publish-worker, QStash delivery, retry/dead-letter growth, and account-health pauses.</td><td>ThreadsDashboard</td><td>Reopen only on a red run report, dead-letter growth, missed QStash delivery, or account-health pause that lacks an alert.</td></tr>
+      <tr><td>Upstream-fixed</td><td>Service-role routes touched by publish/cron paths need explicit account/workspace scope checks.</td><td>ThreadsDashboard</td><td>Publish paths enforce account scope and keep tenant-negative tests upstream; Creator OS has no dashboard mirror.</td></tr>
+      <tr><td>Fixed</td><td>Keep QStash signature verification and cron auth as load-bearing tests.</td><td>ThreadsDashboard</td><td>Existing invalid signature/secret tests reject before publish, retry, replay, or DB mutation.</td></tr>
+      <tr><td>Accepted risk</td><td>Leave account-linkage evasion out of scope.</td><td>Policy boundary</td><td>Permanent non-goal: legitimate distinct content and account-health respect only; no coordinated-operation hiding.</td></tr>
     </tbody>
   </table>
 </section>

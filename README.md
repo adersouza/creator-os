@@ -6,7 +6,7 @@ Creator OS turns reference reels into campaign-ready, audited, dashboard-managed
 
 🔗 **Live Product:** [juno33.com](https://juno33.com)
 
-📋 **Current state & open work:** see [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
+📋 **Current state ledger:** see [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
 
 ---
 
@@ -187,6 +187,8 @@ Projects/
 ```
 
 Campaign Factory uses the Creator OS package paths for pipeline tools. Dashboard integration requires the external ThreadsDashboard checkout at `/Users/aderdesouza/Developer/ThreadsDashboard` or an explicit `THREADSDASH_ROOT`.
+
+Creator OS → ThreadsDashboard draft ingest secret rotation is documented in [docs/runbooks/threadsdash_ingest_secret_rotation.md](./docs/runbooks/threadsdash_ingest_secret_rotation.md).
 
 ### Quick Health Check
 
