@@ -52,6 +52,7 @@ from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .recommendations import RecommendationRepository
+from .recommended_inventory_request import RecommendedInventoryRequestRepository
 from .readiness_report import ReadinessReportRepository
 from .reel_factory_reports import ReelFactoryReportRepository
 from .reel_execution import ReelExecutionRepository
@@ -166,6 +167,7 @@ class CoreServices:
         creator_os_manager_decision: Callable[..., dict[str, Any]],
         creator_os_blocked_account_breakdown: Callable[[list[dict[str, Any]]], dict[str, int]],
         creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
+        recommendation_explainability: Callable[..., dict[str, Any]],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
@@ -865,6 +867,13 @@ class CoreServices:
             creator_os_recommended_inventory=creator_os_recommended_inventory,
             recommended_story_style_for_intent=recommended_story_style_for_intent,
             creator_os_draft_inventory_gap=self.draft_inventory_gap.creator_os_draft_inventory_gap,
+            utc_now=utc_now,
+        )
+        self.recommended_inventory_request = RecommendedInventoryRequestRepository(
+            creator_label=creator_label,
+            creator_os_daily_plan=lambda *args, **kwargs: self.creator_os_daily_plan(*args, **kwargs),
+            normalize_content_surface=normalize_content_surface,
+            recommendation_explainability=recommendation_explainability,
             utc_now=utc_now,
         )
         self.surface_registration = SurfaceRegistrationRepository(
@@ -1589,6 +1598,46 @@ class CoreServices:
             variant_metrics_rollup=variant_metrics_rollup,
             date=date,
             generated_at=generated_at,
+        )
+
+    def recommended_inventory_request_plan(
+        self,
+        *,
+        creator: str,
+        target_count: int | None = None,
+        daily_plan: dict[str, Any] | None = None,
+        variant_inventory_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.recommended_inventory_request.recommended_inventory_request_plan(
+            creator=creator,
+            target_count=target_count,
+            daily_plan=daily_plan,
+            variant_inventory_plan=variant_inventory_plan,
+        )
+
+    def recommended_inventory_creator_row(self, daily_plan: dict[str, Any], creator: str) -> dict[str, Any]:
+        return self.recommended_inventory_request.recommended_inventory_creator_row(daily_plan, creator)
+
+    def recommended_inventory_existing_by_parent(
+        self,
+        variant_inventory_plan: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        return self.recommended_inventory_request.recommended_inventory_existing_by_parent(variant_inventory_plan)
+
+    def recommended_inventory_variant_batch(
+        self,
+        parent_asset_id: str,
+        variant_inventory_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.recommended_inventory_request.recommended_inventory_variant_batch(
+            parent_asset_id,
+            variant_inventory_plan,
+        )
+
+    def recommended_inventory_action(self, *, surface: str, story_intent: Any = None) -> str:
+        return self.recommended_inventory_request.recommended_inventory_action(
+            surface=surface,
+            story_intent=story_intent,
         )
 
     def creator_os_execution_readiness(

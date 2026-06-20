@@ -50,6 +50,7 @@ from campaign_factory.publishability import PublishabilityRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.recommendations import RecommendationRepository
+from campaign_factory.recommended_inventory_request import RecommendedInventoryRequestRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
 from campaign_factory.reel_factory_reports import ReelFactoryReportRepository
 from campaign_factory.reel_execution import ReelExecutionRepository
@@ -115,6 +116,7 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.carousel_integrity.conn is factory.conn
         assert isinstance(factory.services.winner_expansion, WinnerExpansionRepository)
         assert factory.services.winner_expansion.conn is factory.conn
+        assert isinstance(factory.services.recommended_inventory_request, RecommendedInventoryRequestRepository)
         assert isinstance(factory.services.creative_knowledge, CreativeKnowledgeRepository)
         assert factory.services.creative_knowledge.conn is factory.conn
         assert isinstance(factory.services.tribev2, TribeV2Repository)
@@ -3257,6 +3259,128 @@ def test_core_services_delegates_creator_os_daily_plan_to_repository(tmp_path) -
         ]
     finally:
         factory.close()
+
+
+def test_campaign_factory_delegates_recommended_inventory_request_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def recommended_inventory_request_plan(self, *args, **kwargs):
+            calls.append(("recommended_inventory_request_plan", args, kwargs))
+            return {"schema": "creator_os.recommended_inventory_request_plan.v1"}
+
+        def recommended_inventory_creator_row(self, *args, **kwargs):
+            calls.append(("recommended_inventory_creator_row", args, kwargs))
+            return {"creator": "Stacey"}
+
+        def recommended_inventory_existing_by_parent(self, *args, **kwargs):
+            calls.append(("recommended_inventory_existing_by_parent", args, kwargs))
+            return {"asset_parent": 3}
+
+        def recommended_inventory_variant_batch(self, *args, **kwargs):
+            calls.append(("recommended_inventory_variant_batch", args, kwargs))
+            return {"parentAssetId": "asset_parent", "wouldWrite": False}
+
+        def recommended_inventory_action(self, *args, **kwargs):
+            calls.append(("recommended_inventory_action", args, kwargs))
+            return "create_more_reels"
+
+    factory.services = FakeServices()
+    daily_plan = {"schema": "creator_os.daily_plan.v1"}
+    variant_inventory_plan = {"schema": "campaign_factory.variant_inventory_plan.v1"}
+
+    assert factory.recommended_inventory_request_plan(
+        creator="Stacey",
+        target_count=5,
+        daily_plan=daily_plan,
+        variant_inventory_plan=variant_inventory_plan,
+    ) == {"schema": "creator_os.recommended_inventory_request_plan.v1"}
+    assert factory._recommended_inventory_creator_row(daily_plan, "Stacey") == {"creator": "Stacey"}
+    assert factory._recommended_inventory_existing_by_parent(variant_inventory_plan) == {"asset_parent": 3}
+    assert factory._recommended_inventory_variant_batch("asset_parent", variant_inventory_plan) == {
+        "parentAssetId": "asset_parent",
+        "wouldWrite": False,
+    }
+    assert factory._recommended_inventory_action(surface="reel", story_intent="") == "create_more_reels"
+
+    assert calls == [
+        (
+            "recommended_inventory_request_plan",
+            (),
+            {
+                "creator": "Stacey",
+                "target_count": 5,
+                "daily_plan": daily_plan,
+                "variant_inventory_plan": variant_inventory_plan,
+            },
+        ),
+        ("recommended_inventory_creator_row", (daily_plan, "Stacey"), {}),
+        ("recommended_inventory_existing_by_parent", (variant_inventory_plan,), {}),
+        ("recommended_inventory_variant_batch", ("asset_parent", variant_inventory_plan), {}),
+        ("recommended_inventory_action", (), {"surface": "reel", "story_intent": ""}),
+    ]
+
+
+def test_core_services_delegates_recommended_inventory_request_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeRecommendedInventoryRequest:
+        def recommended_inventory_request_plan(self, *args, **kwargs):
+            calls.append(("recommended_inventory_request_plan", args, kwargs))
+            return {"schema": "creator_os.recommended_inventory_request_plan.v1"}
+
+        def recommended_inventory_creator_row(self, *args, **kwargs):
+            calls.append(("recommended_inventory_creator_row", args, kwargs))
+            return {"creator": "Stacey"}
+
+        def recommended_inventory_existing_by_parent(self, *args, **kwargs):
+            calls.append(("recommended_inventory_existing_by_parent", args, kwargs))
+            return {"asset_parent": 3}
+
+        def recommended_inventory_variant_batch(self, *args, **kwargs):
+            calls.append(("recommended_inventory_variant_batch", args, kwargs))
+            return {"parentAssetId": "asset_parent", "wouldWrite": False}
+
+        def recommended_inventory_action(self, *args, **kwargs):
+            calls.append(("recommended_inventory_action", args, kwargs))
+            return "create_more_reels"
+
+    services.recommended_inventory_request = FakeRecommendedInventoryRequest()
+    daily_plan = {"schema": "creator_os.daily_plan.v1"}
+    variant_inventory_plan = {"schema": "campaign_factory.variant_inventory_plan.v1"}
+
+    assert services.recommended_inventory_request_plan(
+        creator="Stacey",
+        target_count=5,
+        daily_plan=daily_plan,
+        variant_inventory_plan=variant_inventory_plan,
+    ) == {"schema": "creator_os.recommended_inventory_request_plan.v1"}
+    assert services.recommended_inventory_creator_row(daily_plan, "Stacey") == {"creator": "Stacey"}
+    assert services.recommended_inventory_existing_by_parent(variant_inventory_plan) == {"asset_parent": 3}
+    assert services.recommended_inventory_variant_batch("asset_parent", variant_inventory_plan) == {
+        "parentAssetId": "asset_parent",
+        "wouldWrite": False,
+    }
+    assert services.recommended_inventory_action(surface="reel", story_intent="") == "create_more_reels"
+
+    assert calls == [
+        (
+            "recommended_inventory_request_plan",
+            (),
+            {
+                "creator": "Stacey",
+                "target_count": 5,
+                "daily_plan": daily_plan,
+                "variant_inventory_plan": variant_inventory_plan,
+            },
+        ),
+        ("recommended_inventory_creator_row", (daily_plan, "Stacey"), {}),
+        ("recommended_inventory_existing_by_parent", (variant_inventory_plan,), {}),
+        ("recommended_inventory_variant_batch", ("asset_parent", variant_inventory_plan), {}),
+        ("recommended_inventory_action", (), {"surface": "reel", "story_intent": ""}),
+    ]
 
 
 def test_core_services_delegates_creator_os_draft_inventory_gap_to_repository(tmp_path) -> None:
