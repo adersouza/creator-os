@@ -446,6 +446,7 @@ class CoreServices:
             sanitize_for_storage=sanitize_for_storage,
             normalize_content_surface=normalize_content_surface,
             rendered_asset=self.rendered_asset,
+            record_event=self.events.record_event,
             distribution_plan_payload=distribution_plan_payload,
             audit_report_payload=audit_report_payload,
             latest_audit_for_asset=latest_audit_for_asset,
@@ -4992,6 +4993,31 @@ class CoreServices:
 
     def active_quarantine_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         return self.publishability.active_quarantine_for_asset(rendered_asset_id)
+
+    def quarantine_asset(
+        self,
+        rendered_asset_id: str,
+        *,
+        reason: str,
+        root_cause: str | None = None,
+        blocking_reason: str | None = None,
+        distribution_plan_id: str | None = None,
+        threadsdash_post_id: str | None = None,
+        created_by: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        return self.publishability.quarantine_asset(
+            rendered_asset_id,
+            reason=reason,
+            root_cause=root_cause,
+            blocking_reason=blocking_reason,
+            distribution_plan_id=distribution_plan_id,
+            threadsdash_post_id=threadsdash_post_id,
+            created_by=created_by,
+            metadata=metadata,
+            commit=commit,
+        )
 
     def verification_id(self, prefix: str, *parts: Any) -> str:
         return self.publishability.verification_id(prefix, *parts)

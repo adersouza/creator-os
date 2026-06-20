@@ -59,6 +59,7 @@ class PublishabilityRepository:
         sanitize_for_storage: Callable[[Any], Any],
         normalize_content_surface: Callable[[str | None], str],
         rendered_asset: Callable[[str], dict[str, Any]],
+        record_event: Callable[..., dict[str, Any]],
         distribution_plan_payload: Callable[[dict[str, Any]], dict[str, Any]],
         audit_report_payload: Callable[[dict[str, Any]], dict[str, Any]],
         latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
@@ -87,6 +88,7 @@ class PublishabilityRepository:
         self._sanitize_for_storage = sanitize_for_storage
         self._normalize_content_surface = normalize_content_surface
         self.rendered_asset = rendered_asset
+        self.record_event = record_event
         self._distribution_plan_payload = distribution_plan_payload
         self._audit_report_payload = audit_report_payload
         self._latest_audit_for_asset = latest_audit_for_asset
@@ -233,6 +235,73 @@ class PublishabilityRepository:
         except OSError:
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def quarantine_asset(
+        self,
+        rendered_asset_id: str,
+        *,
+        reason: str,
+        root_cause: str | None = None,
+        blocking_reason: str | None = None,
+        distribution_plan_id: str | None = None,
+        threadsdash_post_id: str | None = None,
+        created_by: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        commit: bool = True,
+    ) -> dict[str, Any]:
+        asset = self.rendered_asset(rendered_asset_id)
+        now = self._utc_now()
+        quarantine_id = f"qasset_{hashlib.sha256(rendered_asset_id.encode('utf-8')).hexdigest()[:12]}"
+        payload = self._sanitize_for_storage(metadata or {})
+        self.conn.execute(
+            """
+            INSERT INTO quarantined_assets
+            (id, campaign_id, rendered_asset_id, distribution_plan_id, threadsdash_post_id,
+             reason, root_cause, blocking_reason, excluded_from_metrics, metadata_json,
+             created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(rendered_asset_id) DO UPDATE SET
+              distribution_plan_id = COALESCE(excluded.distribution_plan_id, quarantined_assets.distribution_plan_id),
+              threadsdash_post_id = COALESCE(excluded.threadsdash_post_id, quarantined_assets.threadsdash_post_id),
+              reason = excluded.reason,
+              root_cause = excluded.root_cause,
+              blocking_reason = excluded.blocking_reason,
+              excluded_from_metrics = 1,
+              metadata_json = excluded.metadata_json,
+              created_by = excluded.created_by
+            """,
+            (
+                quarantine_id,
+                asset["campaign_id"],
+                rendered_asset_id,
+                distribution_plan_id,
+                threadsdash_post_id,
+                reason,
+                root_cause,
+                blocking_reason or reason,
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                now,
+                created_by,
+            ),
+        )
+        self.record_event(
+            "asset_quarantined",
+            campaign_id=asset["campaign_id"],
+            rendered_asset_id=rendered_asset_id,
+            status="failure",
+            message=f"Asset quarantined: {reason}",
+            metadata={
+                "reason": reason,
+                "rootCause": root_cause,
+                "blockingReason": blocking_reason or reason,
+                "distributionPlanId": distribution_plan_id,
+                "threadsdashPostId": threadsdash_post_id,
+            },
+            commit=False,
+        )
+        if commit:
+            self.conn.commit()
+        return self._active_quarantine_for_asset(rendered_asset_id) or {}
 
     def local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
         blocking = []
