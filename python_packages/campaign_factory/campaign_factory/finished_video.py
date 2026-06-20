@@ -37,6 +37,8 @@ class FinishedVideoRepository:
         ensure_graph_node: Callable[..., str],
         ensure_graph_edge: Callable[..., None],
         graph_id_for: Callable[..., str],
+        ensure_cost_table: Callable[[sqlite3.Connection], None],
+        record_ai_cost: Callable[..., str],
     ) -> None:
         self.conn = conn
         self.settings = settings
@@ -63,6 +65,8 @@ class FinishedVideoRepository:
         self._ensure_graph_node = ensure_graph_node
         self._ensure_graph_edge = ensure_graph_edge
         self._graph_id_for = graph_id_for
+        self._ensure_cost_table = ensure_cost_table
+        self._record_ai_cost = record_ai_cost
 
     def review_rendered_asset(
         self,
@@ -127,6 +131,51 @@ class FinishedVideoRepository:
             notes=notes,
             require_safe_audit=require_safe_audit,
         )
+
+    def record_lineage_costs(self, lineage: dict[str, Any]) -> None:
+        """Extract AI cost data from imported lineage and record it."""
+        try:
+            self._ensure_cost_table(self.conn)
+            lineage_hash = hashlib.sha256(
+                json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()[:24]
+            usage = lineage.get("usage")
+            if isinstance(usage, dict):
+                self._record_ai_cost(
+                    self.conn,
+                    provider="grok",
+                    operation="image_prompt",
+                    campaign_id=lineage.get("campaign"),
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                    metadata={"lineage_schema": lineage.get("schema"), "model": lineage.get("model")},
+                    source_event_key=f"lineage:{lineage_hash}:grok:image_prompt",
+                )
+            generation = lineage.get("generation")
+            if isinstance(generation, dict):
+                tool = generation.get("tool", "")
+                if "higgsfield" in tool or "soul" in tool:
+                    self._record_ai_cost(
+                        self.conn,
+                        provider="higgsfield",
+                        operation="soul_grid",
+                        campaign_id=lineage.get("campaign"),
+                        generations=1,
+                        metadata={"tool": tool, "modelProfile": generation.get("modelProfile")},
+                        source_event_key=f"lineage:{lineage_hash}:higgsfield:soul_grid",
+                    )
+                if "kling" in tool:
+                    self._record_ai_cost(
+                        self.conn,
+                        provider="kling",
+                        operation="video_animate",
+                        campaign_id=lineage.get("campaign"),
+                        generations=1,
+                        metadata={"tool": tool, "modelProfile": generation.get("modelProfile")},
+                        source_event_key=f"lineage:{lineage_hash}:kling:video_animate",
+                    )
+        except Exception:
+            pass  # Cost tracking is best-effort; never block the import pipeline
 
     def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
         pools = {

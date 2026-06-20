@@ -2042,7 +2042,11 @@ def test_core_services_delegates_finished_video_registration_review_methods_to_r
                 "campaign": kwargs["campaign_slug"],
             }
 
+        def record_lineage_costs(self, *args, **kwargs):
+            calls.append(("record_lineage_costs", args, kwargs))
+
     services.finished_video = FakeFinishedVideo()
+    lineage = {"schema": "lineage.v1"}
 
     assert services.review_rendered_asset("asset_1", decision="rejected", notes="no") == {
         "id": "asset_1",
@@ -2058,6 +2062,7 @@ def test_core_services_delegates_finished_video_registration_review_methods_to_r
         model_slug="stacey",
         caption="caption text",
     ) == {"schema": "campaign_factory.register_finished_video.v1", "campaign": "daily"}
+    assert services.record_lineage_costs(lineage) is None
 
     assert calls == [
         ("review_rendered_asset", ("asset_1",), {"decision": "rejected", "notes": "no", "require_safe_audit": False}),
@@ -2086,6 +2091,7 @@ def test_core_services_delegates_finished_video_registration_review_methods_to_r
                 "caption_placement_decision": None,
             },
         ),
+        ("record_lineage_costs", (lineage,), {}),
     ]
 
 
@@ -3959,6 +3965,10 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
             calls.append(("ensure_graph_edge", args, kwargs))
             return "edge_1"
 
+        def ensure_graph_edge_strict(self, *args, **kwargs):
+            calls.append(("ensure_graph_edge_strict", args, kwargs))
+            return "edge_strict_1"
+
         def set_graph_sync_state(self, *args, **kwargs):
             calls.append(("set_graph_sync_state", args, kwargs))
 
@@ -4667,6 +4677,129 @@ def test_core_services_delegates_graph_methods_to_graph_repository() -> None:
         ("graph_id_for", ("campaigns", "camp_1"), {"entity_type": "campaign", "payload": {"slug": "may"}}),
         ("ensure_graph_edge", ("node_1", "node_2", "contains"), {"evidence": {"ok": True}, "commit": True}),
         ("set_sync_state", ("threadsdash", {"cursor": "next"}), {}),
+    ]
+
+
+def test_core_services_strict_graph_edge_records_exception_for_missing_endpoint() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeGraph:
+        def ensure_graph_edge(self, *args, **kwargs):
+            calls.append(("ensure_graph_edge", args, kwargs))
+            return "edge_1"
+
+    class FakeExceptions:
+        def create_exception(self, *args, **kwargs):
+            calls.append(("create_exception", args, kwargs))
+            return {"id": "ex_1"}
+
+    services.graph = FakeGraph()
+    services.exceptions = FakeExceptions()
+    services._slugify = lambda value: str(value).strip().lower().replace(" ", "_")
+    services._sanitize_for_storage = lambda value: {"token": "<redacted>"} if value == {"token": "secret"} else value
+
+    assert services.ensure_graph_edge_strict(
+        None,
+        "to",
+        "needs review",
+        evidence={"token": "secret"},
+        campaign_id="camp_1",
+        account_id="acct_1",
+        recommendation_item_id="rec_1",
+        source_operation="Recommendation Sync",
+        commit=True,
+    ) is None
+
+    assert calls == [
+        ("create_exception", (), {
+            "reason_code": "graph_edge_missing_endpoint:recommendation_sync:needs_review:from_global_id",
+            "severity": "high",
+            "campaign_id": "camp_1",
+            "account_id": "acct_1",
+            "entity_graph_id": "to",
+            "recommendation_item_id": "rec_1",
+            "payload": {
+                "relationType": "needs review",
+                "sourceOperation": "Recommendation Sync",
+                "missing": ["from_global_id"],
+                "fromGlobalId": None,
+                "toGlobalId": "to",
+                "evidence": {"token": "<redacted>"},
+            },
+            "commit": True,
+        }),
+    ]
+
+
+def test_campaign_factory_strict_graph_edge_delegates_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def ensure_graph_edge_strict(self, *args, **kwargs):
+            calls.append(("ensure_graph_edge_strict", args, kwargs))
+            return "edge_strict_1"
+
+    factory.services = FakeServices()
+
+    assert factory.ensure_graph_edge_strict(
+        "from",
+        "to",
+        "references",
+        evidence={"api_key": "secret"},
+        campaign_id="camp_1",
+        account_id="acct_1",
+        recommendation_item_id="rec_1",
+        source_operation="recommendation sync",
+        commit=True,
+    ) == "edge_strict_1"
+
+    assert calls == [
+        ("ensure_graph_edge_strict", ("from", "to", "references"), {
+            "evidence": {"api_key": "secret"},
+            "campaign_id": "camp_1",
+            "account_id": "acct_1",
+            "recommendation_item_id": "rec_1",
+            "source_operation": "recommendation sync",
+            "commit": True,
+        }),
+    ]
+
+
+def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    lineage = {"schema": "lineage.v1"}
+    calls = []
+
+    class FakeServices:
+        def validate_instagram_trial_reel_intent(self, *args, **kwargs):
+            calls.append(("validate_instagram_trial_reel_intent", args, kwargs))
+            return "MANUAL"
+
+        def record_lineage_costs(self, *args, **kwargs):
+            calls.append(("record_lineage_costs", args, kwargs))
+
+    factory.services = FakeServices()
+
+    assert factory._validate_instagram_trial_reel_intent(
+        content_surface="reel",
+        distribution_surface="trial_reel",
+        media_type="video",
+        instagram_trial_reels=True,
+        trial_graduation_strategy="manual",
+    ) == "MANUAL"
+    assert factory._record_lineage_costs(lineage) is None
+
+    assert calls == [
+        ("validate_instagram_trial_reel_intent", (), {
+            "content_surface": "reel",
+            "distribution_surface": "trial_reel",
+            "media_type": "video",
+            "instagram_trial_reels": True,
+            "trial_graduation_strategy": "manual",
+        }),
+        ("record_lineage_costs", (lineage,), {}),
     ]
 
 
@@ -7540,6 +7673,10 @@ def test_core_services_delegates_distribution_methods_to_distribution_repository
             calls.append(("latest_distribution_plan_for_asset", args, kwargs))
             return {"renderedAssetId": args[0]}
 
+        def validate_instagram_trial_reel_intent(self, *args, **kwargs):
+            calls.append(("validate_instagram_trial_reel_intent", args, kwargs))
+            return "MANUAL"
+
     services.distribution = FakeDistribution()
 
     assert services.create_distribution_plan("asset_1", instagram_account_id="ig_1") == {"id": "dist_1"}
@@ -7554,6 +7691,13 @@ def test_core_services_delegates_distribution_methods_to_distribution_repository
     assert services.next_valid_distribution_slot([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []) == ("slot_1", 1)
     assert services.distribution_summary("may") == {"schema": "campaign_factory.distribution_summary.v1"}
     assert services.latest_distribution_plan_for_asset("asset_1") == {"renderedAssetId": "asset_1"}
+    assert services.validate_instagram_trial_reel_intent(
+        content_surface="reel",
+        distribution_surface="trial_reel",
+        media_type="video",
+        instagram_trial_reels=True,
+        trial_graduation_strategy="manual",
+    ) == "MANUAL"
 
     assert calls == [
         ("create_distribution_plan", ("asset_1",), {
@@ -7586,6 +7730,13 @@ def test_core_services_delegates_distribution_methods_to_distribution_repository
         ("next_valid_distribution_slot", ([], 0, "ig_1", {"id": "asset_1"}, {}, {}, {}, {}, []), {}),
         ("distribution_summary", ("may",), {}),
         ("latest_distribution_plan_for_asset", ("asset_1",), {}),
+        ("validate_instagram_trial_reel_intent", (), {
+            "content_surface": "reel",
+            "distribution_surface": "trial_reel",
+            "media_type": "video",
+            "instagram_trial_reels": True,
+            "trial_graduation_strategy": "manual",
+        }),
     ]
 
 

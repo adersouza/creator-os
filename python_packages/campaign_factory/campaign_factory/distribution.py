@@ -37,6 +37,9 @@ def _normalize_schedule_mode(value: str | None) -> str:
     return normalized if normalized in {"draft", "preview", "live"} else "draft"
 
 
+TRIAL_GRADUATION_STRATEGIES = {"MANUAL", "SS_PERFORMANCE"}
+
+
 class DistributionRepository:
     def __init__(
         self,
@@ -55,7 +58,7 @@ class DistributionRepository:
         fail_pipeline_job: Callable[..., dict[str, Any]],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
-        validate_instagram_trial_reel_intent: Callable[..., str | None],
+        ig_media_type_for_surface: Callable[[str, str], str],
         variant_lineage_for_asset: Callable[[str], dict[str, Any]],
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
@@ -76,7 +79,7 @@ class DistributionRepository:
         self._fail_pipeline_job = fail_pipeline_job
         self._rendered_for_campaign = rendered_for_campaign
         self._dashboard_rendered_asset = dashboard_rendered_asset
-        self._validate_instagram_trial_reel_intent = validate_instagram_trial_reel_intent
+        self._ig_media_type_for_surface = ig_media_type_for_surface
         self._variant_lineage_for_asset = variant_lineage_for_asset
         self._ranking = ranking
         self._dashboard = dashboard
@@ -109,7 +112,7 @@ class DistributionRepository:
             content_surface = "reel"
         if instagram_trial_reels and asset_content_surface != "reel":
             raise ValueError("Instagram Trial Reels require reel content")
-        normalized_strategy = self._validate_instagram_trial_reel_intent(
+        normalized_strategy = self.validate_instagram_trial_reel_intent(
             content_surface=content_surface,
             distribution_surface=distribution_surface,
             media_type=str(asset.get("media_type") or "video"),
@@ -193,6 +196,32 @@ class DistributionRepository:
         )
         self.conn.commit()
         return self.distribution_plan(plan_id) or {}
+
+    def validate_instagram_trial_reel_intent(
+        self,
+        *,
+        content_surface: str,
+        distribution_surface: str,
+        media_type: str,
+        instagram_trial_reels: bool,
+        trial_graduation_strategy: str | None,
+    ) -> str | None:
+        strategy = (trial_graduation_strategy or "").strip().upper() or None
+        if not instagram_trial_reels:
+            if strategy:
+                raise ValueError("trial_graduation_strategy requires instagram_trial_reels=true")
+            return None
+        if content_surface != "reel":
+            raise ValueError("Instagram Trial Reels require reel content")
+        ig_media_type = self._ig_media_type_for_surface(content_surface, media_type)
+        if ig_media_type != "REELS":
+            raise ValueError("Instagram Trial Reels require ig_media_type=REELS")
+        if not strategy:
+            raise ValueError("trial_graduation_strategy is required for Instagram Trial Reels")
+        if strategy not in TRIAL_GRADUATION_STRATEGIES:
+            allowed = ", ".join(sorted(TRIAL_GRADUATION_STRATEGIES))
+            raise ValueError(f"trial_graduation_strategy must be one of: {allowed}")
+        return strategy
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT * FROM distribution_plans WHERE id = ?", (plan_id,)).fetchone()

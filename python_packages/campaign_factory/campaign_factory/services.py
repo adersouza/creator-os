@@ -20,6 +20,7 @@ from .certification import CertificationRepository
 from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .core_complexity import CoreComplexityRepository
+from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_knowledge import CreativeKnowledgeRepository
 from .creator_os_drafts import CreatorOSDraftRepository
 from .creator_os_recommendations import CreatorOSRecommendationRepository
@@ -124,7 +125,6 @@ class CoreServices:
         requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
         ig_media_type_for_surface: Callable[[str, str], str],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
-        ensure_graph_edge_strict: Callable[..., str | None],
         performance_summary: Callable[[str], dict[str, Any]],
         recommend_audio: Callable[..., dict[str, Any]],
         select_audio_for_recommendation: Callable[..., dict[str, Any]],
@@ -143,7 +143,6 @@ class CoreServices:
         register_variant_asset: Callable[..., dict[str, Any]],
         suggest_simple_instagram_post_caption: Callable[..., str],
         text_hash: Callable[[str], str],
-        validate_instagram_trial_reel_intent: Callable[..., str | None],
         variant_lineage_for_asset: Callable[[str], dict[str, Any]],
         story_quality_gate_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         story_style_value: Callable[[dict[str, Any]], str | None],
@@ -396,6 +395,8 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
+            ensure_cost_table=ensure_cost_table,
+            record_ai_cost=record_ai_cost,
         )
         self.caption_family = CaptionFamilyRepository(
             conn,
@@ -478,7 +479,7 @@ class CoreServices:
             fail_pipeline_job=self.events.fail_pipeline_job,
             rendered_for_campaign=rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
-            validate_instagram_trial_reel_intent=validate_instagram_trial_reel_intent,
+            ig_media_type_for_surface=ig_media_type_for_surface,
             variant_lineage_for_asset=variant_lineage_for_asset,
             ranking=ranking,
             dashboard=dashboard,
@@ -618,7 +619,7 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
-            ensure_graph_edge_strict=ensure_graph_edge_strict,
+            ensure_graph_edge_strict=self.ensure_graph_edge_strict,
             record_event=self.events.record_event,
             performance_summary=performance_summary,
             ranking=ranking,
@@ -676,7 +677,7 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
-            ensure_graph_edge_strict=ensure_graph_edge_strict,
+            ensure_graph_edge_strict=self.ensure_graph_edge_strict,
             resolve_exception=self.exceptions.resolve_exception,
             performance_snapshot_payload=performance_snapshot_payload,
         )
@@ -1147,6 +1148,52 @@ class CoreServices:
             evidence=evidence,
             commit=commit,
         )
+
+    def ensure_graph_edge_strict(
+        self,
+        from_global_id: str | None,
+        to_global_id: str | None,
+        relation_type: str,
+        *,
+        evidence: dict[str, Any] | None = None,
+        campaign_id: str | None = None,
+        account_id: str | None = None,
+        recommendation_item_id: str | None = None,
+        source_operation: str = "content_graph",
+        commit: bool = False,
+    ) -> str | None:
+        if from_global_id and to_global_id:
+            return self.graph.ensure_graph_edge(
+                from_global_id,
+                to_global_id,
+                relation_type,
+                evidence=evidence,
+                commit=commit,
+            )
+        missing = []
+        if not from_global_id:
+            missing.append("from_global_id")
+        if not to_global_id:
+            missing.append("to_global_id")
+        reason_code = "graph_edge_missing_endpoint"
+        self.exceptions.create_exception(
+            reason_code=f"{reason_code}:{self._slugify(source_operation)}:{self._slugify(relation_type)}:{'_'.join(missing)}",
+            severity="high",
+            campaign_id=campaign_id,
+            account_id=account_id,
+            entity_graph_id=from_global_id or to_global_id,
+            recommendation_item_id=recommendation_item_id,
+            payload={
+                "relationType": relation_type,
+                "sourceOperation": source_operation,
+                "missing": missing,
+                "fromGlobalId": from_global_id,
+                "toGlobalId": to_global_id,
+                "evidence": self._sanitize_for_storage(evidence or {}),
+            },
+            commit=commit,
+        )
+        return None
 
     def set_graph_sync_state(self, system: str, cursor: dict[str, Any]) -> None:
         self.graph.set_sync_state(system, cursor)
@@ -3468,6 +3515,9 @@ class CoreServices:
             caption_placement_decision=caption_placement_decision,
         )
 
+    def record_lineage_costs(self, lineage: dict[str, Any]) -> None:
+        self.finished_video.record_lineage_costs(lineage)
+
     def caption_family_plan(
         self,
         *,
@@ -3569,6 +3619,23 @@ class CoreServices:
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
         return self.distribution.distribution_plan(plan_id)
+
+    def validate_instagram_trial_reel_intent(
+        self,
+        *,
+        content_surface: str,
+        distribution_surface: str,
+        media_type: str,
+        instagram_trial_reels: bool,
+        trial_graduation_strategy: str | None,
+    ) -> str | None:
+        return self.distribution.validate_instagram_trial_reel_intent(
+            content_surface=content_surface,
+            distribution_surface=distribution_surface,
+            media_type=media_type,
+            instagram_trial_reels=instagram_trial_reels,
+            trial_graduation_strategy=trial_graduation_strategy,
+        )
 
     def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         return self.distribution.distribution_plans_for_asset(rendered_asset_id)
