@@ -272,9 +272,9 @@ The Intelligence/Quality/Safety tracks above add **capability** — they lift ea
 | Part | Now | After Tracks S/I/Q + AP | What lifts it to ≥9 |
 |------|-----|--------------------------|----------------------|
 | **Reference Factory** | 6.6 | ~7.8 | Decompose `reference_intake.py` (2858 lines); kill dup `_caption_archetype` / latent KeyError (P1-4); ~80% test coverage on intake + pattern-card path; one declared, tested provider path (no Grok/Ollama doc drift). |
-| **Reel Factory** | 7.6 | ~8.3 | Fix `pyproject` module list (P0-1) → deterministic install; wrap Higgsfield/Kling in a tested adapter with recorded fixtures (failure modes handled, not hoped); golden-output tests for caption render + E2 still→MP4 (duration/pixel asserts). |
+| **Reel Factory** | 7.6 | ~9.0 | **Fixed:** packaging metadata is deterministic; Higgsfield/Kling calls are wrapped by tested adapter fixtures for completed, partial, quota, and timeout cases; golden tests cover prompt cleanup, caption rendering, E2 still→MP4 duration/geometry/sidecars, virality readiness, and zero-cost operator/configured-provider report sidecars. External model creativity remains a review/calibration variable, not an untested runtime path. |
 | **Campaign Factory** | 6.1 | ~9.0 | **Fixed:** `core.py` is now a `CampaignFactory` composition-root facade at 6,026 lines, down from ~26.7k. Repository modules own orchestration domains behind stable public signatures, lifecycle/export/performance tests cover the working path, and `test_campaign_factory_core_stays_composition_root_facade` blocks domain logic from creeping back into `core.py`. |
-| **ContentForge** | 7.0 | ~8.0 | Test `similarity/route.js` (1827 lines) + `pipeline.js` (P1-5 untested surface); calibration fixtures — known-collision & known-distinct media pairs asserting PDQ ≤31 / SSCD ≥0.75 hold (catches detector drift). |
+| **ContentForge** | 7.0 | ~9.0 | **Fixed:** `similarity/route.js` and pipeline safety surfaces are covered; Campaign Factory calibration fixtures pin response shape and blocking codes; PDQ/SSCD/TMK known-collision and known-distinct fixtures catch detector drift; Campaign Factory profile fails closed on unavailable or colliding PDQ/SSCD while default ContentForge audits remain advisory. |
 | **Autoposter (TD)** | 8.2 | ~9.0 | Land AP0–AP3 (merge ~16 branches, weave `publishInstagram.ts`, re-run CI) — already coded to 9-grade. For true 9: one integration test driving a fake Meta Graph through the full error taxonomy (transient/window_cap/permanent → retry/backoff/dead-letter) + account-health pause/resume loop. |
 | **Pipeline Contracts** | 6.7 | ~9.0 | **Fixed:** Python validators use `jsonschema` Draft 2020-12 over canonical schemas, TypeScript uses AJV 2020 over generated schemas, `pnpm check:contracts` enforces generated-schema freshness plus byte-for-byte compatibility mirrors, and the optional `THREADSDASH_ROOT` consumer test validates the real ThreadsDashboard contract snapshot when present. |
 
@@ -287,7 +287,7 @@ The Intelligence/Quality/Safety tracks above add **capability** — they lift ea
 ### Two ceilings code can't fully fix (state honestly, don't fake)
 
 - **Learning-loop data volume.** F v2 (median-norm + decay + Thompson) is a *better estimator*, not *more data*. Per-arm reward is small-n; reopen stochastic exploration after at least 50 Campaign Factory posts have both 1h and 24h metric-history rows.
-- **External-gen variance.** Higgsfield/Kling output quality isn't fully in our control. The tested adapter handles *failure*, not *creativity* — caps Reel Factory ~8.5 on the generation axis.
+- **External-gen variance.** Higgsfield/Kling output quality isn't fully in our control. The tested adapter handles *failure* and readiness gates catch low-quality evidence; creativity calibration remains owner-reviewed evidence, not autonomous trust.
 
 ### Suggested 9-grade sequence for Codex (dependency-safe)
 
