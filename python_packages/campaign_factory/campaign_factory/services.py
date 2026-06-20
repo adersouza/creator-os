@@ -42,6 +42,7 @@ from .models import ModelRepository
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
+from .performance_summary import PerformanceSummaryRepository
 from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
@@ -927,6 +928,11 @@ class CoreServices:
             active_quarantine_for_asset=active_quarantine_for_asset,
             utc_now=utc_now,
         )
+        self.performance_summary_repo = PerformanceSummaryRepository(
+            conn,
+            campaign_by_slug=self.campaign_by_slug,
+            slugify=slugify,
+        )
         self.certification = CertificationRepository(
             conn,
             creator_os_live_100_account_readiness=self.live_scale.creator_os_live_100_account_readiness,
@@ -1096,6 +1102,135 @@ class CoreServices:
 
     def compact_lifecycle_snapshot(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
         return self.lifecycle_reporting.compact_lifecycle_snapshot(snapshot)
+
+    def performance_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.performance_summary_repo.performance_summary(campaign_slug)
+
+    def caption_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
+        return self.performance_summary_repo.caption_outcome_report(campaign_slug)
+
+    def performance_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.performance_summary_repo.performance_for_asset(asset)
+
+    def performance_snapshot_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.performance_summary_repo.performance_snapshot_payload(row)
+
+    def group_performance(
+        self,
+        snapshots: list[dict[str, Any]],
+        key: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        return self.performance_summary_repo.group_performance(
+            snapshots,
+            key,
+            account_baselines=account_baselines,
+        )
+
+    def aggregate_performance(
+        self,
+        snapshots: list[dict[str, Any]],
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        return self.performance_summary_repo.aggregate_performance(
+            snapshots,
+            account_baselines=account_baselines,
+        )
+
+    def performance_metric_contract(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.performance_summary_repo.performance_metric_contract(row)
+
+    def default_performance_metric_names(self, surface: str) -> list[str]:
+        return self.performance_summary_repo.default_performance_metric_names(surface)
+
+    def performance_leaderboards(
+        self,
+        snapshots: list[dict[str, Any]],
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        return self.performance_summary_repo.performance_leaderboards(
+            snapshots,
+            account_baselines=account_baselines,
+        )
+
+    def caption_outcome_manual_review(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.performance_summary_repo.caption_outcome_manual_review(snapshots)
+
+    def has_caption_outcome_context(self, snapshot: dict[str, Any]) -> bool:
+        return self.performance_summary_repo.has_caption_outcome_context(snapshot)
+
+    def caption_outcome_snapshot_with_placement(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        return self.performance_summary_repo.caption_outcome_snapshot_with_placement(snapshot)
+
+    def caption_outcome_group(self, snapshots: list[dict[str, Any]], source_key: str, output_key: str) -> list[dict[str, Any]]:
+        return self.performance_summary_repo.caption_outcome_group(snapshots, source_key, output_key)
+
+    def caption_outcome_contexts_for_group(self, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.performance_summary_repo.caption_outcome_contexts_for_group(snapshots)
+
+    def add_leaderboard_snapshot(
+        self,
+        items: dict[str, dict[str, Any]],
+        key: str,
+        snapshot: dict[str, Any],
+        dimensions: dict[str, Any],
+    ) -> None:
+        return self.performance_summary_repo.add_leaderboard_snapshot(items, key, snapshot, dimensions)
+
+    def rank_leaderboard_entries(
+        self,
+        items: dict[str, dict[str, Any]],
+        *,
+        limit: int = 20,
+        account_baselines: dict[str, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.performance_summary_repo.rank_leaderboard_entries(
+            items,
+            limit=limit,
+            account_baselines=account_baselines,
+        )
+
+    def performance_recommendation_label(self, summary: dict[str, Any]) -> str:
+        return self.performance_summary_repo.performance_recommendation_label(summary)
+
+    def performance_quality_score(self, summary: dict[str, Any]) -> int | None:
+        return self.performance_summary_repo.performance_quality_score(summary)
+
+    def performance_planning_score(self, summary: dict[str, Any]) -> int | None:
+        return self.performance_summary_repo.performance_planning_score(summary)
+
+    def performance_snapshot_dimensions(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.performance_summary_repo.performance_snapshot_dimensions(row)
+
+    def performance_hook_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_hook_dimension(campaign_meta)
+
+    def performance_audio_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_audio_dimension(campaign_meta)
+
+    def performance_reference_format_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_reference_format_dimension(campaign_meta)
+
+    def performance_prompt_pattern_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_prompt_pattern_dimension(campaign_meta)
+
+    def performance_pattern_card_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_pattern_card_dimension(campaign_meta)
+
+    def performance_model_account_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_model_account_dimension(campaign_meta, row)
+
+    def performance_caption_formula_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_caption_formula_dimension(campaign_meta)
+
+    def performance_variation_preset_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_variation_preset_dimension(campaign_meta, row)
+
+    def performance_score(self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]) -> int | None:
+        return self.performance_summary_repo.performance_score(source=source, caption=caption, recipe=recipe)
 
     def creator_os_draft_inventory_gap(
         self,

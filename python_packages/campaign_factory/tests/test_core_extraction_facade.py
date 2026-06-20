@@ -42,6 +42,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.multi_blocker_unlock import MultiBlockerUnlockRepository
 from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
+from campaign_factory.performance_summary import PerformanceSummaryRepository
 from campaign_factory.publishability import PublishabilityRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
@@ -174,6 +175,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.contentforge_visual_qc.conn is factory.conn
         assert isinstance(factory.services.multi_blocker_unlock, MultiBlockerUnlockRepository)
         assert factory.services.multi_blocker_unlock.conn is factory.conn
+        assert isinstance(factory.services.performance_summary_repo, PerformanceSummaryRepository)
+        assert factory.services.performance_summary_repo.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -4788,6 +4791,180 @@ def test_core_services_delegates_lifecycle_reporting_methods_to_repository() -> 
         ("canonical_lifecycle_context", ({"render_recipe": None, "caption": "hello"},), {}),
         ("compact_lifecycle_post", (post,), {}),
         ("compact_lifecycle_snapshot", (snapshot,), {}),
+    ]
+
+
+def test_campaign_factory_delegates_performance_summary_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                if name == "add_leaderboard_snapshot":
+                    return None
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    factory.services = FakeServices()
+    snapshots = [{"renderedAssetId": "asset_1", "postId": "post_1"}]
+    row = {"raw_json": "{}", "content_surface": "reel"}
+    summary = {"count": 3, "totals": {"views": 100}, "rates": {"engagementRate": 0.05}}
+    source = {"count": 1}
+    caption = {"count": 1}
+    recipe = {"count": 1}
+    items = {}
+    campaign_meta = {"hook_key": "hook_1"}
+
+    assert factory.performance_summary("may")["method"] == "performance_summary"
+    assert factory.caption_outcome_report("may")["method"] == "caption_outcome_report"
+    assert factory._performance_for_asset({"id": "asset_1", "caption": "Hi", "source_asset_id": "src_1"})["method"] == "performance_for_asset"
+    assert factory._performance_snapshot_payload(row)["method"] == "performance_snapshot_payload"
+    assert factory._group_performance(snapshots, "renderedAssetId")["method"] == "group_performance"
+    assert factory._aggregate_performance(snapshots)["method"] == "aggregate_performance"
+    assert factory._performance_metric_contract(row)["method"] == "performance_metric_contract"
+    assert factory._default_performance_metric_names("reel")["method"] == "default_performance_metric_names"
+    assert factory._performance_leaderboards(snapshots)["method"] == "performance_leaderboards"
+    assert factory._caption_outcome_manual_review(snapshots)["method"] == "caption_outcome_manual_review"
+    assert factory._has_caption_outcome_context(snapshots[0])["method"] == "has_caption_outcome_context"
+    assert factory._caption_outcome_snapshot_with_placement(snapshots[0])["method"] == "caption_outcome_snapshot_with_placement"
+    assert factory._caption_outcome_group(snapshots, "captionBank", "captionBank")["method"] == "caption_outcome_group"
+    assert factory._caption_outcome_contexts_for_group(snapshots)["method"] == "caption_outcome_contexts_for_group"
+    assert factory._add_leaderboard_snapshot(items, "hook_1", snapshots[0], {"hook": {"key": "hook_1"}}) is None
+    assert factory._rank_leaderboard_entries(items)["method"] == "rank_leaderboard_entries"
+    assert factory._performance_recommendation_label(summary)["method"] == "performance_recommendation_label"
+    assert factory._performance_quality_score(summary)["method"] == "performance_quality_score"
+    assert factory._performance_planning_score(summary)["method"] == "performance_planning_score"
+    assert factory._performance_snapshot_dimensions(row)["method"] == "performance_snapshot_dimensions"
+    assert factory._performance_hook_dimension(campaign_meta)["method"] == "performance_hook_dimension"
+    assert factory._performance_audio_dimension(campaign_meta)["method"] == "performance_audio_dimension"
+    assert factory._performance_reference_format_dimension(campaign_meta)["method"] == "performance_reference_format_dimension"
+    assert factory._performance_prompt_pattern_dimension(campaign_meta)["method"] == "performance_prompt_pattern_dimension"
+    assert factory._performance_pattern_card_dimension(campaign_meta)["method"] == "performance_pattern_card_dimension"
+    assert factory._performance_model_account_dimension(campaign_meta, row)["method"] == "performance_model_account_dimension"
+    assert factory._performance_caption_formula_dimension(campaign_meta)["method"] == "performance_caption_formula_dimension"
+    assert factory._performance_variation_preset_dimension(campaign_meta, row)["method"] == "performance_variation_preset_dimension"
+    assert factory._performance_score(source=source, caption=caption, recipe=recipe)["method"] == "performance_score"
+
+    assert calls == [
+        ("performance_summary", ("may",), {}),
+        ("caption_outcome_report", ("may",), {}),
+        ("performance_for_asset", ({"id": "asset_1", "caption": "Hi", "source_asset_id": "src_1"},), {}),
+        ("performance_snapshot_payload", (row,), {}),
+        ("group_performance", (snapshots, "renderedAssetId"), {"account_baselines": None}),
+        ("aggregate_performance", (snapshots,), {"account_baselines": None}),
+        ("performance_metric_contract", (row,), {}),
+        ("default_performance_metric_names", ("reel",), {}),
+        ("performance_leaderboards", (snapshots,), {"account_baselines": None}),
+        ("caption_outcome_manual_review", (snapshots,), {}),
+        ("has_caption_outcome_context", (snapshots[0],), {}),
+        ("caption_outcome_snapshot_with_placement", (snapshots[0],), {}),
+        ("caption_outcome_group", (snapshots, "captionBank", "captionBank"), {}),
+        ("caption_outcome_contexts_for_group", (snapshots,), {}),
+        ("add_leaderboard_snapshot", (items, "hook_1", snapshots[0], {"hook": {"key": "hook_1"}}), {}),
+        ("rank_leaderboard_entries", (items,), {"limit": 20, "account_baselines": None}),
+        ("performance_recommendation_label", (summary,), {}),
+        ("performance_quality_score", (summary,), {}),
+        ("performance_planning_score", (summary,), {}),
+        ("performance_snapshot_dimensions", (row,), {}),
+        ("performance_hook_dimension", (campaign_meta,), {}),
+        ("performance_audio_dimension", (campaign_meta,), {}),
+        ("performance_reference_format_dimension", (campaign_meta,), {}),
+        ("performance_prompt_pattern_dimension", (campaign_meta,), {}),
+        ("performance_pattern_card_dimension", (campaign_meta,), {}),
+        ("performance_model_account_dimension", (campaign_meta, row), {}),
+        ("performance_caption_formula_dimension", (campaign_meta,), {}),
+        ("performance_variation_preset_dimension", (campaign_meta, row), {}),
+        ("performance_score", (), {"source": source, "caption": caption, "recipe": recipe}),
+    ]
+
+
+def test_core_services_delegates_performance_summary_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakePerformanceSummary:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                if name == "add_leaderboard_snapshot":
+                    return None
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    services.performance_summary_repo = FakePerformanceSummary()
+    snapshots = [{"renderedAssetId": "asset_1", "postId": "post_1"}]
+    row = {"raw_json": "{}", "content_surface": "reel"}
+    summary = {"count": 3, "totals": {"views": 100}, "rates": {"engagementRate": 0.05}}
+    source = {"count": 1}
+    caption = {"count": 1}
+    recipe = {"count": 1}
+    items = {}
+    campaign_meta = {"hook_key": "hook_1"}
+
+    assert services.performance_summary("may")["method"] == "performance_summary"
+    assert services.caption_outcome_report("may")["method"] == "caption_outcome_report"
+    assert services.performance_for_asset({"id": "asset_1", "caption": "Hi", "source_asset_id": "src_1"})["method"] == "performance_for_asset"
+    assert services.performance_snapshot_payload(row)["method"] == "performance_snapshot_payload"
+    assert services.group_performance(snapshots, "renderedAssetId")["method"] == "group_performance"
+    assert services.aggregate_performance(snapshots)["method"] == "aggregate_performance"
+    assert services.performance_metric_contract(row)["method"] == "performance_metric_contract"
+    assert services.default_performance_metric_names("reel")["method"] == "default_performance_metric_names"
+    assert services.performance_leaderboards(snapshots)["method"] == "performance_leaderboards"
+    assert services.caption_outcome_manual_review(snapshots)["method"] == "caption_outcome_manual_review"
+    assert services.has_caption_outcome_context(snapshots[0])["method"] == "has_caption_outcome_context"
+    assert services.caption_outcome_snapshot_with_placement(snapshots[0])["method"] == "caption_outcome_snapshot_with_placement"
+    assert services.caption_outcome_group(snapshots, "captionBank", "captionBank")["method"] == "caption_outcome_group"
+    assert services.caption_outcome_contexts_for_group(snapshots)["method"] == "caption_outcome_contexts_for_group"
+    assert services.add_leaderboard_snapshot(items, "hook_1", snapshots[0], {"hook": {"key": "hook_1"}}) is None
+    assert services.rank_leaderboard_entries(items)["method"] == "rank_leaderboard_entries"
+    assert services.performance_recommendation_label(summary)["method"] == "performance_recommendation_label"
+    assert services.performance_quality_score(summary)["method"] == "performance_quality_score"
+    assert services.performance_planning_score(summary)["method"] == "performance_planning_score"
+    assert services.performance_snapshot_dimensions(row)["method"] == "performance_snapshot_dimensions"
+    assert services.performance_hook_dimension(campaign_meta)["method"] == "performance_hook_dimension"
+    assert services.performance_audio_dimension(campaign_meta)["method"] == "performance_audio_dimension"
+    assert services.performance_reference_format_dimension(campaign_meta)["method"] == "performance_reference_format_dimension"
+    assert services.performance_prompt_pattern_dimension(campaign_meta)["method"] == "performance_prompt_pattern_dimension"
+    assert services.performance_pattern_card_dimension(campaign_meta)["method"] == "performance_pattern_card_dimension"
+    assert services.performance_model_account_dimension(campaign_meta, row)["method"] == "performance_model_account_dimension"
+    assert services.performance_caption_formula_dimension(campaign_meta)["method"] == "performance_caption_formula_dimension"
+    assert services.performance_variation_preset_dimension(campaign_meta, row)["method"] == "performance_variation_preset_dimension"
+    assert services.performance_score(source=source, caption=caption, recipe=recipe)["method"] == "performance_score"
+
+    assert calls == [
+        ("performance_summary", ("may",), {}),
+        ("caption_outcome_report", ("may",), {}),
+        ("performance_for_asset", ({"id": "asset_1", "caption": "Hi", "source_asset_id": "src_1"},), {}),
+        ("performance_snapshot_payload", (row,), {}),
+        ("group_performance", (snapshots, "renderedAssetId"), {"account_baselines": None}),
+        ("aggregate_performance", (snapshots,), {"account_baselines": None}),
+        ("performance_metric_contract", (row,), {}),
+        ("default_performance_metric_names", ("reel",), {}),
+        ("performance_leaderboards", (snapshots,), {"account_baselines": None}),
+        ("caption_outcome_manual_review", (snapshots,), {}),
+        ("has_caption_outcome_context", (snapshots[0],), {}),
+        ("caption_outcome_snapshot_with_placement", (snapshots[0],), {}),
+        ("caption_outcome_group", (snapshots, "captionBank", "captionBank"), {}),
+        ("caption_outcome_contexts_for_group", (snapshots,), {}),
+        ("add_leaderboard_snapshot", (items, "hook_1", snapshots[0], {"hook": {"key": "hook_1"}}), {}),
+        ("rank_leaderboard_entries", (items,), {"limit": 20, "account_baselines": None}),
+        ("performance_recommendation_label", (summary,), {}),
+        ("performance_quality_score", (summary,), {}),
+        ("performance_planning_score", (summary,), {}),
+        ("performance_snapshot_dimensions", (row,), {}),
+        ("performance_hook_dimension", (campaign_meta,), {}),
+        ("performance_audio_dimension", (campaign_meta,), {}),
+        ("performance_reference_format_dimension", (campaign_meta,), {}),
+        ("performance_prompt_pattern_dimension", (campaign_meta,), {}),
+        ("performance_pattern_card_dimension", (campaign_meta,), {}),
+        ("performance_model_account_dimension", (campaign_meta, row), {}),
+        ("performance_caption_formula_dimension", (campaign_meta,), {}),
+        ("performance_variation_preset_dimension", (campaign_meta, row), {}),
+        ("performance_score", (), {"source": source, "caption": caption, "recipe": recipe}),
     ]
 
 
