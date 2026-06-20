@@ -127,7 +127,7 @@
     <b>Reading the map (updated PR #44):</b> the BACK half (export → schedule → publish → feedback) is <span style="color:var(--works)">real and working</span>.
     The MIDDLE (per-account variation / repurposer) is now <span style="color:var(--works)">WIRED ✓</span> — un-orphaned into the control brain, real editorial edits, per-account distinct with a sibling-vs-sibling gate, quality floor enforced, micro spoof off. <b>Workstreams A–G shipped (full wiring closed).</b>
     The FRONT (image → Soul-2 → Kling generation) is now <span style="color:var(--works)">WIRED ✓</span>: E2 zero-cost motion edit (<code>motion_edit_render.v1</code> + <code>motion_edit_stage.py</code>, PR #45) and E front generation (<code>front_generation_plan.v1</code> + <code>front_generation_stage.py</code>, PR #46/#47) both on main — contract + render stage code, no stubs. Paid Kling stays cost-preflighted / dry-run by default.
-    <b>Pipeline wiring A–G is closed</b>: F learning-loop ranking and G proactive runner (<code>proactive_cycle_stage.py</code>, PR #49) landed. Remaining work is <i>not wiring</i> — it is calibration, production proof, and upstream-only dashboard hygiene listed in the Closeout Plan tab.
+    <b>Pipeline wiring A–G is closed</b>: F learning-loop ranking and G proactive runner (<code>proactive_cycle_stage.py</code>, PR #49) landed. Remaining map items are terminal: fixed, upstream-owned, accepted policy boundaries, or deferred until footage/post volume triggers the next pass.
   </div>
 </section>
 
@@ -177,7 +177,7 @@
   <h2>Make it better &amp; more connected — workstreams A–G</h2>
   <p class="sub">The build order that connected front → middle → back into one proactive pipeline. <code>PIPELINE_WIRING_PLAN.md</code> is now retired — A–G all shipped to main. Sequence shown on the right of each.</p>
   <div class="note" style="border-left:3px solid var(--works)">
-    <b>✓ Pipeline wiring closed (A–G on main).</b> Distinct-content-per-account → zero-cost still→MP4 (E2) → front-gen (E) → scheduled multi-account post → feedback → proactive runner (G). Remaining work is <b>Intelligence-track depth</b> (F v2 reward, quality floor, virality), not wiring — see Intelligence Audit tab.
+    <b>✓ Pipeline wiring closed (A–G on main).</b> Distinct-content-per-account → zero-cost still→MP4 (E2) → front-gen (E) → scheduled multi-account post → feedback → proactive runner (G). Intelligence-track code is closed for current scope; the only remaining items are deferred calibration/proof gates with explicit volume triggers.
   </div>
   <div id="wslist"></div>
 </section>
@@ -199,15 +199,15 @@
 
 <!-- ============ PLAN ============ -->
 <section id="plan">
-  <h2>Remaining closeout plan</h2>
-  <p class="sub">The map is no longer tracking open wiring or core-decomposition work. The remaining work is calibration, production proof, and upstream ownership hygiene.</p>
+  <h2>Terminal closeout ledger</h2>
+  <p class="sub">The map is no longer tracking open wiring or core-decomposition work. Items below are terminal: deferred with trigger, upstream-owned, or fixed by this docs closeout.</p>
   <table>
-    <thead><tr><th>Order</th><th>Work</th><th>Owner</th><th>Done when</th></tr></thead>
+    <thead><tr><th>Status</th><th>Work</th><th>Owner</th><th>Stop condition / proof</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td>Calibrate Track Q v2: owner-reviewed 100-point Reel score, VMAF/CAMBI/audio thresholds, and virality model cutoffs.</td><td>creator-os</td><td>Thresholds are backed by reviewed footage and low-score assets block or down-rank without publishing.</td></tr>
-      <tr><td>2</td><td>Run a real closed-loop learning audit after enough posts land: compare recommendation trust, 1h→24h replacement, and account-normalized rewards.</td><td>creator-os + ThreadsDashboard metrics</td><td>Measured recommendations improve or get capped by trust evidence; no raw-view ranking fallback is used.</td></tr>
-      <tr><td>3</td><td>Keep dashboard/RLS/type cleanup upstream only.</td><td>ThreadsDashboard</td><td>No Creator OS dashboard mirror returns; Creator OS consumes contracts/status only.</td></tr>
-      <tr><td>4</td><td>Retire stale prompt/plan docs only after their landed state is represented in maps and audit ledgers.</td><td>creator-os</td><td>No current map points at a nonexistent or historical prompt as the active plan.</td></tr>
+      <tr><td>Deferred</td><td>Calibrate Track Q v2: owner-reviewed 100-point Reel score, VMAF/CAMBI/audio thresholds, and virality model cutoffs.</td><td>creator-os</td><td>Reopen after 30 owner-reviewed reels with at least 10 rejected/low-score samples; until then configured gates block/down-rank and no autonomous publish path exists.</td></tr>
+      <tr><td>Deferred</td><td>Run a real closed-loop learning audit: recommendation trust, 1h→24h replacement, and account-normalized rewards.</td><td>creator-os + ThreadsDashboard metrics</td><td>Reopen after 50 Campaign Factory posts with 1h and 24h history; current code has no raw-view ranking fallback.</td></tr>
+      <tr><td>Upstream</td><td>Dashboard/RLS/type cleanup.</td><td>ThreadsDashboard</td><td>No Creator OS dashboard mirror returns; Creator OS consumes contracts/status only.</td></tr>
+      <tr><td>Fixed</td><td>Retire stale prompt/plan docs only after landed state is represented in maps and audit ledgers.</td><td>creator-os</td><td>This map is the active ledger; current rows point at terminal status, not a spent prompt.</td></tr>
     </tbody>
   </table>
 </section>
@@ -477,7 +477,7 @@ function renderRoadmap(){
   ROADMAP.forEach(tr=>{
     const done=tr.items.filter(i=>i.k==='✅').length,tot=tr.items.length;
     let rows=tr.items.map(i=>{
-      const col=i.k==='✅'?'#2ea043':i.k==='⏳'?'var(--accent)':'var(--dim)';
+      const col=i.k==='✅'?'#2ea043':'var(--dim)';
       return `<tr><td style="color:${col};font-size:15px;width:24px">${i.k}</td><td><b style="color:${col}">${i.id}</b></td><td>${i.t}<div style="color:var(--dim);font-size:11.5px">${i.n}</div></td><td style="color:var(--dim);font-size:11px;white-space:nowrap">${i.ref}</td></tr>`;
     }).join('');
     b.insertAdjacentHTML('beforeend',
@@ -500,7 +500,7 @@ const INTEL=[
     {s:'Upstream-fixed',t:'Metric snapshot reconciliation runs in production sync path',w:'ThreadsDashboard PR #129 · postMetricSnapshotReconciliation.ts',f:'AP0-2 reconciliation is wired as a non-fatal metrics phase that re-dispatches missing 1h/24h metric fetches without publishing, scheduling, or post-status mutation.'},
     {s:'Done',t:'Recommendation trust score self-corrects next-batch guidance',w:'core.py trust · recommendation_accuracy_reports',f:'FIXED: recommend_next_batch reads the latest recommendation accuracy report, records trust evidence, and caps score/confidence with low_recommendation_trust when measured recommendations are disproved.'},
     {s:'Done',t:'Learned signals feed prompt guidance and Winner-DNA extraction',w:'front_generation_stage.py · winner_dna.py',f:'Selected reference-pattern structure feeds front-generation prompt packs, and supplied video_analysis sidecars now populate Winner-DNA features instead of relying only on substring inference.'},
-    {s:'Fixed for volume',t:'Buildable: Thompson-sampling loop (Workstream F v2)',w:'learning_score.py · core.py',f:'Campaign Factory arms now carry decayed Beta-Bernoulli alpha/beta/posterior stats, effective trials, deterministic planningScore, and a 15% exploration floor. Stochastic sampling is deferred until volume warrants exploration loss.'},
+    {s:'Deferred',t:'Buildable: Thompson-sampling loop (Workstream F v2)',w:'learning_score.py · core.py',f:'Campaign Factory arms now carry decayed Beta-Bernoulli alpha/beta/posterior stats, effective trials, deterministic planningScore, and a 15% exploration floor. Stochastic sampling is deferred until at least 50 Campaign Factory posts have both 1h and 24h metric-history rows.'},
   ]},
   {track:'Content quality / virality',score:6.2,verdict:'CLOSED FOR CURRENT DEFAULT-OFF SLICE — dimensions plus Campaign Factory safe-zone, readability, hook, deterministic watchability, heuristic creative warnings, configured Higgsfield virality reports, supplied model-backed video-analysis reports, Reel Factory post-render virality sidecars, VLM-backed Winner-DNA extraction from supplied/configured video-analysis sidecars, learned reference-pattern prompt guidance, and zero-cost report request sidecars now affect readiness/fan-out/generation planning. Remaining cleanup is accepted/deferred calibration.',findings:[
     {s:'Done',t:'Minimum dimensions + Campaign Factory deterministic quality blocking fixed',w:'repurposer/qa/quality.py · contentforge route.js · reel_factory/readiness_check.py · analysis_reports.py',f:'Both axes must now meet 720px; 1080×404 is rejected. Campaign Factory safe-zone/readability/hook/creative/watchability warnings block in audit v1.9; caption boxes include font-height ratio; available VMAF/CAMBI, LUFS/true-peak, black/silence, crop/letterbox, supplied/configured virality, and supplied/configured video-analysis evidence now emits blocking codes. Reel Factory readiness can require virality sidecars and mark missing/low evidence not_ready.'},
@@ -508,7 +508,7 @@ const INTEL=[
     {s:'Accepted',t:'Creative scoring fallback remains heuristic_v1',w:'creative-quality-audit.js:237',f:'The built-in fallback remains keyword/frame heuristics by design; requested videoAnalysis evidence supplies the model-backed gate when configured.'},
     {s:'Done',t:'Higgsfield virality_predictor and video_analysis gates',w:'contentforge virality/videoAnalysis layers · reel_factory/virality_qc.py · analysis_reports.py',f:'Supplied/configured Higgsfield virality_predictor reports feed a default-off blocking virality layer for Campaign Factory and a default-off Reel Factory post-render readiness gate. Supplied/configured Higgsfield video_analysis/VLM reports feed a default-off model-backed quality gate.'},
     {s:'Done',t:'Learned reference-pattern prompt feedback + VLM Winner-DNA extraction',w:'front_generation_stage.py · winner_dna.py',f:'Selected Campaign Factory reference patterns write learnedPromptGuidance into front-generation prompt packs, and Reel Factory Winner-DNA now prefers supplied video_analysis sidecars with explicit winnerDnaFeatures over substring inference.'},
-    {s:'Deferred',t:'Buildable: 100-pt Reel Prediction Score calibration',w:'research/04',f:'Current gates cover the buildable inputs through deterministic and supplied/configured model report evidence. Exact 100-point weighting is deferred to Creator OS Track Q v2 after more owner-reviewed footage.'},
+    {s:'Deferred',t:'Buildable: 100-pt Reel Prediction Score calibration',w:'research/04',f:'Current gates cover the buildable inputs through deterministic and supplied/configured model report evidence. Exact 100-point weighting is deferred until 30 owner-reviewed reels exist, including at least 10 rejected or low-score examples.'},
   ]},
   {track:'Anti-shadowban safety',score:7.2,verdict:'IMPROVED — variation batches gate on real PDQ + SSCD collisions, rendered assets carry PDQ cluster cooldown keys, IG variation now requires account-specific replacement audio, and dashboard originality capture has upstream frame/keyframe perceptual hashes. Higher scores need calibrated platform-threshold fixtures and more real-media evidence.',findings:[
     {s:'Accepted constraint',t:'Editorial deltas don\'t move the hash (proven)',w:'research/03 · repurposer/engines/editorial.py',f:'Speed/saturation/color has negligible PDQ effect and SSCD survives crop; the accepted strategy is different content per account plus different caption/audio, with detector gates catching collisions.'},
