@@ -97,6 +97,7 @@
   <button data-tab="handoffs">Handoffs</button>
   <button data-tab="improve">Make It Better (A–G)</button>
   <button data-tab="coupling">Static Coupling</button>
+  <button data-tab="plan">Closeout Plan</button>
 </nav>
 <main>
 
@@ -126,14 +127,14 @@
     <b>Reading the map (updated PR #44):</b> the BACK half (export → schedule → publish → feedback) is <span style="color:var(--works)">real and working</span>.
     The MIDDLE (per-account variation / repurposer) is now <span style="color:var(--works)">WIRED ✓</span> — un-orphaned into the control brain, real editorial edits, per-account distinct with a sibling-vs-sibling gate, quality floor enforced, micro spoof off. <b>Workstreams A–G shipped (full wiring closed).</b>
     The FRONT (image → Soul-2 → Kling generation) is now <span style="color:var(--works)">WIRED ✓</span>: E2 zero-cost motion edit (<code>motion_edit_render.v1</code> + <code>motion_edit_stage.py</code>, PR #45) and E front generation (<code>front_generation_plan.v1</code> + <code>front_generation_stage.py</code>, PR #46/#47) both on main — contract + render stage code, no stubs. Paid Kling stays cost-preflighted / dry-run by default.
-    <b>Pipeline wiring A–G is closed</b>: F learning-loop seam v1 (ranking, PR #48) and G proactive runner (<code>proactive_cycle_stage.py</code>, PR #49) landed. What remains is <i>not wiring</i> — it's Intelligence-track depth (F v2 Thompson reward, real quality floor + virality) tracked in INTELLIGENCE_AUDIT.md.
+    <b>Pipeline wiring A–G is closed</b>: F learning-loop ranking and G proactive runner (<code>proactive_cycle_stage.py</code>, PR #49) landed. Remaining work is <i>not wiring</i> — it is calibration, production proof, and upstream-only dashboard hygiene listed in the Closeout Plan tab.
   </div>
 </section>
 
 <!-- ============ ROADMAP ============ -->
 <section id="roadmap">
   <h2>Roadmap — where the whole system is</h2>
-  <p class="sub">Three tracks of work, one view. Build order is dependency-driven: connect → make reliable → make intelligent → make autonomous. ✅ shipped · ⏳ next · ◻ pending.</p>
+  <p class="sub">Three tracks of work, one view. Build order was dependency-driven: connect → make reliable → make intelligent → make autonomous. Current tracked items are shipped or explicitly deferred; see Closeout Plan for the remaining proof work.</p>
   <div id="roadmap-board"></div>
   <div class="note" style="border-left:3px solid var(--accent)">
     <b>The thesis:</b> shipped work so far is the <b>nervous system</b> — distinct content per account, quality-gated, reliably scheduled, with feedback that returns. "Smart" arrives at <b>F</b> (learning loop) and <b>G</b> (autonomy), sequenced last <i>on purpose</i> — they can't learn until the lower layers produce real, complete cycles. AP0-2 (reliable feedback) + A–D (real per-account variation to measure) are F's preconditions, now in place.
@@ -194,6 +195,21 @@
   <table class="matrix"><thead><tr><th>Component</th><th>Nodes</th><th>Files</th></tr></thead><tbody id="rollrows"></tbody></table>
   <h2 style="font-size:14px;margin-top:24px">Cross-component static imports (top, directed)</h2>
   <table class="matrix"><thead><tr><th>From</th><th>To</th><th>Edges</th><th>Meaning</th></tr></thead><tbody id="crossrows"></tbody></table>
+</section>
+
+<!-- ============ PLAN ============ -->
+<section id="plan">
+  <h2>Remaining closeout plan</h2>
+  <p class="sub">The map is no longer tracking open wiring or core-decomposition work. The remaining work is calibration, production proof, and upstream ownership hygiene.</p>
+  <table>
+    <thead><tr><th>Order</th><th>Work</th><th>Owner</th><th>Done when</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Calibrate Track Q v2: owner-reviewed 100-point Reel score, VMAF/CAMBI/audio thresholds, and virality model cutoffs.</td><td>creator-os</td><td>Thresholds are backed by reviewed footage and low-score assets block or down-rank without publishing.</td></tr>
+      <tr><td>2</td><td>Run a real closed-loop learning audit after enough posts land: compare recommendation trust, 1h→24h replacement, and account-normalized rewards.</td><td>creator-os + ThreadsDashboard metrics</td><td>Measured recommendations improve or get capped by trust evidence; no raw-view ranking fallback is used.</td></tr>
+      <tr><td>3</td><td>Keep dashboard/RLS/type cleanup upstream only.</td><td>ThreadsDashboard</td><td>No Creator OS dashboard mirror returns; Creator OS consumes contracts/status only.</td></tr>
+      <tr><td>4</td><td>Retire stale prompt/plan docs only after their landed state is represented in maps and audit ledgers.</td><td>creator-os</td><td>No current map points at a nonexistent or historical prompt as the active plan.</td></tr>
+    </tbody>
+  </table>
 </section>
 
 </main>
@@ -260,7 +276,7 @@ const WORKSTREAMS=[
    why:'Wires the existing generation primitive (GAP 2) into the brain. The canonical image-driven flow — NOT the legacy Grok text translator.'},
   {id:'F',title:'Intelligence layer — close the learning loop',status:'half',seq:'6 — v1 landed (PR #48)',
    what:'LANDED (PR #48+): ranks reference-patterns + variation-presets from performance_snapshots with normalized reward, 21d recency decay, confidence shrinkage, explicit unmeasured state, and decayed Beta-Bernoulli planning stats with a 15% exploration floor. Stochastic Thompson sampling is deferred until volume warrants exploration loss.',
-   why:'Feedback is stored (performance_snapshots) but didn’t steer the next cycle. Now it ranks; next make the reward normalized + decayed + explore-aware.'},
+   why:'Feedback is stored and now steers the next cycle through normalized, decayed, confidence-aware ranking with an exploration floor. Stochastic exploration waits for enough volume to justify it.'},
   {id:'G',title:'Proactive autonomous cycles',status:'done',seq:'7 — ✓ PR #49',
    what:'Draft-first proactive cycle runner: pick target (F-driven) → select generation mode (Mode A/B per budget) → plan variation/export/schedule intent → write guarded run report. Budget governor, kill-switch, idempotency, and safe dry-run sub-actions are in place.',
    why:'Makes the pipeline initiate work itself within hard budget + safety gates. Last — it orchestrates everything above.'},
