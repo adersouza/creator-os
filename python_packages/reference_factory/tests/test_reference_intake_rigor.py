@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 from reference_factory.db import connect
+from reference_factory.prompt_records import (
+    find_prompt_record,
+    read_jsonl_records,
+    record_reference_id,
+    write_jsonl_records,
+)
 from reference_factory.public_metrics import _prompt_card_from_post
 from reference_factory.reference_intake import (
     _build_image_prompt_json_from_analysis,
@@ -248,6 +254,21 @@ def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(tmp_path: Pat
     assert _find_prompt_record(loaded, "ref_a") == records[0]
     assert "exactly three columns and two rows" in compiled["soul_id_2x3_prompt"]
     assert _read_jsonl_records(tmp_path / "missing.jsonl") == []
+
+
+def test_prompt_record_helpers_are_stable_outside_reference_intake(tmp_path: Path) -> None:
+    path = tmp_path / "records" / "prompts.jsonl"
+    records = [{"sourceReferenceId": "ref_a", "prompt": "one"}, {"referenceId": "ref_b", "prompt": "two"}]
+
+    write_jsonl_records(path, records)
+    loaded = read_jsonl_records(path)
+
+    assert loaded == records
+    assert read_jsonl_records(tmp_path / "missing.jsonl") == []
+    assert record_reference_id(loaded[0]) == "ref_a"
+    assert record_reference_id(loaded[1]) == "ref_b"
+    assert find_prompt_record(loaded, "ref_b") == records[1]
+    assert find_prompt_record(loaded, "missing") is None
 
 
 def test_compiled_prompt_validation_blocks_unsafe_or_incomplete_output() -> None:

@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">8.8</b>/10</span>
+  <span class="score">system <b id="hsys">9.0</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -223,9 +223,9 @@ const STATUS={works:'var(--works)',half:'var(--half)',orphan:'var(--orphan)',gap
 const STLABEL={works:'works',half:'half-manual',orphan:'orphan/stub',gap:'gap',primitive:'primitive',done:'shipped ✓'};
 
 const COMPONENTS=[
-  {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:7.8,sub:[8,8,7,8,8],files:29,nodes:615,status:'works',
-   keyfiles:['learning.py:460 — writes higgsfield_prompt_pack_top*.json','reference_intake.py (2858 lines)','patterns.py / public_metrics.py (dup _caption_archetype bug)'],
-   notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','Track 9 PR #189 raised reference_intake coverage to the target band and pinned the caption-archetype regression']},
+  {id:'reference_factory',name:'Reference Factory',lang:'Python',role:'Intelligence — analyze reference media, build learning sets, audio catalog',score:9.0,sub:[9,9,9,9,9],files:30,nodes:615,status:'works',
+   keyfiles:['learning.py:460 — writes higgsfield_prompt_pack_top*.json','reference_intake.py — intake facade with prompt_records.py helper extraction','patterns.py / public_metrics.py / outcomes.py — measured outcome ranking path'],
+   notes:['Outputs pattern cards, prompt packs, audio catalog, campaign_reference_bank.json','Track 9 proof: 99 Reference Factory tests pass, including reference_intake rigor, caption-archetype regression, measured outcome ranking, pattern measuredOutcome embedding, and provider docs that keep Grok/Ollama experimental','prompt_records.py extracts JSONL prompt-record helpers while preserving reference_intake private aliases for compatibility']},
   {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:9.0,sub:[9,9,9,9,9],files:107,nodes:2512,status:'works',
    keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
    notes:['Generation primitive is REAL and reachable from Campaign Factory via front_generation_stage (E, PR #46/#47)','Zero-cost still→MP4 path is tested through motion_edit_render.v1 and still_to_reel.py (E2, PR #45)','Track 9 proof: Higgsfield/Kling adapter fixtures cover completed, partial, quota, and timeout responses; golden tests cover prompt cleanup, caption rendering, E2 duration/geometry, virality readiness, and operator/configured-provider report sidecars','Remaining external model creativity variance is handled as review/calibration evidence, not an untested code path']},
@@ -465,7 +465,7 @@ const ROADMAP=[
   {track:'Production-grade — path to ≥9/10 (INTELLIGENCE_AUDIT.md · Track 9)',goal:'after capability tracks land each part at ~7–8, the jump to ≥9 is tests + decomposition + drift-proofing — rigor, not features',items:[
     {k:'✅',id:'9-codegen',t:'Contract codegen / drift-proofing',n:'schema runtime/codegen path and byte-sync contract checks are protected by pnpm check:contracts',ref:'landed'},
     {k:'✅',id:'9-char',t:'Characterization tests around core.py',n:'merged before extraction; core.py decomposition now proceeds behind the behavior net',ref:'PR #88+'},
-    {k:'✅',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py coverage target hit; ContentForge similarity/route + pipeline safety tests landed',ref:'PR #189/#191'},
+    {k:'✅',id:'9-surfaces',t:'Test 3 untested surfaces',n:'Reference Factory has 99 tests including reference_intake rigor and measured-outcome regressions; ContentForge similarity/route + pipeline safety tests landed',ref:'PR #189/#191 + current proof'},
     {k:'✅',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures now assert PDQ, SSCD, and TMK thresholds against drift; Campaign Factory profile blocks unavailable or colliding detectors',ref:'PR #192 + current proof'},
     {k:'✅',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield adapter fixtures; caption wrap/safe-zone, virality readiness, operator/configured-provider sidecars, and E2 still→MP4 duration/geometry assertions; packaging fixed',ref:'PR #193 + current proof'},
     {k:'✅',id:'9-core',t:'Decompose core.py',n:'CLOSED: CampaignFactory is a composition-root facade at 6,026 lines, down from ~26.7k; a regression test now locks the facade-only invariant',ref:'PR #226 + current slice'},

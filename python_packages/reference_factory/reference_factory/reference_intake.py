@@ -14,6 +14,12 @@ from typing import Any
 
 from .db import json_dump, json_load
 from .identity import stable_id
+from .prompt_records import (
+    find_prompt_record as _find_prompt_record,
+    read_jsonl_records as _read_jsonl_records,
+    record_reference_id as _record_reference_id,
+    write_jsonl_records as _write_jsonl_records,
+)
 from .scan import scan_source
 from .timeutil import now_iso
 
@@ -2726,32 +2732,6 @@ def _normalize_compiled_prompt_set(compiled: dict[str, Any]) -> dict[str, Any]:
             prompt += " No extra panels."
         compiled["soul_id_2x3_prompt"] = prompt
     return compiled
-
-
-def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            records.append(json.loads(line))
-    return records
-
-
-def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in records), encoding="utf-8")
-
-
-def _record_reference_id(record: dict[str, Any]) -> str:
-    return str(record.get("sourceReferenceId") or record.get("referenceId") or "")
-
-
-def _find_prompt_record(records: list[dict[str, Any]], reference_id: str) -> dict[str, Any] | None:
-    for record in records:
-        if _record_reference_id(record) == reference_id:
-            return record
-    return None
 
 
 def _grok_prompt_builder(job: dict[str, Any], *, prompt_style: str = "imageat") -> str:
