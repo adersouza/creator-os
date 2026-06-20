@@ -2802,6 +2802,10 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
             calls.append(("active_quarantine_for_asset", args, kwargs))
             return {"rendered_asset_id": args[0]}
 
+        def quarantine_asset(self, *args, **kwargs):
+            calls.append(("quarantine_asset", args, kwargs))
+            return {"id": "qasset_1", "rendered_asset_id": args[0]}
+
         def verification_id(self, *args, **kwargs):
             calls.append(("verification_id", args, kwargs))
             return "proof_abc123"
@@ -2867,6 +2871,17 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
     assert factory._local_export_readiness({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}) == {"state": "ready"}
     assert factory._latest_audit_for_asset("asset_1") == {"id": "asset_1", "overallVerdict": "pass"}
     assert factory._active_quarantine_for_asset("asset_1") == {"rendered_asset_id": "asset_1"}
+    assert factory.quarantine_asset(
+        "asset_1",
+        reason="operator_quarantine",
+        root_cause="qc_failure",
+        blocking_reason="caption_quality",
+        distribution_plan_id="plan_1",
+        threadsdash_post_id="post_1",
+        created_by="operator",
+        metadata={"source": "test"},
+        commit=False,
+    ) == {"id": "qasset_1", "rendered_asset_id": "asset_1"}
     assert factory._verification_id("proof", "asset_1") == "proof_abc123"
     assert factory._text_hash("Caption") == "hash_caption"
     assert factory._instagram_post_caption_for_asset({"id": "asset_1"}, {}, distribution_plan={"id": "plan_1"}) == {
@@ -2930,6 +2945,16 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
         ("local_export_readiness", ({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}), {}),
         ("latest_audit_for_asset", ("asset_1",), {}),
         ("active_quarantine_for_asset", ("asset_1",), {}),
+        ("quarantine_asset", ("asset_1",), {
+            "reason": "operator_quarantine",
+            "root_cause": "qc_failure",
+            "blocking_reason": "caption_quality",
+            "distribution_plan_id": "plan_1",
+            "threadsdash_post_id": "post_1",
+            "created_by": "operator",
+            "metadata": {"source": "test"},
+            "commit": False,
+        }),
         ("verification_id", ("proof", "asset_1"), {}),
         ("text_hash", ("Caption",), {}),
         ("instagram_post_caption_for_asset", ({"id": "asset_1"}, {}), {"distribution_plan": {"id": "plan_1"}}),
@@ -3001,6 +3026,10 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
             calls.append(("active_quarantine_for_asset", args, kwargs))
             return {"rendered_asset_id": args[0]}
 
+        def quarantine_asset(self, *args, **kwargs):
+            calls.append(("quarantine_asset", args, kwargs))
+            return {"id": "qasset_1", "rendered_asset_id": args[0]}
+
         def verification_id(self, *args, **kwargs):
             calls.append(("verification_id", args, kwargs))
             return "proof_abc123"
@@ -3066,6 +3095,17 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
     assert services.local_export_readiness({"id": "asset_1"}, None) == {"state": "ready"}
     assert services.latest_audit_for_asset("asset_1") == {"id": "asset_1", "overallVerdict": "pass"}
     assert services.active_quarantine_for_asset("asset_1") == {"rendered_asset_id": "asset_1"}
+    assert services.quarantine_asset(
+        "asset_1",
+        reason="operator_quarantine",
+        root_cause="qc_failure",
+        blocking_reason="caption_quality",
+        distribution_plan_id="plan_1",
+        threadsdash_post_id="post_1",
+        created_by="operator",
+        metadata={"source": "test"},
+        commit=False,
+    ) == {"id": "qasset_1", "rendered_asset_id": "asset_1"}
     assert services.verification_id("proof", "asset_1") == "proof_abc123"
     assert services.text_hash("Caption") == "hash_caption"
     assert services.instagram_post_caption_for_asset({"id": "asset_1"}, {}, distribution_plan={"id": "plan_1"}) == {
@@ -3109,6 +3149,16 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
         ("local_export_readiness", ({"id": "asset_1"}, None), {}),
         ("latest_audit_for_asset", ("asset_1",), {}),
         ("active_quarantine_for_asset", ("asset_1",), {}),
+        ("quarantine_asset", ("asset_1",), {
+            "reason": "operator_quarantine",
+            "root_cause": "qc_failure",
+            "blocking_reason": "caption_quality",
+            "distribution_plan_id": "plan_1",
+            "threadsdash_post_id": "post_1",
+            "created_by": "operator",
+            "metadata": {"source": "test"},
+            "commit": False,
+        }),
         ("verification_id", ("proof", "asset_1"), {}),
         ("text_hash", ("Caption",), {}),
         ("instagram_post_caption_for_asset", ({"id": "asset_1"}, {}), {"distribution_plan": {"id": "plan_1"}}),
