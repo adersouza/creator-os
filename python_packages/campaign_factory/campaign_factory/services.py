@@ -9,6 +9,7 @@ from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
 from .archive_quality import ArchiveQualityRepository
 from .asset_import import AssetImportRepository
+from .audio_recommendations import AudioRecommendationRepository
 from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
@@ -114,6 +115,7 @@ class CoreServices:
         ensure_graph_edge_strict: Callable[..., str | None],
         performance_summary: Callable[[str], dict[str, Any]],
         recommend_audio: Callable[..., dict[str, Any]],
+        select_audio_for_recommendation: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
@@ -933,6 +935,20 @@ class CoreServices:
             campaign_by_slug=self.campaign_by_slug,
             slugify=slugify,
         )
+        self.audio_recommendations = AudioRecommendationRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            campaign_by_slug=self.campaign_by_slug,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            record_event=self.events.record_event,
+            recommendation_item_row=self.recommendations.recommendation_item_row,
+            reference_pattern_payload=self.reference.reference_pattern_payload,
+            select_audio_for_recommendation=select_audio_for_recommendation,
+        )
         self.certification = CertificationRepository(
             conn,
             creator_os_live_100_account_readiness=self.live_scale.creator_os_live_100_account_readiness,
@@ -1231,6 +1247,174 @@ class CoreServices:
 
     def performance_score(self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]) -> int | None:
         return self.performance_summary_repo.performance_score(source=source, caption=caption, recipe=recipe)
+
+    def import_audio_catalog(self, catalog_path: Path) -> dict[str, Any]:
+        return self.audio_recommendations.import_audio_catalog(catalog_path)
+
+    def import_audio_memory(self, catalog_path: Path) -> dict[str, Any]:
+        return self.audio_recommendations.import_audio_memory(catalog_path)
+
+    def audio_catalog(self, platform: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return self.audio_recommendations.audio_catalog(platform=platform, limit=limit)
+
+    def audio_memory(self, platform: str | None = None, account: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return self.audio_recommendations.audio_memory(platform=platform, account=account, limit=limit)
+
+    def recommend_audio(
+        self,
+        *,
+        platform: str = "instagram",
+        content_tags: list[str] | None = None,
+        account_tags: list[str] | None = None,
+        campaign_slug: str | None = None,
+        recommendation_item_id: str | None = None,
+        account: str | None = None,
+        visual_signal: dict[str, Any] | None = None,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.recommend_audio(
+            platform=platform,
+            content_tags=content_tags,
+            account_tags=account_tags,
+            campaign_slug=campaign_slug,
+            recommendation_item_id=recommendation_item_id,
+            account=account,
+            visual_signal=visual_signal,
+            limit=limit,
+        )
+
+    def decide_audio(
+        self,
+        *,
+        platform: str = "instagram",
+        campaign_slug: str | None = None,
+        recommendation_item_id: str | None = None,
+        account: str | None = None,
+        content_tags: list[str] | None = None,
+        account_tags: list[str] | None = None,
+        visual_signal: dict[str, Any] | None = None,
+        limit: int = 5,
+        select: bool = False,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.decide_audio(
+            platform=platform,
+            campaign_slug=campaign_slug,
+            recommendation_item_id=recommendation_item_id,
+            account=account,
+            content_tags=content_tags,
+            account_tags=account_tags,
+            visual_signal=visual_signal,
+            limit=limit,
+            select=select,
+            operator=operator,
+        )
+
+    def decide_audio_from_recommendations(
+        self,
+        recommendations: list[dict[str, Any]],
+        *,
+        requested_platform: str = "instagram",
+        content_tags: list[str] | None = None,
+        account_tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.decide_audio_from_recommendations(
+            recommendations,
+            requested_platform=requested_platform,
+            content_tags=content_tags,
+            account_tags=account_tags,
+        )
+
+    def audio_decision_score(self, item: dict[str, Any], *, requested_platform: str) -> tuple[float, list[str], list[str]]:
+        return self.audio_recommendations.audio_decision_score(item, requested_platform=requested_platform)
+
+    def audio_decision_confidence(self, primary: dict[str, Any] | None) -> str:
+        return self.audio_recommendations.audio_decision_confidence(primary)
+
+    def audio_when_to_use(self, item: dict[str, Any], risks: list[str]) -> str:
+        return self.audio_recommendations.audio_when_to_use(item, risks)
+
+    def audio_when_not_to_use(self, item: dict[str, Any], risks: list[str]) -> str:
+        return self.audio_recommendations.audio_when_not_to_use(item, risks)
+
+    def audio_operator_instruction(self, primary: dict[str, Any] | None) -> str:
+        return self.audio_recommendations.audio_operator_instruction(primary)
+
+    def is_generic_audio_title(self, title: str, platform: str | None = None) -> bool:
+        return self.audio_recommendations.is_generic_audio_title(title, platform)
+
+    def audio_catalog_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        return self.audio_recommendations.audio_catalog_payload(row)
+
+    def audio_performance_summary(
+        self,
+        item: dict[str, Any],
+        *,
+        campaign_id: str | None = None,
+        account: str | None = None,
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.audio_performance_summary(item, campaign_id=campaign_id, account=account)
+
+    def audio_fatigue_summary(
+        self,
+        item: dict[str, Any],
+        *,
+        campaign_id: str | None = None,
+        account: str | None = None,
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.audio_fatigue_summary(item, campaign_id=campaign_id, account=account)
+
+    def audio_key(self, item: dict[str, Any]) -> str:
+        return self.audio_recommendations.audio_key(item)
+
+    def score_audio_catalog_item(self, item: dict[str, Any], tags: set[str], accounts: set[str]) -> tuple[float, list[str]]:
+        return self.audio_recommendations.score_audio_catalog_item(item, tags, accounts)
+
+    def score_audio_catalog_item_v2(
+        self,
+        item: dict[str, Any],
+        tags: set[str],
+        accounts: set[str],
+        *,
+        account: str | None = None,
+    ) -> tuple[float, list[str], dict[str, float], str]:
+        return self.audio_recommendations.score_audio_catalog_item_v2(item, tags, accounts, account=account)
+
+    def audio_trend_component(self, item: dict[str, Any]) -> float:
+        return self.audio_recommendations.audio_trend_component(item)
+
+    def audio_velocity_component(self, item: dict[str, Any]) -> float:
+        return self.audio_recommendations.audio_velocity_component(item)
+
+    def audio_performance_component(self, item: dict[str, Any]) -> float:
+        return self.audio_recommendations.audio_performance_component(item)
+
+    def audio_account_fit_component(self, item: dict[str, Any], accounts: set[str]) -> float:
+        return self.audio_recommendations.audio_account_fit_component(item, accounts)
+
+    def audio_creator_fit_component(self, item: dict[str, Any], tags: set[str]) -> float:
+        return self.audio_recommendations.audio_creator_fit_component(item, tags)
+
+    def audio_fatigue_safety_component(self, item: dict[str, Any]) -> float:
+        return self.audio_recommendations.audio_fatigue_safety_component(item)
+
+    def audio_recommendation_confidence(self, item: dict[str, Any], components: dict[str, float]) -> str:
+        return self.audio_recommendations.audio_recommendation_confidence(item, components)
+
+    def latest_audio_trend_snapshot_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+        return self.audio_recommendations.latest_audio_trend_snapshot_payload(item)
+
+    def audio_memory_trust_summary(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.audio_recommendations.audio_memory_trust_summary(items)
+
+    def contentforge_audio_fit_for_item(self, item: dict[str, Any], tags: set[str], *, visual_signal: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        return self.audio_recommendations.contentforge_audio_fit_for_item(item, tags, visual_signal=visual_signal)
+
+    def audio_catalog_recommendation(self, item: dict[str, Any]) -> dict[str, Any]:
+        return self.audio_recommendations.audio_catalog_recommendation(item)
+
+    def norm_tag(self, value: Any) -> str:
+        return self.audio_recommendations.norm_tag(value)
 
     def creator_os_draft_inventory_gap(
         self,
