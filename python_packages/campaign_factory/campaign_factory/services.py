@@ -20,6 +20,7 @@ from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .core_complexity import CoreComplexityRepository
 from .creative_knowledge import CreativeKnowledgeRepository
+from .creator_os_recommendations import CreatorOSRecommendationRepository
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
 from .discoverability import DiscoverabilityRepository
@@ -168,6 +169,9 @@ class CoreServices:
         creator_os_blocked_account_breakdown: Callable[[list[dict[str, Any]]], dict[str, int]],
         creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
         recommendation_explainability: Callable[..., dict[str, Any]],
+        build_creative_performance_analysis: Callable[..., dict[str, Any]],
+        first_lineage_value: Callable[..., str],
+        surface_from_pattern: Callable[[dict[str, Any], dict[str, Any]], str],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
@@ -842,6 +846,13 @@ class CoreServices:
             creator_os_gap_blocking_reason=creator_os_gap_blocking_reason,
             utc_now=utc_now,
         )
+        self.creator_os_recommendations = CreatorOSRecommendationRepository(
+            creator_label=creator_label,
+            build_creative_performance_analysis=build_creative_performance_analysis,
+            first_lineage_value=first_lineage_value,
+            surface_from_pattern=surface_from_pattern,
+            recommendation_explainability=recommendation_explainability,
+        )
         self.daily_plan = DailyPlanRepository(
             conn,
             creator_label=creator_label,
@@ -860,11 +871,11 @@ class CoreServices:
             creator_os_surface_summary_for_creator=creator_os_surface_summary_for_creator,
             creator_os_inventory_for_creator=creator_os_inventory_for_creator,
             creator_os_draft_exclusion_counts=creator_os_draft_exclusion_counts,
-            creator_os_winner_recommendations=creator_os_winner_recommendations,
+            creator_os_winner_recommendations=self.creator_os_recommendations.creator_os_winner_recommendations,
             creator_os_manager_decision=creator_os_manager_decision,
             creator_os_blocked_account_breakdown=creator_os_blocked_account_breakdown,
             recommended_story_intent_for_date=recommended_story_intent_for_date,
-            creator_os_recommended_inventory=creator_os_recommended_inventory,
+            creator_os_recommended_inventory=self.creator_os_recommendations.creator_os_recommended_inventory,
             recommended_story_style_for_intent=recommended_story_style_for_intent,
             creator_os_draft_inventory_gap=self.draft_inventory_gap.creator_os_draft_inventory_gap,
             utc_now=utc_now,
@@ -1599,6 +1610,21 @@ class CoreServices:
             date=date,
             generated_at=generated_at,
         )
+
+    def creator_os_winner_recommendations(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.creator_os_recommendations.creator_os_winner_recommendations(**kwargs)
+
+    def creator_os_winner_action(self, value: Any) -> str:
+        return self.creator_os_recommendations.creator_os_winner_action(value)
+
+    def creator_os_best_rollup_family(self, variant_metrics_rollup: dict[str, Any]) -> dict[str, Any] | None:
+        return self.creator_os_recommendations.creator_os_best_rollup_family(variant_metrics_rollup)
+
+    def creator_os_recommended_inventory(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.creator_os_recommendations.creator_os_recommended_inventory(**kwargs)
+
+    def creator_os_lineage_posting_window(self, pattern: dict[str, Any]) -> str:
+        return self.creator_os_recommendations.creator_os_lineage_posting_window(pattern)
 
     def recommended_inventory_request_plan(
         self,

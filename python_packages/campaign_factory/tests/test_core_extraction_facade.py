@@ -20,6 +20,7 @@ from campaign_factory.contentforge_visual_qc import ContentForgeVisualQCReposito
 from campaign_factory.core import CampaignFactory
 from campaign_factory.core_complexity import CoreComplexityRepository
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
+from campaign_factory.creator_os_recommendations import CreatorOSRecommendationRepository
 from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
 from campaign_factory.discoverability import DiscoverabilityRepository
@@ -116,6 +117,7 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.carousel_integrity.conn is factory.conn
         assert isinstance(factory.services.winner_expansion, WinnerExpansionRepository)
         assert factory.services.winner_expansion.conn is factory.conn
+        assert isinstance(factory.services.creator_os_recommendations, CreatorOSRecommendationRepository)
         assert isinstance(factory.services.recommended_inventory_request, RecommendedInventoryRequestRepository)
         assert isinstance(factory.services.creative_knowledge, CreativeKnowledgeRepository)
         assert factory.services.creative_knowledge.conn is factory.conn
@@ -3380,6 +3382,126 @@ def test_core_services_delegates_recommended_inventory_request_to_repository() -
         ("recommended_inventory_existing_by_parent", (variant_inventory_plan,), {}),
         ("recommended_inventory_variant_batch", ("asset_parent", variant_inventory_plan), {}),
         ("recommended_inventory_action", (), {"surface": "reel", "story_intent": ""}),
+    ]
+
+
+def test_campaign_factory_delegates_creator_os_recommendation_helpers_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_winner_recommendations(self, *args, **kwargs):
+            calls.append(("creator_os_winner_recommendations", args, kwargs))
+            return [{"recommendedAction": "generate_more_variants"}]
+
+        def creator_os_winner_action(self, *args, **kwargs):
+            calls.append(("creator_os_winner_action", args, kwargs))
+            return "generate_more_variants"
+
+        def creator_os_best_rollup_family(self, *args, **kwargs):
+            calls.append(("creator_os_best_rollup_family", args, kwargs))
+            return {"variantFamilyId": "vfam_1"}
+
+        def creator_os_recommended_inventory(self, *args, **kwargs):
+            calls.append(("creator_os_recommended_inventory", args, kwargs))
+            return [{"surface": "reel"}]
+
+        def creator_os_lineage_posting_window(self, *args, **kwargs):
+            calls.append(("creator_os_lineage_posting_window", args, kwargs))
+            return "6pm"
+
+    factory.services = FakeServices()
+    winner_report = {"schema": "campaign_factory.winner_expansion_report.v1"}
+    winner_plan = {"schema": "campaign_factory.winner_expansion_plan.v1"}
+    variant_rollup = {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+    pattern = {"lineage": {"postingWindows": ["6pm"]}}
+
+    assert factory._creator_os_winner_recommendations(
+        creator="Stacey",
+        inventory_shortfall=4,
+        variant_available=1,
+        winner_expansion_report=winner_report,
+        winner_expansion_plan=winner_plan,
+        variant_metrics_rollup=variant_rollup,
+    ) == [{"recommendedAction": "generate_more_variants"}]
+    assert factory._creator_os_winner_action("create_more_variants") == "generate_more_variants"
+    assert factory._creator_os_best_rollup_family(variant_rollup) == {"variantFamilyId": "vfam_1"}
+    assert factory._creator_os_recommended_inventory(creator="Stacey", limit=3) == [{"surface": "reel"}]
+    assert factory._creator_os_lineage_posting_window(pattern) == "6pm"
+
+    assert calls == [
+        ("creator_os_winner_recommendations", (), {
+            "creator": "Stacey",
+            "inventory_shortfall": 4,
+            "variant_available": 1,
+            "winner_expansion_report": winner_report,
+            "winner_expansion_plan": winner_plan,
+            "variant_metrics_rollup": variant_rollup,
+        }),
+        ("creator_os_winner_action", ("create_more_variants",), {}),
+        ("creator_os_best_rollup_family", (variant_rollup,), {}),
+        ("creator_os_recommended_inventory", (), {"creator": "Stacey", "limit": 3}),
+        ("creator_os_lineage_posting_window", (pattern,), {}),
+    ]
+
+
+def test_core_services_delegates_creator_os_recommendation_helpers_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreatorOSRecommendations:
+        def creator_os_winner_recommendations(self, *args, **kwargs):
+            calls.append(("creator_os_winner_recommendations", args, kwargs))
+            return [{"recommendedAction": "generate_more_variants"}]
+
+        def creator_os_winner_action(self, *args, **kwargs):
+            calls.append(("creator_os_winner_action", args, kwargs))
+            return "generate_more_variants"
+
+        def creator_os_best_rollup_family(self, *args, **kwargs):
+            calls.append(("creator_os_best_rollup_family", args, kwargs))
+            return {"variantFamilyId": "vfam_1"}
+
+        def creator_os_recommended_inventory(self, *args, **kwargs):
+            calls.append(("creator_os_recommended_inventory", args, kwargs))
+            return [{"surface": "reel"}]
+
+        def creator_os_lineage_posting_window(self, *args, **kwargs):
+            calls.append(("creator_os_lineage_posting_window", args, kwargs))
+            return "6pm"
+
+    services.creator_os_recommendations = FakeCreatorOSRecommendations()
+    winner_report = {"schema": "campaign_factory.winner_expansion_report.v1"}
+    winner_plan = {"schema": "campaign_factory.winner_expansion_plan.v1"}
+    variant_rollup = {"schema": "campaign_factory.variant_metrics_rollup.v1"}
+    pattern = {"lineage": {"postingWindows": ["6pm"]}}
+
+    assert services.creator_os_winner_recommendations(
+        creator="Stacey",
+        inventory_shortfall=4,
+        variant_available=1,
+        winner_expansion_report=winner_report,
+        winner_expansion_plan=winner_plan,
+        variant_metrics_rollup=variant_rollup,
+    ) == [{"recommendedAction": "generate_more_variants"}]
+    assert services.creator_os_winner_action("create_more_variants") == "generate_more_variants"
+    assert services.creator_os_best_rollup_family(variant_rollup) == {"variantFamilyId": "vfam_1"}
+    assert services.creator_os_recommended_inventory(creator="Stacey", limit=3) == [{"surface": "reel"}]
+    assert services.creator_os_lineage_posting_window(pattern) == "6pm"
+
+    assert calls == [
+        ("creator_os_winner_recommendations", (), {
+            "creator": "Stacey",
+            "inventory_shortfall": 4,
+            "variant_available": 1,
+            "winner_expansion_report": winner_report,
+            "winner_expansion_plan": winner_plan,
+            "variant_metrics_rollup": variant_rollup,
+        }),
+        ("creator_os_winner_action", ("create_more_variants",), {}),
+        ("creator_os_best_rollup_family", (variant_rollup,), {}),
+        ("creator_os_recommended_inventory", (), {"creator": "Stacey", "limit": 3}),
+        ("creator_os_lineage_posting_window", (pattern,), {}),
     ]
 
 
