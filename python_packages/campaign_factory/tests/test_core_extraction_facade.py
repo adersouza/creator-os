@@ -11215,8 +11215,179 @@ def test_core_services_delegates_export_summary_methods_to_repository() -> None:
     ]
 
 
-def test_audit_report_facade_delegates_to_audit_payload_module(monkeypatch) -> None:
+def test_campaign_factory_delegates_core_utility_methods_to_services() -> None:
     factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def campaign_dirs(self, *args, **kwargs):
+            calls.append(("campaign_dirs", args, kwargs))
+            return {"root": Path("/tmp/campaign")}
+
+        def list_campaigns(self, *args, **kwargs):
+            calls.append(("list_campaigns", args, kwargs))
+            return [{"slug": "may"}]
+
+        def rendered_for_campaign(self, *args, **kwargs):
+            calls.append(("rendered_for_campaign", args, kwargs))
+            return [{"id": "rendered_1"}]
+
+        def ratio(self, *args, **kwargs):
+            calls.append(("ratio", args, kwargs))
+            return 0.5
+
+        def score_fraction(self, *args, **kwargs):
+            calls.append(("score_fraction", args, kwargs))
+            return 5.0
+
+        def road_to_accounts_payload(self, *args, **kwargs):
+            calls.append(("road_to_accounts_payload", args, kwargs))
+            return {"schema": "creator_os.road_to_25_accounts.v1"}
+
+        def wilson_lower_bound(self, *args, **kwargs):
+            calls.append(("wilson_lower_bound", args, kwargs))
+            return 0.42
+
+        def creator_label(self, *args, **kwargs):
+            calls.append(("creator_label", args, kwargs))
+            return "Stacey"
+
+        def truthy(self, *args, **kwargs):
+            calls.append(("truthy", args, kwargs))
+            return True
+
+        def surface_from_pattern(self, *args, **kwargs):
+            calls.append(("surface_from_pattern", args, kwargs))
+            return "story"
+
+        def first_lineage_value(self, *args, **kwargs):
+            calls.append(("first_lineage_value", args, kwargs))
+            return "lineage_value"
+
+        def audit_report(self, *args, **kwargs):
+            calls.append(("audit_report", args, kwargs))
+            return {"id": "audit_1"}
+
+        def audit_report_payload(self, *args, **kwargs):
+            calls.append(("audit_report_payload", args, kwargs))
+            return {"id": "audit_2"}
+
+    factory.services = FakeServices()
+
+    assert factory.campaign_dirs("model-a", "may") == {"root": Path("/tmp/campaign")}
+    assert factory.list_campaigns() == [{"slug": "may"}]
+    assert factory.rendered_for_campaign("camp_1") == [{"id": "rendered_1"}]
+    assert factory._ratio(1, 2) == 0.5
+    assert factory._score_fraction(1, 2) == 5.0
+    assert factory._road_to_accounts_payload(accounts=25, production={"postsPerDay": 8}) == {
+        "schema": "creator_os.road_to_25_accounts.v1",
+    }
+    assert factory._wilson_lower_bound(successes=4, trials=10, z=1.0) == 0.42
+    assert factory._creator_label("stacey") == "Stacey"
+    assert factory._truthy("yes") is True
+    assert factory._surface_from_pattern({"dimension": "storyIntent"}, {}) == "story"
+    assert factory._first_lineage_value({"keys": ["lineage_value"]}, "keys", fallback="fallback") == "lineage_value"
+    assert factory.audit_report("audit_1") == {"id": "audit_1"}
+    assert factory._audit_report_payload({"id": "audit_2"}) == {"id": "audit_2"}
+
+    assert calls == [
+        ("campaign_dirs", ("model-a", "may"), {}),
+        ("list_campaigns", (), {}),
+        ("rendered_for_campaign", ("camp_1",), {}),
+        ("ratio", (1, 2), {}),
+        ("score_fraction", (1, 2), {}),
+        ("road_to_accounts_payload", (), {"accounts": 25, "production": {"postsPerDay": 8}}),
+        ("wilson_lower_bound", (), {"successes": 4, "trials": 10, "z": 1.0}),
+        ("creator_label", ("stacey",), {}),
+        ("truthy", ("yes",), {}),
+        ("surface_from_pattern", ({"dimension": "storyIntent"}, {}), {}),
+        ("first_lineage_value", ({"keys": ["lineage_value"]}, "keys"), {"fallback": "fallback"}),
+        ("audit_report", ("audit_1",), {}),
+        ("audit_report_payload", ({"id": "audit_2"},), {}),
+    ]
+
+
+def test_core_services_core_utility_methods_preserve_behavior(tmp_path) -> None:
+    services = object.__new__(CoreServices)
+    services.settings = type("SettingsStub", (), {"campaigns_dir": tmp_path / "campaigns"})()
+    execute_calls = []
+
+    class FakeCursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+    class FakeConn:
+        def execute(self, query, params=()):
+            execute_calls.append((query, params))
+            if "FROM campaigns" in query:
+                return FakeCursor([{"slug": "may"}])
+            if "FROM rendered_assets" in query:
+                return FakeCursor([{"id": "rendered_1"}])
+            raise AssertionError(query)
+
+    services.conn = FakeConn()
+
+    dirs = services.campaign_dirs("model-a", "may")
+    assert list(dirs) == ["root", "sources", "reel_inputs", "rendered", "audits", "approved", "exports"]
+    assert dirs["sources"] == tmp_path / "campaigns" / "model-a" / "may" / "00_sources"
+    assert all(path.exists() for path in dirs.values())
+    assert services.list_campaigns() == [{"slug": "may"}]
+    assert services.rendered_for_campaign("camp_1") == [{"id": "rendered_1"}]
+    assert execute_calls == [
+        ("SELECT * FROM campaigns ORDER BY updated_at DESC", ()),
+        ("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", ("camp_1",)),
+    ]
+
+    assert services.ratio(1, 2) == 0.5
+    assert services.ratio(1, 0) == 0
+    assert services.score_fraction(2, 4) == 5.0
+    assert services.score_fraction(8, 4) == 10.0
+    assert services.score_fraction(1, 0) == 0.0
+    assert services.road_to_accounts_payload(
+        accounts=25,
+        production={
+            "postsPerDay": 8,
+            "requiredValidatedDraftsPerDay": 10,
+            "requiredParentsPerDay": 3,
+            "requiredCaptionFamiliesPerDay": 2,
+            "requiredVariantsPerDay": 6,
+        },
+    ) == {
+        "schema": "creator_os.road_to_25_accounts.v1",
+        "accounts": 25,
+        "requiredInventoryBuffer": "24 schedule-safe drafts",
+        "requiredDailyProduction": "8 schedule-safe drafts/day",
+        "requiredValidatedDrafts": "10 validated drafts/day",
+        "requiredParentAssetsPerDay": 3,
+        "requiredCaptionFamiliesPerDay": 2,
+        "requiredVariantsPerDay": 6,
+        "requiredExceptionRate": "<=2.0% inventory-blocking exceptions",
+        "requiredOperatorLoad": "<=25 inventory exceptions/day per operator queue",
+        "wouldWrite": False,
+    }
+    assert services.wilson_lower_bound(successes=0, trials=0) == 0.0
+    assert round(services.wilson_lower_bound(successes=4, trials=10, z=1.0), 3) == 0.261
+    assert services.creator_label("") == "unknown"
+    assert services.creator_label("stacey") == "Stacey"
+    assert services.truthy(True) is True
+    assert services.truthy(None) is False
+    assert services.truthy("on") is True
+    assert services.truthy("off") is False
+    assert services.surface_from_pattern({"dimension": "contentSurface", "key": "feed_single"}, {}) == "feed_single"
+    assert services.surface_from_pattern({"dimension": "captionAngle"}, {"contentSurfaces": ["story"]}) == "story"
+    assert services.surface_from_pattern({"dimension": "storyIntent"}, {}) == "story"
+    assert services.surface_from_pattern({"dimension": "captionAngle"}, {}) == "reel"
+    assert services.first_lineage_value({"angles": ["mirror"]}, "angles", fallback="fallback") == "mirror"
+    assert services.first_lineage_value({"angles": []}, "angles", fallback="fallback") == "fallback"
+
+
+def test_core_services_audit_report_delegates_to_audit_payload_module(monkeypatch) -> None:
+    services = object.__new__(CoreServices)
+    factory = object.__new__(CampaignFactory)
+    services.factory_context = factory
     calls = []
 
     def fake_audit_report(self, audit_report_id):
@@ -11230,8 +11401,8 @@ def test_audit_report_facade_delegates_to_audit_payload_module(monkeypatch) -> N
     monkeypatch.setattr(audit_payload, "audit_report", fake_audit_report)
     monkeypatch.setattr(audit_payload, "_audit_report_payload", fake_payload)
 
-    assert factory.audit_report("audit_1") == {"id": "audit_1"}
-    assert factory._audit_report_payload({"id": "audit_2"}) == {"id": "audit_2"}
+    assert services.audit_report("audit_1") == {"id": "audit_1"}
+    assert services.audit_report_payload({"id": "audit_2"}) == {"id": "audit_2"}
     assert calls == [
         ("audit", factory, "audit_1"),
         ("payload", factory, {"id": "audit_2"}),
