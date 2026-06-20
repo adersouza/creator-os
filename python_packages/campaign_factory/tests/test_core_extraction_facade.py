@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 from campaign_factory import audit_payload, exports
@@ -206,8 +207,39 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.inventory_reservations.conn is factory.conn
         assert isinstance(factory.services.campaign_overview, CampaignOverviewRepository)
         assert factory.services.campaign_overview.conn is factory.conn
+        assert factory.services.variant_lineage._performance_snapshot_payload.__self__ is factory.services
+        assert factory.services.variant_lineage._aggregate_performance.__self__ is factory.services
+        assert factory.services.account_memory._performance_snapshot_payload.__self__ is factory.services
+        assert factory.services.account_memory._account_reward_baselines.__self__ is factory.services
+        assert factory.services.account_memory._aggregate_performance.__self__ is factory.services
+        assert factory.services.account_memory._performance_quality_score.__self__ is factory.services
+        assert factory.services.campaign_overview._performance_for_asset.__self__ is factory.services
+        assert factory.services.account_planning._performance_for_asset.__self__ is factory.services
+        assert factory.services.account_planning._performance_quality_score.__self__ is factory.services
+        assert factory.services.recommendations.performance_summary.__self__ is factory.services
+        assert factory.services.recommendations._performance_snapshot_payload.__self__ is factory.services
+        assert factory.services.recommendations._account_reward_baselines.__self__ is factory.services
+        assert factory.services.recommendations._aggregate_performance.__self__ is factory.services
+        assert factory.services.recommendations._performance_quality_score.__self__ is factory.services
+        assert factory.services.recommendations._performance_planning_score.__self__ is factory.services
+        assert factory.services.audio_operations._performance_snapshot_payload.__self__ is factory.services
+        assert factory.services.lifecycle_reporting._performance_snapshot_payload.__self__ is factory.services
     finally:
         factory.close()
+
+
+def test_core_services_constructor_owns_performance_helper_seams() -> None:
+    params = inspect.signature(CoreServices).parameters
+    for name in [
+        "performance_summary",
+        "performance_snapshot_payload",
+        "account_reward_baselines",
+        "aggregate_performance",
+        "performance_quality_score",
+        "performance_planning_score",
+        "performance_for_asset",
+    ]:
+        assert name not in params
 
 
 def test_archive_quality_facade_delegates_to_core_services() -> None:

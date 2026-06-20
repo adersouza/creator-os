@@ -42,6 +42,7 @@ from .inventory_planning import InventoryPlanningRepository
 from .inventory_perceptual import InventoryPerceptualRepository
 from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
+from .learning_score import account_reward_baselines as _account_reward_baselines
 from .lifecycle_reporting import LifecycleReportingRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
@@ -124,7 +125,6 @@ class CoreServices:
         requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
         ig_media_type_for_surface: Callable[[str, str], str],
         surface_handoff_readiness_report: Callable[..., dict[str, Any]],
-        performance_summary: Callable[[str], dict[str, Any]],
         recommend_audio: Callable[..., dict[str, Any]],
         select_audio_for_recommendation: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
@@ -186,15 +186,9 @@ class CoreServices:
         latest_surface_metric_for_asset: Callable[[str, str], dict[str, Any] | None],
         empty_surface_certification_audit: Callable[[str], dict[str, Any]],
         surface_certification_audit: Callable[..., dict[str, Any]],
-        performance_snapshot_payload: Callable[[dict[str, Any]], dict[str, Any]],
-        account_reward_baselines: Callable[[list[dict[str, Any]]], dict[str, float]],
-        aggregate_performance: Callable[..., dict[str, Any]],
-        performance_quality_score: Callable[[dict[str, Any]], int | None],
-        performance_planning_score: Callable[[dict[str, Any]], int | None],
         audio_selection_payload: Callable[[str], dict[str, Any]],
         audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         events_for_asset: Callable[..., list[dict[str, Any]]],
-        performance_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         story_mix_plan: Callable[..., dict[str, Any]],
         story_calendar_plan: Callable[..., dict[str, Any]],
         json_load: Callable[[Any, Any], Any],
@@ -274,6 +268,11 @@ class CoreServices:
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
+        )
+        self.performance_summary_repo = PerformanceSummaryRepository(
+            conn,
+            campaign_by_slug=self.campaign_by_slug,
+            slugify=slugify,
         )
         self.export_summary = ExportSummaryRepository(factory_context)
         self.reel_execution = ReelExecutionRepository(
@@ -421,8 +420,8 @@ class CoreServices:
             latest_audit_for_asset=latest_audit_for_asset,
             content_trust_status_blockers=content_trust_status_blockers,
             instagram_post_caption_for_asset=instagram_post_caption_for_asset,
-            performance_snapshot_payload=performance_snapshot_payload,
-            aggregate_performance=aggregate_performance,
+            performance_snapshot_payload=self.performance_snapshot_payload,
+            aggregate_performance=self.aggregate_performance,
             register_variant_asset=register_variant_asset,
         )
         self.publishability = PublishabilityRepository(
@@ -511,10 +510,10 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             ensure_graph_node=self.graph.ensure_graph_node,
             ensure_graph_edge=self.graph.ensure_graph_edge,
-            performance_snapshot_payload=performance_snapshot_payload,
-            account_reward_baselines=account_reward_baselines,
-            aggregate_performance=aggregate_performance,
-            performance_quality_score=performance_quality_score,
+            performance_snapshot_payload=self.performance_snapshot_payload,
+            account_reward_baselines=self.account_reward_baselines,
+            aggregate_performance=self.aggregate_performance,
+            performance_quality_score=self.performance_quality_score,
         )
         self.recommendation_accuracy_repo = RecommendationAccuracyRepository(
             conn,
@@ -546,7 +545,7 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             record_event=self.events.record_event,
             events_for_asset=events_for_asset,
-            performance_for_asset=performance_for_asset,
+            performance_for_asset=self.performance_for_asset,
             ranking=ranking,
             audit_report_payload=self.audit_report_payload,
         )
@@ -566,10 +565,10 @@ class CoreServices:
             audio_recommendations_for_asset=audio_recommendations_for_asset,
             generated_asset_lineage=generated_asset_lineage,
             audit_report_payload=self.audit_report_payload,
-            performance_for_asset=performance_for_asset,
+            performance_for_asset=self.performance_for_asset,
             local_export_readiness=self.publishability.local_export_readiness,
             recommend_audio=recommend_audio,
-            performance_quality_score=performance_quality_score,
+            performance_quality_score=self.performance_quality_score,
         )
         self.inventory_perceptual = InventoryPerceptualRepository(
             conn,
@@ -612,15 +611,15 @@ class CoreServices:
             ensure_graph_edge=self.graph.ensure_graph_edge,
             ensure_graph_edge_strict=self.ensure_graph_edge_strict,
             record_event=self.events.record_event,
-            performance_summary=performance_summary,
+            performance_summary=self.performance_summary,
             ranking=ranking,
             active_reference_pattern_for_campaign=self.reference.active_reference_pattern_for_campaign,
             reference_pattern_payload=self.reference.reference_pattern_payload,
-            performance_snapshot_payload=performance_snapshot_payload,
-            account_reward_baselines=account_reward_baselines,
-            aggregate_performance=aggregate_performance,
-            performance_quality_score=performance_quality_score,
-            performance_planning_score=performance_planning_score,
+            performance_snapshot_payload=self.performance_snapshot_payload,
+            account_reward_baselines=self.account_reward_baselines,
+            aggregate_performance=self.aggregate_performance,
+            performance_quality_score=self.performance_quality_score,
+            performance_planning_score=self.performance_planning_score,
             rendered_asset=self.rendered_asset,
             dashboard_rendered_asset=dashboard_rendered_asset,
             assignments_for_asset=self.campaign_overview.assignments_for_asset,
@@ -670,7 +669,7 @@ class CoreServices:
             ensure_graph_edge=self.graph.ensure_graph_edge,
             ensure_graph_edge_strict=self.ensure_graph_edge_strict,
             resolve_exception=self.exceptions.resolve_exception,
-            performance_snapshot_payload=performance_snapshot_payload,
+            performance_snapshot_payload=self.performance_snapshot_payload,
         )
         self.archive_quality = ArchiveQualityRepository(
             conn,
@@ -1073,14 +1072,9 @@ class CoreServices:
             jobs_for_campaign=self.events.jobs_for_campaign,
             distribution_plans_for_campaign=self.distribution.distribution_plans_for_campaign,
             assignments_for_campaign=self.campaign_overview.assignments_for_campaign,
-            performance_snapshot_payload=performance_snapshot_payload,
+            performance_snapshot_payload=self.performance_snapshot_payload,
             active_quarantine_for_asset=active_quarantine_for_asset,
             utc_now=utc_now,
-        )
-        self.performance_summary_repo = PerformanceSummaryRepository(
-            conn,
-            campaign_by_slug=self.campaign_by_slug,
-            slugify=slugify,
         )
         self.certification = CertificationRepository(
             conn,
@@ -1309,6 +1303,9 @@ class CoreServices:
 
     def performance_snapshot_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.performance_summary_repo.performance_snapshot_payload(row)
+
+    def account_reward_baselines(self, snapshots: list[dict[str, Any]]) -> dict[str, float]:
+        return _account_reward_baselines(snapshots)
 
     def group_performance(
         self,
