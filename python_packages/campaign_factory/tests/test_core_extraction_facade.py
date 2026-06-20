@@ -8159,6 +8159,166 @@ def test_creative_knowledge_facade_delegates_to_core_services() -> None:
     ]
 
 
+def test_core_services_delegates_creative_learning_reports_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreativeKnowledge:
+        def __getattr__(self, name):
+            def delegated(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"schema": f"campaign_factory.{name}.v1"}
+
+            return delegated
+
+    services.creative_knowledge = FakeCreativeKnowledge()
+
+    report_kwargs = {
+        "creator": "Stacey",
+        "campaign_slug": "May",
+        "minimum_sample_size": 4,
+        "limit": 7,
+    }
+    for method_name in [
+        "creative_knowledge_base",
+        "creative_pattern_report",
+        "creative_caption_report",
+        "creative_audio_report",
+        "creative_surface_report",
+        "creative_account_tier_report",
+        "creative_window_report",
+        "creative_performance_analysis",
+        "creator_learning_summary",
+        "next_content_recommendations",
+        "recommendation_quality_audit",
+    ]:
+        assert getattr(services, method_name)(**report_kwargs) == {
+            "schema": f"campaign_factory.{method_name}.v1",
+        }
+
+    confidence_kwargs = {
+        "creator": "Stacey",
+        "campaign_slug": "May",
+        "minimum_sample_size": 4,
+    }
+    assert services.creative_learning_confidence_model(**confidence_kwargs) == {
+        "schema": "campaign_factory.creative_learning_confidence_model.v1",
+    }
+
+    compact_report_kwargs = {
+        "creator": "Stacey",
+        "campaign_slug": "May",
+        "limit": 7,
+    }
+    assert services.creative_fatigue_report(**compact_report_kwargs) == {
+        "schema": "campaign_factory.creative_fatigue_report.v1",
+    }
+    assert services.creative_surface_comparison_report(**compact_report_kwargs) == {
+        "schema": "campaign_factory.creative_surface_comparison_report.v1",
+    }
+
+    assert calls == [
+        ("creative_knowledge_base", (), report_kwargs),
+        ("creative_pattern_report", (), report_kwargs),
+        ("creative_caption_report", (), report_kwargs),
+        ("creative_audio_report", (), report_kwargs),
+        ("creative_surface_report", (), report_kwargs),
+        ("creative_account_tier_report", (), report_kwargs),
+        ("creative_window_report", (), report_kwargs),
+        ("creative_performance_analysis", (), report_kwargs),
+        ("creator_learning_summary", (), report_kwargs),
+        ("next_content_recommendations", (), report_kwargs),
+        ("recommendation_quality_audit", (), report_kwargs),
+        ("creative_learning_confidence_model", (), confidence_kwargs),
+        ("creative_fatigue_report", (), compact_report_kwargs),
+        ("creative_surface_comparison_report", (), compact_report_kwargs),
+    ]
+
+
+def test_creative_learning_report_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def delegated(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"schema": f"campaign_factory.{name}.v1"}
+
+            return delegated
+
+    factory.services = FakeServices()
+
+    for method_name in [
+        "creative_knowledge_base",
+        "creative_pattern_report",
+        "creative_caption_report",
+        "creative_audio_report",
+        "creative_surface_report",
+        "creative_account_tier_report",
+        "creative_window_report",
+        "creative_performance_analysis",
+        "creator_learning_summary",
+        "next_content_recommendations",
+    ]:
+        assert getattr(factory, method_name)(creator="Stacey") == {
+            "schema": f"campaign_factory.{method_name}.v1",
+        }
+
+    assert factory.creative_learning_confidence_model(creator="Stacey") == {
+        "schema": "campaign_factory.creative_learning_confidence_model.v1",
+    }
+    assert factory.creative_fatigue_report(creator="Stacey") == {
+        "schema": "campaign_factory.creative_fatigue_report.v1",
+    }
+    assert factory.creative_surface_comparison_report(creator="Stacey") == {
+        "schema": "campaign_factory.creative_surface_comparison_report.v1",
+    }
+    assert factory.recommendation_quality_audit(creator="Stacey") == {
+        "schema": "campaign_factory.recommendation_quality_audit.v1",
+    }
+
+    base_kwargs = {
+        "creator": "Stacey",
+        "campaign_slug": None,
+        "minimum_sample_size": 3,
+        "limit": 10,
+    }
+    assert calls == [
+        ("creative_knowledge_base", (), base_kwargs),
+        ("creative_pattern_report", (), base_kwargs),
+        ("creative_caption_report", (), base_kwargs),
+        ("creative_audio_report", (), base_kwargs),
+        ("creative_surface_report", (), base_kwargs),
+        ("creative_account_tier_report", (), base_kwargs),
+        ("creative_window_report", (), base_kwargs),
+        ("creative_performance_analysis", (), base_kwargs),
+        ("creator_learning_summary", (), base_kwargs),
+        ("next_content_recommendations", (), base_kwargs),
+        ("creative_learning_confidence_model", (), {
+            "creator": "Stacey",
+            "campaign_slug": None,
+            "minimum_sample_size": 3,
+        }),
+        ("creative_fatigue_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": None,
+            "limit": 20,
+        }),
+        ("creative_surface_comparison_report", (), {
+            "creator": "Stacey",
+            "campaign_slug": None,
+            "limit": 20,
+        }),
+        ("recommendation_quality_audit", (), {
+            "creator": "Stacey",
+            "campaign_slug": None,
+            "minimum_sample_size": 3,
+            "limit": 20,
+        }),
+    ]
+
+
 def test_core_services_delegates_tribev2_methods_to_repository() -> None:
     services = object.__new__(CoreServices)
     calls = []

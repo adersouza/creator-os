@@ -643,6 +643,14 @@ class CampaignFactory:
             build_creative_knowledge_base=lambda *args, **kwargs: self._build_creative_knowledge_base(*args, **kwargs),
             creative_knowledge_rows=lambda *args, **kwargs: self._creative_knowledge_rows(*args, **kwargs),
             creative_knowledge_result=lambda *args, **kwargs: self._creative_knowledge_result(*args, **kwargs),
+            creative_knowledge_score_weights=lambda *args, **kwargs: self._creative_knowledge_score_weights(*args, **kwargs),
+            creative_result_group=lambda *args, **kwargs: self._creative_result_group(*args, **kwargs),
+            creative_knowledge_results_for_report=lambda *args, **kwargs: self._creative_knowledge_results_for_report(*args, **kwargs),
+            creative_dimension_label=lambda *args, **kwargs: self._creative_dimension_label(*args, **kwargs),
+            learning_confidence_classification=lambda *args, **kwargs: self._learning_confidence_classification(*args, **kwargs),
+            creative_fatigue_signals=lambda *args, **kwargs: self._creative_fatigue_signals(*args, **kwargs),
+            creative_surface_rows=lambda *args, **kwargs: self._creative_surface_rows(*args, **kwargs),
+            recommendation_quality_bucket=lambda *args, **kwargs: self._recommendation_quality_bucket(*args, **kwargs),
             creator_os_daily_plan=self.creator_os_daily_plan,
             creator_os_execution_readiness=lambda *args, **kwargs: self.creator_os_execution_readiness(*args, **kwargs),
             inventory_slo_report=self.inventory_slo_report,
@@ -4004,38 +4012,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        built = self._build_creative_knowledge_base(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=minimum_sample_size,
-            limit=limit,
-        )
-        return {
-            "schema": "campaign_factory.creative_knowledge_base.v1",
-            "creator": built["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "sampleSize": built["sampleSize"],
-            "minimumSampleSize": built["minimumSampleSize"],
-            "insufficientData": built["insufficientData"],
-            "reason": built["reason"],
-            "scoreFormula": "views*0.35 + reach*0.25 + saves*4 + shares*5 + followers*10",
-            "scoreWeights": self._creative_knowledge_score_weights(),
-            "metricsContract": {
-                "revenueExcluded": True,
-                "visibleMetricFields": ["views", "reach", "likes", "comments", "shares", "saves", "followers", "profile_visits"],
-                "optionalStoryMetricFields": ["exits", "replies", "taps_forward", "taps_back"],
-            },
-            "topConcepts": built["topConcepts"],
-            "topCaptionAngles": built["topCaptionAngles"],
-            "topCaptionVersions": built["topCaptionVersions"],
-            "topAudioIds": built["topAudioIds"],
-            "topSurfaces": built["topSurfaces"],
-            "topStoryIntents": built["topStoryIntents"],
-            "topAccountTiers": built["topAccountTiers"],
-            "topPostingWindows": built["topPostingWindows"],
-            "wouldWrite": False,
-        }
+        return self.services.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def _build_creative_knowledge_base(
         self,
@@ -4265,20 +4242,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        return {
-            "schema": "campaign_factory.creative_pattern_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "concepts": kb.get("topConcepts") or [],
-            "captionAngles": kb.get("topCaptionAngles") or [],
-            "postingWindows": kb.get("topPostingWindows") or [],
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_pattern_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_caption_report(
         self,
@@ -4288,27 +4252,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        rows = [] if kb["insufficientData"] else [
-            self._creative_result_group(self._creative_knowledge_results_for_report(kb, creator, campaign_slug), "captionHash", limit=limit),
-            self._creative_result_group(self._creative_knowledge_results_for_report(kb, creator, campaign_slug), "instagramPostCaptionHash", limit=limit),
-        ]
-        caption_hashes = rows[0] if rows else []
-        instagram_post_caption_hashes = rows[1] if len(rows) > 1 else []
-        return {
-            "schema": "campaign_factory.creative_caption_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "captionAngles": kb.get("topCaptionAngles") or [],
-            "captionVersions": kb.get("topCaptionVersions") or [],
-            "captionHashes": caption_hashes,
-            "instagramPostCaptionHashes": instagram_post_caption_hashes,
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_caption_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_audio_report(
         self,
@@ -4318,18 +4262,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        return {
-            "schema": "campaign_factory.creative_audio_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "audioIds": kb.get("topAudioIds") or [],
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_audio_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_surface_report(
         self,
@@ -4339,19 +4272,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        return {
-            "schema": "campaign_factory.creative_surface_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "surfaces": kb.get("topSurfaces") or [],
-            "storyIntents": kb.get("topStoryIntents") or [],
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_surface_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_account_tier_report(
         self,
@@ -4361,18 +4282,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        return {
-            "schema": "campaign_factory.creative_account_tier_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "accountTiers": kb.get("topAccountTiers") or [],
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_account_tier_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_window_report(
         self,
@@ -4382,18 +4292,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        kb = self.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
-        return {
-            "schema": "campaign_factory.creative_window_report.v1",
-            "creator": kb["creator"],
-            "campaign": kb.get("campaign"),
-            "generatedAt": kb["generatedAt"],
-            "insufficientData": kb["insufficientData"],
-            "reason": kb.get("reason", ""),
-            "postingWindows": kb.get("topPostingWindows") or [],
-            "scoreWeights": kb.get("scoreWeights") or {},
-            "wouldWrite": False,
-        }
+        return self.services.creative_window_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creative_performance_analysis(
         self,
@@ -4403,30 +4302,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        analysis = self._build_creative_performance_analysis(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=minimum_sample_size,
-            limit=limit,
-        )
-        return {
-            "schema": "campaign_factory.creative_performance_analysis.v1",
-            "creator": analysis["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "sampleSize": analysis["sampleSize"],
-            "minimumSampleSize": analysis["minimumSampleSize"],
-            "confidence": analysis["confidence"],
-            "creatorBaseline": analysis["creatorBaseline"],
-            "insufficientData": analysis["insufficientData"],
-            "reason": analysis["reason"],
-            "bestPerformingPatterns": analysis["bestPerformingPatterns"],
-            "underperformingPatterns": analysis["underperformingPatterns"],
-            "recommendedMoreOf": analysis["recommendedMoreOf"],
-            "recommendedLessOf": analysis["recommendedLessOf"],
-            "surfacesAnalyzed": ["reel", "story", "feed_single", "feed_carousel"],
-            "wouldWrite": False,
-        }
+        return self.services.creative_performance_analysis(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def creator_learning_summary(
         self,
@@ -4436,35 +4312,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        analysis = self._build_creative_performance_analysis(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=minimum_sample_size,
-            limit=limit,
-        )
-        summary: list[str] = []
-        if analysis["insufficientData"]:
-            summary.append("Not enough published Instagram-visible metrics yet to identify reliable creative patterns.")
-        else:
-            for item in analysis["bestPerformingPatterns"][:3]:
-                label = self._creative_dimension_label(str(item.get("dimension") or ""))
-                summary.append(f"{item.get('key')} {label} is performing above the creator baseline.")
-            if analysis["underperformingPatterns"]:
-                weak = analysis["underperformingPatterns"][0]
-                label = self._creative_dimension_label(str(weak.get("dimension") or ""))
-                summary.append(f"{weak.get('key')} {label} is below the creator baseline and should be reworked or used carefully.")
-        return {
-            "schema": "campaign_factory.creator_learning_summary.v1",
-            "creator": analysis["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "summary": summary,
-            "recommendations": analysis.get("recommendedMoreOf") or [],
-            "confidence": analysis["confidence"],
-            "insufficientData": analysis["insufficientData"],
-            "reason": analysis["reason"],
-            "wouldWrite": False,
-        }
+        return self.services.creator_learning_summary(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def next_content_recommendations(
         self,
@@ -4474,23 +4322,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        analysis = self._build_creative_performance_analysis(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=minimum_sample_size,
-            limit=limit,
-        )
-        return {
-            "schema": "campaign_factory.next_content_recommendations.v1",
-            "creator": analysis["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "recommendations": analysis["recommendedMoreOf"],
-            "confidence": analysis["confidence"],
-            "insufficientData": analysis["insufficientData"],
-            "reason": analysis["reason"],
-            "wouldWrite": False,
-        }
+        return self.services.next_content_recommendations(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def _build_creative_performance_analysis(
         self,
@@ -4655,30 +4487,7 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         minimum_sample_size: int = 3,
     ) -> dict[str, Any]:
-        built = self._build_creative_knowledge_base(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=1,
-            limit=100,
-        )
-        results = list(built.get("results") or [])
-        classification = self._learning_confidence_classification(results)
-        return {
-            "schema": "campaign_factory.creative_learning_confidence_model.v1",
-            "creator": built["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "sampleSize": len(results),
-            "minimumSampleSize": max(1, int(minimum_sample_size or 1)),
-            "confidenceModel": {
-                "lowConfidenceSignals": ["small_sample_size", "new_surface", "new_concept", "new_caption_angle", "single_account_evidence"],
-                "mediumConfidenceSignals": ["ten_or_more_posts", "repeated_pattern", "multiple_surface_or_account_evidence"],
-                "highConfidenceSignals": ["fifty_or_more_posts", "repeated_wins", "consistent_metrics", "multiple_accounts", "multiple_posts"],
-                "scoringRule": "simple measured coverage only; no ML and no predictions",
-            },
-            "currentConfidence": classification,
-            "wouldWrite": False,
-        }
+        return self.services.creative_learning_confidence_model(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size)
 
     def creative_fatigue_report(
         self,
@@ -4687,26 +4496,7 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        built = self._build_creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=1, limit=100)
-        results = list(built.get("results") or [])
-        signals: list[dict[str, Any]] = []
-        for fatigue_type, field in [
-            ("concept_fatigue", "conceptId"),
-            ("caption_fatigue", "captionAngle"),
-            ("audio_fatigue", "audioId"),
-            ("posting_window_fatigue", "postingWindow"),
-        ]:
-            signals.extend(self._creative_fatigue_signals(results, field=field, fatigue_type=fatigue_type))
-        signals = sorted(signals, key=lambda item: (float(item.get("reachDeclinePct") or 0), str(item.get("key") or "")))[: max(1, int(limit or 20))]
-        return {
-            "schema": "campaign_factory.creative_fatigue_report.v1",
-            "creator": built["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "fatigueSignals": signals,
-            "signalRules": ["reach_decline", "impression_decline", "engagement_decline"],
-            "wouldWrite": False,
-        }
+        return self.services.creative_fatigue_report(creator=creator, campaign_slug=campaign_slug, limit=limit)
 
     def creative_surface_comparison_report(
         self,
@@ -4715,32 +4505,7 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        built = self._build_creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=1, limit=100)
-        results = list(built.get("results") or [])
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for item in results:
-            concept_id = str(item.get("conceptId") or "").strip()
-            if concept_id:
-                grouped.setdefault(concept_id, []).append(item)
-        concepts: list[dict[str, Any]] = []
-        for concept_id, items in grouped.items():
-            surfaces = self._creative_surface_rows(items)
-            concepts.append({
-                "conceptId": concept_id,
-                "sampleSize": len(items),
-                "surfaces": surfaces,
-                "bestSurface": surfaces[0]["surface"] if surfaces else "",
-                "wouldWrite": False,
-            })
-        concepts = sorted(concepts, key=lambda item: (-int(item.get("sampleSize") or 0), str(item.get("conceptId") or "")))[: max(1, int(limit or 20))]
-        return {
-            "schema": "campaign_factory.creative_surface_comparison_report.v1",
-            "creator": built["creator"],
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "concepts": concepts,
-            "wouldWrite": False,
-        }
+        return self.services.creative_surface_comparison_report(creator=creator, campaign_slug=campaign_slug, limit=limit)
 
     def recommendation_quality_audit(
         self,
@@ -4750,39 +4515,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 20,
     ) -> dict[str, Any]:
-        analysis = self._build_creative_performance_analysis(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=minimum_sample_size,
-            limit=limit,
-        )
-        recommendations = list(analysis.get("recommendedMoreOf") or []) + list(analysis.get("recommendedLessOf") or [])
-        rows = []
-        buckets = {"high_confidence": 0, "medium_confidence": 0, "low_confidence": 0, "insufficient_data": 0}
-        if analysis.get("insufficientData"):
-            buckets["insufficient_data"] += 1
-        for rec in recommendations:
-            explainability = rec.get("explainability") if isinstance(rec.get("explainability"), dict) else self._recommendation_explainability(rec, confidence=analysis.get("confidence"))
-            classification = self._recommendation_quality_bucket(explainability)
-            buckets[classification] = buckets.get(classification, 0) + 1
-            rows.append({
-                "recommendation": rec.get("recommendation") or rec.get("recommendedAction") or "",
-                "surface": rec.get("surface") or "",
-                "reason": explainability.get("reason") or "",
-                "classification": classification,
-                "explainability": explainability,
-                "wouldWrite": False,
-            })
-        return {
-            "schema": "campaign_factory.recommendation_quality_audit.v1",
-            "creator": self._creator_label(creator),
-            "campaign": slugify(campaign_slug) if campaign_slug else None,
-            "generatedAt": utc_now(),
-            "recommendationsAudited": len(rows),
-            "qualityBuckets": buckets,
-            "recommendations": rows,
-            "wouldWrite": False,
-        }
+        return self.services.recommendation_quality_audit(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def _recommendation_explainability(
         self,

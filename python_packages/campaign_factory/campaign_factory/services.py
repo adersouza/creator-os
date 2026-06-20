@@ -165,6 +165,14 @@ class CoreServices:
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
+        creative_knowledge_score_weights: Callable[[], dict[str, float]],
+        creative_result_group: Callable[..., list[dict[str, Any]]],
+        creative_knowledge_results_for_report: Callable[..., list[dict[str, Any]]],
+        creative_dimension_label: Callable[[str], str],
+        learning_confidence_classification: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        creative_fatigue_signals: Callable[..., list[dict[str, Any]]],
+        creative_surface_rows: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        recommendation_quality_bucket: Callable[[dict[str, Any]], str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_os_execution_readiness: Callable[..., dict[str, Any]],
         inventory_slo_report: Callable[..., dict[str, Any]],
@@ -968,6 +976,16 @@ class CoreServices:
             slugify=slugify,
             creator_label=creator_label,
             build_creative_knowledge_base=build_creative_knowledge_base,
+            build_creative_performance_analysis=build_creative_performance_analysis,
+            creative_knowledge_score_weights=creative_knowledge_score_weights,
+            creative_result_group=creative_result_group,
+            creative_knowledge_results_for_report=creative_knowledge_results_for_report,
+            creative_dimension_label=creative_dimension_label,
+            learning_confidence_classification=learning_confidence_classification,
+            creative_fatigue_signals=creative_fatigue_signals,
+            creative_surface_rows=creative_surface_rows,
+            recommendation_explainability=recommendation_explainability,
+            recommendation_quality_bucket=recommendation_quality_bucket,
         )
         self.tribev2 = TribeV2Repository(
             conn,
@@ -4563,6 +4581,48 @@ class CoreServices:
 
     def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
         return self.winner_expansion.variant_asset_payload(row)
+
+    def creative_knowledge_base(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_knowledge_base(**kwargs)
+
+    def creative_pattern_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_pattern_report(**kwargs)
+
+    def creative_caption_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_caption_report(**kwargs)
+
+    def creative_audio_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_audio_report(**kwargs)
+
+    def creative_surface_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_surface_report(**kwargs)
+
+    def creative_account_tier_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_account_tier_report(**kwargs)
+
+    def creative_window_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_window_report(**kwargs)
+
+    def creative_performance_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_performance_analysis(**kwargs)
+
+    def creator_learning_summary(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creator_learning_summary(**kwargs)
+
+    def next_content_recommendations(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.next_content_recommendations(**kwargs)
+
+    def creative_learning_confidence_model(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_learning_confidence_model(**kwargs)
+
+    def creative_fatigue_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_fatigue_report(**kwargs)
+
+    def creative_surface_comparison_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.creative_surface_comparison_report(**kwargs)
+
+    def recommendation_quality_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creative_knowledge.recommendation_quality_audit(**kwargs)
 
     def winner_registry(
         self,
