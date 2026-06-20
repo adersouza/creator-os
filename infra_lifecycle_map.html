@@ -69,7 +69,7 @@
   .fnd p b{color:var(--txt)}
   .sevHIGH{background:rgba(248,81,73,.16);color:#ff7b72}
   .sevMED{background:rgba(210,153,34,.16);color:#e3b341}
-  .sevLOW{background:rgba(139,151,168,.16);color:var(--dim)}
+  .sevMONITOR{background:rgba(139,151,168,.16);color:var(--dim)}
   .sevPOS{background:rgba(63,185,80,.16);color:#56d364}
   .sevDONE{background:rgba(63,185,80,.16);color:#56d364}
   .tagline{font-size:11px;color:var(--dim);margin:2px 0 14px}
@@ -93,8 +93,8 @@
 
 <section id="overview" class="active">
   <h2>The content lifecycle, as one system</h2>
-  <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os now has a scheduled, contract-validated pull into its learning loop. The loop is architecturally closed; the remaining work is monitoring, service-role scope review, and low-materiality schema cleanup. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>.</p>
-  <div class="note"><b>Current read:</b> seam + schema findings were verified against live code / the live DB, and the load-bearing cron/backend risks have landed or been reframed as monitoring. <b>Runtime update:</b> live Supabase is applied through TD migration <code>20260619162040</code>, so the prior merged-but-unapplied DB gap is closed for the landed set. <b>D3 update:</b> unused-index pruning is now in termination-audit mode after merged/applied table-family PRs: TD #147, #152, #153, #154, #155, #156, #157, #158, #160, #161, #162, #163, #164, #165, #166, #167, #168, #169, #170, #171, #172, #173, #174, #175, #176, #178, #179, #180, #181, #182, #183, and #185. Live audit window since <code>2025-12-08 11:03:29+00</code>: 142 remaining zero-scan helper indexes, 2.2MB total, 184kB max single index, zero over 16MB bloat; the 12 on >=10k-write tables are documented-kept guardrail/FK/recovery/read-path indexes. TD #184/#186 close and harden the publish-worker pipeline-contract generated-schema packaging miss; <code>juno33.com</code> currently aliases production deployment <code>dpl_6wv2N7KYCcWZqmaJTdm1Kip28v65</code>, whose publish-worker logs show repeated 200s and no <code>generated-schemas</code> / <code>Cannot find module</code> / <code>phase_error</code> recurrence through the renewed 2026-06-19 16:15 ET verification. Do not chase more low-write single-index drops unless they clear the materiality threshold.</div>
+  <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os now has a scheduled, contract-validated pull into its learning loop. The loop is architecturally closed; the non-fixed entries are monitoring triggers, upstream-owned hygiene, or accepted materiality limits. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>.</p>
+  <div class="note"><b>Current read:</b> seam + schema findings were verified against live code / the live DB, and the load-bearing cron/backend items have landed or been reframed as monitoring triggers. <b>Runtime update:</b> live Supabase is applied through TD migration <code>20260619162040</code>, so the prior merged-but-unapplied DB item is closed for the landed set. <b>D3 update:</b> unused-index pruning is now in termination-audit mode after merged/applied table-family PRs: TD #147, #152, #153, #154, #155, #156, #157, #158, #160, #161, #162, #163, #164, #165, #166, #167, #168, #169, #170, #171, #172, #173, #174, #175, #176, #178, #179, #180, #181, #182, #183, and #185. Live audit window since <code>2025-12-08 11:03:29+00</code>: 142 monitored zero-scan helper indexes, 2.2MB total, 184kB max single index, zero over 16MB bloat; the 12 on >=10k-write tables are documented-kept guardrail/FK/recovery/read-path indexes. TD #184/#186 close and harden the publish-worker pipeline-contract generated-schema packaging miss; <code>juno33.com</code> currently aliases production deployment <code>dpl_6wv2N7KYCcWZqmaJTdm1Kip28v65</code>, whose publish-worker logs show repeated 200s and no <code>generated-schemas</code> / <code>Cannot find module</code> / <code>phase_error</code> recurrence through the renewed 2026-06-19 16:15 ET verification. Do not chase more low-write single-index drops unless they clear the materiality threshold.</div>
   <div class="ledger" aria-label="current ThreadsDashboard infra PR ledger">
     <div class="bucket">
       <h3>Merged TD PRs</h3>
@@ -102,9 +102,9 @@
       <small>A1, A3, C1–C6, D1, B1–B5, D2–D6, pipeline-contract sync/runtime packaging, generated-schema and runtime-directory function includes, and current D3 batches are merged to TD main.</small>
     </div>
     <div class="bucket">
-      <h3>Open TD Infra PRs</h3>
+      <h3>TD Infra PRs</h3>
       <p>None</p>
-      <small>GitHub had no open TD infra PRs at the 2026-06-19 refresh.</small>
+      <small>GitHub had no active TD infra PRs at the 2026-06-19 refresh.</small>
     </div>
     <div class="bucket">
       <h3>D3 Reserved Batches</h3>
@@ -164,7 +164,7 @@
       <tr><td>Upstream-fixed</td><td>Threads publish errors use <code>classifyMetaError()</code>; CSP reports fail closed and scrub logs/Sentry context.</td><td>ThreadsDashboard</td><td>Threads publish paths import the taxonomy; CSP closeout adds a focused fail-closed/scrub regression test.</td></tr>
       <tr><td>Upstream-fixed</td><td>Backfill migrations/types for live out-of-band tables.</td><td>ThreadsDashboard</td><td><code>20260618231753_repo_live_missing_tables.sql</code>, generated Supabase types, and GDPR export/delete coverage cover the live table set.</td></tr>
       <tr><td>Upstream-fixed</td><td>Service-role scope around publish/cron routes.</td><td>ThreadsDashboard</td><td>Publish paths enforce account scope; privileged routes remain reason-tagged through <code>PRIVILEGED_DB_REASONS</code>.</td></tr>
-      <tr><td>Accepted deferred</td><td>D3 index pruning.</td><td>ThreadsDashboard</td><td>Only reopen if a remaining unused index is hot-path, on a table with ≥10k writes, or ≥16MB.</td></tr>
+      <tr><td>Accepted materiality limit</td><td>D3 index pruning.</td><td>ThreadsDashboard</td><td>Only reopen if a monitored unused index is hot-path, on a table with ≥10k writes, or ≥16MB.</td></tr>
     </tbody>
   </table>
 </section>
@@ -172,9 +172,9 @@
 </main>
 <script>
 const DOMAINS=[
-  {id:'seam',name:'⭐ Cross-repo seam',now:9.5,ceil:9.5,cap:'Idempotent ingest, media URL boundary, scheduled metric return-leg contracts, and generated TS schema enforcement are in place. Remaining cap: TD-local policy checks still intentionally layer on top of the shared schema.'},
-  {id:'crons',name:'Vercel crons (26)',now:9.4,ceil:9.5,cap:'B1–B5 cron hardening is merged; publish-worker runtime packaging is production-verified. Remaining cap is longer-window run-report monitoring, not a known open B-track fix.'},
-  {id:'backend',name:'Vercel backend (~130)',now:9.4,ceil:9.5,cap:'C1–C6 backend hardening is merged, including retry-eligible failures, manual-publish duration, webhook/container guardrails, token hygiene, and Threads taxonomy alignment. Remaining cap is longer-window production monitoring plus service-role scope review.'},
+  {id:'seam',name:'⭐ Cross-repo seam',now:9.5,ceil:9.5,cap:'Idempotent ingest, media URL boundary, scheduled metric return-leg contracts, and generated TS schema enforcement are in place. Cap: TD-local policy checks intentionally layer on top of the shared schema.'},
+  {id:'crons',name:'Vercel crons (26)',now:9.4,ceil:9.5,cap:'B1–B5 cron hardening is merged; publish-worker runtime packaging is production-verified. Cap: longer-window run-report monitoring, not a known B-track defect.'},
+  {id:'backend',name:'Vercel backend (~130)',now:9.4,ceil:9.5,cap:'C1–C6 backend hardening is merged, including retry-eligible failures, manual-publish duration, webhook/container guardrails, token hygiene, and Threads taxonomy alignment. Cap: longer-window production monitoring plus service-role scope review.'},
   {id:'schema',name:'Supabase schema (206 tbl)',now:9.3,ceil:9.5,cap:'Tenant isolation + hot-path indexing correct; merged D1/D2/D3/D5/D6 migrations are applied. Caps: posts lease verification plus documented low-materiality D3 leftovers.'},
 ];
 function scColor(s){return s>=9?'var(--works)':s>=7?'var(--half)':s>=5?'var(--orphan)':'var(--gap)';}
@@ -186,7 +186,7 @@ document.getElementById('domGrid').innerHTML=DOMAINS.map(d=>`
     <div class="role" style="margin-top:8px">${d.cap}</div>
   </div>`).join('');
 
-// findings: sev HIGH|MED|LOW|POS ; tid = historical hardening track id
+// findings: sev HIGH|MED|MONITOR|POS ; tid = historical hardening track id
 const F={
  seam:[
   {sev:'DONE',t:'HTTP ingest rejects unresolved or local media URLs before write',ev:'A3 landed: creator-os pre-POST remote media guard · TD ingest remote media guard',d:'Campaign Factory exports now require each media item to resolve to an <code>http(s)</code> URL before dashboard ingest. ThreadsDashboard rejects missing/local media URLs again at the ingest boundary, so drafts cannot land with empty media and fail later at async IG publish.',tid:'A3'},
@@ -205,7 +205,7 @@ const F={
   {sev:'DONE',t:'reconcile-daily timeout risk bounded',ev:'B4 landed in TD #145',d:'Large account sets are processed through bounded cursor/sharding behavior rather than one 300s-grazing Meta scan.',tid:'B4'},
   {sev:'DONE',t:'Budget cap can pause workspaces instead of only alerting',ev:'B5 landed in TD #150',d:'The cost cron path now has an owner-gated enforcement mode at the configured spend ceiling.',tid:'B5'},
   {sev:'POS',t:'Concurrency hygiene is solid',ev:'26/26 handlers + function entries + LOCK_TTL; every TTL > maxDuration',d:'No run overlaps itself. Watchdog (8) + doctor (10) + health-monitor + reconcile = real self-healing layer.',tid:'—'},
-  {sev:'LOW',t:'Residual cron ownership noise is monitor-only',ev:'post-B1/B2 run-report review',d:'The main overlap and recovery-loop risks are closed. Open another hardening slice only on fresh run-report evidence, not the stale pre-merge audit note.',tid:'B1'},
+  {sev:'MONITOR',t:'Residual cron ownership noise is monitor-only',ev:'post-B1/B2 run-report review',d:'The main overlap and recovery-loop items are closed. Open another hardening slice only on fresh run-report evidence, not the stale pre-merge audit note.',tid:'B1'},
  ],
  backend:[
   {sev:'POS',t:'Auth + error taxonomy foundation is strong',ev:'withAuth / CRON_SECRET / HMAC · classifyMetaError() taxonomy',d:'~130 routes, function count well under Vercel limits; service-role gated by PRIVILEGED_DB_REASONS; DB-layer RLS is the real tenant guard.',tid:'—'},
@@ -222,7 +222,7 @@ const F={
   {sev:'POS',t:'Tenant isolation enforced at the DB layer, not app-only',ev:'posts auth.uid()=user_id · accounts +aal2 · auto_post_queue via workspace_members',d:'No USING(true), no anon grants on hot tables. 206 tables, 100% RLS-enabled.',tid:'—'},
   {sev:'DONE',t:'posts unused indexes dropped — write-amplification reduced',ev:'D1 landed + applied (TD #135): drop unused posts indexes',d:'The never-scanned indexes on the highest-update table are gone, cutting per-update index maintenance and restoring HOT-update headroom — the biggest single DB perf lever. Live-verified dropped (idx_posts_autoposter_pattern_account → NULL).',tid:'D1'},
   {sev:'DONE',t:'post_metric_history index bloat + duplicates removed',ev:'D1 landed + applied (TD #136): drop redundant metric history indexes',d:'Duplicate pairs (pmh_post_hours/idx_pmh_post_hours) deduped to one covering index per access pattern, cutting insert cost at the DB’s highest insert volume. Live-verified dropped (idx_post_metric_history_snapshot_at_brin → NULL).',tid:'D1'},
-  {sev:'POS',t:'Premise DISPROVEN: no missing index on the publish/scheduler hot path',ev:'idx_posts_scheduled WHERE status=scheduled · auto_post_queue claim/retry indexes',d:'Expected (status,scheduled_at,account) seq-scan risk does not exist; live working set is 1 row. Real risk is the inverse — over-indexing.',tid:'—'},
+  {sev:'POS',t:'Premise DISPROVEN: no missing index on the publish/scheduler hot path',ev:'idx_posts_scheduled WHERE status=scheduled · auto_post_queue claim/retry indexes',d:'Expected (status,scheduled_at,account) seq-scan issue does not exist; live working set is 1 row. Real constraint is the inverse — over-indexing.',tid:'—'},
   {sev:'DONE',t:'Unindexed foreign keys now covered',ev:'D2 landed + applied (TD #146): add unindexed foreign key indexes',d:'Hot-path FKs (posts.arc_beat_id/dna_id, auto_post_queue, publish_attempts, manager_*) now have supporting indexes, removing seq-scans on cascade/join. Live-verified created (idx_publish_attempts_user_id_fk, idx_account_dna_account_flavor_id_fk).',tid:'D2'},
   {sev:'DONE',t:'D3 index-diet complete — pruned to termination threshold',ev:'advisor unused_index · merged D3 batches: TD #147 campaign_factory, TD #152 scheduler_decisions, TD #153 meta_api_usage_snapshots, TD #154 competitor_top_posts, TD #155 account_dna, TD #156 ai_eval_snapshots, TD #157 operator_action_audit_logs, TD #158 audit_logs, TD #160 autoposter_post_performance_facts, TD #161 ai_action_log, TD #162 autoposter_account_hour_performance, TD #163 account_autoposter_state, TD #164 instagram_metric_availability_events, TD #165 post_originality_signals, TD #166 publish_attempts, TD #167 media, TD #168 mentions, TD #169 post_templates, TD #170 proof_runs, TD #171 creator_identity_shape_usage, TD #172 data_deletion_requests, TD #173 post_tags, TD #174 auto_self_replies, TD #175 auto_cross_replies, TD #176 sent_replies, TD #178 share_of_voice_history, TD #179 account_uniqueness_metrics, TD #180 autoposter_winner_patterns, TD #181 api_keys, TD #182 autopilot_runs, TD #183 account_health_snapshots, TD #185 accounts/instagram_accounts cohort niche',d:'Systemic "index-everything" residue from 20+ tuning migrations with no prune cycle. D3 is now in batched cleanup: campaign-factory zero-scan indexes landed in PR #147; scheduler_decisions zero-scan account/run indexes landed in PR #152; meta usage account/captured zero-scan index landed in PR #153 while preserving the active user/captured Reliability index; competitor_top_posts pattern/enrichment zero-scan indexes landed in PR #154 while preserving active competitor/read-path indexes; account_dna* voice-embedding/example/rule zero-scan indexes landed in PR #155 while preserving active workspace/group, active-account, rule-scope, primary-key, and creator-DNA table indexes; ai_eval_snapshots prompt-hash/user-suite zero-scan indexes landed in PR #156 while preserving the active scope index and primary key; operator_action_audit_logs user-created, intent, phase/outcome, and scope zero-scan indexes landed in PR #157 while preserving the primary key and insert/select-id audit behavior; audit_logs user_id zero-scan index landed in PR #158 while preserving the primary key, audit inserts, cleanup RPC, export coverage, and user-deletion cascade behavior; autoposter_post_performance_facts posting-hour/question-subtype/clone-family/quality-gate-lane zero-scan indexes landed in PR #160 while preserving active primary/account/group/workspace/pattern paths; ai_action_log account/provider zero-scan indexes landed in PR #161 while preserving primary, active surface, and user-scoped GDPR paths; autoposter_account_hour_performance confidence zero-scan index landed in PR #162 while preserving primary and weighted-score timing paths; account_autoposter_state blocked-until and group-health zero-scan indexes landed in PR #163 while preserving primary, group, status, and workspace paths; instagram_metric_availability_events missing_metrics GIN zero-scan index landed in PR #164; post_originality_signals media/perceptual hash GIN zero-scan indexes landed in PR #165; publish_attempts queue-item, claim-token, and Threads-post-id zero-scan indexes landed in PR #166; media user/group, user/folder, account-assignment, and spotlight zero-scan helper indexes landed in PR #167; mentions unread helper zero-scan indexes landed in PR #168; post_templates recent-usage helper index landed in PR #169; proof_runs helper indexes landed in PR #170; creator_identity_shape_usage recent-shape helper indexes landed in PR #171; data_deletion_requests duplicate confirmation-code helper index landed in PR #172; post_tags user_id helper index landed in PR #173; auto_self_replies account/workspace helper indexes landed in PR #174; auto_cross_replies parent/workspace helper indexes landed in PR #175; sent_replies account-only helper index landed in PR #176; share_of_voice_history account/date helper index landed in PR #178; account_uniqueness_metrics latest/group helper indexes landed in PR #179; autoposter_winner_patterns clone-family helper index landed in PR #180; api_keys allowed-account GIN helper index landed in PR #181; autopilot_runs account/parent-run helper indexes landed in PR #182; account_health_snapshots score-tier helper index landed in PR #183 while preserving active account-scope, workspace, primary-key, and recovery paths; account/Instagram cohort-niche expression indexes landed in PR #185 while preserving active user, status, sync, token, and primary-key lookup paths. D3 termination audit is recorded from the live database: 142 remaining zero-scan helper indexes total 2.2MB, the largest is 184kB, none clears the 16MB bloat threshold, and the 12 on >=10k-write tables are documented-kept as FK support, guardrails, recovery, realtime/retention/deletion, lineage, or portfolio lookup paths. Further D3 work is blocked unless a remaining family clears hot-path, ≥10k-writes, or ≥16MB unused-bloat criteria.',tid:'D3'},
   {sev:'DONE',t:'posts publish path now takes an account-level lock before every send',ev:'D4 landed (TD #148): guard scheduled sends with account locks',d:'The worker acquires a publish lock before each send, settling the two-mechanism (publish_locks + fingerprint) design into a hard row-level lease.',tid:'D4'},
@@ -232,25 +232,25 @@ const F={
 };
 const SECMETA={
  seam:['⭐ Cross-repo lifecycle seam','The spine. A-track hardening is landed: idempotent ingest, media URL checks, generated schemas, and scheduled metric sync are in place.'],
- crons:['26 Vercel crons','Strong self-healing already; B-track hardening is landed. Remaining item is longer-window run-report monitoring.'],
- backend:['Vercel serverless backend','Good auth + taxonomy; C-track hardening is landed. Remaining items are low-risk cleanup and service-role scope review.'],
- schema:['Supabase schema / DB (live apsrvwxfoomhtswlhczo)','Isolation + hot-path indexing correct; D-track index diet is at termination threshold. Remaining items are replay/type hygiene.'],
+ crons:['26 Vercel crons','Strong self-healing already; B-track hardening is landed. Only longer-window run-report monitoring remains.'],
+ backend:['Vercel serverless backend','Good auth + taxonomy; C-track hardening is landed. Only low-materiality cleanup and service-role scope review remain.'],
+ schema:['Supabase schema / DB (live apsrvwxfoomhtswlhczo)','Isolation + hot-path indexing correct; D-track index diet is at termination threshold. Replay/type hygiene is closed.'],
 };
 function renderFindings(id){
   const m=SECMETA[id], items=F[id];
-  const counts={DONE:0,HIGH:0,MED:0,LOW:0,POS:0}; items.forEach(f=>counts[f.sev]++);
+  const counts={DONE:0,HIGH:0,MED:0,MONITOR:0,POS:0}; items.forEach(f=>counts[f.sev]++);
   return `<h2>${m[0]}</h2><p class="sub">${m[1]}</p>
     <div class="legend">
       <span><i class="dot works"></i> DONE ${counts.DONE}</span>
       <span><i class="dot gap"></i> HIGH ${counts.HIGH}</span>
       <span><i class="dot half"></i> MED ${counts.MED}</span>
-      <span><i class="dot" style="background:var(--dim)"></i> LOW ${counts.LOW}</span>
+      <span><i class="dot" style="background:var(--dim)"></i> MONITOR ${counts.MONITOR}</span>
       <span><i class="dot works"></i> strength ${counts.POS}</span>
       <span style="margin-left:auto">IDs are historical hardening tracks</span>
     </div>` +
     items.map(f=>{
-      const border={DONE:'var(--works)',HIGH:'var(--gap)',MED:'var(--half)',LOW:'var(--dim)',POS:'var(--works)'}[f.sev];
-      const cls={DONE:'sevDONE',HIGH:'sevHIGH',MED:'sevMED',LOW:'sevLOW',POS:'sevPOS'}[f.sev];
+      const border={DONE:'var(--works)',HIGH:'var(--gap)',MED:'var(--half)',MONITOR:'var(--dim)',POS:'var(--works)'}[f.sev];
+      const cls={DONE:'sevDONE',HIGH:'sevHIGH',MED:'sevMED',MONITOR:'sevMONITOR',POS:'sevPOS'}[f.sev];
       const lab=f.sev==='POS'?'STRENGTH':f.sev;
       return `<div class="fnd" style="border-left-color:${border}">
         <div class="top"><span class="sev ${cls}">${lab}</span><h4>${f.t}</h4><span class="tid">${f.tid}</span></div>

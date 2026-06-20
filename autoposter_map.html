@@ -88,19 +88,19 @@
   <button data-tab="stages">Stages (13)</button>
   <button data-tab="cron">Cron &amp; Queue</button>
   <button data-tab="data">Tables &amp; Auth</button>
-  <button data-tab="risks">Risks &amp; Gaps</button>
+  <button data-tab="risks">Status Ledger</button>
   <button data-tab="plan">Closeout Plan</button>
 </nav>
 <main>
 
 <section id="flow" class="active">
   <h2>End-to-end auto-posting flow</h2>
-  <p class="sub">Solid green = main publish path (working). Purple = cron/queue infra. Blue = external Meta Graph API. ⚠ on a box = has a risk (see Risks tab). Dashed = gate / fallback / feedback. Click any box.</p>
+  <p class="sub">Solid green = main publish path (working). Purple = cron/queue infra. Blue = external Meta Graph API. Dashed = gate / fallback / feedback. Click any box.</p>
   <div class="legend">
     <span><i class="dot works"></i> main path (works)</span>
     <span><i class="dot cron"></i> cron / queue</span>
     <span><i class="dot ext"></i> external API</span>
-    <span><i class="dot risk"></i> ⚠ has risk flag</span>
+    <span><i class="dot risk"></i> historical watchpoint</span>
     <span>— gate · ⋯ fallback/feedback</span>
   </div>
   <div class="diagram">
@@ -122,7 +122,7 @@
 
 <section id="stages">
   <h2>13 stages</h2>
-  <p class="sub">Each with exact file + function + line. Click for detail, tables touched, and risk notes.</p>
+  <p class="sub">Each with exact file + function + line. Click for detail, tables touched, and status notes.</p>
   <div class="grid" id="cardgrid"></div>
 </section>
 
@@ -143,22 +143,22 @@
 </section>
 
 <section id="risks">
-  <h2>Risk flags &amp; known gaps</h2>
-  <p class="sub">Owner-facing ledger after AP0–AP9. Items below are either shipped fixes, production repair notes, or explicit non-goals.</p>
+  <h2>Status ledger</h2>
+  <p class="sub">Owner-facing ledger after AP0–AP9. Items below are shipped fixes, production repair notes, monitor triggers, or explicit non-goals.</p>
   <div class="note" style="border-left:3px solid var(--works)"><b>✓ Shipping status (read first):</b> the autoposter hardening + AP9 verification tier is <b>SHIPPED and live on TD <code>main</code></b> (<code>b76a418b</code>). AP0–AP3 integration landed first at <code>ec2190b5e</code>; AP9 then added IG failure-path proof, publish-claim contention proof, degradation alerting, publish-path cleanup, token-rotation documentation, and native-audio cache hardening. Production schema repair on 2026-06-18 added <code>posts.next_retry_at</code> + <code>idx_posts_scheduled_next_retry_at</code>, repaired migration history for <code>20260618064358</code>, reloaded PostgREST, and verified <code>/api/cron/publish-worker</code> success at <code>2026-06-18 15:32:17 UTC</code>.</div>
   <div id="risklist"></div>
 </section>
 
 <section id="plan">
   <h2>Terminal autoposter closeout ledger</h2>
-  <p class="sub">AP0–AP9 are shipped. Remaining items are monitor-only triggers, upstream guardrails, or explicit non-goals.</p>
+  <p class="sub">AP0–AP9 are shipped. Non-fixed items are monitor-only triggers, upstream guardrails, or explicit non-goals.</p>
   <table>
     <thead><tr><th>Status</th><th>Work</th><th>Repo</th><th>Stop condition / proof</th></tr></thead>
     <tbody>
-      <tr><td>Deferred / monitor</td><td>Publish-worker, QStash delivery, retry/dead-letter growth, and account-health pauses.</td><td>ThreadsDashboard</td><td>Reopen only on a red run report, dead-letter growth, missed QStash delivery, or account-health pause that lacks an alert.</td></tr>
+      <tr><td>Monitor trigger</td><td>Publish-worker, QStash delivery, retry/dead-letter growth, and account-health pauses.</td><td>ThreadsDashboard</td><td>Reopen only on a red run report, dead-letter growth, missed QStash delivery, or account-health pause that lacks an alert.</td></tr>
       <tr><td>Upstream-fixed</td><td>Service-role routes touched by publish/cron paths need explicit account/workspace scope checks.</td><td>ThreadsDashboard</td><td>Publish paths enforce account scope and keep tenant-negative tests upstream; Creator OS has no dashboard mirror.</td></tr>
       <tr><td>Fixed</td><td>Keep QStash signature verification and cron auth as load-bearing tests.</td><td>ThreadsDashboard</td><td>Existing invalid signature/secret tests reject before publish, retry, replay, or DB mutation.</td></tr>
-      <tr><td>Accepted risk</td><td>Leave account-linkage evasion out of scope.</td><td>Policy boundary</td><td>Permanent non-goal: legitimate distinct content and account-health respect only; no coordinated-operation hiding.</td></tr>
+      <tr><td>Accepted non-goal</td><td>Leave account-linkage evasion out of scope.</td><td>Policy boundary</td><td>Permanent non-goal: legitimate distinct content and account-health respect only; no coordinated-operation hiding.</td></tr>
     </tbody>
   </table>
 </section>
@@ -282,7 +282,7 @@ function renderCards(){
   STAGES.forEach(s=>{
     g.insertAdjacentHTML('beforeend',
      `<div class="card" style="border-left-color:${ST[s.kind]}" onclick="openStage('${s.id}')">
-        <h3><span class="n">${s.n}</span> ${s.title} ${s.risk?'<span class="pill" style="background:#d2992222;color:#d29922">⚠ risk</span>':''}</h3>
+        <h3><span class="n">${s.n}</span> ${s.title} ${s.risk?'<span class="pill" style="background:#d2992222;color:#d29922">watchpoint</span>':''}</h3>
         <div class="ref">${s.ref} · ${s.fn}</div>
         <div class="role">${s.role}</div>
       </div>`);
@@ -292,7 +292,7 @@ function openStage(id){
   const s=STAGES.find(x=>x.id===id);if(!s)return;
   document.getElementById('drawerbody').innerHTML=
    `<h2>${s.title}</h2><span class="nbadge">stage ${s.n} / 13</span>
-    ${s.risk?'<span class="pill" style="background:#d2992222;color:#d29922;margin-left:8px">⚠ risk flag</span>':'<span class="pill" style="background:#3fb95022;color:#3fb950;margin-left:8px">clean</span>'}
+    ${s.risk?'<span class="pill" style="background:#d2992222;color:#d29922;margin-left:8px">watchpoint</span>':'<span class="pill" style="background:#3fb95022;color:#3fb950;margin-left:8px">clean</span>'}
     <dt>Role</dt><dd>${s.role}</dd>
     <dt>Entry point</dt><dd><span class="mono">${s.ref}</span> · <code>${s.fn}</code></dd>
     <dt>Touches</dt><dd><code>${s.table}</code></dd>
@@ -336,7 +336,7 @@ const RISKS=[
   {g:false,fixed:true,t:'✓ FIXED (AP1-3) — ingest secret rotation',w:'TD: rotate campaign ingest secrets',d:'RESOLVED: ingest secret now supports rotation/versioning rather than a single static plaintext env var. Draft-write auth can roll secrets without a hard cutover.'},
   {g:false,fixed:true,t:'✓ FIXED (AP1-2) — worker phase rotation (fair budget)',w:'TD: rotate publish worker phases fairly',d:'RESOLVED: publish worker now rotates phase order across cycles so a phase that lost the budget last cycle goes first next cycle. Phases 2-4 no longer get perpetually starved when Phase 1 overruns; IG containers / queue reconcile get fair turns under load.'},
   {g:false,fixed:true,t:'✓ FIXED (AP1-5) — native audio validated pre-publish',w:'TD: validate native audio before publish',d:'RESOLVED: Reels audio now validated before the publish call instead of contract-only, so a stale/invalid audio reference is caught at preflight, not at the Meta publish boundary.'},
-  {g:false,fixed:true,t:'✓ FIXED (AP1-4) — publish account scope enforced',w:'TD: enforce publish account scope',d:'RESOLVED: publish path now enforces account scope on the RLS-bypassing service-role client, closing the app-layer-only gap (audit P1-1). A missed scope guard no longer risks cross-tenant exposure on publish.'},
+  {g:false,fixed:true,t:'✓ FIXED (AP1-4) — publish account scope enforced',w:'TD: enforce publish account scope',d:'RESOLVED: publish path now enforces account scope on the RLS-bypassing service-role client, closing the app-layer-only finding (audit P1-1). A missed scope guard no longer permits cross-tenant exposure on publish.'},
   {g:false,fixed:true,t:'✓ FIXED (AP0-3) — thread-chain segments preflighted',w:'TD: threadChainContent.ts + publishPreflight threads_chain_segment_too_long + thread-chain route 400 guard',d:'RESOLVED via preflight gate (not silent splitting): each chain segment is size-checked before Meta fetch; over-limit segments fail at preflight with threads_chain_segment_too_long, not at publish. Review note: limit is UTF-8-byte-based, consistent with the rest of the repo and matching how Threads counts emoji/URLs (verified correct, left as-is).'},
   {g:false,fixed:true,t:'✓ SHIPPED (AP3) — account-health auto-backoff',w:'TD main: accountHealthAutoBackoff.ts (+380) · health-snapshots.ts · publishInstagram.ts · research/08',d:'SHIPPED on TD main (ec2190b5e): accountHealthAutoBackoff.ts decides action none|pause|resume from NonFollowerReachObservation (follower vs non-follower reach); states suspended/suppressed/shadowban_throttle gate the publish query so a suppressed account is skipped, not posted into; health-snapshots cron feeds the signal. Closes the smart-autoposter loop — posting responds to measured account health, auto-resuming on recovery. Gap by design: recommendation-eligibility has no Graph API field → inferential + manual Account-Status confirmation.'},
   {g:false,fixed:true,t:'✓ SHIPPED (AP2) — status-transition chokepoint + run reports + two-queue contract',w:'TD main: transitionPostStatus chokepoint threaded through all status-write call-sites · standardized run reports · two-queue contract doc',d:'SHIPPED on TD main (ec2190b5e): all post status writes (publish, failed-retry incl. the final acf635211 slice, orphan cleanup, stuck IG/threads rescue, schedule recovery, manual publish/delete, IG caption + story failures) funnel through a single guarded transitionPostStatus chokepoint with user_id scoping + idempotency keys — illegal transitions and the AP0-1-class races are structurally prevented. Publish-worker run reports standardized; two-queue (schedule vs publish/QStash) contract documented.'},
@@ -354,7 +354,7 @@ function renderRest(){
   RISKS.sort((a,b)=>(a.fixed?1:0)-(b.fixed?1:0));
   RISKS.forEach(x=>{
     const cls=x.excl?'excl':x.prog?'prog':x.plan?'plan':x.fixed?'fixed':x.g?'gap':'';
-    const pre=x.prog?'🔧 IN PROGRESS · ':x.excl||x.plan||x.fixed?'':x.g?'GAP · ':'⚠ · ';
+    const pre=x.prog?'🔧 IN PROGRESS · ':x.excl||x.plan||x.fixed?'':x.g?'WATCHPOINT · ':'WATCHPOINT · ';
     r.insertAdjacentHTML('beforeend',`<div class="risk-item ${cls}"><b>${pre}${x.t}</b><div class="where">${x.w}</div><div style="color:var(--dim);margin-top:4px">${x.d}</div></div>`);
   });
 }

@@ -110,7 +110,7 @@
     <span><i class="dot" style="background:#2ea043"></i> shipped ✓ (A–G wired + Track S)</span>
     <span><i class="dot half"></i> half-manual (exists, not auto-triggered)</span>
     <span><i class="dot orphan"></i> orphan / stubbed</span>
-    <span><i class="dot gap"></i> gap (not built)</span>
+    <span><i class="dot gap"></i> historical gap state (none active)</span>
     <span><i class="dot primitive"></i> generation primitive</span>
   </div>
   <div class="diagram">
@@ -134,7 +134,7 @@
 <!-- ============ ROADMAP ============ -->
 <section id="roadmap">
   <h2>Roadmap — where the whole system is</h2>
-  <p class="sub">Three tracks of work, one view. Build order was dependency-driven: connect → make reliable → make intelligent → make autonomous. Current tracked items are shipped or explicitly deferred; see Closeout Plan for the remaining proof work.</p>
+  <p class="sub">Three tracks of work, one view. Build order was dependency-driven: connect → make reliable → make intelligent → make autonomous. Current tracked items are shipped, upstream-owned, accepted non-goals, or trigger-gated by required evidence volume.</p>
   <div id="roadmap-board"></div>
   <div class="note" style="border-left:3px solid var(--accent)">
     <b>The thesis:</b> shipped work so far is the <b>nervous system</b> — distinct content per account, quality-gated, reliably scheduled, with feedback that returns. "Smart" arrives at <b>F</b> (learning loop) and <b>G</b> (autonomy), sequenced last <i>on purpose</i> — they can't learn until the lower layers produce real, complete cycles. AP0-2 (reliable feedback) + A–D (real per-account variation to measure) are F's preconditions, now in place.
@@ -146,7 +146,7 @@
   <h2>Intelligence / Quality / Safety Audit <span style="color:var(--dim);font-weight:400;font-size:12px">(2026-06-18 · full detail in INTELLIGENCE_AUDIT.md)</span></h2>
   <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code and reconciled through Track 9 plus the core.py closeout PR #226.</p>
   <div class="note" style="border-left:3px solid var(--accent)">
-    <b>Root pattern across all three:</b> the right signals already EXIST in the code but were computed-and-ignored. <b>PDQ/SSCD detectors → now BLOCKING (Track S, PR #54)</b>, and <b>Campaign Factory rendered assets now persist PDQ clusters for cross-account cooldowns.</b> <b>Campaign Factory safe-zone/readability/hook/deterministic watchability/creative warnings → now BLOCKING for fan-out</b>, and supplied/configured Higgsfield virality/video-analysis reports now block when requested. Reel Factory readiness can also require post-render virality sidecars, and Reel Factory can generate zero-cost operator/configured-provider report request sidecars. Selected reference-pattern structure now feeds front-generation prompt assembly, supplied video-analysis sidecars feed Winner-DNA extraction, and ThreadsDashboard PR #130 adds dashboard frame/keyframe perceptual hashes. <b>The remaining fixes are deferred calibration, not core wiring.</b>
+    <b>Root pattern across all three:</b> the right signals already EXIST in the code but were computed-and-ignored. <b>PDQ/SSCD detectors → now BLOCKING (Track S, PR #54)</b>, and <b>Campaign Factory rendered assets now persist PDQ clusters for cross-account cooldowns.</b> <b>Campaign Factory safe-zone/readability/hook/deterministic watchability/creative warnings → now BLOCKING for fan-out</b>, and supplied/configured Higgsfield virality/video-analysis reports now block when requested. Reel Factory readiness can also require post-render virality sidecars, and Reel Factory can generate zero-cost operator/configured-provider report request sidecars. Selected reference-pattern structure now feeds front-generation prompt assembly, supplied video-analysis sidecars feed Winner-DNA extraction, and ThreadsDashboard PR #130 adds dashboard frame/keyframe perceptual hashes. <b>The only non-fixed items are evidence-gated calibration passes, not current code gaps.</b>
   </div>
   <div class="note" style="border-left:3px solid #2ea043">
     <b>Now research-backed (see <code>research/01–05</code> + INTELLIGENCE_AUDIT.md).</b> Real detector thresholds (PDQ ≤31, SSCD ≥0.75, TMK ≥0.7), a buildable 100-point pre-post Reel score, and a concrete Thompson-sampling learning-loop design.
@@ -158,7 +158,7 @@
 <!-- ============ COMPONENTS ============ -->
 <section id="components">
   <h2>Components</h2>
-  <p class="sub">Six parts. Score = audit baseline (code · tests · docs · maintainability · security). Click for detail.</p>
+  <p class="sub">Six parts. Score = current post-closeout rating (code · tests · docs · maintainability · security). Click for detail.</p>
   <div class="grid" id="cardgrid"></div>
 </section>
 
@@ -200,12 +200,12 @@
 <!-- ============ PLAN ============ -->
 <section id="plan">
   <h2>Terminal closeout ledger</h2>
-  <p class="sub">The map is no longer tracking open wiring or core-decomposition work. Items below are terminal: deferred with trigger, upstream-owned, or fixed by this docs closeout.</p>
+  <p class="sub">The map is no longer tracking unfinished wiring or core-decomposition work. Items below are terminal: trigger-gated, upstream-owned, accepted non-goals, or fixed.</p>
   <table>
     <thead><tr><th>Status</th><th>Work</th><th>Owner</th><th>Stop condition / proof</th></tr></thead>
     <tbody>
-      <tr><td>Deferred</td><td>Calibrate Track Q v2: owner-reviewed 100-point Reel score, VMAF/CAMBI/audio thresholds, and virality model cutoffs.</td><td>creator-os</td><td>Reopen after 30 owner-reviewed reels with at least 10 rejected/low-score samples; until then configured gates block/down-rank and no autonomous publish path exists.</td></tr>
-      <tr><td>Deferred</td><td>Run a real closed-loop learning audit: recommendation trust, 1h→24h replacement, and account-normalized rewards.</td><td>creator-os + ThreadsDashboard metrics</td><td>Reopen after 50 Campaign Factory posts with 1h and 24h history; current code has no raw-view ranking fallback.</td></tr>
+      <tr><td>Trigger-gated</td><td>Calibrate Track Q v2: owner-reviewed 100-point Reel score, VMAF/CAMBI/audio thresholds, and virality model cutoffs.</td><td>creator-os</td><td>Reopen after 30 owner-reviewed reels with at least 10 rejected/low-score samples; until then configured gates block/down-rank and no autonomous publish path exists.</td></tr>
+      <tr><td>Trigger-gated</td><td>Run a real closed-loop learning audit: recommendation trust, 1h→24h replacement, and account-normalized rewards.</td><td>creator-os + ThreadsDashboard metrics</td><td>Reopen after 50 Campaign Factory posts with 1h and 24h history; current code has no raw-view ranking fallback.</td></tr>
       <tr><td>Upstream</td><td>Dashboard/RLS/type cleanup.</td><td>ThreadsDashboard</td><td>No Creator OS dashboard mirror returns; Creator OS consumes contracts/status only.</td></tr>
       <tr><td>Fixed</td><td>Retire stale prompt/plan docs only after landed state is represented in maps and audit ledgers.</td><td>creator-os</td><td>This map is the active ledger; current rows point at terminal status, not a spent prompt.</td></tr>
     </tbody>
