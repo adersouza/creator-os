@@ -907,6 +907,8 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             concept_for_parent_asset=concept_for_parent_asset,
             explain_publishability=explain_publishability,
+            creator_label=creator_label,
+            concept_payload=lambda row: self.variant_lineage.concept_payload(row),
         )
         self.creative_knowledge = CreativeKnowledgeRepository(
             conn,
@@ -4262,6 +4264,27 @@ class CoreServices:
             parent_asset_id=parent_asset_id,
             target_variants=target_variants,
             preset=preset,
+        )
+
+    def variant_inventory_plan(
+        self,
+        *,
+        creator: str,
+        campaign: str,
+        target_draft_shortfall: int,
+        preset: str = "caption_safe_v2",
+        max_variants_per_parent: int = 10,
+        minimum_recommended_per_parent: int = 3,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        return self.winner_expansion.variant_inventory_plan(
+            creator=creator,
+            campaign=campaign,
+            target_draft_shortfall=target_draft_shortfall,
+            preset=preset,
+            max_variants_per_parent=max_variants_per_parent,
+            minimum_recommended_per_parent=minimum_recommended_per_parent,
+            dry_run=dry_run,
         )
 
     def winner_expansion_report(

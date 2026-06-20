@@ -6944,6 +6944,10 @@ def test_core_services_delegates_winner_expansion_methods_to_repository() -> Non
             calls.append(("winner_expansion_report", args, kwargs))
             return {"schema": "campaign_factory.winner_expansion_report.v1"}
 
+        def variant_inventory_plan(self, *args, **kwargs):
+            calls.append(("variant_inventory_plan", args, kwargs))
+            return {"schema": "campaign_factory.variant_inventory_plan.v1"}
+
         def winner_variant_candidate(self, *args, **kwargs):
             calls.append(("winner_variant_candidate", args, kwargs))
             return {"variantAssetId": "asset_variant"}
@@ -6995,6 +6999,15 @@ def test_core_services_delegates_winner_expansion_methods_to_repository() -> Non
     assert services.winner_expansion_report("may", min_views=100, min_reach=200, min_followers=3) == {
         "schema": "campaign_factory.winner_expansion_report.v1",
     }
+    assert services.variant_inventory_plan(
+        creator="Stacey",
+        campaign="may",
+        target_draft_shortfall=12,
+        preset="strong_safe",
+        max_variants_per_parent=6,
+        minimum_recommended_per_parent=2,
+        dry_run=True,
+    ) == {"schema": "campaign_factory.variant_inventory_plan.v1"}
     assert services.winner_variant_candidate({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}) == {
         "variantAssetId": "asset_variant",
     }
@@ -7023,6 +7036,15 @@ def test_core_services_delegates_winner_expansion_methods_to_repository() -> Non
             "preset": "strong_safe",
         }),
         ("winner_expansion_report", ("may",), {"min_views": 100, "min_reach": 200, "min_followers": 3}),
+        ("variant_inventory_plan", (), {
+            "creator": "Stacey",
+            "campaign": "may",
+            "target_draft_shortfall": 12,
+            "preset": "strong_safe",
+            "max_variants_per_parent": 6,
+            "minimum_recommended_per_parent": 2,
+            "dry_run": True,
+        }),
         ("winner_variant_candidate", ({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}), {}),
         ("winner_variant_candidate_decision", ({"uploadReady": True},), {}),
         ("latest_variant_audit_result", ("asset_variant",), {}),
@@ -7052,6 +7074,10 @@ def test_winner_expansion_facade_delegates_to_core_services() -> None:
         def winner_expansion_report(self, *args, **kwargs):
             calls.append(("winner_expansion_report", args, kwargs))
             return {"schema": "campaign_factory.winner_expansion_report.v1"}
+
+        def variant_inventory_plan(self, *args, **kwargs):
+            calls.append(("variant_inventory_plan", args, kwargs))
+            return {"schema": "campaign_factory.variant_inventory_plan.v1"}
 
         def winner_variant_candidate(self, *args, **kwargs):
             calls.append(("winner_variant_candidate", args, kwargs))
@@ -7100,6 +7126,15 @@ def test_winner_expansion_facade_delegates_to_core_services() -> None:
     assert factory.winner_expansion_report("may", min_views=100, min_reach=200, min_followers=3) == {
         "schema": "campaign_factory.winner_expansion_report.v1",
     }
+    assert factory.variant_inventory_plan(
+        creator="Stacey",
+        campaign="may",
+        target_draft_shortfall=12,
+        preset="strong_safe",
+        max_variants_per_parent=6,
+        minimum_recommended_per_parent=2,
+        dry_run=True,
+    ) == {"schema": "campaign_factory.variant_inventory_plan.v1"}
     assert factory._winner_variant_candidate({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}) == {
         "variantAssetId": "asset_variant",
     }
@@ -7129,6 +7164,15 @@ def test_winner_expansion_facade_delegates_to_core_services() -> None:
             "preset": "strong_safe",
         }),
         ("winner_expansion_report", ("may",), {"min_views": 100, "min_reach": 200, "min_followers": 3}),
+        ("variant_inventory_plan", (), {
+            "creator": "Stacey",
+            "campaign": "may",
+            "target_draft_shortfall": 12,
+            "preset": "strong_safe",
+            "max_variants_per_parent": 6,
+            "minimum_recommended_per_parent": 2,
+            "dry_run": True,
+        }),
         ("winner_variant_candidate", ({"variantAssetId": "asset_variant"}, {"id": "asset_variant"}), {}),
         ("winner_variant_candidate_decision", ({"uploadReady": True},), {}),
         ("latest_variant_audit_result", ("asset_variant",), {}),
