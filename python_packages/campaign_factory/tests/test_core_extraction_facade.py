@@ -1127,6 +1127,33 @@ def test_campaign_factory_delegates_parent_factory_trial_methods_to_services() -
     ]
 
 
+def test_campaign_factory_delegates_parent_factory_planning_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+
+    assert factory.parent_factory_autopilot_plan(accounts=50, posts_per_account_per_day=2) == {
+        "method": "parent_factory_autopilot_plan",
+    }
+    assert factory.parent_factory_shortfall_report(accounts=50) == {"method": "parent_factory_shortfall_report"}
+    assert factory.parent_factory_production_targets(accounts=50) == {"method": "parent_factory_production_targets"}
+
+    assert calls == [
+        ("parent_factory_autopilot_plan", (), {"accounts": 50, "posts_per_account_per_day": 2}),
+        ("parent_factory_shortfall_report", (), {"accounts": 50}),
+        ("parent_factory_production_targets", (), {"accounts": 50}),
+    ]
+
+
 def test_campaign_factory_delegates_contentforge_visual_qc_methods_to_services() -> None:
     factory = object.__new__(CampaignFactory)
     calls = []
@@ -4940,6 +4967,33 @@ def test_core_services_delegates_parent_factory_trial_methods_to_repository() ->
         ("parent_factory_real_yield_report", (), {}),
         ("post_gate_fresh_batch_candidates", (), {}),
         ("post_gate_blocked_candidate_evidence", (sandbox, result), {}),
+    ]
+
+
+def test_core_services_delegates_parent_factory_planning_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeParentFactoryPlanning:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.parent_factory_planning = FakeParentFactoryPlanning()
+
+    assert services.parent_factory_autopilot_plan(accounts=50, posts_per_account_per_day=2) == {
+        "method": "parent_factory_autopilot_plan",
+    }
+    assert services.parent_factory_shortfall_report(accounts=50) == {"method": "parent_factory_shortfall_report"}
+    assert services.parent_factory_production_targets(accounts=50) == {"method": "parent_factory_production_targets"}
+
+    assert calls == [
+        ("parent_factory_autopilot_plan", (), {"accounts": 50, "posts_per_account_per_day": 2}),
+        ("parent_factory_shortfall_report", (), {"accounts": 50}),
+        ("parent_factory_production_targets", (), {"accounts": 50}),
     ]
 
 
