@@ -562,12 +562,18 @@ class CoreServices:
             conn,
             new_id=new_id,
             utc_now=utc_now,
+            list_campaigns=self.list_campaigns,
             campaign_by_slug=self.campaign_by_slug,
             assets_for_campaign=self.asset_import.assets_for_campaign,
             rendered_for_campaign=rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
             jobs_for_campaign=self.events.jobs_for_campaign,
             audio_workflow_summary=audio_workflow_summary,
+            daily_production_counters=self.export_summary.daily_production_counters,
+            creative_plan_for_campaign=self.creative_planning.creative_plan_for_campaign,
+            events_for_campaign=self.events.events_for_campaign,
+            distribution_summary=self.distribution.distribution_summary,
+            trust_summary=self.trust_summary,
             rendered_asset=self.rendered_asset,
             record_event=self.events.record_event,
             events_for_asset=events_for_asset,
@@ -2919,6 +2925,12 @@ class CoreServices:
     def reservation_adjusted_inventory(self, readiness_rows: list[dict[str, Any]], **kwargs: Any) -> dict[str, int]:
         return self.inventory_reservations.reservation_adjusted_inventory(readiness_rows, **kwargs)
 
+    def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
+        return self.campaign_overview.dashboard(campaign_slug)
+
+    def default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return self.campaign_overview.default_dashboard_campaign(campaigns)
+
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.campaign_overview.campaign_health(campaign_slug)
 
@@ -4865,6 +4877,10 @@ class CoreServices:
         if not row:
             raise ValueError(f"campaign not found: {slug}")
         return dict(row)
+
+    def list_campaigns(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
+        return [dict(row) for row in rows]
 
     def rendered_asset(self, rendered_asset_id: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()

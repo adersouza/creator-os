@@ -11,12 +11,18 @@ class CampaignOverviewRepository:
         *,
         new_id: Callable[[str], str],
         utc_now: Callable[[], str],
+        list_campaigns: Callable[[], list[dict[str, Any]]],
         campaign_by_slug: Callable[[str], dict[str, Any]],
         assets_for_campaign: Callable[[str], list[dict[str, Any]]],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         jobs_for_campaign: Callable[..., list[dict[str, Any]]],
         audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        daily_production_counters: Callable[..., dict[str, Any]],
+        creative_plan_for_campaign: Callable[..., dict[str, Any] | None],
+        events_for_campaign: Callable[..., list[dict[str, Any]]],
+        distribution_summary: Callable[[str], dict[str, Any]],
+        trust_summary: Callable[[str], dict[str, Any]],
         rendered_asset: Callable[[str], dict[str, Any]],
         record_event: Callable[..., dict[str, Any]],
         events_for_asset: Callable[..., list[dict[str, Any]]],
@@ -27,18 +33,62 @@ class CampaignOverviewRepository:
         self.conn = conn
         self._new_id = new_id
         self._utc_now = utc_now
+        self._list_campaigns = list_campaigns
         self._campaign_by_slug = campaign_by_slug
         self._assets_for_campaign = assets_for_campaign
         self._rendered_for_campaign = rendered_for_campaign
         self._dashboard_rendered_asset = dashboard_rendered_asset
         self._jobs_for_campaign = jobs_for_campaign
         self._audio_workflow_summary = audio_workflow_summary
+        self._daily_production_counters = daily_production_counters
+        self._creative_plan_for_campaign = creative_plan_for_campaign
+        self._events_for_campaign = events_for_campaign
+        self._distribution_summary = distribution_summary
+        self._trust_summary = trust_summary
         self._rendered_asset = rendered_asset
         self._record_event = record_event
         self._events_for_asset = events_for_asset
         self._performance_for_asset = performance_for_asset
         self._ranking = ranking
         self._audit_report_payload = audit_report_payload
+
+    def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
+        campaigns = self._list_campaigns()
+        selected = self._campaign_by_slug(campaign_slug) if campaign_slug else self.default_dashboard_campaign(campaigns)
+        if not selected:
+            return {"campaigns": [], "campaign": None, "sources": [], "rendered": [], "health": None, "ranking": []}
+        rendered = [self._dashboard_rendered_asset(asset) for asset in self._rendered_for_campaign(selected["id"])]
+        ranking = self._ranking(selected["slug"])
+        audio_workflow = self._audio_workflow_summary(rendered)
+        sources = self._assets_for_campaign(selected["id"])
+        summary_dashboard = {"campaign": selected, "sources": sources, "rendered": rendered}
+        daily_production = self._daily_production_counters(selected["slug"], dashboard=summary_dashboard)
+        creative_plan = self._creative_plan_for_campaign(selected["slug"], dashboard=summary_dashboard)
+        return {
+            "campaigns": campaigns,
+            "campaign": selected,
+            "sources": sources,
+            "rendered": sorted(rendered, key=lambda asset: (ranking["byAsset"].get(asset["id"], {}) or {}).get("score", 0), reverse=True),
+            "activity": self._events_for_campaign(selected["slug"], limit=50),
+            "jobs": self._jobs_for_campaign(selected["slug"], limit=50),
+            "health": self.campaign_health(selected["slug"]),
+            "audioWorkflow": audio_workflow,
+            "dailyProduction": daily_production,
+            "creativePlan": creative_plan,
+            "distribution": self._distribution_summary(selected["slug"]),
+            "trust": self._trust_summary(selected["slug"]),
+            "ranking": ranking["assets"],
+        }
+
+    def default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for campaign in campaigns:
+            row = self.conn.execute(
+                "SELECT 1 FROM rendered_assets WHERE campaign_id = ? LIMIT 1",
+                (campaign["id"],),
+            ).fetchone()
+            if row:
+                return campaign
+        return campaigns[0] if campaigns else None
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
