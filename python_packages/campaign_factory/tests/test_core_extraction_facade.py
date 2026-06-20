@@ -6,6 +6,7 @@ from campaign_factory import audit_payload, exports
 from campaign_factory.acceptance_suite import AcceptanceSuiteRepository
 from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
+from campaign_factory.account_planning import AccountPlanningRepository
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.archive_quality import ArchiveQualityRepository
 from campaign_factory.audio_operations import AudioOperationsRepository
@@ -165,6 +166,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.autonomy.conn is factory.conn
         assert isinstance(factory.services.account_memory, AccountMemoryRepository)
         assert factory.services.account_memory.conn is factory.conn
+        assert isinstance(factory.services.account_planning, AccountPlanningRepository)
+        assert factory.services.account_planning.conn is factory.conn
         assert isinstance(factory.services.recommendation_accuracy_repo, RecommendationAccuracyRepository)
         assert factory.services.recommendation_accuracy_repo.conn is factory.conn
         assert isinstance(factory.services.recommendations, RecommendationRepository)
@@ -342,6 +345,89 @@ def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> N
         }),
         ("assignments_for_asset", ("asset_1",), {}),
         ("assignments_for_campaign", ("may",), {}),
+    ]
+
+
+def test_campaign_factory_delegates_account_planning_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def account_plan(self, *args, **kwargs):
+            calls.append(("account_plan", args, kwargs))
+            return {"schema": "campaign_factory.account_plan.v1"}
+
+        def ranking(self, *args, **kwargs):
+            calls.append(("ranking", args, kwargs))
+            return {"schema": "campaign_factory.ranking.v1"}
+
+        def quality_score_for_ranking(self, *args, **kwargs):
+            calls.append(("quality_score_for_ranking", args, kwargs))
+            return 91
+
+        def history_score(self, *args, **kwargs):
+            calls.append(("history_score", args, kwargs))
+            return 72
+
+        def account_fit_score(self, *args, **kwargs):
+            calls.append(("account_fit_score", args, kwargs))
+            return 58
+
+        def novelty_score(self, *args, **kwargs):
+            calls.append(("novelty_score", args, kwargs))
+            return 90
+
+        def dashboard_rendered_asset(self, *args, **kwargs):
+            calls.append(("dashboard_rendered_asset", args, kwargs))
+            return {"id": args[0]["id"], "enriched": True}
+
+        def generated_asset_lineage(self, *args, **kwargs):
+            calls.append(("generated_asset_lineage", args, kwargs))
+            return {"schema": "campaign_factory.generated_asset_lineage.v1"}
+
+        def audio_recommendations_for_asset(self, *args, **kwargs):
+            calls.append(("audio_recommendations_for_asset", args, kwargs))
+            return {"schema": "campaign_factory.audio_recommendations.v1"}
+
+    factory.services = FakeServices()
+    asset = {"id": "asset_1"}
+    source_prompt = {"promptId": "prompt_1"}
+    reference_pattern = {"id": "ref_1"}
+
+    assert factory.account_plan("may", user_id="user_1", usage={"assets": []}) == {
+        "schema": "campaign_factory.account_plan.v1",
+    }
+    assert factory.ranking("may") == {"schema": "campaign_factory.ranking.v1"}
+    assert factory._quality_score_for_ranking(asset) == 91
+    assert factory._history_score({"count": 1}) == 72
+    assert factory._account_fit_score(asset) == 58
+    assert factory._novelty_score(asset) == 90
+    assert factory._dashboard_rendered_asset(asset) == {"id": "asset_1", "enriched": True}
+    assert factory._generated_asset_lineage(source_prompt, reference_pattern) == {
+        "schema": "campaign_factory.generated_asset_lineage.v1",
+    }
+    assert factory._audio_recommendations_for_asset(
+        caption_generation={},
+        reference_pattern=reference_pattern,
+        recipe="v01_original",
+        account_tags=["stacey"],
+    ) == {"schema": "campaign_factory.audio_recommendations.v1"}
+
+    assert calls == [
+        ("account_plan", ("may",), {"user_id": "user_1", "usage": {"assets": []}}),
+        ("ranking", ("may",), {}),
+        ("quality_score_for_ranking", (asset,), {}),
+        ("history_score", ({"count": 1},), {}),
+        ("account_fit_score", (asset,), {}),
+        ("novelty_score", (asset,), {}),
+        ("dashboard_rendered_asset", (asset,), {}),
+        ("generated_asset_lineage", (source_prompt, reference_pattern), {}),
+        ("audio_recommendations_for_asset", (), {
+            "caption_generation": {},
+            "reference_pattern": reference_pattern,
+            "recipe": "v01_original",
+            "account_tags": ["stacey"],
+        }),
     ]
 
 
@@ -6600,6 +6686,89 @@ def test_core_services_delegates_campaign_overview_methods_to_campaign_overview_
         }),
         ("assignments_for_asset", ("asset_1",), {}),
         ("assignments_for_campaign", ("may",), {}),
+    ]
+
+
+def test_core_services_delegates_account_planning_methods_to_account_planning_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAccountPlanning:
+        def account_plan(self, *args, **kwargs):
+            calls.append(("account_plan", args, kwargs))
+            return {"schema": "campaign_factory.account_plan.v1"}
+
+        def ranking(self, *args, **kwargs):
+            calls.append(("ranking", args, kwargs))
+            return {"schema": "campaign_factory.ranking.v1"}
+
+        def quality_score_for_ranking(self, *args, **kwargs):
+            calls.append(("quality_score_for_ranking", args, kwargs))
+            return 91
+
+        def history_score(self, *args, **kwargs):
+            calls.append(("history_score", args, kwargs))
+            return 72
+
+        def account_fit_score(self, *args, **kwargs):
+            calls.append(("account_fit_score", args, kwargs))
+            return 58
+
+        def novelty_score(self, *args, **kwargs):
+            calls.append(("novelty_score", args, kwargs))
+            return 90
+
+        def dashboard_rendered_asset(self, *args, **kwargs):
+            calls.append(("dashboard_rendered_asset", args, kwargs))
+            return {"id": args[0]["id"], "enriched": True}
+
+        def generated_asset_lineage(self, *args, **kwargs):
+            calls.append(("generated_asset_lineage", args, kwargs))
+            return {"schema": "campaign_factory.generated_asset_lineage.v1"}
+
+        def audio_recommendations_for_asset(self, *args, **kwargs):
+            calls.append(("audio_recommendations_for_asset", args, kwargs))
+            return {"schema": "campaign_factory.audio_recommendations.v1"}
+
+    services.account_planning = FakeAccountPlanning()
+    asset = {"id": "asset_1"}
+    source_prompt = {"promptId": "prompt_1"}
+    reference_pattern = {"id": "ref_1"}
+
+    assert services.account_plan("may", user_id="user_1", usage={"assets": []}) == {
+        "schema": "campaign_factory.account_plan.v1",
+    }
+    assert services.ranking("may") == {"schema": "campaign_factory.ranking.v1"}
+    assert services.quality_score_for_ranking(asset) == 91
+    assert services.history_score({"count": 1}) == 72
+    assert services.account_fit_score(asset) == 58
+    assert services.novelty_score(asset) == 90
+    assert services.dashboard_rendered_asset(asset) == {"id": "asset_1", "enriched": True}
+    assert services.generated_asset_lineage(source_prompt, reference_pattern) == {
+        "schema": "campaign_factory.generated_asset_lineage.v1",
+    }
+    assert services.audio_recommendations_for_asset(
+        caption_generation={},
+        reference_pattern=reference_pattern,
+        recipe="v01_original",
+        account_tags=["stacey"],
+    ) == {"schema": "campaign_factory.audio_recommendations.v1"}
+
+    assert calls == [
+        ("account_plan", ("may",), {"user_id": "user_1", "usage": {"assets": []}}),
+        ("ranking", ("may",), {}),
+        ("quality_score_for_ranking", (asset,), {}),
+        ("history_score", ({"count": 1},), {}),
+        ("account_fit_score", (asset,), {}),
+        ("novelty_score", (asset,), {}),
+        ("dashboard_rendered_asset", (asset,), {}),
+        ("generated_asset_lineage", (source_prompt, reference_pattern), {}),
+        ("audio_recommendations_for_asset", (), {
+            "caption_generation": {},
+            "reference_pattern": reference_pattern,
+            "recipe": "v01_original",
+            "account_tags": ["stacey"],
+        }),
     ]
 
 

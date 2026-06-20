@@ -7,6 +7,7 @@ from typing import Any, Callable
 from .acceptance_suite import AcceptanceSuiteRepository
 from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
+from .account_planning import AccountPlanningRepository
 from .archive_quality import ArchiveQualityRepository
 from .asset_import import AssetImportRepository
 from .audio_operations import AudioOperationsRepository
@@ -90,6 +91,8 @@ class CoreServices:
         ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
+        audio_recommendations_for_asset: Callable[..., dict[str, Any]],
+        generated_asset_lineage: Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any]],
         prepare_reel_inputs: Callable[..., dict[str, Any]],
         reel_factory_python: Callable[[Any], str],
         make_batch: Callable[..., dict[str, Any]],
@@ -567,6 +570,27 @@ class CoreServices:
             performance_for_asset=performance_for_asset,
             ranking=ranking,
             audit_report_payload=audit_report_payload,
+        )
+        self.account_planning = AccountPlanningRepository(
+            conn,
+            utc_now=utc_now,
+            campaign_by_slug=self.campaign_by_slug,
+            assignments_for_campaign=self.campaign_overview.assignments_for_campaign,
+            assignments_for_asset=self.campaign_overview.assignments_for_asset,
+            distribution_plans_for_campaign=self.distribution.distribution_plans_for_campaign,
+            account_compatible_with_model=self.models.account_compatible_with_model,
+            dashboard=dashboard,
+            ranking=ranking,
+            rendered_for_campaign=rendered_for_campaign,
+            dashboard_rendered_asset=dashboard_rendered_asset,
+            active_reference_pattern_for_campaign=self.reference.active_reference_pattern_for_campaign,
+            audio_recommendations_for_asset=audio_recommendations_for_asset,
+            generated_asset_lineage=generated_asset_lineage,
+            audit_report_payload=audit_report_payload,
+            performance_for_asset=performance_for_asset,
+            local_export_readiness=self.publishability.local_export_readiness,
+            recommend_audio=recommend_audio,
+            performance_quality_score=performance_quality_score,
         )
         self.inventory_perceptual = InventoryPerceptualRepository(
             conn,
@@ -2921,6 +2945,49 @@ class CoreServices:
 
     def assignments_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
         return self.campaign_overview.assignments_for_campaign(campaign_slug)
+
+    def account_plan(self, campaign_slug: str, *, user_id: str, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.account_planning.account_plan(campaign_slug, user_id=user_id, usage=usage)
+
+    def ranking(self, campaign_slug: str) -> dict[str, Any]:
+        return self.account_planning.ranking(campaign_slug)
+
+    def quality_score_for_ranking(self, asset: dict[str, Any]) -> int:
+        return self.account_planning.quality_score_for_ranking(asset)
+
+    def history_score(self, summary: dict[str, Any] | None) -> int:
+        return self.account_planning.history_score(summary)
+
+    def account_fit_score(self, asset: dict[str, Any]) -> int:
+        return self.account_planning.account_fit_score(asset)
+
+    def novelty_score(self, asset: dict[str, Any]) -> int:
+        return self.account_planning.novelty_score(asset)
+
+    def dashboard_rendered_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.account_planning.dashboard_rendered_asset(asset)
+
+    def generated_asset_lineage(
+        self,
+        source_prompt: dict[str, Any],
+        reference_pattern: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return self.account_planning.generated_asset_lineage(source_prompt, reference_pattern)
+
+    def audio_recommendations_for_asset(
+        self,
+        *,
+        caption_generation: dict[str, Any],
+        reference_pattern: dict[str, Any] | None,
+        recipe: str | None,
+        account_tags: list[str],
+    ) -> dict[str, Any]:
+        return self.account_planning.audio_recommendations_for_asset(
+            caption_generation=caption_generation,
+            reference_pattern=reference_pattern,
+            recipe=recipe,
+            account_tags=account_tags,
+        )
 
     def create_creative_plan(
         self,
