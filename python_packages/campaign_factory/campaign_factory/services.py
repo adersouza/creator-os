@@ -154,15 +154,9 @@ class CoreServices:
         creator_os_account_health_report: Callable[..., dict[str, Any]],
         creator_os_account_health_decision: Callable[..., dict[str, Any]],
         creator_os_tier_posting_guidance: Callable[[str], dict[str, Any]],
-        creator_os_post_time: Callable[[Any], str | None],
-        creator_os_recommended_post_count: Callable[[str, bool], int],
         creator_os_account_tier_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         creator_os_account_health_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
-        creator_os_surface_summary_for_creator: Callable[..., dict[str, Any]],
-        creator_os_inventory_for_creator: Callable[..., dict[str, Any]],
         creator_os_winner_recommendations: Callable[..., list[dict[str, Any]]],
-        creator_os_manager_decision: Callable[..., dict[str, Any]],
-        creator_os_blocked_account_breakdown: Callable[[list[dict[str, Any]]], dict[str, int]],
         creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
         recommendation_explainability: Callable[..., dict[str, Any]],
         build_creative_performance_analysis: Callable[..., dict[str, Any]],
@@ -171,7 +165,6 @@ class CoreServices:
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
-        creator_os_target_date: Callable[..., str],
         creator_os_daily_plan: Callable[..., dict[str, Any]],
         creator_os_execution_readiness: Callable[..., dict[str, Any]],
         inventory_slo_report: Callable[..., dict[str, Any]],
@@ -201,8 +194,6 @@ class CoreServices:
         events_for_asset: Callable[..., list[dict[str, Any]]],
         performance_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audit_report_payload: Callable[[dict[str, Any]], dict[str, Any]],
-        recommended_story_intent_for_date: Callable[..., str],
-        recommended_story_style_for_intent: Callable[[str], str],
         story_mix_plan: Callable[..., dict[str, Any]],
         story_calendar_plan: Callable[..., dict[str, Any]],
         json_load: Callable[[Any, Any], Any],
@@ -503,20 +494,6 @@ class CoreServices:
             multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
             build_surface_inventory=build_surface_inventory,
             content_surfaces=content_surfaces,
-        )
-        self.decision_ledger = DecisionLedgerRepository(
-            conn,
-            sanitize_for_storage=sanitize_for_storage,
-            utc_now=utc_now,
-            creator_label=creator_label,
-            creator_os_target_date=creator_os_target_date,
-            creator_os_daily_plan=creator_os_daily_plan,
-            creator_content_needs=self.surface_requirements.creator_content_needs,
-            recommended_story_intent_for_date=recommended_story_intent_for_date,
-            recommended_story_style_for_intent=recommended_story_style_for_intent,
-            story_mix_plan=story_mix_plan,
-            story_calendar_plan=story_calendar_plan,
-            normalize_content_surface=normalize_content_surface,
         )
         self.autonomy = AutonomyPolicyRepository(
             conn,
@@ -849,18 +826,6 @@ class CoreServices:
             story_goals=story_goals,
             story_styles=story_styles,
         )
-        self.surface_summary = SurfaceSummaryRepository(
-            conn,
-            creator_label=creator_label,
-            creator_os_target_date=creator_os_target_date,
-            creator_content_needs=self.surface_requirements.creator_content_needs,
-            account_content_needs=self.surface_requirements.account_content_needs,
-            account_surface_obligations_plan=self.surface_requirements.account_surface_obligations_plan,
-            multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
-            surface_gap_report=self.surface_requirements.surface_gap_report,
-            empty_surface_totals=self.surface_requirements.empty_surface_totals,
-            content_surfaces=content_surfaces,
-        )
         self.creator_os_drafts = CreatorOSDraftRepository(
             sanitize_for_storage=sanitize_for_storage,
             normalize_content_surface=normalize_content_surface,
@@ -869,8 +834,39 @@ class CoreServices:
             creator_os_numeric=self.creator_os_numeric,
             surface_report_assets=surface_report_assets,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
+            story_intent_report=self.story_management.story_intent_report,
+            utc_now=utc_now,
             content_surfaces=content_surfaces,
             creative_risk_block_threshold=creative_risk_block_threshold,
+            default_story_calendar=default_story_calendar,
+        )
+        self.decision_ledger = DecisionLedgerRepository(
+            conn,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            creator_label=creator_label,
+            creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
+            creator_os_daily_plan=creator_os_daily_plan,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
+            recommended_story_intent_for_date=self.creator_os_drafts.recommended_story_intent_for_date,
+            recommended_story_style_for_intent=self.creator_os_drafts.recommended_story_style_for_intent,
+            story_mix_plan=story_mix_plan,
+            story_calendar_plan=story_calendar_plan,
+            normalize_content_surface=normalize_content_surface,
+        )
+        self.surface_summary = SurfaceSummaryRepository(
+            conn,
+            creator_label=creator_label,
+            creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
+            creator_content_needs=self.surface_requirements.creator_content_needs,
+            account_content_needs=self.surface_requirements.account_content_needs,
+            account_surface_obligations_plan=self.surface_requirements.account_surface_obligations_plan,
+            multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
+            surface_gap_report=self.surface_requirements.surface_gap_report,
+            empty_surface_totals=self.surface_requirements.empty_surface_totals,
+            content_surfaces=content_surfaces,
         )
         self.draft_inventory_gap = DraftInventoryGapRepository(
             conn,
@@ -893,7 +889,7 @@ class CoreServices:
         self.daily_plan = DailyPlanRepository(
             conn,
             creator_label=creator_label,
-            creator_os_target_date=creator_os_target_date,
+            creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
             creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
             creator_os_account_health_report=creator_os_account_health_report,
             creator_os_account_health_decision=creator_os_account_health_decision,
@@ -901,19 +897,19 @@ class CoreServices:
             creator_os_account_surface_status=self.creator_os_drafts.creator_os_account_surface_status,
             creator_os_draft_exclusion_reason=self.creator_os_drafts.creator_os_draft_exclusion_reason,
             creator_os_draft_has_instagram_post_caption=self.creator_os_drafts.creator_os_draft_has_instagram_post_caption,
-            creator_os_post_time=creator_os_post_time,
-            creator_os_recommended_post_count=creator_os_recommended_post_count,
+            creator_os_post_time=self.creator_os_drafts.creator_os_post_time,
+            creator_os_recommended_post_count=self.creator_os_drafts.creator_os_recommended_post_count,
             creator_os_account_tier_summary=creator_os_account_tier_summary,
             creator_os_account_health_summary=creator_os_account_health_summary,
-            creator_os_surface_summary_for_creator=creator_os_surface_summary_for_creator,
-            creator_os_inventory_for_creator=creator_os_inventory_for_creator,
+            creator_os_surface_summary_for_creator=self.creator_os_drafts.creator_os_surface_summary_for_creator,
+            creator_os_inventory_for_creator=self.creator_os_drafts.creator_os_inventory_for_creator,
             creator_os_draft_exclusion_counts=self.creator_os_drafts.creator_os_draft_exclusion_counts,
             creator_os_winner_recommendations=self.creator_os_recommendations.creator_os_winner_recommendations,
-            creator_os_manager_decision=creator_os_manager_decision,
-            creator_os_blocked_account_breakdown=creator_os_blocked_account_breakdown,
-            recommended_story_intent_for_date=recommended_story_intent_for_date,
+            creator_os_manager_decision=self.creator_os_drafts.creator_os_manager_decision,
+            creator_os_blocked_account_breakdown=self.creator_os_drafts.creator_os_blocked_account_breakdown,
+            recommended_story_intent_for_date=self.creator_os_drafts.recommended_story_intent_for_date,
             creator_os_recommended_inventory=self.creator_os_recommendations.creator_os_recommended_inventory,
-            recommended_story_style_for_intent=recommended_story_style_for_intent,
+            recommended_story_style_for_intent=self.creator_os_drafts.recommended_story_style_for_intent,
             creator_os_draft_inventory_gap=self.draft_inventory_gap.creator_os_draft_inventory_gap,
             utc_now=utc_now,
         )
@@ -4084,8 +4080,14 @@ class CoreServices:
     def creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
         return self.creator_os_drafts.creator_os_local_schedule_safe_assets(creator)
 
+    def creator_os_target_date(self, *, date: str | None = None, generated_at: str | None = None) -> str:
+        return self.creator_os_drafts.creator_os_target_date(date=date, generated_at=generated_at)
+
     def creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
         return self.creator_os_drafts.creator_os_account_surface_status(account, reel_needed=reel_needed)
+
+    def creator_os_surface_summary_for_creator(self, **kwargs: Any) -> dict[str, Any]:
+        return self.creator_os_drafts.creator_os_surface_summary_for_creator(**kwargs)
 
     def creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
         return self.creator_os_drafts.creator_os_gap_blocking_reason(reason, blockers, item)
@@ -4110,6 +4112,35 @@ class CoreServices:
 
     def creator_os_explicit_false(self, item: dict[str, Any], *keys: str) -> bool:
         return self.creator_os_drafts.creator_os_explicit_false(item, *keys)
+
+    def creator_os_inventory_for_creator(
+        self,
+        creator: str,
+        planner_inputs: list[dict[str, Any]],
+        draft_items: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        return self.creator_os_drafts.creator_os_inventory_for_creator(creator, planner_inputs, draft_items)
+
+    def creator_os_blocked_account_breakdown(self, blocked_accounts: list[dict[str, Any]]) -> dict[str, int]:
+        return self.creator_os_drafts.creator_os_blocked_account_breakdown(blocked_accounts)
+
+    def creator_os_manager_decision(self, **kwargs: Any) -> dict[str, str]:
+        return self.creator_os_drafts.creator_os_manager_decision(**kwargs)
+
+    def creator_os_account_state(self, account: dict[str, Any], blocked_reason: str) -> str:
+        return self.creator_os_drafts.creator_os_account_state(account, blocked_reason)
+
+    def creator_os_post_time(self, value: Any) -> str:
+        return self.creator_os_drafts.creator_os_post_time(value)
+
+    def creator_os_recommended_post_count(self, state: str, needs_post_today: bool) -> int:
+        return self.creator_os_drafts.creator_os_recommended_post_count(state, needs_post_today)
+
+    def recommended_story_intent_for_date(self, target_date: str, *, creator: str | None = None) -> str:
+        return self.creator_os_drafts.recommended_story_intent_for_date(target_date, creator=creator)
+
+    def recommended_story_style_for_intent(self, intent: str) -> str:
+        return self.creator_os_drafts.recommended_story_style_for_intent(intent)
 
     def creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
         return self.account_health.creator_os_account_tier_summary(accounts, key=key)

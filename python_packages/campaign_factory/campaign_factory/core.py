@@ -632,15 +632,9 @@ class CampaignFactory:
             creator_os_account_health_report=lambda *args, **kwargs: self.creator_os_account_health_report(*args, **kwargs),
             creator_os_account_health_decision=lambda *args, **kwargs: self._creator_os_account_health_decision(*args, **kwargs),
             creator_os_tier_posting_guidance=lambda *args, **kwargs: self._creator_os_tier_posting_guidance(*args, **kwargs),
-            creator_os_post_time=lambda *args, **kwargs: self._creator_os_post_time(*args, **kwargs),
-            creator_os_recommended_post_count=lambda *args, **kwargs: self._creator_os_recommended_post_count(*args, **kwargs),
             creator_os_account_tier_summary=lambda *args, **kwargs: self._creator_os_account_tier_summary(*args, **kwargs),
             creator_os_account_health_summary=lambda *args, **kwargs: self._creator_os_account_health_summary(*args, **kwargs),
-            creator_os_surface_summary_for_creator=lambda *args, **kwargs: self._creator_os_surface_summary_for_creator(*args, **kwargs),
-            creator_os_inventory_for_creator=lambda *args, **kwargs: self._creator_os_inventory_for_creator(*args, **kwargs),
             creator_os_winner_recommendations=lambda *args, **kwargs: self._creator_os_winner_recommendations(*args, **kwargs),
-            creator_os_manager_decision=lambda *args, **kwargs: self._creator_os_manager_decision(*args, **kwargs),
-            creator_os_blocked_account_breakdown=lambda *args, **kwargs: self._creator_os_blocked_account_breakdown(*args, **kwargs),
             creator_os_recommended_inventory=lambda *args, **kwargs: self._creator_os_recommended_inventory(*args, **kwargs),
             recommendation_explainability=lambda *args, **kwargs: self._recommendation_explainability(*args, **kwargs),
             build_creative_performance_analysis=lambda *args, **kwargs: self._build_creative_performance_analysis(*args, **kwargs),
@@ -649,7 +643,6 @@ class CampaignFactory:
             build_creative_knowledge_base=lambda *args, **kwargs: self._build_creative_knowledge_base(*args, **kwargs),
             creative_knowledge_rows=lambda *args, **kwargs: self._creative_knowledge_rows(*args, **kwargs),
             creative_knowledge_result=lambda *args, **kwargs: self._creative_knowledge_result(*args, **kwargs),
-            creator_os_target_date=self._creator_os_target_date,
             creator_os_daily_plan=self.creator_os_daily_plan,
             creator_os_execution_readiness=lambda *args, **kwargs: self.creator_os_execution_readiness(*args, **kwargs),
             inventory_slo_report=self.inventory_slo_report,
@@ -679,8 +672,6 @@ class CampaignFactory:
             events_for_asset=self.events_for_asset,
             performance_for_asset=self._performance_for_asset,
             audit_report_payload=lambda *args, **kwargs: self._audit_report_payload(*args, **kwargs),
-            recommended_story_intent_for_date=self._recommended_story_intent_for_date,
-            recommended_story_style_for_intent=self._recommended_story_style_for_intent,
             story_mix_plan=self.story_mix_plan,
             story_calendar_plan=self.story_calendar_plan,
             json_load=json_load,
@@ -3626,13 +3617,7 @@ class CampaignFactory:
         return self.services.creator_os_local_schedule_safe_assets(creator)
 
     def _creator_os_target_date(self, *, date: str | None = None, generated_at: str | None = None) -> str:
-        raw = (date or generated_at or "").strip()
-        if raw:
-            try:
-                return datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
-            except ValueError:
-                return raw[:10]
-        return datetime.fromisoformat(utc_now().replace("Z", "+00:00")).date().isoformat()
+        return self.services.creator_os_target_date(date=date, generated_at=generated_at)
 
     def _creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
         return self.services.creator_os_account_surface_status(account, reel_needed=reel_needed)
@@ -3646,101 +3631,22 @@ class CampaignFactory:
         creator_accounts: list[dict[str, Any]],
         draft_items: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        inventory_report = self.multi_surface_inventory_audit(creator=creator)
-        local_inventory = inventory_report.get("inventoryBySurface") or {}
-        schedule_safe_drafts = self._creator_os_schedule_safe_drafts(creator, draft_items)
-        thread_dash_inventory = {surface: 0 for surface in CONTENT_SURFACES}
-        for item in schedule_safe_drafts:
-            surface = normalize_content_surface(
-                str(item.get("contentSurface") or item.get("content_surface") or item.get("surface") or item.get("distributionSurface") or "reel")
-            )
-            if surface in thread_dash_inventory:
-                thread_dash_inventory[surface] += 1
-
-        needs_by_surface = {surface: 0 for surface in CONTENT_SURFACES}
-        try:
-            needs_report = self.creator_content_needs(creator=creator, date=date)
-        except Exception:
-            needs_report = {}
-        totals_by_surface = needs_report.get("totalsBySurface") if isinstance(needs_report, dict) else None
-        has_requirement_data = bool(needs_report.get("accountsAnalyzed")) if isinstance(needs_report, dict) else False
-        if isinstance(totals_by_surface, dict) and has_requirement_data:
-            for surface in CONTENT_SURFACES:
-                needs_by_surface[surface] = int((totals_by_surface.get(surface) or {}).get("remaining") or 0)
-        else:
-            for account in creator_accounts:
-                surface_status = account.get("surfaceNeeds") if isinstance(account.get("surfaceNeeds"), dict) else {}
-                for surface in CONTENT_SURFACES:
-                    if (surface_status.get(surface) or {}).get("needed"):
-                        needs_by_surface[surface] += 1
-
-        surface_inventory: dict[str, dict[str, int]] = {}
-        surface_shortfalls: dict[str, dict[str, Any]] = {}
-        surface_readiness: dict[str, dict[str, Any]] = {}
-        for surface in CONTENT_SURFACES:
-            local = local_inventory.get(surface) or {}
-            schedule_safe = int(thread_dash_inventory.get(surface) or 0)
-            needed = int(needs_by_surface.get(surface) or 0)
-            shortfall = max(0, needed - schedule_safe)
-            surface_inventory[surface] = {
-                "localTotal": int(local.get("total") or 0),
-                "localScheduleSafe": int(local.get("scheduleSafe") or 0),
-                "threadDashScheduleSafeDrafts": schedule_safe,
-            }
-            surface_shortfalls[surface] = {
-                "needed": needed,
-                "scheduleSafeDraftsAvailable": schedule_safe,
-                "shortfall": shortfall,
-            }
-            surface_readiness[surface] = {
-                "needed": needed,
-                "scheduleSafeDraftsAvailable": schedule_safe,
-                "ready": needed == 0 or schedule_safe >= needed,
-                "blockedReason": "surface_inventory_shortfall" if shortfall else "",
-                "wouldWrite": False,
-            }
-        return {
-            "accountsNeedingReels": needs_by_surface["reel"],
-            "accountsNeedingStories": needs_by_surface["story"],
-            "accountsNeedingFeedSingles": needs_by_surface["feed_single"],
-            "accountsNeedingCarousels": needs_by_surface["feed_carousel"],
-            "surfaceInventory": surface_inventory,
-            "surfaceShortfalls": surface_shortfalls,
-            "surfaceScheduleReadiness": surface_readiness,
-            "wouldWrite": False,
-        }
+        return self.services.creator_os_surface_summary_for_creator(
+            creator=creator,
+            date=date,
+            report=report,
+            creator_accounts=creator_accounts,
+            draft_items=draft_items,
+        )
 
     def _creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
         return self.services.creator_os_gap_blocking_reason(reason, blockers, item)
 
     def _recommended_story_intent_for_date(self, target_date: str, *, creator: str | None = None) -> str:
-        if creator:
-            try:
-                intent_counts = self.story_intent_report(creator=creator).get("intentCounts") or {}
-            except Exception:
-                intent_counts = {}
-            if intent_counts:
-                return sorted(intent_counts.items(), key=lambda item: (-int(item[1] or 0), str(item[0])))[0][0]
-        try:
-            day_name = datetime.fromisoformat(target_date).strftime("%A")
-        except ValueError:
-            day_name = "Monday"
-        return DEFAULT_STORY_CALENDAR.get(day_name, "casual_selfie")
+        return self.services.recommended_story_intent_for_date(target_date, creator=creator)
 
     def _recommended_story_style_for_intent(self, intent: str) -> str:
-        return {
-            "snapchat_promo": "casual_selfie",
-            "reel_teaser": "raw_phone",
-            "casual_selfie": "casual_selfie",
-            "mirror_selfie": "mirror",
-            "outfit_check": "mirror",
-            "gym_selfie": "selfie",
-            "bedroom_selfie": "selfie",
-            "lifestyle": "lifestyle",
-            "behind_the_scenes": "raw_phone",
-            "engagement": "casual",
-            "profile_visit": "casual",
-        }.get(intent, "casual_selfie")
+        return self.services.recommended_story_style_for_intent(intent)
 
     def _creator_label(self, value: Any) -> str:
         text = str(value or "").strip()
@@ -3788,43 +3694,10 @@ class CampaignFactory:
         planner_inputs: list[dict[str, Any]],
         draft_items: list[dict[str, Any]],
     ) -> dict[str, int]:
-        matching_plans = [plan for plan in planner_inputs if self._creator_label(plan.get("creator")) == creator or not plan.get("creator")]
-        validated = 0
-        for plan in matching_plans:
-            validated = max(validated, int(plan.get("validatedDraftsAvailable") or 0))
-        item_validated = sum(
-            1
-            for item in draft_items
-            if item.get("qstashEligible") is True
-            and self._creator_label(item.get("creator")) in {creator, "unknown"}
-            and not self._creator_os_draft_exclusion_reason(item)
-        )
-        if draft_items:
-            validated = item_validated
-        elif not validated:
-            validated = sum(
-                1
-                for item in draft_items
-                if item.get("qstashEligible") is True
-                and self._creator_label(item.get("creator")) in {creator, "unknown"}
-                and not self._creator_os_draft_exclusion_reason(item)
-            )
-        variant = sum(
-            1
-            for item in draft_items
-            if item.get("qstashEligible") is True
-            and (item.get("variantId") or item.get("variantFamilyId"))
-            and self._creator_label(item.get("creator")) in {creator, "unknown"}
-            and not self._creator_os_draft_exclusion_reason(item)
-        )
-        return {"validatedDraftsAvailable": validated, "variantDraftsAvailable": variant}
+        return self.services.creator_os_inventory_for_creator(creator, planner_inputs, draft_items)
 
     def _creator_os_blocked_account_breakdown(self, blocked_accounts: list[dict[str, Any]]) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for account in blocked_accounts:
-            reason = str(account.get("blockedReason") or "blocked_unknown")
-            counts[reason] = counts.get(reason, 0) + 1
-        return dict(sorted(counts.items()))
+        return self.services.creator_os_blocked_account_breakdown(blocked_accounts)
 
     def _creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
         return self.services.creator_os_account_tier_summary(accounts, key=key)
@@ -3942,69 +3815,26 @@ class CampaignFactory:
         missed_dispatches: list[dict[str, Any]],
         winner_recommendations: list[dict[str, Any]],
     ) -> dict[str, str]:
-        if missed_dispatches:
-            return {
-                "managerDecision": "blocked",
-                "managerReason": "missed_dispatches_must_be_resolved_before_new_scheduling",
-            }
-        if needs_posts and safe_accounts <= 0:
-            return {
-                "managerDecision": "blocked",
-                "managerReason": "no_safe_accounts_available",
-            }
-        if needs_posts and shortfall <= 0 and validated_available >= needs_posts:
-            return {
-                "managerDecision": "ready_to_schedule",
-                "managerReason": "enough_validated_drafts_and_safe_accounts_exist",
-            }
-        if shortfall > 0 and winner_recommendations:
-            return {
-                "managerDecision": "needs_variants",
-                "managerReason": "validated_draft_inventory_short_and_winner_family_can_expand",
-            }
-        if shortfall > 0:
-            return {
-                "managerDecision": "needs_reel_factory_inventory",
-                "managerReason": "validated_draft_inventory_short_and_no_winner_expansion_available",
-            }
-        return {
-            "managerDecision": "ready_to_schedule" if needs_posts else "blocked",
-            "managerReason": "no_accounts_need_posts_today" if not needs_posts else "ready",
-        }
+        return self.services.creator_os_manager_decision(
+            safe_accounts=safe_accounts,
+            needs_posts=needs_posts,
+            validated_available=validated_available,
+            shortfall=shortfall,
+            missed_dispatches=missed_dispatches,
+            winner_recommendations=winner_recommendations,
+        )
 
     def _creator_os_blocked_reason(self, account: dict[str, Any], missed: list[dict[str, Any]]) -> str:
         return self.services.creator_os_blocked_reason(account, missed)
 
     def _creator_os_account_state(self, account: dict[str, Any], blocked_reason: str) -> str:
-        if blocked_reason:
-            return "blocked"
-        raw = str(account.get("accountState") or account.get("state") or "").strip().lower()
-        if raw in {"warming", "resting", "high-performing", "blocked"}:
-            return raw
-        bucket = str(account.get("bucket") or "").strip().lower()
-        if bucket == "blocked_recent_failure":
-            return "resting"
-        if bucket.startswith("blocked_"):
-            return "blocked"
-        if bucket in {"safe_to_schedule_today", "already_scheduled_today"}:
-            return "safe"
-        if account.get("safeToSchedule") is False and not account.get("nextScheduledPost"):
-            return "blocked"
-        return "safe"
+        return self.services.creator_os_account_state(account, blocked_reason)
 
     def _creator_os_post_time(self, value: Any) -> str:
-        if not isinstance(value, dict):
-            return ""
-        return str(value.get("scheduledFor") or value.get("scheduled_for") or value.get("publishedAt") or value.get("published_at") or "")
+        return self.services.creator_os_post_time(value)
 
     def _creator_os_recommended_post_count(self, state: str, needs_post_today: bool) -> int:
-        if not needs_post_today:
-            return 0
-        if state == "high-performing":
-            return 2
-        if state in {"safe", "warming"}:
-            return 1
-        return 0
+        return self.services.creator_os_recommended_post_count(state, needs_post_today)
 
     def winner_expansion_plan(
         self,
