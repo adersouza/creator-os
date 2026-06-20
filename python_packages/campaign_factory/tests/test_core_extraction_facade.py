@@ -21,6 +21,7 @@ from campaign_factory.contentforge_visual_qc import ContentForgeVisualQCReposito
 from campaign_factory.core import CampaignFactory
 from campaign_factory.core_complexity import CoreComplexityRepository
 from campaign_factory.creative_knowledge import CreativeKnowledgeRepository
+from campaign_factory.creator_os_drafts import CreatorOSDraftRepository
 from campaign_factory.creator_os_recommendations import CreatorOSRecommendationRepository
 from campaign_factory.creative_planning import CreativePlanningRepository
 from campaign_factory.decision_ledger import DecisionLedgerRepository
@@ -138,6 +139,7 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.surface_requirements.conn is factory.conn
         assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
         assert factory.services.surface_summary.conn is factory.conn
+        assert isinstance(factory.services.creator_os_drafts, CreatorOSDraftRepository)
         assert isinstance(factory.services.draft_inventory_gap, DraftInventoryGapRepository)
         assert factory.services.draft_inventory_gap.conn is factory.conn
         assert isinstance(factory.services.daily_plan, DailyPlanRepository)
@@ -3771,6 +3773,80 @@ def test_core_services_delegates_creator_os_draft_inventory_gap_to_repository(tm
         ]
     finally:
         factory.close()
+
+
+def test_core_services_delegates_creator_os_draft_helpers_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreatorOSDrafts:
+        def creator_os_local_schedule_safe_assets(self, *args, **kwargs):
+            calls.append(("creator_os_local_schedule_safe_assets", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def creator_os_account_surface_status(self, *args, **kwargs):
+            calls.append(("creator_os_account_surface_status", args, kwargs))
+            return {"reel": {"needed": True}}
+
+        def creator_os_gap_blocking_reason(self, *args, **kwargs):
+            calls.append(("creator_os_gap_blocking_reason", args, kwargs))
+            return "missing_handoff_manifest"
+
+        def creator_os_draft_items(self, *args, **kwargs):
+            calls.append(("creator_os_draft_items", args, kwargs))
+            return [{"postId": "post_1"}]
+
+        def creator_os_draft_has_instagram_post_caption(self, *args, **kwargs):
+            calls.append(("creator_os_draft_has_instagram_post_caption", args, kwargs))
+            return True
+
+        def creator_os_draft_exclusion_reason(self, *args, **kwargs):
+            calls.append(("creator_os_draft_exclusion_reason", args, kwargs))
+            return ""
+
+        def creator_os_draft_exclusion_counts(self, *args, **kwargs):
+            calls.append(("creator_os_draft_exclusion_counts", args, kwargs))
+            return {"missingInstagramPostCaption": 1}
+
+        def creator_os_schedule_safe_drafts(self, *args, **kwargs):
+            calls.append(("creator_os_schedule_safe_drafts", args, kwargs))
+            return [{"postId": "post_1"}]
+
+        def creator_os_execution_draft_blockers(self, *args, **kwargs):
+            calls.append(("creator_os_execution_draft_blockers", args, kwargs))
+            return ["missing_campaign_factory_asset_id"]
+
+        def creator_os_explicit_false(self, *args, **kwargs):
+            calls.append(("creator_os_explicit_false", args, kwargs))
+            return True
+
+    services.creator_os_drafts = FakeCreatorOSDrafts()
+
+    draft = {"postId": "post_1"}
+    planner_inputs = [{"items": [draft]}]
+    assert services.creator_os_local_schedule_safe_assets("Stacey") == [{"renderedAssetId": "asset_1"}]
+    assert services.creator_os_account_surface_status({"surfaceStatus": {}}, reel_needed=True) == {"reel": {"needed": True}}
+    assert services.creator_os_gap_blocking_reason("missingHandoffManifest", [], draft) == "missing_handoff_manifest"
+    assert services.creator_os_draft_items(planner_inputs) == [{"postId": "post_1"}]
+    assert services.creator_os_draft_has_instagram_post_caption(draft) is True
+    assert services.creator_os_draft_exclusion_reason(draft) == ""
+    assert services.creator_os_draft_exclusion_counts("Stacey", [draft]) == {"missingInstagramPostCaption": 1}
+    assert services.creator_os_schedule_safe_drafts("Stacey", [draft]) == [{"postId": "post_1"}]
+    assert services.creator_os_execution_draft_blockers("Stacey", [draft]) == ["missing_campaign_factory_asset_id"]
+    assert services.creator_os_explicit_false(draft, "burnedCaptionTextPresent") is True
+
+    assert calls == [
+        ("creator_os_local_schedule_safe_assets", ("Stacey",), {}),
+        ("creator_os_account_surface_status", ({"surfaceStatus": {}},), {"reel_needed": True}),
+        ("creator_os_gap_blocking_reason", ("missingHandoffManifest", [], draft), {}),
+        ("creator_os_draft_items", (planner_inputs,), {}),
+        ("creator_os_draft_has_instagram_post_caption", (draft,), {}),
+        ("creator_os_draft_exclusion_reason", (draft,), {}),
+        ("creator_os_draft_exclusion_counts", ("Stacey", [draft]), {}),
+        ("creator_os_schedule_safe_drafts", ("Stacey", [draft]), {}),
+        ("creator_os_execution_draft_blockers", ("Stacey", [draft]), {}),
+        ("creator_os_explicit_false", (draft, "burnedCaptionTextPresent"), {}),
+    ]
 
 
 def test_core_service_facade_methods_delegate_to_services() -> None:
@@ -11092,6 +11168,80 @@ def test_story_management_facade_delegates_to_core_services() -> None:
         ("story_proof_gap_analysis", (), {}),
         ("story_source_blockers", ([{"path": "/campaign_factory/02_rendered/story.png"}],), {}),
         ("story_existing_asset_source_blockers", ({"id": "asset_1"},), {}),
+    ]
+
+
+def test_campaign_factory_delegates_creator_os_draft_helpers_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def creator_os_local_schedule_safe_assets(self, *args, **kwargs):
+            calls.append(("creator_os_local_schedule_safe_assets", args, kwargs))
+            return [{"renderedAssetId": "asset_1"}]
+
+        def creator_os_account_surface_status(self, *args, **kwargs):
+            calls.append(("creator_os_account_surface_status", args, kwargs))
+            return {"reel": {"needed": True}}
+
+        def creator_os_gap_blocking_reason(self, *args, **kwargs):
+            calls.append(("creator_os_gap_blocking_reason", args, kwargs))
+            return "missing_handoff_manifest"
+
+        def creator_os_draft_items(self, *args, **kwargs):
+            calls.append(("creator_os_draft_items", args, kwargs))
+            return [{"postId": "post_1"}]
+
+        def creator_os_draft_has_instagram_post_caption(self, *args, **kwargs):
+            calls.append(("creator_os_draft_has_instagram_post_caption", args, kwargs))
+            return True
+
+        def creator_os_draft_exclusion_reason(self, *args, **kwargs):
+            calls.append(("creator_os_draft_exclusion_reason", args, kwargs))
+            return ""
+
+        def creator_os_draft_exclusion_counts(self, *args, **kwargs):
+            calls.append(("creator_os_draft_exclusion_counts", args, kwargs))
+            return {"missingInstagramPostCaption": 1}
+
+        def creator_os_schedule_safe_drafts(self, *args, **kwargs):
+            calls.append(("creator_os_schedule_safe_drafts", args, kwargs))
+            return [{"postId": "post_1"}]
+
+        def creator_os_execution_draft_blockers(self, *args, **kwargs):
+            calls.append(("creator_os_execution_draft_blockers", args, kwargs))
+            return ["missing_campaign_factory_asset_id"]
+
+        def creator_os_explicit_false(self, *args, **kwargs):
+            calls.append(("creator_os_explicit_false", args, kwargs))
+            return True
+
+    factory.services = FakeServices()
+
+    draft = {"postId": "post_1"}
+    planner_inputs = [{"items": [draft]}]
+    assert factory._creator_os_local_schedule_safe_assets("Stacey") == [{"renderedAssetId": "asset_1"}]
+    assert factory._creator_os_account_surface_status({"surfaceStatus": {}}, reel_needed=True) == {"reel": {"needed": True}}
+    assert factory._creator_os_gap_blocking_reason("missingHandoffManifest", [], draft) == "missing_handoff_manifest"
+    assert factory._creator_os_draft_items(planner_inputs) == [{"postId": "post_1"}]
+    assert factory._creator_os_draft_has_instagram_post_caption(draft) is True
+    assert factory._creator_os_draft_exclusion_reason(draft) == ""
+    assert factory._creator_os_draft_exclusion_counts("Stacey", [draft]) == {"missingInstagramPostCaption": 1}
+    assert factory._creator_os_schedule_safe_drafts("Stacey", [draft]) == [{"postId": "post_1"}]
+    assert factory._creator_os_execution_draft_blockers("Stacey", [draft]) == ["missing_campaign_factory_asset_id"]
+    assert factory._creator_os_explicit_false(draft, "burnedCaptionTextPresent") is True
+
+    assert calls == [
+        ("creator_os_local_schedule_safe_assets", ("Stacey",), {}),
+        ("creator_os_account_surface_status", ({"surfaceStatus": {}},), {"reel_needed": True}),
+        ("creator_os_gap_blocking_reason", ("missingHandoffManifest", [], draft), {}),
+        ("creator_os_draft_items", (planner_inputs,), {}),
+        ("creator_os_draft_has_instagram_post_caption", (draft,), {}),
+        ("creator_os_draft_exclusion_reason", (draft,), {}),
+        ("creator_os_draft_exclusion_counts", ("Stacey", [draft]), {}),
+        ("creator_os_schedule_safe_drafts", ("Stacey", [draft]), {}),
+        ("creator_os_execution_draft_blockers", ("Stacey", [draft]), {}),
+        ("creator_os_explicit_false", (draft, "burnedCaptionTextPresent"), {}),
     ]
 
 

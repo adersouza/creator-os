@@ -629,24 +629,15 @@ class CampaignFactory:
             ranking=lambda *args, **kwargs: self.ranking(*args, **kwargs),
             dashboard=lambda *args, **kwargs: self.dashboard(*args, **kwargs),
             creator_label=self._creator_label,
-            creator_os_draft_items=self._creator_os_draft_items,
-            creator_os_local_schedule_safe_assets=self._creator_os_local_schedule_safe_assets,
-            creator_os_schedule_safe_drafts=self._creator_os_schedule_safe_drafts,
-            creator_os_draft_exclusion_reason=self._creator_os_draft_exclusion_reason,
-            creator_os_execution_draft_blockers=self._creator_os_execution_draft_blockers,
-            creator_os_gap_blocking_reason=self._creator_os_gap_blocking_reason,
             creator_os_account_health_report=lambda *args, **kwargs: self.creator_os_account_health_report(*args, **kwargs),
             creator_os_account_health_decision=lambda *args, **kwargs: self._creator_os_account_health_decision(*args, **kwargs),
             creator_os_tier_posting_guidance=lambda *args, **kwargs: self._creator_os_tier_posting_guidance(*args, **kwargs),
-            creator_os_account_surface_status=lambda *args, **kwargs: self._creator_os_account_surface_status(*args, **kwargs),
-            creator_os_draft_has_instagram_post_caption=lambda *args, **kwargs: self._creator_os_draft_has_instagram_post_caption(*args, **kwargs),
             creator_os_post_time=lambda *args, **kwargs: self._creator_os_post_time(*args, **kwargs),
             creator_os_recommended_post_count=lambda *args, **kwargs: self._creator_os_recommended_post_count(*args, **kwargs),
             creator_os_account_tier_summary=lambda *args, **kwargs: self._creator_os_account_tier_summary(*args, **kwargs),
             creator_os_account_health_summary=lambda *args, **kwargs: self._creator_os_account_health_summary(*args, **kwargs),
             creator_os_surface_summary_for_creator=lambda *args, **kwargs: self._creator_os_surface_summary_for_creator(*args, **kwargs),
             creator_os_inventory_for_creator=lambda *args, **kwargs: self._creator_os_inventory_for_creator(*args, **kwargs),
-            creator_os_draft_exclusion_counts=lambda *args, **kwargs: self._creator_os_draft_exclusion_counts(*args, **kwargs),
             creator_os_winner_recommendations=lambda *args, **kwargs: self._creator_os_winner_recommendations(*args, **kwargs),
             creator_os_manager_decision=lambda *args, **kwargs: self._creator_os_manager_decision(*args, **kwargs),
             creator_os_blocked_account_breakdown=lambda *args, **kwargs: self._creator_os_blocked_account_breakdown(*args, **kwargs),
@@ -3632,22 +3623,7 @@ class CampaignFactory:
         return self.services.decision_ledger.story_goal_for_intent(intent)
 
     def _creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
-        items = []
-        for asset in self._surface_report_assets(creator=creator):
-            readiness = self._surface_handoff_readiness_for_asset(asset)
-            if not readiness.get("canHandoff"):
-                continue
-            items.append({
-                "renderedAssetId": asset["id"],
-                "campaign": asset.get("campaign_slug"),
-                "contentSurface": readiness.get("contentSurface"),
-                "latestDistributionPlanId": (
-                    readiness.get("handoffManifest", {}).get("distribution_plan_id")
-                    if isinstance(readiness.get("handoffManifest"), dict)
-                    else None
-                ),
-            })
-        return items
+        return self.services.creator_os_local_schedule_safe_assets(creator)
 
     def _creator_os_target_date(self, *, date: str | None = None, generated_at: str | None = None) -> str:
         raw = (date or generated_at or "").strip()
@@ -3659,44 +3635,7 @@ class CampaignFactory:
         return datetime.fromisoformat(utc_now().replace("Z", "+00:00")).date().isoformat()
 
     def _creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
-        status = {
-            surface: {"needed": False, "scheduled": False, "completed": False, "blockedReason": ""}
-            for surface in CONTENT_SURFACES
-        }
-        raw_status = account.get("surfaceStatus")
-        raw_needs = account.get("surfaceNeeds") or account.get("needsBySurface")
-        if isinstance(raw_status, dict):
-            for raw_surface, raw_value in raw_status.items():
-                surface = normalize_content_surface(str(raw_surface))
-                if surface not in status:
-                    continue
-                value = raw_value if isinstance(raw_value, dict) else {"needed": bool(raw_value)}
-                status[surface] = {
-                    "needed": bool(value.get("needed")),
-                    "scheduled": bool(value.get("scheduled")),
-                    "completed": bool(value.get("completed")),
-                    "blockedReason": str(value.get("blockedReason") or ""),
-                }
-            return status
-        if isinstance(raw_needs, dict):
-            for raw_surface, raw_value in raw_needs.items():
-                surface = normalize_content_surface(str(raw_surface))
-                if surface not in status:
-                    continue
-                if isinstance(raw_value, dict):
-                    needed = bool(raw_value.get("needed") or int(raw_value.get("remaining") or 0) > 0)
-                    blocked = str(raw_value.get("blockedReason") or "")
-                else:
-                    try:
-                        needed = int(raw_value or 0) > 0
-                    except (TypeError, ValueError):
-                        needed = bool(raw_value)
-                    blocked = ""
-                status[surface]["needed"] = needed
-                status[surface]["blockedReason"] = blocked
-            return status
-        status["reel"]["needed"] = bool(reel_needed)
-        return status
+        return self.services.creator_os_account_surface_status(account, reel_needed=reel_needed)
 
     def _creator_os_surface_summary_for_creator(
         self,
@@ -3772,26 +3711,7 @@ class CampaignFactory:
         }
 
     def _creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
-        if reason == "missingInstagramPostCaption":
-            return "missing_instagram_post_caption"
-        if reason == "missingHandoffManifest":
-            return "missing_handoff_manifest"
-        if reason == "notPlatformDraftValidated":
-            return "platform_draft_not_validated"
-        if reason == "quarantined":
-            return "quarantined"
-        if reason == "publishabilityFailed":
-            return "publishability_failed"
-        if reason == "variantCooldownBlocked":
-            return str(item.get("variantCooldownCheck") or "variant_cooldown_blocked")
-        duplicate = str(item.get("duplicateCheck") or "clear")
-        if duplicate and duplicate != "clear":
-            return duplicate
-        if blockers:
-            return blockers[0]
-        if item.get("qstashEligible") is not True:
-            return "not_qstash_eligible"
-        return "unknown_not_schedule_safe"
+        return self.services.creator_os_gap_blocking_reason(reason, blockers, item)
 
     def _recommended_story_intent_for_date(self, target_date: str, *, creator: str | None = None) -> str:
         if creator:
@@ -3829,56 +3749,13 @@ class CampaignFactory:
         return text[:1].upper() + text[1:]
 
     def _creator_os_draft_items(self, planner_inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for plan in planner_inputs:
-            for raw in plan.get("items") or plan.get("inventory") or []:
-                if not isinstance(raw, dict):
-                    continue
-                post_id = str(raw.get("postId") or raw.get("draftPostId") or "")
-                key = post_id or json.dumps(sanitize_for_storage(raw), sort_keys=True)
-                if key in seen:
-                    continue
-                seen.add(key)
-                items.append(dict(raw))
-        return items
+        return self.services.creator_os_draft_items(planner_inputs)
 
     def _creator_os_draft_has_instagram_post_caption(self, draft: dict[str, Any]) -> bool:
-        explicit_keys = {
-            "instagram_post_caption",
-            "instagramPostCaption",
-            "post_caption",
-            "postCaption",
-            "content",
-        }
-        metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
-        campaign_meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
-        manifest = campaign_meta.get("handoff_manifest") if isinstance(campaign_meta.get("handoff_manifest"), dict) else {}
-        containers = [draft, metadata, campaign_meta, manifest]
-        for container in containers:
-            if not isinstance(container, dict):
-                continue
-            for key in explicit_keys:
-                if key in container and str(container.get(key) or "").strip():
-                    return True
-        return False
+        return self.services.creator_os_draft_has_instagram_post_caption(draft)
 
     def _creator_os_draft_exclusion_reason(self, draft: dict[str, Any]) -> str:
-        if not self._creator_os_draft_has_instagram_post_caption(draft):
-            return "missingInstagramPostCaption"
-        if draft.get("handoffManifestOk") is not True:
-            return "missingHandoffManifest"
-        if draft.get("platformDraftValidated") is not True:
-            return "notPlatformDraftValidated"
-        if self._truthy(draft.get("quarantined") or draft.get("assetQuarantined") or draft.get("campaignFactoryQuarantined")):
-            return "quarantined"
-        publishability_state = str(draft.get("publishabilityState") or draft.get("assetState") or "").strip()
-        if publishability_state not in {"exportable", "publishable_candidate", "platform_draft_validated"}:
-            return "publishabilityFailed"
-        cooldown_reason = str(draft.get("variantCooldownCheck") or "clear")
-        if cooldown_reason and cooldown_reason != "clear":
-            return "variantCooldownBlocked"
-        return ""
+        return self.services.creator_os_draft_exclusion_reason(draft)
 
     def _truthy(self, value: Any) -> bool:
         if isinstance(value, bool):
@@ -3888,31 +3765,10 @@ class CampaignFactory:
         return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
     def _creator_os_draft_exclusion_counts(self, creator: str, draft_items: list[dict[str, Any]]) -> dict[str, int]:
-        counts = {
-            "missingInstagramPostCaption": 0,
-            "missingHandoffManifest": 0,
-            "notPlatformDraftValidated": 0,
-            "quarantined": 0,
-            "publishabilityFailed": 0,
-            "variantCooldownBlocked": 0,
-        }
-        for item in draft_items:
-            if self._creator_label(item.get("creator")) not in {creator, "unknown"}:
-                continue
-            reason = self._creator_os_draft_exclusion_reason(item)
-            if reason in counts:
-                counts[reason] += 1
-        return counts
+        return self.services.creator_os_draft_exclusion_counts(creator, draft_items)
 
     def _creator_os_schedule_safe_drafts(self, creator: str, draft_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            item
-            for item in draft_items
-            if self._creator_label(item.get("creator")) in {creator, "unknown"}
-            and item.get("qstashEligible") is True
-            and not self._creator_os_draft_exclusion_reason(item)
-            and not self._creator_os_execution_draft_blockers(creator, [item])
-        ]
+        return self.services.creator_os_schedule_safe_drafts(creator, draft_items)
 
     def _creator_os_execution_account_health_blockers(self, account_health: dict[str, Any]) -> list[str]:
         return self.services.creator_os_execution_account_health_blockers(account_health)
@@ -3921,56 +3777,10 @@ class CampaignFactory:
         return self.services.creator_os_execution_account_health_warnings(account_health)
 
     def _creator_os_execution_draft_blockers(self, creator: str, draft_items: list[dict[str, Any]]) -> list[str]:
-        blockers: set[str] = set()
-        for item in draft_items:
-            if self._creator_label(item.get("creator")) not in {creator, "unknown"}:
-                continue
-            reason = self._creator_os_draft_exclusion_reason(item)
-            if reason == "missingInstagramPostCaption":
-                blockers.add("missing_instagram_post_caption")
-            elif reason == "missingHandoffManifest":
-                blockers.add("missing_handoff_manifest")
-            elif reason == "notPlatformDraftValidated":
-                blockers.add("platform_draft_not_validated")
-            elif reason == "quarantined":
-                blockers.add("quarantined_draft_present")
-            elif reason == "publishabilityFailed":
-                blockers.add("publishability_failed_draft_present")
-            elif reason == "variantCooldownBlocked":
-                blockers.add("variant_cooldown_violation")
-            if not (item.get("renderedAssetId") or item.get("campaignFactoryAssetId") or item.get("campaign_factory_asset_id")):
-                blockers.add("missing_campaign_factory_asset_id")
-            if not (item.get("distributionPlanId") or item.get("campaignFactoryDistributionPlanId") or item.get("campaign_factory_distribution_plan_id")):
-                blockers.add("missing_campaign_factory_distribution_plan_id")
-            duplicate_reason = str(item.get("duplicateCheck") or "clear")
-            if duplicate_reason and duplicate_reason != "clear":
-                blockers.add("duplicate_schedule_risk")
-            if self._creator_os_explicit_false(item, "burnedCaptionTextPresent", "burned_caption_text_present", "burnedCaptionPresent"):
-                blockers.add("missing_burned_caption_text")
-            placement_status = str(item.get("captionPlacementQcStatus") or item.get("captionPlacementStatus") or item.get("caption_placement_qc_status") or "").lower()
-            if placement_status and placement_status not in {"passed", "pass", "ok"}:
-                blockers.add("caption_placement_qc_failed")
-            audio_status = str(item.get("audioValidity") or item.get("audio_validity") or item.get("audioStatus") or "").lower()
-            if audio_status in {"failed", "invalid", "mismatch"}:
-                blockers.add("embedded_audio_invalid")
-            creative_risk = int(self._creator_os_numeric(item.get("creativeRiskScore") or item.get("creative_risk_score") or ((item.get("creativeRisk") or {}).get("score") if isinstance(item.get("creativeRisk"), dict) else 0)))
-            if creative_risk >= CREATIVE_RISK_BLOCK_THRESHOLD:
-                blockers.add("creative_risk_score_exceeded")
-            budget = item.get("similarityBudget") if isinstance(item.get("similarityBudget"), dict) else {}
-            if budget.get("blocked") or item.get("similarityBudgetExceeded") or item.get("similarity_budget_exceeded"):
-                blockers.add("similarity_budget_exceeded")
-        return sorted(blockers)
+        return self.services.creator_os_execution_draft_blockers(creator, draft_items)
 
     def _creator_os_explicit_false(self, item: dict[str, Any], *keys: str) -> bool:
-        for key in keys:
-            if key not in item:
-                continue
-            value = item.get(key)
-            if isinstance(value, bool):
-                return value is False
-            if str(value).strip().lower() in {"0", "false", "no"}:
-                return True
-        return False
+        return self.services.creator_os_explicit_false(item, *keys)
 
     def _creator_os_inventory_for_creator(
         self,
