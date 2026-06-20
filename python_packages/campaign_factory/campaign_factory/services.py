@@ -50,6 +50,7 @@ from .reference import ReferenceRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .recommendations import RecommendationRepository
 from .readiness_report import ReadinessReportRepository
+from .reel_factory_reports import ReelFactoryReportRepository
 from .reel_execution import ReelExecutionRepository
 from .schedule_safe_production import ScheduleSafeProductionRepository
 from .story_management import StoryManagementRepository
@@ -703,6 +704,13 @@ class CoreServices:
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
+        )
+        self.reel_factory_reports = ReelFactoryReportRepository(
+            conn,
+            build_surface_readiness=build_surface_readiness,
+            inventory_count_related=lambda table, column, asset_ids: self.inventory_planning.inventory_count_related(table, column, asset_ids),
+            inventory_production_requirements=inventory_production_requirements,
+            ratio=ratio,
         )
         self.contentforge_visual_qc = ContentForgeVisualQCRepository(
             conn,
@@ -2513,6 +2521,54 @@ class CoreServices:
 
     def fresh_reel_execution_batches(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.fresh_reel_production.fresh_reel_execution_batches(**kwargs)
+
+    def reel_factory_parent_throughput_proof(self, **kwargs: Any) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_parent_throughput_proof(**kwargs)
+
+    def reel_factory_yield_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_yield_analysis(**kwargs)
+
+    def reel_factory_failure_analysis(self) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_failure_analysis()
+
+    def reel_factory_capacity_model(self, **kwargs: Any) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_capacity_model(**kwargs)
+
+    def reel_factory_200_account_readiness(self) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_200_account_readiness()
+
+    def reel_factory_master_report(self) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_master_report()
+
+    def reel_factory_parent_metrics(self) -> dict[str, int]:
+        return self.reel_factory_reports.reel_factory_parent_metrics()
+
+    def reel_factory_parent_qc_pass(self, asset: dict[str, Any]) -> bool:
+        return self.reel_factory_reports.reel_factory_parent_qc_pass(asset)
+
+    def reel_factory_confidence(self, metrics: dict[str, int]) -> str:
+        return self.reel_factory_reports.reel_factory_confidence(metrics)
+
+    def operator_review_minutes_per_parent(self, metrics: dict[str, int]) -> float:
+        return self.reel_factory_reports.operator_review_minutes_per_parent(metrics)
+
+    def reel_factory_intake_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_intake_metrics(metrics)
+
+    def reel_factory_parent_creation_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_parent_creation_metrics(metrics)
+
+    def reel_factory_quality_gate_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_quality_gate_metrics(yield_report)
+
+    def reel_factory_operational_readiness_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_operational_readiness_metrics(yield_report)
+
+    def reel_factory_human_cost(self, metrics: dict[str, int]) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_human_cost(metrics)
+
+    def reel_factory_rating(self, proof: dict[str, Any]) -> float:
+        return self.reel_factory_reports.reel_factory_rating(proof)
 
     def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)
