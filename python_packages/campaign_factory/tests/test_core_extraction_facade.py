@@ -300,6 +300,14 @@ def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> N
     calls = []
 
     class FakeServices:
+        def dashboard(self, *args, **kwargs):
+            calls.append(("dashboard", args, kwargs))
+            return {"campaign": {"slug": args[0]}, "rendered": []}
+
+        def default_dashboard_campaign(self, *args, **kwargs):
+            calls.append(("default_dashboard_campaign", args, kwargs))
+            return args[0][0] if args[0] else None
+
         def campaign_health(self, *args, **kwargs):
             calls.append(("campaign_health", args, kwargs))
             return {"schema": "campaign_factory.campaign_health.v1", "campaign": args[0]}
@@ -322,6 +330,8 @@ def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> N
 
     factory.services = FakeServices()
 
+    assert factory.dashboard("may") == {"campaign": {"slug": "may"}, "rendered": []}
+    assert factory._default_dashboard_campaign([{"id": "camp_1", "slug": "may"}]) == {"id": "camp_1", "slug": "may"}
     assert factory.campaign_health("may") == {"schema": "campaign_factory.campaign_health.v1", "campaign": "may"}
     assert factory.asset_detail("asset_1") == {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": "asset_1"}}
     assert factory.assign_asset_account(
@@ -336,6 +346,8 @@ def test_campaign_factory_delegates_campaign_overview_methods_to_services() -> N
     assert factory.assignments_for_campaign("may") == [{"campaign": "may"}]
 
     assert calls == [
+        ("dashboard", ("may",), {}),
+        ("default_dashboard_campaign", ([{"id": "camp_1", "slug": "may"}],), {}),
         ("campaign_health", ("may",), {}),
         ("asset_detail", ("asset_1",), {}),
         ("assign_asset_account", ("asset_1",), {
@@ -6767,6 +6779,14 @@ def test_core_services_delegates_campaign_overview_methods_to_campaign_overview_
     calls = []
 
     class FakeCampaignOverview:
+        def dashboard(self, *args, **kwargs):
+            calls.append(("dashboard", args, kwargs))
+            return {"campaign": {"slug": args[0]}, "rendered": []}
+
+        def default_dashboard_campaign(self, *args, **kwargs):
+            calls.append(("default_dashboard_campaign", args, kwargs))
+            return args[0][0] if args[0] else None
+
         def campaign_health(self, *args, **kwargs):
             calls.append(("campaign_health", args, kwargs))
             return {"schema": "campaign_factory.campaign_health.v1", "campaign": args[0]}
@@ -6789,6 +6809,8 @@ def test_core_services_delegates_campaign_overview_methods_to_campaign_overview_
 
     services.campaign_overview = FakeCampaignOverview()
 
+    assert services.dashboard("may") == {"campaign": {"slug": "may"}, "rendered": []}
+    assert services.default_dashboard_campaign([{"id": "camp_1", "slug": "may"}]) == {"id": "camp_1", "slug": "may"}
     assert services.campaign_health("may") == {"schema": "campaign_factory.campaign_health.v1", "campaign": "may"}
     assert services.asset_detail("asset_1") == {"schema": "campaign_factory.asset_detail.v1", "asset": {"id": "asset_1"}}
     assert services.assign_asset_account(
@@ -6803,6 +6825,8 @@ def test_core_services_delegates_campaign_overview_methods_to_campaign_overview_
     assert services.assignments_for_campaign("may") == [{"campaign": "may"}]
 
     assert calls == [
+        ("dashboard", ("may",), {}),
+        ("default_dashboard_campaign", ([{"id": "camp_1", "slug": "may"}],), {}),
         ("campaign_health", ("may",), {}),
         ("asset_detail", ("asset_1",), {}),
         ("assign_asset_account", ("asset_1",), {

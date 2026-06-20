@@ -6117,32 +6117,7 @@ class CampaignFactory:
         return self.services.export_manifest(campaign_slug=campaign_slug)
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
-        campaigns = self.list_campaigns()
-        selected = self.campaign_by_slug(campaign_slug) if campaign_slug else self._default_dashboard_campaign(campaigns)
-        if not selected:
-            return {"campaigns": [], "campaign": None, "sources": [], "rendered": [], "health": None, "ranking": []}
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self.rendered_for_campaign(selected["id"])]
-        ranking = self.ranking(selected["slug"])
-        audio_workflow = self.audio_workflow_summary(rendered)
-        sources = self.assets_for_campaign(selected["id"])
-        summary_dashboard = {"campaign": selected, "sources": sources, "rendered": rendered}
-        daily_production = self.daily_production_counters(selected["slug"], dashboard=summary_dashboard)
-        creative_plan = self.creative_plan_for_campaign(selected["slug"], dashboard=summary_dashboard)
-        return {
-            "campaigns": campaigns,
-            "campaign": selected,
-            "sources": sources,
-            "rendered": sorted(rendered, key=lambda asset: (ranking["byAsset"].get(asset["id"], {}) or {}).get("score", 0), reverse=True),
-            "activity": self.events_for_campaign(selected["slug"], limit=50),
-            "jobs": self.jobs_for_campaign(selected["slug"], limit=50),
-            "health": self.campaign_health(selected["slug"]),
-            "audioWorkflow": audio_workflow,
-            "dailyProduction": daily_production,
-            "creativePlan": creative_plan,
-            "distribution": self.distribution_summary(selected["slug"]),
-            "trust": self.trust_summary(selected["slug"]),
-            "ranking": ranking["assets"],
-        }
+        return self.services.dashboard(campaign_slug)
 
     def audio_workflow_summary(self, rendered: list[dict[str, Any]]) -> dict[str, Any]:
         return self.services.audio_workflow_summary(rendered)
@@ -6400,14 +6375,7 @@ class CampaignFactory:
         return self.services.surface_completed_for_account(account_id, instagram_account_id, surface, target_date)
 
     def _default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
-        for campaign in campaigns:
-            row = self.conn.execute(
-                "SELECT 1 FROM rendered_assets WHERE campaign_id = ? LIMIT 1",
-                (campaign["id"],),
-            ).fetchone()
-            if row:
-                return campaign
-        return campaigns[0] if campaigns else None
+        return self.services.default_dashboard_campaign(campaigns)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.services.campaign_health(campaign_slug)
