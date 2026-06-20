@@ -975,6 +975,12 @@ class CoreServices:
             conn,
             slugify=slugify,
             creator_label=creator_label,
+            campaign_by_slug=self.campaign_by_slug,
+            normalize_content_surface=normalize_content_surface,
+            first_lineage_value=first_lineage_value,
+            surface_from_pattern=surface_from_pattern,
+            ig_media_type_for_surface=ig_media_type_for_surface,
+            performance_metric_contract=self.performance_metric_contract,
             build_creative_knowledge_base=build_creative_knowledge_base,
             build_creative_performance_analysis=build_creative_performance_analysis,
             creative_knowledge_score_weights=creative_knowledge_score_weights,
@@ -4623,6 +4629,81 @@ class CoreServices:
 
     def recommendation_quality_audit(self, **kwargs: Any) -> dict[str, Any]:
         return self.creative_knowledge.recommendation_quality_audit(**kwargs)
+
+    def build_creative_knowledge_base(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.build_creative_knowledge_base(*args, **kwargs)
+
+    def build_creative_performance_analysis(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.build_creative_performance_analysis(*args, **kwargs)
+
+    def creative_performance_baseline(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_performance_baseline(*args, **kwargs)
+
+    def creative_performance_assessment(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_performance_assessment(*args, **kwargs)
+
+    def creative_more_recommendations(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_more_recommendations(*args, **kwargs)
+
+    def creative_less_recommendations(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_less_recommendations(*args, **kwargs)
+
+    def recommendation_explainability(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.recommendation_explainability(*args, **kwargs)
+
+    def confidence_score(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.confidence_score(*args, **kwargs)
+
+    def learning_confidence_classification(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.learning_confidence_classification(*args, **kwargs)
+
+    def creative_fatigue_signals(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_fatigue_signals(*args, **kwargs)
+
+    def metric_decline_pct(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.metric_decline_pct(*args, **kwargs)
+
+    def engagement_decline_pct(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.engagement_decline_pct(*args, **kwargs)
+
+    def avg_result_metric(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.avg_result_metric(*args, **kwargs)
+
+    def creative_surface_rows(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_surface_rows(*args, **kwargs)
+
+    def recommendation_quality_bucket(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.recommendation_quality_bucket(*args, **kwargs)
+
+    def creative_analysis_confidence(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_analysis_confidence(*args, **kwargs)
+
+    def creative_dimension_label(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_dimension_label(*args, **kwargs)
+
+    def creative_pattern_priority(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_pattern_priority(*args, **kwargs)
+
+    def creative_knowledge_results_for_report(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_knowledge_results_for_report(*args, **kwargs)
+
+    def creative_knowledge_rows(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_knowledge_rows(*args, **kwargs)
+
+    def creative_knowledge_result(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_knowledge_result(*args, **kwargs)
+
+    def creative_knowledge_score_weights(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_knowledge_score_weights(*args, **kwargs)
+
+    def creative_knowledge_score(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_knowledge_score(*args, **kwargs)
+
+    def creative_result_group(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_result_group(*args, **kwargs)
+
+    def creative_result_lineage(self, *args: Any, **kwargs: Any) -> Any:
+        return self.creative_knowledge.creative_result_lineage(*args, **kwargs)
 
     def winner_registry(
         self,

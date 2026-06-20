@@ -4022,47 +4022,7 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        creator_label = self._creator_label(creator)
-        rows = self._creative_knowledge_rows(creator=creator_label, campaign_slug=campaign_slug)
-        results = [self._creative_knowledge_result(row) for row in rows]
-        minimum = max(1, int(minimum_sample_size or 1))
-        insufficient = len(results) < minimum
-        reason = "not_enough_published_metrics" if insufficient else ""
-        top_concepts = self._creative_result_group(results, "conceptId", limit=limit)
-        top_caption_angles = self._creative_result_group(results, "captionAngle", limit=limit)
-        top_caption_versions = self._creative_result_group(results, "captionVersionId", limit=limit)
-        top_audio_ids = self._creative_result_group(results, "audioId", limit=limit)
-        top_surfaces = self._creative_result_group(results, "contentSurface", limit=limit)
-        top_story_intents = self._creative_result_group(results, "storyIntent", limit=limit)
-        top_account_tiers = self._creative_result_group(results, "accountTier", limit=limit)
-        top_posting_windows = self._creative_result_group(results, "postingWindow", limit=limit)
-        if insufficient:
-            top_concepts = []
-            top_caption_angles = []
-            top_caption_versions = []
-            top_audio_ids = []
-            top_surfaces = []
-            top_story_intents = []
-            top_account_tiers = []
-            top_posting_windows = []
-        return {
-            "creator": creator_label,
-            "rows": rows,
-            "results": results,
-            "sampleSize": len(results),
-            "minimumSampleSize": minimum,
-            "insufficientData": insufficient,
-            "reason": reason,
-            "topConcepts": top_concepts,
-            "topCaptionAngles": top_caption_angles,
-            "topCaptionVersions": top_caption_versions,
-            "topAudioIds": top_audio_ids,
-            "topSurfaces": top_surfaces,
-            "topStoryIntents": top_story_intents,
-            "topAccountTiers": top_account_tiers,
-            "topPostingWindows": top_posting_windows,
-            "wouldWrite": False,
-        }
+        return self.services.build_creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def tribev2_reel_analysis(
         self,
@@ -4332,153 +4292,19 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        built = self._build_creative_knowledge_base(
-            creator=creator,
-            campaign_slug=campaign_slug,
-            minimum_sample_size=1,
-            limit=max(limit, 25),
-        )
-        results = list(built.get("results") or [])
-        minimum = max(1, int(minimum_sample_size or 1))
-        baseline = self._creative_performance_baseline(results)
-        insufficient = len(results) < minimum
-        reason = "not_enough_published_metrics" if insufficient else ""
-        best: list[dict[str, Any]] = []
-        weak: list[dict[str, Any]] = []
-        if not insufficient:
-            for dimension, key_field in [
-                ("concept", "conceptId"),
-                ("contentSurface", "contentSurface"),
-                ("captionAngle", "captionAngle"),
-                ("audioId", "audioId"),
-                ("storyIntent", "storyIntent"),
-                ("storyStyle", "storyStyle"),
-                ("accountTier", "accountTier"),
-                ("postingWindow", "postingWindow"),
-            ]:
-                for group in self._creative_result_group(results, key_field, limit=max(limit, 25)):
-                    assessment = self._creative_performance_assessment(group, baseline, dimension=dimension)
-                    if assessment["comparison"] == "above_creator_baseline":
-                        best.append(assessment)
-                    elif assessment["comparison"] == "below_creator_baseline":
-                        weak.append(assessment)
-        best = sorted(best, key=lambda item: (self._creative_pattern_priority(str(item.get("dimension") or "")), -float(item.get("scoreLiftPct") or 0), -float(item.get("score") or 0), str(item.get("key") or "")))[: max(1, int(limit or 10))]
-        weak = sorted(weak, key=lambda item: (self._creative_pattern_priority(str(item.get("dimension") or "")), float(item.get("scoreLiftPct") or 0), float(item.get("score") or 0), str(item.get("key") or "")))[: max(1, int(limit or 10))]
-        confidence = self._creative_analysis_confidence(len(results))
-        return {
-            "creator": built["creator"],
-            "sampleSize": len(results),
-            "minimumSampleSize": minimum,
-            "confidence": confidence,
-            "creatorBaseline": baseline,
-            "insufficientData": insufficient,
-            "reason": reason,
-            "bestPerformingPatterns": [] if insufficient else best,
-            "underperformingPatterns": [] if insufficient else weak,
-            "recommendedMoreOf": [] if insufficient else self._creative_more_recommendations(best, confidence, limit=limit),
-            "recommendedLessOf": [] if insufficient else self._creative_less_recommendations(weak, confidence, limit=limit),
-            "wouldWrite": False,
-        }
+        return self.services.build_creative_performance_analysis(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
 
     def _creative_performance_baseline(self, results: list[dict[str, Any]]) -> dict[str, Any]:
-        count = len(results)
-        totals = {
-            "views": sum(int((item.get("metrics") or {}).get("views") or 0) for item in results),
-            "reach": sum(int((item.get("metrics") or {}).get("reach") or 0) for item in results),
-            "saves": sum(int((item.get("metrics") or {}).get("saves") or 0) for item in results),
-            "shares": sum(int((item.get("metrics") or {}).get("shares") or 0) for item in results),
-            "followers": sum(int((item.get("metrics") or {}).get("followers") or 0) for item in results),
-        }
-        averages = {key: (value / count if count else 0) for key, value in totals.items()}
-        return {
-            "postCount": count,
-            "avgViews": round(averages["views"], 2),
-            "avgReach": round(averages["reach"], 2),
-            "avgSaves": round(averages["saves"], 2),
-            "avgShares": round(averages["shares"], 2),
-            "avgFollowers": round(averages["followers"], 2),
-            "score": self._creative_knowledge_score(averages),
-        }
+        return self.services.creative_performance_baseline(results)
 
     def _creative_performance_assessment(self, group: dict[str, Any], baseline: dict[str, Any], *, dimension: str) -> dict[str, Any]:
-        base_score = float(baseline.get("score") or 0)
-        score = float(group.get("score") or 0)
-        lift_pct = ((score - base_score) / base_score * 100.0) if base_score > 0 else (100.0 if score > 0 else 0.0)
-        if lift_pct >= 15.0:
-            comparison = "above_creator_baseline"
-            reason = f"{group.get('key')} is {round(lift_pct, 1)}% above creator baseline using Instagram-visible metrics."
-        elif lift_pct <= -15.0:
-            comparison = "below_creator_baseline"
-            reason = f"{group.get('key')} is {abs(round(lift_pct, 1))}% below creator baseline using Instagram-visible metrics."
-        else:
-            comparison = "near_creator_baseline"
-            reason = f"{group.get('key')} is near creator baseline using Instagram-visible metrics."
-        return {
-            **group,
-            "dimension": dimension,
-            "comparison": comparison,
-            "sampleSize": int(group.get("sampleSize") or 0),
-            "baselineMetric": "score",
-            "observedMetric": "score",
-            "baselineValue": round(base_score, 2),
-            "observedValue": round(score, 2),
-            "scoreLiftPct": round(lift_pct, 2),
-            "reason": reason,
-        }
+        return self.services.creative_performance_assessment(group, baseline, dimension=dimension)
 
     def _creative_more_recommendations(self, best: list[dict[str, Any]], confidence: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        recommendations: list[dict[str, Any]] = []
-        for item in best:
-            lineage = item.get("lineage") if isinstance(item.get("lineage"), dict) else {}
-            surface = self._surface_from_pattern(item, lineage)
-            recommendation = "make_more_variants" if surface == "reel" else "make_more_similar_assets"
-            if surface == "story" and item.get("dimension") == "storyIntent" and item.get("key") == "snapchat_promo":
-                recommendation = "make_more_snapchat_promo_stories"
-            payload = {
-                "surface": surface,
-                "recommendation": recommendation,
-                "reason": item.get("reason") or "Pattern outperformed creator baseline.",
-                "parentAssetId": self._first_lineage_value(lineage, "parentAssetIds"),
-                "captionAngle": item.get("key") if item.get("dimension") == "captionAngle" else self._first_lineage_value(lineage, "captionAngles", fallback=""),
-                "audioId": item.get("key") if item.get("dimension") == "audioId" else self._first_lineage_value(lineage, "audioIds"),
-                "storyIntent": item.get("key") if item.get("dimension") == "storyIntent" else "",
-                "confidence": confidence,
-                "sampleSize": int(item.get("sampleSize") or 0),
-                "baselineMetric": item.get("baselineMetric") or "score",
-                "observedMetric": item.get("observedMetric") or "score",
-                "scoreLiftPct": item.get("scoreLiftPct") or 0,
-            }
-            payload["explainability"] = self._recommendation_explainability(payload, item=item, confidence=confidence)
-            recommendations.append(payload)
-        recommendations = sorted(
-            recommendations,
-            key=lambda item: (
-                0 if item.get("recommendation") == "make_more_snapchat_promo_stories" else 1,
-                0 if item.get("recommendation") == "make_more_variants" else 1,
-                str(item.get("surface") or ""),
-            ),
-        )
-        return recommendations[: max(1, int(limit or 10))]
+        return self.services.creative_more_recommendations(best, confidence, limit=limit)
 
     def _creative_less_recommendations(self, weak: list[dict[str, Any]], confidence: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        recommendations: list[dict[str, Any]] = []
-        for item in weak:
-            lineage = item.get("lineage") if isinstance(item.get("lineage"), dict) else {}
-            payload = {
-                "surface": self._surface_from_pattern(item, lineage),
-                "recommendation": "avoid_or_rework_pattern",
-                "reason": item.get("reason") or "Pattern underperformed creator baseline.",
-                "patternDimension": item.get("dimension") or "",
-                "patternKey": item.get("key") or "",
-                "confidence": confidence,
-                "sampleSize": int(item.get("sampleSize") or 0),
-                "baselineMetric": item.get("baselineMetric") or "score",
-                "observedMetric": item.get("observedMetric") or "score",
-                "scoreLiftPct": item.get("scoreLiftPct") or 0,
-            }
-            payload["explainability"] = self._recommendation_explainability(payload, item=item, confidence=confidence)
-            recommendations.append(payload)
-        return recommendations[: max(1, int(limit or 10))]
+        return self.services.creative_less_recommendations(weak, confidence, limit=limit)
 
     def creative_learning_confidence_model(
         self,
@@ -4524,156 +4350,31 @@ class CampaignFactory:
         item: dict[str, Any] | None = None,
         confidence: Any = None,
     ) -> dict[str, Any]:
-        source = item if isinstance(item, dict) else recommendation
-        return {
-            "reason": str(recommendation.get("reason") or source.get("reason") or ""),
-            "confidence": self._confidence_score(confidence if confidence is not None else recommendation.get("confidence")),
-            "confidenceLabel": str(confidence if confidence is not None else recommendation.get("confidence") or "low"),
-            "sampleSize": int(recommendation.get("sampleSize") or source.get("sampleSize") or 0),
-            "baselineMetric": str(recommendation.get("baselineMetric") or source.get("baselineMetric") or "score"),
-            "observedMetric": str(recommendation.get("observedMetric") or source.get("observedMetric") or "score"),
-            "baselineValue": round(float(source.get("baselineValue") or recommendation.get("baselineValue") or 0), 2),
-            "observedValue": round(float(source.get("observedValue") or recommendation.get("observedValue") or source.get("score") or 0), 2),
-            "scoreLiftPct": round(float(recommendation.get("scoreLiftPct") or source.get("scoreLiftPct") or 0), 2),
-        }
+        return self.services.recommendation_explainability(recommendation, item=item, confidence=confidence)
 
     def _confidence_score(self, confidence: Any) -> int:
-        if isinstance(confidence, (int, float)):
-            return max(0, min(100, int(confidence)))
-        return {"high": 90, "medium": 65, "low": 35}.get(str(confidence or "low"), 35)
+        return self.services.confidence_score(confidence)
 
     def _learning_confidence_classification(self, results: list[dict[str, Any]]) -> dict[str, Any]:
-        sample_size = len(results)
-        account_count = len({str(item.get("accountId") or "") for item in results if item.get("accountId")})
-        surface_count = len({str(item.get("contentSurface") or "") for item in results if item.get("contentSurface")})
-        concept_count = len({str(item.get("conceptId") or "") for item in results if item.get("conceptId")})
-        caption_angle_count = len({str(item.get("captionAngle") or "") for item in results if item.get("captionAngle")})
-        signals: list[str] = []
-        if sample_size < 10:
-            signals.append("small_sample_size")
-        if surface_count <= 1:
-            signals.append("new_surface_or_single_surface")
-        if concept_count <= 1:
-            signals.append("new_concept_or_single_concept")
-        if caption_angle_count <= 1:
-            signals.append("new_caption_angle_or_single_angle")
-        if account_count <= 1:
-            signals.append("single_account_evidence")
-        if sample_size >= 50 and account_count >= 3:
-            classification = "high_confidence"
-            score = 90
-        elif sample_size >= 10 and account_count >= 2:
-            classification = "medium_confidence"
-            score = 65
-        else:
-            classification = "low_confidence"
-            score = 35
-        return {
-            "classification": classification,
-            "confidence": score,
-            "sampleSize": sample_size,
-            "accountCount": account_count,
-            "surfaceCount": surface_count,
-            "conceptCount": concept_count,
-            "captionAngleCount": caption_angle_count,
-            "limitingSignals": signals,
-        }
+        return self.services.learning_confidence_classification(results)
 
     def _creative_fatigue_signals(self, results: list[dict[str, Any]], *, field: str, fatigue_type: str) -> list[dict[str, Any]]:
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for item in results:
-            key = str(item.get(field) or "").strip()
-            if key:
-                grouped.setdefault(key, []).append(item)
-        signals: list[dict[str, Any]] = []
-        for key, items in grouped.items():
-            if len(items) < 3:
-                continue
-            ordered = sorted(items, key=lambda item: str(item.get("publishedAt") or ""))
-            midpoint = max(1, len(ordered) // 2)
-            early = ordered[:midpoint]
-            recent = ordered[midpoint:]
-            if not recent:
-                continue
-            reach_decline = self._metric_decline_pct(early, recent, "reach")
-            view_decline = self._metric_decline_pct(early, recent, "views")
-            engagement_decline = self._engagement_decline_pct(early, recent)
-            if min(reach_decline, view_decline, engagement_decline) <= -20:
-                signals.append({
-                    "fatigueType": fatigue_type,
-                    "key": key,
-                    "sampleSize": len(items),
-                    "reachDeclinePct": reach_decline,
-                    "impressionDeclinePct": view_decline,
-                    "engagementDeclinePct": engagement_decline,
-                    "reason": f"{key} shows measured decline across recent posts.",
-                    "wouldWrite": False,
-                })
-        return signals
+        return self.services.creative_fatigue_signals(results, field=field, fatigue_type=fatigue_type)
 
     def _metric_decline_pct(self, early: list[dict[str, Any]], recent: list[dict[str, Any]], metric: str) -> float:
-        early_avg = self._avg_result_metric(early, metric)
-        recent_avg = self._avg_result_metric(recent, metric)
-        if early_avg <= 0:
-            return 0.0
-        return round((recent_avg - early_avg) / early_avg * 100.0, 2)
+        return self.services.metric_decline_pct(early, recent, metric)
 
     def _engagement_decline_pct(self, early: list[dict[str, Any]], recent: list[dict[str, Any]]) -> float:
-        def engagement(items: list[dict[str, Any]]) -> float:
-            if not items:
-                return 0.0
-            total = 0
-            for item in items:
-                metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
-                total += int(metrics.get("likes") or 0) + int(metrics.get("comments") or 0) + int(metrics.get("shares") or 0) + int(metrics.get("saves") or 0)
-            return total / len(items)
-        early_avg = engagement(early)
-        recent_avg = engagement(recent)
-        if early_avg <= 0:
-            return 0.0
-        return round((recent_avg - early_avg) / early_avg * 100.0, 2)
+        return self.services.engagement_decline_pct(early, recent)
 
     def _avg_result_metric(self, items: list[dict[str, Any]], metric: str) -> float:
-        if not items:
-            return 0.0
-        return sum(int((item.get("metrics") or {}).get(metric) or 0) for item in items) / len(items)
+        return self.services.avg_result_metric(items, metric)
 
     def _creative_surface_rows(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for item in items:
-            surface = normalize_content_surface(item.get("contentSurface") or "reel")
-            grouped.setdefault(surface, []).append(item)
-        rows = []
-        for surface, surface_items in grouped.items():
-            metric_totals = {
-                "views": self._avg_result_metric(surface_items, "views"),
-                "reach": self._avg_result_metric(surface_items, "reach"),
-                "saves": self._avg_result_metric(surface_items, "saves"),
-                "shares": self._avg_result_metric(surface_items, "shares"),
-                "followers": self._avg_result_metric(surface_items, "followers"),
-            }
-            rows.append({
-                "surface": surface,
-                "sampleSize": len(surface_items),
-                "avgViews": round(metric_totals["views"], 2),
-                "avgReach": round(metric_totals["reach"], 2),
-                "avgSaves": round(metric_totals["saves"], 2),
-                "avgShares": round(metric_totals["shares"], 2),
-                "score": self._creative_knowledge_score(metric_totals),
-                "sourcePostIds": sorted({str(item.get("postId") or "") for item in surface_items if item.get("postId")}),
-            })
-        return sorted(rows, key=lambda item: (-float(item.get("score") or 0), str(item.get("surface") or "")))
+        return self.services.creative_surface_rows(items)
 
     def _recommendation_quality_bucket(self, explainability: dict[str, Any]) -> str:
-        sample_size = int(explainability.get("sampleSize") or 0)
-        confidence = int(explainability.get("confidence") or 0)
-        if sample_size <= 0:
-            return "insufficient_data"
-        if confidence >= 80 and sample_size >= 10:
-            return "high_confidence"
-        if confidence >= 60 and sample_size >= 3:
-            return "medium_confidence"
-        return "low_confidence"
+        return self.services.recommendation_quality_bucket(explainability)
 
     def _surface_from_pattern(self, item: dict[str, Any], lineage: dict[str, Any]) -> str:
         if item.get("dimension") == "contentSurface":
@@ -4690,225 +4391,34 @@ class CampaignFactory:
         return str(values[0]) if values else fallback
 
     def _creative_analysis_confidence(self, sample_size: int) -> str:
-        if sample_size >= 50:
-            return "high"
-        if sample_size >= 10:
-            return "medium"
-        return "low"
+        return self.services.creative_analysis_confidence(sample_size)
 
     def _creative_dimension_label(self, dimension: str) -> str:
-        return {
-            "concept": "concept",
-            "contentSurface": "surface",
-            "captionAngle": "caption angle",
-            "audioId": "audio family",
-            "storyIntent": "story intent",
-            "storyStyle": "story style",
-            "accountTier": "account tier",
-            "postingWindow": "posting window",
-        }.get(dimension, "pattern")
+        return self.services.creative_dimension_label(dimension)
 
     def _creative_pattern_priority(self, dimension: str) -> int:
-        return {
-            "concept": 0,
-            "storyIntent": 1,
-            "captionAngle": 2,
-            "audioId": 3,
-            "storyStyle": 4,
-            "contentSurface": 5,
-            "accountTier": 6,
-            "postingWindow": 7,
-        }.get(dimension, 99)
+        return self.services.creative_pattern_priority(dimension)
 
     def _creative_knowledge_results_for_report(self, kb: dict[str, Any], creator: str, campaign_slug: str | None) -> list[dict[str, Any]]:
-        if kb.get("insufficientData"):
-            return []
-        return [self._creative_knowledge_result(row) for row in self._creative_knowledge_rows(creator=kb["creator"] or self._creator_label(creator), campaign_slug=campaign_slug)]
+        return self.services.creative_knowledge_results_for_report(kb, creator, campaign_slug)
 
     def _creative_knowledge_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        clauses = ["p.metrics_eligible = 1"]
-        params: list[Any] = []
-        if campaign_slug:
-            campaign = self.campaign_by_slug(campaign_slug)
-            clauses.append("p.campaign_id = ?")
-            params.append(campaign["id"])
-        clauses.append(
-            """
-            (
-              LOWER(COALESCE(p.creator_mix, '')) = LOWER(?)
-              OR LOWER(COALESCE(p.creator_model, '')) = LOWER(?)
-              OR LOWER(COALESCE(c.creator, '')) = LOWER(?)
-              OR LOWER(COALESCE(m.name, '')) = LOWER(?)
-              OR LOWER(COALESCE(m.slug, '')) = LOWER(?)
-            )
-            """
-        )
-        params.extend([creator, creator, creator, creator, slugify(creator)])
-        rows = self.conn.execute(
-            f"""
-            SELECT p.*, campaigns.slug AS campaign_slug, campaigns.platform AS campaign_platform,
-                   c.metadata_json AS concept_metadata_json, c.creator AS concept_creator,
-                   c.parent_asset_id AS concept_parent_asset_id,
-                   a.handle AS account_username, a.external_id AS account_external_id,
-                   m.slug AS model_slug, m.name AS model_name
-            FROM performance_snapshots p
-            JOIN campaigns ON campaigns.id = p.campaign_id
-            LEFT JOIN concepts c ON c.id = p.concept_id
-            LEFT JOIN accounts a ON a.id = p.account_id OR a.external_id = p.instagram_account_id
-            LEFT JOIN models m ON m.id = a.model_id
-            WHERE {" AND ".join(clauses)}
-            ORDER BY p.snapshot_at DESC, p.created_at DESC
-            """,
-            params,
-        ).fetchall()
-        return [dict(row) for row in rows]
+        return self.services.creative_knowledge_rows(creator=creator, campaign_slug=campaign_slug)
 
     def _creative_knowledge_result(self, row: dict[str, Any]) -> dict[str, Any]:
-        raw = json_load(row.get("raw_json"), {})
-        if not isinstance(raw, dict):
-            raw = {}
-        context = load_context_json(row.get("caption_outcome_context_json"))
-        metrics = {
-            "views": int(row.get("views") or 0),
-            "reach": int(row.get("reach") or 0),
-            "likes": int(row.get("likes") or 0),
-            "comments": int(row.get("comments") or 0),
-            "shares": int(row.get("shares") or 0),
-            "saves": int(row.get("saves") or 0),
-            "followers": int(raw.get("followers") or raw.get("follows") or 0),
-            "profile_visits": int(raw.get("profile_visits") or raw.get("profileVisits") or 0),
-            "story_exits": int(raw.get("story_exits") or raw.get("exits") or 0),
-            "story_replies": int(raw.get("story_replies") or raw.get("replies") or 0),
-            "story_taps": int(raw.get("story_taps") or raw.get("taps") or raw.get("taps_forward") or 0),
-        }
-        content_surface = normalize_content_surface(row.get("content_surface"))
-        published_at = row.get("published_at")
-        instagram_hash = (
-            context.get("instagram_post_caption_hash")
-            or context.get("instagramPostCaptionHash")
-            or raw.get("instagram_post_caption_hash")
-            or raw.get("instagramPostCaptionHash")
-            or ""
-        )
-        story_intent = (
-            context.get("storyIntent")
-            or context.get("story_intent")
-            or raw.get("story_intent")
-            or raw.get("storyIntent")
-            or ""
-        )
-        story_style = (
-            context.get("storyStyle")
-            or context.get("story_style")
-            or raw.get("story_style")
-            or raw.get("storyStyle")
-            or ""
-        )
-        story_goal = (
-            context.get("storyGoal")
-            or context.get("story_goal")
-            or raw.get("story_goal")
-            or raw.get("storyGoal")
-            or ""
-        )
-        return {
-            "creator": self._creator_label(row.get("creator_mix") or row.get("creator_model") or row.get("concept_creator") or row.get("model_name") or row.get("model_slug")),
-            "campaign": row.get("campaign_slug") or "",
-            "contentSurface": content_surface,
-            "igMediaType": raw.get("ig_media_type") or raw.get("igMediaType") or self._ig_media_type_for_surface(content_surface, "video"),
-            "accountId": row.get("account_id") or "",
-            "accountUsername": row.get("account_username") or raw.get("account_username") or raw.get("accountUsername") or "",
-            "accountTier": raw.get("account_tier") or raw.get("accountTier") or "",
-            "conceptId": row.get("concept_id") or "",
-            "parentAssetId": row.get("concept_parent_asset_id") or row.get("rendered_asset_id") or "",
-            "parentReelId": row.get("parent_reel_id") or "",
-            "variantFamilyId": row.get("variant_family_id") or "",
-            "variantId": row.get("variant_id") or "",
-            "captionFamilyId": context.get("caption_family_id") or context.get("captionFamilyId") or "",
-            "captionVersionId": context.get("caption_version_id") or context.get("captionVersionId") or "",
-            "captionAngle": row.get("caption_angle") or context.get("caption_angle") or context.get("captionAngle") or "",
-            "captionHash": row.get("caption_hash") or "",
-            "instagramPostCaptionHash": instagram_hash,
-            "audioId": row.get("audio_id") or "",
-            "storyIntent": str(story_intent or ""),
-            "storyStyle": str(story_style or ""),
-            "storyGoal": str(story_goal or ""),
-            "postingWindow": self._posting_window_label(published_at),
-            "publishedAt": published_at,
-            "postId": row.get("post_id") or "",
-            "metrics": metrics,
-            "metricsContract": self._performance_metric_contract(row),
-            "score": self._creative_knowledge_score(metrics),
-        }
+        return self.services.creative_knowledge_result(row)
 
     def _creative_knowledge_score_weights(self) -> dict[str, float]:
-        return {"views": 0.35, "reach": 0.25, "saves": 4.0, "shares": 5.0, "followers": 10.0}
+        return self.services.creative_knowledge_score_weights()
 
     def _creative_knowledge_score(self, metrics: dict[str, Any]) -> float:
-        weights = self._creative_knowledge_score_weights()
-        score = sum(float(metrics.get(key) or 0) * weight for key, weight in weights.items())
-        return round(score, 2)
+        return self.services.creative_knowledge_score(metrics)
 
     def _creative_result_group(self, results: list[dict[str, Any]], key_field: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        grouped: dict[str, dict[str, Any]] = {}
-        for result in results:
-            key = str(result.get(key_field) or "").strip()
-            if not key:
-                continue
-            entry = grouped.setdefault(key, {"key": key, "items": []})
-            entry["items"].append(result)
-        output: list[dict[str, Any]] = []
-        for key, entry in grouped.items():
-            items = entry["items"]
-            sample_size = len(items)
-            metric_totals = {
-                "views": sum(int((item.get("metrics") or {}).get("views") or 0) for item in items),
-                "reach": sum(int((item.get("metrics") or {}).get("reach") or 0) for item in items),
-                "saves": sum(int((item.get("metrics") or {}).get("saves") or 0) for item in items),
-                "shares": sum(int((item.get("metrics") or {}).get("shares") or 0) for item in items),
-                "followers": sum(int((item.get("metrics") or {}).get("followers") or 0) for item in items),
-            }
-            avg_metrics = {name: (value / sample_size if sample_size else 0) for name, value in metric_totals.items()}
-            output.append({
-                "key": key,
-                "sampleSize": sample_size,
-                "avgViews": round(avg_metrics["views"], 2),
-                "avgReach": round(avg_metrics["reach"], 2),
-                "avgSaves": round(avg_metrics["saves"], 2),
-                "avgShares": round(avg_metrics["shares"], 2),
-                "avgFollowers": round(avg_metrics["followers"], 2),
-                "score": self._creative_knowledge_score(avg_metrics),
-                "sourcePostIds": sorted({str(item.get("postId") or "") for item in items if item.get("postId")}),
-                "lineage": self._creative_result_lineage(items),
-            })
-        return sorted(
-            output,
-            key=lambda item: (-float(item.get("score") or 0), -int(item.get("sampleSize") or 0), str(item.get("key") or "")),
-        )[: max(1, int(limit or 10))]
+        return self.services.creative_result_group(results, key_field, limit=limit)
 
     def _creative_result_lineage(self, items: list[dict[str, Any]]) -> dict[str, list[str]]:
-        fields = {
-            "campaigns": "campaign",
-            "accountIds": "accountId",
-            "accountUsernames": "accountUsername",
-            "conceptIds": "conceptId",
-            "parentAssetIds": "parentAssetId",
-            "parentReelIds": "parentReelId",
-            "variantFamilyIds": "variantFamilyId",
-            "variantIds": "variantId",
-            "captionFamilyIds": "captionFamilyId",
-            "captionVersionIds": "captionVersionId",
-            "captionAngles": "captionAngle",
-            "captionHashes": "captionHash",
-            "instagramPostCaptionHashes": "instagramPostCaptionHash",
-            "audioIds": "audioId",
-            "contentSurfaces": "contentSurface",
-            "postingWindows": "postingWindow",
-        }
-        return {
-            output_key: sorted({str(item.get(field) or "") for item in items if item.get(field)})
-            for output_key, field in fields.items()
-        }
+        return self.services.creative_result_lineage(items)
 
     def _winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
         return self.services.winner_variant_candidate(variant_payload, rendered)

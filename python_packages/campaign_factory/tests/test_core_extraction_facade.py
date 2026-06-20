@@ -8319,6 +8319,108 @@ def test_creative_learning_report_facade_delegates_to_core_services() -> None:
     ]
 
 
+def test_core_services_delegates_creative_learning_helpers_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeCreativeKnowledge:
+        def __getattr__(self, name):
+            def delegated(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return delegated
+
+    services.creative_knowledge = FakeCreativeKnowledge()
+    results = [{"postId": "post_1", "metrics": {"views": 10}}]
+    row = {"post_id": "post_1"}
+    kb = {"creator": "Stacey", "insufficientData": False}
+
+    cases = [
+        ("build_creative_knowledge_base", (), {"creator": "Stacey", "campaign_slug": "May", "minimum_sample_size": 3, "limit": 10}),
+        ("build_creative_performance_analysis", (), {"creator": "Stacey", "campaign_slug": "May", "minimum_sample_size": 3, "limit": 10}),
+        ("creative_performance_baseline", (results,), {}),
+        ("creative_performance_assessment", ({"key": "tease"}, {"score": 10}), {"dimension": "captionAngle"}),
+        ("creative_more_recommendations", (results, "high"), {"limit": 3}),
+        ("creative_less_recommendations", (results, "low"), {"limit": 2}),
+        ("recommendation_explainability", ({"reason": "because"},), {"item": {"score": 10}, "confidence": "medium"}),
+        ("confidence_score", ("high",), {}),
+        ("learning_confidence_classification", (results,), {}),
+        ("creative_fatigue_signals", (results,), {"field": "conceptId", "fatigue_type": "concept_fatigue"}),
+        ("metric_decline_pct", (results, results, "reach"), {}),
+        ("engagement_decline_pct", (results, results), {}),
+        ("avg_result_metric", (results, "views"), {}),
+        ("creative_surface_rows", (results,), {}),
+        ("recommendation_quality_bucket", ({"confidence": 90},), {}),
+        ("creative_analysis_confidence", (12,), {}),
+        ("creative_dimension_label", ("concept",), {}),
+        ("creative_pattern_priority", ("concept",), {}),
+        ("creative_knowledge_results_for_report", (kb, "Stacey", "May"), {}),
+        ("creative_knowledge_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("creative_knowledge_result", (row,), {}),
+        ("creative_knowledge_score_weights", (), {}),
+        ("creative_knowledge_score", ({"views": 10},), {}),
+        ("creative_result_group", (results, "postId"), {"limit": 3}),
+        ("creative_result_lineage", (results,), {}),
+    ]
+
+    for name, args, kwargs in cases:
+        assert getattr(services, name)(*args, **kwargs) == {"method": name}
+
+    assert calls == [(name, args, kwargs) for name, args, kwargs in cases]
+
+
+def test_creative_learning_helper_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def delegated(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return delegated
+
+    factory.services = FakeServices()
+    results = [{"postId": "post_1", "metrics": {"views": 10}}]
+    row = {"post_id": "post_1"}
+    kb = {"creator": "Stacey", "insufficientData": False}
+
+    cases = [
+        ("_build_creative_knowledge_base", "build_creative_knowledge_base", (), {"creator": "Stacey", "campaign_slug": "May", "minimum_sample_size": 3, "limit": 10}),
+        ("_build_creative_performance_analysis", "build_creative_performance_analysis", (), {"creator": "Stacey", "campaign_slug": "May", "minimum_sample_size": 3, "limit": 10}),
+        ("_creative_performance_baseline", "creative_performance_baseline", (results,), {}),
+        ("_creative_performance_assessment", "creative_performance_assessment", ({"key": "tease"}, {"score": 10}), {"dimension": "captionAngle"}),
+        ("_creative_more_recommendations", "creative_more_recommendations", (results, "high"), {"limit": 3}),
+        ("_creative_less_recommendations", "creative_less_recommendations", (results, "low"), {"limit": 2}),
+        ("_recommendation_explainability", "recommendation_explainability", ({"reason": "because"},), {"item": {"score": 10}, "confidence": "medium"}),
+        ("_confidence_score", "confidence_score", ("high",), {}),
+        ("_learning_confidence_classification", "learning_confidence_classification", (results,), {}),
+        ("_creative_fatigue_signals", "creative_fatigue_signals", (results,), {"field": "conceptId", "fatigue_type": "concept_fatigue"}),
+        ("_metric_decline_pct", "metric_decline_pct", (results, results, "reach"), {}),
+        ("_engagement_decline_pct", "engagement_decline_pct", (results, results), {}),
+        ("_avg_result_metric", "avg_result_metric", (results, "views"), {}),
+        ("_creative_surface_rows", "creative_surface_rows", (results,), {}),
+        ("_recommendation_quality_bucket", "recommendation_quality_bucket", ({"confidence": 90},), {}),
+        ("_creative_analysis_confidence", "creative_analysis_confidence", (12,), {}),
+        ("_creative_dimension_label", "creative_dimension_label", ("concept",), {}),
+        ("_creative_pattern_priority", "creative_pattern_priority", ("concept",), {}),
+        ("_creative_knowledge_results_for_report", "creative_knowledge_results_for_report", (kb, "Stacey", "May"), {}),
+        ("_creative_knowledge_rows", "creative_knowledge_rows", (), {"creator": "Stacey", "campaign_slug": "May"}),
+        ("_creative_knowledge_result", "creative_knowledge_result", (row,), {}),
+        ("_creative_knowledge_score_weights", "creative_knowledge_score_weights", (), {}),
+        ("_creative_knowledge_score", "creative_knowledge_score", ({"views": 10},), {}),
+        ("_creative_result_group", "creative_result_group", (results, "postId"), {"limit": 3}),
+        ("_creative_result_lineage", "creative_result_lineage", (results,), {}),
+    ]
+
+    for facade_name, service_name, args, kwargs in cases:
+        assert getattr(factory, facade_name)(*args, **kwargs) == {"method": service_name}
+
+    assert calls == [(service_name, args, kwargs) for _, service_name, args, kwargs in cases]
+
+
 def test_core_services_delegates_tribev2_methods_to_repository() -> None:
     services = object.__new__(CoreServices)
     calls = []
