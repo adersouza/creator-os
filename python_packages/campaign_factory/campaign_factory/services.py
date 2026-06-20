@@ -44,6 +44,7 @@ from .models import ModelRepository
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
+from .parent_factory_reports import ParentFactoryReportRepository
 from .performance_summary import PerformanceSummaryRepository
 from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
@@ -735,6 +736,15 @@ class CoreServices:
             ratio=ratio,
             score_fraction=score_fraction,
             wilson_lower_bound=wilson_lower_bound,
+        )
+        self.parent_factory_reports = ParentFactoryReportRepository(
+            conn,
+            reel_factory_parent_metrics=self.reel_factory_reports.reel_factory_parent_metrics,
+            parent_factory_discoverability_loss_analysis=self.discoverability.parent_factory_discoverability_loss_analysis,
+            parent_factory_waterfall_after_discoverability=self.discoverability.parent_factory_waterfall_after_discoverability,
+            post_discoverability_downstream_confidence=self.discoverability.post_discoverability_downstream_confidence,
+            exception_next_action=exception_next_action,
+            ratio=ratio,
         )
         self.surface_handoff = SurfaceHandoffRepository(
             conn,
@@ -2569,6 +2579,69 @@ class CoreServices:
 
     def reel_factory_rating(self, proof: dict[str, Any]) -> float:
         return self.reel_factory_reports.reel_factory_rating(proof)
+
+    def parent_factory_yield_waterfall(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_yield_waterfall(**kwargs)
+
+    def parent_factory_loss_analysis(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_loss_analysis(**kwargs)
+
+    def parent_factory_rejection_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_rejection_report(**kwargs)
+
+    def parent_factory_quality_gate_analysis(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_quality_gate_analysis()
+
+    def parent_factory_optimization_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_optimization_plan(**kwargs)
+
+    def parent_factory_master_optimization_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_master_optimization_report(**kwargs)
+
+    def parent_factory_recoverable_yield(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_recoverable_yield()
+
+    def parent_factory_throughput_recovery_plan(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_throughput_recovery_plan()
+
+    def parent_factory_53_parent_feasibility(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_53_parent_feasibility()
+
+    def parent_factory_secondary_loss_analysis(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_secondary_loss_analysis()
+
+    def parent_factory_true_yield_model(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_true_yield_model()
+
+    def parent_factory_realistic_53_parent_plan(self) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_realistic_53_parent_plan()
+
+    def parent_factory_stage_order(self) -> list[str]:
+        return self.parent_factory_reports.parent_factory_stage_order()
+
+    def parent_factory_detailed_stage_counts(self, metrics: dict[str, int]) -> dict[str, int]:
+        return self.parent_factory_reports.parent_factory_detailed_stage_counts(metrics)
+
+    def parent_factory_highest_roi(self, reasons: list[dict[str, Any]]) -> str:
+        return self.parent_factory_reports.parent_factory_highest_roi(reasons)
+
+    def parent_factory_top_fixes(self, reasons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.parent_factory_reports.parent_factory_top_fixes(reasons)
+
+    def parent_factory_human_bottleneck(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_human_bottleneck(**kwargs)
+
+    def parent_factory_yield_explanation(self, waterfall: dict[str, Any], loss: dict[str, Any]) -> str:
+        return self.parent_factory_reports.parent_factory_yield_explanation(waterfall, loss)
+
+    def secondary_loss_reason(self, stage: str, loss_count: int) -> str:
+        return self.parent_factory_reports.secondary_loss_reason(stage, loss_count)
+
+    def parent_factory_trial_loss_buckets(self, waterfall: dict[str, Any]) -> dict[str, int]:
+        return self.parent_factory_reports.parent_factory_trial_loss_buckets(waterfall)
+
+    def parent_factory_trial_stage_repairable(self, stage: str) -> bool:
+        return self.parent_factory_reports.parent_factory_trial_stage_repairable(stage)
 
     def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)

@@ -44,6 +44,7 @@ from campaign_factory.models import ModelRepository
 from campaign_factory.multi_blocker_unlock import MultiBlockerUnlockRepository
 from campaign_factory.operational_proofs import OperationalProofRepository
 from campaign_factory.operator_review import OperatorReviewRepository
+from campaign_factory.parent_factory_reports import ParentFactoryReportRepository
 from campaign_factory.performance_summary import PerformanceSummaryRepository
 from campaign_factory.publishability import PublishabilityRepository
 from campaign_factory.reference import ReferenceRepository
@@ -176,6 +177,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.fresh_reel_production.conn is factory.conn
         assert isinstance(factory.services.reel_factory_reports, ReelFactoryReportRepository)
         assert factory.services.reel_factory_reports.conn is factory.conn
+        assert isinstance(factory.services.parent_factory_reports, ParentFactoryReportRepository)
+        assert factory.services.parent_factory_reports.conn is factory.conn
         assert isinstance(factory.services.contentforge_visual_qc, ContentForgeVisualQCRepository)
         assert factory.services.contentforge_visual_qc.conn is factory.conn
         assert isinstance(factory.services.multi_blocker_unlock, MultiBlockerUnlockRepository)
@@ -994,6 +997,86 @@ def test_campaign_factory_delegates_reel_factory_report_methods_to_services() ->
         ("reel_factory_operational_readiness_metrics", (yield_report,), {}),
         ("reel_factory_human_cost", (metrics,), {}),
         ("reel_factory_rating", (proof,), {}),
+    ]
+
+
+def test_campaign_factory_delegates_parent_factory_report_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+    metrics = {"rawCandidates": 245}
+    waterfall = {"stages": []}
+    rejection = {"totalFailures": 1}
+    loss = {"largestLossStage": "discoverability_safety_pass"}
+    reasons = [{"repairable": True, "frequency": 1}]
+
+    assert factory.parent_factory_yield_waterfall(required_parents_per_day=53) == {
+        "method": "parent_factory_yield_waterfall",
+    }
+    assert factory.parent_factory_loss_analysis(required_parents_per_day=53) == {
+        "method": "parent_factory_loss_analysis",
+    }
+    assert factory.parent_factory_rejection_report(waterfall=waterfall) == {"method": "parent_factory_rejection_report"}
+    assert factory.parent_factory_quality_gate_analysis() == {"method": "parent_factory_quality_gate_analysis"}
+    assert factory.parent_factory_optimization_plan(required_parents_per_day=53) == {
+        "method": "parent_factory_optimization_plan",
+    }
+    assert factory.parent_factory_master_optimization_report(required_parents_per_day=53) == {
+        "method": "parent_factory_master_optimization_report",
+    }
+    assert factory.parent_factory_recoverable_yield() == {"method": "parent_factory_recoverable_yield"}
+    assert factory.parent_factory_throughput_recovery_plan() == {"method": "parent_factory_throughput_recovery_plan"}
+    assert factory.parent_factory_53_parent_feasibility() == {"method": "parent_factory_53_parent_feasibility"}
+    assert factory.parent_factory_secondary_loss_analysis() == {"method": "parent_factory_secondary_loss_analysis"}
+    assert factory.parent_factory_true_yield_model() == {"method": "parent_factory_true_yield_model"}
+    assert factory.parent_factory_realistic_53_parent_plan() == {"method": "parent_factory_realistic_53_parent_plan"}
+    assert factory._parent_factory_stage_order() == {"method": "parent_factory_stage_order"}
+    assert factory._parent_factory_detailed_stage_counts(metrics) == {"method": "parent_factory_detailed_stage_counts"}
+    assert factory._parent_factory_highest_roi(reasons) == {"method": "parent_factory_highest_roi"}
+    assert factory._parent_factory_top_fixes(reasons) == {"method": "parent_factory_top_fixes"}
+    assert factory._parent_factory_human_bottleneck(required=53, rejection=rejection) == {
+        "method": "parent_factory_human_bottleneck",
+    }
+    assert factory._parent_factory_yield_explanation(waterfall, loss) == {
+        "method": "parent_factory_yield_explanation",
+    }
+    assert factory._secondary_loss_reason("handoff_ready", 0) == {"method": "secondary_loss_reason"}
+    assert factory._parent_factory_trial_loss_buckets(waterfall) == {"method": "parent_factory_trial_loss_buckets"}
+    assert factory._parent_factory_trial_stage_repairable("handoff_ready") == {
+        "method": "parent_factory_trial_stage_repairable",
+    }
+
+    assert calls == [
+        ("parent_factory_yield_waterfall", (), {"required_parents_per_day": 53}),
+        ("parent_factory_loss_analysis", (), {"required_parents_per_day": 53}),
+        ("parent_factory_rejection_report", (), {"waterfall": waterfall}),
+        ("parent_factory_quality_gate_analysis", (), {}),
+        ("parent_factory_optimization_plan", (), {"required_parents_per_day": 53}),
+        ("parent_factory_master_optimization_report", (), {"required_parents_per_day": 53}),
+        ("parent_factory_recoverable_yield", (), {}),
+        ("parent_factory_throughput_recovery_plan", (), {}),
+        ("parent_factory_53_parent_feasibility", (), {}),
+        ("parent_factory_secondary_loss_analysis", (), {}),
+        ("parent_factory_true_yield_model", (), {}),
+        ("parent_factory_realistic_53_parent_plan", (), {}),
+        ("parent_factory_stage_order", (), {}),
+        ("parent_factory_detailed_stage_counts", (metrics,), {}),
+        ("parent_factory_highest_roi", (reasons,), {}),
+        ("parent_factory_top_fixes", (reasons,), {}),
+        ("parent_factory_human_bottleneck", (), {"required": 53, "rejection": rejection}),
+        ("parent_factory_yield_explanation", (waterfall, loss), {}),
+        ("secondary_loss_reason", ("handoff_ready", 0), {}),
+        ("parent_factory_trial_loss_buckets", (waterfall,), {}),
+        ("parent_factory_trial_stage_repairable", ("handoff_ready",), {}),
     ]
 
 
@@ -4683,6 +4766,86 @@ def test_core_services_delegates_reel_factory_report_methods_to_repository() -> 
         ("reel_factory_operational_readiness_metrics", (yield_report,), {}),
         ("reel_factory_human_cost", (metrics,), {}),
         ("reel_factory_rating", (proof,), {}),
+    ]
+
+
+def test_core_services_delegates_parent_factory_report_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeParentFactoryReports:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.parent_factory_reports = FakeParentFactoryReports()
+    metrics = {"rawCandidates": 245}
+    waterfall = {"stages": []}
+    rejection = {"totalFailures": 1}
+    loss = {"largestLossStage": "discoverability_safety_pass"}
+    reasons = [{"repairable": True, "frequency": 1}]
+
+    assert services.parent_factory_yield_waterfall(required_parents_per_day=53) == {
+        "method": "parent_factory_yield_waterfall",
+    }
+    assert services.parent_factory_loss_analysis(required_parents_per_day=53) == {
+        "method": "parent_factory_loss_analysis",
+    }
+    assert services.parent_factory_rejection_report(waterfall=waterfall) == {"method": "parent_factory_rejection_report"}
+    assert services.parent_factory_quality_gate_analysis() == {"method": "parent_factory_quality_gate_analysis"}
+    assert services.parent_factory_optimization_plan(required_parents_per_day=53) == {
+        "method": "parent_factory_optimization_plan",
+    }
+    assert services.parent_factory_master_optimization_report(required_parents_per_day=53) == {
+        "method": "parent_factory_master_optimization_report",
+    }
+    assert services.parent_factory_recoverable_yield() == {"method": "parent_factory_recoverable_yield"}
+    assert services.parent_factory_throughput_recovery_plan() == {"method": "parent_factory_throughput_recovery_plan"}
+    assert services.parent_factory_53_parent_feasibility() == {"method": "parent_factory_53_parent_feasibility"}
+    assert services.parent_factory_secondary_loss_analysis() == {"method": "parent_factory_secondary_loss_analysis"}
+    assert services.parent_factory_true_yield_model() == {"method": "parent_factory_true_yield_model"}
+    assert services.parent_factory_realistic_53_parent_plan() == {"method": "parent_factory_realistic_53_parent_plan"}
+    assert services.parent_factory_stage_order() == {"method": "parent_factory_stage_order"}
+    assert services.parent_factory_detailed_stage_counts(metrics) == {"method": "parent_factory_detailed_stage_counts"}
+    assert services.parent_factory_highest_roi(reasons) == {"method": "parent_factory_highest_roi"}
+    assert services.parent_factory_top_fixes(reasons) == {"method": "parent_factory_top_fixes"}
+    assert services.parent_factory_human_bottleneck(required=53, rejection=rejection) == {
+        "method": "parent_factory_human_bottleneck",
+    }
+    assert services.parent_factory_yield_explanation(waterfall, loss) == {
+        "method": "parent_factory_yield_explanation",
+    }
+    assert services.secondary_loss_reason("handoff_ready", 0) == {"method": "secondary_loss_reason"}
+    assert services.parent_factory_trial_loss_buckets(waterfall) == {"method": "parent_factory_trial_loss_buckets"}
+    assert services.parent_factory_trial_stage_repairable("handoff_ready") == {
+        "method": "parent_factory_trial_stage_repairable",
+    }
+
+    assert calls == [
+        ("parent_factory_yield_waterfall", (), {"required_parents_per_day": 53}),
+        ("parent_factory_loss_analysis", (), {"required_parents_per_day": 53}),
+        ("parent_factory_rejection_report", (), {"waterfall": waterfall}),
+        ("parent_factory_quality_gate_analysis", (), {}),
+        ("parent_factory_optimization_plan", (), {"required_parents_per_day": 53}),
+        ("parent_factory_master_optimization_report", (), {"required_parents_per_day": 53}),
+        ("parent_factory_recoverable_yield", (), {}),
+        ("parent_factory_throughput_recovery_plan", (), {}),
+        ("parent_factory_53_parent_feasibility", (), {}),
+        ("parent_factory_secondary_loss_analysis", (), {}),
+        ("parent_factory_true_yield_model", (), {}),
+        ("parent_factory_realistic_53_parent_plan", (), {}),
+        ("parent_factory_stage_order", (), {}),
+        ("parent_factory_detailed_stage_counts", (metrics,), {}),
+        ("parent_factory_highest_roi", (reasons,), {}),
+        ("parent_factory_top_fixes", (reasons,), {}),
+        ("parent_factory_human_bottleneck", (), {"required": 53, "rejection": rejection}),
+        ("parent_factory_yield_explanation", (waterfall, loss), {}),
+        ("secondary_loss_reason", ("handoff_ready", 0), {}),
+        ("parent_factory_trial_loss_buckets", (waterfall,), {}),
+        ("parent_factory_trial_stage_repairable", ("handoff_ready",), {}),
     ]
 
 
