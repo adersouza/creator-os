@@ -89,6 +89,7 @@
   <button data-tab="cron">Cron &amp; Queue</button>
   <button data-tab="data">Tables &amp; Auth</button>
   <button data-tab="risks">Risks &amp; Gaps</button>
+  <button data-tab="plan">Closeout Plan</button>
 </nav>
 <main>
 
@@ -146,6 +147,20 @@
   <p class="sub">Owner-facing ledger after AP0–AP9. Items below are either shipped fixes, production repair notes, or explicit non-goals.</p>
   <div class="note" style="border-left:3px solid var(--works)"><b>✓ Shipping status (read first):</b> the autoposter hardening + AP9 verification tier is <b>SHIPPED and live on TD <code>main</code></b> (<code>b76a418b</code>). AP0–AP3 integration landed first at <code>ec2190b5e</code>; AP9 then added IG failure-path proof, publish-claim contention proof, degradation alerting, publish-path cleanup, token-rotation documentation, and native-audio cache hardening. Production schema repair on 2026-06-18 added <code>posts.next_retry_at</code> + <code>idx_posts_scheduled_next_retry_at</code>, repaired migration history for <code>20260618064358</code>, reloaded PostgREST, and verified <code>/api/cron/publish-worker</code> success at <code>2026-06-18 15:32:17 UTC</code>.</div>
   <div id="risklist"></div>
+</section>
+
+<section id="plan">
+  <h2>Remaining autoposter closeout plan</h2>
+  <p class="sub">AP0–AP9 are shipped. What remains is production proof and narrow guardrail hardening, not another autoposter rebuild.</p>
+  <table>
+    <thead><tr><th>Order</th><th>Work</th><th>Repo</th><th>Done when</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Monitor publish-worker, QStash delivery, retry/dead-letter growth, and account-health pauses over a real posting window.</td><td>ThreadsDashboard</td><td>Run reports stay green; alerting fires on synthetic or real degradation; no silent phase starvation.</td></tr>
+      <tr><td>2</td><td>Re-audit service-role routes touched by publish/cron paths for explicit account/workspace scope checks.</td><td>ThreadsDashboard</td><td>Representative negative tenant-isolation tests fail closed around publish execution paths.</td></tr>
+      <tr><td>3</td><td>Keep QStash signature verification and cron auth as load-bearing tests.</td><td>ThreadsDashboard</td><td>Invalid signatures/secrets reject before any publish, retry, replay, or DB mutation.</td></tr>
+      <tr><td>4</td><td>Leave account-linkage evasion out of scope.</td><td>Policy boundary</td><td>The system continues to make legitimate distinct content and respect account health; it does not hide coordinated operation.</td></tr>
+    </tbody>
+  </table>
 </section>
 
 </main>

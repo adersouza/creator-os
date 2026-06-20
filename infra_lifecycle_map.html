@@ -87,13 +87,14 @@
   <button data-t="crons">Crons (26)</button>
   <button data-t="backend">Backend</button>
   <button data-t="schema">Schema/DB</button>
+  <button data-t="plan">Closeout Plan</button>
 </nav>
 <main>
 
 <section id="overview" class="active">
   <h2>The content lifecycle, as one system</h2>
-  <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os pulls them (manually) into its learning loop. The loop is architecturally closed but operationally manual on the return leg, and the forward leg's idempotency/media guarantees are softer than they look. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>; fix plan in <code>INFRA_HARDENING_PROMPT.md</code>.</p>
-  <div class="note"><b>Confidence is not uniform.</b> Seam + schema findings were verified against live code / the live DB (partial-uniques, missing post_key unique, index counts, media gating, export path — all confirmed). Crons + backend are agent-reported from code reads; the load-bearing ones were spot-verified (posts.ts-absent-from-vercel.json ✓, cross-reply 200-on-catch ✓ — reframed). <code>[verify]</code> items need one more trace before being actioned as HIGH. <b>Runtime update:</b> live Supabase is applied through TD migration <code>20260619162040</code>, so the prior merged-but-unapplied DB gap is closed for the landed set. <b>D3 update:</b> unused-index pruning is now in termination-audit mode after merged/applied table-family PRs: TD #147, #152, #153, #154, #155, #156, #157, #158, #160, #161, #162, #163, #164, #165, #166, #167, #168, #169, #170, #171, #172, #173, #174, #175, #176, #178, #179, #180, #181, #182, #183, and #185. Live audit window since <code>2025-12-08 11:03:29+00</code>: 142 remaining zero-scan helper indexes, 2.2MB total, 184kB max single index, zero over 16MB bloat; the 12 on >=10k-write tables are documented-kept guardrail/FK/recovery/read-path indexes. TD #184/#186 close and harden the publish-worker pipeline-contract generated-schema packaging miss; <code>juno33.com</code> currently aliases production deployment <code>dpl_6wv2N7KYCcWZqmaJTdm1Kip28v65</code>, whose publish-worker logs show repeated 200s and no <code>generated-schemas</code> / <code>Cannot find module</code> / <code>phase_error</code> recurrence through the renewed 2026-06-19 16:15 ET verification. The later Discord alert screenshot referenced the older 08:55–09:55 ET window on <code>dpl_2VmY7ZoJPQPdi35EnjYEnZNDUSwC</code>; refreshed Vercel captures retained only publish-worker 200 startup rows for that old window. Do not chase more low-write single-index drops unless they clear the materiality threshold.</div>
+  <p class="sub">The map that didn't exist before: content's full journey across both repos. <b>Forward</b> — creator-os builds draft payloads and HTTP-POSTs them (secret-authed) to a TD ingest endpoint that lands them in the <code>posts</code> table; a legacy direct-Supabase-write path is present but gated off. <b>Backward</b> — TD accumulates per-post metrics in <code>post_metric_history</code>; creator-os now has a scheduled, contract-validated pull into its learning loop. The loop is architecturally closed; the remaining work is monitoring, service-role scope review, and low-materiality schema cleanup. Full detail in <code>INFRA_LIFECYCLE_AUDIT.md</code>.</p>
+  <div class="note"><b>Current read:</b> seam + schema findings were verified against live code / the live DB, and the load-bearing cron/backend risks have landed or been reframed as monitoring. <b>Runtime update:</b> live Supabase is applied through TD migration <code>20260619162040</code>, so the prior merged-but-unapplied DB gap is closed for the landed set. <b>D3 update:</b> unused-index pruning is now in termination-audit mode after merged/applied table-family PRs: TD #147, #152, #153, #154, #155, #156, #157, #158, #160, #161, #162, #163, #164, #165, #166, #167, #168, #169, #170, #171, #172, #173, #174, #175, #176, #178, #179, #180, #181, #182, #183, and #185. Live audit window since <code>2025-12-08 11:03:29+00</code>: 142 remaining zero-scan helper indexes, 2.2MB total, 184kB max single index, zero over 16MB bloat; the 12 on >=10k-write tables are documented-kept guardrail/FK/recovery/read-path indexes. TD #184/#186 close and harden the publish-worker pipeline-contract generated-schema packaging miss; <code>juno33.com</code> currently aliases production deployment <code>dpl_6wv2N7KYCcWZqmaJTdm1Kip28v65</code>, whose publish-worker logs show repeated 200s and no <code>generated-schemas</code> / <code>Cannot find module</code> / <code>phase_error</code> recurrence through the renewed 2026-06-19 16:15 ET verification. Do not chase more low-write single-index drops unless they clear the materiality threshold.</div>
   <div class="ledger" aria-label="current ThreadsDashboard infra PR ledger">
     <div class="bucket">
       <h3>Merged TD PRs</h3>
@@ -128,7 +129,7 @@
       <g class="node"><rect x="740" y="40" width="120" height="42" rx="6" fill="#131822" stroke="#273043"/><text x="752" y="60">publish-worker</text><text x="752" y="74" class="role">+ scheduler → Meta</text></g>
       <!-- backward nodes -->
       <g class="node"><rect x="516" y="200" width="200" height="42" rx="6" fill="#131822" stroke="#3fb950"/><text x="526" y="220">post_metric_history</text><text x="526" y="234" class="role">483K rows of metrics</text></g>
-      <g class="node"><rect x="24" y="200" width="200" height="42" rx="6" fill="#1a2130" stroke="#d29922"/><text x="34" y="220">sync_performance_snapshots()</text><text x="34" y="234" class="role">manual CLI · raw columns</text></g>
+      <g class="node"><rect x="24" y="200" width="200" height="42" rx="6" fill="#1a2130" stroke="#3fb950"/><text x="34" y="220">sync_performance_snapshots()</text><text x="34" y="234" class="role">scheduled · contract-validates rows</text></g>
       <g class="node"><rect x="24" y="252" width="200" height="24" rx="5" fill="#131822" stroke="#273043"/><text x="34" y="268" class="role">→ learning loop (F v2, ranking)</text></g>
       <!-- legacy gated -->
       <g class="node"><rect x="240" y="40" width="120" height="42" rx="6" fill="#131822" stroke="#db6d28" stroke-dasharray="4 3"/><text x="250" y="58" style="font-size:11px">_write_supabase</text><text x="250" y="72" class="role">legacy · gated off</text></g>
@@ -139,13 +140,13 @@
       <line x1="716" y1="116" x2="740" y2="116" stroke="#5aa9ff" stroke-width="1.5" marker-end="url(#a)"/>
       <line x1="800" y1="96" x2="800" y2="82" stroke="#5aa9ff" stroke-width="1.5" marker-end="url(#a)"/>
       <line x1="716" y1="221" x2="226" y2="221" stroke="#d29922" stroke-width="1.5" marker-end="url(#g)"/>
-      <text x="320" y="214" class="edgelbl">reads raw columns · no contract · manual</text>
+      <text x="320" y="214" class="edgelbl">scheduled read · post_metric_history.read.v1</text>
       <line x1="124" y1="242" x2="124" y2="252" stroke="#273043" stroke-width="1.5"/>
     </svg>
   </div>
 
   <h2>Scorecard</h2>
-  <p class="tagline">No domain needs an architecture change to reach 9–10 — every cap is a bounded, low-risk fix.</p>
+  <p class="tagline">No domain needs an architecture change to reach 9–10 — every cap is a bounded follow-up or monitoring item.</p>
   <div class="grid" id="domGrid"></div>
 </section>
 
@@ -153,6 +154,20 @@
 <section id="crons"></section>
 <section id="backend"></section>
 <section id="schema"></section>
+<section id="plan">
+  <h2>Remaining infra closeout plan</h2>
+  <p class="sub">The hardening tracks are landed. Keep the remaining work boring: one upstream TD slice for low-risk backend/schema cleanup, one creator-os docs slice for operator runbooks.</p>
+  <table>
+    <thead><tr><th>Order</th><th>Work</th><th>Repo</th><th>Done when</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Document creator-os ↔ TD ingest secret rotation order.</td><td>creator-os + ThreadsDashboard</td><td>Runbook covers current/previous/extra TD secrets plus creator-os cutover; no code change unless rotation proves awkward.</td></tr>
+      <tr><td>2</td><td>Unify Threads publish errors onto <code>classifyMetaError()</code> and tighten CSP report scrub/fail mode only if still present upstream.</td><td>ThreadsDashboard</td><td>Focused tests prove retryable Threads errors return retryable status and CSP reports cannot leak obvious secrets.</td></tr>
+      <tr><td>3</td><td>Backfill migrations/types for live out-of-band tables.</td><td>ThreadsDashboard</td><td>Clean Supabase replay creates the same tables/types as production; generated types include the missing event table.</td></tr>
+      <tr><td>4</td><td>Re-check service-role scope around publish/cron routes after the next TD backend slice.</td><td>ThreadsDashboard</td><td>Representative tenant-negative tests fail closed; justified privileged routes remain documented.</td></tr>
+      <tr><td>5</td><td>Stop D3 index pruning unless materiality threshold is crossed.</td><td>ThreadsDashboard</td><td>Only reopen if a remaining unused index is hot-path, on a table with ≥10k writes, or ≥16MB.</td></tr>
+    </tbody>
+  </table>
+</section>
 
 </main>
 <script>
@@ -171,7 +186,7 @@ document.getElementById('domGrid').innerHTML=DOMAINS.map(d=>`
     <div class="role" style="margin-top:8px">${d.cap}</div>
   </div>`).join('');
 
-// findings: sev HIGH|MED|LOW|POS ; tid = fix-track id in INFRA_HARDENING_PROMPT.md
+// findings: sev HIGH|MED|LOW|POS ; tid = historical hardening track id
 const F={
  seam:[
   {sev:'DONE',t:'HTTP ingest rejects unresolved or local media URLs before write',ev:'A3 landed: creator-os pre-POST remote media guard · TD ingest remote media guard',d:'Campaign Factory exports now require each media item to resolve to an <code>http(s)</code> URL before dashboard ingest. ThreadsDashboard rejects missing/local media URLs again at the ingest boundary, so drafts cannot land with empty media and fail later at async IG publish.',tid:'A3'},
@@ -216,10 +231,10 @@ const F={
  ],
 };
 const SECMETA={
- seam:['⭐ Cross-repo lifecycle seam','The spine. Mostly TD, one creator-os PR. Fix track A — do A1 (idempotency) first.'],
- crons:['26 Vercel crons','Strong self-healing already; close the overlap + recovery-ceiling gaps. Fix track B.'],
- backend:['Vercel serverless backend','Good auth + taxonomy; close the silent-failure + timeout gaps. Fix track C.'],
- schema:['Supabase schema / DB (live apsrvwxfoomhtswlhczo)','Isolation + hot-path indexing correct; the win is an index diet. Fix track D.'],
+ seam:['⭐ Cross-repo lifecycle seam','The spine. A-track hardening is landed: idempotent ingest, media URL checks, generated schemas, and scheduled metric sync are in place.'],
+ crons:['26 Vercel crons','Strong self-healing already; B-track hardening is landed. Remaining item is longer-window run-report monitoring.'],
+ backend:['Vercel serverless backend','Good auth + taxonomy; C-track hardening is landed. Remaining items are low-risk cleanup and service-role scope review.'],
+ schema:['Supabase schema / DB (live apsrvwxfoomhtswlhczo)','Isolation + hot-path indexing correct; D-track index diet is at termination threshold. Remaining items are replay/type hygiene.'],
 };
 function renderFindings(id){
   const m=SECMETA[id], items=F[id];
@@ -231,7 +246,7 @@ function renderFindings(id){
       <span><i class="dot half"></i> MED ${counts.MED}</span>
       <span><i class="dot" style="background:var(--dim)"></i> LOW ${counts.LOW}</span>
       <span><i class="dot works"></i> strength ${counts.POS}</span>
-      <span style="margin-left:auto">fix IDs → <code>INFRA_HARDENING_PROMPT.md</code></span>
+      <span style="margin-left:auto">IDs are historical hardening tracks</span>
     </div>` +
     items.map(f=>{
       const border={DONE:'var(--works)',HIGH:'var(--gap)',MED:'var(--half)',LOW:'var(--dim)',POS:'var(--works)'}[f.sev];
