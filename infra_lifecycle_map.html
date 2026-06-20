@@ -163,7 +163,7 @@
       <tr><td>Fixed</td><td>Document creator-os ↔ TD ingest secret rotation order.</td><td>creator-os + ThreadsDashboard</td><td><code>docs/runbooks/threadsdash_ingest_secret_rotation.md</code> covers TD current/previous/extra secrets plus Creator OS cutover order.</td></tr>
       <tr><td>Upstream-fixed</td><td>Threads publish errors use <code>classifyMetaError()</code>; CSP reports fail closed and scrub logs/Sentry context.</td><td>ThreadsDashboard</td><td>Threads publish paths import the taxonomy; CSP closeout adds a focused fail-closed/scrub regression test.</td></tr>
       <tr><td>Upstream-fixed</td><td>Backfill migrations/types for live out-of-band tables.</td><td>ThreadsDashboard</td><td><code>20260618231753_repo_live_missing_tables.sql</code>, generated Supabase types, and GDPR export/delete coverage cover the live table set.</td></tr>
-      <tr><td>Upstream-fixed</td><td>Service-role scope around publish/cron routes.</td><td>ThreadsDashboard</td><td>Publish paths enforce account scope; privileged routes remain reason-tagged through <code>PRIVILEGED_DB_REASONS</code>.</td></tr>
+      <tr><td>Upstream-fixed</td><td>Service-role scope around publish/cron routes.</td><td>ThreadsDashboard</td><td>Publish paths enforce account scope; TD PR #191 requires scheduled Vercel cron service-role calls to use explicit <code>PRIVILEGED_DB_REASONS</code> and keeps the compat gate green.</td></tr>
       <tr><td>Accepted materiality limit</td><td>D3 index pruning.</td><td>ThreadsDashboard</td><td>Only reopen if a monitored unused index is hot-path, on a table with ≥10k writes, or ≥16MB.</td></tr>
     </tbody>
   </table>
@@ -173,8 +173,8 @@
 <script>
 const DOMAINS=[
   {id:'seam',name:'⭐ Cross-repo seam',now:9.5,ceil:9.5,cap:'Idempotent ingest, media URL boundary, scheduled metric return-leg contracts, and generated TS schema enforcement are in place. TD-local policy checks intentionally layer on top of the shared schema by design.'},
-  {id:'crons',name:'Vercel crons (26)',now:9.5,ceil:9.5,cap:'B1–B5 cron hardening is merged; publish-worker runtime packaging is production-verified. Reopen only on fresh run-report evidence, not stale pre-merge notes.'},
-  {id:'backend',name:'Vercel backend (~130)',now:9.5,ceil:9.5,cap:'C1–C6 backend hardening is merged, including retry-eligible failures, manual-publish duration, webhook/container guardrails, token hygiene, Threads taxonomy alignment, CSP fail-closed behavior, and service-role route scoping.'},
+  {id:'crons',name:'Vercel crons (26)',now:9.5,ceil:9.5,cap:'B1–B5 cron hardening is merged; publish-worker runtime packaging is production-verified; TD PR #191 reason-tags scheduled cron service-role access. Reopen only on fresh run-report evidence, not stale pre-merge notes.'},
+  {id:'backend',name:'Vercel backend (~130)',now:9.5,ceil:9.5,cap:'C1–C6 backend hardening is merged, including retry-eligible failures, manual-publish duration, webhook/container guardrails, token hygiene, Threads taxonomy alignment, CSP fail-closed behavior, and reason-tagged service-role route scoping.'},
   {id:'schema',name:'Supabase schema (206 tbl)',now:9.5,ceil:9.5,cap:'Tenant isolation + hot-path indexing are correct; merged D1/D2/D3/D5/D6 migrations are applied, replay/type hygiene is closed, and low-materiality index leftovers are accepted by threshold.'},
 ];
 function scColor(s){return s>=9?'var(--works)':s>=7?'var(--half)':s>=5?'var(--orphan)':'var(--gap)';}
