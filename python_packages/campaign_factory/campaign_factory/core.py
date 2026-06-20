@@ -24,7 +24,6 @@ from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
 from .db import connect, init_db
 from .fresh_reel_production import FreshReelProductionRepository
-from .learning_score import account_reward_baselines
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
 from .persistence import json_load, row_to_dict, utc_now
@@ -597,7 +596,6 @@ class CampaignFactory:
             requires_operator_visual_review_for_handoff=self._requires_operator_visual_review_for_handoff,
             ig_media_type_for_surface=self._ig_media_type_for_surface,
             surface_handoff_readiness_report=self.surface_handoff_readiness_report,
-            performance_summary=self.performance_summary,
             recommend_audio=self.recommend_audio,
             select_audio_for_recommendation=self.select_audio_for_recommendation,
             surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
@@ -659,15 +657,9 @@ class CampaignFactory:
             latest_surface_metric_for_asset=self._latest_surface_metric_for_asset,
             empty_surface_certification_audit=self._empty_surface_certification_audit,
             surface_certification_audit=self._surface_certification_audit,
-            performance_snapshot_payload=self._performance_snapshot_payload,
-            account_reward_baselines=account_reward_baselines,
-            aggregate_performance=self._aggregate_performance,
-            performance_quality_score=self._performance_quality_score,
-            performance_planning_score=self._performance_planning_score,
             audio_selection_payload=self._audio_selection_payload,
             audio_workflow_summary=self.audio_workflow_summary,
             events_for_asset=self.events_for_asset,
-            performance_for_asset=self._performance_for_asset,
             story_mix_plan=self.story_mix_plan,
             story_calendar_plan=self.story_calendar_plan,
             json_load=json_load,
