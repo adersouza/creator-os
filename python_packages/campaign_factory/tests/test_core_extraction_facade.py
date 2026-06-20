@@ -2794,6 +2794,30 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
             calls.append(("local_export_readiness", args, kwargs))
             return {"state": "ready"}
 
+        def latest_audit_for_asset(self, *args, **kwargs):
+            calls.append(("latest_audit_for_asset", args, kwargs))
+            return {"id": args[0], "overallVerdict": "pass"}
+
+        def active_quarantine_for_asset(self, *args, **kwargs):
+            calls.append(("active_quarantine_for_asset", args, kwargs))
+            return {"rendered_asset_id": args[0]}
+
+        def verification_id(self, *args, **kwargs):
+            calls.append(("verification_id", args, kwargs))
+            return "proof_abc123"
+
+        def text_hash(self, *args, **kwargs):
+            calls.append(("text_hash", args, kwargs))
+            return "hash_caption"
+
+        def instagram_post_caption_for_asset(self, *args, **kwargs):
+            calls.append(("instagram_post_caption_for_asset", args, kwargs))
+            return {"instagram_post_caption": "caption"}
+
+        def caption_lineage_sidecar(self, *args, **kwargs):
+            calls.append(("caption_lineage_sidecar", args, kwargs))
+            return {"captionOutcomeContext": {}}
+
         def explain_publishability(self, *args, **kwargs):
             calls.append(("explain_publishability", args, kwargs))
             return {"schema": "campaign_factory.publishability_check.v1"}
@@ -2841,6 +2865,14 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
     factory.services = FakeServices()
 
     assert factory._local_export_readiness({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}) == {"state": "ready"}
+    assert factory._latest_audit_for_asset("asset_1") == {"id": "asset_1", "overallVerdict": "pass"}
+    assert factory._active_quarantine_for_asset("asset_1") == {"rendered_asset_id": "asset_1"}
+    assert factory._verification_id("proof", "asset_1") == "proof_abc123"
+    assert factory._text_hash("Caption") == "hash_caption"
+    assert factory._instagram_post_caption_for_asset({"id": "asset_1"}, {}, distribution_plan={"id": "plan_1"}) == {
+        "instagram_post_caption": "caption",
+    }
+    assert factory._caption_lineage_sidecar("/tmp/out.mp4") == {"captionOutcomeContext": {}}
     assert factory.explain_publishability("asset_1", distribution_plan_id="plan_1") == {
         "schema": "campaign_factory.publishability_check.v1",
     }
@@ -2896,6 +2928,12 @@ def test_campaign_factory_delegates_publishability_methods_to_services() -> None
 
     assert calls == [
         ("local_export_readiness", ({"id": "asset_1", "review_state": "approved"}, {"overallVerdict": "pass"}), {}),
+        ("latest_audit_for_asset", ("asset_1",), {}),
+        ("active_quarantine_for_asset", ("asset_1",), {}),
+        ("verification_id", ("proof", "asset_1"), {}),
+        ("text_hash", ("Caption",), {}),
+        ("instagram_post_caption_for_asset", ({"id": "asset_1"}, {}), {"distribution_plan": {"id": "plan_1"}}),
+        ("caption_lineage_sidecar", ("/tmp/out.mp4",), {}),
         ("explain_publishability", ("asset_1",), {"distribution_plan_id": "plan_1"}),
         ("capture_publishability_rejection_evidence", ("asset_1",), {}),
         ("capture_publishability_rejection_evidence_from_result", ("asset_1", {"decision": "blocked"}), {"commit": False}),
@@ -2955,6 +2993,30 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
             calls.append(("local_export_readiness", args, kwargs))
             return {"state": "ready"}
 
+        def latest_audit_for_asset(self, *args, **kwargs):
+            calls.append(("latest_audit_for_asset", args, kwargs))
+            return {"id": args[0], "overallVerdict": "pass"}
+
+        def active_quarantine_for_asset(self, *args, **kwargs):
+            calls.append(("active_quarantine_for_asset", args, kwargs))
+            return {"rendered_asset_id": args[0]}
+
+        def verification_id(self, *args, **kwargs):
+            calls.append(("verification_id", args, kwargs))
+            return "proof_abc123"
+
+        def text_hash(self, *args, **kwargs):
+            calls.append(("text_hash", args, kwargs))
+            return "hash_caption"
+
+        def instagram_post_caption_for_asset(self, *args, **kwargs):
+            calls.append(("instagram_post_caption_for_asset", args, kwargs))
+            return {"instagram_post_caption": "caption"}
+
+        def caption_lineage_sidecar(self, *args, **kwargs):
+            calls.append(("caption_lineage_sidecar", args, kwargs))
+            return {"captionOutcomeContext": {}}
+
         def explain_publishability(self, *args, **kwargs):
             calls.append(("explain_publishability", args, kwargs))
             return {"schema": "campaign_factory.publishability_check.v1"}
@@ -3002,6 +3064,14 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
     services.publishability = FakePublishability()
 
     assert services.local_export_readiness({"id": "asset_1"}, None) == {"state": "ready"}
+    assert services.latest_audit_for_asset("asset_1") == {"id": "asset_1", "overallVerdict": "pass"}
+    assert services.active_quarantine_for_asset("asset_1") == {"rendered_asset_id": "asset_1"}
+    assert services.verification_id("proof", "asset_1") == "proof_abc123"
+    assert services.text_hash("Caption") == "hash_caption"
+    assert services.instagram_post_caption_for_asset({"id": "asset_1"}, {}, distribution_plan={"id": "plan_1"}) == {
+        "instagram_post_caption": "caption",
+    }
+    assert services.caption_lineage_sidecar("/tmp/out.mp4") == {"captionOutcomeContext": {}}
     assert services.explain_publishability("asset_1", distribution_plan_id="plan_1") == {
         "schema": "campaign_factory.publishability_check.v1",
     }
@@ -3037,6 +3107,12 @@ def test_core_services_delegates_publishability_methods_to_repository() -> None:
 
     assert calls == [
         ("local_export_readiness", ({"id": "asset_1"}, None), {}),
+        ("latest_audit_for_asset", ("asset_1",), {}),
+        ("active_quarantine_for_asset", ("asset_1",), {}),
+        ("verification_id", ("proof", "asset_1"), {}),
+        ("text_hash", ("Caption",), {}),
+        ("instagram_post_caption_for_asset", ({"id": "asset_1"}, {}), {"distribution_plan": {"id": "plan_1"}}),
+        ("caption_lineage_sidecar", ("/tmp/out.mp4",), {}),
         ("explain_publishability", ("asset_1",), {"distribution_plan_id": "plan_1"}),
         ("capture_publishability_rejection_evidence", ("asset_1",), {}),
         ("capture_publishability_rejection_evidence_from_result", ("asset_1", {"decision": "blocked"}), {"commit": False}),

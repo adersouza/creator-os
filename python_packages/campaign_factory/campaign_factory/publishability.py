@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .caption_outcome import load_context_json
+from .persistence import json_load
 
 CAPTION_PLACEMENT_QC_WARNING_CODES = {
     "caption_too_close_to_edge",
@@ -59,6 +60,7 @@ class PublishabilityRepository:
         normalize_content_surface: Callable[[str | None], str],
         rendered_asset: Callable[[str], dict[str, Any]],
         distribution_plan_payload: Callable[[dict[str, Any]], dict[str, Any]],
+        audit_report_payload: Callable[[dict[str, Any]], dict[str, Any]],
         latest_audit_for_asset: Callable[[str], dict[str, Any] | None],
         verification_id: Callable[..., str],
         text_hash: Callable[[str], str],
@@ -86,6 +88,7 @@ class PublishabilityRepository:
         self._normalize_content_surface = normalize_content_surface
         self.rendered_asset = rendered_asset
         self._distribution_plan_payload = distribution_plan_payload
+        self._audit_report_payload = audit_report_payload
         self._latest_audit_for_asset = latest_audit_for_asset
         self._verification_id = verification_id
         self._text_hash = text_hash
@@ -106,6 +109,130 @@ class PublishabilityRepository:
         self._requires_operator_visual_review_for_handoff = requires_operator_visual_review_for_handoff
         self._surface_report_assets = surface_report_assets
         self._ig_media_type_for_surface = ig_media_type_for_surface
+
+    def latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ? ORDER BY created_at DESC LIMIT 1",
+            (rendered_asset_id,),
+        ).fetchone()
+        return self._audit_report_payload(dict(row)) if row else None
+
+    def active_quarantine_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM quarantined_assets WHERE rendered_asset_id = ? LIMIT 1",
+            (rendered_asset_id,),
+        ).fetchone()
+        if not row:
+            return None
+        payload = dict(row)
+        payload["metadata"] = json_load(payload.get("metadata_json"), {})
+        return payload
+
+    def verification_id(self, prefix: str, *parts: Any) -> str:
+        digest = hashlib.sha256(":".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}_{digest}"
+
+    def text_hash(self, value: str) -> str:
+        normalized = " ".join((value or "").strip().lower().split())
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def instagram_post_caption_for_asset(
+        self,
+        asset: dict[str, Any],
+        caption_context: dict[str, Any] | None,
+        *,
+        distribution_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        caption_generation = asset.get("captionGeneration")
+        if not isinstance(caption_generation, dict):
+            caption_generation = json_load(asset.get("caption_generation_json"), {})
+        if not isinstance(caption_generation, dict):
+            caption_generation = {}
+        source_records = [
+            distribution_plan or {},
+            caption_generation,
+            caption_generation.get("instagramPostCaption") if isinstance(caption_generation.get("instagramPostCaption"), dict) else {},
+            caption_generation.get("instagram_post_caption") if isinstance(caption_generation.get("instagram_post_caption"), dict) else {},
+            caption_context or {},
+            asset,
+        ]
+        post_caption = ""
+        explicit_post_caption = False
+        for record in source_records:
+            if not isinstance(record, dict):
+                continue
+            for key in ("instagram_post_caption", "instagramPostCaption", "post_caption", "postCaption"):
+                if key in record and isinstance(record.get(key), str):
+                    post_caption = str(record.get(key) or "").strip()
+                    explicit_post_caption = True
+                    break
+            if explicit_post_caption:
+                break
+        burned_caption = str(asset.get("caption") or (caption_context or {}).get("caption_text") or "").strip()
+        caption_cta = next(
+            (
+                str(value).strip()
+                for record in source_records
+                if isinstance(record, dict)
+                for value in (record.get("caption_cta"), record.get("captionCta"))
+                if isinstance(value, str) and value.strip()
+            ),
+            "",
+        )
+        hashtags: list[str] = []
+        for record in source_records:
+            if not isinstance(record, dict):
+                continue
+            raw_tags = record.get("hashtags") or record.get("instagram_hashtags") or record.get("instagramHashtags")
+            if not isinstance(raw_tags, list):
+                continue
+            for tag in raw_tags:
+                if not isinstance(tag, str):
+                    continue
+                cleaned = re.sub(r"[^A-Za-z0-9_]", "", tag.strip().lstrip("#"))
+                if cleaned and f"#{cleaned}" not in hashtags:
+                    hashtags.append(f"#{cleaned}")
+                if len(hashtags) >= 5:
+                    break
+            if len(hashtags) >= 5:
+                break
+        style = next(
+            (
+                str(value).strip()
+                for record in source_records
+                if isinstance(record, dict)
+                for value in (record.get("post_caption_style"), record.get("postCaptionStyle"))
+                if isinstance(value, str) and value.strip()
+            ),
+            "short_natural",
+        )
+        final_caption = post_caption
+        if caption_cta and caption_cta.lower() not in final_caption.lower():
+            final_caption = f"{final_caption}\n{caption_cta}".strip()
+        missing_tags = [tag for tag in hashtags if tag.lower() not in final_caption.lower()]
+        if missing_tags:
+            final_caption = f"{final_caption}\n{' '.join(missing_tags)}".strip()
+        return {
+            "instagram_post_caption": final_caption,
+            "instagram_post_caption_hash": self._text_hash(final_caption) if final_caption else None,
+            "caption_cta": caption_cta or None,
+            "hashtags": hashtags,
+            "post_caption_style": style,
+            "burned_caption_text": burned_caption,
+            "burned_caption_hash": self._text_hash(burned_caption) if burned_caption else None,
+        }
+
+    def caption_lineage_sidecar(self, output_path: str) -> dict[str, Any]:
+        if not output_path:
+            return {}
+        sidecar_path = Path(output_path + ".caption_lineage.json")
+        if not sidecar_path.exists():
+            return {}
+        try:
+            payload = json_load(sidecar_path.read_text(encoding="utf-8"), {})
+        except OSError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
         blocking = []

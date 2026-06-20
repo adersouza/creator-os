@@ -447,6 +447,7 @@ class CoreServices:
             normalize_content_surface=normalize_content_surface,
             rendered_asset=self.rendered_asset,
             distribution_plan_payload=distribution_plan_payload,
+            audit_report_payload=audit_report_payload,
             latest_audit_for_asset=latest_audit_for_asset,
             verification_id=verification_id,
             text_hash=text_hash,
@@ -4985,6 +4986,34 @@ class CoreServices:
 
     def local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
         return self.publishability.local_export_readiness(asset, latest_audit)
+
+    def latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        return self.publishability.latest_audit_for_asset(rendered_asset_id)
+
+    def active_quarantine_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+        return self.publishability.active_quarantine_for_asset(rendered_asset_id)
+
+    def verification_id(self, prefix: str, *parts: Any) -> str:
+        return self.publishability.verification_id(prefix, *parts)
+
+    def text_hash(self, value: str) -> str:
+        return self.publishability.text_hash(value)
+
+    def instagram_post_caption_for_asset(
+        self,
+        asset: dict[str, Any],
+        caption_context: dict[str, Any] | None,
+        *,
+        distribution_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.publishability.instagram_post_caption_for_asset(
+            asset,
+            caption_context,
+            distribution_plan=distribution_plan,
+        )
+
+    def caption_lineage_sidecar(self, output_path: str) -> dict[str, Any]:
+        return self.publishability.caption_lineage_sidecar(output_path)
 
     def explain_publishability(
         self,
