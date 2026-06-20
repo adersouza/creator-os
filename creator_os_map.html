@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">7.8</b>/10</span>
+  <span class="score">system <b id="hsys">8.2</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -229,9 +229,9 @@ const COMPONENTS=[
   {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:8.3,sub:[8,8,8,9,8],files:107,nodes:2512,status:'works',
    keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
    notes:['Generation primitive is REAL','GAP 2 CLOSED — now reachable from control brain via front_generation_stage (E, PR #46/#47)','Also drives zero-AI still→MP4 path (E2, PR #45)','Track 9 PR #193 fixed packaging metadata and added adapter/golden tests']},
-  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:7.3,sub:[7,7,7,8,8],files:60,nodes:2622,status:'works',
+  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:9.0,sub:[9,9,9,9,9],files:60,nodes:2622,status:'works',
    keyfiles:['core.py — composition-root facade, 6,026 lines after PR #226 closeout','services.py + repository modules — extracted orchestration domains behind stable CampaignFactory signatures','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
-   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py decomposition CLOSED for audit scope in PR #226: CampaignFactory is a composition-root facade; only __init__ and the documented _load_source_lineage compatibility shim retain non-trivial bodies']},
+   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py decomposition CLOSED for audit scope in PR #226: CampaignFactory is a composition-root facade; regression test now blocks domain logic from creeping back into core.py']},
   {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:8.0,sub:[8,8,8,8,8],files:113,nodes:779,status:'works',
    keyfiles:['app/api/.../similarity/route.js — PDQ/SSCD collision gate (PR #54)','lib/pdq_check.py · lib/sscd_check.py · lib/reference_db.py','forensics_check.py'],
    notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','Track 9 PR #191/#192 added similarity/pipeline tests and detector calibration fixtures']},
@@ -468,7 +468,7 @@ const ROADMAP=[
     {k:'✅',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py coverage target hit; ContentForge similarity/route + pipeline safety tests landed',ref:'PR #189/#191'},
     {k:'✅',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures now assert PDQ, SSCD, and TMK thresholds against drift',ref:'PR #192'},
     {k:'✅',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield adapter fixtures; caption wrap/safe-zone and E2 still→MP4 golden assertions; packaging fixed',ref:'PR #193'},
-    {k:'✅',id:'9-core',t:'Decompose core.py',n:'CLOSED FOR AUDIT SCOPE: CampaignFactory is a composition-root facade at 6,026 lines, down from ~26.7k; retained wrappers are documented compatibility seams',ref:'PR #226'},
+    {k:'✅',id:'9-core',t:'Decompose core.py',n:'CLOSED: CampaignFactory is a composition-root facade at 6,026 lines, down from ~26.7k; a regression test now locks the facade-only invariant',ref:'PR #226 + current slice'},
     {k:'✅',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'DONE: ~16 TD branches merged to TD main (ec2190b5e); 31 files / 379 tests pass, compat+typecheck+build green. Autoposter 8.2→8.7',ref:'TD main'},
   ]},
 ];

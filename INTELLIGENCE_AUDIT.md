@@ -273,14 +273,14 @@ The Intelligence/Quality/Safety tracks above add **capability** — they lift ea
 |------|-----|--------------------------|----------------------|
 | **Reference Factory** | 6.6 | ~7.8 | Decompose `reference_intake.py` (2858 lines); kill dup `_caption_archetype` / latent KeyError (P1-4); ~80% test coverage on intake + pattern-card path; one declared, tested provider path (no Grok/Ollama doc drift). |
 | **Reel Factory** | 7.6 | ~8.3 | Fix `pyproject` module list (P0-1) → deterministic install; wrap Higgsfield/Kling in a tested adapter with recorded fixtures (failure modes handled, not hoped); golden-output tests for caption render + E2 still→MP4 (duration/pixel asserts). |
-| **Campaign Factory** | 6.1 | ~7.3 | **Decompose `core.py`** (27k lines / 847 methods) into orchestration / inventory / audit / export / learning modules behind interfaces. Biggest single lever in the system. Maint 4→8 + module-level tests per carved unit. Highest-risk; needs contract tests as a safety net FIRST. |
+| **Campaign Factory** | 6.1 | ~9.0 | **Fixed:** `core.py` is now a `CampaignFactory` composition-root facade at 6,026 lines, down from ~26.7k. Repository modules own orchestration domains behind stable public signatures, lifecycle/export/performance tests cover the working path, and `test_campaign_factory_core_stays_composition_root_facade` blocks domain logic from creeping back into `core.py`. |
 | **ContentForge** | 7.0 | ~8.0 | Test `similarity/route.js` (1827 lines) + `pipeline.js` (P1-5 untested surface); calibration fixtures — known-collision & known-distinct media pairs asserting PDQ ≤31 / SSCD ≥0.75 hold (catches detector drift). |
 | **Autoposter (TD)** | 8.2 | ~9.0 | Land AP0–AP3 (merge ~16 branches, weave `publishInstagram.ts`, re-run CI) — already coded to 9-grade. For true 9: one integration test driving a fake Meta Graph through the full error taxonomy (transient/window_cap/permanent → retry/backoff/dead-letter) + account-health pause/resume loop. |
 | **Pipeline Contracts** | 6.7 | ~7.5 | Replace hand-rolled validators with **codegen from the JSON schemas** (→ Python + TS) so the two sides *can't* drift; round-trip property tests per contract; CI byte-sync check enforced, not hoped. |
 
 ### The three structural levers (dominate the jump to 9)
 
-1. **`core.py` decomposition** — gates Campaign Factory; nothing else moves its maint score. ~weeks, highest risk. Land strong contract/characterization tests first as the safety net.
+1. **`core.py` decomposition** — fixed for Campaign Factory: characterization tests landed first, extraction is complete for audit scope, and the facade-only invariant is now regression-tested.
 2. **Test coverage on the 3 big untested surfaces** — `reference_intake.py`, `similarity/route.js`, `pipeline.js`. These are safety- and learning-critical and under-tested.
 3. **Contract codegen** — makes cross-repo drift structurally impossible instead of vigilance-dependent.
 
