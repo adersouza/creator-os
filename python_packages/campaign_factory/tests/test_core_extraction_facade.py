@@ -50,6 +50,7 @@ from campaign_factory.reference import ReferenceRepository
 from campaign_factory.recommendation_accuracy import RecommendationAccuracyRepository
 from campaign_factory.recommendations import RecommendationRepository
 from campaign_factory.readiness_report import ReadinessReportRepository
+from campaign_factory.reel_factory_reports import ReelFactoryReportRepository
 from campaign_factory.reel_execution import ReelExecutionRepository
 from campaign_factory.schedule_safe_production import ScheduleSafeProductionRepository
 from campaign_factory.services import CoreServices
@@ -173,6 +174,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.schedule_safe_production.conn is factory.conn
         assert isinstance(factory.services.fresh_reel_production, FreshReelProductionRepository)
         assert factory.services.fresh_reel_production.conn is factory.conn
+        assert isinstance(factory.services.reel_factory_reports, ReelFactoryReportRepository)
+        assert factory.services.reel_factory_reports.conn is factory.conn
         assert isinstance(factory.services.contentforge_visual_qc, ContentForgeVisualQCRepository)
         assert factory.services.contentforge_visual_qc.conn is factory.conn
         assert isinstance(factory.services.multi_blocker_unlock, MultiBlockerUnlockRepository)
@@ -932,6 +935,65 @@ def test_campaign_factory_delegates_fresh_reel_production_methods_to_services() 
                 "batch_target": 90,
             },
         ),
+    ]
+
+
+def test_campaign_factory_delegates_reel_factory_report_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+    metrics = {"rawCandidates": 25}
+    yield_report = {"qcPassRate": 0.9}
+    proof = {"confidence": "medium"}
+    asset = {"id": "asset_1"}
+
+    assert factory.reel_factory_parent_throughput_proof(required_parents_per_day=53, lookback_days=2) == {
+        "method": "reel_factory_parent_throughput_proof",
+    }
+    assert factory.reel_factory_yield_analysis(metrics=metrics) == {"method": "reel_factory_yield_analysis"}
+    assert factory.reel_factory_failure_analysis() == {"method": "reel_factory_failure_analysis"}
+    assert factory.reel_factory_capacity_model(required_parents_per_day=53) == {"method": "reel_factory_capacity_model"}
+    assert factory.reel_factory_200_account_readiness() == {"method": "reel_factory_200_account_readiness"}
+    assert factory.reel_factory_master_report() == {"method": "reel_factory_master_report"}
+    assert factory._reel_factory_parent_metrics() == {"method": "reel_factory_parent_metrics"}
+    assert factory._reel_factory_parent_qc_pass(asset) == {"method": "reel_factory_parent_qc_pass"}
+    assert factory._reel_factory_confidence(metrics) == {"method": "reel_factory_confidence"}
+    assert factory._operator_review_minutes_per_parent(metrics) == {"method": "operator_review_minutes_per_parent"}
+    assert factory._reel_factory_intake_metrics(metrics) == {"method": "reel_factory_intake_metrics"}
+    assert factory._reel_factory_parent_creation_metrics(metrics) == {"method": "reel_factory_parent_creation_metrics"}
+    assert factory._reel_factory_quality_gate_metrics(yield_report) == {"method": "reel_factory_quality_gate_metrics"}
+    assert factory._reel_factory_operational_readiness_metrics(yield_report) == {
+        "method": "reel_factory_operational_readiness_metrics",
+    }
+    assert factory._reel_factory_human_cost(metrics) == {"method": "reel_factory_human_cost"}
+    assert factory._reel_factory_rating(proof) == {"method": "reel_factory_rating"}
+
+    assert calls == [
+        ("reel_factory_parent_throughput_proof", (), {"required_parents_per_day": 53, "lookback_days": 2}),
+        ("reel_factory_yield_analysis", (), {"metrics": metrics}),
+        ("reel_factory_failure_analysis", (), {}),
+        ("reel_factory_capacity_model", (), {"required_parents_per_day": 53}),
+        ("reel_factory_200_account_readiness", (), {}),
+        ("reel_factory_master_report", (), {}),
+        ("reel_factory_parent_metrics", (), {}),
+        ("reel_factory_parent_qc_pass", (asset,), {}),
+        ("reel_factory_confidence", (metrics,), {}),
+        ("operator_review_minutes_per_parent", (metrics,), {}),
+        ("reel_factory_intake_metrics", (metrics,), {}),
+        ("reel_factory_parent_creation_metrics", (metrics,), {}),
+        ("reel_factory_quality_gate_metrics", (yield_report,), {}),
+        ("reel_factory_operational_readiness_metrics", (yield_report,), {}),
+        ("reel_factory_human_cost", (metrics,), {}),
+        ("reel_factory_rating", (proof,), {}),
     ]
 
 
@@ -4562,6 +4624,65 @@ def test_core_services_delegates_fresh_reel_production_methods_to_repository() -
                 "batch_target": 90,
             },
         ),
+    ]
+
+
+def test_core_services_delegates_reel_factory_report_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeReelFactoryReports:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.reel_factory_reports = FakeReelFactoryReports()
+    metrics = {"rawCandidates": 25}
+    yield_report = {"qcPassRate": 0.9}
+    proof = {"confidence": "medium"}
+    asset = {"id": "asset_1"}
+
+    assert services.reel_factory_parent_throughput_proof(required_parents_per_day=53, lookback_days=2) == {
+        "method": "reel_factory_parent_throughput_proof",
+    }
+    assert services.reel_factory_yield_analysis(metrics=metrics) == {"method": "reel_factory_yield_analysis"}
+    assert services.reel_factory_failure_analysis() == {"method": "reel_factory_failure_analysis"}
+    assert services.reel_factory_capacity_model(required_parents_per_day=53) == {"method": "reel_factory_capacity_model"}
+    assert services.reel_factory_200_account_readiness() == {"method": "reel_factory_200_account_readiness"}
+    assert services.reel_factory_master_report() == {"method": "reel_factory_master_report"}
+    assert services.reel_factory_parent_metrics() == {"method": "reel_factory_parent_metrics"}
+    assert services.reel_factory_parent_qc_pass(asset) == {"method": "reel_factory_parent_qc_pass"}
+    assert services.reel_factory_confidence(metrics) == {"method": "reel_factory_confidence"}
+    assert services.operator_review_minutes_per_parent(metrics) == {"method": "operator_review_minutes_per_parent"}
+    assert services.reel_factory_intake_metrics(metrics) == {"method": "reel_factory_intake_metrics"}
+    assert services.reel_factory_parent_creation_metrics(metrics) == {"method": "reel_factory_parent_creation_metrics"}
+    assert services.reel_factory_quality_gate_metrics(yield_report) == {"method": "reel_factory_quality_gate_metrics"}
+    assert services.reel_factory_operational_readiness_metrics(yield_report) == {
+        "method": "reel_factory_operational_readiness_metrics",
+    }
+    assert services.reel_factory_human_cost(metrics) == {"method": "reel_factory_human_cost"}
+    assert services.reel_factory_rating(proof) == {"method": "reel_factory_rating"}
+
+    assert calls == [
+        ("reel_factory_parent_throughput_proof", (), {"required_parents_per_day": 53, "lookback_days": 2}),
+        ("reel_factory_yield_analysis", (), {"metrics": metrics}),
+        ("reel_factory_failure_analysis", (), {}),
+        ("reel_factory_capacity_model", (), {"required_parents_per_day": 53}),
+        ("reel_factory_200_account_readiness", (), {}),
+        ("reel_factory_master_report", (), {}),
+        ("reel_factory_parent_metrics", (), {}),
+        ("reel_factory_parent_qc_pass", (asset,), {}),
+        ("reel_factory_confidence", (metrics,), {}),
+        ("operator_review_minutes_per_parent", (metrics,), {}),
+        ("reel_factory_intake_metrics", (metrics,), {}),
+        ("reel_factory_parent_creation_metrics", (metrics,), {}),
+        ("reel_factory_quality_gate_metrics", (yield_report,), {}),
+        ("reel_factory_operational_readiness_metrics", (yield_report,), {}),
+        ("reel_factory_human_cost", (metrics,), {}),
+        ("reel_factory_rating", (proof,), {}),
     ]
 
 
