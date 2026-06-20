@@ -51,6 +51,7 @@ TypeScript validators return an array of error strings. An empty array means the
 ```bash
 cd /Users/aderdesouza/Developer/creator-os
 uv run pytest packages/pipeline_contracts/tests
+THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard uv run pytest packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py
 pnpm check:contracts
 ```
 
