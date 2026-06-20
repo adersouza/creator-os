@@ -566,7 +566,6 @@ class CampaignFactory:
             probe_video_metadata=lambda *args, **kwargs: probe_video_metadata(*args, **kwargs),
             read_png_rgb_pixels=read_png_rgb_pixels,
             ratio_label_from_shape=ratio_label_from_shape,
-            rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=lambda *args, **kwargs: self._dashboard_rendered_asset(*args, **kwargs),
             audio_recommendations_for_asset=lambda *args, **kwargs: self._audio_recommendations_for_asset(*args, **kwargs),
             generated_asset_lineage=lambda *args, **kwargs: self._generated_asset_lineage(*args, **kwargs),
@@ -581,7 +580,6 @@ class CampaignFactory:
             reference_hook_fallbacks=SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
             normalize_content_surface=normalize_content_surface,
             urlopen=lambda *args, **kwargs: urlopen(*args, **kwargs),
-            campaign_dirs=self.campaign_dirs,
             concept_for_parent_asset=self._concept_for_parent_asset,
             explain_publishability=self.explain_publishability,
             capture_publishability_rejection_evidence_from_result=lambda *args, **kwargs: self._capture_publishability_rejection_evidence_from_result(*args, **kwargs),
@@ -623,7 +621,6 @@ class CampaignFactory:
             story_intent_value=self._story_intent_value,
             ranking=lambda *args, **kwargs: self.ranking(*args, **kwargs),
             dashboard=lambda *args, **kwargs: self.dashboard(*args, **kwargs),
-            creator_label=self._creator_label,
             creator_os_account_health_report=lambda *args, **kwargs: self.creator_os_account_health_report(*args, **kwargs),
             creator_os_account_health_decision=lambda *args, **kwargs: self._creator_os_account_health_decision(*args, **kwargs),
             creator_os_tier_posting_guidance=lambda *args, **kwargs: self._creator_os_tier_posting_guidance(*args, **kwargs),
@@ -633,8 +630,6 @@ class CampaignFactory:
             creator_os_recommended_inventory=lambda *args, **kwargs: self._creator_os_recommended_inventory(*args, **kwargs),
             recommendation_explainability=lambda *args, **kwargs: self._recommendation_explainability(*args, **kwargs),
             build_creative_performance_analysis=lambda *args, **kwargs: self._build_creative_performance_analysis(*args, **kwargs),
-            first_lineage_value=lambda *args, **kwargs: self._first_lineage_value(*args, **kwargs),
-            surface_from_pattern=lambda *args, **kwargs: self._surface_from_pattern(*args, **kwargs),
             build_creative_knowledge_base=lambda *args, **kwargs: self._build_creative_knowledge_base(*args, **kwargs),
             creative_knowledge_rows=lambda *args, **kwargs: self._creative_knowledge_rows(*args, **kwargs),
             creative_knowledge_result=lambda *args, **kwargs: self._creative_knowledge_result(*args, **kwargs),
@@ -658,7 +653,6 @@ class CampaignFactory:
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             parent_factory_production_scorecard=self.parent_factory_production_scorecard,
             build_surface_inventory=lambda *args, **kwargs: self._build_surface_inventory(*args, **kwargs),
-            truthy=self._truthy,
             surface_readiness_scorecard=self.surface_readiness_scorecard,
             certification_asset_for_surface=self._certification_asset_for_surface,
             latest_proof_run_for_asset=self._latest_proof_run_for_asset,
@@ -674,16 +668,11 @@ class CampaignFactory:
             audio_workflow_summary=self.audio_workflow_summary,
             events_for_asset=self.events_for_asset,
             performance_for_asset=self._performance_for_asset,
-            audit_report_payload=lambda *args, **kwargs: self._audit_report_payload(*args, **kwargs),
             story_mix_plan=self.story_mix_plan,
             story_calendar_plan=self.story_calendar_plan,
             json_load=json_load,
             parent_factory_yield_waterfall=self.parent_factory_yield_waterfall,
-            ratio=self._ratio,
-            score_fraction=self._score_fraction,
-            road_to_accounts_payload=self._road_to_accounts_payload,
             exception_next_action=self._exception_next_action,
-            wilson_lower_bound=self._wilson_lower_bound,
             story_source_blockers=self._story_source_blockers,
             normalize_story_enum=self._normalize_story_enum,
             story_intents=STORY_INTENTS,
@@ -794,19 +783,7 @@ class CampaignFactory:
         self.services.set_graph_sync_state(system, cursor)
 
     def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
-        root = self.settings.campaigns_dir / model_slug / campaign_slug
-        dirs = {
-            "root": root,
-            "sources": root / "00_sources",
-            "reel_inputs": root / "01_reel_inputs",
-            "rendered": root / "02_rendered",
-            "audits": root / "03_contentforge_audits",
-            "approved": root / "04_approved",
-            "exports": root / "05_threadsdash_exports",
-        }
-        for path in dirs.values():
-            path.mkdir(parents=True, exist_ok=True)
-        return dirs
+        return self.services.campaign_dirs(model_slug, campaign_slug)
 
     def record_event(
         self,
@@ -1678,8 +1655,7 @@ class CampaignFactory:
         )
 
     def list_campaigns(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
-        return [dict(r) for r in rows]
+        return self.services.list_campaigns()
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         return self.services.campaign_by_slug(slug)
@@ -1688,8 +1664,7 @@ class CampaignFactory:
         return self.services.assets_for_campaign(campaign_id)
 
     def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", (campaign_id,)).fetchall()
-        return [dict(r) for r in rows]
+        return self.services.rendered_for_campaign(campaign_id)
 
     def rendered_asset(self, rendered_asset_id: str) -> dict[str, Any]:
         return self.services.rendered_asset(rendered_asset_id)
@@ -3235,32 +3210,13 @@ class CampaignFactory:
         return self.services.inventory_loss_by_stage(counts)
 
     def _ratio(self, numerator: Any, denominator: Any) -> float:
-        denom = float(denominator or 0)
-        if denom <= 0:
-            return 0
-        return round(float(numerator or 0) / denom, 3)
+        return self.services.ratio(numerator, denominator)
 
     def _score_fraction(self, numerator: Any, denominator: Any) -> float:
-        denom = float(denominator or 0)
-        if denom <= 0:
-            return 0.0
-        return round(10 * min(1.0, max(0.0, float(numerator or 0) / denom)), 1)
+        return self.services.score_fraction(numerator, denominator)
 
     def _road_to_accounts_payload(self, *, accounts: int, production: dict[str, Any]) -> dict[str, Any]:
-        posts = int(production.get("postsPerDay") or 0)
-        return {
-            "schema": f"creator_os.road_to_{accounts}_accounts.v1",
-            "accounts": accounts,
-            "requiredInventoryBuffer": f"{posts * 3} schedule-safe drafts",
-            "requiredDailyProduction": f"{posts} schedule-safe drafts/day",
-            "requiredValidatedDrafts": f"{production.get('requiredValidatedDraftsPerDay')} validated drafts/day",
-            "requiredParentAssetsPerDay": int(production.get("requiredParentsPerDay") or 0),
-            "requiredCaptionFamiliesPerDay": int(production.get("requiredCaptionFamiliesPerDay") or 0),
-            "requiredVariantsPerDay": int(production.get("requiredVariantsPerDay") or 0),
-            "requiredExceptionRate": "<=2.0% inventory-blocking exceptions",
-            "requiredOperatorLoad": "<=25 inventory exceptions/day per operator queue",
-            "wouldWrite": False,
-        }
+        return self.services.road_to_accounts_payload(accounts=accounts, production=production)
 
     def _reel_factory_parent_metrics(self) -> dict[str, int]:
         return self.services.reel_factory_parent_metrics()
@@ -3338,13 +3294,7 @@ class CampaignFactory:
         return self.services.post_discoverability_downstream_confidence()
 
     def _wilson_lower_bound(self, *, successes: int, trials: int, z: float = 1.96) -> float:
-        if trials <= 0:
-            return 0.0
-        phat = successes / trials
-        denominator = 1 + (z * z / trials)
-        centre = phat + (z * z / (2 * trials))
-        margin = z * math.sqrt((phat * (1 - phat) + (z * z / (4 * trials))) / trials)
-        return max(0.0, (centre - margin) / denominator)
+        return self.services.wilson_lower_bound(successes=successes, trials=trials, z=z)
 
     def _secondary_loss_reason(self, stage: str, loss_count: int) -> str:
         return self.services.secondary_loss_reason(stage, loss_count)
@@ -3622,10 +3572,7 @@ class CampaignFactory:
         return self.services.recommended_story_style_for_intent(intent)
 
     def _creator_label(self, value: Any) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return "unknown"
-        return text[:1].upper() + text[1:]
+        return self.services.creator_label(value)
 
     def _creator_os_draft_items(self, planner_inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return self.services.creator_os_draft_items(planner_inputs)
@@ -3637,11 +3584,7 @@ class CampaignFactory:
         return self.services.creator_os_draft_exclusion_reason(draft)
 
     def _truthy(self, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+        return self.services.truthy(value)
 
     def _creator_os_draft_exclusion_counts(self, creator: str, draft_items: list[dict[str, Any]]) -> dict[str, int]:
         return self.services.creator_os_draft_exclusion_counts(creator, draft_items)
@@ -4342,18 +4285,10 @@ class CampaignFactory:
         return self.services.recommendation_quality_bucket(explainability)
 
     def _surface_from_pattern(self, item: dict[str, Any], lineage: dict[str, Any]) -> str:
-        if item.get("dimension") == "contentSurface":
-            return str(item.get("key") or "reel")
-        surfaces = lineage.get("contentSurfaces") if isinstance(lineage.get("contentSurfaces"), list) else []
-        if surfaces:
-            return str(surfaces[0] or "reel")
-        if item.get("dimension") in {"storyIntent", "storyStyle"}:
-            return "story"
-        return "reel"
+        return self.services.surface_from_pattern(item, lineage)
 
     def _first_lineage_value(self, lineage: dict[str, Any], key: str, *, fallback: str = "") -> str:
-        values = lineage.get(key) if isinstance(lineage.get(key), list) else []
-        return str(values[0]) if values else fallback
+        return self.services.first_lineage_value(lineage, key, fallback=fallback)
 
     def _creative_analysis_confidence(self, sample_size: int) -> str:
         return self.services.creative_analysis_confidence(sample_size)
@@ -4450,9 +4385,7 @@ class CampaignFactory:
         return self.services.variant_rollup_group(snapshots, key, output_key)
 
     def audit_report(self, audit_report_id: str) -> dict[str, Any]:
-        from . import audit_payload as _audit_payload
-
-        return _audit_payload.audit_report(self, audit_report_id)
+        return self.services.audit_report(audit_report_id)
 
     def prepare_reel_inputs(
         self,
@@ -5866,9 +5799,7 @@ class CampaignFactory:
         return self.services.performance_score(source=source, caption=caption, recipe=recipe)
 
     def _audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        from . import audit_payload as _audit_payload
-
-        return _audit_payload._audit_report_payload(self, row)
+        return self.services.audit_report_payload(row)
 
     def _local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
         return self.services.local_export_readiness(asset, latest_audit)

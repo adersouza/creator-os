@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 from pathlib import Path
 from typing import Any, Callable
@@ -92,7 +93,6 @@ class CoreServices:
         probe_video_metadata: Callable[[Any], dict[str, Any]],
         read_png_rgb_pixels: Callable[[Any], dict[str, Any]],
         ratio_label_from_shape: Callable[[int | None, int | None], str | None],
-        rendered_for_campaign: Callable[[str], list[dict[str, Any]]],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audio_recommendations_for_asset: Callable[..., dict[str, Any]],
         generated_asset_lineage: Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any]],
@@ -107,7 +107,6 @@ class CoreServices:
         reference_hook_fallbacks: tuple[str, ...],
         normalize_content_surface: Callable[[str | None], str],
         urlopen: Callable[..., Any],
-        campaign_dirs: Callable[[str, str], dict[str, Any]],
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
         capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
@@ -149,7 +148,6 @@ class CoreServices:
         story_intent_value: Callable[[dict[str, Any]], str | None],
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
-        creator_label: Callable[[Any], str],
         creator_os_account_health_report: Callable[..., dict[str, Any]],
         creator_os_account_health_decision: Callable[..., dict[str, Any]],
         creator_os_tier_posting_guidance: Callable[[str], dict[str, Any]],
@@ -159,8 +157,6 @@ class CoreServices:
         creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
         recommendation_explainability: Callable[..., dict[str, Any]],
         build_creative_performance_analysis: Callable[..., dict[str, Any]],
-        first_lineage_value: Callable[..., str],
-        surface_from_pattern: Callable[[dict[str, Any], dict[str, Any]], str],
         build_creative_knowledge_base: Callable[..., dict[str, Any]],
         creative_knowledge_rows: Callable[..., list[dict[str, Any]]],
         creative_knowledge_result: Callable[[dict[str, Any]], dict[str, Any]],
@@ -184,7 +180,6 @@ class CoreServices:
         reel_factory_parent_metrics: Callable[[], dict[str, Any]],
         parent_factory_production_scorecard: Callable[[], dict[str, Any]],
         build_surface_inventory: Callable[..., dict[str, Any]],
-        truthy: Callable[[Any], bool],
         surface_readiness_scorecard: Callable[[], dict[str, Any]],
         certification_asset_for_surface: Callable[..., dict[str, Any] | None],
         latest_proof_run_for_asset: Callable[[str], dict[str, Any] | None],
@@ -200,16 +195,11 @@ class CoreServices:
         audio_workflow_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         events_for_asset: Callable[..., list[dict[str, Any]]],
         performance_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
-        audit_report_payload: Callable[[dict[str, Any]], dict[str, Any]],
         story_mix_plan: Callable[..., dict[str, Any]],
         story_calendar_plan: Callable[..., dict[str, Any]],
         json_load: Callable[[Any, Any], Any],
         parent_factory_yield_waterfall: Callable[..., dict[str, Any]],
-        ratio: Callable[[Any, Any], float],
-        score_fraction: Callable[[Any, Any], float],
-        road_to_accounts_payload: Callable[..., dict[str, Any]],
         exception_next_action: Callable[[str], str],
-        wilson_lower_bound: Callable[..., float],
         story_source_blockers: Callable[[list[dict[str, Any]]], list[str]],
         normalize_story_enum: Callable[[Any, set[str]], str | None],
         story_intents: set[str],
@@ -235,6 +225,7 @@ class CoreServices:
     ) -> None:
         self.conn = conn
         self.settings = settings
+        self.factory_context = factory_context
         self._new_id = new_id
         self._new_graph_id = new_graph_id
         self._slugify = slugify
@@ -295,7 +286,7 @@ class CoreServices:
             text_hash=text_hash,
             campaign_by_slug=self.campaign_by_slug,
             assets_for_campaign=self.asset_import.assets_for_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             reel_factory_python=reel_factory_python,
             create_pipeline_job=self.events.create_pipeline_job,
             start_pipeline_job=self.events.start_pipeline_job,
@@ -320,7 +311,7 @@ class CoreServices:
             graph_id_for=self.graph.graph_id_for,
             campaign_by_slug=self.campaign_by_slug,
             assets_for_campaign=self.asset_import.assets_for_campaign,
-            rendered_for_campaign=rendered_for_campaign,
+            rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
         )
         self.reference = ReferenceRepository(
@@ -366,7 +357,7 @@ class CoreServices:
             ranking=ranking,
             campaign_by_slug=self.campaign_by_slug,
             model_slug_for_campaign=self.reel_execution.model_slug_for_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             assets_for_campaign=self.asset_import.assets_for_campaign,
         )
         self.finished_video = FinishedVideoRepository(
@@ -382,7 +373,7 @@ class CoreServices:
             utc_now=utc_now,
             upsert_model=self.models.upsert_model,
             upsert_campaign=self.models.upsert_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             make_batch=make_batch,
             creative_plan=self.creative_planning.creative_plan,
             load_source_lineage=load_source_lineage,
@@ -426,7 +417,7 @@ class CoreServices:
             record_event=self.events.record_event,
             caption_version_by_id=self.caption_family.caption_version_by_id,
             model_slug_for_campaign=self.reel_execution.model_slug_for_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             latest_audit_for_asset=latest_audit_for_asset,
             content_trust_status_blockers=content_trust_status_blockers,
             instagram_post_caption_for_asset=instagram_post_caption_for_asset,
@@ -442,7 +433,7 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             record_event=self.events.record_event,
             distribution_plan_payload=distribution_plan_payload,
-            audit_report_payload=audit_report_payload,
+            audit_report_payload=self.audit_report_payload,
             latest_audit_for_asset=latest_audit_for_asset,
             verification_id=verification_id,
             text_hash=text_hash,
@@ -477,7 +468,7 @@ class CoreServices:
             start_pipeline_job=self.events.start_pipeline_job,
             finish_pipeline_job=self.events.finish_pipeline_job,
             fail_pipeline_job=self.events.fail_pipeline_job,
-            rendered_for_campaign=rendered_for_campaign,
+            rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
             ig_media_type_for_surface=ig_media_type_for_surface,
             variant_lineage_for_asset=variant_lineage_for_asset,
@@ -489,7 +480,7 @@ class CoreServices:
         self.surface_inventory = SurfaceInventoryRepository(
             conn,
             slugify=slugify,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
@@ -498,7 +489,7 @@ class CoreServices:
         )
         self.surface_requirements = SurfaceRequirementsRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             multi_surface_inventory_audit=self.surface_inventory.multi_surface_inventory_audit,
             build_surface_inventory=build_surface_inventory,
@@ -543,7 +534,7 @@ class CoreServices:
             list_campaigns=self.list_campaigns,
             campaign_by_slug=self.campaign_by_slug,
             assets_for_campaign=self.asset_import.assets_for_campaign,
-            rendered_for_campaign=rendered_for_campaign,
+            rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
             jobs_for_campaign=self.events.jobs_for_campaign,
             audio_workflow_summary=audio_workflow_summary,
@@ -557,7 +548,7 @@ class CoreServices:
             events_for_asset=events_for_asset,
             performance_for_asset=performance_for_asset,
             ranking=ranking,
-            audit_report_payload=audit_report_payload,
+            audit_report_payload=self.audit_report_payload,
         )
         self.account_planning = AccountPlanningRepository(
             conn,
@@ -569,12 +560,12 @@ class CoreServices:
             account_compatible_with_model=self.models.account_compatible_with_model,
             dashboard=dashboard,
             ranking=ranking,
-            rendered_for_campaign=rendered_for_campaign,
+            rendered_for_campaign=self.rendered_for_campaign,
             dashboard_rendered_asset=dashboard_rendered_asset,
             active_reference_pattern_for_campaign=self.reference.active_reference_pattern_for_campaign,
             audio_recommendations_for_asset=audio_recommendations_for_asset,
             generated_asset_lineage=generated_asset_lineage,
-            audit_report_payload=audit_report_payload,
+            audit_report_payload=self.audit_report_payload,
             performance_for_asset=performance_for_asset,
             local_export_readiness=self.publishability.local_export_readiness,
             recommend_audio=recommend_audio,
@@ -689,19 +680,19 @@ class CoreServices:
             probe_video_metadata=probe_video_metadata,
             upsert_model=self.models.upsert_model,
             upsert_campaign=self.models.upsert_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             record_event=self.events.record_event,
         )
         self.inventory_planning = InventoryPlanningRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             build_surface_readiness=build_surface_readiness,
             build_surface_inventory=build_surface_inventory,
-            ratio=ratio,
-            score_fraction=score_fraction,
-            road_to_accounts_payload=road_to_accounts_payload,
+            ratio=self.ratio,
+            score_fraction=self.score_fraction,
+            road_to_accounts_payload=self.road_to_accounts_payload,
             exception_next_action=exception_next_action,
             content_surfaces=content_surfaces,
         )
@@ -718,7 +709,7 @@ class CoreServices:
             build_surface_readiness=build_surface_readiness,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
             explain_publishability=explain_publishability,
-            ratio=ratio,
+            ratio=self.ratio,
         )
         self.fresh_reel_production = FreshReelProductionRepository(
             conn,
@@ -731,7 +722,7 @@ class CoreServices:
             build_surface_readiness=build_surface_readiness,
             inventory_count_related=lambda table, column, asset_ids: self.inventory_planning.inventory_count_related(table, column, asset_ids),
             inventory_production_requirements=inventory_production_requirements,
-            ratio=ratio,
+            ratio=self.ratio,
         )
         self.contentforge_visual_qc = ContentForgeVisualQCRepository(
             conn,
@@ -753,9 +744,9 @@ class CoreServices:
             conn,
             json_load=json_load,
             parent_factory_yield_waterfall=parent_factory_yield_waterfall,
-            ratio=ratio,
-            score_fraction=score_fraction,
-            wilson_lower_bound=wilson_lower_bound,
+            ratio=self.ratio,
+            score_fraction=self.score_fraction,
+            wilson_lower_bound=self.wilson_lower_bound,
         )
         self.parent_factory_reports = ParentFactoryReportRepository(
             conn,
@@ -764,7 +755,7 @@ class CoreServices:
             parent_factory_waterfall_after_discoverability=self.discoverability.parent_factory_waterfall_after_discoverability,
             post_discoverability_downstream_confidence=self.discoverability.post_discoverability_downstream_confidence,
             exception_next_action=exception_next_action,
-            ratio=ratio,
+            ratio=self.ratio,
         )
         self.parent_factory_trials = ParentFactoryTrialRepository(
             conn,
@@ -777,8 +768,8 @@ class CoreServices:
             parent_factory_trial_loss_buckets=self.parent_factory_reports.parent_factory_trial_loss_buckets,
             parent_factory_trial_stage_repairable=self.parent_factory_reports.parent_factory_trial_stage_repairable,
             explain_publishability=explain_publishability,
-            ratio=ratio,
-            score_fraction=score_fraction,
+            ratio=self.ratio,
+            score_fraction=self.score_fraction,
         )
         self.parent_factory_planning = ParentFactoryPlanningRepository(
             inventory_production_requirements=self.inventory_planning.inventory_production_requirements,
@@ -789,7 +780,7 @@ class CoreServices:
         self.surface_handoff = SurfaceHandoffRepository(
             conn,
             slugify=slugify,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             media_type_for_path=media_type_for_path,
             normalize_content_surface=normalize_content_surface,
             discoverability_safe_content_contract=discoverability_safe_content_contract,
@@ -801,13 +792,13 @@ class CoreServices:
             story_quality_gate_for_asset=story_quality_gate_for_asset,
             story_style_value=story_style_value,
             story_intent_value=story_intent_value,
-            truthy=truthy,
+            truthy=self.truthy,
             story_native_proof_styles=story_native_proof_styles,
             ig_media_type_by_surface=ig_media_type_by_surface,
         )
         self.story_management = StoryManagementRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             slugify=slugify,
             json_load=json_load,
             normalize_content_surface=normalize_content_surface,
@@ -821,7 +812,7 @@ class CoreServices:
             account_content_needs=self.surface_requirements.account_content_needs,
             creator_content_needs=self.surface_requirements.creator_content_needs,
             last_surface_posted_at=self.surface_requirements.last_surface_posted_at,
-            truthy=truthy,
+            truthy=self.truthy,
             surface_readiness_scorecard=surface_readiness_scorecard,
             certification_asset_for_surface=certification_asset_for_surface,
             surface_draft_proof=surface_draft_proof,
@@ -838,8 +829,8 @@ class CoreServices:
         self.creator_os_drafts = CreatorOSDraftRepository(
             sanitize_for_storage=sanitize_for_storage,
             normalize_content_surface=normalize_content_surface,
-            creator_label=creator_label,
-            truthy=truthy,
+            creator_label=self.creator_label,
+            truthy=self.truthy,
             creator_os_numeric=self.creator_os_numeric,
             surface_report_assets=surface_report_assets,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
@@ -855,7 +846,7 @@ class CoreServices:
             conn,
             sanitize_for_storage=sanitize_for_storage,
             utc_now=utc_now,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
             creator_os_daily_plan=creator_os_daily_plan,
             creator_content_needs=self.surface_requirements.creator_content_needs,
@@ -867,7 +858,7 @@ class CoreServices:
         )
         self.surface_summary = SurfaceSummaryRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
             creator_content_needs=self.surface_requirements.creator_content_needs,
             account_content_needs=self.surface_requirements.account_content_needs,
@@ -879,7 +870,7 @@ class CoreServices:
         )
         self.draft_inventory_gap = DraftInventoryGapRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
             creator_os_local_schedule_safe_assets=self.creator_os_drafts.creator_os_local_schedule_safe_assets,
             creator_os_schedule_safe_drafts=self.creator_os_drafts.creator_os_schedule_safe_drafts,
@@ -889,15 +880,15 @@ class CoreServices:
             utc_now=utc_now,
         )
         self.creator_os_recommendations = CreatorOSRecommendationRepository(
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             build_creative_performance_analysis=build_creative_performance_analysis,
-            first_lineage_value=first_lineage_value,
-            surface_from_pattern=surface_from_pattern,
+            first_lineage_value=self.first_lineage_value,
+            surface_from_pattern=self.surface_from_pattern,
             recommendation_explainability=recommendation_explainability,
         )
         self.daily_plan = DailyPlanRepository(
             conn,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_target_date=self.creator_os_drafts.creator_os_target_date,
             creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
             creator_os_account_health_report=creator_os_account_health_report,
@@ -923,7 +914,7 @@ class CoreServices:
             utc_now=utc_now,
         )
         self.recommended_inventory_request = RecommendedInventoryRequestRepository(
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_daily_plan=lambda *args, **kwargs: self.creator_os_daily_plan(*args, **kwargs),
             normalize_content_surface=normalize_content_surface,
             recommendation_explainability=recommendation_explainability,
@@ -933,11 +924,11 @@ class CoreServices:
             conn,
             slugify=slugify,
             utc_now=utc_now,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             upsert_model=self.models.upsert_model,
             upsert_campaign=self.models.upsert_campaign,
-            campaign_dirs=campaign_dirs,
+            campaign_dirs=self.campaign_dirs,
             surface_handoff_readiness_report=surface_handoff_readiness_report,
             record_event=self.events.record_event,
             media_type_for_path=media_type_for_path,
@@ -955,7 +946,7 @@ class CoreServices:
         self.carousel_integrity = CarouselIntegrityRepository(
             conn,
             slugify=slugify,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             surface_report_assets=surface_report_assets,
             surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
@@ -969,17 +960,17 @@ class CoreServices:
             rendered_asset=self.rendered_asset,
             concept_for_parent_asset=concept_for_parent_asset,
             explain_publishability=explain_publishability,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             concept_payload=lambda row: self.variant_lineage.concept_payload(row),
         )
         self.creative_knowledge = CreativeKnowledgeRepository(
             conn,
             slugify=slugify,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             campaign_by_slug=self.campaign_by_slug,
             normalize_content_surface=normalize_content_surface,
-            first_lineage_value=first_lineage_value,
-            surface_from_pattern=surface_from_pattern,
+            first_lineage_value=self.first_lineage_value,
+            surface_from_pattern=self.surface_from_pattern,
             ig_media_type_for_surface=ig_media_type_for_surface,
             performance_metric_contract=self.performance_metric_contract,
             build_creative_knowledge_base=build_creative_knowledge_base,
@@ -998,7 +989,7 @@ class CoreServices:
             conn,
             settings,
             slugify=slugify,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             normalize_content_surface=normalize_content_surface,
             creative_knowledge_rows=creative_knowledge_rows,
             creative_knowledge_result=creative_knowledge_result,
@@ -1014,8 +1005,8 @@ class CoreServices:
         self.account_health = AccountHealthRepository(
             conn,
             utc_now=utc_now,
-            creator_label=creator_label,
-            truthy=truthy,
+            creator_label=self.creator_label,
+            truthy=self.truthy,
             normalize_content_surface=normalize_content_surface,
             account_trust_states=account_trust_states,
             recommendation_eligibility_states=recommendation_eligibility_states,
@@ -1027,7 +1018,7 @@ class CoreServices:
         self.execution_readiness = ExecutionReadinessRepository(
             conn,
             settings,
-            creator_label=creator_label,
+            creator_label=self.creator_label,
             creator_os_daily_plan=creator_os_daily_plan,
             creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
             creator_os_schedule_safe_drafts=self.creator_os_drafts.creator_os_schedule_safe_drafts,
@@ -1064,7 +1055,7 @@ class CoreServices:
             operator_load_audit=self.operational_proofs.operator_load_audit,
             exception_queue_report=exception_queue_report,
             reel_factory_parent_metrics=reel_factory_parent_metrics,
-            score_fraction=score_fraction,
+            score_fraction=self.score_fraction,
         )
         self.live_acceptance = LiveAcceptanceRepository(
             conn,
@@ -5154,11 +5145,104 @@ class CoreServices:
         rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
         return [dict(row) for row in rows]
 
+    def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
+        root = self.settings.campaigns_dir / model_slug / campaign_slug
+        dirs = {
+            "root": root,
+            "sources": root / "00_sources",
+            "reel_inputs": root / "01_reel_inputs",
+            "rendered": root / "02_rendered",
+            "audits": root / "03_contentforge_audits",
+            "approved": root / "04_approved",
+            "exports": root / "05_threadsdash_exports",
+        }
+        for path in dirs.values():
+            path.mkdir(parents=True, exist_ok=True)
+        return dirs
+
+    def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", (campaign_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     def rendered_asset(self, rendered_asset_id: str) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
         return dict(row)
+
+    def ratio(self, numerator: Any, denominator: Any) -> float:
+        denom = float(denominator or 0)
+        if denom <= 0:
+            return 0
+        return round(float(numerator or 0) / denom, 3)
+
+    def score_fraction(self, numerator: Any, denominator: Any) -> float:
+        denom = float(denominator or 0)
+        if denom <= 0:
+            return 0.0
+        return round(10 * min(1.0, max(0.0, float(numerator or 0) / denom)), 1)
+
+    def road_to_accounts_payload(self, *, accounts: int, production: dict[str, Any]) -> dict[str, Any]:
+        posts = int(production.get("postsPerDay") or 0)
+        return {
+            "schema": f"creator_os.road_to_{accounts}_accounts.v1",
+            "accounts": accounts,
+            "requiredInventoryBuffer": f"{posts * 3} schedule-safe drafts",
+            "requiredDailyProduction": f"{posts} schedule-safe drafts/day",
+            "requiredValidatedDrafts": f"{production.get('requiredValidatedDraftsPerDay')} validated drafts/day",
+            "requiredParentAssetsPerDay": int(production.get("requiredParentsPerDay") or 0),
+            "requiredCaptionFamiliesPerDay": int(production.get("requiredCaptionFamiliesPerDay") or 0),
+            "requiredVariantsPerDay": int(production.get("requiredVariantsPerDay") or 0),
+            "requiredExceptionRate": "<=2.0% inventory-blocking exceptions",
+            "requiredOperatorLoad": "<=25 inventory exceptions/day per operator queue",
+            "wouldWrite": False,
+        }
+
+    def wilson_lower_bound(self, *, successes: int, trials: int, z: float = 1.96) -> float:
+        if trials <= 0:
+            return 0.0
+        phat = successes / trials
+        denominator = 1 + (z * z / trials)
+        centre = phat + (z * z / (2 * trials))
+        margin = z * math.sqrt((phat * (1 - phat) + (z * z / (4 * trials))) / trials)
+        return max(0.0, (centre - margin) / denominator)
+
+    def creator_label(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "unknown"
+        return text[:1].upper() + text[1:]
+
+    def truthy(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    def surface_from_pattern(self, item: dict[str, Any], lineage: dict[str, Any]) -> str:
+        if item.get("dimension") == "contentSurface":
+            return str(item.get("key") or "reel")
+        surfaces = lineage.get("contentSurfaces") if isinstance(lineage.get("contentSurfaces"), list) else []
+        if surfaces:
+            return str(surfaces[0] or "reel")
+        if item.get("dimension") in {"storyIntent", "storyStyle"}:
+            return "story"
+        return "reel"
+
+    def first_lineage_value(self, lineage: dict[str, Any], key: str, *, fallback: str = "") -> str:
+        values = lineage.get(key) if isinstance(lineage.get(key), list) else []
+        return str(values[0]) if values else fallback
+
+    def audit_report(self, audit_report_id: str) -> dict[str, Any]:
+        from . import audit_payload as _audit_payload
+
+        return _audit_payload.audit_report(self.factory_context, audit_report_id)
+
+    def audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        from . import audit_payload as _audit_payload
+
+        return _audit_payload._audit_report_payload(self.factory_context, row)
 
     def register_parent_reel(
         self,
