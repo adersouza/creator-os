@@ -668,6 +668,177 @@ def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path
         cf.close()
 
 
+def test_record_audio_performance_snapshot_writes_rollup_and_graph(tmp_path: Path):
+    catalog_path = tmp_path / "audio_memory.json"
+    catalog_path.write_text(json.dumps({
+        "items": [{
+            "id": "aud_mem",
+            "title": "Mirror Trend",
+            "artistName": "DJ M",
+            "platform": "instagram",
+            "nativeAudioId": "ig_mem",
+            "moodTags": ["mirror"],
+            "bestContentTypes": ["v01_original"],
+            "resolved": True,
+        }],
+    }), encoding="utf-8")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_audio_memory(catalog_path)
+        add_rendered_asset(cf, tmp_path)
+        campaign = cf.campaign_by_slug("may")
+        result = cf.record_audio_performance_snapshot({
+            "id": "snap_audio_1",
+            "campaign_id": campaign["id"],
+            "rendered_asset_id": "asset_1",
+            "source_asset_id": None,
+            "content_hash": "hash_1",
+            "source_content_hash": None,
+            "concept_id": None,
+            "parent_reel_id": None,
+            "variant_family_id": None,
+            "variant_id": None,
+            "variant_index": None,
+            "variant_operations_json": "[]",
+            "audio_id": "aud_mem",
+            "caption_hash": None,
+            "caption_text": None,
+            "caption_bank": None,
+            "caption_banks_json": "[]",
+            "creator_mix": None,
+            "creator_model": None,
+            "frame_type": None,
+            "length_class": None,
+            "format_class": None,
+            "caption_fit_version": None,
+            "caption_outcome_context_json": "{}",
+            "recipe": "v01_original",
+            "account_id": "acct_1",
+            "instagram_account_id": "ig_1",
+            "post_id": "post_audio_1",
+            "platform": "instagram",
+            "content_surface": "reel",
+            "snapshot_at": "2026-06-06T10:00:00+00:00",
+            "views": 1000,
+            "likes": 50,
+            "comments": 5,
+            "shares": 4,
+            "saves": 3,
+            "impressions": 1000,
+            "reach": 900,
+            "watch_time_seconds": None,
+            "status": "published",
+            "permalink": None,
+            "published_at": None,
+            "raw_json": json.dumps({
+                "metadata": {
+                    "campaign_factory": {
+                        "audio_intent": {
+                            "operator_selection": {
+                                "catalog_audio_id": "aud_mem",
+                                "platform_audio_id": "ig_mem",
+                                "audio_title": "Mirror Trend",
+                            }
+                        }
+                    }
+                }
+            }),
+        })
+        rollup = cf.conn.execute("SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'").fetchone()
+        edges = {row["relation_type"] for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()}
+
+        assert result == {"audioKey": "instagram:aud_mem", "audioCatalogId": "aud_mem", "score": 100.0}
+        assert rollup["post_count"] == 1
+        assert rollup["view_count"] == 1000
+        assert json.loads(rollup["stats_json"])["lastPostId"] == "post_audio_1"
+        assert "audio_memory_to_performance_snapshot" in edges
+    finally:
+        cf.close()
+
+
+def test_verify_audio_for_post_creates_verified_selection_and_rollup(tmp_path: Path):
+    catalog_path = tmp_path / "audio_memory.json"
+    catalog_path.write_text(json.dumps({
+        "items": [{
+            "id": "aud_mem",
+            "title": "Mirror Trend",
+            "artistName": "DJ M",
+            "platform": "instagram",
+            "nativeAudioId": "ig_mem",
+            "moodTags": ["mirror"],
+            "bestContentTypes": ["v01_original"],
+            "resolved": True,
+        }],
+    }), encoding="utf-8")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_audio_memory(catalog_path)
+        add_rendered_asset(cf, tmp_path)
+        campaign = cf.campaign_by_slug("may")
+        cf.conn.execute(
+            """
+            INSERT INTO performance_snapshots (
+              id, campaign_id, rendered_asset_id, post_id, platform, status,
+              account_id, instagram_account_id, snapshot_at, views, likes,
+              comments, shares, saves, raw_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "snap_audio_verify",
+                campaign["id"],
+                "asset_1",
+                "post_audio_verify",
+                "instagram",
+                "published",
+                "acct_1",
+                "ig_1",
+                "2026-06-06T10:00:00+00:00",
+                500,
+                20,
+                2,
+                1,
+                4,
+                json.dumps({
+                    "metadata": {
+                        "campaign_factory": {
+                            "audio_intent": {
+                                "operator_selection": {
+                                    "catalog_audio_id": "aud_mem",
+                                    "platform_audio_id": "ig_mem",
+                                    "audio_title": "Mirror Trend",
+                                    "selected_at": "2026-06-06T09:00:00+00:00",
+                                }
+                            }
+                        }
+                    }
+                }),
+                "2026-06-06T10:00:00+00:00",
+            ),
+        )
+        cf.conn.commit()
+
+        result = cf.verify_audio_for_post(
+            "post_audio_verify",
+            proof_url="https://proof.example/audio",
+            proof_note="operator confirmed native audio",
+            operator="tester",
+        )
+        selection = result["selection"]
+        rollup = cf.conn.execute("SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'").fetchone()
+        edges = {row["relation_type"] for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()}
+
+        assert selection["status"] == "verified"
+        assert selection["proof_url"] == "https://proof.example/audio"
+        assert selection["post_id"] == "post_audio_verify"
+        assert selection["audio_catalog_id"] == "aud_mem"
+        assert rollup["post_count"] == 1
+        assert "audio_selection_to_threadsdash_post" in edges
+        assert "audio_selection_to_performance_snapshot" in edges
+    finally:
+        cf.close()
+
+
 def test_audio_recommendations_include_contentforge_audio_fit_when_available(tmp_path: Path):
     contentforge_lib = tmp_path / "contentforge" / "lib"
     contentforge_lib.mkdir(parents=True)
