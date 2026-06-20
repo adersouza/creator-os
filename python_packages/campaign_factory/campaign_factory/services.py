@@ -21,6 +21,7 @@ from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .core_complexity import CoreComplexityRepository
 from .creative_knowledge import CreativeKnowledgeRepository
+from .creator_os_drafts import CreatorOSDraftRepository
 from .creator_os_recommendations import CreatorOSRecommendationRepository
 from .creative_planning import CreativePlanningRepository
 from .decision_ledger import DecisionLedgerRepository
@@ -150,24 +151,15 @@ class CoreServices:
         ranking: Callable[[str], dict[str, Any]],
         dashboard: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
-        creator_os_draft_items: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-        creator_os_local_schedule_safe_assets: Callable[[str], list[dict[str, Any]]],
-        creator_os_schedule_safe_drafts: Callable[[str, list[dict[str, Any]]], list[dict[str, Any]]],
-        creator_os_draft_exclusion_reason: Callable[[dict[str, Any]], str | None],
-        creator_os_execution_draft_blockers: Callable[[str, list[dict[str, Any]]], list[str]],
-        creator_os_gap_blocking_reason: Callable[[str | None, list[str], dict[str, Any]], str],
         creator_os_account_health_report: Callable[..., dict[str, Any]],
         creator_os_account_health_decision: Callable[..., dict[str, Any]],
         creator_os_tier_posting_guidance: Callable[[str], dict[str, Any]],
-        creator_os_account_surface_status: Callable[..., dict[str, Any]],
-        creator_os_draft_has_instagram_post_caption: Callable[[dict[str, Any]], bool],
         creator_os_post_time: Callable[[Any], str | None],
         creator_os_recommended_post_count: Callable[[str, bool], int],
         creator_os_account_tier_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         creator_os_account_health_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
         creator_os_surface_summary_for_creator: Callable[..., dict[str, Any]],
         creator_os_inventory_for_creator: Callable[..., dict[str, Any]],
-        creator_os_draft_exclusion_counts: Callable[[str, list[dict[str, Any]]], dict[str, int]],
         creator_os_winner_recommendations: Callable[..., list[dict[str, Any]]],
         creator_os_manager_decision: Callable[..., dict[str, Any]],
         creator_os_blocked_account_breakdown: Callable[[list[dict[str, Any]]], dict[str, int]],
@@ -869,15 +861,26 @@ class CoreServices:
             empty_surface_totals=self.surface_requirements.empty_surface_totals,
             content_surfaces=content_surfaces,
         )
+        self.creator_os_drafts = CreatorOSDraftRepository(
+            sanitize_for_storage=sanitize_for_storage,
+            normalize_content_surface=normalize_content_surface,
+            creator_label=creator_label,
+            truthy=truthy,
+            creator_os_numeric=self.creator_os_numeric,
+            surface_report_assets=surface_report_assets,
+            surface_handoff_readiness_for_asset=surface_handoff_readiness_for_asset,
+            content_surfaces=content_surfaces,
+            creative_risk_block_threshold=creative_risk_block_threshold,
+        )
         self.draft_inventory_gap = DraftInventoryGapRepository(
             conn,
             creator_label=creator_label,
-            creator_os_draft_items=creator_os_draft_items,
-            creator_os_local_schedule_safe_assets=creator_os_local_schedule_safe_assets,
-            creator_os_schedule_safe_drafts=creator_os_schedule_safe_drafts,
-            creator_os_draft_exclusion_reason=creator_os_draft_exclusion_reason,
-            creator_os_execution_draft_blockers=creator_os_execution_draft_blockers,
-            creator_os_gap_blocking_reason=creator_os_gap_blocking_reason,
+            creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
+            creator_os_local_schedule_safe_assets=self.creator_os_drafts.creator_os_local_schedule_safe_assets,
+            creator_os_schedule_safe_drafts=self.creator_os_drafts.creator_os_schedule_safe_drafts,
+            creator_os_draft_exclusion_reason=self.creator_os_drafts.creator_os_draft_exclusion_reason,
+            creator_os_execution_draft_blockers=self.creator_os_drafts.creator_os_execution_draft_blockers,
+            creator_os_gap_blocking_reason=self.creator_os_drafts.creator_os_gap_blocking_reason,
             utc_now=utc_now,
         )
         self.creator_os_recommendations = CreatorOSRecommendationRepository(
@@ -891,20 +894,20 @@ class CoreServices:
             conn,
             creator_label=creator_label,
             creator_os_target_date=creator_os_target_date,
-            creator_os_draft_items=creator_os_draft_items,
+            creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
             creator_os_account_health_report=creator_os_account_health_report,
             creator_os_account_health_decision=creator_os_account_health_decision,
             creator_os_tier_posting_guidance=creator_os_tier_posting_guidance,
-            creator_os_account_surface_status=creator_os_account_surface_status,
-            creator_os_draft_exclusion_reason=creator_os_draft_exclusion_reason,
-            creator_os_draft_has_instagram_post_caption=creator_os_draft_has_instagram_post_caption,
+            creator_os_account_surface_status=self.creator_os_drafts.creator_os_account_surface_status,
+            creator_os_draft_exclusion_reason=self.creator_os_drafts.creator_os_draft_exclusion_reason,
+            creator_os_draft_has_instagram_post_caption=self.creator_os_drafts.creator_os_draft_has_instagram_post_caption,
             creator_os_post_time=creator_os_post_time,
             creator_os_recommended_post_count=creator_os_recommended_post_count,
             creator_os_account_tier_summary=creator_os_account_tier_summary,
             creator_os_account_health_summary=creator_os_account_health_summary,
             creator_os_surface_summary_for_creator=creator_os_surface_summary_for_creator,
             creator_os_inventory_for_creator=creator_os_inventory_for_creator,
-            creator_os_draft_exclusion_counts=creator_os_draft_exclusion_counts,
+            creator_os_draft_exclusion_counts=self.creator_os_drafts.creator_os_draft_exclusion_counts,
             creator_os_winner_recommendations=self.creator_os_recommendations.creator_os_winner_recommendations,
             creator_os_manager_decision=creator_os_manager_decision,
             creator_os_blocked_account_breakdown=creator_os_blocked_account_breakdown,
@@ -1005,10 +1008,10 @@ class CoreServices:
             settings,
             creator_label=creator_label,
             creator_os_daily_plan=creator_os_daily_plan,
-            creator_os_draft_items=creator_os_draft_items,
-            creator_os_schedule_safe_drafts=creator_os_schedule_safe_drafts,
+            creator_os_draft_items=self.creator_os_drafts.creator_os_draft_items,
+            creator_os_schedule_safe_drafts=self.creator_os_drafts.creator_os_schedule_safe_drafts,
             creator_os_account_health_report=creator_os_account_health_report,
-            creator_os_execution_draft_blockers=creator_os_execution_draft_blockers,
+            creator_os_execution_draft_blockers=self.creator_os_drafts.creator_os_execution_draft_blockers,
             creator_os_execution_account_health_blockers=self.account_health.creator_os_execution_account_health_blockers,
             creator_os_execution_account_health_warnings=self.account_health.creator_os_execution_account_health_warnings,
             utc_now=utc_now,
@@ -4077,6 +4080,36 @@ class CoreServices:
 
     def creator_os_execution_account_health_warnings(self, account_health: dict[str, Any]) -> list[str]:
         return self.account_health.creator_os_execution_account_health_warnings(account_health)
+
+    def creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_local_schedule_safe_assets(creator)
+
+    def creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_account_surface_status(account, reel_needed=reel_needed)
+
+    def creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
+        return self.creator_os_drafts.creator_os_gap_blocking_reason(reason, blockers, item)
+
+    def creator_os_draft_items(self, planner_inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_draft_items(planner_inputs)
+
+    def creator_os_draft_has_instagram_post_caption(self, draft: dict[str, Any]) -> bool:
+        return self.creator_os_drafts.creator_os_draft_has_instagram_post_caption(draft)
+
+    def creator_os_draft_exclusion_reason(self, draft: dict[str, Any]) -> str:
+        return self.creator_os_drafts.creator_os_draft_exclusion_reason(draft)
+
+    def creator_os_draft_exclusion_counts(self, creator: str, draft_items: list[dict[str, Any]]) -> dict[str, int]:
+        return self.creator_os_drafts.creator_os_draft_exclusion_counts(creator, draft_items)
+
+    def creator_os_schedule_safe_drafts(self, creator: str, draft_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_schedule_safe_drafts(creator, draft_items)
+
+    def creator_os_execution_draft_blockers(self, creator: str, draft_items: list[dict[str, Any]]) -> list[str]:
+        return self.creator_os_drafts.creator_os_execution_draft_blockers(creator, draft_items)
+
+    def creator_os_explicit_false(self, item: dict[str, Any], *keys: str) -> bool:
+        return self.creator_os_drafts.creator_os_explicit_false(item, *keys)
 
     def creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
         return self.account_health.creator_os_account_tier_summary(accounts, key=key)
