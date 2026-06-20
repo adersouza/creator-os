@@ -45,6 +45,7 @@ from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
 from .parent_factory_reports import ParentFactoryReportRepository
+from .parent_factory_trials import ParentFactoryTrialRepository
 from .performance_summary import PerformanceSummaryRepository
 from .publishability import PublishabilityRepository
 from .reference import ReferenceRepository
@@ -745,6 +746,20 @@ class CoreServices:
             post_discoverability_downstream_confidence=self.discoverability.post_discoverability_downstream_confidence,
             exception_next_action=exception_next_action,
             ratio=ratio,
+        )
+        self.parent_factory_trials = ParentFactoryTrialRepository(
+            conn,
+            settings=settings,
+            factory_constructor=lambda sandbox_settings: factory_context.__class__(sandbox_settings),
+            reel_factory_parent_metrics=self.reel_factory_reports.reel_factory_parent_metrics,
+            operator_review_minutes_per_parent=self.reel_factory_reports.operator_review_minutes_per_parent,
+            parent_factory_yield_waterfall=self.parent_factory_reports.parent_factory_yield_waterfall,
+            parent_factory_loss_analysis=self.parent_factory_reports.parent_factory_loss_analysis,
+            parent_factory_trial_loss_buckets=self.parent_factory_reports.parent_factory_trial_loss_buckets,
+            parent_factory_trial_stage_repairable=self.parent_factory_reports.parent_factory_trial_stage_repairable,
+            explain_publishability=explain_publishability,
+            ratio=ratio,
+            score_fraction=score_fraction,
         )
         self.surface_handoff = SurfaceHandoffRepository(
             conn,
@@ -2642,6 +2657,36 @@ class CoreServices:
 
     def parent_factory_trial_stage_repairable(self, stage: str) -> bool:
         return self.parent_factory_reports.parent_factory_trial_stage_repairable(stage)
+
+    def parent_factory_production_trial(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_production_trial()
+
+    def latest_measured_53_parent_production_trial(self) -> dict[str, Any] | None:
+        return self.parent_factory_trials.latest_measured_53_parent_production_trial()
+
+    def parent_factory_53_parent_trial(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_53_parent_trial()
+
+    def parent_factory_trial_results(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_trial_results()
+
+    def parent_factory_trial_analysis(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_trial_analysis()
+
+    def parent_factory_post_gate_fresh_batch_proof(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_post_gate_fresh_batch_proof()
+
+    def parent_factory_production_scorecard(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_production_scorecard()
+
+    def parent_factory_real_yield_report(self) -> dict[str, Any]:
+        return self.parent_factory_trials.parent_factory_real_yield_report()
+
+    def post_gate_fresh_batch_candidates(self) -> list[dict[str, str]]:
+        return self.parent_factory_trials.post_gate_fresh_batch_candidates()
+
+    def post_gate_blocked_candidate_evidence(self, sandbox: Any, result: dict[str, Any]) -> dict[str, Any] | None:
+        return self.parent_factory_trials.post_gate_blocked_candidate_evidence(sandbox, result)
 
     def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)

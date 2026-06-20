@@ -1080,6 +1080,53 @@ def test_campaign_factory_delegates_parent_factory_report_methods_to_services() 
     ]
 
 
+def test_campaign_factory_delegates_parent_factory_trial_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    factory.services = FakeServices()
+    sandbox = object()
+    result = {"rejectionEvidenceCapture": {"evidenceIds": ["evidence_1"]}}
+
+    assert factory.parent_factory_production_trial() == {"method": "parent_factory_production_trial"}
+    assert factory._latest_measured_53_parent_production_trial() == {
+        "method": "latest_measured_53_parent_production_trial",
+    }
+    assert factory.parent_factory_53_parent_trial() == {"method": "parent_factory_53_parent_trial"}
+    assert factory.parent_factory_trial_results() == {"method": "parent_factory_trial_results"}
+    assert factory.parent_factory_trial_analysis() == {"method": "parent_factory_trial_analysis"}
+    assert factory.parent_factory_post_gate_fresh_batch_proof() == {
+        "method": "parent_factory_post_gate_fresh_batch_proof",
+    }
+    assert factory.parent_factory_production_scorecard() == {"method": "parent_factory_production_scorecard"}
+    assert factory.parent_factory_real_yield_report() == {"method": "parent_factory_real_yield_report"}
+    assert factory._post_gate_fresh_batch_candidates() == {"method": "post_gate_fresh_batch_candidates"}
+    assert factory._post_gate_blocked_candidate_evidence(sandbox, result) == {
+        "method": "post_gate_blocked_candidate_evidence",
+    }
+
+    assert calls == [
+        ("parent_factory_production_trial", (), {}),
+        ("latest_measured_53_parent_production_trial", (), {}),
+        ("parent_factory_53_parent_trial", (), {}),
+        ("parent_factory_trial_results", (), {}),
+        ("parent_factory_trial_analysis", (), {}),
+        ("parent_factory_post_gate_fresh_batch_proof", (), {}),
+        ("parent_factory_production_scorecard", (), {}),
+        ("parent_factory_real_yield_report", (), {}),
+        ("post_gate_fresh_batch_candidates", (), {}),
+        ("post_gate_blocked_candidate_evidence", (sandbox, result), {}),
+    ]
+
+
 def test_campaign_factory_delegates_contentforge_visual_qc_methods_to_services() -> None:
     factory = object.__new__(CampaignFactory)
     calls = []
@@ -4846,6 +4893,53 @@ def test_core_services_delegates_parent_factory_report_methods_to_repository() -
         ("secondary_loss_reason", ("handoff_ready", 0), {}),
         ("parent_factory_trial_loss_buckets", (waterfall,), {}),
         ("parent_factory_trial_stage_repairable", ("handoff_ready",), {}),
+    ]
+
+
+def test_core_services_delegates_parent_factory_trial_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeParentFactoryTrials:
+        def __getattr__(self, name):
+            def recorder(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name}
+
+            return recorder
+
+    services.parent_factory_trials = FakeParentFactoryTrials()
+    sandbox = object()
+    result = {"rejectionEvidenceCapture": {"evidenceIds": ["evidence_1"]}}
+
+    assert services.parent_factory_production_trial() == {"method": "parent_factory_production_trial"}
+    assert services.latest_measured_53_parent_production_trial() == {
+        "method": "latest_measured_53_parent_production_trial",
+    }
+    assert services.parent_factory_53_parent_trial() == {"method": "parent_factory_53_parent_trial"}
+    assert services.parent_factory_trial_results() == {"method": "parent_factory_trial_results"}
+    assert services.parent_factory_trial_analysis() == {"method": "parent_factory_trial_analysis"}
+    assert services.parent_factory_post_gate_fresh_batch_proof() == {
+        "method": "parent_factory_post_gate_fresh_batch_proof",
+    }
+    assert services.parent_factory_production_scorecard() == {"method": "parent_factory_production_scorecard"}
+    assert services.parent_factory_real_yield_report() == {"method": "parent_factory_real_yield_report"}
+    assert services.post_gate_fresh_batch_candidates() == {"method": "post_gate_fresh_batch_candidates"}
+    assert services.post_gate_blocked_candidate_evidence(sandbox, result) == {
+        "method": "post_gate_blocked_candidate_evidence",
+    }
+
+    assert calls == [
+        ("parent_factory_production_trial", (), {}),
+        ("latest_measured_53_parent_production_trial", (), {}),
+        ("parent_factory_53_parent_trial", (), {}),
+        ("parent_factory_trial_results", (), {}),
+        ("parent_factory_trial_analysis", (), {}),
+        ("parent_factory_post_gate_fresh_batch_proof", (), {}),
+        ("parent_factory_production_scorecard", (), {}),
+        ("parent_factory_real_yield_report", (), {}),
+        ("post_gate_fresh_batch_candidates", (), {}),
+        ("post_gate_blocked_candidate_evidence", (sandbox, result), {}),
     ]
 
 
