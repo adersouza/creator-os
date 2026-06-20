@@ -3784,9 +3784,17 @@ def test_core_services_delegates_creator_os_draft_helpers_to_repository() -> Non
             calls.append(("creator_os_local_schedule_safe_assets", args, kwargs))
             return [{"renderedAssetId": "asset_1"}]
 
+        def creator_os_target_date(self, *args, **kwargs):
+            calls.append(("creator_os_target_date", args, kwargs))
+            return "2026-06-06"
+
         def creator_os_account_surface_status(self, *args, **kwargs):
             calls.append(("creator_os_account_surface_status", args, kwargs))
             return {"reel": {"needed": True}}
+
+        def creator_os_surface_summary_for_creator(self, *args, **kwargs):
+            calls.append(("creator_os_surface_summary_for_creator", args, kwargs))
+            return {"accountsNeedingReels": 1, "wouldWrite": False}
 
         def creator_os_gap_blocking_reason(self, *args, **kwargs):
             calls.append(("creator_os_gap_blocking_reason", args, kwargs))
@@ -3820,12 +3828,52 @@ def test_core_services_delegates_creator_os_draft_helpers_to_repository() -> Non
             calls.append(("creator_os_explicit_false", args, kwargs))
             return True
 
+        def creator_os_inventory_for_creator(self, *args, **kwargs):
+            calls.append(("creator_os_inventory_for_creator", args, kwargs))
+            return {"validatedDraftsAvailable": 1, "variantDraftsAvailable": 1}
+
+        def creator_os_blocked_account_breakdown(self, *args, **kwargs):
+            calls.append(("creator_os_blocked_account_breakdown", args, kwargs))
+            return {"restricted": 1}
+
+        def creator_os_manager_decision(self, *args, **kwargs):
+            calls.append(("creator_os_manager_decision", args, kwargs))
+            return {"managerDecision": "ready_to_schedule", "managerReason": "ready"}
+
+        def creator_os_account_state(self, *args, **kwargs):
+            calls.append(("creator_os_account_state", args, kwargs))
+            return "safe"
+
+        def creator_os_post_time(self, *args, **kwargs):
+            calls.append(("creator_os_post_time", args, kwargs))
+            return "2026-06-06T12:00:00Z"
+
+        def creator_os_recommended_post_count(self, *args, **kwargs):
+            calls.append(("creator_os_recommended_post_count", args, kwargs))
+            return 1
+
+        def recommended_story_intent_for_date(self, *args, **kwargs):
+            calls.append(("recommended_story_intent_for_date", args, kwargs))
+            return "reel_teaser"
+
+        def recommended_story_style_for_intent(self, *args, **kwargs):
+            calls.append(("recommended_story_style_for_intent", args, kwargs))
+            return "raw_phone"
+
     services.creator_os_drafts = FakeCreatorOSDrafts()
 
     draft = {"postId": "post_1"}
     planner_inputs = [{"items": [draft]}]
     assert services.creator_os_local_schedule_safe_assets("Stacey") == [{"renderedAssetId": "asset_1"}]
+    assert services.creator_os_target_date(date="2026-06-06T12:00:00Z") == "2026-06-06"
     assert services.creator_os_account_surface_status({"surfaceStatus": {}}, reel_needed=True) == {"reel": {"needed": True}}
+    assert services.creator_os_surface_summary_for_creator(
+        creator="Stacey",
+        date="2026-06-06",
+        report={},
+        creator_accounts=[],
+        draft_items=[draft],
+    ) == {"accountsNeedingReels": 1, "wouldWrite": False}
     assert services.creator_os_gap_blocking_reason("missingHandoffManifest", [], draft) == "missing_handoff_manifest"
     assert services.creator_os_draft_items(planner_inputs) == [{"postId": "post_1"}]
     assert services.creator_os_draft_has_instagram_post_caption(draft) is True
@@ -3834,10 +3882,40 @@ def test_core_services_delegates_creator_os_draft_helpers_to_repository() -> Non
     assert services.creator_os_schedule_safe_drafts("Stacey", [draft]) == [{"postId": "post_1"}]
     assert services.creator_os_execution_draft_blockers("Stacey", [draft]) == ["missing_campaign_factory_asset_id"]
     assert services.creator_os_explicit_false(draft, "burnedCaptionTextPresent") is True
+    assert services.creator_os_inventory_for_creator("Stacey", planner_inputs, [draft]) == {
+        "validatedDraftsAvailable": 1,
+        "variantDraftsAvailable": 1,
+    }
+    assert services.creator_os_blocked_account_breakdown([{"blockedReason": "restricted"}]) == {"restricted": 1}
+    assert services.creator_os_manager_decision(
+        safe_accounts=1,
+        needs_posts=1,
+        validated_available=1,
+        shortfall=0,
+        missed_dispatches=[],
+        winner_recommendations=[],
+    ) == {"managerDecision": "ready_to_schedule", "managerReason": "ready"}
+    assert services.creator_os_account_state({"bucket": "safe_to_schedule_today"}, "") == "safe"
+    assert services.creator_os_post_time({"scheduledFor": "2026-06-06T12:00:00Z"}) == "2026-06-06T12:00:00Z"
+    assert services.creator_os_recommended_post_count("safe", True) == 1
+    assert services.recommended_story_intent_for_date("2026-06-06", creator="Stacey") == "reel_teaser"
+    assert services.recommended_story_style_for_intent("reel_teaser") == "raw_phone"
 
     assert calls == [
         ("creator_os_local_schedule_safe_assets", ("Stacey",), {}),
+        ("creator_os_target_date", (), {"date": "2026-06-06T12:00:00Z", "generated_at": None}),
         ("creator_os_account_surface_status", ({"surfaceStatus": {}},), {"reel_needed": True}),
+        (
+            "creator_os_surface_summary_for_creator",
+            (),
+            {
+                "creator": "Stacey",
+                "date": "2026-06-06",
+                "report": {},
+                "creator_accounts": [],
+                "draft_items": [draft],
+            },
+        ),
         ("creator_os_gap_blocking_reason", ("missingHandoffManifest", [], draft), {}),
         ("creator_os_draft_items", (planner_inputs,), {}),
         ("creator_os_draft_has_instagram_post_caption", (draft,), {}),
@@ -3846,6 +3924,25 @@ def test_core_services_delegates_creator_os_draft_helpers_to_repository() -> Non
         ("creator_os_schedule_safe_drafts", ("Stacey", [draft]), {}),
         ("creator_os_execution_draft_blockers", ("Stacey", [draft]), {}),
         ("creator_os_explicit_false", (draft, "burnedCaptionTextPresent"), {}),
+        ("creator_os_inventory_for_creator", ("Stacey", planner_inputs, [draft]), {}),
+        ("creator_os_blocked_account_breakdown", ([{"blockedReason": "restricted"}],), {}),
+        (
+            "creator_os_manager_decision",
+            (),
+            {
+                "safe_accounts": 1,
+                "needs_posts": 1,
+                "validated_available": 1,
+                "shortfall": 0,
+                "missed_dispatches": [],
+                "winner_recommendations": [],
+            },
+        ),
+        ("creator_os_account_state", ({"bucket": "safe_to_schedule_today"}, ""), {}),
+        ("creator_os_post_time", ({"scheduledFor": "2026-06-06T12:00:00Z"},), {}),
+        ("creator_os_recommended_post_count", ("safe", True), {}),
+        ("recommended_story_intent_for_date", ("2026-06-06",), {"creator": "Stacey"}),
+        ("recommended_story_style_for_intent", ("reel_teaser",), {}),
     ]
 
 
@@ -11180,9 +11277,17 @@ def test_campaign_factory_delegates_creator_os_draft_helpers_to_services() -> No
             calls.append(("creator_os_local_schedule_safe_assets", args, kwargs))
             return [{"renderedAssetId": "asset_1"}]
 
+        def creator_os_target_date(self, *args, **kwargs):
+            calls.append(("creator_os_target_date", args, kwargs))
+            return "2026-06-06"
+
         def creator_os_account_surface_status(self, *args, **kwargs):
             calls.append(("creator_os_account_surface_status", args, kwargs))
             return {"reel": {"needed": True}}
+
+        def creator_os_surface_summary_for_creator(self, *args, **kwargs):
+            calls.append(("creator_os_surface_summary_for_creator", args, kwargs))
+            return {"accountsNeedingReels": 1, "wouldWrite": False}
 
         def creator_os_gap_blocking_reason(self, *args, **kwargs):
             calls.append(("creator_os_gap_blocking_reason", args, kwargs))
@@ -11216,12 +11321,52 @@ def test_campaign_factory_delegates_creator_os_draft_helpers_to_services() -> No
             calls.append(("creator_os_explicit_false", args, kwargs))
             return True
 
+        def creator_os_inventory_for_creator(self, *args, **kwargs):
+            calls.append(("creator_os_inventory_for_creator", args, kwargs))
+            return {"validatedDraftsAvailable": 1, "variantDraftsAvailable": 1}
+
+        def creator_os_blocked_account_breakdown(self, *args, **kwargs):
+            calls.append(("creator_os_blocked_account_breakdown", args, kwargs))
+            return {"restricted": 1}
+
+        def creator_os_manager_decision(self, *args, **kwargs):
+            calls.append(("creator_os_manager_decision", args, kwargs))
+            return {"managerDecision": "ready_to_schedule", "managerReason": "ready"}
+
+        def creator_os_account_state(self, *args, **kwargs):
+            calls.append(("creator_os_account_state", args, kwargs))
+            return "safe"
+
+        def creator_os_post_time(self, *args, **kwargs):
+            calls.append(("creator_os_post_time", args, kwargs))
+            return "2026-06-06T12:00:00Z"
+
+        def creator_os_recommended_post_count(self, *args, **kwargs):
+            calls.append(("creator_os_recommended_post_count", args, kwargs))
+            return 1
+
+        def recommended_story_intent_for_date(self, *args, **kwargs):
+            calls.append(("recommended_story_intent_for_date", args, kwargs))
+            return "reel_teaser"
+
+        def recommended_story_style_for_intent(self, *args, **kwargs):
+            calls.append(("recommended_story_style_for_intent", args, kwargs))
+            return "raw_phone"
+
     factory.services = FakeServices()
 
     draft = {"postId": "post_1"}
     planner_inputs = [{"items": [draft]}]
     assert factory._creator_os_local_schedule_safe_assets("Stacey") == [{"renderedAssetId": "asset_1"}]
+    assert factory._creator_os_target_date(date="2026-06-06T12:00:00Z") == "2026-06-06"
     assert factory._creator_os_account_surface_status({"surfaceStatus": {}}, reel_needed=True) == {"reel": {"needed": True}}
+    assert factory._creator_os_surface_summary_for_creator(
+        creator="Stacey",
+        date="2026-06-06",
+        report={},
+        creator_accounts=[],
+        draft_items=[draft],
+    ) == {"accountsNeedingReels": 1, "wouldWrite": False}
     assert factory._creator_os_gap_blocking_reason("missingHandoffManifest", [], draft) == "missing_handoff_manifest"
     assert factory._creator_os_draft_items(planner_inputs) == [{"postId": "post_1"}]
     assert factory._creator_os_draft_has_instagram_post_caption(draft) is True
@@ -11230,10 +11375,40 @@ def test_campaign_factory_delegates_creator_os_draft_helpers_to_services() -> No
     assert factory._creator_os_schedule_safe_drafts("Stacey", [draft]) == [{"postId": "post_1"}]
     assert factory._creator_os_execution_draft_blockers("Stacey", [draft]) == ["missing_campaign_factory_asset_id"]
     assert factory._creator_os_explicit_false(draft, "burnedCaptionTextPresent") is True
+    assert factory._creator_os_inventory_for_creator("Stacey", planner_inputs, [draft]) == {
+        "validatedDraftsAvailable": 1,
+        "variantDraftsAvailable": 1,
+    }
+    assert factory._creator_os_blocked_account_breakdown([{"blockedReason": "restricted"}]) == {"restricted": 1}
+    assert factory._creator_os_manager_decision(
+        safe_accounts=1,
+        needs_posts=1,
+        validated_available=1,
+        shortfall=0,
+        missed_dispatches=[],
+        winner_recommendations=[],
+    ) == {"managerDecision": "ready_to_schedule", "managerReason": "ready"}
+    assert factory._creator_os_account_state({"bucket": "safe_to_schedule_today"}, "") == "safe"
+    assert factory._creator_os_post_time({"scheduledFor": "2026-06-06T12:00:00Z"}) == "2026-06-06T12:00:00Z"
+    assert factory._creator_os_recommended_post_count("safe", True) == 1
+    assert factory._recommended_story_intent_for_date("2026-06-06", creator="Stacey") == "reel_teaser"
+    assert factory._recommended_story_style_for_intent("reel_teaser") == "raw_phone"
 
     assert calls == [
         ("creator_os_local_schedule_safe_assets", ("Stacey",), {}),
+        ("creator_os_target_date", (), {"date": "2026-06-06T12:00:00Z", "generated_at": None}),
         ("creator_os_account_surface_status", ({"surfaceStatus": {}},), {"reel_needed": True}),
+        (
+            "creator_os_surface_summary_for_creator",
+            (),
+            {
+                "creator": "Stacey",
+                "date": "2026-06-06",
+                "report": {},
+                "creator_accounts": [],
+                "draft_items": [draft],
+            },
+        ),
         ("creator_os_gap_blocking_reason", ("missingHandoffManifest", [], draft), {}),
         ("creator_os_draft_items", (planner_inputs,), {}),
         ("creator_os_draft_has_instagram_post_caption", (draft,), {}),
@@ -11242,6 +11417,25 @@ def test_campaign_factory_delegates_creator_os_draft_helpers_to_services() -> No
         ("creator_os_schedule_safe_drafts", ("Stacey", [draft]), {}),
         ("creator_os_execution_draft_blockers", ("Stacey", [draft]), {}),
         ("creator_os_explicit_false", (draft, "burnedCaptionTextPresent"), {}),
+        ("creator_os_inventory_for_creator", ("Stacey", planner_inputs, [draft]), {}),
+        ("creator_os_blocked_account_breakdown", ([{"blockedReason": "restricted"}],), {}),
+        (
+            "creator_os_manager_decision",
+            (),
+            {
+                "safe_accounts": 1,
+                "needs_posts": 1,
+                "validated_available": 1,
+                "shortfall": 0,
+                "missed_dispatches": [],
+                "winner_recommendations": [],
+            },
+        ),
+        ("creator_os_account_state", ({"bucket": "safe_to_schedule_today"}, ""), {}),
+        ("creator_os_post_time", ({"scheduledFor": "2026-06-06T12:00:00Z"},), {}),
+        ("creator_os_recommended_post_count", ("safe", True), {}),
+        ("recommended_story_intent_for_date", ("2026-06-06",), {"creator": "Stacey"}),
+        ("recommended_story_style_for_intent", ("reel_teaser",), {}),
     ]
 
 
