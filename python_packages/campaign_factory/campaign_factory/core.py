@@ -6105,24 +6105,16 @@ class CampaignFactory:
         return self.services.formats_for_batch(selected_format, source_mix)
 
     def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
-        from . import exports as _exports
-
-        return _exports.batch_summary(self, campaign_slug)
+        return self.services.batch_summary(campaign_slug)
 
     def daily_production_counters(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
-        from . import exports as _exports
-
-        return _exports.daily_production_counters(self, campaign_slug, dashboard=dashboard)
+        return self.services.daily_production_counters(campaign_slug, dashboard=dashboard)
 
     def _variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        from . import exports as _exports
-
-        return _exports._variant_pack_groups(self, rendered)
+        return self.services.variant_pack_groups(rendered)
 
     def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
-        from . import exports as _exports
-
-        return _exports.export_manifest(self, campaign_slug=campaign_slug)
+        return self.services.export_manifest(campaign_slug=campaign_slug)
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
         campaigns = self.list_campaigns()

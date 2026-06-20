@@ -29,6 +29,7 @@ from .distribution import DistributionRepository
 from .daily_plan import DailyPlanRepository
 from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
+from .export_summary import ExportSummaryRepository
 from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
 from .finished_video import FinishedVideoRepository
@@ -293,6 +294,7 @@ class CoreServices:
             ensure_graph_edge=self.graph.ensure_graph_edge,
             graph_id_for=self.graph.graph_id_for,
         )
+        self.export_summary = ExportSummaryRepository(factory_context)
         self.reel_execution = ReelExecutionRepository(
             conn,
             settings,
@@ -4770,6 +4772,23 @@ class CoreServices:
 
     def operator_inventory_review_batch_summary(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_inventory_review_batch_summary(**kwargs)
+
+    def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
+        return self.export_summary.batch_summary(campaign_slug)
+
+    def daily_production_counters(
+        self,
+        campaign_slug: str,
+        *,
+        dashboard: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.export_summary.daily_production_counters(campaign_slug, dashboard=dashboard)
+
+    def variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self.export_summary.variant_pack_groups(rendered)
+
+    def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
+        return self.export_summary.export_manifest(campaign_slug=campaign_slug)
 
     def operator_review_simulator(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_review_simulator(**kwargs)

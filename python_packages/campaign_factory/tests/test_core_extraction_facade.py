@@ -29,6 +29,7 @@ from campaign_factory.distribution import DistributionRepository
 from campaign_factory.daily_plan import DailyPlanRepository
 from campaign_factory.draft_inventory_gap import DraftInventoryGapRepository
 from campaign_factory.events import EventRepository
+from campaign_factory.export_summary import ExportSummaryRepository
 from campaign_factory.execution_readiness import ExecutionReadinessRepository
 from campaign_factory.exceptions import ExceptionRepository
 from campaign_factory.finished_video import FinishedVideoRepository
@@ -90,6 +91,7 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.models.conn is factory.conn
         assert isinstance(factory.services.asset_import, AssetImportRepository)
         assert factory.services.asset_import.conn is factory.conn
+        assert isinstance(factory.services.export_summary, ExportSummaryRepository)
         assert isinstance(factory.services.creative_planning, CreativePlanningRepository)
         assert factory.services.creative_planning.conn is factory.conn
         assert isinstance(factory.services.reference, ReferenceRepository)
@@ -10495,8 +10497,9 @@ def test_core_services_delegates_core_complexity_methods_to_repository(tmp_path)
         factory.close()
 
 
-def test_export_facade_delegates_to_export_module(monkeypatch) -> None:
-    factory = object.__new__(CampaignFactory)
+def test_export_summary_repository_preserves_export_module_seam(monkeypatch) -> None:
+    factory = object()
+    repository = ExportSummaryRepository(factory)
     calls = []
 
     def fake_batch_summary(self, campaign_slug):
@@ -10520,15 +10523,85 @@ def test_export_facade_delegates_to_export_module(monkeypatch) -> None:
     monkeypatch.setattr(exports, "_variant_pack_groups", fake_groups)
     monkeypatch.setattr(exports, "export_manifest", fake_manifest)
 
-    assert factory.batch_summary("campaign")["schema"] == "campaign_factory.batch_summary.v1"
-    assert factory.daily_production_counters("campaign", dashboard={"rendered": []})["schema"] == "campaign_factory.daily_production_counters.v1"
-    assert factory._variant_pack_groups([{"id": "asset_1"}]) == [{"sourceAssetId": "asset_1"}]
-    assert factory.export_manifest(campaign_slug="campaign")["schema"] == "campaign_factory.export.v1"
+    assert repository.batch_summary("campaign")["schema"] == "campaign_factory.batch_summary.v1"
+    assert repository.daily_production_counters("campaign", dashboard={"rendered": []})["schema"] == "campaign_factory.daily_production_counters.v1"
+    assert repository.variant_pack_groups([{"id": "asset_1"}]) == [{"sourceAssetId": "asset_1"}]
+    assert repository.export_manifest(campaign_slug="campaign")["schema"] == "campaign_factory.export.v1"
     assert calls == [
         ("batch", factory, "campaign"),
         ("daily", factory, "campaign", {"rendered": []}),
         ("groups", factory, [{"id": "asset_1"}]),
         ("manifest", factory, "campaign"),
+    ]
+
+
+def test_export_facade_delegates_to_core_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def batch_summary(self, *args, **kwargs):
+            calls.append(("batch_summary", args, kwargs))
+            return {"schema": "campaign_factory.batch_summary.v1"}
+
+        def daily_production_counters(self, *args, **kwargs):
+            calls.append(("daily_production_counters", args, kwargs))
+            return {"schema": "campaign_factory.daily_production_counters.v1"}
+
+        def variant_pack_groups(self, *args, **kwargs):
+            calls.append(("variant_pack_groups", args, kwargs))
+            return [{"sourceAssetId": "asset_1"}]
+
+        def export_manifest(self, *args, **kwargs):
+            calls.append(("export_manifest", args, kwargs))
+            return {"schema": "campaign_factory.export.v1"}
+
+    factory.services = FakeServices()
+
+    assert factory.batch_summary("campaign")["schema"] == "campaign_factory.batch_summary.v1"
+    assert factory.daily_production_counters("campaign", dashboard={"rendered": []})["schema"] == "campaign_factory.daily_production_counters.v1"
+    assert factory._variant_pack_groups([{"id": "asset_1"}]) == [{"sourceAssetId": "asset_1"}]
+    assert factory.export_manifest(campaign_slug="campaign")["schema"] == "campaign_factory.export.v1"
+    assert calls == [
+        ("batch_summary", ("campaign",), {}),
+        ("daily_production_counters", ("campaign",), {"dashboard": {"rendered": []}}),
+        ("variant_pack_groups", ([{"id": "asset_1"}],), {}),
+        ("export_manifest", (), {"campaign_slug": "campaign"}),
+    ]
+
+
+def test_core_services_delegates_export_summary_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeExportSummary:
+        def batch_summary(self, *args, **kwargs):
+            calls.append(("batch_summary", args, kwargs))
+            return {"schema": "campaign_factory.batch_summary.v1"}
+
+        def daily_production_counters(self, *args, **kwargs):
+            calls.append(("daily_production_counters", args, kwargs))
+            return {"schema": "campaign_factory.daily_production_counters.v1"}
+
+        def variant_pack_groups(self, *args, **kwargs):
+            calls.append(("variant_pack_groups", args, kwargs))
+            return [{"sourceAssetId": "asset_1"}]
+
+        def export_manifest(self, *args, **kwargs):
+            calls.append(("export_manifest", args, kwargs))
+            return {"schema": "campaign_factory.export.v1"}
+
+    services.export_summary = FakeExportSummary()
+
+    assert services.batch_summary("campaign")["schema"] == "campaign_factory.batch_summary.v1"
+    assert services.daily_production_counters("campaign", dashboard={"rendered": []})["schema"] == "campaign_factory.daily_production_counters.v1"
+    assert services.variant_pack_groups([{"id": "asset_1"}]) == [{"sourceAssetId": "asset_1"}]
+    assert services.export_manifest(campaign_slug="campaign")["schema"] == "campaign_factory.export.v1"
+    assert calls == [
+        ("batch_summary", ("campaign",), {}),
+        ("daily_production_counters", ("campaign",), {"dashboard": {"rendered": []}}),
+        ("variant_pack_groups", ([{"id": "asset_1"}],), {}),
+        ("export_manifest", (), {"campaign_slug": "campaign"}),
     ]
 
 
