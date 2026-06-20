@@ -143,7 +143,7 @@
 <!-- ============ INTELLIGENCE AUDIT ============ -->
 <section id="intel">
   <h2>Intelligence / Quality / Safety Audit <span style="color:var(--dim);font-weight:400;font-size:12px">(2026-06-18 · full detail in INTELLIGENCE_AUDIT.md)</span></h2>
-  <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code and reconciled through Track 9 PRs #189/#191/#192/#193.</p>
+  <p class="sub">Different from the closed code-quality audit. This asks: is it <b>smart</b>, does it make <b>great content</b>, is it <b>safe</b> across accounts? Headlines verified directly against code and reconciled through Track 9 plus the core.py closeout PR #226.</p>
   <div class="note" style="border-left:3px solid var(--accent)">
     <b>Root pattern across all three:</b> the right signals already EXIST in the code but were computed-and-ignored. <b>PDQ/SSCD detectors → now BLOCKING (Track S, PR #54)</b>, and <b>Campaign Factory rendered assets now persist PDQ clusters for cross-account cooldowns.</b> <b>Campaign Factory safe-zone/readability/hook/deterministic watchability/creative warnings → now BLOCKING for fan-out</b>, and supplied/configured Higgsfield virality/video-analysis reports now block when requested. Reel Factory readiness can also require post-render virality sidecars, and Reel Factory can generate zero-cost operator/configured-provider report request sidecars. Selected reference-pattern structure now feeds front-generation prompt assembly, supplied video-analysis sidecars feed Winner-DNA extraction, and ThreadsDashboard PR #130 adds dashboard frame/keyframe perceptual hashes. <b>The remaining fixes are deferred calibration, not core wiring.</b>
   </div>
@@ -213,9 +213,9 @@ const COMPONENTS=[
   {id:'reel_factory',name:'Reel Factory',lang:'Python',role:'Creation — reference image → Soul-2 still → Kling motion → captions',score:8.3,sub:[8,8,8,9,8],files:107,nodes:2512,status:'works',
    keyfiles:['generate_assets.py:101 — Soul-2 image cmd','generate_assets.py:123 — Kling video cmd','caption_render.py — IG-safe overlay PNG'],
    notes:['Generation primitive is REAL','GAP 2 CLOSED — now reachable from control brain via front_generation_stage (E, PR #46/#47)','Also drives zero-AI still→MP4 path (E2, PR #45)','Track 9 PR #193 fixed packaging metadata and added adapter/golden tests']},
-  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:7.3,sub:[7,7,7,6,8],files:60,nodes:2622,status:'works',
-   keyfiles:['core.py — shrinking facade; inventory planning/reservations/perceptual/recovery extracted through PR #195','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
-   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py decomposition is active behind characterization tests; inventory domain extracted through PR #195']},
+  {id:'campaign_factory',name:'Campaign Factory',lang:'Python',role:'Control Brain — orchestration, audit, inventory, draft export, generation, variation, learning',score:7.3,sub:[7,7,7,8,8],files:60,nodes:2622,status:'works',
+   keyfiles:['core.py — composition-root facade, 6,026 lines after PR #226 closeout','services.py + repository modules — extracted orchestration domains behind stable CampaignFactory signatures','variation_stage.py / motion_edit_stage.py / front_generation_stage.py / proactive_cycle_stage.py — A–G seams (new modules, not core.py growth)','adapters/threadsdash.py:369 — export'],
+   notes:['Full cycle now wired: front-gen (E) + variation (A–D) + learning-seam (F v1) + proactive runner (G) all land as NEW modules','Front gap CLOSED — control brain triggers generation via front_generation_stage','Repurposer middle CLOSED — variation_stage seam runs in-pipeline (PR #44)','core.py decomposition CLOSED for audit scope in PR #226: CampaignFactory is a composition-root facade; only __init__ and the documented _load_source_lineage compatibility shim retain non-trivial bodies']},
   {id:'contentforge',name:'ContentForge',lang:'Node.js',role:'Distinctness detector + quality gate — PDQ/SSCD collision checks (now blocking, Track S) + quality-floor guards',score:8.0,sub:[8,8,8,8,8],files:113,nodes:779,status:'works',
    keyfiles:['app/api/.../similarity/route.js — PDQ/SSCD collision gate (PR #54)','lib/pdq_check.py · lib/sscd_check.py · lib/reference_db.py','forensics_check.py'],
    notes:['Invoked by campaign over HTTP /api/similarity','PDQ/SSCD now BLOCK colliding variation batches (Track S, PR #54) — detect-and-respect, forces distinct content','Quality floor non-negotiable; micro spoof engine stays off-by-default, owner-directed only','Track 9 PR #191/#192 added similarity/pipeline tests and detector calibration fixtures']},
@@ -228,15 +228,15 @@ const COMPONENTS=[
 ];
 
 const HANDOFFS=[
-  {from:'reference_factory',to:'campaign_factory',carry:['pattern_card.v1','audio_catalog_export.v1','campaign_reference_bank.json'],mech:'file / import',status:'works',ev:'learning.py:460 writes packs · core.py:2278 import_reference_bank reads'},
+  {from:'reference_factory',to:'campaign_factory',carry:['pattern_card.v1','audio_catalog_export.v1','campaign_reference_bank.json'],mech:'file / import',status:'works',ev:'learning.py writes packs · CampaignFactory import_reference_bank facade delegates to extracted reference services'},
   {from:'reference_factory',to:'reel_factory',carry:['higgsfield prompt packs'],mech:'file',status:'works',ev:'prompt packs consumed by generation path'},
   {from:'reel_factory',to:'reel_factory',carry:['reference image → Soul-2 still → Kling video'],mech:'subprocess CLI (higgsfield)',status:'works',ev:'generate_assets.py:101/123 — REAL; GAP 2 CLOSED — now driven by control brain via front_generation_stage (E, PR #46/#47), not only overnight_grid_worker',self:true,label:'GENERATION primitive ✓'},
-  {from:'reel_factory',to:'campaign_factory',carry:['generated_asset_lineage.v1','audio_intent.v1','rendered assets'],mech:'subprocess + sqlite manifest',status:'works',ev:'core.py:17906 runs reel_pipeline · sync_reel_outputs:17973'},
+  {from:'reel_factory',to:'campaign_factory',carry:['generated_asset_lineage.v1','audio_intent.v1','rendered assets'],mech:'subprocess + sqlite manifest',status:'works',ev:'rendered asset intake now routes through extracted services with CampaignFactory compatibility facades'},
   {from:'campaign_factory',to:'contentforge',carry:['source + rendered file → PDQ/SSCD collision check + quality gate'],mech:'HTTP POST /api/similarity',status:'works',ev:'PR #54: collision check now BLOCKING. HTTP — invisible to graphify (0 static edges ≠ disconnected)'},
   {from:'campaign_factory',to:'campaign_factory',carry:['per-account variation (repurposer)'],mech:'in-process',status:'done',ev:'PR #44: variation_stage seam wired to control brain (C); real editorial edits (A); per-account distinct + sibling-vs-sibling gate (B); QualityGate + SSIM fix enforced; micro spoof default OFF',self:true,label:'VARIATION ✓ (A–D)'},
   {from:'campaign_factory',to:'dashboard',carry:['campaign_draft_payload.v1','variant_assignment.v1'],mech:'HTTP ingest (X-Campaign-Factory-Ingest-Secret)',status:'done',ev:'PR #44 (D): each account draft gets its OWN variant when variation enabled; falls back to master when off. Opt-in flag.'},
   {from:'dashboard',to:'dashboard',carry:['QStash schedule → Meta Graph publish'],mech:'QStash → Graph API',status:'works',ev:'campaignSchedule.ts:596 → publishing.ts:199 media_publish · per-account spacing real',self:true,label:'SCHEDULE → PUBLISH'},
-  {from:'dashboard',to:'campaign_factory',carry:['performance_sync.v1'],mech:'HTTP sync',status:'works',ev:'sync_performance_snapshots:2668 → performanceScore into ranking core.py:24675'},
+  {from:'dashboard',to:'campaign_factory',carry:['performance_sync.v1'],mech:'HTTP sync',status:'works',ev:'performance_sync.v1 feeds extracted performance/learning services and ranking facades'},
 ];
 
 const WORKSTREAMS=[
@@ -452,7 +452,7 @@ const ROADMAP=[
     {k:'✅',id:'9-surfaces',t:'Test 3 untested surfaces',n:'reference_intake.py coverage target hit; ContentForge similarity/route + pipeline safety tests landed',ref:'PR #189/#191'},
     {k:'✅',id:'9-calib',t:'ContentForge detector calibration',n:'known-collision / known-distinct fixtures now assert PDQ, SSCD, and TMK thresholds against drift',ref:'PR #192'},
     {k:'✅',id:'9-reel',t:'Reel adapter + golden tests',n:'tested Higgsfield adapter fixtures; caption wrap/safe-zone and E2 still→MP4 golden assertions; packaging fixed',ref:'PR #193'},
-    {k:'⏳',id:'9-core',t:'Decompose core.py (continuing)',n:'god-class is actively shrinking behind characterization tests; inventory domain extracted through recovery/perceptual/reservation slices',ref:'PR #195'},
+    {k:'✅',id:'9-core',t:'Decompose core.py',n:'CLOSED FOR AUDIT SCOPE: CampaignFactory is a composition-root facade at 6,026 lines, down from ~26.7k; retained wrappers are documented compatibility seams',ref:'PR #226'},
     {k:'✅',id:'9-ap',t:'Land + integration-test AP0–AP3',n:'DONE: ~16 TD branches merged to TD main (ec2190b5e); 31 files / 379 tests pass, compat+typecheck+build green. Autoposter 8.2→8.7',ref:'TD main'},
   ]},
 ];
