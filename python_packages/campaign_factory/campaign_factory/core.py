@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import math
 import os
 import re
@@ -22,7 +21,6 @@ from urllib.request import Request, urlopen
 from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
-from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
 from .db import connect, init_db
 from .fresh_reel_production import FreshReelProductionRepository
@@ -109,7 +107,6 @@ IG_MEDIA_TYPE_BY_SURFACE = {
     "feed_single": "IMAGE",
     "feed_carousel": "CAROUSEL",
 }
-TRIAL_GRADUATION_STRATEGIES = {"MANUAL", "SS_PERFORMANCE"}
 STORY_INTENTS = {
     "snapchat_promo",
     "reel_teaser",
@@ -602,7 +599,6 @@ class CampaignFactory:
             requires_operator_visual_review_for_handoff=self._requires_operator_visual_review_for_handoff,
             ig_media_type_for_surface=self._ig_media_type_for_surface,
             surface_handoff_readiness_report=self.surface_handoff_readiness_report,
-            ensure_graph_edge_strict=self.ensure_graph_edge_strict,
             performance_summary=self.performance_summary,
             recommend_audio=self.recommend_audio,
             select_audio_for_recommendation=self.select_audio_for_recommendation,
@@ -621,7 +617,6 @@ class CampaignFactory:
             register_variant_asset=lambda *args, **kwargs: self.register_variant_asset(*args, **kwargs),
             suggest_simple_instagram_post_caption=lambda *args, **kwargs: self._suggest_simple_instagram_post_caption(*args, **kwargs),
             text_hash=self._text_hash,
-            validate_instagram_trial_reel_intent=self._validate_instagram_trial_reel_intent,
             variant_lineage_for_asset=self._variant_lineage_for_asset,
             story_quality_gate_for_asset=self._story_quality_gate_for_asset,
             story_style_value=self._story_style_value,
@@ -783,38 +778,17 @@ class CampaignFactory:
         source_operation: str = "content_graph",
         commit: bool = False,
     ) -> str | None:
-        if from_global_id and to_global_id:
-            return self.ensure_graph_edge(
-                from_global_id,
-                to_global_id,
-                relation_type,
-                evidence=evidence,
-                commit=commit,
-            )
-        missing = []
-        if not from_global_id:
-            missing.append("from_global_id")
-        if not to_global_id:
-            missing.append("to_global_id")
-        reason_code = "graph_edge_missing_endpoint"
-        self.create_exception(
-            reason_code=f"{reason_code}:{slugify(source_operation)}:{slugify(relation_type)}:{'_'.join(missing)}",
-            severity="high",
+        return self.services.ensure_graph_edge_strict(
+            from_global_id,
+            to_global_id,
+            relation_type,
+            evidence=evidence,
             campaign_id=campaign_id,
             account_id=account_id,
-            entity_graph_id=from_global_id or to_global_id,
             recommendation_item_id=recommendation_item_id,
-            payload={
-                "relationType": relation_type,
-                "sourceOperation": source_operation,
-                "missing": missing,
-                "fromGlobalId": from_global_id,
-                "toGlobalId": to_global_id,
-                "evidence": sanitize_for_storage(evidence or {}),
-            },
+            source_operation=source_operation,
             commit=commit,
         )
-        return None
 
     def set_graph_sync_state(self, system: str, cursor: dict[str, Any]) -> None:
         self.services.set_graph_sync_state(system, cursor)
@@ -1603,22 +1577,13 @@ class CampaignFactory:
         instagram_trial_reels: bool,
         trial_graduation_strategy: str | None,
     ) -> str | None:
-        strategy = (trial_graduation_strategy or "").strip().upper() or None
-        if not instagram_trial_reels:
-            if strategy:
-                raise ValueError("trial_graduation_strategy requires instagram_trial_reels=true")
-            return None
-        if content_surface != "reel":
-            raise ValueError("Instagram Trial Reels require reel content")
-        ig_media_type = self._ig_media_type_for_surface(content_surface, media_type)
-        if ig_media_type != "REELS":
-            raise ValueError("Instagram Trial Reels require ig_media_type=REELS")
-        if not strategy:
-            raise ValueError("trial_graduation_strategy is required for Instagram Trial Reels")
-        if strategy not in TRIAL_GRADUATION_STRATEGIES:
-            allowed = ", ".join(sorted(TRIAL_GRADUATION_STRATEGIES))
-            raise ValueError(f"trial_graduation_strategy must be one of: {allowed}")
-        return strategy
+        return self.services.validate_instagram_trial_reel_intent(
+            content_surface=content_surface,
+            distribution_surface=distribution_surface,
+            media_type=media_type,
+            instagram_trial_reels=instagram_trial_reels,
+            trial_graduation_strategy=trial_graduation_strategy,
+        )
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
         return self.services.distribution_plan(plan_id)
@@ -4856,51 +4821,7 @@ class CampaignFactory:
         return payload
 
     def _record_lineage_costs(self, lineage: dict[str, Any]) -> None:
-        """Extract AI cost data from imported lineage and record it."""
-        try:
-            ensure_cost_table(self.conn)
-            lineage_hash = hashlib.sha256(
-                json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-            ).hexdigest()[:24]
-            # Grok prompt generation costs (from reel_factory lineage)
-            usage = lineage.get("usage")
-            if isinstance(usage, dict):
-                record_ai_cost(
-                    self.conn,
-                    provider="grok",
-                    operation="image_prompt",
-                    campaign_id=lineage.get("campaign"),
-                    input_tokens=usage.get("input_tokens"),
-                    output_tokens=usage.get("output_tokens"),
-                    metadata={"lineage_schema": lineage.get("schema"), "model": lineage.get("model")},
-                    source_event_key=f"lineage:{lineage_hash}:grok:image_prompt",
-                )
-            # Higgsfield/Kling generation costs (from generation block)
-            gen = lineage.get("generation")
-            if isinstance(gen, dict):
-                tool = gen.get("tool", "")
-                if "higgsfield" in tool or "soul" in tool:
-                    record_ai_cost(
-                        self.conn,
-                        provider="higgsfield",
-                        operation="soul_grid",
-                        campaign_id=lineage.get("campaign"),
-                        generations=1,
-                        metadata={"tool": tool, "modelProfile": gen.get("modelProfile")},
-                        source_event_key=f"lineage:{lineage_hash}:higgsfield:soul_grid",
-                    )
-                if "kling" in tool:
-                    record_ai_cost(
-                        self.conn,
-                        provider="kling",
-                        operation="video_animate",
-                        campaign_id=lineage.get("campaign"),
-                        generations=1,
-                        metadata={"tool": tool, "modelProfile": gen.get("modelProfile")},
-                        source_event_key=f"lineage:{lineage_hash}:kling:video_animate",
-                    )
-        except Exception:
-            pass  # Cost tracking is best-effort; never block the import pipeline
+        self.services.record_lineage_costs(lineage)
 
     def _finished_video_preflight(self, probe: dict[str, Any]) -> list[dict[str, str]]:
         return self.services.finished_video_preflight(probe)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -161,6 +162,64 @@ def test_ai_cost_table_migrates_source_event_key(tmp_path: Path):
 
     assert "source_event_key" in columns
     assert count == 1
+
+
+def test_finished_video_lineage_cost_recorder_records_generation_costs_once(tmp_path: Path):
+    factory = make_factory(tmp_path)
+    lineage = {
+        "schema": "reel_factory.lineage.v1",
+        "campaign": "camp_1",
+        "model": "grok-3-mini",
+        "usage": {"input_tokens": 100, "output_tokens": 25},
+        "generation": {"tool": "higgsfield_kling_cli", "modelProfile": "soul_grid"},
+    }
+    lineage_hash = hashlib.sha256(
+        json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
+
+    try:
+        factory._record_lineage_costs(lineage)
+        factory._record_lineage_costs(lineage)
+
+        rows = [
+            dict(row)
+            for row in factory.conn.execute(
+                """
+                SELECT provider, operation, input_tokens, output_tokens, generations, source_event_key
+                FROM ai_cost_events
+                ORDER BY provider, operation
+                """
+            ).fetchall()
+        ]
+    finally:
+        factory.conn.close()
+
+    assert rows == [
+        {
+            "provider": "grok",
+            "operation": "image_prompt",
+            "input_tokens": 100,
+            "output_tokens": 25,
+            "generations": None,
+            "source_event_key": f"lineage:{lineage_hash}:grok:image_prompt",
+        },
+        {
+            "provider": "higgsfield",
+            "operation": "soul_grid",
+            "input_tokens": None,
+            "output_tokens": None,
+            "generations": 1,
+            "source_event_key": f"lineage:{lineage_hash}:higgsfield:soul_grid",
+        },
+        {
+            "provider": "kling",
+            "operation": "video_animate",
+            "input_tokens": None,
+            "output_tokens": None,
+            "generations": 1,
+            "source_event_key": f"lineage:{lineage_hash}:kling:video_animate",
+        },
+    ]
 
 
 def test_caption_outcome_context_preserves_additive_scene_fields():
