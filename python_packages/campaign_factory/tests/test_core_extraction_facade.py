@@ -8,6 +8,7 @@ from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.archive_quality import ArchiveQualityRepository
+from campaign_factory.audio_operations import AudioOperationsRepository
 from campaign_factory.audio_recommendations import AudioRecommendationRepository
 from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
@@ -180,6 +181,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.performance_summary_repo.conn is factory.conn
         assert isinstance(factory.services.audio_recommendations, AudioRecommendationRepository)
         assert factory.services.audio_recommendations.conn is factory.conn
+        assert isinstance(factory.services.audio_operations, AudioOperationsRepository)
+        assert factory.services.audio_operations.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -5180,6 +5183,171 @@ def test_core_services_delegates_audio_recommendation_methods_to_repository() ->
         ("contentforge_audio_fit_for_item", (item, {"mirror"}), {"visual_signal": {"energy": "high"}}),
         ("audio_catalog_recommendation", (item,), {}),
         ("norm_tag", ("Fit Check",), {}),
+    ]
+
+
+def test_campaign_factory_delegates_audio_operation_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    factory.services = FakeServices()
+    asset = {"id": "asset_1", "captionGeneration": {}}
+    intent = {"status": "attached", "operator_selection": {"audio_id": "aud_1", "selected_at": "now", "attached_at": "now"}}
+    snapshot = {"campaign_id": "camp_1", "views": 100, "likes": 5}
+
+    assert factory.attach_audio_to_distribution_plan("dist_1", track_id="aud_1")["method"] == "attach_audio_to_distribution_plan"
+    assert factory.attach_cover_frame_to_rendered_asset("asset_1", seconds=1.5)["method"] == "attach_cover_frame_to_rendered_asset"
+    assert factory.select_audio_for_recommendation("rec_1", "aud_1", operator="tester")["method"] == "select_audio_for_recommendation"
+    assert factory.verify_audio_for_post("post_1", proof_url="https://proof.example/aud")["method"] == "verify_audio_for_post"
+    assert factory._audio_catalog_row("aud_1", allow_locator=True)["method"] == "audio_catalog_row"
+    assert factory._audio_selection_payload("sel_1")["method"] == "audio_selection_payload"
+    assert factory._link_audio_selection_graph(selection_id="sel_1", audio_catalog_id="aud_1", campaign_id="camp_1")["method"] == "link_audio_selection_graph"
+    assert factory._resolve_audio_exception_for_recommendation("rec_1", operator="tester", proof_url="https://proof.example/aud")["method"] == "resolve_audio_exception_for_recommendation"
+    assert factory.record_audio_performance_snapshot(snapshot, commit=False)["method"] == "record_audio_performance_snapshot"
+    assert factory._performance_snapshot_score(snapshot)["method"] == "performance_snapshot_score"
+    assert factory.audio_workflow_summary([asset])["method"] == "audio_workflow_summary"
+    assert factory._dashboard_audio_intent_for_asset(asset)["method"] == "dashboard_audio_intent_for_asset"
+    assert factory._audio_task_for_dashboard_intent(intent)["method"] == "audio_task_for_dashboard_intent"
+    assert factory._normalize_seconds("1.25")["method"] == "normalize_seconds"
+    assert factory._first_metadata_value({"x": "y"}, "x")["method"] == "first_metadata_value"
+    assert factory._normalize_audio_segment({"start_seconds": 1})["method"] == "normalize_audio_segment"
+    assert factory._audio_segment_for_asset(intent)["method"] == "audio_segment_for_asset"
+    assert factory._normalize_cover_frame({"seconds": 2})["method"] == "normalize_cover_frame"
+    assert factory._cover_frame_for_asset(asset)["method"] == "cover_frame_for_asset"
+    assert factory._audio_selection_for_asset(asset)["method"] == "audio_selection_for_asset"
+    assert factory._audio_intent_is_attached(intent, "aud_1")["method"] == "audio_intent_is_attached"
+    assert factory._audio_intent_claims_embedded_media(intent)["method"] == "audio_intent_claims_embedded_media"
+    assert factory._embedded_audio_verified("/tmp/reel.mp4")["method"] == "embedded_audio_verified"
+
+    assert calls == [
+        ("attach_audio_to_distribution_plan", ("dist_1",), {
+            "track_id": "aud_1",
+            "track_name": None,
+            "source": None,
+            "audio_url": None,
+            "native_audio_id": None,
+            "local_winner_audio_id": None,
+            "selected_reason": None,
+            "segment_start_seconds": None,
+            "segment_duration_seconds": None,
+            "segment_label": None,
+            "segment_reason": None,
+            "operator": None,
+            "notes": None,
+        }),
+        ("attach_cover_frame_to_rendered_asset", ("asset_1",), {
+            "seconds": 1.5,
+            "cover_image_path": None,
+            "cover_image_url": None,
+            "cover_image_hash": None,
+            "reason": None,
+            "operator": None,
+        }),
+        ("select_audio_for_recommendation", ("rec_1", "aud_1"), {"operator": "tester", "notes": None}),
+        ("verify_audio_for_post", ("post_1",), {"proof_url": "https://proof.example/aud", "proof_note": None, "operator": None}),
+        ("audio_catalog_row", ("aud_1",), {"allow_locator": True}),
+        ("audio_selection_payload", ("sel_1",), {}),
+        ("link_audio_selection_graph", (), {
+            "selection_id": "sel_1",
+            "recommendation_item_id": None,
+            "recommendation_graph_id": None,
+            "audio_catalog_id": "aud_1",
+            "post_id": None,
+            "performance_snapshot_id": None,
+            "campaign_id": "camp_1",
+        }),
+        ("resolve_audio_exception_for_recommendation", ("rec_1",), {"operator": "tester", "proof_url": "https://proof.example/aud"}),
+        ("record_audio_performance_snapshot", (snapshot,), {"commit": False}),
+        ("performance_snapshot_score", (snapshot,), {}),
+        ("audio_workflow_summary", ([asset],), {}),
+        ("dashboard_audio_intent_for_asset", (asset,), {}),
+        ("audio_task_for_dashboard_intent", (intent,), {}),
+        ("normalize_seconds", ("1.25",), {}),
+        ("first_metadata_value", ({"x": "y"}, "x"), {}),
+        ("normalize_audio_segment", ({"start_seconds": 1},), {}),
+        ("audio_segment_for_asset", (intent,), {}),
+        ("normalize_cover_frame", ({"seconds": 2},), {}),
+        ("cover_frame_for_asset", (asset,), {"caption_context": None}),
+        ("audio_selection_for_asset", (asset,), {}),
+        ("audio_intent_is_attached", (intent, "aud_1"), {}),
+        ("audio_intent_claims_embedded_media", (intent,), {}),
+        ("embedded_audio_verified", ("/tmp/reel.mp4",), {}),
+    ]
+
+
+def test_core_services_delegates_audio_operation_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAudioOperations:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    services.audio_operations = FakeAudioOperations()
+    asset = {"id": "asset_1", "captionGeneration": {}}
+    intent = {"status": "attached", "operator_selection": {"audio_id": "aud_1", "selected_at": "now", "attached_at": "now"}}
+    snapshot = {"campaign_id": "camp_1", "views": 100, "likes": 5}
+
+    assert services.attach_audio_to_distribution_plan("dist_1", track_id="aud_1")["method"] == "attach_audio_to_distribution_plan"
+    assert services.attach_cover_frame_to_rendered_asset("asset_1", seconds=1.5)["method"] == "attach_cover_frame_to_rendered_asset"
+    assert services.select_audio_for_recommendation("rec_1", "aud_1", operator="tester")["method"] == "select_audio_for_recommendation"
+    assert services.verify_audio_for_post("post_1", proof_url="https://proof.example/aud")["method"] == "verify_audio_for_post"
+    assert services.audio_catalog_row("aud_1", allow_locator=True)["method"] == "audio_catalog_row"
+    assert services.audio_selection_payload("sel_1")["method"] == "audio_selection_payload"
+    assert services.link_audio_selection_graph(selection_id="sel_1", audio_catalog_id="aud_1", campaign_id="camp_1")["method"] == "link_audio_selection_graph"
+    assert services.resolve_audio_exception_for_recommendation("rec_1", operator="tester", proof_url="https://proof.example/aud")["method"] == "resolve_audio_exception_for_recommendation"
+    assert services.record_audio_performance_snapshot(snapshot, commit=False)["method"] == "record_audio_performance_snapshot"
+    assert services.performance_snapshot_score(snapshot)["method"] == "performance_snapshot_score"
+    assert services.audio_workflow_summary([asset])["method"] == "audio_workflow_summary"
+    assert services.dashboard_audio_intent_for_asset(asset)["method"] == "dashboard_audio_intent_for_asset"
+    assert services.audio_task_for_dashboard_intent(intent)["method"] == "audio_task_for_dashboard_intent"
+    assert services.normalize_seconds("1.25")["method"] == "normalize_seconds"
+    assert services.first_metadata_value({"x": "y"}, "x")["method"] == "first_metadata_value"
+    assert services.normalize_audio_segment({"start_seconds": 1})["method"] == "normalize_audio_segment"
+    assert services.audio_segment_for_asset(intent)["method"] == "audio_segment_for_asset"
+    assert services.normalize_cover_frame({"seconds": 2})["method"] == "normalize_cover_frame"
+    assert services.cover_frame_for_asset(asset)["method"] == "cover_frame_for_asset"
+    assert services.audio_selection_for_asset(asset)["method"] == "audio_selection_for_asset"
+    assert services.audio_intent_is_attached(intent, "aud_1")["method"] == "audio_intent_is_attached"
+    assert services.audio_intent_claims_embedded_media(intent)["method"] == "audio_intent_claims_embedded_media"
+    assert services.embedded_audio_verified("/tmp/reel.mp4")["method"] == "embedded_audio_verified"
+
+    assert calls == [
+        ("attach_audio_to_distribution_plan", ("dist_1",), {"track_id": "aud_1"}),
+        ("attach_cover_frame_to_rendered_asset", ("asset_1",), {"seconds": 1.5}),
+        ("select_audio_for_recommendation", ("rec_1", "aud_1"), {"operator": "tester"}),
+        ("verify_audio_for_post", ("post_1",), {"proof_url": "https://proof.example/aud"}),
+        ("audio_catalog_row", ("aud_1",), {"allow_locator": True}),
+        ("audio_selection_payload", ("sel_1",), {}),
+        ("link_audio_selection_graph", (), {"selection_id": "sel_1", "audio_catalog_id": "aud_1", "campaign_id": "camp_1"}),
+        ("resolve_audio_exception_for_recommendation", ("rec_1",), {"operator": "tester", "proof_url": "https://proof.example/aud"}),
+        ("record_audio_performance_snapshot", (snapshot,), {"commit": False}),
+        ("performance_snapshot_score", (snapshot,), {}),
+        ("audio_workflow_summary", ([asset],), {}),
+        ("dashboard_audio_intent_for_asset", (asset,), {}),
+        ("audio_task_for_dashboard_intent", (intent,), {}),
+        ("normalize_seconds", ("1.25",), {}),
+        ("first_metadata_value", ({"x": "y"}, "x"), {}),
+        ("normalize_audio_segment", ({"start_seconds": 1},), {}),
+        ("audio_segment_for_asset", (intent,), {}),
+        ("normalize_cover_frame", ({"seconds": 2},), {}),
+        ("cover_frame_for_asset", (asset,), {"caption_context": None}),
+        ("audio_selection_for_asset", (asset,), {}),
+        ("audio_intent_is_attached", (intent, "aud_1"), {}),
+        ("audio_intent_claims_embedded_media", (intent,), {}),
+        ("embedded_audio_verified", ("/tmp/reel.mp4",), {}),
     ]
 
 

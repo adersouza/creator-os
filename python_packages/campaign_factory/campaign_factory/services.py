@@ -9,6 +9,7 @@ from .account_health import AccountHealthRepository
 from .account_memory import AccountMemoryRepository
 from .archive_quality import ArchiveQualityRepository
 from .asset_import import AssetImportRepository
+from .audio_operations import AudioOperationsRepository
 from .audio_recommendations import AudioRecommendationRepository
 from .autonomy import AutonomyPolicyRepository
 from .caption import CaptionFamilyRepository
@@ -623,6 +624,41 @@ class CoreServices:
             run_reel_factory=self.reel_execution.run_reel_factory,
             sync_reel_outputs=self.reel_execution.sync_reel_outputs,
         )
+        self.audio_recommendations = AudioRecommendationRepository(
+            conn,
+            settings,
+            new_id=new_id,
+            slugify=slugify,
+            campaign_by_slug=self.campaign_by_slug,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+            record_event=self.events.record_event,
+            recommendation_item_row=self.recommendations.recommendation_item_row,
+            reference_pattern_payload=self.reference.reference_pattern_payload,
+            select_audio_for_recommendation=lambda *args, **kwargs: self.audio_operations.select_audio_for_recommendation(*args, **kwargs),
+        )
+        self.audio_operations = AudioOperationsRepository(
+            conn,
+            slugify=slugify,
+            sanitize_for_storage=sanitize_for_storage,
+            utc_now=utc_now,
+            video_exts={".mp4", ".mov", ".m4v", ".webm"},
+            probe_video_metadata=probe_video_metadata,
+            rendered_asset=self.rendered_asset,
+            record_event=self.events.record_event,
+            recommendation_item_row=self.recommendations.recommendation_item_row,
+            recommendation_item_campaign=self.recommendations.recommendation_item_campaign,
+            recommendation_item=self.recommendations.recommendation_item,
+            audio_catalog_payload=self.audio_recommendations.audio_catalog_payload,
+            audio_catalog_recommendation=self.audio_recommendations.audio_catalog_recommendation,
+            graph_id_for=self.graph.graph_id_for,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            ensure_graph_edge_strict=ensure_graph_edge_strict,
+            resolve_exception=self.exceptions.resolve_exception,
+            performance_snapshot_payload=performance_snapshot_payload,
+        )
         self.archive_quality = ArchiveQualityRepository(
             conn,
             slugify=slugify,
@@ -934,20 +970,6 @@ class CoreServices:
             conn,
             campaign_by_slug=self.campaign_by_slug,
             slugify=slugify,
-        )
-        self.audio_recommendations = AudioRecommendationRepository(
-            conn,
-            settings,
-            new_id=new_id,
-            slugify=slugify,
-            campaign_by_slug=self.campaign_by_slug,
-            ensure_graph_node=self.graph.ensure_graph_node,
-            ensure_graph_edge=self.graph.ensure_graph_edge,
-            graph_id_for=self.graph.graph_id_for,
-            record_event=self.events.record_event,
-            recommendation_item_row=self.recommendations.recommendation_item_row,
-            reference_pattern_payload=self.reference.reference_pattern_payload,
-            select_audio_for_recommendation=select_audio_for_recommendation,
         )
         self.certification = CertificationRepository(
             conn,
@@ -1415,6 +1437,75 @@ class CoreServices:
 
     def norm_tag(self, value: Any) -> str:
         return self.audio_recommendations.norm_tag(value)
+
+    def attach_audio_to_distribution_plan(self, distribution_plan_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.audio_operations.attach_audio_to_distribution_plan(distribution_plan_id, **kwargs)
+
+    def attach_cover_frame_to_rendered_asset(self, rendered_asset_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.audio_operations.attach_cover_frame_to_rendered_asset(rendered_asset_id, **kwargs)
+
+    def select_audio_for_recommendation(self, recommendation_item_id: str, audio_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.audio_operations.select_audio_for_recommendation(recommendation_item_id, audio_id, **kwargs)
+
+    def verify_audio_for_post(self, post_id: str, **kwargs: Any) -> dict[str, Any]:
+        return self.audio_operations.verify_audio_for_post(post_id, **kwargs)
+
+    def audio_catalog_row(self, audio_id: str, *, allow_locator: bool = False) -> dict[str, Any]:
+        return self.audio_operations.audio_catalog_row(audio_id, allow_locator=allow_locator)
+
+    def audio_selection_payload(self, selection_id: str) -> dict[str, Any]:
+        return self.audio_operations.audio_selection_payload(selection_id)
+
+    def link_audio_selection_graph(self, **kwargs: Any) -> None:
+        return self.audio_operations.link_audio_selection_graph(**kwargs)
+
+    def resolve_audio_exception_for_recommendation(self, recommendation_item_id: str, **kwargs: Any) -> None:
+        return self.audio_operations.resolve_audio_exception_for_recommendation(recommendation_item_id, **kwargs)
+
+    def record_audio_performance_snapshot(self, snapshot: dict[str, Any], *, commit: bool = True) -> dict[str, Any] | None:
+        return self.audio_operations.record_audio_performance_snapshot(snapshot, commit=commit)
+
+    def performance_snapshot_score(self, snapshot: dict[str, Any]) -> float:
+        return self.audio_operations.performance_snapshot_score(snapshot)
+
+    def audio_workflow_summary(self, rendered: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.audio_operations.audio_workflow_summary(rendered)
+
+    def dashboard_audio_intent_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+        return self.audio_operations.dashboard_audio_intent_for_asset(asset)
+
+    def audio_task_for_dashboard_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
+        return self.audio_operations.audio_task_for_dashboard_intent(intent)
+
+    def normalize_seconds(self, value: Any) -> float | None:
+        return self.audio_operations.normalize_seconds(value)
+
+    def first_metadata_value(self, payload: dict[str, Any], *keys: str) -> Any:
+        return self.audio_operations.first_metadata_value(payload, *keys)
+
+    def normalize_audio_segment(self, payload: Any) -> dict[str, Any] | None:
+        return self.audio_operations.normalize_audio_segment(payload)
+
+    def audio_segment_for_asset(self, audio_intent: dict[str, Any]) -> dict[str, Any] | None:
+        return self.audio_operations.audio_segment_for_asset(audio_intent)
+
+    def normalize_cover_frame(self, payload: Any) -> dict[str, Any] | None:
+        return self.audio_operations.normalize_cover_frame(payload)
+
+    def cover_frame_for_asset(self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        return self.audio_operations.cover_frame_for_asset(asset, caption_context=caption_context)
+
+    def audio_selection_for_asset(self, asset: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        return self.audio_operations.audio_selection_for_asset(asset)
+
+    def audio_intent_is_attached(self, audio_intent: dict[str, Any], audio_id: str | None) -> bool:
+        return self.audio_operations.audio_intent_is_attached(audio_intent, audio_id)
+
+    def audio_intent_claims_embedded_media(self, audio_intent: dict[str, Any]) -> bool:
+        return self.audio_operations.audio_intent_claims_embedded_media(audio_intent)
+
+    def embedded_audio_verified(self, output_path: str) -> bool | None:
+        return self.audio_operations.embedded_audio_verified(output_path)
 
     def creator_os_draft_inventory_gap(
         self,
