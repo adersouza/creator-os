@@ -1,0 +1,752 @@
+{
+  "schema": "reference_factory.audio_catalog_export.v1",
+  "exportedAt": "2026-06-20T00:00:00+00:00",
+  "source": "python_packages/reel_factory/project_data/audio_sources/tiktok_audio_candidates_review_20260603.json",
+  "items": [
+    {
+      "id": "tiktok_cml_we_should_stick_together_elijah_woods",
+      "title": "We Should Stick Together",
+      "artistName": "elijah woods",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_we_should_stick_together_elijah_woods",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "happy",
+        "pop",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 1,
+        "trendRank": 1,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_tomorrow_fly_by_midnight",
+      "title": "Tomorrow",
+      "artistName": "Fly By Midnight",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_tomorrow_fly_by_midnight",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "pop",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 2,
+        "trendRank": 2,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_perfume_emmit_fenn",
+      "title": "Perfume",
+      "artistName": "Emmit Fenn",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_perfume_emmit_fenn",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 3,
+        "trendRank": 5,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_5_minutes_don_diablo_pink_sweats",
+      "title": "5 Minutes",
+      "artistName": "Don Diablo & Pink Sweat$",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_5_minutes_don_diablo_pink_sweats",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 4,
+        "trendRank": 7,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_ancora_durante_teed_remix",
+      "title": "Ancora - Totally Enormous Extinct Dinosaurs Remix",
+      "artistName": "Durante",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_ancora_durante_teed_remix",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 5,
+        "trendRank": 9,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_carry_me_home_above_beyond_zoe_johnston",
+      "title": "Carry Me Home",
+      "artistName": "Above & Beyond & Zoe Johnston",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_carry_me_home_above_beyond_zoe_johnston",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 6,
+        "trendRank": 10,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_insomniac_ella_boh",
+      "title": "iNSOMNiAC",
+      "artistName": "Ella Boh",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_insomniac_ella_boh",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 7,
+        "trendRank": 13,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_get_wicked_brx",
+      "title": "Get Wicked",
+      "artistName": "BRX",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_get_wicked_brx",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 8,
+        "trendRank": 15,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_stay_still_a_little_while_lane_8_jyll",
+      "title": "Stay Still, A Little While",
+      "artistName": "Lane 8 & Jyll",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_stay_still_a_little_while_lane_8_jyll",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "dynamic",
+        "electronic",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 9,
+        "trendRank": 17,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_cml_recharge_choppy_wav",
+      "title": "recharge",
+      "artistName": "choppy.wav",
+      "platform": "tiktok",
+      "nativeAudioId": "cml_recharge_choppy_wav",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "chill",
+        "rnb_soul",
+        "commercial_safe_candidate",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "TikTok Commercial Music Library candidate. Confirm account/region availability in TikTok before attaching natively; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.78,
+      "trendSources": [
+        "tiktok_cml"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 10,
+        "trendRank": 20,
+        "selectedReason": "official_cml_top_music_candidate"
+      }
+    },
+    {
+      "id": "tiktok_kworb_us_001_cupid_twin_ver_sped_up",
+      "title": "Cupid - Twin Ver. (Sped Up Version)",
+      "artistName": "sped up 8282 / FIFTY FIFTY",
+      "platform": "tiktok",
+      "nativeAudioId": "kworb_us_001_cupid_twin_ver_sped_up",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "pop",
+        "upbeat",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "organic_tiktok_us"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 11,
+        "trendRank": 1,
+        "selectedReason": "kworb_us_top_100_20260603"
+      }
+    },
+    {
+      "id": "tiktok_kworb_us_002_bounce_when_she_walk",
+      "title": "Bounce When She Walk",
+      "artistName": "Ohboyprince",
+      "platform": "tiktok",
+      "nativeAudioId": "kworb_us_002_bounce_when_she_walk",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "hip_hop_rap",
+        "confidence",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "organic_tiktok_us"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 12,
+        "trendRank": 2,
+        "selectedReason": "kworb_us_top_100_20260603"
+      }
+    },
+    {
+      "id": "tiktok_kworb_us_011_favorite_song",
+      "title": "Favorite Song",
+      "artistName": "Toosii",
+      "platform": "tiktok",
+      "nativeAudioId": "kworb_us_011_favorite_song",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "rnb_soul",
+        "lifestyle",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "organic_tiktok_us"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 18,
+        "trendRank": 11,
+        "selectedReason": "kworb_us_top_100_20260603"
+      }
+    },
+    {
+      "id": "tiktok_kworb_us_016_i_know_sped_up",
+      "title": "I Know (sped up)",
+      "artistName": "Kanii",
+      "platform": "tiktok",
+      "nativeAudioId": "kworb_us_016_i_know_sped_up",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "rnb_soul",
+        "upbeat",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "organic_tiktok_us"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 19,
+        "trendRank": 16,
+        "selectedReason": "kworb_us_top_100_20260603"
+      }
+    },
+    {
+      "id": "tiktok_kworb_us_030_glue_alt",
+      "title": "Glue Alt",
+      "artistName": "Bicep",
+      "platform": "tiktok",
+      "nativeAudioId": "kworb_us_030_glue_alt",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "electronic",
+        "chill",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "fresh",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "organic_tiktok_us"
+      ],
+      "raw": {
+        "reviewStatus": "maybe",
+        "reviewIndex": 23,
+        "trendRank": 30,
+        "selectedReason": "kworb_us_top_100_20260603"
+      }
+    },
+    {
+      "id": "tiktok_local_audio_7589529552888662802",
+      "title": "Unknown local TikTok audio 7589529552888662802",
+      "artistName": "",
+      "platform": "tiktok",
+      "nativeAudioId": "local_audio_7589529552888662802",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "local_winner",
+        "needs_tiktok_lookup",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "local_archive_audio_id"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 24,
+        "trendRank": null,
+        "selectedReason": "local_archive_top_audio_2300000_plays_178100_likes"
+      }
+    },
+    {
+      "id": "tiktok_local_audio_7591194510978321182",
+      "title": "Unknown local TikTok audio 7591194510978321182",
+      "artistName": "",
+      "platform": "tiktok",
+      "nativeAudioId": "local_audio_7591194510978321182",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "local_winner",
+        "needs_tiktok_lookup",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 6,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "local_archive_audio_id"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 25,
+        "trendRank": null,
+        "selectedReason": "local_archive_repeated_audio_692800_plays_89000_likes"
+      }
+    },
+    {
+      "id": "tiktok_local_audio_7580526049614285599",
+      "title": "Unknown local TikTok audio 7580526049614285599",
+      "artistName": "",
+      "platform": "tiktok",
+      "nativeAudioId": "local_audio_7580526049614285599",
+      "nativeAudioUrl": null,
+      "moodTags": [
+        "local_winner",
+        "dance",
+        "needs_tiktok_lookup",
+        "organic_not_cml_verified",
+        "shortform",
+        "native_audio_pool"
+      ],
+      "bestContentTypes": [
+        "reel",
+        "slideshow",
+        "captioned_reference"
+      ],
+      "accountFit": [],
+      "trendStatus": "rising",
+      "usageCount": null,
+      "bpm": null,
+      "energy": 8,
+      "safeUsageNotes": "Organic trend candidate, not commercial-library verified. Use only after operator confirms rights and platform availability; do not burn platform audio into rendered media.",
+      "dateDiscovered": "2026-06-03T00:00:00+00:00",
+      "expiresAt": null,
+      "reviewReasons": [
+        "operator_review_recommended"
+      ],
+      "source": "reel_factory.tiktok_audio_candidates_review_20260603",
+      "sourceConfidence": 0.62,
+      "trendSources": [
+        "local_archive_audio_id"
+      ],
+      "raw": {
+        "reviewStatus": "keep",
+        "reviewIndex": 26,
+        "trendRank": null,
+        "selectedReason": "local_archive_dance_audio_224500_plays_21500_likes"
+      }
+    }
+  ]
+}
