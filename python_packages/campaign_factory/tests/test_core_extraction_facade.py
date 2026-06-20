@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import inspect
 from pathlib import Path
 
@@ -70,6 +71,36 @@ from campaign_factory.surface_summary import SurfaceSummaryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
+
+
+def test_campaign_factory_core_stays_composition_root_facade() -> None:
+    source = inspect.getsource(CampaignFactory)
+    parsed = ast.parse(source)
+    cls = parsed.body[0]
+    allowed = {"__init__", "close", "_load_source_lineage"}
+    simple_compat = {"_reel_caption_account_safety_violations": "discoverability_safe_content_contract"}
+    non_facade: list[str] = []
+
+    for method in [node for node in cls.body if isinstance(node, ast.FunctionDef)]:
+        body = [
+            stmt for stmt in method.body
+            if not (
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str)
+            )
+        ]
+        if method.name in allowed:
+            continue
+        if len(body) != 1:
+            non_facade.append(method.name)
+            continue
+        stmt_source = ast.get_source_segment(source, body[0]) or ""
+        compat_call = simple_compat.get(method.name)
+        if "self.services." not in stmt_source and (not compat_call or compat_call not in stmt_source):
+            non_facade.append(method.name)
+
+    assert non_facade == []
 
 
 def test_campaign_factory_initializes_core_services(tmp_path) -> None:

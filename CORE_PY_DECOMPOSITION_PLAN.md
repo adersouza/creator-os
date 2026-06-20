@@ -164,7 +164,7 @@ These are called everywhere (not state): `record_event` (40), `campaign_by_slug`
 
 Retained non-return wrappers are intentional compatibility delegates, not owned domain logic: `close`, `set_graph_sync_state`, `_record_creative_plan_event`, `_record_lineage_costs`, and `_add_obligation_to_totals`. The only retained multi-line shim is `_load_source_lineage`, which remains facade-owned to preserve the finished-video late-bound monkeypatch seam; it validates the optional lineage path, loads a JSON object, records costs through services, and returns the payload.
 
-Final scan: the only non-trivial `CampaignFactory` method bodies are `__init__` as the composition root and `_load_source_lineage` as the documented compatibility shim. No Tier 3 domain remains in `core.py`; future work should target repository internals or remove compatibility shims only when tests prove callers no longer rely on them.
+Final scan: the only non-trivial `CampaignFactory` method bodies are `__init__` as the composition root and `_load_source_lineage` as the documented compatibility shim; `close` owns the SQLite connection lifecycle. `test_campaign_factory_core_stays_composition_root_facade` now fails if new domain logic creeps back into `core.py`. No Tier 3 domain remains in `core.py`; future work should target repository internals or remove compatibility shims only when tests prove callers no longer rely on them.
 
 ## Execution mode from PR 44 onward
 
