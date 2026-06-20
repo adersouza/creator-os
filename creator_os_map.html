@@ -87,7 +87,7 @@
 <header>
   <h1>Creator OS — System Map</h1>
   <span class="meta">contract-driven content pipeline · juno33.com · main closeout, dashboard external</span>
-  <span class="score">system <b id="hsys">8.2</b>/10</span>
+  <span class="score">system <b id="hsys">8.5</b>/10</span>
 </header>
 <nav>
   <button data-tab="flow" class="active">Pipeline Flow</button>
@@ -238,9 +238,9 @@ const COMPONENTS=[
   {id:'dashboard',name:'ThreadsDashboard (Juno33)',lang:'TypeScript',role:'Product — drafts, scheduling, auto-posting, analytics, multi-account',score:8.7,sub:[9,9,9,8,9],files:2102,nodes:16975,status:'works',
    keyfiles:['Separate product repo (ThreadsDashboard) — dashboard work is upstream','draftIngest.ts:449 — upsert posts as draft','publishing.ts:199 — Meta Graph media_publish'],
    notes:['Highest-scoring component','Standalone upstream product (juno33.com) — changes go to ThreadsDashboard','Base publish chain (draft→schedule→QStash→publish→metrics) real & working','✓ Autoposter hardening AP0–AP3 SHIPPED to TD main (ec2190b5e) — race/metrics/chain + retry/taxonomy/quota/idempotency/token/scope/audio + transitionPostStatus chokepoint + account-health auto-backoff; 379 tests pass. See Autoposter Map']},
-  {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:7.5,sub:[8,null,7,null,8],files:32,nodes:1620,status:'works',
-   keyfiles:['packages/pipeline_contracts/__init__.py — hand-rolled validator','typescript/ — ~12 hand-coded validators','schemas/*.json — 16 contracts'],
-   notes:['Canonical source; compatibility copies must stay byte-synced','Validators use canonical schema-backed checks']},
+  {id:'contracts',name:'Pipeline Contracts',lang:'Python + TS',role:'Schemas — shared JSON schemas + validators for cross-repo payloads',score:9.0,sub:[9,null,9,null,9],files:32,nodes:1620,status:'works',
+   keyfiles:['validator.py — jsonschema Draft 2020-12 over canonical schemas','typescript/index.ts — AJV 2020 over generated schemas','generated-schemas.ts — generated from schema JSON','check-pipeline-contracts-sync.mjs — canonical/compat byte-sync gate'],
+   notes:['Canonical source; compatibility copies stay byte-synced by pnpm check:contracts','Python and TypeScript validators use canonical generated/schema-backed checks','Optional THREADSDASH_ROOT consumer test validates the real ThreadsDashboard contract snapshot when present']},
 ];
 
 const HANDOFFS=[
