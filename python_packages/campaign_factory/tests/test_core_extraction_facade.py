@@ -8,6 +8,7 @@ from campaign_factory.account_health import AccountHealthRepository
 from campaign_factory.account_memory import AccountMemoryRepository
 from campaign_factory.asset_import import AssetImportRepository
 from campaign_factory.archive_quality import ArchiveQualityRepository
+from campaign_factory.audio_recommendations import AudioRecommendationRepository
 from campaign_factory.autonomy import AutonomyPolicyRepository
 from campaign_factory.caption import CaptionFamilyRepository
 from campaign_factory.carousel_integrity import CarouselIntegrityRepository
@@ -177,6 +178,8 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         assert factory.services.multi_blocker_unlock.conn is factory.conn
         assert isinstance(factory.services.performance_summary_repo, PerformanceSummaryRepository)
         assert factory.services.performance_summary_repo.conn is factory.conn
+        assert isinstance(factory.services.audio_recommendations, AudioRecommendationRepository)
+        assert factory.services.audio_recommendations.conn is factory.conn
         assert isinstance(factory.services.inventory_perceptual, InventoryPerceptualRepository)
         assert factory.services.inventory_perceptual.conn is factory.conn
         assert isinstance(factory.services.inventory_reservations, InventoryReservationRepository)
@@ -4965,6 +4968,218 @@ def test_core_services_delegates_performance_summary_methods_to_repository() -> 
         ("performance_caption_formula_dimension", (campaign_meta,), {}),
         ("performance_variation_preset_dimension", (campaign_meta, row), {}),
         ("performance_score", (), {"source": source, "caption": caption, "recipe": recipe}),
+    ]
+
+
+def test_campaign_factory_delegates_audio_recommendation_methods_to_services() -> None:
+    factory = object.__new__(CampaignFactory)
+    calls = []
+
+    class FakeServices:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    factory.services = FakeServices()
+    item = {"id": "aud_1", "title": "Runway Pop", "platform": "instagram"}
+    row = {"id": "aud_1", "raw_json": "{}"}
+    recs = [{"audioTitle": "Runway Pop"}]
+    risks = ["needs_ig_lookup"]
+    components = {"trend": 90.0}
+
+    assert factory.import_audio_catalog(Path("audio.json"))["method"] == "import_audio_catalog"
+    assert factory.import_audio_memory(Path("audio.json"))["method"] == "import_audio_memory"
+    assert factory.audio_catalog(platform="instagram", limit=3)["method"] == "audio_catalog"
+    assert factory.audio_memory(platform="instagram", account="ig_1", limit=3)["method"] == "audio_memory"
+    assert factory.recommend_audio(platform="instagram", content_tags=["mirror"], account_tags=["ig_1"], limit=2)["method"] == "recommend_audio"
+    assert factory.decide_audio(platform="instagram", recommendation_item_id="rec_1", select=True)["method"] == "decide_audio"
+    assert factory.decide_audio_from_recommendations(recs, requested_platform="instagram")["method"] == "decide_audio_from_recommendations"
+    assert factory._audio_decision_score(item, requested_platform="instagram")["method"] == "audio_decision_score"
+    assert factory._audio_decision_confidence(item)["method"] == "audio_decision_confidence"
+    assert factory._audio_when_to_use(item, risks)["method"] == "audio_when_to_use"
+    assert factory._audio_when_not_to_use(item, risks)["method"] == "audio_when_not_to_use"
+    assert factory._audio_operator_instruction(item)["method"] == "audio_operator_instruction"
+    assert factory._is_generic_audio_title("Instagram audio abc", "instagram")["method"] == "is_generic_audio_title"
+    assert factory._audio_catalog_payload(row)["method"] == "audio_catalog_payload"
+    assert factory._audio_performance_summary(item, campaign_id="camp_1", account="ig_1")["method"] == "audio_performance_summary"
+    assert factory._audio_fatigue_summary(item, campaign_id="camp_1", account="ig_1")["method"] == "audio_fatigue_summary"
+    assert factory._audio_key(item)["method"] == "audio_key"
+    assert factory._score_audio_catalog_item(item, {"mirror"}, {"ig_1"})["method"] == "score_audio_catalog_item"
+    assert factory._score_audio_catalog_item_v2(item, {"mirror"}, {"ig_1"}, account="ig_1")["method"] == "score_audio_catalog_item_v2"
+    assert factory._audio_trend_component(item)["method"] == "audio_trend_component"
+    assert factory._audio_velocity_component(item)["method"] == "audio_velocity_component"
+    assert factory._audio_performance_component(item)["method"] == "audio_performance_component"
+    assert factory._audio_account_fit_component(item, {"ig_1"})["method"] == "audio_account_fit_component"
+    assert factory._audio_creator_fit_component(item, {"mirror"})["method"] == "audio_creator_fit_component"
+    assert factory._audio_fatigue_safety_component(item)["method"] == "audio_fatigue_safety_component"
+    assert factory._audio_recommendation_confidence(item, components)["method"] == "audio_recommendation_confidence"
+    assert factory._latest_audio_trend_snapshot_payload(item)["method"] == "latest_audio_trend_snapshot_payload"
+    assert factory._audio_memory_trust_summary([item])["method"] == "audio_memory_trust_summary"
+    assert factory._contentforge_audio_fit_for_item(item, {"mirror"}, visual_signal={"energy": "high"})["method"] == "contentforge_audio_fit_for_item"
+    assert factory._audio_catalog_recommendation(item)["method"] == "audio_catalog_recommendation"
+    assert factory._norm_tag("Fit Check")["method"] == "norm_tag"
+
+    assert calls == [
+        ("import_audio_catalog", (Path("audio.json"),), {}),
+        ("import_audio_memory", (Path("audio.json"),), {}),
+        ("audio_catalog", (), {"platform": "instagram", "limit": 3}),
+        ("audio_memory", (), {"platform": "instagram", "account": "ig_1", "limit": 3}),
+        ("recommend_audio", (), {
+            "platform": "instagram",
+            "content_tags": ["mirror"],
+            "account_tags": ["ig_1"],
+            "campaign_slug": None,
+            "recommendation_item_id": None,
+            "account": None,
+            "visual_signal": None,
+            "limit": 2,
+        }),
+        ("decide_audio", (), {
+            "platform": "instagram",
+            "campaign_slug": None,
+            "recommendation_item_id": "rec_1",
+            "account": None,
+            "content_tags": None,
+            "account_tags": None,
+            "visual_signal": None,
+            "limit": 5,
+            "select": True,
+            "operator": None,
+        }),
+        ("decide_audio_from_recommendations", (recs,), {"requested_platform": "instagram", "content_tags": None, "account_tags": None}),
+        ("audio_decision_score", (item,), {"requested_platform": "instagram"}),
+        ("audio_decision_confidence", (item,), {}),
+        ("audio_when_to_use", (item, risks), {}),
+        ("audio_when_not_to_use", (item, risks), {}),
+        ("audio_operator_instruction", (item,), {}),
+        ("is_generic_audio_title", ("Instagram audio abc", "instagram"), {}),
+        ("audio_catalog_payload", (row,), {}),
+        ("audio_performance_summary", (item,), {"campaign_id": "camp_1", "account": "ig_1"}),
+        ("audio_fatigue_summary", (item,), {"campaign_id": "camp_1", "account": "ig_1"}),
+        ("audio_key", (item,), {}),
+        ("score_audio_catalog_item", (item, {"mirror"}, {"ig_1"}), {}),
+        ("score_audio_catalog_item_v2", (item, {"mirror"}, {"ig_1"}), {"account": "ig_1"}),
+        ("audio_trend_component", (item,), {}),
+        ("audio_velocity_component", (item,), {}),
+        ("audio_performance_component", (item,), {}),
+        ("audio_account_fit_component", (item, {"ig_1"}), {}),
+        ("audio_creator_fit_component", (item, {"mirror"}), {}),
+        ("audio_fatigue_safety_component", (item,), {}),
+        ("audio_recommendation_confidence", (item, components), {}),
+        ("latest_audio_trend_snapshot_payload", (item,), {}),
+        ("audio_memory_trust_summary", ([item],), {}),
+        ("contentforge_audio_fit_for_item", (item, {"mirror"}), {"visual_signal": {"energy": "high"}}),
+        ("audio_catalog_recommendation", (item,), {}),
+        ("norm_tag", ("Fit Check",), {}),
+    ]
+
+
+def test_core_services_delegates_audio_recommendation_methods_to_repository() -> None:
+    services = object.__new__(CoreServices)
+    calls = []
+
+    class FakeAudioRecommendations:
+        def __getattr__(self, name):
+            def _fake(*args, **kwargs):
+                calls.append((name, args, kwargs))
+                return {"method": name, "args": args, "kwargs": kwargs}
+
+            return _fake
+
+    services.audio_recommendations = FakeAudioRecommendations()
+    item = {"id": "aud_1", "title": "Runway Pop", "platform": "instagram"}
+    row = {"id": "aud_1", "raw_json": "{}"}
+    recs = [{"audioTitle": "Runway Pop"}]
+    risks = ["needs_ig_lookup"]
+    components = {"trend": 90.0}
+
+    assert services.import_audio_catalog(Path("audio.json"))["method"] == "import_audio_catalog"
+    assert services.import_audio_memory(Path("audio.json"))["method"] == "import_audio_memory"
+    assert services.audio_catalog(platform="instagram", limit=3)["method"] == "audio_catalog"
+    assert services.audio_memory(platform="instagram", account="ig_1", limit=3)["method"] == "audio_memory"
+    assert services.recommend_audio(platform="instagram", content_tags=["mirror"], account_tags=["ig_1"], limit=2)["method"] == "recommend_audio"
+    assert services.decide_audio(platform="instagram", recommendation_item_id="rec_1", select=True)["method"] == "decide_audio"
+    assert services.decide_audio_from_recommendations(recs, requested_platform="instagram")["method"] == "decide_audio_from_recommendations"
+    assert services.audio_decision_score(item, requested_platform="instagram")["method"] == "audio_decision_score"
+    assert services.audio_decision_confidence(item)["method"] == "audio_decision_confidence"
+    assert services.audio_when_to_use(item, risks)["method"] == "audio_when_to_use"
+    assert services.audio_when_not_to_use(item, risks)["method"] == "audio_when_not_to_use"
+    assert services.audio_operator_instruction(item)["method"] == "audio_operator_instruction"
+    assert services.is_generic_audio_title("Instagram audio abc", "instagram")["method"] == "is_generic_audio_title"
+    assert services.audio_catalog_payload(row)["method"] == "audio_catalog_payload"
+    assert services.audio_performance_summary(item, campaign_id="camp_1", account="ig_1")["method"] == "audio_performance_summary"
+    assert services.audio_fatigue_summary(item, campaign_id="camp_1", account="ig_1")["method"] == "audio_fatigue_summary"
+    assert services.audio_key(item)["method"] == "audio_key"
+    assert services.score_audio_catalog_item(item, {"mirror"}, {"ig_1"})["method"] == "score_audio_catalog_item"
+    assert services.score_audio_catalog_item_v2(item, {"mirror"}, {"ig_1"}, account="ig_1")["method"] == "score_audio_catalog_item_v2"
+    assert services.audio_trend_component(item)["method"] == "audio_trend_component"
+    assert services.audio_velocity_component(item)["method"] == "audio_velocity_component"
+    assert services.audio_performance_component(item)["method"] == "audio_performance_component"
+    assert services.audio_account_fit_component(item, {"ig_1"})["method"] == "audio_account_fit_component"
+    assert services.audio_creator_fit_component(item, {"mirror"})["method"] == "audio_creator_fit_component"
+    assert services.audio_fatigue_safety_component(item)["method"] == "audio_fatigue_safety_component"
+    assert services.audio_recommendation_confidence(item, components)["method"] == "audio_recommendation_confidence"
+    assert services.latest_audio_trend_snapshot_payload(item)["method"] == "latest_audio_trend_snapshot_payload"
+    assert services.audio_memory_trust_summary([item])["method"] == "audio_memory_trust_summary"
+    assert services.contentforge_audio_fit_for_item(item, {"mirror"}, visual_signal={"energy": "high"})["method"] == "contentforge_audio_fit_for_item"
+    assert services.audio_catalog_recommendation(item)["method"] == "audio_catalog_recommendation"
+    assert services.norm_tag("Fit Check")["method"] == "norm_tag"
+
+    assert calls == [
+        ("import_audio_catalog", (Path("audio.json"),), {}),
+        ("import_audio_memory", (Path("audio.json"),), {}),
+        ("audio_catalog", (), {"platform": "instagram", "limit": 3}),
+        ("audio_memory", (), {"platform": "instagram", "account": "ig_1", "limit": 3}),
+        ("recommend_audio", (), {
+            "platform": "instagram",
+            "content_tags": ["mirror"],
+            "account_tags": ["ig_1"],
+            "campaign_slug": None,
+            "recommendation_item_id": None,
+            "account": None,
+            "visual_signal": None,
+            "limit": 2,
+        }),
+        ("decide_audio", (), {
+            "platform": "instagram",
+            "campaign_slug": None,
+            "recommendation_item_id": "rec_1",
+            "account": None,
+            "content_tags": None,
+            "account_tags": None,
+            "visual_signal": None,
+            "limit": 5,
+            "select": True,
+            "operator": None,
+        }),
+        ("decide_audio_from_recommendations", (recs,), {"requested_platform": "instagram", "content_tags": None, "account_tags": None}),
+        ("audio_decision_score", (item,), {"requested_platform": "instagram"}),
+        ("audio_decision_confidence", (item,), {}),
+        ("audio_when_to_use", (item, risks), {}),
+        ("audio_when_not_to_use", (item, risks), {}),
+        ("audio_operator_instruction", (item,), {}),
+        ("is_generic_audio_title", ("Instagram audio abc", "instagram"), {}),
+        ("audio_catalog_payload", (row,), {}),
+        ("audio_performance_summary", (item,), {"campaign_id": "camp_1", "account": "ig_1"}),
+        ("audio_fatigue_summary", (item,), {"campaign_id": "camp_1", "account": "ig_1"}),
+        ("audio_key", (item,), {}),
+        ("score_audio_catalog_item", (item, {"mirror"}, {"ig_1"}), {}),
+        ("score_audio_catalog_item_v2", (item, {"mirror"}, {"ig_1"}), {"account": "ig_1"}),
+        ("audio_trend_component", (item,), {}),
+        ("audio_velocity_component", (item,), {}),
+        ("audio_performance_component", (item,), {}),
+        ("audio_account_fit_component", (item, {"ig_1"}), {}),
+        ("audio_creator_fit_component", (item, {"mirror"}), {}),
+        ("audio_fatigue_safety_component", (item,), {}),
+        ("audio_recommendation_confidence", (item, components), {}),
+        ("latest_audio_trend_snapshot_payload", (item,), {}),
+        ("audio_memory_trust_summary", ([item],), {}),
+        ("contentforge_audio_fit_for_item", (item, {"mirror"}), {"visual_signal": {"energy": "high"}}),
+        ("audio_catalog_recommendation", (item,), {}),
+        ("norm_tag", ("Fit Check",), {}),
     ]
 
 
