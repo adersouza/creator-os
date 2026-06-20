@@ -44,6 +44,7 @@ from .models import ModelRepository
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .operational_proofs import OperationalProofRepository
 from .operator_review import OperatorReviewRepository
+from .parent_factory_planning import ParentFactoryPlanningRepository
 from .parent_factory_reports import ParentFactoryReportRepository
 from .parent_factory_trials import ParentFactoryTrialRepository
 from .performance_summary import PerformanceSummaryRepository
@@ -761,6 +762,12 @@ class CoreServices:
             ratio=ratio,
             score_fraction=score_fraction,
         )
+        self.parent_factory_planning = ParentFactoryPlanningRepository(
+            inventory_production_requirements=self.inventory_planning.inventory_production_requirements,
+            reel_factory_parent_metrics=self.reel_factory_reports.reel_factory_parent_metrics,
+            parent_factory_yield_waterfall=self.parent_factory_reports.parent_factory_yield_waterfall,
+            parent_factory_loss_analysis=self.parent_factory_reports.parent_factory_loss_analysis,
+        )
         self.surface_handoff = SurfaceHandoffRepository(
             conn,
             slugify=slugify,
@@ -964,7 +971,7 @@ class CoreServices:
             inventory_slo_report=inventory_slo_report,
             surface_maturity_audit=self.operational_proofs.surface_maturity_audit,
             exception_queue_priority_report=exception_queue_priority_report,
-            parent_factory_autopilot_plan=parent_factory_autopilot_plan,
+            parent_factory_autopilot_plan=self.parent_factory_planning.parent_factory_autopilot_plan,
             inventory_autopilot_plan=inventory_autopilot_plan,
             operator_load_audit=self.operational_proofs.operator_load_audit,
             failure_injection_suite=self.operational_proofs.failure_injection_suite,
@@ -2687,6 +2694,15 @@ class CoreServices:
 
     def post_gate_blocked_candidate_evidence(self, sandbox: Any, result: dict[str, Any]) -> dict[str, Any] | None:
         return self.parent_factory_trials.post_gate_blocked_candidate_evidence(sandbox, result)
+
+    def parent_factory_autopilot_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_planning.parent_factory_autopilot_plan(**kwargs)
+
+    def parent_factory_shortfall_report(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_planning.parent_factory_shortfall_report(**kwargs)
+
+    def parent_factory_production_targets(self, **kwargs: Any) -> dict[str, Any]:
+        return self.parent_factory_planning.parent_factory_production_targets(**kwargs)
 
     def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)
