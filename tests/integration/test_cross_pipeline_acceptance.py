@@ -91,9 +91,39 @@ def _audio_intent() -> dict:
     }
 
 
+def _generated_asset_lineage(caption: dict) -> dict:
+    return {
+        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "source": {
+            "referenceImage": "fixture://reference/stacey_mirror",
+            "sourceReferenceId": "reference_acceptance_1",
+            "contentSurface": "reel",
+        },
+        "generation": {
+            "stillPromptId": "still_prompt_acceptance_1",
+            "motionPromptId": "motion_prompt_acceptance_1",
+            "output": "fixture://render/stacey_mirror_reel",
+            "generated": False,
+        },
+        "review": {
+            "approved": True,
+            "visualVerificationId": "visual_verify_acceptance_1",
+            "captionVerificationId": "caption_verify_acceptance_1",
+        },
+        "quality": {"safeZone": "pass", "captionPlacement": "pass", "discoverability": "pass"},
+        "asset_state": "exportable",
+        "publishability_failure_reasons": [],
+        "blockingReason": None,
+        "rootCause": None,
+        "captionOutcomeContext": caption,
+        "pipelineTraceId": "trace_phase4_acceptance_001",
+    }
+
+
 def _campaign_draft_payload() -> dict:
     caption = _caption_context()
     audio = _audio_intent()
+    lineage = _generated_asset_lineage(caption)
     campaign_factory = {
         "graph_id": "cg_rendered_asset_acceptance_reel_1",
         "campaign_graph_id": "cg_campaign_acceptance",
@@ -127,6 +157,7 @@ def _campaign_draft_payload() -> dict:
         "variant_operations": ["caption_safe_v2", "cover_frame"],
         "captionOutcomeContext": caption,
         "caption_outcome_context": caption,
+        "generated_asset_lineage": lineage,
         "audio_intent": audio,
     }
     campaign_factory["handoff_manifest"] = {

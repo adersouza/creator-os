@@ -646,6 +646,7 @@ export const generatedPipelineContractSchemas = {
 	                  "visible_caption_verification",
 	                  "expected_visual_verification",
 	                  "content_fingerprint",
+	                  "generated_asset_lineage",
 	                  "captionOutcomeContext",
 	                  "audio_intent",
 	                  "handoff_manifest",
@@ -907,6 +908,9 @@ export const generatedPipelineContractSchemas = {
 	                  },
 	                  "caption_outcome_context": {
 	                    "$ref": "caption_outcome_context.v1.schema.json"
+	                  },
+	                  "generated_asset_lineage": {
+	                    "$ref": "generated_asset_lineage.v1.schema.json"
 	                  },
 	                  "audio_intent": {
 	                    "$ref": "audio_intent.v1.schema.json"

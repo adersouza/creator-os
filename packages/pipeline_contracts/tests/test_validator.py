@@ -72,6 +72,14 @@ def test_generated_asset_lineage_requires_pipeline_trace_id():
         validate_generated_asset_lineage(payload)
 
 
+def test_campaign_draft_payload_requires_generated_asset_lineage():
+    payload = load_example("campaign_draft_payload")
+    payload["drafts"][0]["metadata"]["campaign_factory"].pop("generated_asset_lineage", None)
+
+    with pytest.raises(ContractValidationError, match="generated_asset_lineage"):
+        validate_campaign_draft_payload(payload)
+
+
 def test_recommendation_accuracy_report_requires_causal_graph_ids():
     payload = load_example("recommendation_accuracy_report")
     del payload["reportGraphId"]
