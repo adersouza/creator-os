@@ -11,6 +11,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from .db import json_dump, json_load
+from .audio import extract_audio_signal
 from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
@@ -237,6 +238,13 @@ def _pattern_source_rows(conn: Connection, limit: int) -> list[dict[str, Any]]:
     for item in top["items"]:
         reference_id = item.get("referenceId")
         source = probe = caption = label = None
+        public_post = conn.execute(
+            "SELECT raw_json FROM public_posts WHERE id = ?",
+            (item["id"],),
+        ).fetchone()
+        raw_json = item.get("rawJson")
+        if not raw_json and public_post:
+            raw_json = json_load(public_post["raw_json"], {})
         if reference_id:
             source = conn.execute(
                 "SELECT * FROM source_files WHERE reference_id = ?",
@@ -274,6 +282,7 @@ def _pattern_source_rows(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "probe": dict(probe) if probe else None,
                 "captionPattern": dict(caption) if caption else None,
                 "reviewLabel": dict(label) if label else None,
+                "rawJson": raw_json,
             }
         )
     return rows
@@ -321,8 +330,10 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
     review_tags = _review_tags(text_blob, caption_archetype, visual_format, caption_text)
     quality_score = _quality_score(item, caption_archetype, visual_format, review_tags)
     performance_tier = _performance_tier(int(item.get("rank") or 999999))
+    performance_class = _performance_class(item, quality_score)
     suggested_label = _suggested_label(item, quality_score)
     first_line = _first_line(caption_text)
+    audio_signal = extract_audio_signal(raw_json, item.get("productType"))
     return {
         "schema": "reference_factory.reference_pattern.v1",
         "analyzerVersion": ANALYZER_VERSION,
@@ -364,6 +375,15 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
         "visualFormat": visual_format,
         "hookType": hook_type,
         "captionArchetype": caption_archetype,
+        "performanceClass": performance_class,
+        "winnerDna": _winner_dna(
+            item,
+            visual_format=visual_format,
+            hook_type=hook_type,
+            caption_archetype=caption_archetype,
+            performance_class=performance_class,
+            audio_signal=audio_signal,
+        ),
         "reviewTags": review_tags,
         "promptPattern": _prompt_pattern(visual_format, hook_type, caption_archetype),
         "referenceUse": {
@@ -657,6 +677,41 @@ def _what_to_learn(visual_format: str, hook_type: str, caption_archetype: str) -
     return learn
 
 
+def _performance_class(item: dict[str, Any], quality_score: float) -> str:
+    measured = item.get("measuredOutcome") if isinstance(item.get("measuredOutcome"), dict) else {}
+    reward = measured.get("rewardScore") if isinstance(measured, dict) else None
+    if isinstance(reward, (int, float)):
+        if float(reward) >= 1.05:
+            return "performed_well"
+        if float(reward) <= 0.85:
+            return "underperformed"
+    if item.get("matchType") == "exact_media_id" and quality_score >= 74:
+        return "looks_good_only"
+    return "unproven"
+
+
+def _winner_dna(
+    item: dict[str, Any],
+    *,
+    visual_format: str,
+    hook_type: str,
+    caption_archetype: str,
+    performance_class: str,
+    audio_signal: dict[str, Any] | None,
+) -> dict[str, object]:
+    measured = item.get("measuredOutcome") if isinstance(item.get("measuredOutcome"), dict) else {}
+    return {
+        "performanceClass": performance_class,
+        "performanceSource": "measured_outcome" if measured else "public_or_review_signal",
+        "visualStructure": visual_format,
+        "hookType": hook_type,
+        "captionArchetype": caption_archetype,
+        "audioRole": (audio_signal or {}).get("audioVibe") or "unknown_audio",
+        "rewardScore": measured.get("rewardScore") if isinstance(measured, dict) else None,
+        "sampleCount": measured.get("sampleCount") if isinstance(measured, dict) else None,
+    }
+
+
 def _pattern_reasons(
     item: dict[str, Any],
     quality_score: float,
@@ -669,6 +724,7 @@ def _pattern_reasons(
         f"quality score {quality_score}",
         f"caption archetype {caption_archetype}",
         f"visual format {visual_format}",
+        f"performance class {_performance_class(item, quality_score)}",
     ]
     if item.get("matchType") == "exact_media_id":
         reasons.append("matched to local source video")

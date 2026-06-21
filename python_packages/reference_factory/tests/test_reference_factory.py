@@ -2108,6 +2108,79 @@ def test_pattern_analyzer_embeds_measured_outcome_signals(tmp_path: Path) -> Non
     assert pattern["metrics"]["measuredOutcome"]["sampleCount"] == 3
 
 
+def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind,
+          size_bytes, mtime, path_hash, created_at, updated_at
+        )
+        VALUES (
+          'ref_winner', '/examples/account_a/mirror_fitcheck_1111111111_2222222222_3333333333.mp4',
+          'account_a', 'mirror_fitcheck_1111111111_2222222222_3333333333.mp4',
+          '.mp4', 'video', 100, 'now', 'hash_winner', 'now', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO video_probes (
+          reference_id, valid, duration_seconds, width, height, fps,
+          codec, aspect_ratio, rotation, probe_json, probed_at
+        )
+        VALUES ('ref_winner', 1, 8, 1080, 1920, 30, 'h264', 0.5625, 0, '{}', 'now')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO generated_video_prompts (
+          id, reference_id, target_tool, model_profile, prompt_json, status, created_at, updated_at
+        )
+        VALUES ('prompt_winner', 'ref_winner', 'higgsfield', 'default', '{}', 'draft', 'now', 'now')
+        """
+    )
+    apify_path = tmp_path / "apify.json"
+    apify_path.write_text(
+        """
+        [
+          {
+            "id":"2222222222",
+            "ownerUsername":"account_a",
+            "shortCode":"WINNER",
+            "url":"https://instagram.com/p/WINNER/",
+            "caption":"POV: mirror fit check?",
+            "productType":"clips",
+            "videoPlayCount":250000,
+            "videoViewCount":200000,
+            "likesCount":15000,
+            "commentsCount":900,
+            "musicInfo":{"audio_id":"ig_runway","song_name":"Runway Heat (Sped Up)","artist_name":"DJ A","uses_original_audio":false}
+          }
+        ]
+        """,
+        encoding="utf-8",
+    )
+    import_apify_metrics(conn, [apify_path], top_limit=1)
+    import_prompt_outcomes(conn, [{"referenceId": "ref_winner", "rewardScore": 1.8, "confidence": 0.86, "sampleCount": 5}])
+
+    analyzed = analyze_patterns(conn, limit=1, provider="heuristic", output_dir=tmp_path / "learning")
+    build_learning_system(conn, limit=1, output_dir=tmp_path / "learning")
+    summary = learning_summary(conn, limit=1)
+    pattern = json.loads(conn.execute("SELECT pattern_json FROM reference_patterns").fetchone()["pattern_json"])
+    cluster = summary["topClusters"][0]
+
+    assert analyzed["analyzed"] == 1
+    assert pattern["performanceClass"] == "performed_well"
+    assert pattern["winnerDna"]["performanceSource"] == "measured_outcome"
+    assert pattern["winnerDna"]["hookType"] == "viewer_insert"
+    assert pattern["winnerDna"]["audioRole"] == "sped_up_pop"
+    assert cluster["performanceSignals"]["performanceClassCounts"]["performed_well"] == 1
+    assert cluster["winnerDna"]["audioRoles"] == ["sped_up_pop"]
+    assert cluster["audioRecommendations"]["recommendations"][0]["performanceClass"] == "performed_well"
+    assert cluster["audioRecommendations"]["recommendations"][0]["measuredOutcomeSamples"] == 1
+
+
 def test_tiktok_archive_imports_slideshow_references_and_patterns(tmp_path: Path) -> None:
     conn = make_conn(tmp_path)
     archive = tmp_path / "tiktok"

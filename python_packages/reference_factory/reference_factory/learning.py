@@ -150,6 +150,8 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "visualFormat": row["visual_format"],
                 "hookType": row["hook_type"],
                 "captionArchetype": row["caption_archetype"],
+                "performanceClass": pattern.get("performanceClass") or "unproven",
+                "winnerDna": pattern.get("winnerDna") or {},
                 "tags": list((pattern.get("reviewTags") or [])),
                 "pattern": pattern,
                 "audioSignal": extract_audio_signal(raw_json, row["product_type"]),
@@ -190,6 +192,12 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
     quality = [float(item.get("qualityScore") or 0) for item in items]
     accounts = sorted(set(str(item.get("account") or "_unknown") for item in items))
     tags = Counter(tag for item in items for tag in item.get("tags", []))
+    performance_classes = Counter(str(item.get("performanceClass") or "unproven") for item in items)
+    audio_roles = sorted({
+        str((item.get("winnerDna") or {}).get("audioRole"))
+        for item in items
+        if (item.get("winnerDna") or {}).get("audioRole")
+    })
     captions = [str(item.get("caption") or "").strip() for item in ranked if str(item.get("caption") or "").strip()]
     measured_scores = [
         float((item.get("measuredOutcome") or {}).get("rewardScore"))
@@ -227,11 +235,19 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
         "suggestedVariantRecipes": _suggested_variant_recipes(visual, hook, caption),
         "suggestedFormats": _suggested_formats(visual, hook, caption),
         "audioRecommendations": cluster_audio_recommendations(items, visual, hook, caption),
+        "winnerDna": {
+            "visualStructure": visual,
+            "hookType": hook,
+            "captionArchetype": caption,
+            "performanceClassCounts": dict(performance_classes.most_common()),
+            "audioRoles": audio_roles,
+        },
         "performanceSignals": {
             "medianViews": int(statistics.median(plays)) if plays else 0,
             "totalPlays": sum(plays),
             "measuredOutcomeSamples": len(measured_scores),
             "avgMeasuredReward": round(sum(measured_scores) / len(measured_scores), 4) if measured_scores else None,
+            "performanceClassCounts": dict(performance_classes.most_common()),
             "topAccounts": accounts[:10],
         },
         "promptTemplate": _prompt_template(visual, hook, caption),
