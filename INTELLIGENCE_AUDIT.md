@@ -42,6 +42,14 @@ explicit unmeasured state instead of raw average scoring or missing-as-50 inside
 the learning scorer. Verification: `uv run pytest
 python_packages/campaign_factory/tests/test_learning_score.py -q` and `uv run
 pytest python_packages/campaign_factory/tests/test_core.py -q`.
+Campaign Factory ranking explainability is tightened on
+`codex/campaign-ranking-learning-evidence`: next-batch reference-pattern and
+variation-preset ranking rows now carry the already-computed learning summary
+(`status`, scoring version, weighted relative reward, baseline source counts,
+and bandit stats) so operators can see why normalized measured feedback changed
+the recommendation. Verification:
+`test_recommend_next_batch_prefers_performance_ranked_reference_pattern` and
+`test_recommend_next_batch_recommends_account_performance_ranked_variation_preset`.
 
 Track I capture work is upstream-fixed in ThreadsDashboard PR #129: full-total
 metric monotonic guards, `post_metric_history` retention by `snapshot_at`,

@@ -5139,6 +5139,10 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_p
         assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
         assert rankings[0]["planningScore"] > rankings[1]["planningScore"]
         assert rankings[0]["bandit"]["algorithm"] == "beta_bernoulli_decayed_v1"
+        assert rankings[0]["learning"]["status"] == "measured"
+        assert rankings[0]["learning"]["scoringVersion"] == "account_normalized_decay_shrinkage.v1"
+        assert rankings[0]["learning"]["weightedRelativeReward"] > rankings[1]["learning"]["weightedRelativeReward"]
+        assert rankings[0]["learning"]["baselineSourceCounts"]["account_median"] >= 1
     finally:
         cf.close()
 
