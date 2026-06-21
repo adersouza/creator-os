@@ -35,6 +35,7 @@ from .variation_stage import run_variation_stage
 from .motion_edit_stage import run_motion_edit_stage
 from .front_generation_stage import run_front_generation_stage
 from .proactive_cycle_stage import run_proactive_cycle_stage
+from .quality_calibration import track_q_calibration_status
 
 
 def print_json(value) -> None:
@@ -231,6 +232,12 @@ def main() -> int:
 
     caption_outcome = sub.add_parser("caption-outcome-report")
     caption_outcome.add_argument("--campaign", required=True)
+
+    track_q_calibration = sub.add_parser("track-q-calibration-status")
+    track_q_calibration.add_argument("--campaign")
+    track_q_calibration.add_argument("--min-reviewed-reels", type=int, default=30)
+    track_q_calibration.add_argument("--min-low-score-or-rejected-samples", type=int, default=10)
+    track_q_calibration.add_argument("--low-score-threshold", type=int, default=70)
 
     routing_audit = sub.add_parser("account-routing-audit")
     routing_audit.add_argument("--creator", required=True)
@@ -1745,6 +1752,14 @@ def main() -> int:
             ))
         elif args.cmd == "caption-outcome-report":
             print_json(cf.caption_outcome_report(args.campaign))
+        elif args.cmd == "track-q-calibration-status":
+            print_json(track_q_calibration_status(
+                cf.conn,
+                campaign_slug=args.campaign,
+                min_reviewed_reels=args.min_reviewed_reels,
+                min_low_score_or_rejected_samples=args.min_low_score_or_rejected_samples,
+                low_score_threshold=args.low_score_threshold,
+            ))
         elif args.cmd == "lifecycle-report":
             print_json(cf.lifecycle_report(
                 args.campaign,

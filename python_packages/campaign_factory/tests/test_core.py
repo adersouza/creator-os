@@ -16759,6 +16759,52 @@ def test_creator_os_execution_readiness_covers_all_publishability_failure_reason
         cf.close()
 
 
+def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_samples(tmp_path: Path):
+    from campaign_factory.quality_calibration import track_q_calibration_status
+
+    cf = make_factory(tmp_path)
+    try:
+        base = track_q_calibration_status(cf.conn, campaign_slug="stacey_archive_marketing_20260606")
+        assert base["schema"] == "campaign_factory.track_q_calibration_status.v1"
+        assert base["targets"] == {
+            "reviewedReels": 30,
+            "lowScoreOrRejectedSamples": 10,
+            "lowScoreThreshold": 70,
+        }
+        assert base["calibrationReady"] is False
+        assert base["remaining"]["reviewedReels"] == 30
+        assert base["remaining"]["lowScoreOrRejectedSamples"] == 10
+
+        for idx, (decision, score) in enumerate([("approved", 92), ("rejected", 88), ("approved", 61)], start=1):
+            asset_id = f"asset_calibration_{idx}"
+            add_inventory_parent_fixture(cf, tmp_path, asset_id=asset_id)
+            cf.review_rendered_asset(asset_id, decision=decision, notes=f"owner {decision}")
+            cf.conn.execute(
+                "UPDATE audit_reports SET score = ?, created_at = ? WHERE rendered_asset_id = ?",
+                (score, f"2026-01-0{idx}T00:00:00+00:00", asset_id),
+            )
+        cf.conn.commit()
+
+        ready = track_q_calibration_status(
+            cf.conn,
+            campaign_slug="stacey_archive_marketing_20260606",
+            min_reviewed_reels=3,
+            min_low_score_or_rejected_samples=2,
+            low_score_threshold=70,
+        )
+
+        assert ready["calibrationReady"] is True
+        assert ready["status"] == "ready_for_calibration"
+        assert ready["counts"]["reviewedReels"] == 3
+        assert ready["counts"]["rejectedReels"] == 1
+        assert ready["counts"]["lowScoreReviewedReels"] == 1
+        assert ready["counts"]["lowScoreOrRejectedSamples"] == 2
+        assert ready["remaining"] == {"reviewedReels": 0, "lowScoreOrRejectedSamples": 0}
+        assert ready["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
 def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
