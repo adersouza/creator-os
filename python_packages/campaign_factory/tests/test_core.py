@@ -5031,6 +5031,11 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
         assert first["items"][0]["sourceAssetGraphId"].startswith("cg_source_asset_")
         assert first["items"][0]["renderedAssetGraphId"].startswith("cg_rendered_asset_")
         assert first["items"][0]["scoreBreakdown"]["performance"] > 50
+        learning = first["items"][0]["decisionEvidence"]["learning"]
+        assert learning["performanceScore"] == first["items"][0]["scoreBreakdown"]["performance"]
+        assert learning["latestPerformanceSnapshotId"] == "perf_good"
+        assert learning["dataQuality"]["sampleSize"] > 0
+        assert learning["recommendationTrust"]["status"] == "unmeasured"
         assert first["items"][0]["confidence"] in {"medium", "high"}
         assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_runs").fetchone()[0] == 1
         assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_items").fetchone()[0] == 1
@@ -5395,6 +5400,8 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
         assert item["decisionEvidence"]["audio"]["primaryAudio"]["audioTitle"] == "Reference Only Trend"
         assert item["decisionEvidence"]["caption"]["guidance"] == item["captionGuidance"]
         assert item["decisionEvidence"]["variation"]["preset"] == "ig_subtle"
+        assert item["decisionEvidence"]["learning"]["dataQuality"]["sampleSize"] == 0
+        assert item["decisionEvidence"]["learning"]["latestPerformanceSnapshotId"] is None
         assert item["decisionEvidence"]["readiness"]["blockingReasons"] == ["missing_rendered_assets"]
         assert item["evidence"]["decision"] == item["decisionEvidence"]
     finally:
@@ -5717,6 +5724,11 @@ def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(tmp_pa
         assert "low_recommendation_trust" in item["risks"]
         assert item["evidence"]["recommendationTrust"]["score"] == report["recommendationTrustScore"]
         assert item["scoreBreakdown"]["recommendationTrust"] == report["recommendationTrustScore"]
+        learning = item["decisionEvidence"]["learning"]
+        assert learning["recommendationTrust"]["status"] == "low"
+        assert learning["recommendationTrust"]["score"] == report["recommendationTrustScore"]
+        assert learning["trustRisk"] == "low_recommendation_trust"
+        assert learning["dataQuality"]["level"] in {"low", "medium", "high"}
     finally:
         cf.close()
 

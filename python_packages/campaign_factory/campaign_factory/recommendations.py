@@ -701,6 +701,11 @@ class RecommendationRepository:
             target_account=target_account,
             account_score=account_score,
             account_fit_evidence=account_fit_evidence,
+            performance_score=performance_score,
+            data_quality=data_quality,
+            latest_performance=latest_performance,
+            recommendation_trust=recommendation_trust,
+            trust_risks=trust_risks,
             audio_recommendations=audio_recommendations,
             caption_guidance=caption,
             readiness_evidence=readiness_evidence,
@@ -842,6 +847,11 @@ class RecommendationRepository:
         target_account: str | None,
         account_score: int,
         account_fit_evidence: dict[str, Any],
+        performance_score: int,
+        data_quality: dict[str, Any],
+        latest_performance: dict[str, Any],
+        recommendation_trust: dict[str, Any],
+        trust_risks: list[str],
         audio_recommendations: dict[str, Any],
         caption_guidance: str,
         readiness_evidence: dict[str, Any],
@@ -859,6 +869,13 @@ class RecommendationRepository:
                 "fitLevel": account_fit_evidence.get("level"),
                 "reasons": account_fit_evidence.get("reasons") or [],
             },
+            "learning": self.recommendation_learning_evidence(
+                performance_score=performance_score,
+                data_quality=data_quality,
+                latest_performance=latest_performance,
+                recommendation_trust=recommendation_trust,
+                trust_risks=trust_risks,
+            ),
             "audio": {
                 "status": status,
                 "selectedAudio": selected_audio,
@@ -882,6 +899,32 @@ class RecommendationRepository:
                 "blockingReasons": readiness_evidence.get("blockingReasons") or [],
                 "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
             },
+        }
+
+    def recommendation_learning_evidence(
+        self,
+        *,
+        performance_score: int,
+        data_quality: dict[str, Any],
+        latest_performance: dict[str, Any],
+        recommendation_trust: dict[str, Any],
+        trust_risks: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "performanceScore": performance_score,
+            "latestPerformanceSnapshotId": latest_performance.get("id"),
+            "dataQuality": {
+                "level": data_quality.get("level"),
+                "sampleSize": data_quality.get("sampleSize", 0),
+                "missing": data_quality.get("missing") or [],
+            },
+            "recommendationTrust": {
+                "status": recommendation_trust.get("status"),
+                "score": recommendation_trust.get("score"),
+                "measuredCount": recommendation_trust.get("measuredCount"),
+                "source": recommendation_trust.get("source"),
+            },
+            "trustRisk": trust_risks[0] if trust_risks else None,
         }
 
     def recommendation_caption_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
@@ -1054,6 +1097,15 @@ class RecommendationRepository:
             target_account=target_account,
             account_score=50,
             account_fit_evidence=account_fit_evidence,
+            performance_score=50,
+            data_quality={
+                "level": "low",
+                "sampleSize": 0,
+                "missing": ["rendered_assets", "performance_history"],
+            },
+            latest_performance={},
+            recommendation_trust=recommendation_trust,
+            trust_risks=["low_recommendation_trust"] if recommendation_trust.get("status") == "low" else [],
             audio_recommendations=audio_recommendations,
             caption_guidance=caption,
             readiness_evidence=readiness_evidence,
