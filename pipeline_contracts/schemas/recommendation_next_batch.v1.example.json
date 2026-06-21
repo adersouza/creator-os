@@ -39,6 +39,21 @@
         "captionArchetype": "short_direct"
       },
       "suggestedRecipe": "v01_original",
+      "readinessEvidence": {
+        "state": "ready",
+        "operatorScore": 100,
+        "blockingReasons": [],
+        "warnings": [],
+        "publishabilityFailureReasons": [],
+        "reviewState": "approved",
+        "auditStatus": "passed",
+        "contentSurface": "reel",
+        "audioStatus": "not_required",
+        "captionHash": "caption_hash_1",
+        "targetAccount": "ig_1",
+        "latestAuditId": "audit_1",
+        "latestAuditVerdict": "pass"
+      },
       "hookGuidance": "Use a curiosity hook from Bathroom Mirror Curiosity.",
       "captionGuidance": "short direct caption",
       "reasons": [
@@ -53,7 +68,22 @@
         "reasons": [
           "performance history is positive"
         ],
-        "risks": []
+        "risks": [],
+        "readiness": {
+          "state": "ready",
+          "operatorScore": 100,
+          "blockingReasons": [],
+          "warnings": [],
+          "publishabilityFailureReasons": [],
+          "reviewState": "approved",
+          "auditStatus": "passed",
+          "contentSurface": "reel",
+          "audioStatus": "not_required",
+          "captionHash": "caption_hash_1",
+          "targetAccount": "ig_1",
+          "latestAuditId": "audit_1",
+          "latestAuditVerdict": "pass"
+        }
       },
       "dataQuality": {
         "level": "medium",

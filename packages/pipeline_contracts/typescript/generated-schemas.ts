@@ -2321,6 +2321,10 @@ export const generatedPipelineContractSchemas = {
 	          "variationPresetEvidence": {
 	            "type": "object"
 	          },
+	          "readinessEvidence": {
+	            "type": "object",
+	            "description": "Compact export/publishability readiness proof for the recommended asset"
+	          },
 	          "suggestedRecipe": {
 	            "type": [
 	              "string",
