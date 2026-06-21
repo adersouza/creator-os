@@ -87,6 +87,9 @@ Track Q live/operator report generation is fixed on
 zero-cost report request manifests, accepts operator-supplied
 `virality_report` / `video_analysis` sidecars, and can run an explicitly
 configured provider command without making paid/live calls by default.
+The component-evidence follow-up adds Reel Factory post-render acceptance
+records during readiness runs, Reference Factory account/persona winner
+signals, and ContentForge fail-fast validation for real calibration labels.
 Verification: `cd python_packages/reel_factory && uv run pytest tests`.
 
 Track I Campaign Factory data-plumbing silent-drop handling is fixed on

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_intent import read_audio_intent
+from post_render_acceptance import acceptance_from_readiness
 from safe_zone import PLATFORM_SAFE_ZONES, score_safe_zone
 from virality_qc import evaluate_output_virality
 
@@ -259,6 +260,8 @@ def run_readiness(root: Path, *, clip: str | None = None,
             for path in sorted(clip_dir.glob("*.mp4"))
             if "_audio_" not in path.stem
         ]
+        for record in records:
+            record["postRenderAcceptance"] = acceptance_from_readiness(record)
         payload = {
             "schema": "reel_factory.readiness.v1",
             "createdAt": int(time.time()),

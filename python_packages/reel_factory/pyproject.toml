@@ -79,6 +79,7 @@ py-modules = [
   "placement",
   "placement_scorer",
   "post_render",
+  "post_render_acceptance",
   "posting_ledger",
   "preflight",
   "probe",

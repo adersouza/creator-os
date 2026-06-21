@@ -242,6 +242,8 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
             "performanceClassCounts": dict(performance_classes.most_common()),
             "audioRoles": audio_roles,
         },
+        "accountWinnerSignals": _winner_signals(items, "account", "account"),
+        "personaWinnerSignals": _winner_signals(items, "persona", "persona"),
         "performanceSignals": {
             "medianViews": int(statistics.median(plays)) if plays else 0,
             "totalPlays": sum(plays),
@@ -254,6 +256,75 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
         "higgsfieldJsonTemplate": _higgsfield_json_template(visual, hook, caption),
         "operatorUse": _operator_use(label, len(items), cluster_score),
     }
+
+
+def _winner_signal_key(item: dict[str, Any], key: str) -> str | None:
+    if key == "persona":
+        dna = item.get("winnerDna") or {}
+        value = dna.get("persona") or dna.get("modelProfile") or dna.get("modelSlug")
+    else:
+        value = item.get(key)
+    value = str(value or "").strip()
+    return value or None
+
+
+def _performance_rank(performance_class: str) -> int:
+    return {
+        "performed_well": 3,
+        "winner": 3,
+        "mixed": 2,
+        "underperformed": 1,
+        "unproven": 0,
+    }.get(performance_class, 0)
+
+
+def _winner_signals(items: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in items:
+        group_key = _winner_signal_key(item, key)
+        if group_key:
+            grouped[group_key].append(item)
+    signals = []
+    for group_key, group_items in grouped.items():
+        measured = [
+            float((item.get("measuredOutcome") or {}).get("rewardScore"))
+            for item in group_items
+            if isinstance(item.get("measuredOutcome"), dict)
+            and isinstance((item.get("measuredOutcome") or {}).get("rewardScore"), (int, float))
+        ]
+        classes = Counter(str(item.get("performanceClass") or "unproven") for item in group_items)
+        best_class = max(classes, key=lambda value: (_performance_rank(value), classes[value]))
+        audio_roles = sorted({
+            str((item.get("winnerDna") or {}).get("audioRole"))
+            for item in group_items
+            if (item.get("winnerDna") or {}).get("audioRole")
+        })
+        top = sorted(
+            group_items,
+            key=lambda item: (
+                -_performance_rank(str(item.get("performanceClass") or "unproven")),
+                -float((item.get("measuredOutcome") or {}).get("rewardScore") or 0),
+                int(item.get("rank") or 999999),
+            ),
+        )[0]
+        signals.append({
+            output_key: group_key,
+            "performanceClass": best_class,
+            "performanceClassCounts": dict(classes.most_common()),
+            "measuredOutcomeSamples": len(measured),
+            "avgMeasuredReward": round(sum(measured) / len(measured), 4) if measured else None,
+            "audioRoles": audio_roles,
+            "topReferenceId": top.get("referenceId"),
+        })
+    return sorted(
+        signals,
+        key=lambda item: (
+            -int(item["measuredOutcomeSamples"]),
+            -_performance_rank(str(item["performanceClass"])),
+            -(float(item["avgMeasuredReward"]) if item["avgMeasuredReward"] is not None else 0.0),
+            str(item[output_key]),
+        ),
+    )
 
 
 def _cluster_score(
