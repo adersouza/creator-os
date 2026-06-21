@@ -10218,6 +10218,43 @@ def test_surface_handoff_readiness_explains_missing_reel_audio_proof(tmp_path: P
         cf.close()
 
 
+def test_surface_handoff_readiness_explains_reel_caption_quality_failure(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_inventory_parent_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_reel_caption_quality_failed",
+            campaign_slug="stacey_surface_inventory_20260606",
+        )
+        long_caption = (
+            "this caption is too long and keeps going because it is not the simple native style "
+            "we want under Instagram posts when the asset should be safe for scheduling and it "
+            "keeps adding more unnecessary words"
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_reel_caption_quality_failed'",
+            (json.dumps({"instagram_post_caption": long_caption}),),
+        )
+        cf.conn.commit()
+        cf.create_distribution_plan("asset_reel_caption_quality_failed", surface="regular_reel", instagram_account_id="ig_stacey_1")
+
+        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_reel_caption_quality_failed")
+        readiness = report["assets"][0]
+
+        assert readiness["canHandoff"] is False
+        assert "instagram_post_caption_quality_failed" in readiness["blockingReasons"]
+        assert readiness["captionReadiness"] == {
+            "present": True,
+            "qualityPassed": False,
+            "policy": "simple_ig_post_caption_v1",
+            "reasons": ["instagram_post_caption_too_long"],
+            "blockingReasons": ["instagram_post_caption_quality_failed"],
+        }
+    finally:
+        cf.close()
+
+
 def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

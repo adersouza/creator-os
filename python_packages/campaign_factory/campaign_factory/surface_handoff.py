@@ -293,6 +293,7 @@ class SurfaceHandoffRepository:
         can_handoff = False
         legacy_handoff = None
         audio_readiness = None
+        caption_readiness = None
         story_quality: dict[str, Any] | None = None
         story_style_approved = False
         if surface != "feed_carousel":
@@ -305,6 +306,7 @@ class SurfaceHandoffRepository:
             plan = self._latest_distribution_plan_for_asset(asset["id"])
             publishability = self._explain_publishability(asset["id"], distribution_plan_id=plan["id"] if plan else None)
             audio_readiness = self.audio_readiness_from_publishability(publishability)
+            caption_readiness = self.caption_readiness_from_publishability(publishability)
             legacy_handoff = publishability.get("handoff_manifest")
             if not publishability.get("publishableCandidate"):
                 blocking.extend(str(reason) for reason in publishability.get("publishability_failure_reasons") or ["publishability_blocked"])
@@ -375,6 +377,9 @@ class SurfaceHandoffRepository:
             warnings.append(discoverability_contract["blockedReason"])
             can_handoff = False
 
+        if caption_readiness is None:
+            caption_readiness = self.caption_readiness_from_surface(post_caption, blocking)
+
         ig_media_type = self.ig_media_type_for_surface(surface, media_type)
         manifest_v2 = None
         if can_handoff:
@@ -436,6 +441,7 @@ class SurfaceHandoffRepository:
             "storyQuality": story_quality,
             "storyStyleApproved": story_style_approved if surface == "story" else None,
             "audioReadiness": audio_readiness,
+            "captionReadiness": caption_readiness,
             "handoffManifestV2": manifest_v2,
             "handoffManifest": legacy_handoff,
             "wouldWrite": False,
@@ -455,6 +461,39 @@ class SurfaceHandoffRepository:
             "nativeProofValid": bool(checks.get("audio_assigned")) if "audio_assigned" in checks else "missing_audio" not in failures,
             "blockingReasons": sorted({reason for reason in failures if reason == "missing_audio"}),
         }
+
+    def caption_readiness_from_publishability(self, publishability: dict[str, Any]) -> dict[str, Any]:
+        quality = publishability.get("instagramPostCaptionQuality")
+        if not isinstance(quality, dict):
+            quality = publishability.get("instagram_post_caption_quality") if isinstance(publishability.get("instagram_post_caption_quality"), dict) else {}
+        failures = [str(reason) for reason in publishability.get("publishability_failure_reasons") or []]
+        return {
+            "present": bool(publishability.get("instagram_post_caption") or publishability.get("instagramPostCaption")),
+            "qualityPassed": bool(quality.get("passed")) if quality else "instagram_post_caption_quality_failed" not in failures,
+            "policy": quality.get("policy") or None,
+            "reasons": [str(reason) for reason in quality.get("reasons") or []],
+            "blockingReasons": self.caption_blocking_reasons(failures),
+        }
+
+    def caption_readiness_from_surface(self, post_caption: dict[str, Any], blocking: list[str]) -> dict[str, Any]:
+        return {
+            "present": bool(post_caption.get("instagram_post_caption") or post_caption.get("instagramPostCaption")),
+            "qualityPassed": "instagram_post_caption_quality_failed" not in blocking,
+            "policy": None,
+            "reasons": [],
+            "blockingReasons": self.caption_blocking_reasons(blocking),
+        }
+
+    def caption_blocking_reasons(self, reasons: list[str]) -> list[str]:
+        caption_reasons = {
+            "missing_instagram_post_caption",
+            "instagram_post_caption_missing",
+            "instagram_post_caption_quality_failed",
+            "caption_placement_qc_failed",
+            "unsafe_reel_caption_link_or_dm_reference",
+            "burned_caption_quality_failed",
+        }
+        return sorted({str(reason) for reason in reasons if str(reason) in caption_reasons})
 
     def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
         manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}

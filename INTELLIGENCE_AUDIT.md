@@ -108,6 +108,12 @@ includes `audioReadiness` with required/status/task status/audio id/native proof
 validity and missing-audio blockers, derived from the existing publishability
 gate. Verification:
 `test_surface_handoff_readiness_explains_missing_reel_audio_proof`.
+Campaign Factory surface caption readiness explainability is fixed on
+`codex/campaign-surface-caption-readiness`: reel surface handoff readiness now
+includes `captionReadiness` with caption presence, quality policy, quality
+reasons, and caption-specific blockers derived from the existing publishability
+gate. Verification:
+`test_surface_handoff_readiness_explains_reel_caption_quality_failure`.
 
 Campaign Factory draft audio intent is fixed on
 `codex/campaign-destination-audio-intent`: ThreadsDashboard draft payload
