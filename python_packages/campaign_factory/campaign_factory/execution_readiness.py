@@ -21,6 +21,7 @@ _BLOCKER_GUIDANCE = {
     "missing_instagram_post_caption": ("caption", "A draft is missing the Instagram post caption.", "repair_caption_contract"),
     "missing_burned_caption_text": ("caption", "A draft is missing burned-caption text evidence.", "repair_caption_contract"),
     "caption_placement_qc_failed": ("caption", "A draft failed caption placement quality control.", "repair_caption_placement"),
+    "instagram_post_caption_quality_failed": ("caption", "A draft failed Instagram post caption quality checks.", "repair_caption_contract"),
     "schedule_plan_not_ready": ("schedule_plan", "The schedule plan is not ready.", "rerun_campaign_schedule_plan"),
     "insufficient_schedule_plan_items": ("schedule_plan", "The schedule plan has too few items for the requested batch.", "rerun_campaign_schedule_plan"),
     "variant_cooldown_violation": ("schedule_plan", "The schedule plan violates variant cooldown rules.", "rerun_campaign_schedule_plan"),
@@ -148,6 +149,7 @@ class ExecutionReadinessRepository:
                 "missing_campaign_factory_distribution_plan_id",
                 "embedded_audio_invalid",
                 "native_audio_proof_missing",
+                "instagram_post_caption_quality_failed",
                 "insufficient_schedule_safe_drafts",
             }
         ) else "fail"
@@ -158,7 +160,12 @@ class ExecutionReadinessRepository:
         publish_readiness = "pass" if not missed_dispatches and not runtime_blockers else "fail"
         caption_readiness = "pass" if not any(
             blocker in unique_blockers
-            for blocker in {"missing_instagram_post_caption", "missing_burned_caption_text", "caption_placement_qc_failed"}
+            for blocker in {
+                "missing_instagram_post_caption",
+                "missing_burned_caption_text",
+                "caption_placement_qc_failed",
+                "instagram_post_caption_quality_failed",
+            }
         ) else "fail"
         audio_readiness = "pass" if not any(
             blocker in unique_blockers

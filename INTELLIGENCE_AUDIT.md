@@ -122,6 +122,12 @@ reasons, and caption-specific blockers derived from the existing publishability
 gate. Verification:
 `test_surface_handoff_readiness_explains_reel_caption_quality_failure`.
 
+Campaign Factory execution caption quality readiness is fixed on
+`codex/execution-caption-quality-readiness`: execution readiness now blocks
+drafts carrying failed Instagram post-caption quality proof and reports the
+caption blocker detail before scheduling/export. Verification:
+`test_creator_os_execution_readiness_blocks_failed_caption_quality`.
+
 Campaign Factory draft audio intent is fixed on
 `codex/campaign-destination-audio-intent`: ThreadsDashboard draft payload
 assembly now recomputes audio recommendations with the destination

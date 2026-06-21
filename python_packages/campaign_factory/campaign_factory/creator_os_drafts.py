@@ -454,6 +454,12 @@ class CreatorOSDraftRepository:
             placement_status = str(item.get("captionPlacementQcStatus") or item.get("captionPlacementStatus") or item.get("caption_placement_qc_status") or "").lower()
             if placement_status and placement_status not in {"passed", "pass", "ok"}:
                 blockers.add("caption_placement_qc_failed")
+            post_caption_quality = item.get("instagramPostCaptionQuality") or item.get("instagram_post_caption_quality")
+            if (
+                (isinstance(post_caption_quality, dict) and post_caption_quality.get("passed") is False)
+                or self.creator_os_explicit_false(item, "instagramPostCaptionQualityPassed", "instagram_post_caption_quality_passed")
+            ):
+                blockers.add("instagram_post_caption_quality_failed")
             audio_status = str(item.get("audioValidity") or item.get("audio_validity") or item.get("audioStatus") or item.get("audio_status") or "").lower()
             audio_proof_status = str(
                 item.get("nativeAudioProofStatus")
