@@ -5220,6 +5220,72 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         cf.close()
 
 
+def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path):
+    bank_path = tmp_path / "reference_bank.json"
+    bank_path.write_text(json.dumps({
+        "schema": "reference_factory.campaign_reference_bank.v1",
+        "clusters": [
+            {
+                "clusterKey": "mirror_curiosity",
+                "label": "Mirror Curiosity",
+                "rank": 1,
+                "visualFormat": "mirror",
+                "hookType": "curiosity",
+                "captionArchetype": "short_direct",
+                "captionFormulas": [{"formula": "short direct caption"}],
+                "suggestedVariantRecipes": ["v01_original"],
+            }
+        ],
+    }), encoding="utf-8")
+    audio_path = tmp_path / "audio_memory.json"
+    audio_path.write_text(json.dumps({
+        "schema": "reference_factory.audio_catalog_export.v1",
+        "items": [
+            {
+                "id": "aud_reference_only",
+                "title": "Reference Only Trend",
+                "artistName": "DJ Ref",
+                "platform": "instagram",
+                "nativeAudioId": "ig_ref",
+                "moodTags": ["mirror"],
+                "accountFit": ["ig_1"],
+                "trendStatus": "rising",
+                "trendScore": 88,
+                "velocityScore": 80,
+                "creatorFitScore": 90,
+                "usageCount": 9000,
+                "resolved": True,
+                "sourceConfidence": 0.9,
+            }
+        ],
+    }), encoding="utf-8")
+    folder = tmp_path / "inputs"
+    folder.mkdir()
+    (folder / "source.mp4").write_bytes(b"source")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_folder(folder, campaign_slug="may", model_slug="model")
+        cf.import_reference_bank(bank_path)
+        cf.import_audio_memory(audio_path)
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+
+        assert item["renderedAssetId"] is None
+        assert "no_rendered_assets_available" in rec["warnings"]
+        assert item["audioRecommendations"]["recommendations"][0]["audioTitle"] == "Reference Only Trend"
+        assert item["audioSelectionStatus"] == "recommended"
+        assert item["decisionEvidence"]["targetAccount"] == "ig_1"
+        assert item["decisionEvidence"]["audio"]["primaryAudio"]["audioTitle"] == "Reference Only Trend"
+        assert item["decisionEvidence"]["caption"]["guidance"] == item["captionGuidance"]
+        assert item["decisionEvidence"]["variation"]["preset"] == "ig_subtle"
+        assert item["decisionEvidence"]["readiness"]["blockingReasons"] == ["missing_rendered_assets"]
+        assert item["evidence"]["decision"] == item["decisionEvidence"]
+    finally:
+        cf.close()
+
+
 def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
