@@ -189,6 +189,12 @@ Follow-up caption decision proof is fixed on
 `decisionEvidence.caption` now carries a ready/blocked status and exact caption
 publishability blockers next to caption guidance/hash. Verification:
 `test_recommend_next_batch_surfaces_publishability_failures_as_risks`.
+Follow-up measured-feedback decision proof is fixed on
+`codex/recommendation-learning-decision-proof`: recommendation
+`decisionEvidence.learning` now carries the ranking performance score, latest
+performance snapshot id, data-quality level/sample size, and recommendation
+trust score/risk used to downgrade weak recommendations. Verification:
+`test_recommend_next_batch_downgrades_when_recommendation_trust_is_low`.
 
 ---
 
