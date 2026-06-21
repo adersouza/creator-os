@@ -1714,6 +1714,13 @@ def cluster_audio_recommendations(items: list[dict[str, Any]], visual: str, hook
     for (platform, audio_id), audio_items in by_audio.items():
         signal = audio_items[0]["audioSignal"]
         plays = [int(item.get("plays") or 0) for item in audio_items]
+        measured_scores = [
+            float((item.get("measuredOutcome") or {}).get("rewardScore"))
+            for item in audio_items
+            if isinstance(item.get("measuredOutcome"), dict)
+            and isinstance((item.get("measuredOutcome") or {}).get("rewardScore"), (int, float))
+        ]
+        performance_classes = Counter(str(item.get("performanceClass") or "unproven") for item in audio_items)
         ranked.append(
             {
                 "platform": platform,
@@ -1724,11 +1731,22 @@ def cluster_audio_recommendations(items: list[dict[str, Any]], visual: str, hook
                 "audioVibe": signal.get("audioVibe"),
                 "postCount": len(audio_items),
                 "totalPlays": sum(plays),
+                "measuredOutcomeSamples": len(measured_scores),
+                "avgMeasuredReward": round(sum(measured_scores) / len(measured_scores), 4) if measured_scores else None,
+                "performanceClass": performance_classes.most_common(1)[0][0],
                 "exampleAccounts": sorted({str(item.get("account") or "") for item in audio_items if item.get("account")})[:8],
                 "instruction": _audio_instruction(signal, visual, hook, caption),
             }
         )
-    ranked.sort(key=lambda item: (-int(item["totalPlays"]), -int(item["postCount"]), str(item["audioTitle"] or "")))
+    ranked.sort(
+        key=lambda item: (
+            0 if item["performanceClass"] == "performed_well" else 1,
+            -float(item.get("avgMeasuredReward") or 0),
+            -int(item["totalPlays"]),
+            -int(item["postCount"]),
+            str(item["audioTitle"] or ""),
+        )
+    )
     fallback = fallback_audio_strategy(visual, hook, caption)
     return {
         "schema": "reference_factory.audio_recommendations.v1",
