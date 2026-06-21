@@ -36,6 +36,7 @@ from .motion_edit_stage import run_motion_edit_stage
 from .front_generation_stage import run_front_generation_stage
 from .proactive_cycle_stage import run_proactive_cycle_stage
 from .quality_calibration import track_q_calibration_status
+from .learning_readiness import closed_loop_learning_status
 
 
 def print_json(value) -> None:
@@ -238,6 +239,10 @@ def main() -> int:
     track_q_calibration.add_argument("--min-reviewed-reels", type=int, default=30)
     track_q_calibration.add_argument("--min-low-score-or-rejected-samples", type=int, default=10)
     track_q_calibration.add_argument("--low-score-threshold", type=int, default=70)
+
+    closed_loop_status = sub.add_parser("closed-loop-learning-status")
+    closed_loop_status.add_argument("--campaign")
+    closed_loop_status.add_argument("--min-posts-with-1h-and-24h", type=int, default=50)
 
     routing_audit = sub.add_parser("account-routing-audit")
     routing_audit.add_argument("--creator", required=True)
@@ -2114,6 +2119,12 @@ def main() -> int:
             print_json(result)
             if result.get("result") == "failed":
                 return 1
+        elif args.cmd == "closed-loop-learning-status":
+            print_json(closed_loop_learning_status(
+                cf.conn,
+                campaign_slug=args.campaign,
+                min_posts_with_1h_and_24h=args.min_posts_with_1h_and_24h,
+            ))
         elif args.cmd == "campaign-health":
             print_json(cf.campaign_health(args.campaign))
         elif args.cmd == "asset-detail":

@@ -16805,6 +16805,57 @@ def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_sa
         cf.close()
 
 
+def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(tmp_path: Path):
+    from campaign_factory.learning_readiness import closed_loop_learning_status
+
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("stacey_learning_volume_20260606", "stacey")
+        now = "2026-01-05T00:00:00+00:00"
+        rows = [
+            ("snap_post_1_1h", "post_1", "2026-01-01T01:00:00+00:00", 1, 100),
+            ("snap_post_1_24h", "post_1", "2026-01-02T00:00:00+00:00", 24, 1200),
+            ("snap_post_2_1h", "post_2", "2026-01-03T01:00:00+00:00", 1, 80),
+        ]
+        for snapshot_id, post_id, snapshot_at, hours_since_publish, views in rows:
+            cf.conn.execute(
+                """
+                INSERT INTO performance_snapshots
+                (id, campaign_id, post_id, content_surface, snapshot_at, published_at, views,
+                 metrics_eligible, raw_json, created_at)
+                VALUES (?, ?, ?, 'reel', ?, '2026-01-01T00:00:00+00:00', ?, 1, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    campaign["id"],
+                    post_id,
+                    snapshot_at,
+                    views,
+                    json.dumps({"metadata": {"threadsdash_metric_history": {"hoursSincePublish": hours_since_publish}}}),
+                    now,
+                ),
+            )
+        cf.conn.commit()
+
+        base = closed_loop_learning_status(cf.conn, campaign_slug=campaign["slug"])
+        assert base["schema"] == "campaign_factory.closed_loop_learning_status.v1"
+        assert base["targets"] == {"postsWith1hAnd24hHistory": 50}
+        assert base["learningAuditReady"] is False
+        assert base["counts"]["eligiblePosts"] == 2
+        assert base["counts"]["postsWith1hHistory"] == 2
+        assert base["counts"]["postsWith24hHistory"] == 1
+        assert base["counts"]["postsWith1hAnd24hHistory"] == 1
+        assert base["remaining"]["postsWith1hAnd24hHistory"] == 49
+
+        ready = closed_loop_learning_status(cf.conn, campaign_slug=campaign["slug"], min_posts_with_1h_and_24h=1)
+        assert ready["learningAuditReady"] is True
+        assert ready["status"] == "ready_for_learning_audit"
+        assert ready["remaining"] == {"postsWith1hAnd24hHistory": 0}
+        assert ready["wouldWrite"] is False
+    finally:
+        cf.close()
+
+
 def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
