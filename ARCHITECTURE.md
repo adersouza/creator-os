@@ -45,7 +45,7 @@ graph TB
         CF --> CF_IMPORT --> CF_AUDIT --> CF_EXPORT
     end
 
-    subgraph Quality["Quality Layer"]
+    subgraph Quality["Repurposing / Distinctness / Quality Layer"]
         CFG["ContentForge<br/>(Next.js)"]
         FFM["FFmpeg Pipeline"]
         SIM["Similarity Engine<br/>PDQ / SSCD / SSIM"]
@@ -138,7 +138,7 @@ sequenceDiagram
     RF-->>CF: Rendered assets + lineage + audio intent
 ```
 
-### Phase 3: Quality Audit
+### Phase 3: Distinctness And Quality Audit
 
 ```mermaid
 sequenceDiagram
@@ -151,8 +151,7 @@ sequenceDiagram
     CF->>CFG: POST /api/similarity (campaign_factory_v1 profile)
     CFG->>CFG: FFmpeg probe + forensics
     CFG->>CFG: PDQ / SSCD similarity
-    CFG->>CFG: Compression review
-    CFG->>CFG: Provenance check
+    CFG->>CFG: Compression / provenance review
     CFG->>CFG: Creative quality heuristic
     CFG-->>CF: Audit report + readiness summary
     alt overallVerdict = pass

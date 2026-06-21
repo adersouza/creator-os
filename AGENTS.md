@@ -17,7 +17,11 @@ the dashboard production source unless the user explicitly changes that.
 
 - `reel_factory`: active creative generation path is direct Higgsfield reference-image generation, not Grok/grid.
 - `campaign_factory`: campaign control brain, readiness, inventory, learning, draft export.
-- `contentforge`: content spoofer — generates FFmpeg variants that defeat perceptual-hash duplicate detection (PDQ/SSCD) and rewrite capture metadata so re-used content reads as an original device capture. Similarity/variation scores measure evasion; quality/readability/safe-zone scores enforce a quality floor (spoofing must not visibly degrade output).
+- `contentforge`: repurposing/distinctness + quality gate. It has legacy/advanced
+  FFmpeg variant and capture-metadata tooling, but Campaign Factory's default use
+  is detect-and-block: PDQ/SSCD collision checks, sibling distinctness,
+  readability, safe-zone, and watchability gates. Do not strengthen spoof/evasion
+  behavior during safety, docs, or pipeline work.
 - `ThreadsDashboard`: product UI, Supabase data, drafts, scheduling, publishing infrastructure, analytics.
 - `pipeline_contracts`: shared schemas and validators.
 - `reference_factory`: reference review, gold learning set, pattern/audio exports.
@@ -76,6 +80,39 @@ single-person reference image
 ```
 
 Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, and `_grok.json` are legacy/experimental unless explicitly requested.
+
+## Reel Captions, Overlay Text, And Fonts (Source Of Truth)
+
+Do not relearn or invent these each task. Read this section, then the named files.
+
+- **Burned overlay text** = visible text inside the MP4. Reel Factory owns it.
+  **Post caption** = the Instagram caption under the post. Campaign Factory /
+  ThreadsDashboard own it. Never confuse the two.
+- **Default / canonical font is `Instagram Sans Condensed`** (Bold variant for
+  meme-style high-contrast frames). Allowed font set is defined in
+  `python_packages/reel_factory/recipe_loader.py`. Font files live in
+  `python_packages/reel_factory/fonts/` (`InstagramSansCondensed-Regular.woff2`,
+  `InstagramSansCondensed-Bold.woff2`). Do not substitute another font unless the
+  user explicitly asks.
+- **Font/placement is auto-selected by frame contrast**, not guessed. See
+  `python_packages/reel_factory/placement.py` (stddev → style + font; falls back
+  to `("top", "ig", "Instagram Sans Condensed")`).
+- **Overlay text comes from the caption bank, never freehand and never the
+  Higgsfield prompt text.** Source: `python_packages/reel_factory/caption_banks/`
+  (`banks.json` = hooks with `caption_hash` + bank membership, `mixes.json` =
+  per-creator weights Larissa/Stacey/Lola, `performance.json` = perf metadata).
+  Selection/rotation logic: `caption_bank.py`; rendering: `caption_render.py`;
+  fit-to-frame: `caption_scene_fit.py` (`reel_pipeline.py --caption-fit auto`).
+- **Native audio is never burned into the MP4.** Campaign Factory recommends via
+  `audio_intent.v1`; ThreadsDashboard selects/verifies native audio. Publishing
+  is blocked until ThreadsDashboard has native-audio + publishability proof.
+
+## Durable System Map
+
+If the architecture gets confusing, update `CREATOR_OS_SYSTEM_MAP.md` first.
+Short version: Reference Factory teaches, Reel Factory creates, Campaign Factory
+decides, ContentForge judges/blocks, Pipeline Contracts validate, and
+ThreadsDashboard publishes.
 
 ## Do Not Touch During Docs/Integration Work
 
