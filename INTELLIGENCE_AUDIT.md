@@ -102,6 +102,13 @@ now includes `blockerDetails` with category, explanation, next action, and
 observed/required counts for inventory-capacity blockers. Verification:
 `test_creator_os_execution_readiness_blocks_unsafe_draft_contracts`.
 
+Campaign Factory surface audio readiness explainability is fixed on
+`codex/campaign-surface-audio-readiness`: reel surface handoff readiness now
+includes `audioReadiness` with required/status/task status/audio id/native proof
+validity and missing-audio blockers, derived from the existing publishability
+gate. Verification:
+`test_surface_handoff_readiness_explains_missing_reel_audio_proof`.
+
 Campaign Factory draft audio intent is fixed on
 `codex/campaign-destination-audio-intent`: ThreadsDashboard draft payload
 assembly now recomputes audio recommendations with the destination
