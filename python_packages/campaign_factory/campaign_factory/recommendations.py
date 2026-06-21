@@ -446,11 +446,15 @@ class RecommendationRepository:
     def compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
         compact = []
         for item in rankings[:limit]:
-            compact.append({
+            row = {
                 key: item.get(key)
                 for key in ("patternId", "clusterKey", "presetName", "label", "sampleSize", "performanceScore", "planningScore", "bandit")
                 if item.get(key) is not None
-            })
+            }
+            learning = ((item.get("performance") or {}).get("learning") or {})
+            if learning:
+                row["learning"] = learning
+            compact.append(row)
         return compact
 
     def recommendation_reference_pattern_evidence(
