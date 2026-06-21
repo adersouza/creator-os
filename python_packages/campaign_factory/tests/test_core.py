@@ -5178,6 +5178,10 @@ def test_recommend_next_batch_explains_readiness_for_blocked_asset(tmp_path: Pat
         assert decision_readiness["auditStatus"] == "pending"
         assert decision_readiness["contentSurface"] == "reel"
         assert decision_readiness["latestAuditVerdict"] is None
+        assert item["decisionEvidence"]["whyNow"]["status"] == "blocked"
+        assert item["decisionEvidence"]["whyNow"]["nextAction"] == decision_readiness["nextAction"]
+        assert item["decisionEvidence"]["whyNow"]["reasons"] == item["reasons"]
+        assert item["decisionEvidence"]["whyNow"]["risks"] == item["risks"]
     finally:
         cf.close()
 
@@ -5234,6 +5238,10 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         assert decision["readiness"]["reviewState"] == "approved"
         assert decision["readiness"]["auditStatus"] == item["readinessEvidence"]["auditStatus"]
         assert decision["readiness"]["latestAuditVerdict"] == "pass"
+        assert decision["whyNow"]["status"] == "ready"
+        assert decision["whyNow"]["nextAction"] == decision["readiness"]["nextAction"]
+        assert decision["whyNow"]["reasons"] == item["reasons"]
+        assert decision["whyNow"]["risks"] == item["risks"]
         assert item["evidence"]["decision"] == decision
     finally:
         cf.close()
@@ -5417,6 +5425,12 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
         assert item["decisionEvidence"]["readiness"]["blockingReasons"] == ["missing_rendered_assets"]
         assert item["decisionEvidence"]["readiness"]["verdict"] == "blocked"
         assert item["decisionEvidence"]["readiness"]["nextAction"] == "make_or_register_rendered_asset"
+        assert item["decisionEvidence"]["whyNow"] == {
+            "status": "blocked",
+            "nextAction": "make_or_register_rendered_asset",
+            "reasons": ["active reference pattern is available for the next generation batch"],
+            "risks": item["risks"],
+        }
         assert item["evidence"]["decision"] == item["decisionEvidence"]
     finally:
         cf.close()
