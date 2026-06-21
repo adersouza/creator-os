@@ -16582,6 +16582,7 @@ def test_creator_os_execution_readiness_passes_with_safe_accounts_and_drafts(tmp
             "schedulePlanReadiness": "pass",
             "timePlanReadiness": "pass",
             "publishRuntimeReadiness": "pass",
+            "audioReadiness": "pass",
             "captionContractReadiness": "pass",
         }
         assert result["nextSafeActions"] == ["commit_campaign_schedule_batch"]
@@ -16627,6 +16628,34 @@ def test_creator_os_execution_readiness_blocks_unsafe_draft_contracts(tmp_path: 
         assert "handoff" in details["missing_handoff_manifest"]["explanation"]
         assert details["insufficient_schedule_safe_drafts"]["observed"] == 0
         assert details["insufficient_schedule_safe_drafts"]["required"] == 5
+    finally:
+        cf.close()
+
+
+def test_creator_os_execution_readiness_blocks_unverified_native_audio(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        accounts = [
+            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+        ]
+        item = _draft_item("post_audio_selected", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item["audioStatus"] = "selected"
+        item["nativeAudioProofStatus"] = "missing"
+
+        result = cf.creator_os_execution_readiness(
+            creator="Stacey",
+            requested_count=1,
+            threadsdash_report=_manager_report_fixture(accounts=accounts),
+            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
+            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+        )
+
+        assert result["executionReady"] is False
+        assert result["preCommitChecklist"]["audioReadiness"] == "fail"
+        assert "native_audio_proof_missing" in result["blockers"]
+        details = {item["code"]: item for item in result["blockerDetails"]}
+        assert details["native_audio_proof_missing"]["category"] == "audio"
+        assert details["native_audio_proof_missing"]["nextAction"] == "select_or_verify_native_audio"
     finally:
         cf.close()
 
