@@ -872,6 +872,7 @@ class RecommendationRepository:
             },
             "variation": {
                 "preset": recommended_variation_preset,
+                "safety": self.recommendation_variation_safety_evidence(readiness_evidence),
             },
             "quality": self.recommendation_quality_evidence(readiness_evidence),
             "readiness": {
@@ -890,6 +891,20 @@ class RecommendationRepository:
             "blockingCategories": categories,
             "failureReasons": failure_reasons,
             "operatorScore": readiness_evidence.get("operatorScore"),
+        }
+
+    def recommendation_variation_safety_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
+        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+        safety_reasons = [
+            reason
+            for reason in failure_reasons
+            if self.recommendation_quality_failure_category(reason) == "safety"
+        ]
+        return {
+            "status": "blocked" if safety_reasons else "clear",
+            "blockingReasons": safety_reasons,
+            "authoritativeGate": "pdq_sscd_for_fanout",
+            "ssimRole": "diagnostic_only",
         }
 
     def recommendation_quality_failure_category(self, reason: str) -> str:

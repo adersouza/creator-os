@@ -5252,7 +5252,34 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         assert quality["status"] == "blocked"
         assert quality["blockingCategories"] == ["caption"]
         assert "missing_instagram_post_caption" in quality["failureReasons"]
+        variation_safety = item["decisionEvidence"]["variation"]["safety"]
+        assert variation_safety["status"] == "clear"
+        assert variation_safety["blockingReasons"] == []
+        assert variation_safety["ssimRole"] == "diagnostic_only"
         assert item["score"] <= 45
+    finally:
+        cf.close()
+
+
+def test_recommend_next_batch_surfaces_variation_safety_blockers(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute("UPDATE rendered_assets SET content_hash = '' WHERE id = 'asset_1'")
+        cf.conn.commit()
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+
+        assert "missing_content_fingerprint" in item["readinessEvidence"]["publishabilityFailureReasons"]
+        variation_safety = item["decisionEvidence"]["variation"]["safety"]
+        assert variation_safety["status"] == "blocked"
+        assert variation_safety["blockingReasons"] == ["missing_content_fingerprint"]
+        assert variation_safety["authoritativeGate"] == "pdq_sscd_for_fanout"
+        assert variation_safety["ssimRole"] == "diagnostic_only"
     finally:
         cf.close()
 

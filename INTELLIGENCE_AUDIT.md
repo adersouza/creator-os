@@ -178,6 +178,12 @@ already selected/attached/verified native audio from the rendered asset's
 `audioIntent.operator_selection`, and `decisionEvidence.audio` carries that
 selected-audio proof as the authoritative primary audio decision. Verification:
 `test_recommend_next_batch_surfaces_attached_native_audio_selection`.
+Follow-up variation-safety decision proof is fixed on
+`codex/recommendation-variation-safety-proof`: recommendation
+`decisionEvidence.variation.safety` now exposes whether existing
+fingerprint/duplicate publishability proof blocks multi-account fan-out, while
+keeping SSIM diagnostic-only. Verification:
+`test_recommend_next_batch_surfaces_variation_safety_blockers`.
 
 ---
 
