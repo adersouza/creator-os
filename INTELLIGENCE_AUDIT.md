@@ -128,6 +128,13 @@ drafts carrying failed Instagram post-caption quality proof and reports the
 caption blocker detail before scheduling/export. Verification:
 `test_creator_os_execution_readiness_blocks_failed_caption_quality`.
 
+Campaign Factory execution publishability proof readiness is fixed on
+`codex/execution-publishability-proof-readiness`: execution readiness now
+honors draft `publishability_failure_reasons` for caption, visual QC, and
+identity-verification blockers, and exposes `qualityReadiness` in the
+pre-commit checklist. Verification:
+`test_creator_os_execution_readiness_blocks_publishability_failure_reasons`.
+
 Campaign Factory draft audio intent is fixed on
 `codex/campaign-destination-audio-intent`: ThreadsDashboard draft payload
 assembly now recomputes audio recommendations with the destination

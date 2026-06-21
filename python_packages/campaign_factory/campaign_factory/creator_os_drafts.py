@@ -449,6 +449,20 @@ class CreatorOSDraftRepository:
             duplicate_reason = str(item.get("duplicateCheck") or "clear")
             if duplicate_reason and duplicate_reason != "clear":
                 blockers.add("duplicate_schedule_risk")
+            failure_reasons = {
+                str(reason)
+                for reason in item.get("publishability_failure_reasons") or item.get("publishabilityFailureReasons") or []
+            }
+            blockers.update(reason for reason in failure_reasons if reason in {
+                "missing_burned_captions",
+                "caption_placement_qc_failed",
+                "missing_instagram_post_caption",
+                "instagram_post_caption_quality_failed",
+                "visual_qc_failed",
+                "visual_qc_unavailable",
+                "identity_verification_failed",
+                "identity_verification_unavailable",
+            })
             if self.creator_os_explicit_false(item, "burnedCaptionTextPresent", "burned_caption_text_present", "burnedCaptionPresent"):
                 blockers.add("missing_burned_caption_text")
             placement_status = str(item.get("captionPlacementQcStatus") or item.get("captionPlacementStatus") or item.get("caption_placement_qc_status") or "").lower()
