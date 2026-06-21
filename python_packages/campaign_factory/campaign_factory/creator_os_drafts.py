@@ -5,6 +5,25 @@ import json
 from typing import Any, Callable
 
 
+_PUBLISHABILITY_EXECUTION_BLOCKERS = {
+    "missing_audio": "native_audio_proof_missing",
+    "missing_burned_captions": "missing_burned_captions",
+    "missing_caption_hash": "missing_caption_hash",
+    "missing_caption_outcome_context": "missing_caption_outcome_context",
+    "missing_content_fingerprint": "missing_content_fingerprint",
+    "not_approved": "not_approved",
+    "readiness_failed": "readiness_failed",
+    "wrong_visual": "wrong_visual",
+    "caption_placement_qc_failed": "caption_placement_qc_failed",
+    "missing_instagram_post_caption": "missing_instagram_post_caption",
+    "instagram_post_caption_quality_failed": "instagram_post_caption_quality_failed",
+    "visual_qc_failed": "visual_qc_failed",
+    "visual_qc_unavailable": "visual_qc_unavailable",
+    "identity_verification_failed": "identity_verification_failed",
+    "identity_verification_unavailable": "identity_verification_unavailable",
+}
+
+
 class CreatorOSDraftRepository:
     def __init__(
         self,
@@ -453,16 +472,7 @@ class CreatorOSDraftRepository:
                 str(reason)
                 for reason in item.get("publishability_failure_reasons") or item.get("publishabilityFailureReasons") or []
             }
-            blockers.update(reason for reason in failure_reasons if reason in {
-                "missing_burned_captions",
-                "caption_placement_qc_failed",
-                "missing_instagram_post_caption",
-                "instagram_post_caption_quality_failed",
-                "visual_qc_failed",
-                "visual_qc_unavailable",
-                "identity_verification_failed",
-                "identity_verification_unavailable",
-            })
+            blockers.update(_PUBLISHABILITY_EXECUTION_BLOCKERS[reason] for reason in failure_reasons if reason in _PUBLISHABILITY_EXECUTION_BLOCKERS)
             if self.creator_os_explicit_false(item, "burnedCaptionTextPresent", "burned_caption_text_present", "burnedCaptionPresent"):
                 blockers.add("missing_burned_caption_text")
             placement_status = str(item.get("captionPlacementQcStatus") or item.get("captionPlacementStatus") or item.get("caption_placement_qc_status") or "").lower()
