@@ -16715,6 +16715,50 @@ def test_creator_os_execution_readiness_blocks_publishability_failure_reasons(tm
         cf.close()
 
 
+@pytest.mark.parametrize(
+    ("failure_reason", "expected_blocker", "checklist_key", "category"),
+    [
+        ("missing_audio", "native_audio_proof_missing", "audioReadiness", "audio"),
+        ("missing_caption_hash", "missing_caption_hash", "captionContractReadiness", "caption"),
+        ("missing_caption_outcome_context", "missing_caption_outcome_context", "captionContractReadiness", "caption"),
+        ("missing_content_fingerprint", "missing_content_fingerprint", "draftReadiness", "draft_contract"),
+        ("not_approved", "not_approved", "draftReadiness", "draft_contract"),
+        ("readiness_failed", "readiness_failed", "qualityReadiness", "creative_safety"),
+        ("wrong_visual", "wrong_visual", "qualityReadiness", "creative_safety"),
+    ],
+)
+def test_creator_os_execution_readiness_covers_all_publishability_failure_reason_categories(
+    tmp_path: Path,
+    failure_reason: str,
+    expected_blocker: str,
+    checklist_key: str,
+    category: str,
+):
+    cf = make_factory(tmp_path)
+    try:
+        accounts = [
+            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+        ]
+        item = _draft_item("post_publishability_reason", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item["publishability_failure_reasons"] = [failure_reason]
+
+        result = cf.creator_os_execution_readiness(
+            creator="Stacey",
+            requested_count=1,
+            threadsdash_report=_manager_report_fixture(accounts=accounts),
+            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
+            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+        )
+
+        assert result["executionReady"] is False
+        assert result["preCommitChecklist"][checklist_key] == "fail"
+        assert expected_blocker in result["blockers"]
+        details = {item["code"]: item for item in result["blockerDetails"]}
+        assert details[expected_blocker]["category"] == category
+    finally:
+        cf.close()
+
+
 def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

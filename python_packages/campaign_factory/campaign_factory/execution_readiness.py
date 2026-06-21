@@ -21,8 +21,14 @@ _BLOCKER_GUIDANCE = {
     "missing_instagram_post_caption": ("caption", "A draft is missing the Instagram post caption.", "repair_caption_contract"),
     "missing_burned_captions": ("caption", "A draft is missing burned-caption proof.", "repair_caption_contract"),
     "missing_burned_caption_text": ("caption", "A draft is missing burned-caption text evidence.", "repair_caption_contract"),
+    "missing_caption_hash": ("caption", "A draft is missing caption hash proof.", "repair_caption_contract"),
+    "missing_caption_outcome_context": ("caption", "A draft is missing caption outcome context.", "repair_caption_contract"),
     "caption_placement_qc_failed": ("caption", "A draft failed caption placement quality control.", "repair_caption_placement"),
     "instagram_post_caption_quality_failed": ("caption", "A draft failed Instagram post caption quality checks.", "repair_caption_contract"),
+    "missing_content_fingerprint": ("draft_contract", "A draft is missing content fingerprint proof.", "regenerate_draft_handoff_payload"),
+    "not_approved": ("draft_contract", "A draft asset is not approved for scheduling.", "route_asset_through_review"),
+    "readiness_failed": ("creative_safety", "A draft failed upstream readiness checks.", "repair_or_replace_creative"),
+    "wrong_visual": ("creative_safety", "A draft failed expected visual verification.", "repair_or_replace_creative"),
     "visual_qc_failed": ("creative_safety", "A draft failed visual quality control.", "repair_or_replace_creative"),
     "visual_qc_unavailable": ("creative_safety", "A draft is missing required visual quality control proof.", "repair_or_replace_creative"),
     "identity_verification_failed": ("creative_safety", "A draft failed identity verification.", "repair_or_replace_creative"),
@@ -152,6 +158,8 @@ class ExecutionReadinessRepository:
                 "publishability_failed_draft_present",
                 "missing_campaign_factory_asset_id",
                 "missing_campaign_factory_distribution_plan_id",
+                "missing_content_fingerprint",
+                "not_approved",
                 "embedded_audio_invalid",
                 "native_audio_proof_missing",
                 "instagram_post_caption_quality_failed",
@@ -173,6 +181,8 @@ class ExecutionReadinessRepository:
                 "missing_instagram_post_caption",
                 "missing_burned_captions",
                 "missing_burned_caption_text",
+                "missing_caption_hash",
+                "missing_caption_outcome_context",
                 "caption_placement_qc_failed",
                 "instagram_post_caption_quality_failed",
             }
@@ -183,7 +193,14 @@ class ExecutionReadinessRepository:
         ) else "fail"
         quality_readiness = "pass" if not any(
             blocker in unique_blockers
-            for blocker in {"visual_qc_failed", "visual_qc_unavailable", "identity_verification_failed", "identity_verification_unavailable"}
+            for blocker in {
+                "readiness_failed",
+                "wrong_visual",
+                "visual_qc_failed",
+                "visual_qc_unavailable",
+                "identity_verification_failed",
+                "identity_verification_unavailable",
+            }
         ) else "fail"
         checklist = {
             "accountReadiness": account_readiness,

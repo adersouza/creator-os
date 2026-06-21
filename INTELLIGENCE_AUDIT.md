@@ -134,6 +134,13 @@ honors draft `publishability_failure_reasons` for caption, visual QC, and
 identity-verification blockers, and exposes `qualityReadiness` in the
 pre-commit checklist. Verification:
 `test_creator_os_execution_readiness_blocks_publishability_failure_reasons`.
+Follow-up coverage is fixed on
+`codex/execution-publishability-failure-reason-coverage`: execution readiness
+now maps every current `campaign_draft_payload.v1` publishability failure reason
+into a blocking readiness category, including missing audio, caption proof,
+content fingerprint, approval, readiness, and wrong-visual failures.
+Verification:
+`test_creator_os_execution_readiness_covers_all_publishability_failure_reason_categories`.
 
 Campaign Factory draft audio intent is fixed on
 `codex/campaign-destination-audio-intent`: ThreadsDashboard draft payload
