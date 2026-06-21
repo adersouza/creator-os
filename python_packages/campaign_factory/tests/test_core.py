@@ -5215,6 +5215,8 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         assert decision["audio"]["recommendationCount"] == 1
         assert decision["caption"]["guidance"] == item["captionGuidance"]
         assert decision["caption"]["captionHash"] == item["readinessEvidence"]["captionHash"]
+        assert decision["caption"]["status"] == "ready"
+        assert decision["caption"]["blockingReasons"] == []
         assert item["evidence"]["decision"] == decision
     finally:
         cf.close()
@@ -5248,6 +5250,12 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         assert "publishability:missing_instagram_post_caption" in item["risks"]
         assert "publishability:missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["blockingReasons"]
         assert "missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["publishabilityFailureReasons"]
+        caption = item["decisionEvidence"]["caption"]
+        assert caption["status"] == "blocked"
+        assert caption["blockingReasons"] == [
+            "instagram_post_caption_quality_failed",
+            "missing_instagram_post_caption",
+        ]
         quality = item["decisionEvidence"]["quality"]
         assert quality["status"] == "blocked"
         assert quality["blockingCategories"] == ["caption"]

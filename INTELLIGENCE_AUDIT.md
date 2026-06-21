@@ -184,6 +184,11 @@ Follow-up variation-safety decision proof is fixed on
 fingerprint/duplicate publishability proof blocks multi-account fan-out, while
 keeping SSIM diagnostic-only. Verification:
 `test_recommend_next_batch_surfaces_variation_safety_blockers`.
+Follow-up caption decision proof is fixed on
+`codex/recommendation-caption-decision-proof`: recommendation
+`decisionEvidence.caption` now carries a ready/blocked status and exact caption
+publishability blockers next to caption guidance/hash. Verification:
+`test_recommend_next_batch_surfaces_publishability_failures_as_risks`.
 
 ---
 
