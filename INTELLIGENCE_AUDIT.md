@@ -102,6 +102,13 @@ now includes `blockerDetails` with category, explanation, next action, and
 observed/required counts for inventory-capacity blockers. Verification:
 `test_creator_os_execution_readiness_blocks_unsafe_draft_contracts`.
 
+Campaign Factory execution audio proof readiness is fixed on
+`codex/execution-audio-proof-readiness`: execution readiness now blocks
+selected/recommended/missing native-audio states unless platform proof is
+verified, exposes the audio blocker detail, and reports `audioReadiness` in the
+pre-commit checklist. Verification:
+`test_creator_os_execution_readiness_blocks_unverified_native_audio`.
+
 Campaign Factory surface audio readiness explainability is fixed on
 `codex/campaign-surface-audio-readiness`: reel surface handoff readiness now
 includes `audioReadiness` with required/status/task status/audio id/native proof

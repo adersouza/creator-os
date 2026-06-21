@@ -17,6 +17,7 @@ _BLOCKER_GUIDANCE = {
     "missing_campaign_factory_asset_id": ("draft_contract", "A draft is missing its Campaign Factory asset id.", "regenerate_draft_handoff_payload"),
     "missing_campaign_factory_distribution_plan_id": ("draft_contract", "A draft is missing its distribution plan id.", "rerun_campaign_schedule_plan"),
     "embedded_audio_invalid": ("audio", "A draft has invalid embedded audio metadata.", "select_or_verify_native_audio"),
+    "native_audio_proof_missing": ("audio", "A draft has selected or recommended native audio without verified platform proof.", "select_or_verify_native_audio"),
     "missing_instagram_post_caption": ("caption", "A draft is missing the Instagram post caption.", "repair_caption_contract"),
     "missing_burned_caption_text": ("caption", "A draft is missing burned-caption text evidence.", "repair_caption_contract"),
     "caption_placement_qc_failed": ("caption", "A draft failed caption placement quality control.", "repair_caption_placement"),
@@ -146,6 +147,7 @@ class ExecutionReadinessRepository:
                 "missing_campaign_factory_asset_id",
                 "missing_campaign_factory_distribution_plan_id",
                 "embedded_audio_invalid",
+                "native_audio_proof_missing",
                 "insufficient_schedule_safe_drafts",
             }
         ) else "fail"
@@ -158,6 +160,10 @@ class ExecutionReadinessRepository:
             blocker in unique_blockers
             for blocker in {"missing_instagram_post_caption", "missing_burned_caption_text", "caption_placement_qc_failed"}
         ) else "fail"
+        audio_readiness = "pass" if not any(
+            blocker in unique_blockers
+            for blocker in {"embedded_audio_invalid", "native_audio_proof_missing"}
+        ) else "fail"
         checklist = {
             "accountReadiness": account_readiness,
             "accountHealthReadiness": "pass" if not self._creator_os_execution_account_health_blockers(account_health) else "fail",
@@ -165,6 +171,7 @@ class ExecutionReadinessRepository:
             "schedulePlanReadiness": schedule_readiness,
             "timePlanReadiness": time_readiness,
             "publishRuntimeReadiness": publish_readiness,
+            "audioReadiness": audio_readiness,
             "captionContractReadiness": caption_readiness,
         }
 
