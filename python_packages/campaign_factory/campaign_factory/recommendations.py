@@ -893,12 +893,7 @@ class RecommendationRepository:
                 "safety": self.recommendation_variation_safety_evidence(readiness_evidence),
             },
             "quality": self.recommendation_quality_evidence(readiness_evidence),
-            "readiness": {
-                "state": readiness_evidence.get("state"),
-                "operatorScore": readiness_evidence.get("operatorScore"),
-                "blockingReasons": readiness_evidence.get("blockingReasons") or [],
-                "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
-            },
+            "readiness": self.recommendation_readiness_decision_evidence(readiness_evidence),
         }
 
     def recommendation_learning_evidence(
@@ -961,6 +956,31 @@ class RecommendationRepository:
             "blockingReasons": safety_reasons,
             "authoritativeGate": "pdq_sscd_for_fanout",
             "ssimRole": "diagnostic_only",
+        }
+
+    def recommendation_readiness_decision_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
+        blocking_reasons = [str(reason) for reason in readiness_evidence.get("blockingReasons") or [] if reason]
+        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+        blocked = bool(blocking_reasons or failure_reasons or readiness_evidence.get("state") == "blocked")
+        if "missing_rendered_assets" in blocking_reasons:
+            next_action = "make_or_register_rendered_asset"
+        elif blocking_reasons:
+            next_action = "resolve_readiness_blockers"
+        elif failure_reasons:
+            next_action = "resolve_publishability_failures"
+        else:
+            next_action = "ready_for_operator_export_review"
+        return {
+            "state": readiness_evidence.get("state"),
+            "verdict": "blocked" if blocked else "ready",
+            "nextAction": next_action,
+            "operatorScore": readiness_evidence.get("operatorScore"),
+            "contentSurface": readiness_evidence.get("contentSurface"),
+            "reviewState": readiness_evidence.get("reviewState"),
+            "auditStatus": readiness_evidence.get("auditStatus"),
+            "latestAuditVerdict": readiness_evidence.get("latestAuditVerdict"),
+            "blockingReasons": blocking_reasons,
+            "publishabilityFailureReasons": failure_reasons,
         }
 
     def recommendation_quality_failure_category(self, reason: str) -> str:

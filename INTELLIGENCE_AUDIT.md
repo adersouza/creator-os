@@ -195,6 +195,15 @@ Follow-up measured-feedback decision proof is fixed on
 performance snapshot id, data-quality level/sample size, and recommendation
 trust score/risk used to downgrade weak recommendations. Verification:
 `test_recommend_next_batch_downgrades_when_recommendation_trust_is_low`.
+Follow-up readiness verdict proof is fixed on
+`codex/recommendation-readiness-verdict-proof`: recommendation
+`decisionEvidence.readiness` now carries a manager-readable verdict, next
+action, review/audit state, content surface, and latest audit verdict, so
+operators can see whether the item is ready and what to fix next without
+parsing raw blockers. Verification:
+`test_recommend_next_batch_explains_readiness_for_blocked_asset`,
+`test_recommend_next_batch_explains_account_audio_caption_decision`, and
+`test_reference_only_recommendation_explains_what_to_make_next`.
 
 ---
 
@@ -254,6 +263,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `campaign_factory/recommendations.py` publishability decision proof | Recommendation decision evidence now includes exact publishability failure reasons from readiness proof, not only prefixed top-level risk strings. Regression test: `test_recommend_next_batch_surfaces_publishability_failures_as_risks`. |
 | Fixed | `campaign_factory/recommendations.py` quality decision proof | Recommendation decision evidence now includes `quality.status`, `blockingCategories`, and exact `failureReasons`, so caption/audio/visual/safety/review blockers are visible without parsing readiness strings. Regression test: `test_recommend_next_batch_surfaces_publishability_failures_as_risks`. |
 | Fixed | `campaign_factory/recommendations.py` selected audio proof | Recommendation items now expose existing selected/attached/verified native audio from `audioIntent.operator_selection` in both `selectedAudio` and `decisionEvidence.audio`, and treat it as the primary audio decision. Regression test: `test_recommend_next_batch_surfaces_attached_native_audio_selection`. |
+| Fixed | `campaign_factory/recommendations.py` readiness verdict proof | Recommendation decision evidence now includes a clear readiness verdict, operator next action, review/audit state, content surface, and latest audit verdict. Regression tests: `test_recommend_next_batch_explains_readiness_for_blocked_asset`, `test_recommend_next_batch_explains_account_audio_caption_decision`, `test_reference_only_recommendation_explains_what_to_make_next`. |
 | Fixed | `adapters/threadsdash.py` draft audio intent | Draft payload assembly recomputes audio recommendations per destination account before building `audio_intent.v1`, so one campaign asset can produce account-specific primary audio recommendations. Regression test: `test_threadsdash_audio_intent_uses_destination_account_fit`. |
 | Deferred / Creator OS volume gate | `learning_score.py`, `learning_readiness.py` recommendation arm rankings | Reference-pattern and variation-preset arms now carry decayed Beta-Bernoulli stats (`alpha`, `beta`, posterior mean, effective trials), an explicit 15% exploration floor, and a deterministic planning score used ahead of raw performance for rankings. Stochastic Thompson sampling remains deferred until `campaign-factory closed-loop-learning-status` reports 50 Campaign Factory posts with both 1h and 24h metric-history rows; before that, exploration loss is not worth the low sample size. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
