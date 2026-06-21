@@ -682,6 +682,11 @@ class RecommendationRepository:
             account=account or self.asset_target_account(asset),
             limit=5,
         )
+        selected_audio = self.selected_audio_from_asset(asset)
+        audio_selection_status = self.recommendation_audio_selection_status(
+            selected_audio=selected_audio,
+            audio_recommendations=audio_recommendations,
+        )
         audio_memory_evidence = {
             "recommendationCount": len(audio_recommendations.get("recommendations") or []),
             "topAudioMemoryGraphIds": [
@@ -700,6 +705,8 @@ class RecommendationRepository:
             caption_guidance=caption,
             readiness_evidence=readiness_evidence,
             recommended_variation_preset=recommended_variation_preset,
+            selected_audio=selected_audio,
+            audio_selection_status=audio_selection_status,
         )
         evidence["decision"] = decision_evidence
         recommendation_graph_id = None
@@ -733,8 +740,8 @@ class RecommendationRepository:
             "audioDecision": audio_recommendations.get("decision") or {},
             "audioMemoryEvidence": audio_memory_evidence,
             "decisionEvidence": decision_evidence,
-            "selectedAudio": None,
-            "audioSelectionStatus": "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection",
+            "selectedAudio": selected_audio,
+            "audioSelectionStatus": audio_selection_status,
             "reasons": reasons,
             "risks": sorted(set(str(risk) for risk in risks if risk)),
             "scoreBreakdown": {
@@ -839,9 +846,12 @@ class RecommendationRepository:
         caption_guidance: str,
         readiness_evidence: dict[str, Any],
         recommended_variation_preset: str | None,
+        selected_audio: dict[str, Any] | None = None,
+        audio_selection_status: str | None = None,
     ) -> dict[str, Any]:
         recommendations = audio_recommendations.get("recommendations") or []
         audio_decision = audio_recommendations.get("decision") if isinstance(audio_recommendations.get("decision"), dict) else {}
+        status = audio_selection_status or ("recommended" if recommendations else "needs_operator_selection")
         return {
             "targetAccount": target_account,
             "account": {
@@ -850,7 +860,8 @@ class RecommendationRepository:
                 "reasons": account_fit_evidence.get("reasons") or [],
             },
             "audio": {
-                "status": "recommended" if recommendations else "needs_operator_selection",
+                "status": status,
+                "selectedAudio": selected_audio,
                 "primaryAudio": audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
                 "recommendationCount": len(recommendations),
                 "decisionConfidence": audio_decision.get("decisionConfidence"),
@@ -869,6 +880,42 @@ class RecommendationRepository:
                 "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
             },
         }
+
+    def selected_audio_from_asset(self, asset: dict[str, Any]) -> dict[str, Any] | None:
+        caption_generation = asset.get("captionGeneration") if isinstance(asset.get("captionGeneration"), dict) else {}
+        audio_intent = caption_generation.get("audioIntent") or caption_generation.get("audio_intent") or {}
+        if not isinstance(audio_intent, dict):
+            return None
+        status = str(audio_intent.get("status") or "").strip().lower()
+        if status not in {"selected", "attached", "verified"}:
+            return None
+        selection = audio_intent.get("operator_selection") or audio_intent.get("operatorSelection") or {}
+        if not isinstance(selection, dict):
+            return None
+        audio_id = selection.get("audio_id") or selection.get("platform_audio_id") or selection.get("audioId") or selection.get("platformAudioId")
+        if not audio_id:
+            return None
+        return {
+            "audioId": str(audio_id),
+            "audioTitle": selection.get("audio_title") or selection.get("title") or selection.get("audioTitle"),
+            "audioArtist": selection.get("audio_artist") or selection.get("artist") or selection.get("audioArtist"),
+            "audioType": selection.get("audio_type") or selection.get("type") or selection.get("audioType"),
+            "status": status,
+            "selectionSource": selection.get("selection_source") or selection.get("selectionSource"),
+            "selectedAt": selection.get("selected_at") or selection.get("selectedAt"),
+            "attachedAt": selection.get("attached_at") or selection.get("attachedAt"),
+            "verifiedAt": selection.get("verified_at") or selection.get("verifiedAt"),
+        }
+
+    def recommendation_audio_selection_status(
+        self,
+        *,
+        selected_audio: dict[str, Any] | None,
+        audio_recommendations: dict[str, Any],
+    ) -> str:
+        if selected_audio:
+            return str(selected_audio.get("status") or "selected")
+        return "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection"
 
     def recommendation_readiness_evidence(self, asset: dict[str, Any], *, account: str | None) -> dict[str, Any]:
         readiness = asset.get("export_readiness") or {}
