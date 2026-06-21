@@ -867,6 +867,36 @@ class RecommendationRepository:
         audio_decision = audio_recommendations.get("decision") if isinstance(audio_recommendations.get("decision"), dict) else {}
         status = audio_selection_status or ("recommended" if recommendations else "needs_operator_selection")
         readiness_decision = self.recommendation_readiness_decision_evidence(readiness_evidence)
+        learning_evidence = self.recommendation_learning_evidence(
+            performance_score=performance_score,
+            data_quality=data_quality,
+            latest_performance=latest_performance,
+            recommendation_trust=recommendation_trust,
+            trust_risks=trust_risks,
+        )
+        audio_evidence = {
+            "status": status,
+            "selectedAudio": selected_audio,
+            "primaryAudio": selected_audio or audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
+            "recommendationCount": len(recommendations),
+            "decisionConfidence": audio_decision.get("decisionConfidence"),
+        }
+        caption_evidence = {
+            "guidance": caption_guidance,
+            "captionHash": readiness_evidence.get("captionHash"),
+            **self.recommendation_caption_evidence(readiness_evidence),
+        }
+        variation_safety = self.recommendation_variation_safety_evidence(readiness_evidence)
+        variation_evidence = {
+            "preset": recommended_variation_preset,
+            "safety": variation_safety,
+        }
+        quality_evidence = self.recommendation_quality_evidence(readiness_evidence)
+        why_now = self.recommendation_why_now_evidence(
+            readiness_decision=readiness_decision,
+            reasons=reasons or [],
+            risks=risks or [],
+        )
         return {
             "targetAccount": target_account,
             "account": {
@@ -874,35 +904,22 @@ class RecommendationRepository:
                 "fitLevel": account_fit_evidence.get("level"),
                 "reasons": account_fit_evidence.get("reasons") or [],
             },
-            "learning": self.recommendation_learning_evidence(
-                performance_score=performance_score,
-                data_quality=data_quality,
-                latest_performance=latest_performance,
-                recommendation_trust=recommendation_trust,
-                trust_risks=trust_risks,
-            ),
-            "audio": {
-                "status": status,
-                "selectedAudio": selected_audio,
-                "primaryAudio": selected_audio or audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
-                "recommendationCount": len(recommendations),
-                "decisionConfidence": audio_decision.get("decisionConfidence"),
-            },
-            "caption": {
-                "guidance": caption_guidance,
-                "captionHash": readiness_evidence.get("captionHash"),
-                **self.recommendation_caption_evidence(readiness_evidence),
-            },
-            "variation": {
-                "preset": recommended_variation_preset,
-                "safety": self.recommendation_variation_safety_evidence(readiness_evidence),
-            },
-            "quality": self.recommendation_quality_evidence(readiness_evidence),
+            "learning": learning_evidence,
+            "audio": audio_evidence,
+            "caption": caption_evidence,
+            "variation": variation_evidence,
+            "quality": quality_evidence,
             "readiness": readiness_decision,
-            "whyNow": self.recommendation_why_now_evidence(
+            "whyNow": why_now,
+            "proofChecklist": self.recommendation_proof_checklist(
+                account_score=account_score,
+                account_fit_evidence=account_fit_evidence,
+                learning_evidence=learning_evidence,
+                audio_evidence=audio_evidence,
+                caption_evidence=caption_evidence,
+                variation_safety=variation_safety,
+                quality_evidence=quality_evidence,
                 readiness_decision=readiness_decision,
-                reasons=reasons or [],
-                risks=risks or [],
             ),
         }
 
@@ -1005,6 +1022,52 @@ class RecommendationRepository:
             "nextAction": readiness_decision.get("nextAction"),
             "reasons": reasons,
             "risks": risks,
+        }
+
+    def recommendation_proof_checklist(
+        self,
+        *,
+        account_score: int,
+        account_fit_evidence: dict[str, Any],
+        learning_evidence: dict[str, Any],
+        audio_evidence: dict[str, Any],
+        caption_evidence: dict[str, Any],
+        variation_safety: dict[str, Any],
+        quality_evidence: dict[str, Any],
+        readiness_decision: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "accountFit": {
+                "status": account_fit_evidence.get("level"),
+                "score": account_score,
+            },
+            "learning": {
+                "status": (learning_evidence.get("dataQuality") or {}).get("level"),
+                "sampleSize": (learning_evidence.get("dataQuality") or {}).get("sampleSize", 0),
+                "latestPerformanceSnapshotId": learning_evidence.get("latestPerformanceSnapshotId"),
+            },
+            "audio": {
+                "status": audio_evidence.get("status"),
+                "hasPrimaryAudio": bool(audio_evidence.get("primaryAudio")),
+            },
+            "caption": {
+                "status": caption_evidence.get("status"),
+                "hasCaptionHash": bool(caption_evidence.get("captionHash")),
+            },
+            "quality": {
+                "status": quality_evidence.get("status"),
+                "blockingCount": len(quality_evidence.get("failureReasons") or []),
+            },
+            "variationSafety": {
+                "status": variation_safety.get("status"),
+                "blockingCount": len(variation_safety.get("blockingReasons") or []),
+            },
+            "readiness": {
+                "status": readiness_decision.get("verdict"),
+                "nextAction": readiness_decision.get("nextAction"),
+                "blockingCount": len(readiness_decision.get("blockingReasons") or [])
+                + len(readiness_decision.get("publishabilityFailureReasons") or []),
+            },
         }
 
     def recommendation_quality_failure_category(self, reason: str) -> str:
