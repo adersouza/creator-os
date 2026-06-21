@@ -5182,6 +5182,12 @@ def test_recommend_next_batch_explains_readiness_for_blocked_asset(tmp_path: Pat
         assert item["decisionEvidence"]["whyNow"]["nextAction"] == decision_readiness["nextAction"]
         assert item["decisionEvidence"]["whyNow"]["reasons"] == item["reasons"]
         assert item["decisionEvidence"]["whyNow"]["risks"] == item["risks"]
+        checklist = item["decisionEvidence"]["proofChecklist"]
+        assert checklist["readiness"]["status"] == "blocked"
+        assert checklist["readiness"]["nextAction"] == decision_readiness["nextAction"]
+        assert checklist["readiness"]["blockingCount"] >= 1
+        assert checklist["quality"]["status"] == item["decisionEvidence"]["quality"]["status"]
+        assert checklist["audio"]["status"] == item["decisionEvidence"]["audio"]["status"]
     finally:
         cf.close()
 
@@ -5242,6 +5248,14 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         assert decision["whyNow"]["nextAction"] == decision["readiness"]["nextAction"]
         assert decision["whyNow"]["reasons"] == item["reasons"]
         assert decision["whyNow"]["risks"] == item["risks"]
+        checklist = decision["proofChecklist"]
+        assert checklist["accountFit"]["score"] == decision["account"]["score"]
+        assert checklist["learning"]["sampleSize"] == decision["learning"]["dataQuality"]["sampleSize"]
+        assert checklist["audio"]["hasPrimaryAudio"] is True
+        assert checklist["caption"]["status"] == "ready"
+        assert checklist["quality"]["status"] == "passed"
+        assert checklist["variationSafety"]["status"] == "clear"
+        assert checklist["readiness"]["status"] == "ready"
         assert item["evidence"]["decision"] == decision
     finally:
         cf.close()
@@ -5431,6 +5445,12 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
             "reasons": ["active reference pattern is available for the next generation batch"],
             "risks": item["risks"],
         }
+        checklist = item["decisionEvidence"]["proofChecklist"]
+        assert checklist["learning"]["status"] == "low"
+        assert checklist["learning"]["sampleSize"] == 0
+        assert checklist["readiness"]["status"] == "blocked"
+        assert checklist["readiness"]["nextAction"] == "make_or_register_rendered_asset"
+        assert checklist["audio"]["hasPrimaryAudio"] is True
         assert item["evidence"]["decision"] == item["decisionEvidence"]
     finally:
         cf.close()
