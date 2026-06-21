@@ -182,6 +182,17 @@ describe("TypeScript pipeline contract validators", () => {
 		);
 	});
 
+	it("requires generated asset lineage inside Campaign Factory draft packages", () => {
+		const payload = example("campaign_draft_payload");
+		delete payload.drafts[0].metadata.campaign_factory.generated_asset_lineage;
+
+		expect(validateCampaignFactoryDraftPayload(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("generated_asset_lineage"),
+			]),
+		);
+	});
+
 	it("requires recommendation accuracy graph IDs", () => {
 		const payload = example("recommendation_accuracy_report");
 		delete payload.reportGraphId;

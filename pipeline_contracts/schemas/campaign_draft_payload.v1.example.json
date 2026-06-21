@@ -97,6 +97,28 @@
             "source_clip": "/tmp/source.mp4",
             "rendered_output": "/tmp/rendered.mp4"
           },
+          "generated_asset_lineage": {
+            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "pipelineTraceId": "trace_campaign_draft_payload_example",
+            "source": {
+              "formatType": "reel",
+              "referencePattern": "mirror_curiosity",
+              "patternCardId": "pattern_card_001",
+              "promptId": "prompt_001"
+            },
+            "generation": {
+              "tool": "manual_finished_video",
+              "modelProfile": "operator_reviewed",
+              "assetPath": "/campaigns/audio_smoke/rendered/asset_smoke.mp4"
+            },
+            "review": {
+              "humanReviewRequired": true,
+              "status": "approved"
+            },
+            "quality": {
+              "readiness": "passed"
+            }
+          },
           "audio_intent": {
             "schema": "pipeline.audio_intent.v1",
             "mode": "native_platform_audio",

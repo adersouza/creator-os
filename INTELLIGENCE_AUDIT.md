@@ -19,7 +19,13 @@ Track I contract lineage is fixed on
 `codex/intelligence-track-i-contract-lineage`: `generated_asset_lineage.v1`,
 `recommendation_accuracy_report.v1`, and `performance_sync.v1` now require
 causal graph/job/trace IDs, Python and TypeScript validators reject omitted IDs,
-and Campaign/Reel/Reference emitters populate those IDs. Verification:
+and Campaign/Reel/Reference emitters populate those IDs. Follow-up package proof
+is fixed on `codex/campaign-readiness-package-proof`: `campaign_draft_payload.v1`
+now requires `metadata.campaign_factory.generated_asset_lineage` and validates it
+against `generated_asset_lineage.v1`, so a dashboard draft handoff cannot be
+contract-valid without causal generation proof. ThreadsDashboard's vendored
+contract snapshot was synced to the same schema/example/generated runtime
+bundle. Verification:
 `uv run pytest packages/pipeline_contracts/tests`,
 `pnpm --filter pipeline-contracts-ts test`, `pnpm check:contracts`,
 `uv run pytest python_packages/campaign_factory/tests/test_core.py -q`, and
@@ -124,7 +130,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 |-----|-----------|-----|
 | Fixed | `reference_factory/outcomes.py`, `public_metrics.py`, `patterns.py`, `learning.py` | Reference Factory now imports measured prompt outcomes into `generated_video_prompts`, ranks public posts by measured reward before follower-normalized public rate/raw plays, embeds `measuredOutcome` in pattern metrics, and carries measured reward samples into learning-cluster performance signals. Regression tests prove a lower-raw-play reference with better measured reward outranks a raw-volume winner. |
 | Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
-| Fixed | `generated_asset_lineage.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
+| Fixed | `generated_asset_lineage.v1` / `campaign_draft_payload.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; draft handoff packages require `metadata.campaign_factory.generated_asset_lineage`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
 | Upstream-fixed | ThreadsDashboard PR #129 (`supabase/migrations`, `analyticsSync.ts`, `post-engagement.ts`) | Track I capture repair is merged upstream: monotonic metric guards compare full metric totals, metric history retention uses `snapshot_at`, Threads reach is policy-backed as `views`, unavailable Threads saves are `null`, and tests cover those semantics. |
 | Fixed | `core.py` recommendation trust context; `_history_score` | Campaign Factory learning summaries carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. `recommend_next_batch` now reads the latest persisted recommendation accuracy report, records trust evidence in the input snapshot/item evidence, and caps score/confidence with `low_recommendation_trust` when measured outcomes disprove recent recommendations. Regression test: `test_recommend_next_batch_downgrades_when_recommendation_trust_is_low`. |
@@ -245,7 +251,7 @@ Research 06 + system-design give a lightweight, local, buildable design that dir
 
 1. ~~**Track S Critical first**~~ ✓ **SHIPPED (PR #54)** — PDQ/SSCD wired as blocking distinctness gate, un-review-only in ContentForge. Highest risk reduction, landed first as planned.
 2. ~~**Track I capture bugs**~~ ✓ **UPSTREAM-FIXED (ThreadsDashboard PR #129)** — full-total monotonic guards, `snapshot_at` retention, Threads reach/saves semantics, and AP0-2 metric reconciliation are merged in the dashboard source repo.
-3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in the three attribution contracts, with Python/TypeScript negative tests and producer updates.
+3. ~~**Track I contract lineage**~~ ✓ **FIXED** — causal IDs are required in attribution contracts, dashboard draft packages require generated asset lineage, and Python/TypeScript negative tests prove omitted IDs fail.
 4. ~~**Track Q quality floor**~~ ✓ **FIXED / DEFERRED CALIBRATION** — minimum-dimension bug plus Campaign Factory OCR safe-zone/readability/hook/deterministic watchability/heuristic creative and supplied/configured model-backed video-analysis blocking are fixed; real-footage threshold tuning is deferred to Creator OS Track Q v2.
 5. ~~**Higgsfield virality wiring** (Track Q)~~ ✓ **FIXED** — ContentForge report-ingestion, Reel Factory post-render sidecar gates, and zero-cost operator/configured-provider report request generation are fixed.
 6. ~~**Track I Campaign Factory statistical rigor**~~ ✓ **FIXED** — normalized reward, recency decay, confidence shrinkage, explicit unmeasured state, decayed Beta-Bernoulli arm stats, and an exploration-floor planning score are in the Campaign Factory scoring/ranking seam.
