@@ -364,6 +364,15 @@ def _campaign_factory_manifest_blockers(
     return sorted(set(blockers))
 
 
+def _draft_payload_contract_blockers(payload: dict[str, Any]) -> list[str]:
+    try:
+        validate_threadsdash_draft_payload_strict(payload)
+    except ContractValidationError as exc:
+        detail = str(exc).splitlines()[0].strip()
+        return [f"draft_payload_contract_invalid:{detail or 'validation_failed'}"]
+    return []
+
+
 def _is_remote_media_url(value: Any) -> bool:
     if not isinstance(value, str) or not value.strip():
         return False
@@ -973,6 +982,7 @@ def evaluate_export_readiness(
         drafts_by_asset: dict[str, list[dict[str, Any]]] = {}
         for draft in payload["drafts"]:
             drafts_by_asset.setdefault(draft["renderedAssetId"], []).append(draft)
+        contract_blockers = _draft_payload_contract_blockers(payload)
         batch_findings = _batch_guardrail_findings(payload["drafts"])
         usage: dict[str, Any] | None = None
         usage_error: str | None = None
@@ -1017,6 +1027,7 @@ def evaluate_export_readiness(
                 if len({post.get("instagramAccountId") or post.get("accountId") for post in caption_usage.get("posts", [])}) >= 3:
                     warnings.append("caption_reuse_multi_account")
             for draft in asset_drafts:
+                blocking.extend(contract_blockers)
                 findings = batch_findings.get(_draft_key(draft), {})
                 warnings.extend(findings.get("warnings") or [])
                 blocking.extend(findings.get("blocking") or [])
