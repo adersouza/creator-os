@@ -102,6 +102,7 @@ def build_draft_payloads(
                 caption_context=caption_context,
                 destination=destination,
             )
+            audio_recommendations = _audio_recommendations_for_destination(factory, asset, destination)
             publishability = factory.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
@@ -192,12 +193,12 @@ def build_draft_payloads(
                 "referencePattern": asset.get("referencePattern") or {},
                 "sourcePrompt": asset.get("sourcePrompt") or {},
                 "generatedAssetLineage": asset.get("generatedAssetLineage") or {},
-                "audioRecommendations": asset.get("audioRecommendations") or {},
+                "audioRecommendations": audio_recommendations,
                 "audioIntent": _build_audio_intent(
                     asset.get("audioIntent")
                     or (asset.get("captionGeneration") or {}).get("audioIntent")
                     or (asset.get("referencePattern") or {}).get("audioIntent"),
-                    audio_recommendations=asset.get("audioRecommendations") or {},
+                    audio_recommendations=audio_recommendations,
                     platform="instagram",
                     distribution_surface=distribution_surface,
                 ),
@@ -479,6 +480,34 @@ def _draft_destinations_for_asset(
             "contentSurface": asset_content_surface,
         })
     return destinations
+
+
+def _audio_recommendations_for_destination(
+    factory: CampaignFactory,
+    asset: dict[str, Any],
+    destination: dict[str, Any],
+) -> dict[str, Any]:
+    fallback = asset.get("audioRecommendations") if isinstance(asset.get("audioRecommendations"), dict) else {}
+    account = destination.get("instagramAccountId") or destination.get("accountId")
+    if not account:
+        return fallback
+    reference_pattern = asset.get("referencePattern") if isinstance(asset.get("referencePattern"), dict) else {}
+    content_tags = [
+        reference_pattern.get("visualFormat"),
+        reference_pattern.get("hookType"),
+        reference_pattern.get("captionArchetype"),
+        asset.get("recipe"),
+    ]
+    recommendations = factory.recommend_audio(
+        platform="instagram",
+        content_tags=[str(tag) for tag in content_tags if tag],
+        account_tags=[str(account)],
+        account=str(account),
+        limit=5,
+    )
+    if recommendations.get("recommendations"):
+        return recommendations
+    return fallback
 
 
 def export_threadsdash(

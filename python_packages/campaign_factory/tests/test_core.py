@@ -1171,6 +1171,60 @@ def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: P
         cf.close()
 
 
+def test_threadsdash_audio_intent_uses_destination_account_fit(tmp_path: Path):
+    catalog_path = tmp_path / "account_audio_catalog.json"
+    catalog_path.write_text(json.dumps({
+        "schema": "reference_factory.audio_catalog_export.v1",
+        "items": [
+            {
+                "id": "aud_a",
+                "title": "Account A Sound",
+                "artistName": "DJ A",
+                "platform": "instagram",
+                "nativeAudioId": "ig_audio_a",
+                "moodTags": ["fit_check"],
+                "bestContentTypes": ["v01_original"],
+                "accountFit": ["ig_a"],
+                "trendStatus": "rising",
+            },
+            {
+                "id": "aud_b",
+                "title": "Account B Sound",
+                "artistName": "DJ B",
+                "platform": "instagram",
+                "nativeAudioId": "ig_audio_b",
+                "moodTags": ["fit_check"],
+                "bestContentTypes": ["v01_original"],
+                "accountFit": ["ig_b"],
+                "trendStatus": "rising",
+            },
+        ],
+    }), encoding="utf-8")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_audio_catalog(catalog_path)
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute("UPDATE rendered_assets SET caption_generation_json = '{}' WHERE id = 'asset_1'")
+        cf.conn.commit()
+        cf.review_rendered_asset("asset_1", decision="approved")
+        add_audit_report(cf)
+        cf.create_distribution_plan("asset_1", surface="regular_reel", instagram_account_id="ig_a")
+        cf.create_distribution_plan("asset_1", surface="regular_reel", instagram_account_id="ig_b")
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        by_account = {
+            draft["instagramAccountId"]: draft["metadata"]["campaign_factory"]["audio_intent"]
+            for draft in payload["drafts"]
+        }
+
+        assert by_account["ig_a"]["decision"]["primaryAudio"]["audio_title"] == "Account A Sound"
+        assert by_account["ig_b"]["decision"]["primaryAudio"]["audio_title"] == "Account B Sound"
+        assert by_account["ig_a"]["recommendations"][0]["account_fit"] == ["ig_a"]
+        assert by_account["ig_b"]["recommendations"][0]["account_fit"] == ["ig_b"]
+    finally:
+        cf.close()
+
+
 def test_pipeline_audio_smoke_helpers_build_recommended_intent(tmp_path: Path):
     csv_path = write_smoke_audio_csv(tmp_path / "audio.csv")
     snapshot_path = write_smoke_audio_snapshot_csv(tmp_path / "audio_snapshot.csv")
