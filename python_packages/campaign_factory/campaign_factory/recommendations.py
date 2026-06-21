@@ -862,7 +862,7 @@ class RecommendationRepository:
             "audio": {
                 "status": status,
                 "selectedAudio": selected_audio,
-                "primaryAudio": audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
+                "primaryAudio": selected_audio or audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
                 "recommendationCount": len(recommendations),
                 "decisionConfidence": audio_decision.get("decisionConfidence"),
             },

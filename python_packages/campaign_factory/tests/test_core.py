@@ -5290,6 +5290,7 @@ def test_recommend_next_batch_surfaces_attached_native_audio_selection(tmp_path:
         assert item["selectedAudio"]["audioTitle"] == "Proof track"
         assert item["selectedAudio"]["audioArtist"] == "DJ Proof"
         assert item["decisionEvidence"]["audio"]["selectedAudio"] == item["selectedAudio"]
+        assert item["decisionEvidence"]["audio"]["primaryAudio"] == item["selectedAudio"]
         assert item["decisionEvidence"]["audio"]["status"] == "attached"
     finally:
         cf.close()
