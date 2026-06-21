@@ -14,7 +14,7 @@ from reference_factory.caption_adaptation import adapt_caption_library, adapt_ca
 from reference_factory.db import connect
 from reference_factory.higgsfield_runner import generate_with_higgsfield, load_prompt_pairs
 from reference_factory.identity import text_hash
-from reference_factory.learning import build_learning_system, learning_summary
+from reference_factory.learning import build_learning_system, learning_summary, _cluster_from_items
 from reference_factory.media import ffprobe_video, parse_fps, probe_videos, sample_frames, thumbnail_batch
 from reference_factory.ocr import normalize_text, ocr_cleanup, parse_tesseract_tsv, upsert_caption_pattern
 from reference_factory.patterns import analyze_patterns, apply_pattern_labels, export_patterns, pattern_summary
@@ -2177,8 +2177,42 @@ def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(
     assert pattern["winnerDna"]["audioRole"] == "sped_up_pop"
     assert cluster["performanceSignals"]["performanceClassCounts"]["performed_well"] == 1
     assert cluster["winnerDna"]["audioRoles"] == ["sped_up_pop"]
+    assert cluster["accountWinnerSignals"][0]["account"] == "account_a"
+    assert cluster["accountWinnerSignals"][0]["measuredOutcomeSamples"] == 1
     assert cluster["audioRecommendations"]["recommendations"][0]["performanceClass"] == "performed_well"
     assert cluster["audioRecommendations"]["recommendations"][0]["measuredOutcomeSamples"] == 1
+
+
+def test_learning_cluster_keeps_account_winners_ahead_of_unproven_references() -> None:
+    cluster = _cluster_from_items(
+        "mirror_selfie::viewer_insert::question_hook",
+        [
+            {
+                "rank": 1,
+                "referenceId": "ref_unproven",
+                "account": "account_a",
+                "plays": 500000,
+                "qualityScore": 91,
+                "performanceClass": "unproven",
+                "winnerDna": {},
+            },
+            {
+                "rank": 2,
+                "referenceId": "ref_winner",
+                "account": "account_b",
+                "plays": 10000,
+                "qualityScore": 80,
+                "performanceClass": "performed_well",
+                "measuredOutcome": {"rewardScore": 1.9},
+                "winnerDna": {"audioRole": "sped_up_pop", "persona": "glam"},
+            },
+        ],
+    )
+
+    assert cluster["accountWinnerSignals"][0]["account"] == "account_b"
+    assert cluster["accountWinnerSignals"][0]["performanceClass"] == "performed_well"
+    assert cluster["accountWinnerSignals"][1]["performanceClass"] == "unproven"
+    assert cluster["personaWinnerSignals"][0]["persona"] == "glam"
 
 
 def test_tiktok_archive_imports_slideshow_references_and_patterns(tmp_path: Path) -> None:

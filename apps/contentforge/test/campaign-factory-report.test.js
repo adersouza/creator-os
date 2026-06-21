@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { generateCampaignFactoryFixtures } from "../scripts/generate-campaign-fixtures.mjs";
+import { buildCampaignAuditReport } from "../scripts/campaign-audit-report.mjs";
 import { skipWhenMissingTools } from "./tool-availability.js";
 
 var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
@@ -169,4 +170,30 @@ test("Campaign Factory sample feedback updates a temporary manifest", async func
   assert.equal(sample.acceptedByPlatform, "yes");
   assert.equal(sample.expectedWarningCodes.includes("caption_low_contrast"), true);
   assert.equal(sample.operatorFeedback.falsePositiveCodes.includes("caption_too_close_to_edge"), true);
+});
+
+test("Campaign Factory real sample manifest rejects incomplete calibration labels", async function () {
+  var dir = await mkdtemp(path.join(tmpdir(), "contentforge-bad-manifest-"));
+  var manifestPath = path.join(dir, "real_samples.json");
+  await writeFile(manifestPath, JSON.stringify({
+    schema: "contentforge.campaign_factory_real_samples.v1",
+    samples: [
+      {
+        file: "real_sample_99.mp4",
+        sourceType: "unknown",
+        expectedUploadReady: true,
+        expectedWarningCodes: [],
+        expectedBlockingCodes: [],
+        acceptedByPlatform: "unknown"
+      }
+    ]
+  }, null, 2));
+
+  await assert.rejects(
+    () => buildCampaignAuditReport({
+      generate: false,
+      realManifestPath: manifestPath,
+    }),
+    /operatorNotes/
+  );
 });

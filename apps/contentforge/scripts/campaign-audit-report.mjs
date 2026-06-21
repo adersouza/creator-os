@@ -156,6 +156,36 @@ function normalizeRealFixture(entry) {
   };
 }
 
+function validateRealManifest(manifest, manifestPath) {
+  if (!manifest || !Array.isArray(manifest.samples)) return;
+  var allowedSourceTypes = new Set(["iphone", "android", "campaign_factory", "third_party_editor", "unknown"]);
+  var allowedAccepted = new Set(["unknown", "yes", "no"]);
+  manifest.samples.forEach(function (sample, index) {
+    var prefix = (manifestPath || "real_samples.json") + " samples[" + index + "]";
+    if (typeof sample.file !== "string" || !sample.file.trim()) {
+      throw new Error(prefix + ".file is required");
+    }
+    if (!allowedSourceTypes.has(sample.sourceType)) {
+      throw new Error(prefix + ".sourceType is invalid");
+    }
+    if (typeof sample.expectedUploadReady !== "boolean") {
+      throw new Error(prefix + ".expectedUploadReady must be boolean");
+    }
+    if (!Array.isArray(sample.expectedWarningCodes)) {
+      throw new Error(prefix + ".expectedWarningCodes must be an array");
+    }
+    if (!Array.isArray(sample.expectedBlockingCodes)) {
+      throw new Error(prefix + ".expectedBlockingCodes must be an array");
+    }
+    if (typeof sample.operatorNotes !== "string" || !sample.operatorNotes.trim()) {
+      throw new Error(prefix + ".operatorNotes is required");
+    }
+    if (!allowedAccepted.has(sample.acceptedByPlatform)) {
+      throw new Error(prefix + ".acceptedByPlatform is invalid");
+    }
+  });
+}
+
 function markdownReport(report) {
   var lines = [
     "# Campaign Factory Audit Calibration Report",
@@ -291,7 +321,9 @@ async function writeHistory(report) {
 export async function buildCampaignAuditReport(options = {}) {
   if (options.generate !== false) await generateCampaignFactoryFixtures();
   var expectedManifest = await readJson(EXPECTED_MANIFEST, { fixtures: [] });
-  var realManifest = await readJson(REAL_MANIFEST, { samples: [] });
+  var realManifestPath = options.realManifestPath || REAL_MANIFEST;
+  var realManifest = await readJson(realManifestPath, { samples: [] });
+  validateRealManifest(realManifest, realManifestPath);
   var fixtures = [
     ...expectedManifest.fixtures.map((fixture) => ({ fixture, source: "generated" })),
   ];
