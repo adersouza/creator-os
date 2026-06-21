@@ -712,6 +712,8 @@ class RecommendationRepository:
             recommended_variation_preset=recommended_variation_preset,
             selected_audio=selected_audio,
             audio_selection_status=audio_selection_status,
+            reasons=reasons,
+            risks=sorted(set(str(risk) for risk in risks if risk)),
         )
         evidence["decision"] = decision_evidence
         recommendation_graph_id = None
@@ -858,10 +860,13 @@ class RecommendationRepository:
         recommended_variation_preset: str | None,
         selected_audio: dict[str, Any] | None = None,
         audio_selection_status: str | None = None,
+        reasons: list[str] | None = None,
+        risks: list[str] | None = None,
     ) -> dict[str, Any]:
         recommendations = audio_recommendations.get("recommendations") or []
         audio_decision = audio_recommendations.get("decision") if isinstance(audio_recommendations.get("decision"), dict) else {}
         status = audio_selection_status or ("recommended" if recommendations else "needs_operator_selection")
+        readiness_decision = self.recommendation_readiness_decision_evidence(readiness_evidence)
         return {
             "targetAccount": target_account,
             "account": {
@@ -893,7 +898,12 @@ class RecommendationRepository:
                 "safety": self.recommendation_variation_safety_evidence(readiness_evidence),
             },
             "quality": self.recommendation_quality_evidence(readiness_evidence),
-            "readiness": self.recommendation_readiness_decision_evidence(readiness_evidence),
+            "readiness": readiness_decision,
+            "whyNow": self.recommendation_why_now_evidence(
+                readiness_decision=readiness_decision,
+                reasons=reasons or [],
+                risks=risks or [],
+            ),
         }
 
     def recommendation_learning_evidence(
@@ -981,6 +991,20 @@ class RecommendationRepository:
             "latestAuditVerdict": readiness_evidence.get("latestAuditVerdict"),
             "blockingReasons": blocking_reasons,
             "publishabilityFailureReasons": failure_reasons,
+        }
+
+    def recommendation_why_now_evidence(
+        self,
+        *,
+        readiness_decision: dict[str, Any],
+        reasons: list[str],
+        risks: list[str],
+    ) -> dict[str, Any]:
+        return {
+            "status": readiness_decision.get("verdict"),
+            "nextAction": readiness_decision.get("nextAction"),
+            "reasons": reasons,
+            "risks": risks,
         }
 
     def recommendation_quality_failure_category(self, reason: str) -> str:
@@ -1113,6 +1137,16 @@ class RecommendationRepository:
         }
         account_fit_evidence = {"level": "low", "score": None, "account": target_account, "reasons": ["missing_rendered_assets"], "memory": None}
         caption = self.caption_guidance(reference_pattern, {})
+        why_now_reasons = ["active reference pattern is available for the next generation batch"]
+        why_now_risks = [
+            "missing_rendered_assets",
+            "missing_performance_history",
+            *(
+                ["low_recommendation_trust"]
+                if recommendation_trust.get("status") == "low"
+                else []
+            ),
+        ]
         decision_evidence = self.recommendation_decision_evidence(
             target_account=target_account,
             account_score=50,
@@ -1130,6 +1164,8 @@ class RecommendationRepository:
             caption_guidance=caption,
             readiness_evidence=readiness_evidence,
             recommended_variation_preset=recommended_variation_preset,
+            reasons=why_now_reasons,
+            risks=why_now_risks,
         )
         score, confidence, confidence_reason, trust_risks = self.apply_recommendation_trust(
             score=self.reference_pattern_score(reference_pattern),
@@ -1176,8 +1212,8 @@ class RecommendationRepository:
             },
             "selectedAudio": None,
             "audioSelectionStatus": "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection",
-            "reasons": ["active reference pattern is available for the next generation batch"],
-            "risks": ["missing_rendered_assets", "missing_performance_history", *trust_risks],
+            "reasons": why_now_reasons,
+            "risks": why_now_risks,
             "scoreBreakdown": {
                 "performance": 50,
                 "referencePattern": self.reference_pattern_score(reference_pattern),
