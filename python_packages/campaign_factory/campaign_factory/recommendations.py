@@ -869,6 +869,7 @@ class RecommendationRepository:
             "caption": {
                 "guidance": caption_guidance,
                 "captionHash": readiness_evidence.get("captionHash"),
+                **self.recommendation_caption_evidence(readiness_evidence),
             },
             "variation": {
                 "preset": recommended_variation_preset,
@@ -881,6 +882,18 @@ class RecommendationRepository:
                 "blockingReasons": readiness_evidence.get("blockingReasons") or [],
                 "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
             },
+        }
+
+    def recommendation_caption_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
+        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+        caption_reasons = [
+            reason
+            for reason in failure_reasons
+            if self.recommendation_quality_failure_category(reason) == "caption"
+        ]
+        return {
+            "status": "blocked" if caption_reasons else "ready",
+            "blockingReasons": caption_reasons,
         }
 
     def recommendation_quality_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
