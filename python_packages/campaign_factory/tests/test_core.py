@@ -5170,6 +5170,56 @@ def test_recommend_next_batch_explains_readiness_for_blocked_asset(tmp_path: Pat
         cf.close()
 
 
+def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: Path):
+    catalog_path = tmp_path / "audio_memory.json"
+    catalog_path.write_text(json.dumps({
+        "schema": "reference_factory.audio_catalog_export.v1",
+        "items": [
+            {
+                "id": "aud_decision",
+                "title": "Mirror Decision Trend",
+                "artistName": "DJ Decision",
+                "platform": "instagram",
+                "nativeAudioId": "ig_decision",
+                "moodTags": ["mirror"],
+                "bestContentTypes": ["v01_original"],
+                "accountFit": ["ig_1"],
+                "trendStatus": "rising",
+                "trendScore": 90,
+                "velocityScore": 80,
+                "creatorFitScore": 91,
+                "usageCount": 10000,
+                "resolved": True,
+                "sourceConfidence": 0.9,
+            }
+        ],
+    }), encoding="utf-8")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_audio_memory(catalog_path)
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.assign_asset_account("asset_1", instagram_account_id="ig_1")
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+
+        decision = item["decisionEvidence"]
+        assert decision["targetAccount"] == "ig_1"
+        assert decision["account"]["score"] == item["scoreBreakdown"]["accountFitFatigue"]
+        assert decision["account"]["reasons"]
+        assert decision["audio"]["status"] == "recommended"
+        assert decision["audio"]["primaryAudio"]["audioTitle"] == "Mirror Decision Trend"
+        assert decision["audio"]["recommendationCount"] == 1
+        assert decision["caption"]["guidance"] == item["captionGuidance"]
+        assert decision["caption"]["captionHash"] == item["readinessEvidence"]["captionHash"]
+        assert item["evidence"]["decision"] == decision
+    finally:
+        cf.close()
+
+
 def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

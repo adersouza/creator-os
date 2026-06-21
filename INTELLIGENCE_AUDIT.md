@@ -149,6 +149,13 @@ account/Instagram account as context, so account-bound drafts can carry
 different primary native-audio recommendations from the same campaign asset.
 Verification: `test_threadsdash_audio_intent_uses_destination_account_fit`.
 
+Campaign Factory recommendation decision evidence is fixed on
+`codex/recommendation-decision-evidence`: `recommend_next_batch` items now
+include `decisionEvidence` summarizing the target account fit score/reasons,
+primary native-audio recommendation, caption guidance/hash, variation preset,
+and readiness blocker proof. Verification:
+`test_recommend_next_batch_explains_account_audio_caption_decision`.
+
 ---
 
 ## ⚠ Branch reconciliation — READ FIRST (do not redo shipped work)
@@ -202,6 +209,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `campaign_factory/recommendations.py` next-batch ordering | Account-scoped recommendations now apply existing account-fit evidence before slicing the candidate list, so `recommend_next_batch(..., account=...)` cannot discard an account-bound asset because generic campaign ranking tied or sorted first. Regression test: `test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidates`. |
 | Fixed | `campaign_factory/execution_readiness.py` | Execution readiness now returns `blockerDetails` with category, explanation, next action, and observed/required counts for capacity blockers, so manager decisions are explainable instead of code-only. Regression test: `test_creator_os_execution_readiness_blocks_unsafe_draft_contracts`. |
 | Fixed | `campaign_factory/recommendations.py` next-batch readiness proof | Recommendation items now expose `readinessEvidence` with export state, operator score, blockers/warnings, publishability failures, review/audit state, target account, and audit verdict, so blocked assets cannot look safe from score alone. Regression test: `test_recommend_next_batch_explains_readiness_for_blocked_asset`. |
+| Fixed | `campaign_factory/recommendations.py` next-batch decision proof | Recommendation items now expose `decisionEvidence` with target account fit, primary audio recommendation, caption guidance/hash, variation preset, and readiness blockers, so operators can see why this account/audio/caption/variant pairing was selected. Regression test: `test_recommend_next_batch_explains_account_audio_caption_decision`. |
 | Fixed | `adapters/threadsdash.py` draft audio intent | Draft payload assembly recomputes audio recommendations per destination account before building `audio_intent.v1`, so one campaign asset can produce account-specific primary audio recommendations. Regression test: `test_threadsdash_audio_intent_uses_destination_account_fit`. |
 | Deferred / Creator OS volume gate | `learning_score.py`, `learning_readiness.py` recommendation arm rankings | Reference-pattern and variation-preset arms now carry decayed Beta-Bernoulli stats (`alpha`, `beta`, posterior mean, effective trials), an explicit 15% exploration floor, and a deterministic planning score used ahead of raw performance for rankings. Stochastic Thompson sampling remains deferred until `campaign-factory closed-loop-learning-status` reports 50 Campaign Factory posts with both 1h and 24h metric-history rows; before that, exploration loss is not worth the low sample size. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |

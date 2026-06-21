@@ -54,6 +54,37 @@
         "latestAuditId": "audit_1",
         "latestAuditVerdict": "pass"
       },
+      "decisionEvidence": {
+        "targetAccount": "ig_1",
+        "account": {
+          "score": 62,
+          "fitLevel": "medium",
+          "reasons": [
+            "assigned account matches requested account"
+          ]
+        },
+        "audio": {
+          "status": "recommended",
+          "primaryAudio": {
+            "audioTitle": "Mirror Trend",
+            "nativeAudioId": "ig_audio_1"
+          },
+          "recommendationCount": 1,
+          "decisionConfidence": "usable"
+        },
+        "caption": {
+          "guidance": "short direct caption",
+          "captionHash": "caption_hash_1"
+        },
+        "variation": {
+          "preset": "ig_subtle"
+        },
+        "readiness": {
+          "state": "ready",
+          "operatorScore": 100,
+          "blockingReasons": []
+        }
+      },
       "hookGuidance": "Use a curiosity hook from Bathroom Mirror Curiosity.",
       "captionGuidance": "short direct caption",
       "reasons": [
@@ -83,6 +114,37 @@
           "targetAccount": "ig_1",
           "latestAuditId": "audit_1",
           "latestAuditVerdict": "pass"
+        },
+        "decision": {
+          "targetAccount": "ig_1",
+          "account": {
+            "score": 62,
+            "fitLevel": "medium",
+            "reasons": [
+              "assigned account matches requested account"
+            ]
+          },
+          "audio": {
+            "status": "recommended",
+            "primaryAudio": {
+              "audioTitle": "Mirror Trend",
+              "nativeAudioId": "ig_audio_1"
+            },
+            "recommendationCount": 1,
+            "decisionConfidence": "usable"
+          },
+          "caption": {
+            "guidance": "short direct caption",
+            "captionHash": "caption_hash_1"
+          },
+          "variation": {
+            "preset": "ig_subtle"
+          },
+          "readiness": {
+            "state": "ready",
+            "operatorScore": 100,
+            "blockingReasons": []
+          }
         }
       },
       "dataQuality": {
