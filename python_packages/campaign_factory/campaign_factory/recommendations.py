@@ -873,6 +873,7 @@ class RecommendationRepository:
             "variation": {
                 "preset": recommended_variation_preset,
             },
+            "quality": self.recommendation_quality_evidence(readiness_evidence),
             "readiness": {
                 "state": readiness_evidence.get("state"),
                 "operatorScore": readiness_evidence.get("operatorScore"),
@@ -880,6 +881,30 @@ class RecommendationRepository:
                 "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
             },
         }
+
+    def recommendation_quality_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
+        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+        categories = sorted({self.recommendation_quality_failure_category(reason) for reason in failure_reasons})
+        return {
+            "status": "blocked" if failure_reasons else "passed",
+            "blockingCategories": categories,
+            "failureReasons": failure_reasons,
+            "operatorScore": readiness_evidence.get("operatorScore"),
+        }
+
+    def recommendation_quality_failure_category(self, reason: str) -> str:
+        lowered = reason.lower()
+        if "audio" in lowered:
+            return "audio"
+        if "caption" in lowered:
+            return "caption"
+        if "visual" in lowered or "identity" in lowered or "wrong_visual" in lowered:
+            return "visual"
+        if "fingerprint" in lowered or "duplicate" in lowered:
+            return "safety"
+        if "approval" in lowered or "review" in lowered or "readiness" in lowered:
+            return "review"
+        return "quality"
 
     def selected_audio_from_asset(self, asset: dict[str, Any]) -> dict[str, Any] | None:
         caption_generation = asset.get("captionGeneration") if isinstance(asset.get("captionGeneration"), dict) else {}

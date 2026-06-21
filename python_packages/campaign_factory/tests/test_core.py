@@ -5248,6 +5248,10 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         assert "publishability:missing_instagram_post_caption" in item["risks"]
         assert "publishability:missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["blockingReasons"]
         assert "missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["publishabilityFailureReasons"]
+        quality = item["decisionEvidence"]["quality"]
+        assert quality["status"] == "blocked"
+        assert quality["blockingCategories"] == ["caption"]
+        assert "missing_instagram_post_caption" in quality["failureReasons"]
         assert item["score"] <= 45
     finally:
         cf.close()
