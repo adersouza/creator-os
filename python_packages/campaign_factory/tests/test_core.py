@@ -16484,6 +16484,12 @@ def test_creator_os_execution_readiness_blocks_unsafe_draft_contracts(tmp_path: 
         assert "platform_draft_not_validated" in result["blockers"]
         assert "quarantined_draft_present" in result["blockers"]
         assert "publishability_failed_draft_present" in result["blockers"]
+        details = {item["code"]: item for item in result["blockerDetails"]}
+        assert details["missing_handoff_manifest"]["category"] == "draft_contract"
+        assert details["missing_handoff_manifest"]["nextAction"] == "create_or_export_schedule_safe_drafts"
+        assert "handoff" in details["missing_handoff_manifest"]["explanation"]
+        assert details["insufficient_schedule_safe_drafts"]["observed"] == 0
+        assert details["insufficient_schedule_safe_drafts"]["required"] == 5
     finally:
         cf.close()
 

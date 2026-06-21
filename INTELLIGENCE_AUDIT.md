@@ -88,6 +88,12 @@ rows are missing valid `metadata.campaign_factory`, instead of dropping them
 without an operator-visible trail. Verification: focused
 `sync_performance_snapshots` tests plus full `test_core.py`.
 
+Campaign Factory execution-readiness explainability is fixed on
+`codex/campaign-execution-readiness-details`: `creator_os.execution_readiness.v1`
+now includes `blockerDetails` with category, explanation, next action, and
+observed/required counts for inventory-capacity blockers. Verification:
+`test_creator_os_execution_readiness_blocks_unsafe_draft_contracts`.
+
 ---
 
 ## ⚠ Branch reconciliation — READ FIRST (do not redo shipped work)
@@ -139,6 +145,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Upstream-fixed | ThreadsDashboard PR #129 (`supabase/migrations`, `analyticsSync.ts`, `post-engagement.ts`) | Track I capture repair is merged upstream: monotonic metric guards compare full metric totals, metric history retention uses `snapshot_at`, Threads reach is policy-backed as `views`, unavailable Threads saves are `null`, and tests cover those semantics. |
 | Fixed | `core.py` recommendation trust context; `_history_score` | Campaign Factory learning summaries carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. `recommend_next_batch` now reads the latest persisted recommendation accuracy report, records trust evidence in the input snapshot/item evidence, and caps score/confidence with `low_recommendation_trust` when measured outcomes disprove recent recommendations. Regression test: `test_recommend_next_batch_downgrades_when_recommendation_trust_is_low`. |
 | Fixed | `campaign_factory/recommendations.py` next-batch ordering | Account-scoped recommendations now apply existing account-fit evidence before slicing the candidate list, so `recommend_next_batch(..., account=...)` cannot discard an account-bound asset because generic campaign ranking tied or sorted first. Regression test: `test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidates`. |
+| Fixed | `campaign_factory/execution_readiness.py` | Execution readiness now returns `blockerDetails` with category, explanation, next action, and observed/required counts for capacity blockers, so manager decisions are explainable instead of code-only. Regression test: `test_creator_os_execution_readiness_blocks_unsafe_draft_contracts`. |
 | Deferred / Creator OS volume gate | `learning_score.py`, `core.py` recommendation arm rankings | Reference-pattern and variation-preset arms now carry decayed Beta-Bernoulli stats (`alpha`, `beta`, posterior mean, effective trials), an explicit 15% exploration floor, and a deterministic planning score used ahead of raw performance for rankings. Stochastic Thompson sampling remains deferred until at least 50 Campaign Factory posts have both 1h and 24h metric-history rows; before that, exploration loss is not worth the low sample size. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
 | Upstream-fixed | ThreadsDashboard PR #129 `postMetricSnapshotReconciliation.ts` | AP0-2 metric snapshot reconciliation is now in the running sync-orchestrator path as a non-fatal metrics phase; it re-dispatches missing 1h/24h metric fetches without publishing, scheduling, or mutating post status. |
