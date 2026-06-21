@@ -5742,6 +5742,45 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
             cf.close()
 
 
+def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypatch):
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            return []
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+
+    def invalid_payload(*args, **kwargs):
+        payload = original_build_draft_payloads(*args, **kwargs)
+        campaign_meta = payload["drafts"][0]["metadata"]["campaign_factory"]
+        campaign_meta.pop("generated_asset_lineage", None)
+        return payload
+
+    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", invalid_payload)
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        add_audit_report(cf)
+
+        readiness = evaluate_export_readiness(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        assert readiness["liveExportAllowed"] is False
+        assert any("draft_payload_contract_invalid" in reason for reason in readiness["blockingReasons"])
+        assert any("draft_payload_contract_invalid" in reason for reason in readiness["assets"][0]["blockingReasons"])
+    finally:
+        cf.close()
+
+
 def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path, monkeypatch):
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):

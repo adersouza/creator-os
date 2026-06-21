@@ -25,7 +25,10 @@ now requires `metadata.campaign_factory.generated_asset_lineage` and validates i
 against `generated_asset_lineage.v1`, so a dashboard draft handoff cannot be
 contract-valid without causal generation proof. ThreadsDashboard's vendored
 contract snapshot was synced to the same schema/example/generated runtime
-bundle. Verification:
+bundle. Follow-up readiness proof is fixed on
+`codex/campaign-export-readiness-contract-proof`: `evaluate_export_readiness`
+now runs the strict draft payload validator and reports invalid handoff payloads
+as blockers before export. Verification:
 `uv run pytest packages/pipeline_contracts/tests`,
 `pnpm --filter pipeline-contracts-ts test`, `pnpm check:contracts`,
 `uv run pytest python_packages/campaign_factory/tests/test_core.py -q`, and
@@ -131,6 +134,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `reference_factory/outcomes.py`, `public_metrics.py`, `patterns.py`, `learning.py` | Reference Factory now imports measured prompt outcomes into `generated_video_prompts`, ranks public posts by measured reward before follower-normalized public rate/raw plays, embeds `measuredOutcome` in pattern metrics, and carries measured reward samples into learning-cluster performance signals. Regression tests prove a lower-raw-play reference with better measured reward outranks a raw-volume winner. |
 | Fixed | `campaign_factory/learning_score.py`, `core.py` performance aggregation seam | Campaign Factory replaced linear raw-average scoring with latest-snapshot replacement, account-median normalized reward (`log1p(exposure) * engagement_rate`), 21-day recency decay, Bayesian shrinkage toward prior 1.0, and explicit `unmeasured` state. |
 | Fixed | `generated_asset_lineage.v1` / `campaign_draft_payload.v1` / `recommendation_accuracy_report.v1` / `performance_sync.v1` schemas | Causal IDs are required and tested: generated asset lineage requires `pipelineTraceId`; draft handoff packages require `metadata.campaign_factory.generated_asset_lineage`; recommendation reports require `campaignGraphId`, `reportId`, and `reportGraphId`; performance sync requires `pipelineJobId` and `pipelineTraceId`. Python + TypeScript negative tests drop IDs and assert validation failure. |
+| Fixed | `adapters/threadsdash.py` export readiness | Export readiness now runs the strict ThreadsDashboard draft contract validator and blocks invalid handoff payloads with `draft_payload_contract_invalid` before export. Regression test: `test_export_readiness_blocks_invalid_draft_contract`. |
 | Fixed | `adapters/threadsdash.py` performance sync | TD→Python sync no longer silently drops posts missing `metadata.campaign_factory`; it records `skipReasons`, emits a warning, and opens a deduped trust-exception dead letter tied to the ThreadsDashboard post graph node. |
 | Upstream-fixed | ThreadsDashboard PR #129 (`supabase/migrations`, `analyticsSync.ts`, `post-engagement.ts`) | Track I capture repair is merged upstream: monotonic metric guards compare full metric totals, metric history retention uses `snapshot_at`, Threads reach is policy-backed as `views`, unavailable Threads saves are `null`, and tests cover those semantics. |
 | Fixed | `core.py` recommendation trust context; `_history_score` | Campaign Factory learning summaries carry explicit `unmeasured` state and do not fabricate a learned performance score for zero-exposure rows. `recommend_next_batch` now reads the latest persisted recommendation accuracy report, records trust evidence in the input snapshot/item evidence, and caps score/confidence with `low_recommendation_trust` when measured outcomes disprove recent recommendations. Regression test: `test_recommend_next_batch_downgrades_when_recommendation_trust_is_low`. |
