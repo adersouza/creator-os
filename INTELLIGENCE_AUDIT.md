@@ -161,6 +161,12 @@ Follow-up reference-only planning proof is fixed on
 status, readiness blockers, and `decisionEvidence` for the reference-pattern
 generation fallback. Verification:
 `test_reference_only_recommendation_explains_what_to_make_next`.
+Follow-up publishability decision proof is fixed on
+`codex/recommendation-publishability-decision-proof`: recommendation
+`decisionEvidence.readiness` now carries exact publishability failure reasons
+alongside the prefixed blocker risks, so bad caption/audio/quality proof is
+visible without parsing risk strings. Verification:
+`test_recommend_next_batch_surfaces_publishability_failures_as_risks`.
 
 ---
 
@@ -217,6 +223,7 @@ Performance **does** drive real decisions (not stored-but-unused): ranking adjus
 | Fixed | `campaign_factory/recommendations.py` next-batch readiness proof | Recommendation items now expose `readinessEvidence` with export state, operator score, blockers/warnings, publishability failures, review/audit state, target account, and audit verdict, so blocked assets cannot look safe from score alone. Regression test: `test_recommend_next_batch_explains_readiness_for_blocked_asset`. |
 | Fixed | `campaign_factory/recommendations.py` next-batch decision proof | Recommendation items now expose `decisionEvidence` with target account fit, primary audio recommendation, caption guidance/hash, variation preset, and readiness blockers, so operators can see why this account/audio/caption/variant pairing was selected. Regression test: `test_recommend_next_batch_explains_account_audio_caption_decision`. |
 | Fixed | `campaign_factory/recommendations.py` reference-only fallback | When no rendered assets exist, the reference-only next-batch item now still recommends audio, marks selection status, and exposes decision/readiness evidence for what to make next instead of returning a thin placeholder. Regression test: `test_reference_only_recommendation_explains_what_to_make_next`. |
+| Fixed | `campaign_factory/recommendations.py` publishability decision proof | Recommendation decision evidence now includes exact publishability failure reasons from readiness proof, not only prefixed top-level risk strings. Regression test: `test_recommend_next_batch_surfaces_publishability_failures_as_risks`. |
 | Fixed | `adapters/threadsdash.py` draft audio intent | Draft payload assembly recomputes audio recommendations per destination account before building `audio_intent.v1`, so one campaign asset can produce account-specific primary audio recommendations. Regression test: `test_threadsdash_audio_intent_uses_destination_account_fit`. |
 | Deferred / Creator OS volume gate | `learning_score.py`, `learning_readiness.py` recommendation arm rankings | Reference-pattern and variation-preset arms now carry decayed Beta-Bernoulli stats (`alpha`, `beta`, posterior mean, effective trials), an explicit 15% exploration floor, and a deterministic planning score used ahead of raw performance for rankings. Stochastic Thompson sampling remains deferred until `campaign-factory closed-loop-learning-status` reports 50 Campaign Factory posts with both 1h and 24h metric-history rows; before that, exploration loss is not worth the low sample size. |
 | Fixed | `adapters/threadsdash.py` performance sync | Handoff now fetches `post_metric_history`, expands each TD post into one Campaign Factory `performance_snapshots` row per history timestamp, preserves canonical-post fallback, and reports `metricHistoryRowsScanned` / `campaignFactorySnapshotsScanned` in `performance_sync.v1`. Regression test proves 1h + 24h history rows import as separate snapshots. |
