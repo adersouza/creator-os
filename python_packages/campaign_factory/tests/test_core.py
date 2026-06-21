@@ -16660,6 +16660,33 @@ def test_creator_os_execution_readiness_blocks_unverified_native_audio(tmp_path:
         cf.close()
 
 
+def test_creator_os_execution_readiness_blocks_failed_caption_quality(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        accounts = [
+            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+        ]
+        item = _draft_item("post_caption_quality", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item["instagramPostCaptionQuality"] = {"passed": False, "reasons": ["instagram_post_caption_too_long"]}
+
+        result = cf.creator_os_execution_readiness(
+            creator="Stacey",
+            requested_count=1,
+            threadsdash_report=_manager_report_fixture(accounts=accounts),
+            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
+            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+        )
+
+        assert result["executionReady"] is False
+        assert result["preCommitChecklist"]["captionContractReadiness"] == "fail"
+        assert "instagram_post_caption_quality_failed" in result["blockers"]
+        details = {item["code"]: item for item in result["blockerDetails"]}
+        assert details["instagram_post_caption_quality_failed"]["category"] == "caption"
+        assert details["instagram_post_caption_quality_failed"]["nextAction"] == "repair_caption_contract"
+    finally:
+        cf.close()
+
+
 def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
