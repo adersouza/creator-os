@@ -608,6 +608,7 @@ class RecommendationRepository:
         )
         reference_pattern_evidence = self.recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
         variation_preset_evidence = self.recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
+        readiness_evidence = self.recommendation_readiness_evidence(asset, account=account)
         reasons = self.recommendation_reasons(
             performance_score=performance_score,
             reference_score=reference_score,
@@ -651,6 +652,7 @@ class RecommendationRepository:
             "risks": sorted(set(str(risk) for risk in risks if risk)),
             "recommendationTrust": recommendation_trust,
             "accountFit": account_fit_evidence,
+            "readiness": readiness_evidence,
             "referencePatternRankings": reference_pattern_evidence,
             "variationPresetRankings": variation_preset_evidence,
             "scores": {
@@ -711,6 +713,7 @@ class RecommendationRepository:
             "referencePatternEvidence": reference_pattern_evidence,
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
+            "readinessEvidence": readiness_evidence,
             "suggestedRecipe": asset.get("recipe") or self.first_suggested_recipe(reference_pattern),
             "hookGuidance": self.hook_guidance(reference_pattern, asset),
             "captionGuidance": self.caption_guidance(reference_pattern, asset),
@@ -812,6 +815,27 @@ class RecommendationRepository:
                 campaign_id=campaign["id"],
             )
         return output
+
+    def recommendation_readiness_evidence(self, asset: dict[str, Any], *, account: str | None) -> dict[str, Any]:
+        readiness = asset.get("export_readiness") or {}
+        publishability = readiness.get("publishability") if isinstance(readiness.get("publishability"), dict) else {}
+        audio_intent = publishability.get("audioIntent") if isinstance(publishability.get("audioIntent"), dict) else {}
+        latest_audit = asset.get("latest_audit") if isinstance(asset.get("latest_audit"), dict) else {}
+        return {
+            "state": readiness.get("state") or "unknown",
+            "operatorScore": int(readiness.get("operatorScore") or 0),
+            "blockingReasons": readiness.get("blockingReasons") or [],
+            "warnings": readiness.get("warnings") or [],
+            "publishabilityFailureReasons": publishability.get("failureReasons") or publishability.get("publishability_failure_reasons") or [],
+            "reviewState": asset.get("review_state"),
+            "auditStatus": asset.get("audit_status"),
+            "contentSurface": publishability.get("contentSurface") or publishability.get("content_surface") or asset.get("content_surface"),
+            "audioStatus": audio_intent.get("status"),
+            "captionHash": asset.get("captionHash") or asset.get("caption_hash"),
+            "targetAccount": account or self.asset_target_account(asset),
+            "latestAuditId": latest_audit.get("id"),
+            "latestAuditVerdict": latest_audit.get("overallVerdict"),
+        }
 
     def reference_only_recommendation_item(
         self,

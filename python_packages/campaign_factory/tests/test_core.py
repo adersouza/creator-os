@@ -5147,6 +5147,29 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_p
         cf.close()
 
 
+def test_recommend_next_batch_explains_readiness_for_blocked_asset(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+        readiness = item["readinessEvidence"]
+        assert readiness["state"] == "blocked"
+        assert readiness["reviewState"] == "draft"
+        assert readiness["auditStatus"] == "pending"
+        assert readiness["targetAccount"] == "ig_1"
+        assert readiness["operatorScore"] < 50
+        assert "missing_audit" in readiness["blockingReasons"]
+        assert "review_state:draft" in readiness["blockingReasons"]
+        assert "missing_audit" in item["risks"]
+        assert item["evidence"]["readiness"] == readiness
+    finally:
+        cf.close()
+
+
 def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
