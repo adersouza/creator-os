@@ -5220,6 +5220,39 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         cf.close()
 
 
+def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": False,
+                    "status": "not_required",
+                },
+            }),),
+        )
+        cf.conn.commit()
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+
+        assert "missing_instagram_post_caption" in item["readinessEvidence"]["publishabilityFailureReasons"]
+        assert "publishability:missing_instagram_post_caption" in item["risks"]
+        assert "publishability:missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["blockingReasons"]
+        assert "missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["publishabilityFailureReasons"]
+        assert item["score"] <= 45
+    finally:
+        cf.close()
+
+
 def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path):
     bank_path = tmp_path / "reference_bank.json"
     bank_path.write_text(json.dumps({

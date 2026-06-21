@@ -866,6 +866,7 @@ class RecommendationRepository:
                 "state": readiness_evidence.get("state"),
                 "operatorScore": readiness_evidence.get("operatorScore"),
                 "blockingReasons": readiness_evidence.get("blockingReasons") or [],
+                "publishabilityFailureReasons": readiness_evidence.get("publishabilityFailureReasons") or [],
             },
         }
 
