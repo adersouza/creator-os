@@ -19,9 +19,14 @@ _BLOCKER_GUIDANCE = {
     "embedded_audio_invalid": ("audio", "A draft has invalid embedded audio metadata.", "select_or_verify_native_audio"),
     "native_audio_proof_missing": ("audio", "A draft has selected or recommended native audio without verified platform proof.", "select_or_verify_native_audio"),
     "missing_instagram_post_caption": ("caption", "A draft is missing the Instagram post caption.", "repair_caption_contract"),
+    "missing_burned_captions": ("caption", "A draft is missing burned-caption proof.", "repair_caption_contract"),
     "missing_burned_caption_text": ("caption", "A draft is missing burned-caption text evidence.", "repair_caption_contract"),
     "caption_placement_qc_failed": ("caption", "A draft failed caption placement quality control.", "repair_caption_placement"),
     "instagram_post_caption_quality_failed": ("caption", "A draft failed Instagram post caption quality checks.", "repair_caption_contract"),
+    "visual_qc_failed": ("creative_safety", "A draft failed visual quality control.", "repair_or_replace_creative"),
+    "visual_qc_unavailable": ("creative_safety", "A draft is missing required visual quality control proof.", "repair_or_replace_creative"),
+    "identity_verification_failed": ("creative_safety", "A draft failed identity verification.", "repair_or_replace_creative"),
+    "identity_verification_unavailable": ("creative_safety", "A draft is missing required identity verification proof.", "repair_or_replace_creative"),
     "schedule_plan_not_ready": ("schedule_plan", "The schedule plan is not ready.", "rerun_campaign_schedule_plan"),
     "insufficient_schedule_plan_items": ("schedule_plan", "The schedule plan has too few items for the requested batch.", "rerun_campaign_schedule_plan"),
     "variant_cooldown_violation": ("schedule_plan", "The schedule plan violates variant cooldown rules.", "rerun_campaign_schedule_plan"),
@@ -150,6 +155,10 @@ class ExecutionReadinessRepository:
                 "embedded_audio_invalid",
                 "native_audio_proof_missing",
                 "instagram_post_caption_quality_failed",
+                "visual_qc_failed",
+                "visual_qc_unavailable",
+                "identity_verification_failed",
+                "identity_verification_unavailable",
                 "insufficient_schedule_safe_drafts",
             }
         ) else "fail"
@@ -162,6 +171,7 @@ class ExecutionReadinessRepository:
             blocker in unique_blockers
             for blocker in {
                 "missing_instagram_post_caption",
+                "missing_burned_captions",
                 "missing_burned_caption_text",
                 "caption_placement_qc_failed",
                 "instagram_post_caption_quality_failed",
@@ -171,6 +181,10 @@ class ExecutionReadinessRepository:
             blocker in unique_blockers
             for blocker in {"embedded_audio_invalid", "native_audio_proof_missing"}
         ) else "fail"
+        quality_readiness = "pass" if not any(
+            blocker in unique_blockers
+            for blocker in {"visual_qc_failed", "visual_qc_unavailable", "identity_verification_failed", "identity_verification_unavailable"}
+        ) else "fail"
         checklist = {
             "accountReadiness": account_readiness,
             "accountHealthReadiness": "pass" if not self._creator_os_execution_account_health_blockers(account_health) else "fail",
@@ -178,6 +192,7 @@ class ExecutionReadinessRepository:
             "schedulePlanReadiness": schedule_readiness,
             "timePlanReadiness": time_readiness,
             "publishRuntimeReadiness": publish_readiness,
+            "qualityReadiness": quality_readiness,
             "audioReadiness": audio_readiness,
             "captionContractReadiness": caption_readiness,
         }
