@@ -139,7 +139,10 @@ class RecommendationRepository:
             entity_type="reference_pattern",
             payload=reference_pattern,
         ) if reference_pattern_id else None
-        candidates = ranking.get("assets") or []
+        candidates = self.account_ranked_candidates(
+            ranking.get("assets") or [],
+            account=account,
+        )
         input_snapshot = {
             "schema": "campaign_factory.recommendations.input_snapshot.v1",
             "campaignId": campaign["id"],
@@ -264,6 +267,26 @@ class RecommendationRepository:
             "warnings": warnings,
             "items": items,
         }
+
+    def account_ranked_candidates(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        account: str | None,
+    ) -> list[dict[str, Any]]:
+        if not account:
+            return candidates
+        return sorted(
+            candidates,
+            key=lambda candidate: (
+                self.recommendation_account_score(
+                    self.rendered_asset(candidate["renderedAssetId"]),
+                    account,
+                ),
+                int(candidate.get("score") or 0),
+            ),
+            reverse=True,
+        )
 
     def recommendation_runs(self, campaign_slug: str, *, limit: int = 10) -> dict[str, Any]:
         campaign = self.campaign_by_slug(campaign_slug)

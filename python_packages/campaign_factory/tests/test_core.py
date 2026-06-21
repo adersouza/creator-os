@@ -5461,6 +5461,60 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
         cf.close()
 
 
+def test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidates(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        campaign = cf.campaign_by_slug("may")
+        rendered_path = tmp_path / "asset_2.mp4"
+        rendered_path.write_bytes(b"rendered-2")
+        context = json.loads(cf.conn.execute(
+            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+        ).fetchone()[0])
+        cf.conn.execute(
+            """
+            INSERT INTO rendered_assets
+            (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
+             caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
+             caption_generation_json, metadata_json, created_at, updated_at)
+            VALUES ('asset_2', ?, ?, 'hash_2', ?, ?, 'asset_2.mp4', 'caption', 'caption_hash_2',
+                    ?, 'v01_original', 'passed', 'approved', ?, '{}',
+                    '2025-12-31T00:00:00+00:00', '2025-12-31T00:00:00+00:00')
+            """,
+            (
+                campaign["id"],
+                source["id"],
+                str(rendered_path),
+                str(rendered_path),
+                json.dumps({**context, "caption_hash": "caption_hash_2"}, sort_keys=True),
+                json.dumps({
+                    "instagram_post_caption": "new post",
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    },
+                }),
+            ),
+        )
+        add_audit_report(cf, rendered_asset_id="asset_2", audit_id="audit_asset_2")
+        cf.assign_asset_account("asset_1", instagram_account_id="ig_other")
+        cf.assign_asset_account("asset_2", instagram_account_id="ig_target")
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_target", persist=False)
+        item = rec["items"][0]
+
+        assert item["renderedAssetId"] == "asset_2"
+        assert item["targetAccount"] == "ig_target"
+        assert item["accountFitEvidence"]["account"] == "ig_target"
+        assert item["scoreBreakdown"]["accountFitFatigue"] > 50
+    finally:
+        cf.close()
+
+
 def test_exception_queue_idempotent_resolve_snooze_reopen(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
