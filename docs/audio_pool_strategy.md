@@ -7,6 +7,12 @@ Import it into Campaign Factory with:
 PYTHONPATH=python_packages/campaign_factory python3 -m campaign_factory.cli import-audio-catalog --path docs/examples/audio_catalog_seed_tiktok_20260620.json
 ```
 
+Generate a ranked audio intent preview with:
+
+```bash
+PYTHONPATH=python_packages/campaign_factory python3 -m campaign_factory.cli recommend-audio --platform tiktok --content-tags shortform,native_audio_pool --limit 5
+```
+
 ## Current Split
 
 - Reference Factory owns audio intake, review, trend metadata, and `audio_catalog_export.v1`.
