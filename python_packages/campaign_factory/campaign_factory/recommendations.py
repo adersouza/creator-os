@@ -916,6 +916,48 @@ class RecommendationRepository:
         )
         reference_pattern_evidence = self.recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
         variation_preset_evidence = self.recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
+        target_account = account
+        audio_context_tags = [
+            reference_pattern.get("visualFormat"),
+            reference_pattern.get("hookType"),
+            reference_pattern.get("captionArchetype"),
+            self.first_suggested_recipe(reference_pattern),
+        ]
+        audio_recommendations = self.recommend_audio(
+            platform=campaign.get("platform") or "instagram",
+            campaign_slug=campaign.get("slug"),
+            recommendation_item_id=None,
+            content_tags=[str(tag) for tag in audio_context_tags if tag],
+            account_tags=[str(tag) for tag in [target_account] if tag],
+            account=target_account,
+            limit=5,
+        )
+        readiness_evidence = {
+            "state": "blocked",
+            "operatorScore": 0,
+            "blockingReasons": ["missing_rendered_assets"],
+            "warnings": [],
+            "publishabilityFailureReasons": [],
+            "reviewState": None,
+            "auditStatus": None,
+            "contentSurface": "reel",
+            "audioStatus": (audio_recommendations.get("decision") or {}).get("decisionConfidence"),
+            "captionHash": None,
+            "targetAccount": target_account,
+            "latestAuditId": None,
+            "latestAuditVerdict": None,
+        }
+        account_fit_evidence = {"level": "low", "score": None, "account": target_account, "reasons": ["missing_rendered_assets"], "memory": None}
+        caption = self.caption_guidance(reference_pattern, {})
+        decision_evidence = self.recommendation_decision_evidence(
+            target_account=target_account,
+            account_score=50,
+            account_fit_evidence=account_fit_evidence,
+            audio_recommendations=audio_recommendations,
+            caption_guidance=caption,
+            readiness_evidence=readiness_evidence,
+            recommended_variation_preset=recommended_variation_preset,
+        )
         score, confidence, confidence_reason, trust_risks = self.apply_recommendation_trust(
             score=self.reference_pattern_score(reference_pattern),
             confidence="low",
@@ -936,7 +978,7 @@ class RecommendationRepository:
             "confidenceReason": confidence_reason,
             "autonomyLevel": self.autonomy_level(),
             "executionStatus": "not_started",
-            "targetAccount": account,
+            "targetAccount": target_account,
             "renderedAssetId": None,
             "filename": None,
             "referencePatternId": reference_pattern.get("id"),
@@ -944,9 +986,23 @@ class RecommendationRepository:
             "referencePatternEvidence": reference_pattern_evidence,
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
+            "readinessEvidence": readiness_evidence,
+            "decisionEvidence": decision_evidence,
             "suggestedRecipe": self.first_suggested_recipe(reference_pattern),
             "hookGuidance": self.hook_guidance(reference_pattern, {}),
-            "captionGuidance": self.caption_guidance(reference_pattern, {}),
+            "captionGuidance": caption,
+            "audioRecommendations": audio_recommendations,
+            "audioDecision": audio_recommendations.get("decision") or {},
+            "audioMemoryEvidence": {
+                "recommendationCount": len(audio_recommendations.get("recommendations") or []),
+                "topAudioMemoryGraphIds": [
+                    item.get("audioMemoryGraphId")
+                    for item in (audio_recommendations.get("recommendations") or [])[:3]
+                    if item.get("audioMemoryGraphId")
+                ],
+            },
+            "selectedAudio": None,
+            "audioSelectionStatus": "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection",
             "reasons": ["active reference pattern is available for the next generation batch"],
             "risks": ["missing_rendered_assets", "missing_performance_history", *trust_risks],
             "scoreBreakdown": {
@@ -969,6 +1025,8 @@ class RecommendationRepository:
                 "recommendationTrust": recommendation_trust,
                 "referencePatternRankings": reference_pattern_evidence,
                 "variationPresetRankings": variation_preset_evidence,
+                "readiness": readiness_evidence,
+                "decision": decision_evidence,
             },
             "dataQuality": {
                 "sampleSize": 0,
@@ -976,7 +1034,7 @@ class RecommendationRepository:
                 "reasons": ["missing_rendered_assets", "missing_performance_history"],
             },
             "accountMemory": None,
-            "accountFitEvidence": {"level": "low", "reasons": ["missing_rendered_assets"]},
+            "accountFitEvidence": account_fit_evidence,
             "decision": {},
             "outcome": {},
             "baseline": {},
@@ -1041,6 +1099,13 @@ class RecommendationRepository:
                 item_graph_id=recommendation_graph_id,
                 rendered_graph_id=None,
                 reference_pattern_graph_id=reference_pattern_graph_id,
+            )
+            self.write_audio_recommendation_graph_edges(
+                recommendation_item_id=item_id,
+                recommendation_graph_id=recommendation_graph_id,
+                reference_pattern_graph_id=reference_pattern_graph_id,
+                audio_recommendations=audio_recommendations,
+                campaign_id=campaign["id"],
             )
         return output
 
