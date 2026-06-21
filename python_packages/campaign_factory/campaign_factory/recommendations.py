@@ -690,6 +690,18 @@ class RecommendationRepository:
                 if item.get("audioMemoryGraphId")
             ],
         }
+        target_account = account or self.asset_target_account(asset)
+        caption = self.caption_guidance(reference_pattern, asset)
+        decision_evidence = self.recommendation_decision_evidence(
+            target_account=target_account,
+            account_score=account_score,
+            account_fit_evidence=account_fit_evidence,
+            audio_recommendations=audio_recommendations,
+            caption_guidance=caption,
+            readiness_evidence=readiness_evidence,
+            recommended_variation_preset=recommended_variation_preset,
+        )
+        evidence["decision"] = decision_evidence
         recommendation_graph_id = None
         output = {
             "recommendationId": item_id,
@@ -705,7 +717,7 @@ class RecommendationRepository:
             "confidenceReason": confidence_reason,
             "autonomyLevel": self.autonomy_level(),
             "executionStatus": "not_started",
-            "targetAccount": account or self.asset_target_account(asset),
+            "targetAccount": target_account,
             "renderedAssetId": asset.get("id"),
             "filename": asset.get("filename"),
             "referencePatternId": reference_pattern.get("id") if reference_pattern else None,
@@ -716,10 +728,11 @@ class RecommendationRepository:
             "readinessEvidence": readiness_evidence,
             "suggestedRecipe": asset.get("recipe") or self.first_suggested_recipe(reference_pattern),
             "hookGuidance": self.hook_guidance(reference_pattern, asset),
-            "captionGuidance": self.caption_guidance(reference_pattern, asset),
+            "captionGuidance": caption,
             "audioRecommendations": audio_recommendations,
             "audioDecision": audio_recommendations.get("decision") or {},
             "audioMemoryEvidence": audio_memory_evidence,
+            "decisionEvidence": decision_evidence,
             "selectedAudio": None,
             "audioSelectionStatus": "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection",
             "reasons": reasons,
@@ -815,6 +828,46 @@ class RecommendationRepository:
                 campaign_id=campaign["id"],
             )
         return output
+
+    def recommendation_decision_evidence(
+        self,
+        *,
+        target_account: str | None,
+        account_score: int,
+        account_fit_evidence: dict[str, Any],
+        audio_recommendations: dict[str, Any],
+        caption_guidance: str,
+        readiness_evidence: dict[str, Any],
+        recommended_variation_preset: str | None,
+    ) -> dict[str, Any]:
+        recommendations = audio_recommendations.get("recommendations") or []
+        audio_decision = audio_recommendations.get("decision") if isinstance(audio_recommendations.get("decision"), dict) else {}
+        return {
+            "targetAccount": target_account,
+            "account": {
+                "score": account_score,
+                "fitLevel": account_fit_evidence.get("level"),
+                "reasons": account_fit_evidence.get("reasons") or [],
+            },
+            "audio": {
+                "status": "recommended" if recommendations else "needs_operator_selection",
+                "primaryAudio": audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
+                "recommendationCount": len(recommendations),
+                "decisionConfidence": audio_decision.get("decisionConfidence"),
+            },
+            "caption": {
+                "guidance": caption_guidance,
+                "captionHash": readiness_evidence.get("captionHash"),
+            },
+            "variation": {
+                "preset": recommended_variation_preset,
+            },
+            "readiness": {
+                "state": readiness_evidence.get("state"),
+                "operatorScore": readiness_evidence.get("operatorScore"),
+                "blockingReasons": readiness_evidence.get("blockingReasons") or [],
+            },
+        }
 
     def recommendation_readiness_evidence(self, asset: dict[str, Any], *, account: str | None) -> dict[str, Any]:
         readiness = asset.get("export_readiness") or {}

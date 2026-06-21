@@ -2325,6 +2325,10 @@ export const generatedPipelineContractSchemas = {
 	            "type": "object",
 	            "description": "Compact export/publishability readiness proof for the recommended asset"
 	          },
+	          "decisionEvidence": {
+	            "type": "object",
+	            "description": "Compact account/audio/caption/variation proof explaining why this item was recommended"
+	          },
 	          "suggestedRecipe": {
 	            "type": [
 	              "string",
