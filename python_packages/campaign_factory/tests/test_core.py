@@ -5253,6 +5253,48 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         cf.close()
 
 
+def test_recommend_next_batch_surfaces_attached_native_audio_selection(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "new post",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": True,
+                    "status": "attached",
+                    "operator_selection": {
+                        "audio_id": "ig_audio_123",
+                        "audio_title": "Proof track",
+                        "audio_artist": "DJ Proof",
+                        "selection_source": "manual",
+                        "selected_at": "2026-06-06T04:31:02+00:00",
+                        "attached_at": "2026-06-06T04:31:02+00:00",
+                    },
+                },
+            }),),
+        )
+        cf.conn.commit()
+
+        rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        validate_recommendation_next_batch(rec)
+        item = rec["items"][0]
+
+        assert item["audioSelectionStatus"] == "attached"
+        assert item["selectedAudio"]["audioId"] == "ig_audio_123"
+        assert item["selectedAudio"]["audioTitle"] == "Proof track"
+        assert item["selectedAudio"]["audioArtist"] == "DJ Proof"
+        assert item["decisionEvidence"]["audio"]["selectedAudio"] == item["selectedAudio"]
+        assert item["decisionEvidence"]["audio"]["status"] == "attached"
+    finally:
+        cf.close()
+
+
 def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path):
     bank_path = tmp_path / "reference_bank.json"
     bank_path.write_text(json.dumps({
