@@ -292,6 +292,7 @@ class SurfaceHandoffRepository:
         }]
         can_handoff = False
         legacy_handoff = None
+        audio_readiness = None
         story_quality: dict[str, Any] | None = None
         story_style_approved = False
         if surface != "feed_carousel":
@@ -303,6 +304,7 @@ class SurfaceHandoffRepository:
         if surface == "reel":
             plan = self._latest_distribution_plan_for_asset(asset["id"])
             publishability = self._explain_publishability(asset["id"], distribution_plan_id=plan["id"] if plan else None)
+            audio_readiness = self.audio_readiness_from_publishability(publishability)
             legacy_handoff = publishability.get("handoff_manifest")
             if not publishability.get("publishableCandidate"):
                 blocking.extend(str(reason) for reason in publishability.get("publishability_failure_reasons") or ["publishability_blocked"])
@@ -433,9 +435,25 @@ class SurfaceHandoffRepository:
             "discoverabilityContract": discoverability_contract,
             "storyQuality": story_quality,
             "storyStyleApproved": story_style_approved if surface == "story" else None,
+            "audioReadiness": audio_readiness,
             "handoffManifestV2": manifest_v2,
             "handoffManifest": legacy_handoff,
             "wouldWrite": False,
+        }
+
+    def audio_readiness_from_publishability(self, publishability: dict[str, Any]) -> dict[str, Any]:
+        intent = publishability.get("audioIntent") if isinstance(publishability.get("audioIntent"), dict) else {}
+        task = intent.get("task") if isinstance(intent.get("task"), dict) else {}
+        status = str(intent.get("status") or "unavailable").strip().lower()
+        failures = [str(reason) for reason in publishability.get("publishability_failure_reasons") or []]
+        checks = publishability.get("checks") if isinstance(publishability.get("checks"), dict) else {}
+        return {
+            "required": bool(intent.get("required", False)),
+            "status": status,
+            "taskStatus": str(task.get("status") or ("proof_missing" if "missing_audio" in failures else "completed")).strip().lower(),
+            "audioId": publishability.get("audio_id") or None,
+            "nativeProofValid": bool(checks.get("audio_assigned")) if "audio_assigned" in checks else "missing_audio" not in failures,
+            "blockingReasons": sorted({reason for reason in failures if reason == "missing_audio"}),
         }
 
     def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:

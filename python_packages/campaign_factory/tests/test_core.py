@@ -10176,6 +10176,48 @@ def test_surface_handoff_readiness_validates_surfaces_differently(tmp_path: Path
         cf.close()
 
 
+def test_surface_handoff_readiness_explains_missing_reel_audio_proof(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_inventory_parent_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_reel_audio_missing_proof",
+            campaign_slug="stacey_surface_inventory_20260606",
+            audio_required=True,
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_reel_audio_missing_proof'",
+            (json.dumps({
+                "instagram_post_caption": "new post is up",
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": True,
+                    "status": "attached",
+                },
+            }),),
+        )
+        cf.conn.commit()
+        cf.create_distribution_plan("asset_reel_audio_missing_proof", surface="regular_reel", instagram_account_id="ig_stacey_1")
+
+        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_reel_audio_missing_proof")
+        readiness = report["assets"][0]
+
+        assert readiness["canHandoff"] is False
+        assert "missing_audio" in readiness["blockingReasons"]
+        assert readiness["audioReadiness"] == {
+            "required": True,
+            "status": "attached",
+            "taskStatus": "proof_missing",
+            "audioId": None,
+            "nativeProofValid": False,
+            "blockingReasons": ["missing_audio"],
+        }
+    finally:
+        cf.close()
+
+
 def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
