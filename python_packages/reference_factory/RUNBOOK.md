@@ -102,6 +102,11 @@ each cluster includes local reference paths, top examples, prompt templates,
 caption formulas, audio recommendations, and the intended
 `close_format_variation` match goal.
 
+`build-learning-system` now attempts local visual embedding clusters first and
+records `embeddingClusterId` when usable media and optional timm/DINOv2 deps are
+available. Pass `--no-embedding-clusters` to force the legacy heuristic grouping
+for deterministic debugging.
+
 Pattern analysis writes machine labels without replacing your manual taste
 labels. To intentionally copy machine suggestions into `gold/maybe/ignore`:
 
