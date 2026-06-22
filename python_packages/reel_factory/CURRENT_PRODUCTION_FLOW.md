@@ -89,9 +89,8 @@ The following systems are historical or experimental only:
 - Qwen/Ollama/Florence extraction
 - grid/fanout/cropped-panel workflows
 - `_grok.json` prompt files
-- `grok_ab_experiment.py`
 
-They may remain in the repo for old tests and research, but they are not the active production guidance.
+They are not active production guidance; the old Grok A/B experiment surface has been removed.
 
 ## Boundaries
 

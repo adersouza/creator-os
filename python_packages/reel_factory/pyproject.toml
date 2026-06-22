@@ -61,7 +61,6 @@ py-modules = [
   "generate_prompts",
   "graph_builder",
   "grid_crop",
-  "grok_ab_experiment",
   "hook_ai",
   "hook_library",
   "hook_spinner",

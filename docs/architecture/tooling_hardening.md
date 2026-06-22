@@ -42,7 +42,7 @@ Dependabot remains the default dependency updater for now:
 - npm/pnpm and GitHub Actions updates run weekly.
 - minor and patch npm updates are grouped to reduce PR noise.
 - Renovate is deferred until a clean trial branch proves that its grouping works
-  across pnpm, npm package-lock mirrors, uv workspaces, and GitHub Actions.
+  across pnpm, uv workspaces, and GitHub Actions.
 - A Renovate trial config exists at `.github/renovate.json`. Automerge is
   disabled. Enable Renovate only after reviewing its first dependency
   dashboard and PR grouping behavior.
