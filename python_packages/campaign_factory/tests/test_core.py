@@ -1362,6 +1362,51 @@ def test_make_batch_returns_compact_operator_summary(tmp_path: Path, monkeypatch
         cf.close()
 
 
+def test_import_folder_rejects_raw_reel_review_batch_manifest(tmp_path: Path):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    (folder / "clip.mp4").write_bytes(b"video")
+    (folder / "review_manifest.json").write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="guard-passed Reel Factory review package"):
+            cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+    finally:
+        cf.close()
+
+
+def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    (folder / "clip.mp4").write_bytes(b"video")
+    (folder / "clip.png").write_bytes(b"png")
+    raw_manifest = folder / "review_manifest.json"
+    raw_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    (folder / "review_package.json").write_text(json.dumps({
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(raw_manifest),
+        "count": 1,
+        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    cf = make_factory(tmp_path)
+    try:
+        result = cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+        assert any(asset["filename"].endswith(".mp4") for asset in result["imported"])
+    finally:
+        cf.close()
+
+
 def test_finished_video_intake_uses_reference_pipeline_metadata(tmp_path: Path, monkeypatch):
     source = tmp_path / "mirror_selfie_finished.mp4"
     source.write_bytes(b"finished video")

@@ -9,6 +9,46 @@ from typing import Any, Callable
 from .config import Settings
 
 
+def _json_dict(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _is_reel_review_manifest(path: Path) -> bool:
+    payload = _json_dict(path)
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return False
+    if payload.get("schema") == "reel_factory.review_batch_package.v1":
+        return False
+    first = rows[0] if isinstance(rows[0], dict) else {}
+    return bool(
+        payload.get("outputDir")
+        and payload.get("captionPlacementPolicy")
+        and first.get("output")
+        and first.get("overlayPng")
+        and first.get("captionHash")
+    )
+
+
+def _is_guarded_review_package(path: Path) -> bool:
+    payload = _json_dict(path)
+    if payload.get("schema") != "reel_factory.review_batch_package.v1":
+        return False
+    rows = payload.get("rows")
+    guard = payload.get("guard") if isinstance(payload.get("guard"), dict) else {}
+    return bool(
+        isinstance(rows, list)
+        and guard.get("status") == "ready"
+        and not guard.get("blockingReasons")
+        and payload.get("count") == len(rows)
+        and guard.get("count") == len(rows)
+    )
+
+
 class AssetImportRepository:
     def __init__(
         self,
@@ -81,6 +121,7 @@ class AssetImportRepository:
         folder = Path(folder).expanduser().resolve()
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"input folder not found: {folder}")
+        self._enforce_reel_review_batch_package(folder)
         model = self._upsert_model(model_slug, model_name)
         campaign = self._upsert_campaign(campaign_slug, model["slug"], platform=platform)
         pipeline_job = self._create_pipeline_job(
@@ -212,6 +253,18 @@ class AssetImportRepository:
             )
             self._fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
+
+    def _enforce_reel_review_batch_package(self, folder: Path) -> None:
+        raw_manifests = [path for path in folder.glob("*.json") if _is_reel_review_manifest(path)]
+        if not raw_manifests:
+            return
+        packages = [path for path in folder.glob("*.json") if _is_guarded_review_package(path)]
+        if packages:
+            return
+        raise ValueError(
+            "Campaign Factory intake requires a guard-passed Reel Factory review package; "
+            "run scripts/run/reel-factory review-guard <manifest> --write-package inside the batch folder."
+        )
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at", (campaign_id,)).fetchall()
