@@ -1262,7 +1262,7 @@ def test_pipeline_audio_smoke_helpers_build_recommended_intent(tmp_path: Path):
 
         assert csv_path.read_text(encoding="utf-8") == SMOKE_CSV
         assert snapshot_path.read_text(encoding="utf-8") == SMOKE_SNAPSHOT_CSV
-        assert intent["status"] == "recommended"
+        assert intent["status"] == "needs_operator_selection"
         assert intent["recommendations"][0]["audio_title"] == "Runway Pop"
         assert contentforge["readinessSummary"]["uploadReady"] is True
         validate_performance_sync(performance)

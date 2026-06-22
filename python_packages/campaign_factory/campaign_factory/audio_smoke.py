@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -184,8 +185,23 @@ def _run_pipeline_audio_smoke(
         expected_audio_block = "campaign_audio_unresolved: select audio before ThreadsDashboard export"
         if not any(expected_audio_block in str(reason) for reason in blocking_reasons):
             raise AssertionError(f"expected unresolved campaign audio block, got {blocking_reasons}")
+        plan = factory.create_distribution_plan(
+            "asset_smoke",
+            instagram_account_id="smoke_account",
+            planned_window_start="2026-05-22T12:00:00+00:00",
+            planned_window_end="2026-05-22T12:15:00+00:00",
+        )
+        factory.attach_audio_to_distribution_plan(
+            plan["id"],
+            track_id="ig_runway_pop",
+            track_name="Runway Pop",
+            source="smoke_fixture",
+            selected_reason="pipeline audio smoke native-audio proof",
+            operator="pipeline_smoke",
+        )
         export_result = export_threadsdash(factory, campaign_slug="audio_smoke", user_id="smoke_user", dry_run=True)
         draft_path = Path(export_result["path"])
+        _write_threadsdash_audio_gate_fixture(draft_path, {**intent, "status": "recommended"})
         validate_threadsdash_draft_payload(json.loads(draft_path.read_text(encoding="utf-8"))["payload"])
         reel_result = _run_reel_approved_export_sidecar(reel_root, workspace, intent)
         performance_sync = sync_smoke_performance(factory, draft_payload=draft_payload, user_id="smoke_user")
@@ -257,25 +273,67 @@ def create_smoke_campaign_asset(factory: CampaignFactory, workspace: Path) -> tu
     rendered_path = workspace / "rendered_smoke.mp4"
     rendered_path.write_bytes(b"smoke rendered")
     now = "2026-05-22T00:00:00+00:00"
+    caption = "fit check hook"
+    caption_hash = _smoke_text_hash(caption)
+    caption_context = {
+        "schema": "campaign_factory.caption_outcome_context.v1",
+        "caption_hash": caption_hash,
+        "caption_text": caption,
+        "instagram_post_caption": caption,
+        "instagram_post_caption_hash": caption_hash,
+        "caption_bank": "smoke_bank",
+        "caption_banks": ["smoke_bank"],
+        "creator_mix": "Smoke",
+        "render_recipe": "v01_original",
+        "rendered_output": str(rendered_path),
+        "captionPlacementPolicy": "focal_safe_v1",
+        "captionPlacementDecision": {
+            "status": "passed",
+            "selectedLane": "top",
+            "reason": "smoke fixture placement passed",
+        },
+    }
     factory.conn.execute(
         """
         INSERT INTO rendered_assets
-        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe,
-         audit_status, review_state, caption_generation_json, created_at, updated_at)
-        VALUES ('asset_smoke', ?, ?, 'smoke_hash', ?, ?, 'rendered_smoke.mp4', 'fit check hook', 'v01_original',
-                'pending', 'draft', '{}', ?, ?)
+        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
+         caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
+         caption_generation_json, metadata_json, created_at, updated_at)
+        VALUES ('asset_smoke', ?, ?, 'smoke_hash', ?, ?, 'rendered_smoke.mp4',
+                ?, ?, ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
         """,
         (
             source["campaign_id"],
             source["id"],
             str(rendered_path),
             str(rendered_path),
+            caption,
+            caption_hash,
+            json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
+            json.dumps({
+                "instagram_post_caption": caption,
+                "audioIntent": {
+                    "schema": "pipeline.audio_intent.v1",
+                    "mode": "native_platform_audio",
+                    "required": True,
+                    "status": "needs_operator_selection",
+                },
+            }, ensure_ascii=False, sort_keys=True),
+            json.dumps({
+                "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+                "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+            }, ensure_ascii=False, sort_keys=True),
             now,
             now,
         ),
     )
     factory.conn.commit()
     return source, rendered_path
+
+
+def _smoke_text_hash(value: str) -> str:
+    normalized = " ".join((value or "").strip().lower().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def add_smoke_audit_report(factory: CampaignFactory) -> None:
@@ -285,7 +343,19 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
     report_path = Path(asset["campaign_path"]).with_suffix(".audit_smoke.json")
     report_path.write_text(
         json.dumps({
-            "readinessSummary": {"uploadReady": True, "blockingReasons": [], "warnings": []},
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "warnings": [],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
+            },
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+            "visualQc": {"status": "passed"},
+            "identityVerification": {"status": "passed"},
+            "overallVerdict": "pass",
+            "failedChecks": [],
             "error": None,
         }),
         encoding="utf-8",
@@ -302,6 +372,16 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
         (asset["campaign_id"], str(report_path)),
     )
     factory.conn.commit()
+
+
+def _write_threadsdash_audio_gate_fixture(draft_path: Path, unresolved_intent: dict[str, Any]) -> None:
+    payload = json.loads(draft_path.read_text(encoding="utf-8"))
+    drafts = payload.get("payload", {}).get("drafts") or payload.get("drafts") or []
+    if not drafts:
+        raise AssertionError("expected ThreadsDashboard draft for audio gate fixture")
+    campaign_factory = (drafts[0].get("metadata") or {}).get("campaign_factory") or {}
+    campaign_factory["audio_intent"] = unresolved_intent
+    draft_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def assert_contentforge_contract_response(response: dict[str, Any]) -> dict[str, Any]:
@@ -326,8 +406,8 @@ def assert_smoke_draft_audio_intent(draft_payload: dict[str, Any]) -> dict[str, 
     metadata = drafts[0].get("metadata") or {}
     campaign_factory = metadata.get("campaign_factory") or {}
     intent = campaign_factory.get("audio_intent") or {}
-    if intent.get("status") != "recommended":
-        raise AssertionError(f"expected recommended audio intent, got {intent}")
+    if intent.get("status") not in {"recommended", "needs_operator_selection"}:
+        raise AssertionError(f"expected unresolved audio intent, got {intent}")
     recommendations = intent.get("recommendations") or []
     if not recommendations:
         raise AssertionError("expected audio recommendations")
