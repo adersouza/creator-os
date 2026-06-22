@@ -94,9 +94,22 @@ Do not relearn or invent these each task. Read this section, then the named file
   `python_packages/reel_factory/fonts/` (`InstagramSansCondensed-Regular.woff2`,
   `InstagramSansCondensed-Bold.woff2`). Do not substitute another font unless the
   user explicitly asks.
-- **Font/placement is auto-selected by frame contrast**, not guessed. See
-  `python_packages/reel_factory/placement.py` (stddev → style + font; falls back
-  to `("top", "ig", "Instagram Sans Condensed")`).
+- **Placement is decided by `placement.py`, NEVER by hand.** It samples frames,
+  scores face/body/text-safe zones, picks a safe caption lane + style + font
+  (stddev → style; falls back to `("top", "ig", "Instagram Sans Condensed")`),
+  and emits a `captionPlacementDecision` (`placement_scorer.py`) carried in the
+  asset lineage and consumed by Campaign Factory (`reel_factory_reports.py`).
+  Hard rules:
+  - If overlay text is burned, it MUST go through `placement.py` →
+    `caption_render.py`. Never choose x/y by eye, never burn with raw Pillow,
+    never patch placement metadata after a manual render.
+  - No manual x/y unless `placement.py` explicitly returns that position.
+  - **No safe lane found → do NOT force overlay.** Ship the still clean and put
+    the hook in the post caption, or regenerate a still with negative space.
+    A centered face/body with no negative space is a no-overlay outcome, not a
+    "guess somewhere" outcome.
+  - An asset missing a valid `captionPlacementDecision` is not review-ready —
+    Campaign Factory must reject it or keep it in review.
 - **Overlay text comes from the caption bank, never freehand and never the
   Higgsfield prompt text.** Source: `python_packages/reel_factory/caption_banks/`
   (`banks.json` = hooks with `caption_hash` + bank membership, `mixes.json` =

@@ -14,6 +14,8 @@ def _batch(
     *,
     font: str = "Instagram Sans Condensed Bold",
     placement: str = "focal-safe",
+    placement_decision: dict | None = None,
+    selected_band: str = "top",
     contentforge: bool = True,
     contentforge_profile: str = "campaign_factory_v1",
     row_count: int = 1,
@@ -39,6 +41,21 @@ def _batch(
                 "schema": "campaign_factory.generated_asset_lineage.v1",
                 "source": {"sourceLineagePath": str(root / "00_source_videos" / "clip_001.generated_asset_lineage.json")},
                 "captionPlacementPolicy": placement,
+                "captionPlacementDecision": placement_decision
+                if placement_decision is not None
+                else {
+                    "status": "passed",
+                    "selectedLane": selected_band,
+                    "rejectedLanes": [],
+                    "reason": "top lane lowest (top=1.0, center=9.0, bottom=12.0)",
+                    "scores": {"top": 1.0, "center": 9.0, "bottom": 12.0},
+                    "components": {
+                        "top": {"busyness": 1.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 0.0},
+                        "center": {"busyness": 1.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 8.0},
+                        "bottom": {"busyness": 12.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 0.0},
+                    },
+                    "sampleCount": 3,
+                },
             },
         )
         rows.append(
@@ -48,7 +65,7 @@ def _batch(
                 "sourceBanks": ["test"],
                 "output": str(output),
                 "overlayPng": str(overlay),
-                "selectedBand": "top",
+                "selectedBand": selected_band,
                 "captionPlacementPolicy": placement,
             }
         )
@@ -131,6 +148,32 @@ def test_review_batch_guard_blocks_manual_font_and_placement(tmp_path: Path) -> 
     assert result["status"] == "blocked"
     assert "font_not_instagram_sans_condensed" in result["blockingReasons"]
     assert "caption_placement_not_focal_safe" in result["blockingReasons"]
+
+
+def test_review_batch_guard_blocks_missing_real_placement_decision(tmp_path: Path) -> None:
+    result = validate_review_batch(_batch(tmp_path, placement_decision={}))
+
+    assert result["status"] == "blocked"
+    assert "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
+
+
+def test_review_batch_guard_blocks_selected_band_mismatch(tmp_path: Path) -> None:
+    result = validate_review_batch(
+        _batch(
+            tmp_path,
+            selected_band="bottom",
+            placement_decision={
+                "status": "passed",
+                "selectedLane": "top",
+                "scores": {"top": 1.0, "center": 9.0, "bottom": 12.0},
+                "components": {"top": {}, "center": {}, "bottom": {}},
+                "sampleCount": 3,
+            },
+        )
+    )
+
+    assert result["status"] == "blocked"
+    assert "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
 
 
 def test_promote_review_batch_writes_package_only_after_guard_passes(tmp_path: Path) -> None:

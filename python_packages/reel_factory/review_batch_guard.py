@@ -12,6 +12,7 @@ from audio_intent import read_audio_intent
 
 
 FOCAL_SAFE = {"focal-safe", "focal_safe_v1"}
+LANES = {"top", "center", "bottom"}
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -53,6 +54,23 @@ def _contentforge_profile(payload: dict[str, Any]) -> str:
 
 def _lineage_path(output: Path) -> Path:
     return output.with_suffix(output.suffix + ".generated_asset_lineage.json")
+
+
+def _valid_caption_placement_decision(decision: Any, *, selected_band: str | None) -> bool:
+    if not isinstance(decision, dict):
+        return False
+    lane = str(decision.get("selectedLane") or "")
+    scores = decision.get("scores")
+    components = decision.get("components")
+    if decision.get("status") != "passed" or lane not in LANES:
+        return False
+    if selected_band and lane != selected_band:
+        return False
+    if not isinstance(scores, dict) or not LANES <= set(scores):
+        return False
+    if not isinstance(components, dict) or not LANES <= set(components):
+        return False
+    return int(decision.get("sampleCount") or 0) > 0
 
 
 def _readiness_path(output_dir: Path) -> Path:
@@ -154,6 +172,11 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
             blocking.append("missing_generated_asset_lineage")
         elif str(lineage.get("captionPlacementPolicy") or row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
             blocking.append("caption_placement_not_focal_safe")
+        elif not _valid_caption_placement_decision(
+            lineage.get("captionPlacementDecision"),
+            selected_band=str(row.get("selectedBand") or "") or None,
+        ):
+            blocking.append("caption_placement_decision_missing_or_mismatched")
 
     reasons = sorted(set(blocking))
     return {

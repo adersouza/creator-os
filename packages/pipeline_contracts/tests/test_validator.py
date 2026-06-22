@@ -137,6 +137,7 @@ def test_campaign_draft_payload_accepts_content_trust_blockers():
         "visual_qc_failed",
         "identity_verification_unavailable",
         "identity_verification_failed",
+        "embedded_audio_missing",
     ]
 
     validate_campaign_draft_payload_strict(payload)
