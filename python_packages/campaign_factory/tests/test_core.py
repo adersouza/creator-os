@@ -9051,6 +9051,59 @@ def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_pa
         cf.close()
 
 
+def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(tmp_path: Path, monkeypatch):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        add_audit_report(cf)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps({
+                "instagram_post_caption": "new post",
+                "audioIntent": {
+                    "schema": "reel_factory.audio_intent.v1",
+                    "mode": "licensed_music",
+                    "required": True,
+                    "status": "planned",
+                    "audio_selection": {
+                        "source": "local_audio",
+                        "path": str(tmp_path / "licensed.m4a"),
+                    },
+                },
+            }),),
+        )
+        cf.conn.commit()
+        monkeypatch.setattr(core_module, "probe_video_metadata", lambda path: {"ok": True, "audioPresent": True})
+
+        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+
+        assert explanation["publishableCandidate"] is True
+        assert explanation["checks"]["audio_assigned"] is True
+        assert explanation["checks"]["embedded_audio_verified"] is True
+        assert explanation["audioIntent"]["mode"] == "licensed_music"
+        assert explanation["audioIntent"]["operator_selection"]["selection_source"] == "embedded_licensed_audio"
+    finally:
+        cf.close()
+
+
+def test_threadsdash_audio_live_gate_accepts_embedded_licensed_audio():
+    assert threadsdash_adapter._audio_intent_allows_live({
+        "schema": "pipeline.audio_intent.v1",
+        "mode": "licensed_music",
+        "required": True,
+        "status": "attached",
+        "operator_selection": {
+            "audio_id": "embedded_audio_1",
+            "source": "local_audio",
+            "selection_source": "embedded_licensed_audio",
+            "selected_at": "2026-06-22T00:00:00+00:00",
+            "attached_at": "2026-06-22T00:00:00+00:00",
+        },
+    }) is True
+
+
 def test_register_finished_video_preserves_caption_placement_qc(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
