@@ -234,6 +234,9 @@ def main() -> int:
     caption_outcome = sub.add_parser("caption-outcome-report")
     caption_outcome.add_argument("--campaign", required=True)
 
+    reference_outcome = sub.add_parser("reference-outcome-report")
+    reference_outcome.add_argument("--campaign", required=True)
+
     track_q_calibration = sub.add_parser("track-q-calibration-status")
     track_q_calibration.add_argument("--campaign")
     track_q_calibration.add_argument("--min-reviewed-reels", type=int, default=30)
@@ -1757,6 +1760,8 @@ def main() -> int:
             ))
         elif args.cmd == "caption-outcome-report":
             print_json(cf.caption_outcome_report(args.campaign))
+        elif args.cmd == "reference-outcome-report":
+            print_json(cf.reference_outcome_report(args.campaign))
         elif args.cmd == "track-q-calibration-status":
             print_json(track_q_calibration_status(
                 cf.conn,

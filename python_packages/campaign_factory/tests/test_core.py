@@ -12728,6 +12728,103 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path:
         cf.close()
 
 
+def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("may", "stacey")
+        now = datetime.now(timezone.utc).isoformat()
+        cf.conn.execute(
+            """
+            INSERT INTO performance_snapshots
+            (id, campaign_id, rendered_asset_id, source_asset_id, caption_hash, recipe,
+             post_id, platform, status, account_id, instagram_account_id, published_at,
+             snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
+             raw_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 1, ?, ?)
+            """,
+            (
+                "perf_approved",
+                campaign["id"],
+                "asset_1",
+                "source_1",
+                "caption_1",
+                "motion_edit",
+                "post_1",
+                "acct_1",
+                "ig_1",
+                "2026-06-21T12:00:00+00:00",
+                "2026-06-22T12:00:00+00:00",
+                240,
+                json.dumps({
+                    "metadata": {
+                        "campaign_factory": {
+                            "source_asset_id": "source_1",
+                            "rendered_asset_id": "asset_1",
+                            "caption_hash": "caption_1",
+                            "generated_asset_lineage": {"source": {"referenceId": "ref_1"}},
+                            "operator_review": {"decision": "approved", "notes": "hook works"},
+                        }
+                    }
+                }),
+                now,
+            ),
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO performance_snapshots
+            (id, campaign_id, rendered_asset_id, source_asset_id, caption_hash, recipe,
+             post_id, platform, status, account_id, instagram_account_id, published_at,
+             snapshot_at, views, metrics_eligible, raw_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "perf_unmeasured",
+                campaign["id"],
+                "asset_2",
+                "source_2",
+                "caption_2",
+                "motion_edit",
+                "post_2",
+                "acct_1",
+                "ig_1",
+                "2026-06-22T12:00:00+00:00",
+                "2026-06-22T13:00:00+00:00",
+                20,
+                json.dumps({
+                    "metadata": {
+                        "campaign_factory": {
+                            "source_asset_id": "source_2",
+                            "rendered_asset_id": "asset_2",
+                            "caption_hash": "caption_2",
+                            "generated_asset_lineage": {"source": {"referenceId": "ref_2"}},
+                        }
+                    }
+                }),
+                now,
+            ),
+        )
+        cf.conn.commit()
+
+        report = cf.reference_outcome_report("may")
+
+        assert report["schema"] == "campaign_factory.reference_outcome_report.v1"
+        assert report["rows"][0] == {
+            "referenceId": "ref_1",
+            "sourceAssetId": "source_1",
+            "captionHash": "caption_1",
+            "accountId": "acct_1",
+            "reelsPosted": 1,
+            "approvedCount": 1,
+            "avgViews24h": 240,
+            "measurementState": "measured",
+            "operatorNotes": ["hook works"],
+        }
+        assert report["rows"][1]["referenceId"] == "ref_2"
+        assert report["rows"][1]["measurementState"] == "unmeasured"
+    finally:
+        cf.close()
+
+
 def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
     post_rows = []
