@@ -564,6 +564,17 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertNotEqual(summary.lane, "center")
         self.assertIn("center", summary.metadata["captionPlacementDecision"]["rejectedLanes"])
 
+    def test_focal_safe_prefers_lower_hook_zone_without_face_or_pose_collision(self):
+        summary = score_lanes(
+            stddev_samples=[(44.129, 44.848, 47.963)],
+            focal_samples=[(21.932, 78.502, 114.1)],
+            motion_samples=[(23.746, 24.851, 24.821)],
+            placement_policy="focal-safe",
+        )
+
+        self.assertEqual(summary.lane, "bottom")
+        self.assertNotIn("bottom", summary.metadata["captionPlacementDecision"]["rejectedLanes"])
+
     def test_legacy_scoring_preserves_old_lowest_penalty_path(self):
         summary = score_lanes(
             stddev_samples=[(20.0, 1.0, 20.0)],

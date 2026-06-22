@@ -42,3 +42,24 @@ test("creative quality flags generic hook language from OCR text", function () {
   assert.equal(result.warnings.some((item) => item.code === "creative_hook_generic"), true);
   assert.equal(result.subjectVisibility.level !== "weak", true);
 });
+
+test("creative quality dedupes repeated early-frame OCR hook text", function () {
+  var result = buildCreativeQualityAudit({
+    ocr: {
+      frameSamples: 3,
+      results: [
+        { timeSec: 0.4, ocrText: "don't just stare say hi then", confidence: 100 },
+        { timeSec: 1.4, ocrText: "don't just stare say hi then", confidence: 100 },
+        { timeSec: 2.6, ocrText: "don't just stare say hi then", confidence: 100 },
+      ],
+    },
+    coverCandidates: [{ score: 96, stats: { brightness: 115, contrast: 49, edgeScore: 15 } }],
+    readabilityScore: 100,
+    hookVisibilityScore: 100,
+    hookVisibility: { metrics: { earlyTextBoxes: 3, avgFrameDelta: 23.5 } },
+    safeZone: { metrics: { frameSamples: 3 } },
+  });
+
+  assert.equal(result.hookClarity.wordCount, 7);
+  assert.equal(result.hookClarity.warnings.some((item) => item.code === "creative_hook_too_long"), false);
+});

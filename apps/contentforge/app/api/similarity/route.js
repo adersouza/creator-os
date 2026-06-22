@@ -291,14 +291,18 @@ function operatorLabelGroups(blockingItems, warningItems) {
   return groups;
 }
 
-export function buildDetectorVerdicts(results, auditProfile = "default") {
+export function buildDetectorVerdicts(results, auditProfile = "default", options = {}) {
   var thresholds = campaignFactoryThresholds();
   var campaignProfile = auditProfile === "campaign_factory_v1";
+  var hasVariantCount = Object.prototype.hasOwnProperty.call(options, "variantCount");
+  var fanoutDistinctness = !campaignProfile || !hasVariantCount || Number(options.variantCount || 0) > 1;
   var verdicts = {};
   var pdq = results.pdq;
   if (pdq) {
     if (pdq.available === false || pdq.error) {
       verdicts.pdq = campaignProfile ? "fail" : "warn";
+    } else if (campaignProfile && !fanoutDistinctness) {
+      verdicts.pdq = "pass";
     } else if (campaignProfile) {
       var pdqStats = pdq.stats || {};
       var pdqFailed = !Number.isFinite(pdqStats.minDistance) ||
@@ -315,6 +319,8 @@ export function buildDetectorVerdicts(results, auditProfile = "default") {
   if (sscd) {
     if (sscd.available === false || sscd.error) {
       verdicts.sscd = campaignProfile ? "fail" : "warn";
+    } else if (campaignProfile && !fanoutDistinctness) {
+      verdicts.sscd = "pass";
     } else if (campaignProfile) {
       var sscdStats = sscd.stats || {};
       var sscdFailed = !Number.isFinite(sscdStats.maxSimilarity) ||
@@ -333,6 +339,8 @@ export function buildDetectorVerdicts(results, auditProfile = "default") {
 export function buildReadinessSummary(results, verdicts, options = {}) {
   var auditProfile = options.auditProfile || "default";
   var campaignProfile = auditProfile === "campaign_factory_v1";
+  var hasVariantCount = Object.prototype.hasOwnProperty.call(options, "variantCount");
+  var fanoutDistinctness = !campaignProfile || !hasVariantCount || Number(options.variantCount || 0) > 1;
   var blockingReasons = [];
   var warnings = [];
   var blockingItems = [];
@@ -398,9 +406,9 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
           layer + ": detector unavailable",
           layer.toUpperCase() + " detector unavailable"
         );
-      } else if (Number(stats.crossCollisions || 0) > 0 || Number(
+      } else if (fanoutDistinctness && (Number(stats.crossCollisions || 0) > 0 || Number(
         layer === "pdq" ? stats.crossSafeTargetViolations || 0 : stats.crossVariantSafeTargetViolations || 0
-      ) > 0) {
+      ) > 0)) {
         addReadinessItem(
           blockingItems,
           layer + "_sibling_collision",
@@ -1403,7 +1411,10 @@ function finiteNumber(value) {
 export function buildWatchabilityWarnings({ qualityMetrics = {}, qaSignals = {}, fileName = "target", thresholds = campaignFactoryThresholds() } = {}) {
   var warnings = [];
   var vmaf = finiteNumber(qualityMetrics.vmaf);
-  if (vmaf !== null && vmaf < thresholds.minVmaf) {
+  var ssim = finiteNumber(qualityMetrics.ssim);
+  var psnr = finiteNumber(qualityMetrics.psnr);
+  var referenceMetricsPass = (ssim !== null && ssim >= 0.70) || (psnr !== null && psnr >= 18);
+  if (vmaf !== null && vmaf < thresholds.minVmaf && !referenceMetricsPass) {
     warnings.push(advisoryWarning("video_vmaf_low", "Low VMAF score", fileName + ": VMAF " + vmaf + " is below " + thresholds.minVmaf));
   }
 
@@ -1935,7 +1946,7 @@ export async function POST(request) {
     function unavailableVerdict(result) {
       return result && (result.available === false || result.error) ? "warn" : null;
     }
-    Object.assign(verdicts, buildDetectorVerdicts(results, auditProfile));
+    Object.assign(verdicts, buildDetectorVerdicts(results, auditProfile, { variantCount: files.length }));
     if (results.audio?.stats) {
       verdicts.audio = results.audio.stats.identicalPercent === 0 ? "pass" : results.audio.stats.identicalPercent <= 20 ? "warn" : "fail";
     } else if (layers.includes("audio") && results.audio?.available === false) {
@@ -1995,7 +2006,7 @@ export async function POST(request) {
       verdicts.originality = results.multiAccountOriginalityAudit.verdict;
     }
 
-    var readinessSummary = buildReadinessSummary(results, verdicts, { auditProfile });
+    var readinessSummary = buildReadinessSummary(results, verdicts, { auditProfile, variantCount: files.length });
     var overallVerdict = readinessSummary.blockingReasons.length > 0 ? "fail"
       : readinessSummary.warnings.length > 0 ? "warn" : "pass";
     var verdictCodes = Object.fromEntries(Object.entries(verdicts).map(function ([layer, verdict]) {

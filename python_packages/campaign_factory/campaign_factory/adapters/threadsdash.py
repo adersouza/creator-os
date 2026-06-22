@@ -610,6 +610,16 @@ def export_threadsdash(
             and not _legacy_supabase_writes_enabled()
             and normalized_schedule_mode == "draft"
         )
+        dashboard_ingest_media: list[dict[str, Any]] = []
+        if uses_dashboard_ingest:
+            dashboard_ingest_media = _upload_media_for_dashboard_ingest(
+                factory,
+                payload,
+                user_id=user_id,
+                supabase_url=supabase_url,
+                service_role_key=supabase_service_role_key,
+                bucket=supabase_storage_bucket,
+            )
         manifest_blockers = _campaign_factory_manifest_blockers(
             payload,
             require_remote_media_urls=uses_dashboard_ingest,
@@ -636,7 +646,7 @@ def export_threadsdash(
             "payload": payload,
             "readiness": readiness,
             "supabase": {"attempted": False, "media": [], "posts": []},
-            "dashboardIngest": {"attempted": False, "dryRun": dry_run, "postIds": []},
+            "dashboardIngest": {"attempted": False, "dryRun": dry_run, "postIds": [], "media": dashboard_ingest_media},
             "path": str(out_path),
             "pipelineJobId": pipeline_job["id"],
         }
@@ -680,6 +690,7 @@ def export_threadsdash(
                     "postIds": reconciled_post_ids,
                     "reconciled": True,
                     "postKeys": _threadsdash_ingest_post_keys(payload),
+                    "media": dashboard_ingest_media,
                 }
                 result["supabase"] = {
                     "attempted": False,
@@ -1179,6 +1190,60 @@ def evaluate_export_readiness(
         )
         factory.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _upload_media_for_dashboard_ingest(
+    factory: CampaignFactory,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    supabase_url: str | None,
+    service_role_key: str | None,
+    bucket: str,
+) -> list[dict[str, Any]]:
+    if not supabase_url or not service_role_key:
+        raise ValueError("supabase_url and supabase_service_role_key are required for dashboard ingest media upload")
+    client = SupabaseRestClient(supabase_url.rstrip("/"), service_role_key)
+    uploaded_by_path: dict[str, dict[str, Any]] = {}
+    media_results: list[dict[str, Any]] = []
+    for draft in payload.get("drafts") or []:
+        if not isinstance(draft, dict):
+            continue
+        rendered_asset_id = str(draft.get("renderedAssetId") or "draft")
+        if not _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id):
+            continue
+        local_value = draft.get("_localFilePath")
+        if not isinstance(local_value, str) or not local_value.strip():
+            continue
+        local_path = Path(local_value)
+        media_cache_key = str(draft.get("campaignFactoryMediaKey") or local_path)
+        if media_cache_key not in uploaded_by_path:
+            try:
+                media_ref = _upload_media(
+                    client,
+                    bucket=bucket,
+                    user_id=user_id,
+                    local_path=local_path,
+                    tags=list(draft.get("_tags") or []),
+                    media_key=draft.get("campaignFactoryMediaKey"),
+                )
+            except Exception as exc:
+                blockers = _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)
+                raise ValueError(
+                    f"export blocked by handoff manifest: {', '.join(blockers)}; media upload failed: {exc}"
+                ) from exc
+            uploaded_by_path[media_cache_key] = media_ref
+            media_results.append(media_ref)
+        media_ref = uploaded_by_path[media_cache_key]
+        media_items = draft.get("media")
+        if isinstance(media_items, list) and media_items:
+            first = media_items[0]
+            if isinstance(first, dict):
+                first["id"] = media_ref["id"]
+                first["url"] = media_ref["publicUrl"]
+        _hydrate_surface_media_items_for_uploaded_media(draft, media_ref)
+        draft["metadata"] = _draft_metadata(draft)
+    return media_results
 
 
 def _write_supabase(

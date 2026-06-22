@@ -71,6 +71,68 @@ test("Campaign Factory blocks sibling detector collisions before upload readines
   assert.equal(readiness.operatorLabels.blocking.every((item) => item.operatorLabel === "blocking"), true);
 });
 
+test("Campaign Factory single-reel audit does not fail distinctness against its own master", function () {
+  var results = {
+    pdq: {
+      available: true,
+      stats: {
+        minDistance: 4,
+        crossCollisions: 0,
+        crossSafeTargetViolations: 0,
+      },
+    },
+    sscd: {
+      available: true,
+      stats: {
+        maxSimilarity: 0.94,
+        crossVariantCollisions: 0,
+        crossVariantSafeTargetViolations: 0,
+      },
+    },
+  };
+
+  var verdicts = buildDetectorVerdicts(results, "campaign_factory_v1", { variantCount: 1 });
+  var readiness = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+    variantCount: 1,
+  });
+
+  assert.deepEqual(verdicts, { pdq: "pass", sscd: "pass" });
+  assert.equal(readiness.blockingCodes.includes("pdq_failed"), false);
+  assert.equal(readiness.blockingCodes.includes("sscd_failed"), false);
+});
+
+test("Campaign Factory fan-out still fails master and sibling distinctness", function () {
+  var results = {
+    pdq: {
+      available: true,
+      stats: {
+        minDistance: 4,
+        crossCollisions: 1,
+        crossSafeTargetViolations: 1,
+      },
+    },
+    sscd: {
+      available: true,
+      stats: {
+        maxSimilarity: 0.94,
+        crossVariantCollisions: 1,
+        crossVariantSafeTargetViolations: 1,
+      },
+    },
+  };
+
+  var verdicts = buildDetectorVerdicts(results, "campaign_factory_v1", { variantCount: 2 });
+  var readiness = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+    variantCount: 2,
+  });
+
+  assert.deepEqual(verdicts, { pdq: "fail", sscd: "fail" });
+  assert.equal(readiness.blockingCodes.includes("pdq_sibling_collision"), true);
+  assert.equal(readiness.blockingCodes.includes("sscd_sibling_collision"), true);
+});
+
 test("quality-floor warnings are advisory by default and blocking for Campaign Factory", function () {
   var results = {
     safeZone: {
@@ -122,4 +184,19 @@ test("watchability warnings include quality metric and QA signal reasons", funct
   assert.equal(codes.includes("watchability_black_segment"), true);
   assert.equal(codes.includes("audio_long_silence"), true);
   assert.equal(codes.includes("framing_letterbox_or_crop"), true);
+});
+
+test("watchability does not block on VMAF alone when fallback reference metrics pass", function () {
+  var warnings = buildWatchabilityWarnings({
+    qualityMetrics: {
+      available: true,
+      vmaf: 0,
+      ssim: 0.724,
+      psnr: 19.6,
+    },
+    qaSignals: { warnings: [] },
+    fileName: "captioned.mp4",
+  });
+
+  assert.equal(warnings.some((item) => item.code === "video_vmaf_low"), false);
 });
