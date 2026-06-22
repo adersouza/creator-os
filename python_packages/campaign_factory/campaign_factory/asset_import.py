@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sqlite3
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from .config import Settings
+from .config import CREATOR_OS_ROOT, Settings
 
 
 def _json_dict(path: Path) -> dict[str, Any]:
@@ -15,6 +17,17 @@ def _json_dict(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _resolve_manifest_path(package_path: Path, value: Any) -> Path:
+    path = Path(str(value or ""))
+    if not path.is_absolute():
+        path = package_path.parent / path
+    return path.expanduser().resolve()
 
 
 def _is_reel_review_manifest(path: Path) -> bool:
@@ -36,17 +49,28 @@ def _is_reel_review_manifest(path: Path) -> bool:
 
 def _is_guarded_review_package(path: Path) -> bool:
     payload = _json_dict(path)
-    if payload.get("schema") != "reel_factory.review_batch_package.v1":
-        return False
-    rows = payload.get("rows")
-    guard = payload.get("guard") if isinstance(payload.get("guard"), dict) else {}
-    return bool(
-        isinstance(rows, list)
-        and guard.get("status") == "ready"
-        and not guard.get("blockingReasons")
-        and payload.get("count") == len(rows)
-        and guard.get("count") == len(rows)
-    )
+    return payload.get("schema") == "reel_factory.review_batch_package.v1"
+
+
+def _review_package_hash_paths(manifest_path: Path, manifest: dict[str, Any]) -> list[Path]:
+    paths: list[Path] = [manifest_path.resolve()]
+    contentforge = manifest.get("contentForgeAuditPath")
+    if contentforge:
+        path = Path(str(contentforge))
+        paths.append((path if path.is_absolute() else manifest_path.parent / path).expanduser().resolve())
+    output_dir = Path(str(manifest.get("outputDir") or manifest_path.parent)).expanduser().resolve()
+    readiness = output_dir / "_readiness.json"
+    if readiness.exists():
+        paths.append(readiness)
+    rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field in ("output", "overlayPng"):
+            value = row.get(field)
+            if value:
+                paths.append(Path(str(value)).expanduser().resolve())
+    return list(dict.fromkeys(paths))
 
 
 class AssetImportRepository:
@@ -259,12 +283,61 @@ class AssetImportRepository:
         if not raw_manifests:
             return
         packages = [path for path in folder.glob("*.json") if _is_guarded_review_package(path)]
-        if packages:
-            return
-        raise ValueError(
-            "Campaign Factory intake requires a guard-passed Reel Factory review package; "
-            "run scripts/run/reel-factory review-guard <manifest> --write-package inside the batch folder."
+        for manifest_path in raw_manifests:
+            errors: list[str] = []
+            for package_path in packages:
+                try:
+                    self._verify_reel_review_package(package_path, manifest_path)
+                    break
+                except ValueError as exc:
+                    errors.append(str(exc))
+            else:
+                if errors:
+                    raise ValueError(errors[0])
+                raise ValueError(
+                    "Campaign Factory intake requires a guard-passed Reel Factory review package; "
+                    "run scripts/run/reel-factory review-guard <manifest> --write-package inside the batch folder."
+                )
+
+    def _verify_reel_review_package(self, package_path: Path, manifest_path: Path) -> None:
+        package = _json_dict(package_path)
+        package_manifest = _resolve_manifest_path(package_path, package.get("manifestPath"))
+        if package_manifest != manifest_path.resolve():
+            raise ValueError("guarded Reel Factory review package does not match review manifest")
+
+        manifest = _json_dict(manifest_path)
+        rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+        guard = self._run_reel_review_guard(manifest_path)
+        if guard.get("status") != "ready" or guard.get("count") != len(rows):
+            reasons = ", ".join(guard.get("blockingReasons") or []) or "guard did not return ready"
+            raise ValueError(f"Reel Factory review guard failed: {reasons}")
+
+        file_hashes = package.get("fileSha256")
+        if not isinstance(file_hashes, dict):
+            raise ValueError("guarded Reel Factory review package missing fileSha256")
+        for path in _review_package_hash_paths(manifest_path, manifest):
+            expected = file_hashes.get(str(path))
+            if not expected:
+                raise ValueError(f"guarded Reel Factory review package missing hash for {path}")
+            if not path.exists() or _sha256_file(path) != expected:
+                raise ValueError(f"review package hash mismatch for {path}")
+
+    def _run_reel_review_guard(self, manifest_path: Path) -> dict[str, Any]:
+        runner = CREATOR_OS_ROOT / "scripts" / "run" / "reel-factory"
+        completed = subprocess.run(
+            [str(runner), "review-guard", str(manifest_path)],
+            cwd=CREATOR_OS_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        try:
+            payload = json.loads(completed.stdout or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if completed.returncode != 0 and not payload:
+            return {"status": "blocked", "blockingReasons": [completed.stderr.strip() or "review_guard_failed"]}
+        return payload
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at", (campaign_id,)).fetchall()

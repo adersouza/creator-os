@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import campaign_factory.app as app_module
+import campaign_factory.asset_import as asset_import_module
 import campaign_factory.core as core_module
 from campaign_factory.audio_smoke import (
     CONTENTFORGE_SMOKE_RESPONSE,
@@ -1380,7 +1381,44 @@ def test_import_folder_rejects_raw_reel_review_batch_manifest(tmp_path: Path):
         cf.close()
 
 
-def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path):
+def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    (folder / "clip.mp4").write_bytes(b"video")
+    (folder / "clip.png").write_bytes(b"png")
+    raw_manifest = folder / "review_manifest.json"
+    raw_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    (folder / "review_package.json").write_text(json.dumps({
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(raw_manifest),
+        "count": 1,
+        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+        "fileSha256": {
+            str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
+            str((folder / "clip.mp4").resolve()): hashlib.sha256((folder / "clip.mp4").read_bytes()).hexdigest(),
+            str((folder / "clip.png").resolve()): hashlib.sha256((folder / "clip.png").read_bytes()).hexdigest(),
+        },
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+
+    def fake_guard(*_args, **_kwargs):
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps({"status": "ready", "count": 1}), stderr="")
+
+    monkeypatch.setattr("campaign_factory.asset_import.subprocess.run", fake_guard)
+    cf = make_factory(tmp_path)
+    try:
+        result = cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+        assert any(asset["filename"].endswith(".mp4") for asset in result["imported"])
+    finally:
+        cf.close()
+
+
+def test_import_folder_rejects_self_attested_reel_review_package(tmp_path: Path):
     folder = tmp_path / "review_batch"
     folder.mkdir()
     (folder / "clip.mp4").write_bytes(b"video")
@@ -1399,10 +1437,87 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path):
         "guard": {"status": "ready", "blockingReasons": [], "count": 1},
         "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
     }))
+
     cf = make_factory(tmp_path)
     try:
-        result = cf.import_folder(folder, campaign_slug="batch", model_slug="model")
-        assert any(asset["filename"].endswith(".mp4") for asset in result["imported"])
+        with pytest.raises(ValueError, match="Reel Factory review guard failed"):
+            cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+    finally:
+        cf.close()
+
+
+def test_import_folder_rejects_foreign_reel_review_package(tmp_path: Path):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    (folder / "clip.mp4").write_bytes(b"video")
+    (folder / "clip.png").write_bytes(b"png")
+    raw_manifest = folder / "review_manifest.json"
+    raw_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    foreign_manifest = tmp_path / "foreign_manifest.json"
+    foreign_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+    (folder / "review_package.json").write_text(json.dumps({
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(foreign_manifest),
+        "count": 1,
+        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+        "fileSha256": {str(foreign_manifest): hashlib.sha256(foreign_manifest.read_bytes()).hexdigest()},
+        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+    }))
+
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="does not match review manifest"):
+            cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+    finally:
+        cf.close()
+
+
+def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    clip = folder / "clip.mp4"
+    overlay = folder / "clip.png"
+    clip.write_bytes(b"video")
+    overlay.write_bytes(b"png")
+    raw_manifest = folder / "review_manifest.json"
+    raw_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
+    }))
+    stale_hash = hashlib.sha256(b"old video").hexdigest()
+    (folder / "review_package.json").write_text(json.dumps({
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(raw_manifest),
+        "count": 1,
+        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+        "fileSha256": {
+            str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
+            str(clip.resolve()): stale_hash,
+            str(overlay.resolve()): hashlib.sha256(overlay.read_bytes()).hexdigest(),
+        },
+        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
+    }))
+
+    def fake_guard(*_args, **_kwargs):
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps({"status": "ready", "count": 1}), stderr="")
+
+    monkeypatch.setattr(asset_import_module, "subprocess", type("SubprocessStub", (), {"run": staticmethod(fake_guard)}), raising=False)
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="review package hash mismatch"):
+            cf.import_folder(folder, campaign_slug="batch", model_slug="model")
     finally:
         cf.close()
 

@@ -144,6 +144,7 @@ def test_promote_review_batch_writes_package_only_after_guard_passes(tmp_path: P
     assert package["schema"] == "reel_factory.review_batch_package.v1"
     assert package["guard"]["status"] == "ready"
     assert package["count"] == 1
+    assert package["fileSha256"][str(manifest.resolve())]
 
 
 def test_promote_review_batch_refuses_to_emit_blocked_package(tmp_path: Path) -> None:
