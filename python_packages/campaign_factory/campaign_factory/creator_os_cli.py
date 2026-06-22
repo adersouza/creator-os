@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import get_settings
 from .core import CampaignFactory
+from .adapters.contentforge import audit_review_batch_manifest
 from .adapters.threadsdash import sync_threadsdash_instagram_accounts
 
 
@@ -104,6 +105,14 @@ def main() -> int:
     acceptance_200.add_argument("--restricted-accounts", type=int, default=15)
     acceptance_200.add_argument("--manual-review-accounts", type=int, default=10)
     acceptance_200.add_argument("--single-surface", action="store_true")
+
+    review_batch_audit = sub.add_parser("review-batch-contentforge-audit")
+    review_batch_audit.add_argument("--manifest", required=True)
+    review_batch_audit.add_argument("--source", required=True)
+    review_batch_audit.add_argument("--contentforge-base-url")
+    review_batch_audit.add_argument("--report-path")
+    review_batch_audit.add_argument("--layer", action="append", dest="layers")
+    review_batch_audit.add_argument("--no-update-manifest", action="store_true")
 
     inventory_slo = sub.add_parser("inventory-slo-report")
     inventory_slo.add_argument("--accounts", type=int, default=200)
@@ -613,6 +622,17 @@ def main() -> int:
                 restricted_accounts=args.restricted_accounts,
                 manual_review_accounts=args.manual_review_accounts,
                 mixed_surfaces=not args.single_surface,
+            ))
+            return 0
+        if args.cmd == "review-batch-contentforge-audit":
+            print_json(audit_review_batch_manifest(
+                contentforge_root=cf.settings.contentforge_root,
+                manifest_path=Path(args.manifest),
+                source_path=Path(args.source),
+                contentforge_base_url=args.contentforge_base_url or cf.settings.contentforge_base_url,
+                report_path=Path(args.report_path) if args.report_path else None,
+                layers=args.layers,
+                update_manifest=not args.no_update_manifest,
             ))
             return 0
         if args.cmd == "inventory-slo-report":

@@ -117,6 +117,23 @@ The full report is stored under `03_contentforge_audits`. Campaign Factory reads
 maps automatically to `approved_candidate`; `warn` remains upload-ready but
 requires human review.
 
+For a Reel Factory review batch, create the batch-level Campaign Factory audit
+before importing the package:
+
+```bash
+creator-os review-batch-contentforge-audit \
+  --manifest /path/to/review_manifest.json \
+  --source /path/to/master_or_pre_overlay.mp4 \
+  --contentforge-base-url http://127.0.0.1:3100
+```
+
+This calls ContentForge with `auditProfile: "campaign_factory_v1"`, writes a
+guard-compatible audit JSON next to the review manifest, and records
+`contentForgeAuditPath` in the manifest. `import-folder` then refuses raw review
+batches without a guard-passed package and promotes each accepted row into
+`rendered_assets` as `review_ready`; export still requires an explicit operator
+approval.
+
 Supabase import is optional. Without `--supabase-url` and `--supabase-service-role-key`, `export-threadsdash` writes a manifest only.
 Campaign Factory stores lineage metadata in draft payloads and ThreadsDash
 `posts.metadata.campaign_factory`, including source/rendered IDs, content hashes,

@@ -38,11 +38,11 @@ Reference Factory
   -> Campaign Factory
 
 Reel Factory
-  -> rendered asset + generated_asset_lineage.v1 + audio_intent.v1
+  -> guarded review package + generated_asset_lineage.v1 + audio_intent.v1
   -> Campaign Factory
 
 Campaign Factory
-  -> ContentForge audit
+  -> ContentForge campaign_factory_v1 audit + rendered_assets promotion
   -> passing draft payloads
   -> ThreadsDashboard
 
