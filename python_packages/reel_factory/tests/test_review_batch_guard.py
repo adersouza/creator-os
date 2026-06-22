@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from review_batch_guard import validate_review_batch
+from review_batch_guard import promote_review_batch, validate_review_batch
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -131,3 +131,26 @@ def test_review_batch_guard_blocks_manual_font_and_placement(tmp_path: Path) -> 
     assert result["status"] == "blocked"
     assert "font_not_instagram_sans_condensed" in result["blockingReasons"]
     assert "caption_placement_not_focal_safe" in result["blockingReasons"]
+
+
+def test_promote_review_batch_writes_package_only_after_guard_passes(tmp_path: Path) -> None:
+    manifest = _batch(tmp_path / "ready")
+    package_path = tmp_path / "ready" / "review_package.json"
+
+    result = promote_review_batch(manifest, package_path=package_path)
+
+    assert result["status"] == "ready"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    assert package["schema"] == "reel_factory.review_batch_package.v1"
+    assert package["guard"]["status"] == "ready"
+    assert package["count"] == 1
+
+
+def test_promote_review_batch_refuses_to_emit_blocked_package(tmp_path: Path) -> None:
+    manifest = _batch(tmp_path / "blocked", contentforge=False)
+    package_path = tmp_path / "blocked" / "review_package.json"
+
+    result = promote_review_batch(manifest, package_path=package_path)
+
+    assert result["status"] == "blocked"
+    assert not package_path.exists()

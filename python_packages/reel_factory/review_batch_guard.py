@@ -132,11 +132,36 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
     }
 
 
+def promote_review_batch(manifest_path: str | Path, *, package_path: str | Path | None = None) -> dict[str, Any]:
+    manifest_path = Path(manifest_path).resolve()
+    guard = validate_review_batch(manifest_path)
+    if guard["status"] != "ready":
+        return guard
+    manifest = _load_json(manifest_path) or {}
+    rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+    output_path = Path(package_path).resolve() if package_path else manifest_path.with_suffix(".review_package.json")
+    package = {
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(manifest_path),
+        "outputDir": manifest.get("outputDir"),
+        "contentForgeAuditPath": manifest.get("contentForgeAuditPath"),
+        "count": len(rows),
+        "guard": guard,
+        "rows": rows,
+    }
+    output_path.write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {**guard, "packagePath": str(output_path)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest")
+    parser.add_argument("--write-package", nargs="?", const="", help="write a review package only if the guard passes")
     args = parser.parse_args()
-    result = validate_review_batch(args.manifest)
+    if args.write_package is not None:
+        result = promote_review_batch(args.manifest, package_path=args.write_package or None)
+    else:
+        result = validate_review_batch(args.manifest)
     print(json.dumps(result, indent=2))
     return 0 if result["status"] == "ready" else 1
 
