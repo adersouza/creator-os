@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,10 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _contentforge_payload(path: Path) -> dict[str, Any] | None:
@@ -52,6 +57,34 @@ def _lineage_path(output: Path) -> Path:
 
 def _readiness_path(output_dir: Path) -> Path:
     return output_dir / "_readiness.json"
+
+
+def _contentforge_path(manifest_path: Path, manifest: dict[str, Any]) -> Path | None:
+    value = manifest.get("contentForgeAuditPath")
+    if not value:
+        return None
+    path = Path(str(value))
+    return path if path.is_absolute() else manifest_path.parent / path
+
+
+def _hash_paths(manifest_path: Path, manifest: dict[str, Any], rows: list[Any]) -> dict[str, str]:
+    output_dir = Path(str(manifest.get("outputDir") or manifest_path.parent))
+    paths: list[Path] = [manifest_path, _readiness_path(output_dir)]
+    contentforge_path = _contentforge_path(manifest_path, manifest)
+    if contentforge_path:
+        paths.append(contentforge_path)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        output = Path(str(row.get("output") or ""))
+        overlay = Path(str(row.get("overlayPng") or ""))
+        paths.extend([
+            output,
+            overlay,
+            output.with_suffix(output.suffix + ".audio_intent.json"),
+            _lineage_path(output),
+        ])
+    return {str(path.resolve()): _sha256(path.resolve()) for path in dict.fromkeys(paths) if path.exists()}
 
 
 def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
@@ -147,6 +180,7 @@ def promote_review_batch(manifest_path: str | Path, *, package_path: str | Path 
         "contentForgeAuditPath": manifest.get("contentForgeAuditPath"),
         "count": len(rows),
         "guard": guard,
+        "fileSha256": _hash_paths(manifest_path, manifest, rows),
         "rows": rows,
     }
     output_path.write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
