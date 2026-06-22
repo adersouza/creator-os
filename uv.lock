@@ -2944,6 +2944,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+embeddings = [
+    { name = "pillow" },
+    { name = "timm" },
+    { name = "torch" },
+    { name = "torchvision" },
+]
 gemini = [
     { name = "google-genai" },
 ]
@@ -2955,12 +2961,16 @@ test = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1,<3" },
+    { name = "pillow", marker = "extra == 'embeddings'", specifier = ">=10,<14" },
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+    { name = "timm", marker = "extra == 'embeddings'", specifier = ">=1,<2" },
+    { name = "torch", marker = "extra == 'embeddings'", specifier = ">=2,<3" },
+    { name = "torchvision", marker = "extra == 'embeddings'", specifier = ">=0.18,<1" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["gemini", "test"]
+provides-extras = ["embeddings", "gemini", "test"]
 
 [[package]]
 name = "referencing"

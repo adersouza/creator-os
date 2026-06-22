@@ -231,6 +231,13 @@ formula data, visual recipe hints, suggested reel recipes, suggested formats
 (`reel`/`slideshow`), and public performance signals so batch generation can
 pick better starting patterns.
 
+By default, `build-learning-system` tries local DINOv2/timm image embeddings
+for visual clusters and falls back to heuristic labels when the optional model
+stack or usable media is unavailable. Use `--no-embedding-clusters` for the old
+heuristic-only grouping, or tune with `--embedding-model` and
+`--embedding-threshold`. Embeddings are cached under
+`reference_reels/learning/embedding_cache/`.
+
 `analyze-audio-patterns` extracts native audio signals from scraped references:
 Instagram `musicInfo`, TikTok `audioId`, usage type, source platform, matching
 visual format, total plays, and a plain-language recommendation. The learning

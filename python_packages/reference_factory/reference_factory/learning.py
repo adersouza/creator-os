@@ -11,6 +11,7 @@ from typing import Any
 from .audio import cluster_audio_recommendations, extract_audio_signal
 from .audio import analyze_audio_patterns
 from .db import json_dump, json_load
+from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD, build_embedding_clusters
 from .identity import stable_id
 from .patterns import analyze_patterns
 from .timeutil import now_iso
@@ -24,16 +25,31 @@ def build_learning_system(
     limit: int = 300,
     output_dir: Path | None = None,
     refresh_patterns: bool = False,
+    embedding_clusters: bool = True,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    embedding_threshold: float = DEFAULT_EMBEDDING_THRESHOLD,
 ) -> dict[str, object]:
     output_dir = output_dir or Path("learning")
     output_dir.mkdir(parents=True, exist_ok=True)
     if refresh_patterns or _pattern_count(conn) < min(limit, 1):
         analyze_patterns(conn, limit=limit, provider="auto", output_dir=output_dir)
     cards = _pattern_cards(conn, limit)
-    clusters = _cluster_cards(cards)
+    embedding_report = (
+        build_embedding_clusters(conn, cards, output_dir, model=embedding_model, threshold=embedding_threshold)
+        if embedding_clusters
+        else {
+            "schema": "reference_factory.embedding_clusters.v1",
+            "status": "disabled",
+            "model": embedding_model,
+            "threshold": embedding_threshold,
+            "assignments": {},
+            "groups": [],
+        }
+    )
+    clusters = _cluster_cards(cards, embedding_report)
     timestamp = now_iso()
     run_id = stable_id("learning_run", LEARNING_VERSION, str(limit), timestamp)
-    summary = _learning_summary(cards, clusters)
+    summary = _learning_summary(cards, clusters, embedding_report)
     audio_summary = analyze_audio_patterns(conn, limit=limit, output_dir=output_dir)
     conn.execute(
         """
@@ -82,6 +98,7 @@ def build_learning_system(
         "references": len(cards),
         "clusters": len(clusters),
         "summary": summary,
+        "embeddingClustering": _embedding_report_summary(embedding_report),
         "audioSummary": {
             "audioPatternCount": audio_summary["audioPatternCount"],
             "platforms": audio_summary["platforms"],
@@ -160,14 +177,22 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
     return cards
 
 
-def _cluster_cards(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _cluster_cards(cards: list[dict[str, Any]], embedding_report: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    assignments = embedding_report.get("assignments") if isinstance(embedding_report, dict) else {}
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    embedding_meta: dict[str, dict[str, Any]] = {}
     for card in cards:
-        key = _cluster_key(card)
+        ref_id = str(card.get("referenceId") or "")
+        assignment = assignments.get(ref_id) if isinstance(assignments, dict) else None
+        if isinstance(assignment, dict) and assignment.get("embeddingClusterId"):
+            key = str(assignment["embeddingClusterId"])
+            embedding_meta[key] = assignment
+        else:
+            key = _cluster_key(card)
         grouped[key].append(card)
     clusters = []
     for key, items in grouped.items():
-        clusters.append(_cluster_from_items(key, items))
+        clusters.append(_cluster_from_items(key, items, embedding_meta.get(key)))
     clusters.sort(key=lambda item: (-item["clusterScore"], -item["itemCount"], item["label"]))
     for idx, cluster in enumerate(clusters, 1):
         cluster["rank"] = idx
@@ -184,10 +209,10 @@ def _cluster_key(card: dict[str, Any]) -> str:
     )
 
 
-def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    visual, hook, caption = key.split("::")
+def _cluster_from_items(key: str, items: list[dict[str, Any]], embedding_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     ranked = sorted(items, key=lambda item: (int(item.get("rank") or 999999), -float(item.get("qualityScore") or 0)))
     top = ranked[0]
+    visual, hook, caption = _cluster_key(top).split("::") if embedding_meta else key.split("::")
     plays = [int(item.get("plays") or 0) for item in items]
     quality = [float(item.get("qualityScore") or 0) for item in items]
     accounts = sorted(set(str(item.get("account") or "_unknown") for item in items))
@@ -207,7 +232,7 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
     ]
     cluster_score = _cluster_score(items, plays, quality, accounts, measured_scores)
     label = _cluster_label(visual, hook, caption)
-    return {
+    cluster = {
         "schema": "reference_factory.learning_cluster.v1",
         "patternId": key,
         "clusterKey": key,
@@ -256,6 +281,17 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]]) -> dict[str, Any]
         "higgsfieldJsonTemplate": _higgsfield_json_template(visual, hook, caption),
         "operatorUse": _operator_use(label, len(items), cluster_score),
     }
+    if embedding_meta:
+        cluster.update(
+            {
+                "embeddingClusterId": embedding_meta["embeddingClusterId"],
+                "embeddingModel": embedding_meta.get("embeddingModel"),
+                "embeddingMedoidReferenceId": embedding_meta.get("embeddingMedoidReferenceId"),
+                "embeddingSimilarityThreshold": embedding_meta.get("embeddingSimilarityThreshold"),
+                "embeddingNoise": bool(embedding_meta.get("embeddingNoise")),
+            }
+        )
+    return cluster
 
 
 def _winner_signal_key(item: dict[str, Any], key: str) -> str | None:
@@ -507,11 +543,16 @@ def _operator_use(label: str, item_count: int, score: float) -> dict[str, object
     }
 
 
-def _learning_summary(cards: list[dict[str, Any]], clusters: list[dict[str, Any]]) -> dict[str, object]:
+def _learning_summary(
+    cards: list[dict[str, Any]],
+    clusters: list[dict[str, Any]],
+    embedding_report: dict[str, Any] | None = None,
+) -> dict[str, object]:
     return {
         "schema": "reference_factory.learning_system_summary.v1",
         "referenceCount": len(cards),
         "clusterCount": len(clusters),
+        "embeddingClustering": _embedding_report_summary(embedding_report) if embedding_report else None,
         "topClusterLabels": [cluster["label"] for cluster in clusters[:10]],
         "captionArchetypes": dict(Counter(card.get("captionArchetype") for card in cards).most_common()),
         "hookTypes": dict(Counter(card.get("hookType") for card in cards).most_common()),
@@ -519,6 +560,25 @@ def _learning_summary(cards: list[dict[str, Any]], clusters: list[dict[str, Any]
         "topAccounts": dict(Counter(card.get("account") for card in cards).most_common(20)),
         "avgQualityScore": round(sum(float(card.get("qualityScore") or 0) for card in cards) / max(1, len(cards)), 2),
         "totalPlays": sum(int(card.get("plays") or 0) for card in cards),
+    }
+
+
+def _embedding_report_summary(report: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not report:
+        return None
+    return {
+        key: report.get(key)
+        for key in [
+            "schema",
+            "status",
+            "model",
+            "threshold",
+            "referenceCount",
+            "embeddedCount",
+            "clusterCount",
+            "fallbackReason",
+        ]
+        if key in report
     }
 
 
@@ -592,6 +652,7 @@ def _prompt_pack(run_id: str, clusters: list[dict[str, Any]]) -> dict[str, objec
                 "clusterRank": cluster["rank"],
                 "patternId": cluster.get("patternId") or cluster["clusterKey"],
                 "clusterKey": cluster["clusterKey"],
+                "embeddingClusterId": cluster.get("embeddingClusterId"),
                 "clusterLabel": cluster["label"],
                 "referenceIds": [
                     example["referenceId"]
@@ -641,6 +702,7 @@ def _campaign_reference_bank(run_id: str, clusters: list[dict[str, Any]]) -> dic
                 "clusterRank": cluster["rank"],
                 "patternId": cluster.get("patternId") or cluster["clusterKey"],
                 "clusterKey": cluster["clusterKey"],
+                "embeddingClusterId": cluster.get("embeddingClusterId"),
                 "label": cluster["label"],
                 "referenceIds": [
                     example["referenceId"]

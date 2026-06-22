@@ -18,6 +18,7 @@ from .caption_adaptation import adapt_caption_library, ensure_default_profile
 from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
+from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
 from .ocr import ocr_cleanup, run_ocr
@@ -238,6 +239,9 @@ def build_parser() -> argparse.ArgumentParser:
     learning_system = sub.add_parser("build-learning-system", help="Build clusters, playbook, prompt pack, and campaign reference bank")
     learning_system.add_argument("--limit", type=int, default=300)
     learning_system.add_argument("--refresh-patterns", action="store_true")
+    learning_system.add_argument("--embedding-clusters", action=argparse.BooleanOptionalAction, default=True)
+    learning_system.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    learning_system.add_argument("--embedding-threshold", type=float, default=DEFAULT_EMBEDDING_THRESHOLD)
 
     learning_summary_parser = sub.add_parser("learning-summary", help="Summarize the current learning clusters from reference patterns")
     learning_summary_parser.add_argument("--limit", type=int, default=300)
@@ -604,6 +608,9 @@ def main(argv: list[str] | None = None) -> int:
                     limit=args.limit,
                     output_dir=data_root / "learning",
                     refresh_patterns=args.refresh_patterns,
+                    embedding_clusters=args.embedding_clusters,
+                    embedding_model=args.embedding_model,
+                    embedding_threshold=args.embedding_threshold,
                 )
             )
         elif args.command == "learning-summary":

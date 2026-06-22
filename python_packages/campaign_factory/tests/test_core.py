@@ -497,6 +497,7 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
             {
                 "clusterRank": 1,
                 "clusterKey": "caption_led_visual::direct_response::question_hook",
+                "embeddingClusterId": "emb_test_cluster",
                 "label": "caption led visual / direct response / question hook",
                 "visualFormat": "caption_led_visual",
                 "hookType": "direct_response",
@@ -545,6 +546,7 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
         imported = cf.import_reference_bank(bank_path, prompt_pack_path)
         assert imported["patternsImported"] == 1
         patterns = cf.reference_patterns()
+        assert patterns["patterns"][0]["raw"]["bank"]["embeddingClusterId"] == "emb_test_cluster"
         assert patterns["patterns"][0]["captionFormulas"][0]["formula"] == "{direct question}?"
         assert patterns["patterns"][0]["audioRecommendations"]["primaryStrategy"] == "light_trending_response_sound"
         cf.import_folder(folder, campaign_slug="may", model_slug="model")

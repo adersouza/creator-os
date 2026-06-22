@@ -14,7 +14,8 @@ from reference_factory.caption_adaptation import adapt_caption_library, adapt_ca
 from reference_factory.db import connect
 from reference_factory.higgsfield_runner import generate_with_higgsfield, load_prompt_pairs
 from reference_factory.identity import text_hash
-from reference_factory.learning import build_learning_system, learning_summary, _cluster_from_items
+from reference_factory.embeddings import build_embedding_clusters
+from reference_factory.learning import build_learning_system, learning_summary, _campaign_reference_bank, _cluster_cards, _cluster_from_items
 from reference_factory.media import ffprobe_video, parse_fps, probe_videos, sample_frames, thumbnail_batch
 from reference_factory.ocr import normalize_text, ocr_cleanup, parse_tesseract_tsv, upsert_caption_pattern
 from reference_factory.patterns import analyze_patterns, apply_pattern_labels, export_patterns, pattern_summary
@@ -2165,7 +2166,7 @@ def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(
     import_prompt_outcomes(conn, [{"referenceId": "ref_winner", "rewardScore": 1.8, "confidence": 0.86, "sampleCount": 5}])
 
     analyzed = analyze_patterns(conn, limit=1, provider="heuristic", output_dir=tmp_path / "learning")
-    build_learning_system(conn, limit=1, output_dir=tmp_path / "learning")
+    build_learning_system(conn, limit=1, output_dir=tmp_path / "learning", embedding_clusters=False)
     summary = learning_summary(conn, limit=1)
     pattern = json.loads(conn.execute("SELECT pattern_json FROM reference_patterns").fetchone()["pattern_json"])
     cluster = summary["topClusters"][0]
@@ -2215,6 +2216,106 @@ def test_learning_cluster_keeps_account_winners_ahead_of_unproven_references() -
     assert cluster["personaWinnerSignals"][0]["persona"] == "glam"
 
 
+def test_embedding_clusters_group_similar_references_and_preserve_export_shape(tmp_path: Path) -> None:
+    paths = []
+    for name in ["a.jpg", "b.jpg", "c.jpg"]:
+        path = tmp_path / name
+        path.write_bytes(name.encode())
+        paths.append(path)
+    cards = [
+        {
+            "rank": idx + 1,
+            "referenceId": f"ref_{idx}",
+            "localPath": str(path),
+            "visualFormat": "mirror_selfie",
+            "hookType": "viewer_insert",
+            "captionArchetype": "question_hook",
+            "plays": 1000,
+            "qualityScore": 80,
+            "performanceClass": "unproven",
+            "winnerDna": {},
+        }
+        for idx, path in enumerate(paths)
+    ]
+    vectors = {
+        str(paths[0]): [1.0, 0.0],
+        str(paths[1]): [0.99, 0.01],
+        str(paths[2]): [0.0, 1.0],
+    }
+
+    report = build_embedding_clusters(
+        None,
+        cards,
+        tmp_path / "learning",
+        model="fake-dino",
+        threshold=0.95,
+        provider=lambda path: vectors[str(path)],
+    )
+    clusters = _cluster_cards(cards, report)
+    bank = _campaign_reference_bank("run", clusters)
+
+    assert report["status"] == "ready"
+    assert report["embeddedCount"] == 3
+    assert report["clusterCount"] == 2
+    assert sorted(cluster["itemCount"] for cluster in clusters) == [1, 2]
+    paired = next(cluster for cluster in clusters if cluster["itemCount"] == 2)
+    singleton = next(cluster for cluster in clusters if cluster["itemCount"] == 1)
+    assert paired["embeddingClusterId"].startswith("emb_")
+    assert paired["embeddingNoise"] is False
+    assert singleton["embeddingNoise"] is True
+    assert paired["visualFormat"] == "mirror_selfie"
+    assert paired["hookType"] == "viewer_insert"
+    assert paired["captionArchetype"] == "question_hook"
+    assert bank["clusters"][0]["embeddingClusterId"]
+
+
+def test_embedding_cache_reuses_and_invalidates_source_metadata(tmp_path: Path) -> None:
+    image = tmp_path / "a.jpg"
+    image.write_bytes(b"first")
+    card = {
+        "referenceId": "ref_a",
+        "localPath": str(image),
+        "visualFormat": "mirror_selfie",
+        "hookType": "viewer_insert",
+        "captionArchetype": "question_hook",
+    }
+    calls = 0
+
+    def provider(_path: Path) -> list[float]:
+        nonlocal calls
+        calls += 1
+        return [1.0, 0.0]
+
+    build_embedding_clusters(None, [card], tmp_path / "learning", model="fake-dino", provider=provider)
+    build_embedding_clusters(None, [card], tmp_path / "learning", model="fake-dino", provider=provider)
+    image.write_bytes(b"changed-size")
+    build_embedding_clusters(None, [card], tmp_path / "learning", model="fake-dino", provider=provider)
+
+    assert calls == 2
+
+
+def test_embedding_clusters_fall_back_when_model_provider_is_unavailable(tmp_path: Path, monkeypatch) -> None:
+    image = tmp_path / "a.jpg"
+    image.write_bytes(b"not a real image")
+    card = {
+        "referenceId": "ref_a",
+        "localPath": str(image),
+        "visualFormat": "mirror_selfie",
+        "hookType": "viewer_insert",
+        "captionArchetype": "question_hook",
+    }
+
+    def missing_provider(_model: str):
+        raise RuntimeError("timm is not installed")
+
+    monkeypatch.setattr("reference_factory.embeddings._timm_provider", missing_provider)
+    report = build_embedding_clusters(None, [card], tmp_path / "learning", model="fake-dino")
+
+    assert report["status"] == "fallback"
+    assert report["fallbackReason"] == "timm is not installed"
+    assert report["referenceCount"] == 1
+
+
 def test_tiktok_archive_imports_slideshow_references_and_patterns(tmp_path: Path) -> None:
     conn = make_conn(tmp_path)
     archive = tmp_path / "tiktok"
@@ -2234,7 +2335,7 @@ def test_tiktok_archive_imports_slideshow_references_and_patterns(tmp_path: Path
     imported = import_tiktok_archive(conn, archive, top_limit=1, output_dir=tmp_path / "tiktok_out")
     top = top_public_posts(conn, limit=1)
     analyzed = analyze_patterns(conn, limit=1, provider="heuristic", output_dir=tmp_path / "learning")
-    built = build_learning_system(conn, limit=1, output_dir=tmp_path / "learning")
+    built = build_learning_system(conn, limit=1, output_dir=tmp_path / "learning", embedding_clusters=False)
     summary = learning_summary(conn, limit=1)
 
     source = conn.execute("SELECT * FROM source_files").fetchone()
@@ -2881,7 +2982,7 @@ def test_learning_system_builds_clusters_playbook_and_campaign_bank(tmp_path: Pa
     import_apify_metrics(conn, [apify_path], top_limit=3)
     analyze_patterns(conn, limit=3, provider="heuristic", output_dir=tmp_path / "learning")
 
-    built = build_learning_system(conn, limit=3, output_dir=tmp_path / "learning")
+    built = build_learning_system(conn, limit=3, output_dir=tmp_path / "learning", embedding_clusters=False)
     summary = learning_summary(conn, limit=3)
 
     assert built["references"] == 3
