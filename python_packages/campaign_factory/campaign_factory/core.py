@@ -5651,6 +5651,9 @@ class CampaignFactory:
     def caption_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
         return self.services.caption_outcome_report(campaign_slug)
 
+    def reference_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
+        return self.services.reference_outcome_report(campaign_slug)
+
     def _performance_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.services.performance_for_asset(asset)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from datetime import datetime
 from typing import Any, Callable
 
 from .caption_outcome import load_context_json
@@ -54,6 +55,89 @@ class PerformanceSummaryRepository:
         report["generatedAt"] = summary["generatedAt"]
         return report
 
+    def reference_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
+        campaign = self._campaign_by_slug(campaign_slug)
+        rows = self.conn.execute(
+            "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND metrics_eligible = 1 ORDER BY snapshot_at DESC, created_at DESC",
+            (campaign["id"],),
+        ).fetchall()
+        groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+        for row_obj in rows:
+            row = dict(row_obj)
+            raw = json_load(row.get("raw_json"), {})
+            campaign_factory = self._raw_campaign_factory(raw)
+            lineage_source = self._lineage_source(campaign_factory)
+            reference_id = (
+                campaign_factory.get("reference_id")
+                or campaign_factory.get("referenceId")
+                or lineage_source.get("referenceId")
+                or lineage_source.get("reference_id")
+                or row.get("source_asset_id")
+                or row.get("rendered_asset_id")
+                or row.get("post_id")
+            )
+            source_asset_id = (
+                campaign_factory.get("source_asset_id")
+                or campaign_factory.get("sourceAssetId")
+                or row.get("source_asset_id")
+                or ""
+            )
+            caption_hash = (
+                campaign_factory.get("caption_hash")
+                or campaign_factory.get("captionHash")
+                or row.get("caption_hash")
+                or ""
+            )
+            account_id = row.get("account_id") or row.get("instagram_account_id") or ""
+            if not reference_id:
+                continue
+            key = (str(reference_id), str(source_asset_id), str(caption_hash), str(account_id))
+            group = groups.setdefault(
+                key,
+                {
+                    "referenceId": str(reference_id),
+                    "sourceAssetId": str(source_asset_id),
+                    "captionHash": str(caption_hash),
+                    "accountId": str(account_id),
+                    "postIds": set(),
+                    "approvedPostIds": set(),
+                    "views24h": [],
+                    "operatorNotes": [],
+                },
+            )
+            post_id = str(row.get("post_id") or row.get("id") or "")
+            if post_id:
+                group["postIds"].add(post_id)
+            review = campaign_factory.get("operator_review") or campaign_factory.get("operatorReview")
+            if isinstance(review, dict):
+                decision = str(review.get("decision") or "").strip().lower()
+                if decision == "approved" and post_id:
+                    group["approvedPostIds"].add(post_id)
+                notes = review.get("notes")
+                if isinstance(notes, str) and notes.strip() and notes.strip() not in group["operatorNotes"]:
+                    group["operatorNotes"].append(notes.strip())
+            if self._is_24h_snapshot(row, raw) and row.get("views") is not None:
+                group["views24h"].append(int(row["views"]))
+        report_rows = []
+        for group in groups.values():
+            views = group.pop("views24h")
+            post_ids = group.pop("postIds")
+            approved_post_ids = group.pop("approvedPostIds")
+            report_rows.append({
+                **group,
+                "reelsPosted": len(post_ids),
+                "approvedCount": len(approved_post_ids),
+                "avgViews24h": round(sum(views) / len(views)) if views else 0,
+                "measurementState": "measured" if views else "unmeasured",
+            })
+        report_rows.sort(key=lambda item: (-item["approvedCount"], -item["avgViews24h"], item["referenceId"]))
+        return {
+            "schema": "campaign_factory.reference_outcome_report.v1",
+            "campaign": campaign["slug"],
+            "generatedAt": utc_now(),
+            "rows": report_rows,
+        }
+
     def performance_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         caption_hash = hashlib.sha256(" ".join((asset.get("caption") or "").strip().lower().split()).encode("utf-8")).hexdigest()
         latest = self.conn.execute(
@@ -87,6 +171,45 @@ class PerformanceSummaryRepository:
             "recipePerformance": recipe,
             "performanceScore": score,
         }
+
+    def _raw_campaign_factory(self, raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {}
+        metadata = raw.get("metadata")
+        if not isinstance(metadata, dict):
+            return {}
+        campaign_factory = metadata.get("campaign_factory") or metadata.get("campaignFactory")
+        return campaign_factory if isinstance(campaign_factory, dict) else {}
+
+    def _lineage_source(self, campaign_factory: dict[str, Any]) -> dict[str, Any]:
+        lineage = campaign_factory.get("generated_asset_lineage") or campaign_factory.get("generatedAssetLineage")
+        if not isinstance(lineage, dict):
+            return {}
+        source = lineage.get("source")
+        return source if isinstance(source, dict) else {}
+
+    def _is_24h_snapshot(self, row: dict[str, Any], raw: Any) -> bool:
+        history = {}
+        if isinstance(raw, dict):
+            metadata = raw.get("metadata")
+            if isinstance(metadata, dict):
+                maybe_history = metadata.get("threadsdash_metric_history") or metadata.get("threadsdashMetricHistory")
+                if isinstance(maybe_history, dict):
+                    history = maybe_history
+        hours = history.get("hoursSincePublish") or history.get("hours_since_publish")
+        if isinstance(hours, (int, float)):
+            return abs(float(hours) - 24.0) <= 1.0
+        published_at = row.get("published_at")
+        snapshot_at = row.get("snapshot_at")
+        if not published_at or not snapshot_at:
+            return False
+        try:
+            published = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+            snapshot = datetime.fromisoformat(str(snapshot_at).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        hours_since_publish = (snapshot - published).total_seconds() / 3600
+        return abs(hours_since_publish - 24.0) <= 1.0
 
     def performance_snapshot_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         caption_outcome_context = load_context_json(row.get("caption_outcome_context_json"))

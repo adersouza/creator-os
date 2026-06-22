@@ -1298,6 +1298,9 @@ class CoreServices:
     def caption_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
         return self.performance_summary_repo.caption_outcome_report(campaign_slug)
 
+    def reference_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
+        return self.performance_summary_repo.reference_outcome_report(campaign_slug)
+
     def performance_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.performance_summary_repo.performance_for_asset(asset)
 
