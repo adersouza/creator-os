@@ -25,6 +25,20 @@ PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
         "requires_lineage": True,
         "strict_text_review": False,
     },
+    "instagram_feed": {
+        "preferred_ratio": "4:5",
+        "min_resolution_px": 720,
+        "requires_audio_intent": False,
+        "requires_lineage": True,
+        "strict_text_review": False,
+    },
+    "instagram_square": {
+        "preferred_ratio": "1:1",
+        "min_resolution_px": 720,
+        "requires_audio_intent": False,
+        "requires_lineage": True,
+        "strict_text_review": False,
+    },
     "tiktok": {
         "preferred_ratio": "9:16",
         "min_resolution_px": 720,
@@ -36,7 +50,15 @@ PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
 
 
 def normalize_platform(platform: str) -> str:
-    aliases = {"ig": "instagram_reels", "instagram": "instagram_reels", "reels": "instagram_reels"}
+    aliases = {
+        "ig": "instagram_reels",
+        "instagram": "instagram_reels",
+        "reels": "instagram_reels",
+        "feed": "instagram_feed",
+        "instagram_portrait": "instagram_feed",
+        "square": "instagram_square",
+        "carousel": "instagram_square",
+    }
     value = aliases.get(platform, platform)
     if value not in PLATFORM_PROFILES:
         raise ValueError(f"platform must be one of {sorted(PLATFORM_PROFILES)}")
@@ -137,6 +159,8 @@ def _manifest_rows(root: Path) -> dict[str, dict[str, Any]]:
 
 
 def _ratio_from_filename(filename: str) -> str:
+    if "_1x1_" in filename:
+        return "1:1"
     return "4:5" if "_4x5_" in filename else "9:16"
 
 
@@ -181,7 +205,12 @@ def evaluate_output(
             recipe_params = json.loads(manifest_row.get("recipe_params_json") or "{}")
         except Exception:
             recipe_params = {}
-    target_ratio = recipe_params.get("_target_ratio") or _ratio_from_filename(output_path.name)
+    surface = recipe_params.get("_surface") or recipe_params.get("surface") or platform
+    target_ratio = (
+        recipe_params.get("_target_ratio")
+        or recipe_params.get("aspect_ratio")
+        or _ratio_from_filename(output_path.name)
+    )
     if target_ratio != profile["preferred_ratio"]:
         warnings.append(f"non_preferred_ratio_{target_ratio.replace(':', 'x')}")
 
@@ -219,6 +248,7 @@ def evaluate_output(
         "filename": output_path.name,
         "path": str(output_path),
         "platform": platform,
+        "surface": surface,
         "status": status,
         "score": score,
         "warnings": warnings,

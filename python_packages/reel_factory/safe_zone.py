@@ -7,6 +7,8 @@ from typing import Any
 
 PLATFORM_SAFE_ZONES: dict[str, dict[str, float]] = {
     "instagram_reels": {"top_pct": 14.6, "bottom_pct": 25.0, "left_pct": 5.0, "right_pct": 5.0},
+    "instagram_feed": {"top_pct": 4.0, "bottom_pct": 8.0, "left_pct": 4.0, "right_pct": 4.0},
+    "instagram_square": {"top_pct": 4.0, "bottom_pct": 8.0, "left_pct": 4.0, "right_pct": 4.0},
     "tiktok": {"top_pct": 10.0, "bottom_pct": 24.0, "left_pct": 6.0, "right_pct": 13.0},
 }
 
