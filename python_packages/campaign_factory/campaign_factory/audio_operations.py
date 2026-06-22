@@ -720,7 +720,7 @@ class AudioOperationsRepository:
             recommendations = asset.get("audioRecommendations") or {}
             recommendation_items = recommendations.get("recommendations") if isinstance(recommendations, dict) else []
             if isinstance(existing, dict):
-                intent = dict(existing)
+                intent = self.embedded_audio_intent(existing)
                 intent.setdefault("required", True)
                 intent.setdefault("status", "recommended" if recommendation_items else "needs_operator_selection")
                 intent.setdefault("recommendations", recommendation_items if isinstance(recommendation_items, list) else [])
@@ -738,6 +738,37 @@ class AudioOperationsRepository:
             }
             intent["task"] = self.audio_task_for_dashboard_intent(intent)
             return intent
+
+    def embedded_audio_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
+            normalized = dict(intent)
+            selection = normalized.get("audio_selection") if isinstance(normalized.get("audio_selection"), dict) else {}
+            source = str(selection.get("source") or normalized.get("source") or "").strip().lower()
+            mode = str(normalized.get("mode") or "").strip().lower()
+            if mode != "licensed_music" or source != "local_audio":
+                return normalized
+            now = self._utc_now()
+            path = str(selection.get("path") or "").strip()
+            audio_id = selection.get("audio_id") or (hashlib.sha256(path.encode("utf-8")).hexdigest()[:12] if path else "embedded_licensed_audio")
+            operator_selection = normalized.get("operator_selection") if isinstance(normalized.get("operator_selection"), dict) else {}
+            operator_selection = {
+                **operator_selection,
+                "audio_id": str(audio_id),
+                "track_id": str(audio_id),
+                "source": "local_audio",
+                "selection_source": "embedded_licensed_audio",
+                "selected_at": operator_selection.get("selected_at") or now,
+                "attached_at": operator_selection.get("attached_at") or now,
+                "notes": operator_selection.get("notes") or "Licensed local audio is muxed into the MP4.",
+            }
+            normalized.update({
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "licensed_music",
+                "required": True,
+                "status": "attached",
+                "operator_selection": operator_selection,
+                "source": "embedded_licensed_audio",
+            })
+            return normalized
 
     def audio_task_for_dashboard_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
             existing = intent.get("task") if isinstance(intent.get("task"), dict) else {}
@@ -979,6 +1010,7 @@ class AudioOperationsRepository:
             audio_intent = caption_generation.get("audioIntent") or caption_generation.get("audio_intent") or {}
             if not isinstance(audio_intent, dict):
                 return {}, None
+            audio_intent = self.embedded_audio_intent(audio_intent)
             selection = audio_intent.get("operator_selection")
             if not isinstance(selection, dict):
                 selection = {}
