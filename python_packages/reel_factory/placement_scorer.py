@@ -54,10 +54,16 @@ def score_lanes(
             scores[lane] += penalty
             components[lane]["face"] = penalty
 
+    has_body_specific_signal = bool(face_samples or pose_samples)
     if normalized_policy == "focal-safe" and focal_samples:
         max_focal = max(max(sample) for sample in focal_samples) or 1.0
         for lane, value in zip(LANES, _mean3(focal_samples), strict=True):
             penalty = (value / max_focal) * 120.0
+            # ponytail: lower-lane skin/edge density is often the intended hook zone;
+            # keep real face/pose blockers strict, but don't let fallback focal density
+            # force text onto the face/top of close portrait reels.
+            if lane == "bottom" and not has_body_specific_signal:
+                penalty = min(penalty, 35.0)
             scores[lane] += penalty
             components[lane]["focal"] = penalty
 
@@ -76,6 +82,9 @@ def score_lanes(
             scores[lane] += penalty
             components[lane]["pose"] = penalty
 
+    if normalized_policy == "focal-safe" and focal_samples and not has_body_specific_signal:
+        scores["top"] += 30.0
+        components["top"]["safe_area"] += 30.0
     scores["center"] += center_penalty
     components["center"]["safe_area"] = center_penalty
     lane = min(LANES, key=lambda key: (scores[key], 0 if key != "center" else 1))

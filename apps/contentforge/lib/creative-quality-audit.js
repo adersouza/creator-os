@@ -36,9 +36,16 @@ function average(values) {
 }
 
 function earlyHookText(ocr) {
+  var seen = new Set();
   return (ocr?.results || [])
     .filter(function (item) { return (item.timeSec || 0) <= 3; })
     .map(function (item) { return item.ocrText || ""; })
+    .filter(function (text) {
+      var key = normalizeText(text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .join(" ")
     .trim();
 }

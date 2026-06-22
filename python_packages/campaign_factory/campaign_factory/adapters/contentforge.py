@@ -191,7 +191,7 @@ def audit_review_batch_manifest(
 
     readiness = response.get("readinessSummary") if isinstance(response.get("readinessSummary"), dict) else {}
     blocking = (readiness.get("blockingCodes") or readiness.get("blockingReasons") or response.get("blockingCodes") or [])
-    passed = response.get("overallVerdict") == "pass" and not blocking
+    passed = not blocking and (response.get("overallVerdict") == "pass" or readiness.get("uploadReady") is True)
     report = {
         **response,
         "schema": "campaign_factory.review_batch_contentforge_audit.v1",

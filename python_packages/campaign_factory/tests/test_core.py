@@ -1440,8 +1440,8 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
         captured.update(kwargs)
         return {
             "auditProfile": "campaign_factory_v1",
-            "overallVerdict": "pass",
-            "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+            "overallVerdict": "warn",
+            "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": ["forensics_audio_missing"]},
         }
 
     monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
@@ -7530,6 +7530,116 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(tmp_pat
     finally:
         cf.close()
 
+
+
+def test_publishability_uses_review_package_generated_lineage_for_caption_placement(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        context = json.loads(cf.conn.execute(
+            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+        ).fetchone()[0])
+        context.pop("captionPlacementPolicy", None)
+        context.pop("captionPlacementDecision", None)
+        caption_generation = {
+            "instagram_post_caption": "new post",
+            "audioIntent": {
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "native_platform_audio",
+                "required": False,
+                "status": "not_required",
+            },
+            "generatedAssetLineage": {
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "captionPlacementPolicy": "focal-safe",
+                "captionPlacementDecision": {
+                    "status": "passed",
+                    "selectedLane": "bottom",
+                    "scores": {"top": 10, "center": 20, "bottom": 5},
+                    "components": {"top": {}, "center": {}, "bottom": {}},
+                    "sampleCount": 3,
+                },
+            },
+        }
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps(context, sort_keys=True), json.dumps(caption_generation, sort_keys=True)),
+        )
+        cf.conn.commit()
+
+        explanation = cf.explain_publishability("asset_1")
+
+        assert explanation["captionPlacementPolicy"] == "focal_safe_v1"
+        assert explanation["captionPlacementDecision"]["selectedLane"] == "bottom"
+        assert explanation["checks"]["caption_placement_qc_passed"] is True
+        assert "caption_placement_qc_failed" not in explanation["publishability_failure_reasons"]
+    finally:
+        cf.close()
+
+
+def test_operator_publishability_attestation_supplies_caption_visual_and_identity_evidence(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        audit = add_audit_report(cf)
+        Path(audit["path"]).write_text(json.dumps({
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+            },
+            "overallVerdict": "pass",
+        }), encoding="utf-8")
+        context = json.loads(cf.conn.execute(
+            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+        ).fetchone()[0])
+        context.pop("instagram_post_caption", None)
+        context.pop("instagram_post_caption_hash", None)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ?, metadata_json = ? WHERE id = 'asset_1'",
+            (
+                json.dumps(context, sort_keys=True),
+                json.dumps({
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    }
+                }, sort_keys=True),
+                "{}",
+            ),
+        )
+        cf.conn.commit()
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        before = cf.explain_publishability("asset_1")
+        assert "missing_instagram_post_caption" in before["publishability_failure_reasons"]
+        assert "visual_qc_unavailable" in before["publishability_failure_reasons"]
+        assert "identity_verification_unavailable" in before["publishability_failure_reasons"]
+
+        result = cf.attest_publishability_evidence(
+            "asset_1",
+            instagram_post_caption="pick one",
+            visual_qc_status="passed",
+            identity_verification_status="passed",
+            operator="tester",
+            notes="operator reviewed rendered reel",
+        )
+        assert result["attestation"]["visualQcStatus"] == "passed"
+
+        after = cf.explain_publishability("asset_1")
+        assert after["instagram_post_caption"] == "pick one"
+        assert after["checks"]["instagram_post_caption_quality_passed"] is True
+        assert after["visualQcStatus"] == "passed"
+        assert after["identityVerificationStatus"] == "passed"
+        assert "missing_instagram_post_caption" not in after["publishability_failure_reasons"]
+        assert "visual_qc_unavailable" not in after["publishability_failure_reasons"]
+        assert "identity_verification_unavailable" not in after["publishability_failure_reasons"]
+    finally:
+        cf.close()
 
 def test_publishability_blocks_missing_caption_placement_qc(tmp_path: Path):
     cf = make_factory(tmp_path)

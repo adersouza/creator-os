@@ -138,6 +138,20 @@ class PublishabilityRepository:
         normalized = " ".join((value or "").strip().lower().split())
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
+    def caption_generation_payload(self, asset: dict[str, Any]) -> dict[str, Any]:
+        caption_generation = asset.get("captionGeneration")
+        if not isinstance(caption_generation, dict):
+            caption_generation = json_load(asset.get("caption_generation_json"), {})
+        return caption_generation if isinstance(caption_generation, dict) else {}
+
+    def normalize_caption_placement_policy(self, value: Any) -> str | None:
+        text = str(value or "").strip().lower().replace("-", "_")
+        if not text:
+            return None
+        if text in {"focal_safe", "focal_safe_v1"}:
+            return "focal_safe_v1"
+        return text
+
     def instagram_post_caption_for_asset(
         self,
         asset: dict[str, Any],
@@ -145,11 +159,7 @@ class PublishabilityRepository:
         *,
         distribution_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        caption_generation = asset.get("captionGeneration")
-        if not isinstance(caption_generation, dict):
-            caption_generation = json_load(asset.get("caption_generation_json"), {})
-        if not isinstance(caption_generation, dict):
-            caption_generation = {}
+        caption_generation = self.caption_generation_payload(asset)
         source_records = [
             distribution_plan or {},
             caption_generation,
@@ -768,7 +778,22 @@ class PublishabilityRepository:
         variant_lineage = self._variant_lineage_for_asset(asset["id"])
         if variant_lineage and isinstance(caption_context, dict):
             caption_context = {**caption_context, **variant_lineage}
-        placement_policy = (caption_context or {}).get("captionPlacementPolicy")
+        caption_generation = self.caption_generation_payload(asset)
+        generated_lineage = (
+            caption_generation.get("generatedAssetLineage")
+            if isinstance(caption_generation.get("generatedAssetLineage"), dict)
+            else {}
+        )
+        if isinstance(caption_context, dict) and generated_lineage:
+            for key in ("captionPlacementPolicy", "captionPlacementDecision"):
+                if caption_context.get(key) is None and generated_lineage.get(key) is not None:
+                    caption_context[key] = generated_lineage[key]
+        if isinstance(caption_context, dict) and caption_context and not caption_context.get("schema"):
+            caption_context = {"schema": "campaign_factory.caption_outcome_context.v1", **caption_context}
+        placement_policy = self.normalize_caption_placement_policy(
+            (caption_context or {}).get("captionPlacementPolicy")
+            or (caption_context or {}).get("caption_placement_policy")
+        )
         placement_decision = (caption_context or {}).get("captionPlacementDecision")
         placement_qc_passed = (
             placement_policy == "focal_safe_v1"
@@ -802,6 +827,11 @@ class PublishabilityRepository:
         is_reel_surface = asset_content_surface == "reel"
         approved = asset.get("review_state") == "approved"
         caption_hash = asset.get("caption_hash") or (caption_context or {}).get("caption_hash")
+        export_caption_hash = (
+            (caption_context or {}).get("caption_hash")
+            or post_caption.get("burned_caption_hash")
+            or caption_hash
+        )
         content_fingerprint = asset.get("content_hash") or asset.get("contentHash")
         readiness_blockers = list(((latest_audit or {}).get("readinessSummary") or {}).get("blockingReasons") or [])
         readiness_blockers.extend(((latest_audit or {}).get("readinessSummary") or {}).get("blockingCodes") or [])
@@ -912,7 +942,7 @@ class PublishabilityRepository:
                 "render_file_id": self._verification_id("render_file", asset["id"], filename, content_fingerprint),
                 "content_fingerprint": content_fingerprint,
                 "content_hash": content_fingerprint,
-                "caption_hash": caption_hash,
+                "caption_hash": export_caption_hash,
                 "captionOutcomeContext": caption_context,
                 "instagram_post_caption": post_caption["instagram_post_caption"],
                 "instagramPostCaption": post_caption["instagram_post_caption"],
@@ -927,7 +957,7 @@ class PublishabilityRepository:
                 "visualQc": {"status": trust_statuses["visualQcStatus"]},
                 "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
                 "visual_verification_id": self._verification_id("visual_verification", asset["id"], content_fingerprint, render_recipe),
-                "caption_verification_id": self._verification_id("caption_verification", asset["id"], caption_hash, render_recipe),
+                "caption_verification_id": self._verification_id("caption_verification", asset["id"], export_caption_hash, render_recipe),
                 "audio_id": audio_id or "not_required",
                 "distribution_plan_id": distribution_plan["id"],
                 "content_surface": distribution_content_surface,
@@ -990,8 +1020,8 @@ class PublishabilityRepository:
             "captionLineageSidecarPresent": bool(sidecar),
             "contentFingerprint": content_fingerprint,
             "content_fingerprint": content_fingerprint,
-            "captionHash": caption_hash,
-            "caption_hash": caption_hash,
+            "captionHash": export_caption_hash,
+            "caption_hash": export_caption_hash,
             "captionOutcomeContext": caption_context,
             **post_caption,
             "instagramPostCaptionQuality": post_caption_quality,

@@ -3463,6 +3463,25 @@ class CoreServices:
             require_safe_audit=require_safe_audit,
         )
 
+    def attest_publishability_evidence(
+        self,
+        rendered_asset_id: str,
+        *,
+        instagram_post_caption: str | None = None,
+        visual_qc_status: str | None = None,
+        identity_verification_status: str | None = None,
+        operator: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return self.finished_video.attest_publishability_evidence(
+            rendered_asset_id,
+            instagram_post_caption=instagram_post_caption,
+            visual_qc_status=visual_qc_status,
+            identity_verification_status=identity_verification_status,
+            operator=operator,
+            notes=notes,
+        )
+
     def register_finished_video(
         self,
         *,

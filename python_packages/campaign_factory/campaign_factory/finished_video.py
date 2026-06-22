@@ -132,6 +132,96 @@ class FinishedVideoRepository:
             require_safe_audit=require_safe_audit,
         )
 
+    def attest_publishability_evidence(
+        self,
+        rendered_asset_id: str,
+        *,
+        instagram_post_caption: str | None = None,
+        visual_qc_status: str | None = None,
+        identity_verification_status: str | None = None,
+        operator: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        if not row:
+            raise ValueError(f"rendered asset not found: {rendered_asset_id}")
+        caption = (instagram_post_caption or "").strip()
+        visual_status = (visual_qc_status or "").strip().lower()
+        identity_status = (identity_verification_status or "").strip().lower()
+        allowed_statuses = {"passed", "failed", "unavailable"}
+        if visual_status and visual_status not in allowed_statuses:
+            raise ValueError("visual_qc_status must be passed, failed, or unavailable")
+        if identity_status and identity_status not in allowed_statuses:
+            raise ValueError("identity_verification_status must be passed, failed, or unavailable")
+        now = self._utc_now()
+        caption_generation = json.loads(row["caption_generation_json"] or "{}")
+        if not isinstance(caption_generation, dict):
+            caption_generation = {}
+        metadata = json.loads(row["metadata_json"] or "{}")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        attestation = {
+            "schema": "campaign_factory.operator_publishability_attestation.v1",
+            "renderedAssetId": rendered_asset_id,
+            "operator": operator,
+            "notes": notes,
+            "attestedAt": now,
+        }
+        if caption:
+            caption_hash = hashlib.sha256(" ".join(caption.lower().split()).encode("utf-8")).hexdigest()
+            caption_generation.update({
+                "instagram_post_caption": caption,
+                "instagramPostCaption": caption,
+                "instagram_post_caption_hash": caption_hash,
+                "instagramPostCaptionHash": caption_hash,
+                "post_caption_style": caption_generation.get("post_caption_style") or "short_natural",
+            })
+            attestation["instagramPostCaptionHash"] = caption_hash
+        if visual_status:
+            metadata.update({
+                "visualQcStatus": visual_status,
+                "visualQc": {"status": visual_status, "operator": operator, "attestedAt": now, "notes": notes},
+            })
+            if visual_status == "passed":
+                metadata["visual_qc_passed"] = True
+                metadata["operator_visual_review_passed"] = True
+            attestation["visualQcStatus"] = visual_status
+        if identity_status:
+            metadata.update({
+                "identityVerificationStatus": identity_status,
+                "identityVerification": {"status": identity_status, "operator": operator, "attestedAt": now, "notes": notes},
+            })
+            attestation["identityVerificationStatus"] = identity_status
+        metadata["operatorPublishabilityAttestation"] = attestation
+        caption_generation["operatorPublishabilityAttestation"] = attestation
+        self.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
+            (
+                json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                now,
+                rendered_asset_id,
+            ),
+        )
+        self._record_event(
+            "publishability_attested",
+            campaign_id=row["campaign_id"],
+            source_asset_id=row["source_asset_id"],
+            rendered_asset_id=rendered_asset_id,
+            status="success",
+            message=f"Publishability evidence attested: {row['filename']}",
+            metadata=attestation,
+            commit=False,
+        )
+        self.conn.commit()
+        refreshed = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        return {
+            "schema": "campaign_factory.operator_publishability_attestation_result.v1",
+            "renderedAssetId": rendered_asset_id,
+            "attestation": attestation,
+            "asset": dict(refreshed) if refreshed else {},
+        }
+
     def record_lineage_costs(self, lineage: dict[str, Any]) -> None:
         """Extract AI cost data from imported lineage and record it."""
         try:

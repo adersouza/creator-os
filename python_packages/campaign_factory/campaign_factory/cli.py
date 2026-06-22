@@ -211,6 +211,14 @@ def main() -> int:
     review.add_argument("--notes")
     review.add_argument("--force-unsafe-audit", action="store_true", help="Allow approval even when audit is missing or not an approved candidate")
 
+    attest = sub.add_parser("attest-publishability")
+    attest.add_argument("--rendered-asset-id", required=True)
+    attest.add_argument("--instagram-post-caption")
+    attest.add_argument("--visual-qc-status", choices=["passed", "failed", "unavailable"])
+    attest.add_argument("--identity-verification-status", choices=["passed", "failed", "unavailable"])
+    attest.add_argument("--operator")
+    attest.add_argument("--notes")
+
     readiness = sub.add_parser("export-readiness")
     readiness.add_argument("--campaign", required=True)
     readiness.add_argument("--user-id", required=True)
@@ -1257,6 +1265,15 @@ def main() -> int:
                 decision=args.decision,
                 notes=args.notes,
                 require_safe_audit=not args.force_unsafe_audit,
+            ))
+        elif args.cmd == "attest-publishability":
+            print_json(cf.attest_publishability_evidence(
+                args.rendered_asset_id,
+                instagram_post_caption=args.instagram_post_caption,
+                visual_qc_status=args.visual_qc_status,
+                identity_verification_status=args.identity_verification_status,
+                operator=args.operator,
+                notes=args.notes,
             ))
         elif args.cmd == "export-readiness":
             print_json(evaluate_export_readiness(
