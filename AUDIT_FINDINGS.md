@@ -38,7 +38,7 @@ configured committed mirrors to compare.
 | P1-7 security gating | Fixed | Dependency Review was removed because this private repo lacks required platform support; Trivy HIGH/CRITICAL and TruffleHog verified-secret checks gate through `.github/workflows/security.yml`. |
 | P2-1 standalone Campaign Factory test collection | Fixed | Package-local Campaign Factory tests resolve `pipeline_contracts` through package test setup and collect without manual path hacks. |
 | P2-2 oversized modules beyond Campaign Factory | Accepted deferred | High-risk Campaign Factory audit slices were extracted and tested. Wholesale decomposition of remaining large modules is accepted as ongoing maintenance. |
-| P2-3 Reel Factory legacy/experiment files | Fixed | Confirmed experiments live under `python_packages/reel_factory/experiments/`; `grok_ab_experiment.py` is now an experiment with a compatibility shim for old imports/CLI calls. |
+| P2-3 Reel Factory legacy/experiment files | Fixed | Confirmed experiments live under `python_packages/reel_factory/experiments/`; the old Grok A/B experiment surface and compatibility shim were removed during Ponytail cleanup. |
 | P2-4 broad exception swallowing | Fixed | High-risk import/probe/hook paths are narrowed; remaining legacy broad catches are explicitly allowlisted by a static regression test so new broad catches fail unless reviewed. |
 | P2-5 monorepo config nits | Fixed | `httpx2>0.28` was corrected to `httpx>0.28`; lockfile regenerated; repurposer nesting is documented as Campaign Factory-local. |
 | P2-6 architecture guard meta-tests | Fixed | CI runs `pnpm check:arch:fixtures`; TypeScript and Python boundary guard fixtures are covered. |
@@ -93,7 +93,7 @@ Relevant focused checks added during closeout:
 
 ```bash
 uv run pytest python_packages/campaign_factory/tests/test_core_extraction_facade.py -q
-cd python_packages/reel_factory && uv run pytest tests/test_grok_ab_experiment.py tests/test_exception_boundaries.py tests/test_packaging_metadata.py -q
+cd python_packages/reel_factory && uv run pytest tests/test_exception_boundaries.py tests/test_packaging_metadata.py -q
 pnpm --filter contentforge exec node --test --test-concurrency=1 test/ffmpeg-escaping.test.js test/campaign-originality-audit.test.js test/forensics-python.test.js
 ```
 
@@ -116,5 +116,5 @@ pnpm --filter contentforge test
 CONTENTFORGE_FORCE_MISSING_TOOLS=ffmpeg,ffprobe,tesseract pnpm --filter contentforge test
 ```
 
-`pnpm check:mirror-parity` is intentionally omitted from the final gate list
-because Creator OS has no configured committed mirrors.
+Mirror parity is intentionally omitted from the final gate list because Creator
+OS has no configured committed mirrors and the no-op mirror harness was removed.

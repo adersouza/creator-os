@@ -8,7 +8,6 @@ Scope: 10 renders each for Larissa, Stacey, and Lola using `v01_original` and cr
 - selected banks: {'bedroom_mirror': 2, 'body_attention': 1, 'comment_bait': 1, 'dm_follow_bait': 2, 'shared_girl_next_door': 4}
 - goth/alt selected by default: 0
 - gym/body selected count: 1
-- review sheet: `caption_validation/larissa_caption_validation_sheet.png`
 
 - `clip_009_h00_v01_original_dark_062ca86c.mp4` | selected=['bedroom_mirror'] | source=01_captions/clip_001.json | 2 mins in a room with me. / wyd??
 - `clip_009_h01_v01_original_dark_3d89be1f.mp4` | selected=['dm_follow_bait'] | source=01_captions/clip_009.json | fill in the blanks for / the secret message /  / _emon 🍋 / _agle 🦅 / _ree 🥦 / _ong 🎵 /  / _eart ❤️ / _irplane ✈️ / _olin
@@ -27,7 +26,6 @@ Scope: 10 renders each for Larissa, Stacey, and Lola using `v01_original` and cr
 - selected banks: {'bedroom_mirror': 2, 'boyfriend_bait': 1, 'comment_bait': 2, 'dm_follow_bait': 1, 'shared_girl_next_door': 4}
 - goth/alt selected by default: 0
 - gym/body selected count: 0
-- review sheet: `caption_validation/stacey_caption_validation_sheet.png`
 
 - `clip_010_h00_v01_original_light_e0610f44.mp4` | selected=['bedroom_mirror'] | source=01_captions/clip_001.json | 2 mins in a room with me. / wyd??
 - `clip_010_h01_v01_original_light_20cd7090.mp4` | selected=['comment_bait'] | source=01_captions/clip_001.json | if u are a straight guy / that likes girls with abs / stop scrolling and leave a ❤️
@@ -46,7 +44,6 @@ Scope: 10 renders each for Larissa, Stacey, and Lola using `v01_original` and cr
 - selected banks: {'bedroom_mirror': 2, 'body_attention': 3, 'dm_follow_bait': 1, 'shared_girl_next_door': 4}
 - goth/alt selected by default: 0
 - gym/body selected count: 3
-- review sheet: `caption_validation/lola_caption_validation_sheet.png`
 
 - `clip_011_h00_v01_original_dark_e9570fdc.mp4` | selected=['body_attention'] | source=01_captions/clip_001.json | 3 things I would do / on the first date / invite you to my house / so I can cook for you / give you a head massage / sho
 - `clip_011_h01_v01_original_dark_6a6142fb.mp4` | selected=['bedroom_mirror'] | source=01_captions/clip_001.json | POV: I'm your step sis / and I come into your room / to annoy you all day /  / now swap C and H

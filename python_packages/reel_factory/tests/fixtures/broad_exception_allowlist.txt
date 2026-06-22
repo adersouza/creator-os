@@ -16,8 +16,6 @@ embedding_index.py:text_for_path:59
 embedding_index.py:duplicate_risk:211
 embedding_provider.py:get_embedding_provider:98
 embedding_provider.py:get_embedding_provider:105
-experiments/grok_ab_experiment.py:_resolve_soul_id:281
-experiments/grok_ab_experiment.py:create_ab_prompt_experiment:457
 experiments/tribev2_score_generated_panels.py:collect_panels:91
 experiments/tribev2_score_generated_panels.py:_load_existing:268
 experiments/tribev2_score_generated_panels.py:_load_font:338

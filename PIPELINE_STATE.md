@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last updated:** 2026-06-19. This is the single source of truth for the current state of the Creator OS pipeline. It supersedes the old one-shot planning/runbook/audit docs (removed). Operational details live in `ARCHITECTURE.md`, `AGENTS.md`, `scripts/sync/README.md`, and `docs/`.
+**Last updated:** 2026-06-22. This is the single source of truth for the current state of the Creator OS pipeline. It supersedes the old one-shot planning/runbook/audit docs (removed). Operational details live in `ARCHITECTURE.md`, `AGENTS.md`, and `docs/`.
 
 ## Architecture (two active product repos)
 
@@ -11,8 +11,7 @@ creator-os (this monorepo) — canonical runtime for the whole pipeline
 ├── python_packages/campaign_factory   canonical
 ├── python_packages/reference_factory  canonical
 ├── packages/pipeline_contracts        shared contracts (canonical here; also its own repo)
-├── tests/integration                  cross-tool integration
-└── scripts/sync/                      empty mirror/parity compatibility harness
+└── tests/integration                  cross-tool integration
 
 ThreadsDashboard (separate repo) ──deploys──▶ juno33.com   (the standalone product; permanently NOT in the monorepo)
 pipeline_contracts (separate repo)                          (contracts package)
@@ -21,11 +20,11 @@ reel_factory / campaign_factory / contentforge / reference_factory  ──▶ AR
 
 ## What is done
 
-- **Monorepo↔split drift: solved structurally.** One canonical copy per pipeline tool. The old dashboard mirror was removed; `mirror-parity` now succeeds when no mirrors are configured.
+- **Monorepo↔split drift: solved structurally.** One canonical copy per pipeline tool. The old dashboard mirror and no-op mirror harness were removed.
 - **Consolidation (Steps 1–5) complete.** The four tools are canonical in creator-os and runnable from root (`scripts/run/*` wrappers; combined `uv run pytest` green). Their standalone repos are archived (read-only, reversible). ThreadsDashboard remains external rather than mirrored.
 - **Backend audit work merged + live (independently verified 2026-06-16):** autoposter safety gates, identity/ArcFace verification + `.venv` pin (aborts loudly if provider down), inventory reservation, ingest routing (raw service-role writes gated behind a prod-disabled flag; default routes to validated Dashboard ingest), QC fail-closed (visual QC + identity block readiness; `opencv_unavailable` → not "passed"), metadata normalization (required post-render step in `reel_pipeline.py`, tested). The three backend items once falsely reported "done" (cross-account reuse, discoverability, deprecated generators) were caught by independent verification and have since been resolved — see Open work #2–#4.
 - **ThreadsDashboard/juno33:** live, green on its own CI. Autoposter hardening + draft-ingest + Step G (radix unification, ui/shadcn boundary guard) shipped.
-- **Governance:** branch protection on creator-os main (9 required checks, strict, enforce-admins, PR-required), gitleaks, parity gate, contracts/architecture checks.
+- **Governance:** branch protection on creator-os main (9 required checks, strict, enforce-admins, PR-required), gitleaks, contracts/architecture checks.
 - **Track 9 rigor is landed.** PRs #189, #191, #192, and #193 completed the non-`core.py` Track-9 lift: Reference Factory intake coverage, ContentForge similarity/pipeline tests, detector calibration fixtures, and Reel Factory adapter/golden tests. The prior contract codegen/schema drift-proofing work remains protected by `pnpm check:contracts`.
 - **Campaign Factory decomposition continues behind the characterization net.** Inventory planning (#186), reservations (#190), perceptual metadata (#194), and recovery (#195) are merged; continue future `core.py` work from `CORE_PY_DECOMPOSITION_PLAN.md`, one coherent operational domain per PR.
 
@@ -42,7 +41,7 @@ reel_factory / campaign_factory / contentforge / reference_factory  ──▶ AR
 4. **[DONE 2026-06-17] Deprecated grok/grid/six_pack now fail closed.** creator-os PR #35 inverted the guard in `python_packages/reel_factory/deprecated_generators.py`: `guard_deprecated_generator` now raises **by default** unless a local/test operator sets `REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS=1` AND `REEL_FACTORY_ENV=local|development|test` (or pytest); **prod env wins unconditionally** even with the allow flag (`_prod_env_active()` → blocked). The old `REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS` remains block-only. Call sites closed: all five `/api/grid-crop/*` endpoints now return a controlled **410** (previously had no guard at all); `/api/references/analyze` no longer defaults `model="grok-4.3"` (missing model → **400**, any `grok*` → 410-gated); `detect_grid_status` is guarded and the **active** single-image path was rewired to a new non-deprecated `single_image_layout_status()` so fail-closed does NOT break legit generation. 320 reel_factory tests pass; independently verified.
 5. **[RESOLVED 2026-06-17] Dependabot majors handled.** All four are now closed/merged — nothing pending: creator-os #12 (Tailwind v3→v4) CLOSED, #13 (ESLint 9→10) CLOSED (ignore rule added in #29), #18 (28-dep prod group) CLOSED; ThreadsDashboard #119 (29-dep prod group) MERGED + mirrored. Majors are closed rather than blind-merged on purpose — each is a breaking migration (Tailwind config rewrite, ESLint flat-config, 28/29-at-once groups). Safe GitHub-Actions bumps continue to auto-merge (CI-gated). If dependabot re-raises the closed majors next cycle, add `ignore` rules rather than merging untested.
 6. **Frontend decomposition debt:** `Composer.tsx` (~5905 LOC) + `Autopilot.tsx` (~4390 LOC) still monolithic. Tracked in **ThreadsDashboard issue #120** with the seam map. Prerequisite before any cut: add e2e for the deep-link (`?draft=`/`?accountId=`/`?date=`) and `location.state` handoff paths (current `composer-critical.spec.ts` covers only publish). Do NOT merge a rename as a decomposition.
-7. **Soak + optional delete:** 7-day soak started 2026-06-16 (earliest delete ~2026-06-23). Run the pipeline from creator-os; archived repos are the rollback (`gh repo unarchive` + anchors in `CONSOLIDATION_STATUS.md`). After a clean soak, deleting the four archived repos is owner-gated and optional (archived is harmless).
+7. **Soak + optional delete:** 7-day soak started 2026-06-16 (earliest delete ~2026-06-23). Run the pipeline from creator-os; archived standalone repos remain the rollback. After a clean soak, deleting the four archived repos is owner-gated and optional (archived is harmless).
 8. **[DONE 2026-06-19] Track 9 non-core rigor completed.** PR #189 raised `reference_intake.py` coverage to the target band and pinned the caption-archetype regression; PR #191 covered ContentForge similarity/pipeline blocking and advisory behavior; PR #192 pinned detector thresholds against drift; PR #193 added tested external-generation adapter failure handling plus caption/render golden tests. Remaining production-grade lift is the ongoing Campaign Factory decomposition, tracked separately.
 
 ## Owner-only (out of scope for automated agents)
@@ -50,13 +49,8 @@ reel_factory / campaign_factory / contentforge / reference_factory  ──▶ AR
 - Secret rotation / OAuth re-encryption / git-history purge (P0) — provider consoles. See `docs/security/`.
 - Scale proof (50/100/200 load, QStash-outage/reconciliation-drain).
 
-## Rollback references (keep until soak ends)
-
-- `MERGE_PLAN.md` — every live merge with pre-merge SHA + one-line revert (juno33 deploy rollback map).
-- `CONSOLIDATION_STATUS.md` — per archived repo: ARCHIVED.md commit, pre-archive SHA, `gh repo unarchive` + revert commands, soak start.
-
 ## How to work here
 
 - Fix a tool: edit it in creator-os (it's canonical now), open a PR, green checks, merge.
 - Dashboard work: fix it in `/Users/aderdesouza/Developer/ThreadsDashboard`; Creator OS has no committed dashboard mirror.
-- See `AGENTS.md` for agent conventions, `ARCHITECTURE.md` for system design, and `scripts/sync/README.md` for the now-empty mirror compatibility harness.
+- See `AGENTS.md` for agent conventions and `ARCHITECTURE.md` for system design.
