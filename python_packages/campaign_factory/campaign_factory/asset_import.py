@@ -69,8 +69,24 @@ def _review_package_hash_paths(manifest_path: Path, manifest: dict[str, Any]) ->
         for field in ("output", "overlayPng"):
             value = row.get(field)
             if value:
-                paths.append(Path(str(value)).expanduser().resolve())
+                paths.append(_resolve_batch_path(manifest_path, value))
+        output = row.get("output")
+        if output:
+            output_path = _resolve_batch_path(manifest_path, output)
+            for sidecar in (
+                output_path.with_name(output_path.name + ".audio_intent.json"),
+                output_path.with_name(output_path.name + ".generated_asset_lineage.json"),
+            ):
+                if sidecar.exists():
+                    paths.append(sidecar.resolve())
     return list(dict.fromkeys(paths))
+
+
+def _resolve_batch_path(manifest_path: Path, value: Any) -> Path:
+    path = Path(str(value or ""))
+    if not path.is_absolute():
+        path = manifest_path.parent / path
+    return path.expanduser().resolve()
 
 
 class AssetImportRepository:
@@ -145,7 +161,7 @@ class AssetImportRepository:
         folder = Path(folder).expanduser().resolve()
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"input folder not found: {folder}")
-        self._enforce_reel_review_batch_package(folder)
+        review_packages = self._enforce_reel_review_batch_package(folder)
         model = self._upsert_model(model_slug, model_name)
         campaign = self._upsert_campaign(campaign_slug, model["slug"], platform=platform)
         pipeline_job = self._create_pipeline_job(
@@ -248,14 +264,36 @@ class AssetImportRepository:
                     metadata={"originalPath": str(src), "storedPath": str(dest), "contentHash": digest, "mediaType": media_type},
                     commit=False,
                 )
-            result = {"imported": imported, "duplicates": duplicates, "ignored": ignored, "campaign": campaign, "model": model}
+            rendered = self._promote_review_packages(
+                review_packages,
+                campaign=campaign,
+                model=model,
+                dirs=dirs,
+                platform=platform,
+                account_ids=[a["id"] for a in accounts],
+                pipeline_job_id=pipeline_job["id"],
+            )
+            result = {
+                "imported": imported,
+                "duplicates": duplicates,
+                "ignored": ignored,
+                "rendered": rendered,
+                "renderedCount": len(rendered),
+                "campaign": campaign,
+                "model": model,
+            }
             self._record_event(
                 "source_imported",
                 campaign_id=campaign["id"],
                 pipeline_job_id=pipeline_job["id"],
                 status="success" if imported else ("warning" if duplicates or ignored else "info"),
                 message=f"Import complete: {len(imported)} imported, {len(duplicates)} duplicates, {len(ignored)} ignored",
-                metadata={"importedCount": len(imported), "duplicateCount": len(duplicates), "ignoredCount": len(ignored)},
+                metadata={
+                    "importedCount": len(imported),
+                    "duplicateCount": len(duplicates),
+                    "ignoredCount": len(ignored),
+                    "renderedCount": len(rendered),
+                },
                 commit=False,
             )
             self.conn.commit()
@@ -263,6 +301,7 @@ class AssetImportRepository:
                 "importedCount": len(imported),
                 "duplicateCount": len(duplicates),
                 "ignoredCount": len(ignored),
+                "renderedCount": len(rendered),
             })
             result["pipelineJobId"] = pipeline_job["id"]
             return result
@@ -278,16 +317,23 @@ class AssetImportRepository:
             self._fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
 
-    def _enforce_reel_review_batch_package(self, folder: Path) -> None:
+    def _enforce_reel_review_batch_package(self, folder: Path) -> list[dict[str, Any]]:
         raw_manifests = [path for path in folder.glob("*.json") if _is_reel_review_manifest(path)]
         if not raw_manifests:
-            return
+            return []
         packages = [path for path in folder.glob("*.json") if _is_guarded_review_package(path)]
+        verified: list[dict[str, Any]] = []
         for manifest_path in raw_manifests:
             errors: list[str] = []
             for package_path in packages:
                 try:
-                    self._verify_reel_review_package(package_path, manifest_path)
+                    package = self._verify_reel_review_package(package_path, manifest_path)
+                    verified.append({
+                        "manifestPath": manifest_path.resolve(),
+                        "packagePath": package_path.resolve(),
+                        "manifest": _json_dict(manifest_path),
+                        "package": package,
+                    })
                     break
                 except ValueError as exc:
                     errors.append(str(exc))
@@ -298,14 +344,25 @@ class AssetImportRepository:
                     "Campaign Factory intake requires a guard-passed Reel Factory review package; "
                     "run scripts/run/reel-factory review-guard <manifest> --write-package inside the batch folder."
                 )
+        return verified
 
-    def _verify_reel_review_package(self, package_path: Path, manifest_path: Path) -> None:
+    def _verify_reel_review_package(self, package_path: Path, manifest_path: Path) -> dict[str, Any]:
         package = _json_dict(package_path)
         package_manifest = _resolve_manifest_path(package_path, package.get("manifestPath"))
         if package_manifest != manifest_path.resolve():
             raise ValueError("guarded Reel Factory review package does not match review manifest")
 
         manifest = _json_dict(manifest_path)
+        contentforge = manifest.get("contentForgeAuditPath")
+        if not contentforge:
+            raise ValueError("Reel Factory review package missing ContentForge audit path")
+        contentforge_path = _resolve_batch_path(manifest_path, contentforge)
+        if not contentforge_path.exists():
+            raise ValueError(f"Reel Factory review package missing ContentForge audit: {contentforge_path}")
+        contentforge_payload = _json_dict(contentforge_path)
+        if contentforge_payload.get("auditProfile") != "campaign_factory_v1":
+            raise ValueError("Reel Factory review package ContentForge audit must use campaign_factory_v1")
+
         rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
         guard = self._run_reel_review_guard(manifest_path)
         if guard.get("status") != "ready" or guard.get("count") != len(rows):
@@ -321,6 +378,274 @@ class AssetImportRepository:
                 raise ValueError(f"guarded Reel Factory review package missing hash for {path}")
             if not path.exists() or _sha256_file(path) != expected:
                 raise ValueError(f"review package hash mismatch for {path}")
+        return package
+
+    def _promote_review_packages(
+        self,
+        review_packages: list[dict[str, Any]],
+        *,
+        campaign: dict[str, Any],
+        model: dict[str, Any],
+        dirs: dict[str, Path],
+        platform: str,
+        account_ids: list[str],
+        pipeline_job_id: str,
+    ) -> list[dict[str, Any]]:
+        rendered: list[dict[str, Any]] = []
+        for review_package in review_packages:
+            manifest_path = Path(review_package["manifestPath"])
+            package_path = Path(review_package["packagePath"])
+            manifest = review_package["manifest"]
+            rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+            audit_path = _resolve_batch_path(manifest_path, manifest.get("contentForgeAuditPath"))
+            audit_payload = _json_dict(audit_path)
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                output_path = _resolve_batch_path(manifest_path, row.get("output"))
+                if not output_path.exists():
+                    raise FileNotFoundError(f"review batch output missing: {output_path}")
+                media_type = self._media_type_for_path(output_path)
+                if media_type not in {"video", "image"}:
+                    raise ValueError(f"review batch output is not importable media: {output_path}")
+                digest = self._sha256_file(output_path)
+                source_asset = self._ensure_review_source_asset(
+                    campaign=campaign,
+                    model=model,
+                    dirs=dirs,
+                    output_path=output_path,
+                    digest=digest,
+                    media_type=media_type,
+                    platform=platform,
+                    account_ids=account_ids,
+                    pipeline_job_id=pipeline_job_id,
+                )
+                existing = self.conn.execute(
+                    "SELECT * FROM rendered_assets WHERE campaign_id = ? AND content_hash = ?",
+                    (campaign["id"], digest),
+                ).fetchone()
+                if existing:
+                    rendered_asset = dict(existing)
+                else:
+                    now = self._utc_now()
+                    rendered_id = self._new_id("asset")
+                    caption_text = str(row.get("captionText") or row.get("caption") or "")
+                    caption_hash = str(row.get("captionHash") or "")
+                    caption_banks = row.get("sourceBanks") if isinstance(row.get("sourceBanks"), list) else []
+                    overlay_path = _resolve_batch_path(manifest_path, row.get("overlayPng"))
+                    audio_intent_path = output_path.with_name(output_path.name + ".audio_intent.json")
+                    lineage_path = output_path.with_name(output_path.name + ".generated_asset_lineage.json")
+                    audio_intent = _json_dict(audio_intent_path) if audio_intent_path.exists() else {}
+                    lineage = _json_dict(lineage_path) if lineage_path.exists() else {}
+                    caption_context = {
+                        "burned_caption_text": caption_text,
+                        "burned_caption_hash": caption_hash,
+                        "caption_banks": caption_banks,
+                        "caption_bank": caption_banks[0] if caption_banks else None,
+                        "caption_placement_policy": row.get("captionPlacementPolicy") or manifest.get("captionPlacementPolicy"),
+                        "caption_band": row.get("selectedBand"),
+                        "overlay_png": str(overlay_path),
+                        "source_clip": output_path.name,
+                    }
+                    caption_generation = {
+                        "schema": "campaign_factory.reel_review_package_render.v1",
+                        "captionHash": caption_hash,
+                        "burnedCaptionText": caption_text,
+                        "audioIntent": audio_intent,
+                        "generatedAssetLineage": lineage,
+                        "contentForgeAuditPath": str(audit_path),
+                        "reviewBatchManifestPath": str(manifest_path),
+                        "reviewBatchPackagePath": str(package_path),
+                        "reviewBatchRowIndex": index,
+                        "humanReviewRequired": True,
+                    }
+                    metadata = {
+                        "schema": "campaign_factory.reel_review_batch_intake.v1",
+                        "reviewBatchManifestPath": str(manifest_path),
+                        "reviewBatchPackagePath": str(package_path),
+                        "contentForgeAuditPath": str(audit_path),
+                        "overlayPng": str(overlay_path),
+                        "audioIntentPath": str(audio_intent_path) if audio_intent_path.exists() else None,
+                        "generatedAssetLineagePath": str(lineage_path) if lineage_path.exists() else None,
+                        "contentForgeAuditProfile": audit_payload.get("auditProfile"),
+                    }
+                    self.conn.execute(
+                        """
+                        INSERT INTO rendered_assets
+                        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
+                         media_type, content_surface, caption, caption_hash, caption_bank, caption_banks_json,
+                         source_clip, caption_outcome_context_json, caption_generation_json, recipe, target_ratio,
+                         metadata_json, audit_status, review_state, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reel', ?, ?, ?, ?, ?, ?, ?, 'reel_factory_review_package', ?, ?,
+                                'approved_candidate', 'review_ready', ?, ?)
+                        """,
+                        (
+                            rendered_id,
+                            campaign["id"],
+                            source_asset["id"],
+                            digest,
+                            str(output_path),
+                            str(output_path),
+                            output_path.name,
+                            media_type,
+                            caption_text,
+                            caption_hash,
+                            caption_context["caption_bank"],
+                            json.dumps(caption_banks, ensure_ascii=False, sort_keys=True),
+                            output_path.name,
+                            json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
+                            json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+                            str(manifest.get("targetRatio") or row.get("targetRatio") or "9:16"),
+                            json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                            now,
+                            now,
+                        ),
+                    )
+                    rendered_asset = dict(self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+                    rendered_graph_id = self._ensure_graph_node(
+                        "rendered_asset",
+                        local_table="rendered_assets",
+                        local_id=rendered_id,
+                        payload={
+                            "campaignId": campaign["id"],
+                            "sourceAssetId": source_asset["id"],
+                            "contentHash": digest,
+                            "filename": output_path.name,
+                            "recipe": "reel_factory_review_package",
+                        },
+                    )
+                    self._ensure_graph_edge(
+                        self._graph_id_for("source_assets", source_asset["id"], entity_type="source_asset"),
+                        rendered_graph_id,
+                        "source_asset_to_rendered_asset",
+                        evidence={"reviewBatchPackagePath": str(package_path), "pipelineJobId": pipeline_job_id},
+                    )
+                    self._record_event(
+                        "rendered_asset_synced",
+                        campaign_id=campaign["id"],
+                        source_asset_id=source_asset["id"],
+                        rendered_asset_id=rendered_id,
+                        pipeline_job_id=pipeline_job_id,
+                        status="success",
+                        message=f"Review package promoted: {output_path.name}",
+                        metadata={"reviewBatchManifestPath": str(manifest_path), "contentForgeAuditPath": str(audit_path)},
+                        commit=False,
+                    )
+                self._ensure_review_audit_report(
+                    campaign=campaign,
+                    rendered_asset_id=rendered_asset["id"],
+                    audit_path=audit_path,
+                    audit_payload=audit_payload,
+                )
+                rendered.append(rendered_asset)
+        return rendered
+
+    def _ensure_review_source_asset(
+        self,
+        *,
+        campaign: dict[str, Any],
+        model: dict[str, Any],
+        dirs: dict[str, Path],
+        output_path: Path,
+        digest: str,
+        media_type: str,
+        platform: str,
+        account_ids: list[str],
+        pipeline_job_id: str,
+    ) -> dict[str, Any]:
+        existing = self.conn.execute(
+            "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
+            (campaign["id"], digest),
+        ).fetchone()
+        if existing:
+            return dict(existing)
+
+        dest_name = f"{self._slugify(output_path.stem)}_{digest[:10]}{output_path.suffix.lower()}"
+        dest = dirs["sources"] / dest_name
+        if output_path.resolve() != dest.resolve():
+            shutil.copy2(output_path, dest)
+        now = self._utc_now()
+        source_id = self._new_id("src")
+        self.conn.execute(
+            """
+            INSERT INTO source_assets
+            (id, campaign_id, model_id, content_hash, original_path, stored_path, filename, media_type, platform,
+             notes, account_ids_json, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'guarded_review_package', ?, ?)
+            """,
+            (
+                source_id,
+                campaign["id"],
+                model["id"],
+                digest,
+                str(output_path),
+                str(dest),
+                dest.name,
+                media_type,
+                platform,
+                "Promoted from guard-passed Reel Factory review package.",
+                json.dumps(account_ids),
+                now,
+                now,
+            ),
+        )
+        source_asset = dict(self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (source_id,)).fetchone())
+        self._record_event(
+            "source_imported",
+            campaign_id=campaign["id"],
+            source_asset_id=source_id,
+            pipeline_job_id=pipeline_job_id,
+            status="success",
+            message=f"Review package source registered: {output_path.name}",
+            metadata={"originalPath": str(output_path), "storedPath": str(dest), "contentHash": digest, "mediaType": media_type},
+            commit=False,
+        )
+        return source_asset
+
+    def _ensure_review_audit_report(
+        self,
+        *,
+        campaign: dict[str, Any],
+        rendered_asset_id: str,
+        audit_path: Path,
+        audit_payload: dict[str, Any],
+    ) -> None:
+        existing = self.conn.execute(
+            "SELECT id FROM audit_reports WHERE rendered_asset_id = ? AND report_path = ?",
+            (rendered_asset_id, str(audit_path)),
+        ).fetchone()
+        if existing:
+            return
+        pass_count = int((audit_payload.get("verdictCounts") or {}).get("pass") or 0)
+        fail_count = int((audit_payload.get("verdictCounts") or {}).get("fail") or 0)
+        blocking_codes = audit_payload.get("blockingCodes") if isinstance(audit_payload.get("blockingCodes"), list) else []
+        status = "approved_candidate" if fail_count == 0 and not blocking_codes else "blocked"
+        now = self._utc_now()
+        audit_id = self._new_id("audit")
+        self.conn.execute(
+            """
+            INSERT INTO audit_reports
+            (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+             layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                audit_id,
+                campaign["id"],
+                rendered_asset_id,
+                str(audit_payload.get("runId") or "reel_review_batch"),
+                str(audit_path),
+                100 if status == "approved_candidate" else 0,
+                status,
+                json.dumps({"source": "reel_factory_review_package"}, ensure_ascii=False, sort_keys=True),
+                json.dumps(audit_payload, ensure_ascii=False, sort_keys=True),
+                "pass" if status == "approved_candidate" else "fail",
+                int(audit_payload.get("variants") or pass_count or 0),
+                json.dumps(blocking_codes, ensure_ascii=False, sort_keys=True),
+                json.dumps([], ensure_ascii=False),
+                now,
+            ),
+        )
 
     def _run_reel_review_guard(self, manifest_path: Path) -> dict[str, Any]:
         runner = CREATOR_OS_ROOT / "scripts" / "run" / "reel-factory"

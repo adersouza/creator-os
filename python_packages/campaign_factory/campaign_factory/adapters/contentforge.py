@@ -151,6 +151,70 @@ def audit_variation_batch(
     return report
 
 
+def audit_review_batch_manifest(
+    *,
+    contentforge_root: Path,
+    manifest_path: Path,
+    source_path: Path,
+    contentforge_base_url: str,
+    report_path: Path | None = None,
+    layers: list[str] | None = None,
+    update_manifest: bool = True,
+) -> dict[str, Any]:
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    source_path = Path(source_path).expanduser().resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("review batch manifest must be a JSON object")
+    rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+    variant_paths: list[Path] = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("output"):
+            continue
+        output = Path(str(row["output"]))
+        if not output.is_absolute():
+            output = manifest_path.parent / output
+        variant_paths.append(output.expanduser().resolve())
+    if not variant_paths:
+        raise ValueError("review batch manifest has no output rows to audit")
+
+    report_path = (report_path or manifest_path.with_name(f"{manifest_path.stem}.contentforge_audit.json")).expanduser().resolve()
+    with _stage_contentforge_variation_batch(contentforge_root, source_path, variant_paths) as (staged_source, staged_variants):
+        response = _post_similarity(
+            contentforge_base_url,
+            source=staged_source.name,
+            target_file=staged_variants[0].name,
+            comparison_files=[path.name for path in staged_variants[1:]],
+            audit_profile=DEFAULT_AUDIT_PROFILE,
+            layers=layers or ["pdq", "sscd", "forensics"],
+        )
+
+    readiness = response.get("readinessSummary") if isinstance(response.get("readinessSummary"), dict) else {}
+    blocking = (readiness.get("blockingCodes") or readiness.get("blockingReasons") or response.get("blockingCodes") or [])
+    passed = response.get("overallVerdict") == "pass" and not blocking
+    report = {
+        **response,
+        "schema": "campaign_factory.review_batch_contentforge_audit.v1",
+        "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
+        "variants": len(variant_paths),
+        "httpOk": len(variant_paths),
+        "verdictCounts": {
+            "pass": len(variant_paths) if passed else 0,
+            "fail": 0 if passed else len(variant_paths),
+        },
+        "sourceFile": str(source_path),
+        "variantFiles": [str(path) for path in variant_paths],
+        "reportPath": str(report_path),
+        "createdAt": utc_now(),
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    if update_manifest:
+        manifest["contentForgeAuditPath"] = str(report_path)
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return report
+
+
 def _audit_asset(
     factory: CampaignFactory,
     *,

@@ -11,6 +11,7 @@ import struct
 import shutil
 import zlib
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1383,29 +1384,153 @@ def test_import_folder_rejects_raw_reel_review_batch_manifest(tmp_path: Path):
         cf.close()
 
 
-def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_import_folder_rejects_review_package_missing_contentforge_audit(tmp_path: Path):
     folder = tmp_path / "review_batch"
     folder.mkdir()
-    (folder / "clip.mp4").write_bytes(b"video")
-    (folder / "clip.png").write_bytes(b"png")
+    clip = folder / "clip.mp4"
+    overlay = folder / "clip.png"
+    clip.write_bytes(b"video")
+    overlay.write_bytes(b"png")
     raw_manifest = folder / "review_manifest.json"
     raw_manifest.write_text(json.dumps({
         "schema": "creator_os.reel_review_batch.v1",
         "outputDir": str(folder),
         "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
     }))
     (folder / "review_package.json").write_text(json.dumps({
         "schema": "reel_factory.review_batch_package.v1",
         "manifestPath": str(raw_manifest),
         "count": 1,
-        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
         "fileSha256": {
             str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
-            str((folder / "clip.mp4").resolve()): hashlib.sha256((folder / "clip.mp4").read_bytes()).hexdigest(),
-            str((folder / "clip.png").resolve()): hashlib.sha256((folder / "clip.png").read_bytes()).hexdigest(),
+            str(clip.resolve()): hashlib.sha256(clip.read_bytes()).hexdigest(),
+            str(overlay.resolve()): hashlib.sha256(overlay.read_bytes()).hexdigest(),
         },
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
+        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
+    }))
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="missing ContentForge audit path"):
+            cf.import_folder(folder, campaign_slug="batch", model_slug="model")
+    finally:
+        cf.close()
+
+
+def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.mp4"
+    variant = tmp_path / "variant.mp4"
+    source.write_bytes(b"source")
+    variant.write_bytes(b"variant")
+    manifest = tmp_path / "review_manifest.json"
+    manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(tmp_path),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [{"output": str(variant), "captionHash": "abc", "overlayPng": str(tmp_path / "overlay.png")}],
+    }))
+
+    @contextmanager
+    def fake_stage(_root, _source, _variants):
+        yield source, [variant]
+
+    captured: dict[str, Any] = {}
+
+    def fake_similarity(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "auditProfile": "campaign_factory_v1",
+            "overallVerdict": "pass",
+            "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+
+    report = contentforge_adapter.audit_review_batch_manifest(
+        contentforge_root=tmp_path / "contentforge",
+        manifest_path=manifest,
+        source_path=source,
+        contentforge_base_url="http://contentforge.test",
+    )
+
+    updated_manifest = json.loads(manifest.read_text())
+    audit_path = Path(updated_manifest["contentForgeAuditPath"])
+    assert audit_path.exists()
+    assert report["auditProfile"] == "campaign_factory_v1"
+    assert report["variants"] == 1
+    assert report["httpOk"] == 1
+    assert report["verdictCounts"]["pass"] == 1
+    assert captured["audit_profile"] == "campaign_factory_v1"
+    assert captured["target_file"] == variant.name
+
+
+def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    folder = tmp_path / "review_batch"
+    folder.mkdir()
+    clip = folder / "clip.mp4"
+    overlay = folder / "clip.png"
+    audio_intent = folder / "clip.mp4.audio_intent.json"
+    lineage = folder / "clip.mp4.generated_asset_lineage.json"
+    readiness = folder / "_readiness.json"
+    contentforge_audit = folder / "contentforge_audit.json"
+    clip.write_bytes(b"video")
+    overlay.write_bytes(b"png")
+    audio_intent.write_text(json.dumps({
+        "schema": "audio_intent.v1",
+        "mode": "platform_auto_music",
+        "humanReviewRequired": True,
+    }))
+    lineage.write_text(json.dumps({
+        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "workflow": "reel_factory_review_batch",
+        "captionPlacementDecision": {
+            "status": "passed",
+            "selectedLane": "top",
+            "scores": {"top": 0.91, "center": 0.42, "bottom": 0.73},
+            "components": {"top": {}, "center": {}, "bottom": {}},
+            "sampleCount": 3,
+        },
+    }))
+    readiness.write_text(json.dumps({"summary": {"total": 1, "ready": 1, "warn": 0, "notReady": 0}}))
+    contentforge_audit.write_text(json.dumps({
+        "auditProfile": "campaign_factory_v1",
+        "variants": 1,
+        "httpOk": 1,
+        "verdictCounts": {"pass": 1, "fail": 0},
+        "overallVerdict": "pass",
+        "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+        "blockingCodes": [],
+    }))
+    raw_manifest = folder / "review_manifest.json"
+    raw_manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(folder),
+        "captionPlacementPolicy": "focal-safe",
+        "contentForgeAuditPath": str(contentforge_audit),
+        "font": "Instagram Sans Condensed Bold",
+        "renderer": "reel_factory.caption_render",
+        "style": "ig",
+        "captionSelection": {"source": "caption bank"},
+        "backgroundPlate": False,
+        "rows": [{
+            "output": str(clip),
+            "captionHash": "abc",
+            "captionText": "caption bank hook",
+            "sourceBanks": ["stacey_hooks"],
+            "selectedBand": "top",
+            "captionPlacementPolicy": "focal-safe",
+            "overlayPng": str(overlay),
+        }],
+    }))
+    hashed_paths = [raw_manifest, contentforge_audit, readiness, clip, overlay, audio_intent, lineage]
+    (folder / "review_package.json").write_text(json.dumps({
+        "schema": "reel_factory.review_batch_package.v1",
+        "manifestPath": str(raw_manifest),
+        "count": 1,
+        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+        "fileSha256": {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest() for path in hashed_paths},
+        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
     }))
 
     def fake_guard(*_args, **_kwargs):
@@ -1416,6 +1541,26 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
     try:
         result = cf.import_folder(folder, campaign_slug="batch", model_slug="model")
         assert any(asset["filename"].endswith(".mp4") for asset in result["imported"])
+        assert result["renderedCount"] == 1
+        rendered = cf.conn.execute("SELECT * FROM rendered_assets").fetchone()
+        assert rendered["caption_hash"] == "abc"
+        assert rendered["caption"] == "caption bank hook"
+        assert rendered["recipe"] == "reel_factory_review_package"
+        assert rendered["audit_status"] == "approved_candidate"
+        assert rendered["review_state"] == "review_ready"
+        generation = json.loads(rendered["caption_generation_json"])
+        assert generation["audioIntent"]["mode"] == "platform_auto_music"
+        assert generation["generatedAssetLineage"]["workflow"] == "reel_factory_review_batch"
+        audit = cf.conn.execute("SELECT * FROM audit_reports WHERE rendered_asset_id = ?", (rendered["id"],)).fetchone()
+        assert audit["overall_verdict"] == "pass"
+        assert audit["report_path"] == str(contentforge_audit)
+        assert cf.export_manifest(campaign_slug="batch")["assets"] == []
+        cf.review_rendered_asset(rendered["id"], decision="approved", notes="certification smoke")
+        exported = cf.export_manifest(campaign_slug="batch")
+        assert len(exported["assets"]) == 1
+        assert exported["assets"][0]["renderedAssetId"] == rendered["id"]
+        assert exported["assets"][0]["contentForgeRunId"] == "reel_review_batch"
+        assert exported["assets"][0]["auditSummary"]["overallVerdict"] == "pass"
     finally:
         cf.close()
 
@@ -1425,11 +1570,20 @@ def test_import_folder_rejects_self_attested_reel_review_package(tmp_path: Path)
     folder.mkdir()
     (folder / "clip.mp4").write_bytes(b"video")
     (folder / "clip.png").write_bytes(b"png")
+    contentforge_audit = folder / "contentforge_audit.json"
+    contentforge_audit.write_text(json.dumps({
+        "auditProfile": "campaign_factory_v1",
+        "variants": 1,
+        "httpOk": 1,
+        "verdictCounts": {"pass": 1, "fail": 0},
+        "overallVerdict": "pass",
+    }))
     raw_manifest = folder / "review_manifest.json"
     raw_manifest.write_text(json.dumps({
         "schema": "creator_os.reel_review_batch.v1",
         "outputDir": str(folder),
         "captionPlacementPolicy": "focal-safe",
+        "contentForgeAuditPath": str(contentforge_audit),
         "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
     }))
     (folder / "review_package.json").write_text(json.dumps({
@@ -1489,13 +1643,22 @@ def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, mo
     folder.mkdir()
     clip = folder / "clip.mp4"
     overlay = folder / "clip.png"
+    contentforge_audit = folder / "contentforge_audit.json"
     clip.write_bytes(b"video")
     overlay.write_bytes(b"png")
+    contentforge_audit.write_text(json.dumps({
+        "auditProfile": "campaign_factory_v1",
+        "variants": 1,
+        "httpOk": 1,
+        "verdictCounts": {"pass": 1, "fail": 0},
+        "overallVerdict": "pass",
+    }))
     raw_manifest = folder / "review_manifest.json"
     raw_manifest.write_text(json.dumps({
         "schema": "creator_os.reel_review_batch.v1",
         "outputDir": str(folder),
         "captionPlacementPolicy": "focal-safe",
+        "contentForgeAuditPath": str(contentforge_audit),
         "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
     }))
     stale_hash = hashlib.sha256(b"old video").hexdigest()
@@ -1506,6 +1669,7 @@ def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, mo
         "guard": {"status": "ready", "blockingReasons": [], "count": 1},
         "fileSha256": {
             str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
+            str(contentforge_audit.resolve()): hashlib.sha256(contentforge_audit.read_bytes()).hexdigest(),
             str(clip.resolve()): stale_hash,
             str(overlay.resolve()): hashlib.sha256(overlay.read_bytes()).hexdigest(),
         },
