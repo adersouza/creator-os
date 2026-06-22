@@ -18,6 +18,7 @@ from reel_pipeline import (
     DEFAULT_CAPTION_FONT,
     Manifest,
     Recipe,
+    apply_creator_style_preset,
     build_avconvert_finalize_cmd,
     build_phone_finalize_cmd,
     build_single_job_enqueue_cmd,
@@ -63,6 +64,59 @@ class ReelPipelineTests(unittest.TestCase):
         bold, bold_decision = resolve_caption_font_policy(INSTAGRAM_BOLD_CAPTION_FONT, "meme")
         self.assertEqual(bold, INSTAGRAM_BOLD_CAPTION_FONT)
         self.assertEqual(bold_decision["reason"], "bold_allowed_for_meme_style")
+
+    def test_stacey_static_center_preset_applies_to_larissa_and_stacey_only(self):
+        larissa = Namespace(
+            creator_style_preset="auto",
+            caption_mix="Larissa",
+            band=None,
+            style=None,
+            font=None,
+            color=None,
+        )
+        self.assertEqual(apply_creator_style_preset(larissa), "stacey_static_center")
+        self.assertEqual(larissa.band, "center")
+        self.assertEqual(larissa.style, "ig")
+        self.assertEqual(larissa.font, DEFAULT_CAPTION_FONT)
+        self.assertEqual(larissa.color, "light")
+
+        stacey = Namespace(
+            creator_style_preset="auto",
+            caption_mix="Stacey",
+            band=None,
+            style=None,
+            font=None,
+            color=None,
+        )
+        self.assertEqual(apply_creator_style_preset(stacey), "stacey_static_center")
+        self.assertEqual(stacey.band, "center")
+
+        lola = Namespace(
+            creator_style_preset="auto",
+            caption_mix="Lola",
+            band=None,
+            style=None,
+            font=None,
+            color=None,
+        )
+        self.assertIsNone(apply_creator_style_preset(lola))
+        self.assertIsNone(lola.band)
+
+    def test_stacey_static_center_preset_does_not_override_explicit_flags(self):
+        args = Namespace(
+            creator_style_preset="stacey_static_center",
+            caption_mix="Lola",
+            band="top",
+            style="meme",
+            font="Instagram Sans Condensed Bold",
+            color="dark",
+        )
+
+        self.assertEqual(apply_creator_style_preset(args), "stacey_static_center")
+        self.assertEqual(args.band, "top")
+        self.assertEqual(args.style, "meme")
+        self.assertEqual(args.font, "Instagram Sans Condensed Bold")
+        self.assertEqual(args.color, "dark")
 
     def test_caption_set_reads_timed_json(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -29,4 +29,30 @@ Do the smallest useful version:
 4. Block live publishing until native audio is verified by ThreadsDashboard preflight.
 5. Fall back to notification/manual publishing when a platform audio cannot be attached through API.
 
-Do not burn platform/trending audio into rendered videos unless the operator explicitly provides licensed local audio.
+Do not burn platform/trending audio into rendered videos. For automated IG-login
+publishing, use explicitly licensed local audio only: download or generate the
+track, keep a proof sidecar in `python_packages/reel_factory/03_audio_library`,
+mux it into the MP4, and emit `licensed_music` / `embedded_licensed_audio`
+evidence.
+
+## Local Licensed Audio
+
+Pixabay Music is a good manual source, but its music downloads are not exposed
+through the official Pixabay image/video API. Download selected tracks manually
+from the track page, then import the local file or URL with:
+
+```bash
+uv run --package reel-factory python python_packages/reel_factory/audio_library_import.py \
+  --root python_packages/reel_factory \
+  --url "https://example.com/track.mp3" \
+  --title "Track Title" \
+  --artist "Artist" \
+  --source pixabay \
+  --license "Pixabay Content License" \
+  --license-url "https://pixabay.com/service/license-summary/" \
+  --page-url "https://pixabay.com/music/..." \
+  --tag moody --tag reel
+```
+
+Other direct-download royalty-free libraries work the same way. The first local
+seed uses Incompetech CC BY 4.0 tracks, which require attribution tracking.
