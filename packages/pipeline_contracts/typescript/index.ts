@@ -57,6 +57,7 @@ export const APPROVED_BUT_NOT_PUBLISHABLE_REASONS = [
 	"missing_caption_outcome_context",
 	"missing_content_fingerprint",
 	"missing_audio",
+	"embedded_audio_missing",
 	"readiness_failed",
 	"not_approved",
 	"quarantined_asset",
