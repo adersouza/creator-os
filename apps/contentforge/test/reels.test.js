@@ -47,6 +47,18 @@ test("profile validation catches low resolution and bad aspect ratio", function 
   assert.equal(result.checks.find((c) => c.id === "resolution").status, "fail");
 });
 
+test("feed and square profiles validate native Instagram aspects", function () {
+  var feed = validateMediaInfo({ ...baseMedia, width: 1080, height: 1350 }, "feedPortrait");
+  assert.equal(feed.profile.id, "feedPortrait");
+  assert.equal(feed.checks.find((c) => c.id === "aspect").status, "pass");
+  assert.equal(feed.checks.find((c) => c.id === "aspect").expected, "4:5");
+
+  var square = validateMediaInfo({ ...baseMedia, width: 1080, height: 1080 }, "square");
+  assert.equal(square.profile.id, "square");
+  assert.equal(square.checks.find((c) => c.id === "aspect").status, "pass");
+  assert.equal(square.checks.find((c) => c.id === "aspect").expected, "1:1");
+});
+
 test("deleteRun rejects invalid run ids", async function () {
   await assert.rejects(() => deleteRun("../bad"), /Invalid runId/);
 });

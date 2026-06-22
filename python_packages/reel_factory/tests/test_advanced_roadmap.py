@@ -2027,6 +2027,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertTrue(scored["captionCollision"])
         self.assertIn("caption_safe_zone_collision", scored["warnings"])
 
+    def test_feed_safe_zone_is_less_reel_ui_constrained(self):
+        caption_box = {"x": 100, "y": 1500, "w": 700, "h": 220}
+        reels = score_safe_zone(
+            width=1080,
+            height=1920,
+            platform="instagram_reels",
+            caption_box=caption_box,
+        )
+        feed = score_safe_zone(
+            width=1080,
+            height=1920,
+            platform="instagram_feed",
+            caption_box=caption_box,
+        )
+
+        self.assertIn("caption_safe_zone_collision", reels["warnings"])
+        self.assertNotIn("caption_safe_zone_collision", feed["warnings"])
+
     def test_readiness_warns_for_missing_audio_intent_and_lineage(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2065,6 +2083,39 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("non_preferred_ratio_4x5", row["warnings"])
             self.assertIn("resolution_below_platform_minimum", row["warnings"])
             self.assertIn("tiktok_text_watermark_review", row["warnings"])
+
+    def test_readiness_accepts_feed_and_square_surface_ratios(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clip_dir = root / "02_processed" / "clip_001"
+            clip_dir.mkdir(parents=True)
+            feed_out = clip_dir / "clip_001_h00_v01_original_light_4x5_deadbeef.mp4"
+            square_out = clip_dir / "clip_001_h00_v01_original_light_1x1_deadbeef.mp4"
+            feed_out.write_bytes(b"fake")
+            square_out.write_bytes(b"fake")
+
+            feed = evaluate_output(
+                root=root,
+                clip="clip_001",
+                output_path=feed_out,
+                platform="instagram_feed",
+                dimensions=(1080, 1350),
+            )
+            square = evaluate_output(
+                root=root,
+                clip="clip_001",
+                output_path=square_out,
+                platform="instagram_square",
+                dimensions=(1080, 1080),
+            )
+
+            self.assertEqual(feed["targetRatio"], "4:5")
+            self.assertEqual(feed["surface"], "instagram_feed")
+            self.assertNotIn("non_preferred_ratio_4x5", feed["warnings"])
+            self.assertNotIn("missing_audio_intent", feed["warnings"])
+            self.assertEqual(square["targetRatio"], "1:1")
+            self.assertEqual(square["surface"], "instagram_square")
+            self.assertNotIn("non_preferred_ratio_1x1", square["warnings"])
 
     def test_readiness_cli_writes_report_for_clip(self):
         with tempfile.TemporaryDirectory() as tmp:

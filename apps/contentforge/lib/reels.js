@@ -64,14 +64,15 @@ export function validateMediaInfo(mediaInfo, profileId) {
   var audioCodec = mediaInfo.audioCodec || "none";
   var audioBitrate = mediaInfo.audioBitrate || 0;
   var formatName = mediaInfo.formatName || "";
+  var aspectLabel = profile.aspectLabel || "9:16";
 
   checks.push(check(
     "aspect",
     "Aspect ratio",
     aspectDelta <= profile.aspectTolerance ? "pass" : "warn",
     width + "x" + height,
-    "9:16",
-    aspectDelta <= profile.aspectTolerance ? "Vertical framing looks right" : "Preview/crop to 9:16"
+    aspectLabel,
+    aspectDelta <= profile.aspectTolerance ? "Framing matches profile" : "Preview/crop to " + aspectLabel
   ));
 
   checks.push(check(
