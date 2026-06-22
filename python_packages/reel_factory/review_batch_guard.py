@@ -21,25 +21,29 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _contentforge_passed(path: Path) -> bool:
-    payload = _load_json(path)
-    if not payload:
-        return False
+def _contentforge_payload(path: Path) -> dict[str, Any] | None:
+    return _load_json(path)
+
+
+def _contentforge_count(payload: dict[str, Any]) -> int:
+    return int(payload.get("variants") or payload.get("groups") or 0)
+
+
+def _contentforge_passed(payload: dict[str, Any]) -> bool:
     verdicts = payload.get("verdictCounts") or {}
     if int(verdicts.get("fail") or 0) > 0:
         return False
     if payload.get("blockingCodes"):
         return False
-    groups = int(payload.get("groups") or payload.get("variants") or 0)
+    groups = _contentforge_count(payload)
     http_ok = int(payload.get("httpOk") or 0)
-    if groups and http_ok < groups:
+    if groups <= 0 or http_ok < groups:
         return False
     return int(verdicts.get("pass") or 0) > 0 or groups > 0
 
 
-def _contentforge_profile(path: Path) -> str | None:
-    payload = _load_json(path)
-    return str(payload.get("profile") or payload.get("auditProfile") or "") if payload else None
+def _contentforge_profile(payload: dict[str, Any]) -> str:
+    return str(payload.get("profile") or payload.get("auditProfile") or "")
 
 
 def _lineage_path(output: Path) -> Path:
@@ -77,10 +81,20 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
         contentforge_path = manifest_path.parent / contentforge_path
     if not manifest.get("contentForgeAuditPath") or not contentforge_path.exists():
         blocking.append("missing_contentforge_audit")
-    elif _contentforge_profile(contentforge_path) != "campaign_factory_v1":
-        blocking.append("contentforge_audit_not_campaign_profile")
-    elif not _contentforge_passed(contentforge_path):
-        blocking.append("contentforge_audit_not_passing")
+    else:
+        contentforge = _contentforge_payload(contentforge_path)
+        if not contentforge:
+            blocking.append("contentforge_audit_not_passing")
+        elif _contentforge_profile(contentforge) != "campaign_factory_v1":
+            blocking.append("contentforge_audit_not_campaign_profile")
+        elif _contentforge_count(contentforge) != len(rows):
+            blocking.append("contentforge_audit_count_mismatch")
+        elif int(contentforge.get("httpOk") or 0) != len(rows):
+            blocking.append("contentforge_audit_count_mismatch")
+        elif int((contentforge.get("verdictCounts") or {}).get("pass") or 0) != len(rows):
+            blocking.append("contentforge_audit_count_mismatch")
+        elif not _contentforge_passed(contentforge):
+            blocking.append("contentforge_audit_not_passing")
 
     readiness = _load_json(_readiness_path(output_dir))
     summary = (readiness or {}).get("summary") or {}

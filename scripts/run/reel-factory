@@ -14,6 +14,7 @@ Commands:
   reel-pipeline    Run reel_pipeline.py
   caption-bank     Run caption_bank.py
   next-batch       Run next_batch.py
+  review-guard     Validate a review batch manifest
 EOF
 }
 
@@ -38,6 +39,9 @@ case "$command" in
     ;;
   next-batch)
     exec uv run --package reel-factory python "$REEL_ROOT/next_batch.py" "$@"
+    ;;
+  review-guard)
+    exec uv run --package reel-factory python "$REEL_ROOT/review_batch_guard.py" "$@"
     ;;
   -h|--help|help)
     usage
