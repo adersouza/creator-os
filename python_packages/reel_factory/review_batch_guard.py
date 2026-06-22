@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Fail-closed guard for Reel Factory review batches."""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+from audio_intent import read_audio_intent
+
+
+FOCAL_SAFE = {"focal-safe", "focal_safe_v1"}
+
+
+def _load_json(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _contentforge_passed(path: Path) -> bool:
+    payload = _load_json(path)
+    if not payload:
+        return False
+    verdicts = payload.get("verdictCounts") or {}
+    if int(verdicts.get("fail") or 0) > 0:
+        return False
+    if payload.get("blockingCodes"):
+        return False
+    groups = int(payload.get("groups") or payload.get("variants") or 0)
+    http_ok = int(payload.get("httpOk") or 0)
+    if groups and http_ok < groups:
+        return False
+    return int(verdicts.get("pass") or 0) > 0 or groups > 0
+
+
+def _contentforge_profile(path: Path) -> str | None:
+    payload = _load_json(path)
+    return str(payload.get("profile") or payload.get("auditProfile") or "") if payload else None
+
+
+def _lineage_path(output: Path) -> Path:
+    return output.with_suffix(output.suffix + ".generated_asset_lineage.json")
+
+
+def _readiness_path(output_dir: Path) -> Path:
+    return output_dir / "_readiness.json"
+
+
+def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
+    manifest_path = Path(manifest_path).resolve()
+    manifest = _load_json(manifest_path)
+    blocking: list[str] = []
+    if not manifest:
+        return {"schema": "reel_factory.review_batch_guard.v1", "status": "blocked", "blockingReasons": ["missing_or_invalid_manifest"]}
+
+    rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
+    output_dir = Path(str(manifest.get("outputDir") or manifest_path.parent))
+    if not rows:
+        blocking.append("manifest_has_no_rows")
+    if manifest.get("backgroundPlate") is not False:
+        blocking.append("background_plate_enabled")
+    if str(manifest.get("font") or "").lower().find("instagram sans condensed") < 0:
+        blocking.append("font_not_instagram_sans_condensed")
+    if manifest.get("renderer") != "reel_factory.caption_render" or manifest.get("style") != "ig":
+        blocking.append("not_reel_factory_instagram_renderer")
+    if str((manifest.get("captionSelection") or {}).get("source") or "").lower().find("caption bank") < 0:
+        blocking.append("not_from_caption_bank")
+    if str(manifest.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
+        blocking.append("caption_placement_not_focal_safe")
+
+    contentforge_path = Path(str(manifest.get("contentForgeAuditPath") or ""))
+    if not contentforge_path.is_absolute():
+        contentforge_path = manifest_path.parent / contentforge_path
+    if not manifest.get("contentForgeAuditPath") or not contentforge_path.exists():
+        blocking.append("missing_contentforge_audit")
+    elif _contentforge_profile(contentforge_path) != "campaign_factory_v1":
+        blocking.append("contentforge_audit_not_campaign_profile")
+    elif not _contentforge_passed(contentforge_path):
+        blocking.append("contentforge_audit_not_passing")
+
+    readiness = _load_json(_readiness_path(output_dir))
+    summary = (readiness or {}).get("summary") or {}
+    if not readiness:
+        blocking.append("missing_readiness_report")
+    elif summary.get("total") != len(rows) or summary.get("ready") != len(rows) or summary.get("warn") or summary.get("not_ready"):
+        blocking.append("readiness_not_all_ready")
+
+    for row in rows:
+        output = Path(str(row.get("output") or ""))
+        overlay = Path(str(row.get("overlayPng") or ""))
+        if not output.exists():
+            blocking.append("missing_output")
+        if not overlay.exists():
+            blocking.append("missing_overlay")
+        if not row.get("captionText") or not row.get("captionHash") or not row.get("sourceBanks"):
+            blocking.append("caption_bank_lineage_missing")
+        if not row.get("selectedBand") or str(row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
+            blocking.append("caption_placement_not_focal_safe")
+        if not read_audio_intent(output):
+            blocking.append("missing_audio_intent")
+        lineage = _load_json(_lineage_path(output))
+        if not lineage:
+            blocking.append("missing_generated_asset_lineage")
+        elif str(lineage.get("captionPlacementPolicy") or row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
+            blocking.append("caption_placement_not_focal_safe")
+
+    reasons = sorted(set(blocking))
+    return {
+        "schema": "reel_factory.review_batch_guard.v1",
+        "manifestPath": str(manifest_path),
+        "status": "ready" if not reasons else "blocked",
+        "blockingReasons": reasons,
+        "count": len(rows),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("manifest")
+    args = parser.parse_args()
+    result = validate_review_batch(args.manifest)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ready" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
