@@ -260,7 +260,7 @@ def _local_caption_strings(reel_root: Path) -> Iterable[tuple[str, str]]:
                 continue
             try:
                 payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 continue
             yield from _walk_producer_text(payload, path, "")
 
