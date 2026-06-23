@@ -50,6 +50,7 @@ py-modules = [
   "campaign_store",
   "caption_bank",
   "caption_generation_log",
+  "caption_intake",
   "caption_render",
   "caption_scene_fit",
   "deprecated_generators",
