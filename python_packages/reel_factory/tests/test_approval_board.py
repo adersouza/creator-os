@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from approval_board import HARD_REJECT_REASONS, build_approval_board
+from approval_board import HARD_REJECT_REASONS, build_approval_board, promote_approval_decisions
 
 
 class ApprovalBoardTests(unittest.TestCase):
@@ -61,6 +61,50 @@ class ApprovalBoardTests(unittest.TestCase):
         self.assertEqual(rows[0]["stem"], "ref07_stacey_faithful")
         self.assertEqual(rows[0]["selected_lane"], "")
         self.assertEqual(rows[0]["timed"], str(timed))
+
+    def test_promotes_approved_selected_lane_to_one_folder(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        selected_source = root / "normal.mp4"
+        selected_source.write_bytes(b"video")
+        decisions = root / "approval_decisions.json"
+        decisions.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.approval_decisions.v1",
+                    "items": [
+                        {
+                            "id": 2,
+                            "stem": "ref02_stacey",
+                            "source_board_id": 4,
+                            "status": "approved",
+                            "selected_lane": "normal",
+                            "notes": "good",
+                            "image": str(root / "source.png"),
+                            "lanes": {"normal": {"path": str(selected_source), "decision": "pending", "notes": ""}},
+                        },
+                        {
+                            "id": 3,
+                            "stem": "ref03_stacey",
+                            "status": "rejected",
+                            "selected_lane": "timed",
+                            "lanes": {"timed": {"path": str(root / "timed.mp4")}},
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = promote_approval_decisions(decisions)
+        manifest = json.loads(Path(result["manifestPath"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(manifest["items"][0]["selectedLane"], "normal")
+        self.assertEqual(manifest["items"][0]["notes"], "good")
+        self.assertTrue(Path(manifest["items"][0]["outputPath"]).exists())
+        self.assertEqual(Path(manifest["items"][0]["outputPath"]).read_bytes(), b"video")
 
 
 if __name__ == "__main__":
