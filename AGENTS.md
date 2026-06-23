@@ -110,6 +110,14 @@ Do not relearn or invent these each task. Read this section, then the named file
     "guess somewhere" outcome.
   - An asset missing a valid `captionPlacementDecision` is not review-ready —
     Campaign Factory must reject it or keep it in review.
+- **Stacey/Larissa Instagram reel style is a special preset, not generic
+  safe-zone placement.** The observed account format is static/near-static
+  selfie imagery with centered engagement-bait overlay text. For
+  Stacey/Larissa caption-bank renders, use Reel Factory's
+  `--creator-style-preset stacey_static_center` behavior: static image MP4s stay
+  locked still, overlay text defaults to centered, Instagram Sans Condensed,
+  white text with black stroke/shadow, no background plate. Do not move these
+  hooks to the bottom just because safe-zone scoring slightly prefers it.
 - **Overlay text comes from the caption bank, never freehand and never the
   Higgsfield prompt text.** Source: `python_packages/reel_factory/caption_banks/`
   (`banks.json` = hooks with `caption_hash` + bank membership, `mixes.json` =

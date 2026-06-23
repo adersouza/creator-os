@@ -82,6 +82,29 @@ DEFAULT_CAPTION_FONT = "Instagram Sans Condensed"
 INSTAGRAM_BOLD_CAPTION_FONT = "Instagram Sans Condensed Bold"
 INSTAGRAM_CAPTION_FONTS = {DEFAULT_CAPTION_FONT, INSTAGRAM_BOLD_CAPTION_FONT}
 BOLD_CAPTION_STYLES = {"meme"}
+CREATOR_STYLE_PRESETS = {"auto", "none", "stacey_static_center"}
+
+
+def apply_creator_style_preset(args) -> str | None:
+    preset = getattr(args, "creator_style_preset", "auto") or "auto"
+    if preset == "auto":
+        preset = "stacey_static_center" if args.caption_mix in {"Larissa", "Stacey"} else "none"
+    if preset == "none":
+        return None
+    if preset != "stacey_static_center":
+        raise ValueError(f"unknown creator style preset: {preset}")
+
+    # ponytail: this is the whole Stacey/Larissa reel format; split presets only after another account needs different defaults.
+    if args.band is None:
+        args.band = "center"
+    if args.style is None:
+        args.style = "ig"
+    if args.font is None:
+        args.font = DEFAULT_CAPTION_FONT
+    if args.color is None:
+        args.color = "light"
+    args._creator_style_preset_applied = preset
+    return preset
 
 
 def resolve_caption_font_policy(requested_font: str | None, caption_style: str) -> tuple[str, dict]:
@@ -1283,6 +1306,15 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             "selectedLane": caption_position,
         },
     }
+    write_caption_lineage_sidecar(
+        out_path,
+        placement_lineage,
+        caption_text=caption_for_manifest,
+        caption_hash=caption_hash,
+        render_recipe=recipe.name,
+        source_clip=src.stem,
+        rendered_output=str(out_path),
+    )
     caption_context = build_caption_outcome_context(
         caption_text=caption_for_manifest,
         caption_lineage=placement_lineage,
@@ -2146,6 +2178,8 @@ def main():
                     help="require an explicit --account scope so production variants are account-aware")
     ap.add_argument("--caption-mix", choices=["Larissa", "Stacey", "Lola"], default=None,
                     help="select hooks from a creator-weighted caption bank mix")
+    ap.add_argument("--creator-style-preset", choices=sorted(CREATOR_STYLE_PRESETS), default="auto",
+                    help="creator/account visual defaults; auto centers Stacey/Larissa static-style captions")
     ap.add_argument("--caption-banks", nargs="+", default=None,
                     help="select hooks from explicit caption bank names instead of a creator mix")
     ap.add_argument("--caption-fit", choices=["auto", "off"], default="auto",
@@ -2246,6 +2280,9 @@ def main():
             args.font = DEFAULT_CAPTION_FONT
         if args.color is None:
             args.color = "light"
+    applied_preset = apply_creator_style_preset(args)
+    if applied_preset:
+        log.info(f"creator style preset applied: {applied_preset}")
     if args.caption_renderer == "pango":
         reexec_with_homebrew_gi_env_if_needed()
     if args.watch:
