@@ -438,7 +438,7 @@ def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
     if not isinstance(caption, dict):
         rec_params["_static_caption_centered_policy"] = "v2"
     else:
-        rec_params["_timed_caption_centered_policy"] = "v1"
+        rec_params["_timed_caption_centered_policy"] = "v2"
     if caption_placement_policy != "legacy":
         rec_params["_caption_placement_policy"] = "focal_safe_v1"
     if placement_mode != "source":
@@ -487,10 +487,6 @@ def centered_static_caption_band(
 def timed_caption_band(base_band: str, segment_index: int, summary: PlacementSummary) -> str:
     if base_band != "lower_center":
         return base_band
-    decision = summary.metadata.get("captionPlacementDecision") if isinstance(summary.metadata, dict) else None
-    rejected = {str(zone) for zone in (decision or {}).get("rejectedLanes", [])} if isinstance(decision, dict) else set()
-    if segment_index % 2 and "center" not in rejected:
-        return "center"
     return "lower_center" if segment_index % 2 == 0 else "lower_center_alt"
 
 

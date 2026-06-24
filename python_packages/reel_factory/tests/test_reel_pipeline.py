@@ -209,13 +209,13 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertGreater(lower_center_y, center_y)
         self.assertGreater(lower_center_alt_y, lower_center_y)
 
-    def test_stacey_timed_caption_bands_stay_lower_center_when_center_rejected(self):
+    def test_stacey_timed_caption_bands_stay_lower_center_even_when_center_available(self):
         summary = PlacementSummary(
             "bottom",
-            {"top": 140.0, "center": 170.0, "bottom": 42.0},
+            {"top": 140.0, "center": 10.0, "bottom": 42.0},
             3,
             "bottom selected",
-            {"captionPlacementDecision": {"rejectedLanes": ["center"]}},
+            {"captionPlacementDecision": {"rejectedLanes": []}},
         )
 
         self.assertEqual(timed_caption_band("lower_center", 0, summary), "lower_center")

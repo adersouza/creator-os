@@ -112,12 +112,15 @@ Do not relearn or invent these each task. Read this section, then the named file
     Campaign Factory must reject it or keep it in review.
 - **Stacey/Larissa Instagram reel style is a special preset, not generic
   safe-zone placement.** The observed account format is static/near-static
-  selfie imagery with centered engagement-bait overlay text. For
-  Stacey/Larissa caption-bank renders, use Reel Factory's
+  selfie imagery with engagement-bait overlay text near the visual center but
+  below the face. For Stacey/Larissa caption-bank renders, use Reel Factory's
   `--creator-style-preset stacey_static_center` behavior: static image MP4s stay
-  locked still, overlay text defaults to centered, Instagram Sans Condensed,
-  white text with black stroke/shadow, no background plate. Do not move these
-  hooks to the bottom just because safe-zone scoring slightly prefers it.
+  locked still, overlay text defaults to `lower_center`, Instagram Sans
+  Condensed, white text with black stroke/shadow, no background plate. Timed
+  captions alternate only inside the lower-center family
+  (`lower_center`/`lower_center_alt`). Never place a Stacey/Larissa overlay on
+  the face; if the lower-center family cannot fit, ship the clean MP4 and put
+  the hook in the post caption.
 - **Overlay text comes from the caption bank, never freehand and never the
   Higgsfield prompt text.** Source: `python_packages/reel_factory/caption_banks/`
   (`banks.json` = hooks with `caption_hash` + bank membership, `mixes.json` =

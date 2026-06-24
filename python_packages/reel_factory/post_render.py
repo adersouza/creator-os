@@ -71,7 +71,7 @@ def _probe_duration(mp4: Path) -> float:
 
 
 def _caption_kind(recipe: str, caption_text: str) -> str:
-    if recipe == "v00_passthrough":
+    if not caption_text.strip():
         return "clean"
     try:
         if isinstance(json.loads(caption_text), dict):
