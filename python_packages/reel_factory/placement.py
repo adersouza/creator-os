@@ -696,6 +696,11 @@ async def resolve_segment_bands(
             previous_band = band
             resolved.append(seg)
             continue
+        if source_band in {"lower_center", "lower_center_alt"}:
+            band = "lower_center" if idx % 2 == 0 else "lower_center_alt"
+            previous_band = band
+            resolved.append(CaptionSegmentPlan(seg.png_path, seg.start, seg.end, seg.text, band, False))
+            continue
 
         seg_end = seg.end if seg.end is not None else max(seg.start, effective_end - recipe.trim_head)
         seg_duration = max(0.0, seg_end - seg.start)

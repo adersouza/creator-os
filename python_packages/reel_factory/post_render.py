@@ -70,6 +70,30 @@ def _probe_duration(mp4: Path) -> float:
         return 0.0
 
 
+def _caption_kind(recipe: str, caption_text: str) -> str:
+    if recipe == "v00_passthrough":
+        return "clean"
+    try:
+        if isinstance(json.loads(caption_text), dict):
+            return "timed"
+    except Exception:
+        pass
+    return "caption"
+
+
+def _short_caption(text: str, limit: int = 32) -> str:
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict) and isinstance(payload.get("segments"), list):
+            text = " / ".join(str(seg.get("text") or "") for seg in payload["segments"] if isinstance(seg, dict))
+    except Exception:
+        text = text.replace("\n", " / ")
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 def write_csv_index(out_dir: Path) -> Path | None:
     """Write _index.csv listing every MP4 in out_dir with its metadata."""
     mp4s = sorted(out_dir.glob("*.mp4"))
@@ -128,9 +152,12 @@ def write_contact_sheet(out_dir: Path,
             recipe = "_".join(parts[h_pos + 1:color_pos])
         except StopIteration:
             recipe = ""
-        review_state = meta.get(mp4.name, {}).get("review_state", "draft")
+        m = meta.get(mp4.name, {})
+        review_state = m.get("review_state", "draft")
+        kind = _caption_kind(recipe, str(m.get("caption_text") or ""))
+        caption = "no overlay" if kind == "clean" else _short_caption(str(m.get("caption_text") or ""))
         label = (
-            f"h{aux.get('hook_idx', '?'):02d} {recipe} {review_state}"
+            f"h{aux.get('hook_idx', '?'):02d} {kind} {recipe}\n{caption or review_state}"
             if isinstance(aux.get('hook_idx'), int) else mp4.stem[:24]
         )
 
@@ -152,8 +179,8 @@ def write_contact_sheet(out_dir: Path,
         frame_img = Image.open(frame).convert("RGB")
         canvas.paste(frame_img, (0, bar_h))
         draw = ImageDraw.Draw(canvas)
-        bbox = draw.textbbox((0, 0), label, font=font)
-        draw.text(((thumb_w - (bbox[2] - bbox[0])) // 2, 14), label, fill=(255, 255, 255), font=font)
+        bbox = draw.multiline_textbbox((0, 0), label, font=font, spacing=2)
+        draw.multiline_text(((thumb_w - (bbox[2] - bbox[0])) // 2, 8), label, fill=(255, 255, 255), font=font, align="center", spacing=2)
         canvas.save(thumb)
         cells.append(thumb)
 

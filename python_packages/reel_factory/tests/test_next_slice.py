@@ -120,6 +120,28 @@ class NextSliceTests(unittest.TestCase):
             ))
             self.assertEqual(resolved[0].band, "bottom")
 
+    def test_segment_mode_keeps_stacey_timed_captions_lower_center(self):
+        async def fake_probe(*args, **kwargs):
+            raise AssertionError("lower-center timed captions should not re-probe into top/bottom lanes")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plans = [
+                CaptionSegmentPlan(Path(tmp) / "a.png", 0.0, 2.0, "first", "lower_center"),
+                CaptionSegmentPlan(Path(tmp) / "b.png", 2.0, 4.0, "second", "lower_center_alt"),
+                CaptionSegmentPlan(Path(tmp) / "c.png", 4.0, None, "third", "lower_center"),
+            ]
+            resolved = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="lower_center",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=6.0,
+                probe_func=fake_probe,
+            ))
+            self.assertEqual([s.band for s in resolved], ["lower_center", "lower_center_alt", "lower_center"])
+
     def test_segment_mode_uses_segment_probe_when_score_is_clear(self):
         calls = [
             PlacementSummary("right", {"side_right": 10.0, "side_left": 100.0}, 3, "right"),
