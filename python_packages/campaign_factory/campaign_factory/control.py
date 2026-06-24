@@ -57,14 +57,14 @@ def operator_control_check(
         "blockingCount": len(blocking),
         "warningCount": len(warnings),
         "commands": {
-            "startContentForge": f"{_run_script('contentforge')} dev -- -p 3100",
+            "startContentForge": f"{_run_script('contentforge')} dev -- -p 3002",
             "startCampaignFactory": f"{_run_script('campaign-factory')} serve --host 127.0.0.1 --port 8877",
             "exportReferencePatterns": f"{_run_script('reference-factory')} export-patterns --limit 300 --for-campaign-factory",
             "makeBatch": (
                 f"{_run_script('campaign-factory')} make-batch "
                 "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
                 "--format auto --variant-count 20 --reference-pattern auto "
-                "--contentforge-base-url http://127.0.0.1:3100 --dry-run-export --user-id <user_id>"
+                "--contentforge-base-url http://127.0.0.1:3002 --dry-run-export --user-id <user_id>"
             ),
         },
     }

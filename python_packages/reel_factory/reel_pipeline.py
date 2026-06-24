@@ -482,6 +482,37 @@ def centered_static_caption_band(
     return min(candidates, key=lambda zone: summary.scores[zone])
 
 
+def build_caption_placement_qc_row(
+    *,
+    source_clip: str,
+    placement_summary: PlacementSummary,
+    scored_lane: str,
+    render_band: str | None,
+    caption_style: str,
+    font: str,
+) -> dict:
+    """Record both the scorer lane and the band actually used by rendering."""
+    decision = (
+        placement_summary.metadata.get("captionPlacementDecision")
+        if isinstance(placement_summary.metadata, dict) else {}
+    )
+    final_band = render_band or scored_lane
+    return {
+        "schema": "reel_factory.caption_placement_qc_row.v2",
+        "sourceClip": source_clip,
+        "captionPlacementPolicy": placement_summary.metadata.get("captionPlacementPolicy", "legacy"),
+        "scoredLane": scored_lane,
+        "selectedLane": scored_lane,
+        "renderBand": final_band,
+        "finalBand": final_band,
+        "captionStyle": caption_style,
+        "font": font,
+        "scores": placement_summary.scores,
+        "decision": decision,
+        "reason": placement_summary.reason,
+    }
+
+
 def load_asset_prompt_set(path: Path | None) -> tuple[AssetPromptSet, Path] | None:
     if path is None:
         return None
@@ -1865,21 +1896,14 @@ async def amain(args):
             if pref_styles and style_ not in pref_styles:
                 style_ = pref_styles[0]
             auto_band_cache[src_hash] = (band_, style_, font_, placement_summary)
-            decision = (
-                placement_summary.metadata.get("captionPlacementDecision")
-                if isinstance(placement_summary.metadata, dict) else {}
+            qc_row = build_caption_placement_qc_row(
+                source_clip=video.stem,
+                placement_summary=placement_summary,
+                scored_lane=band_,
+                render_band=args.band,
+                caption_style=style_,
+                font=font_,
             )
-            qc_row = {
-                "schema": "reel_factory.caption_placement_qc_row.v1",
-                "sourceClip": video.stem,
-                "captionPlacementPolicy": placement_summary.metadata.get("captionPlacementPolicy", "legacy"),
-                "selectedLane": band_,
-                "captionStyle": style_,
-                "font": font_,
-                "scores": placement_summary.scores,
-                "decision": decision,
-                "reason": placement_summary.reason,
-            }
             placement_qc_rows.append(qc_row)
             if args.caption_placement_qc or args.placement_debug:
                 log.info("caption_placement_qc " + json.dumps(qc_row, ensure_ascii=False))

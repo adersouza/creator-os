@@ -89,6 +89,55 @@ def _resolve_batch_path(manifest_path: Path, value: Any) -> Path:
     return path.expanduser().resolve()
 
 
+def _normalize_review_audio_intent(payload: dict[str, Any], *, platform: str, surface: str) -> dict[str, Any]:
+    intent = dict(payload) if isinstance(payload, dict) else {}
+    status = str(intent.get("status") or "").strip().lower()
+    allowed_statuses = {
+        "not_required",
+        "recommended",
+        "needs_operator_selection",
+        "selected",
+        "attached",
+        "verified",
+        "skipped",
+        "blocked",
+        "needs_review",
+        "burned",
+    }
+    required = bool(intent.get("required", True))
+    if status not in allowed_statuses:
+        status = "needs_operator_selection" if required else "not_required"
+
+    recommendations = intent.get("recommendations")
+    if not isinstance(recommendations, list):
+        recommendations = []
+    operator_selection = intent.get("operator_selection")
+    if not isinstance(operator_selection, dict):
+        operator_selection = {}
+    gates = intent.get("gates")
+    if not isinstance(gates, dict):
+        gates = {}
+    mode = str(intent.get("mode") or "native_platform_audio")
+    normalized_gates = {
+        "allow_draft_export": bool(gates.get("allow_draft_export", True)),
+        "allow_preview_schedule": bool(gates.get("allow_preview_schedule", False)),
+        "allow_live_schedule": bool(gates.get("allow_live_schedule", False)),
+        "allow_publish": bool(gates.get("allow_publish", False)),
+    }
+    return {
+        **intent,
+        "schema": "pipeline.audio_intent.v1",
+        "mode": mode,
+        "required": required,
+        "status": status,
+        "platform": str(intent.get("platform") or platform),
+        "surface": str(intent.get("surface") or surface),
+        "recommendations": recommendations,
+        "operator_selection": operator_selection,
+        "gates": normalized_gates,
+    }
+
+
 class AssetImportRepository:
     def __init__(
         self,
@@ -435,18 +484,32 @@ class AssetImportRepository:
                     overlay_path = _resolve_batch_path(manifest_path, row.get("overlayPng"))
                     audio_intent_path = output_path.with_name(output_path.name + ".audio_intent.json")
                     lineage_path = output_path.with_name(output_path.name + ".generated_asset_lineage.json")
-                    audio_intent = _json_dict(audio_intent_path) if audio_intent_path.exists() else {}
+                    surface = str(manifest.get("surface") or manifest.get("distributionSurface") or "regular_reel")
+                    audio_intent = _normalize_review_audio_intent(
+                        _json_dict(audio_intent_path) if audio_intent_path.exists() else {},
+                        platform=platform,
+                        surface=surface,
+                    )
                     lineage = _json_dict(lineage_path) if lineage_path.exists() else {}
+                    placement_decision = (
+                        lineage.get("captionPlacementDecision")
+                        if isinstance(lineage.get("captionPlacementDecision"), dict)
+                        else None
+                    )
                     caption_context = {
                         "burned_caption_text": caption_text,
                         "burned_caption_hash": caption_hash,
                         "caption_banks": caption_banks,
                         "caption_bank": caption_banks[0] if caption_banks else None,
                         "caption_placement_policy": row.get("captionPlacementPolicy") or manifest.get("captionPlacementPolicy"),
+                        "captionPlacementPolicy": row.get("captionPlacementPolicy") or manifest.get("captionPlacementPolicy"),
                         "caption_band": row.get("selectedBand"),
+                        "selectedBand": row.get("selectedBand"),
                         "overlay_png": str(overlay_path),
                         "source_clip": output_path.name,
                     }
+                    if placement_decision:
+                        caption_context["captionPlacementDecision"] = placement_decision
                     caption_generation = {
                         "schema": "campaign_factory.reel_review_package_render.v1",
                         "captionHash": caption_hash,

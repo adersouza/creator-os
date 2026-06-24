@@ -114,6 +114,8 @@ def main() -> int:
     review_batch_audit.add_argument("--layer", action="append", dest="layers")
     review_batch_audit.add_argument("--animation-mode")
     review_batch_audit.add_argument("--allow-static-opening", action="store_true")
+    review_batch_audit.add_argument("--per-file", action="store_true", default=True)
+    review_batch_audit.add_argument("--no-per-file", action="store_false", dest="per_file")
     review_batch_audit.add_argument("--no-update-manifest", action="store_true")
 
     inventory_slo = sub.add_parser("inventory-slo-report")
@@ -636,6 +638,7 @@ def main() -> int:
                 layers=args.layers,
                 animation_mode=args.animation_mode,
                 allow_static_opening=args.allow_static_opening,
+                per_file=args.per_file,
                 update_manifest=not args.no_update_manifest,
             ))
             return 0

@@ -20,6 +20,7 @@ from reel_pipeline import (
     Recipe,
     apply_creator_style_preset,
     build_avconvert_finalize_cmd,
+    build_caption_placement_qc_row,
     build_phone_finalize_cmd,
     build_single_job_enqueue_cmd,
     build_caption_outcome_context,
@@ -128,6 +129,40 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(args.style, "meme")
         self.assertEqual(args.font, "Instagram Sans Condensed Bold")
         self.assertEqual(args.color, "dark")
+
+    def test_caption_placement_qc_records_render_band_separately_from_scored_lane(self):
+        summary = PlacementSummary(
+            "bottom",
+            {"top": 140.0, "center": 88.0, "bottom": 42.0},
+            3,
+            "bottom selected",
+            {
+                "captionPlacementPolicy": "focal_safe_v1",
+                "captionPlacementDecision": {
+                    "status": "passed",
+                    "selectedLane": "bottom",
+                    "rejectedLanes": ["top"],
+                    "scores": {"top": 140.0, "center": 88.0, "bottom": 42.0},
+                    "sampleCount": 3,
+                },
+            },
+        )
+
+        row = build_caption_placement_qc_row(
+            source_clip="stacey_001",
+            placement_summary=summary,
+            scored_lane="bottom",
+            render_band="lower_center",
+            caption_style="ig",
+            font=DEFAULT_CAPTION_FONT,
+        )
+
+        self.assertEqual(row["schema"], "reel_factory.caption_placement_qc_row.v2")
+        self.assertEqual(row["scoredLane"], "bottom")
+        self.assertEqual(row["selectedLane"], "bottom")
+        self.assertEqual(row["renderBand"], "lower_center")
+        self.assertEqual(row["finalBand"], "lower_center")
+        self.assertEqual(row["decision"]["selectedLane"], "bottom")
 
     def test_lower_center_caption_band_sits_between_center_and_bottom(self):
         from caption_render import _caption_xy

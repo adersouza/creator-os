@@ -26,12 +26,12 @@ cd $CREATOR_OS_ROOT/campaign_factory
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
-export CONTENTFORGE_BASE_URL=http://127.0.0.1:3100
+export CONTENTFORGE_BASE_URL=http://127.0.0.1:3002
 export CONTENTFORGE_ROOT=$CREATOR_OS_ROOT/contentforge
 export REEL_FACTORY_ROOT=$CREATOR_OS_ROOT/reel_factory
 export REFERENCE_FACTORY_ROOT=$CREATOR_OS_ROOT/reference_factory
 python3 -m campaign_factory.cli doctor --check-http \
-  --contentforge-base-url http://127.0.0.1:3100
+  --contentforge-base-url http://127.0.0.1:3002
 python3 -m campaign_factory.cli serve --host 127.0.0.1 --port 8877
 ```
 
@@ -54,7 +54,7 @@ campaign-factory make-batch \
   --format auto \
   --variant-count 8 \
   --reference-pattern auto \
-  --contentforge-base-url http://127.0.0.1:3100 \
+  --contentforge-base-url http://127.0.0.1:3002 \
   --dry-run-export \
   --user-id "<supabase_user_id>"
 ```
@@ -157,7 +157,7 @@ Run the ContentForge HTTP audit.
 
 ```bash
 campaign-factory audit --campaign "<campaign_slug>" \
-  --contentforge-base-url http://127.0.0.1:3100 \
+  --contentforge-base-url http://127.0.0.1:3002 \
   --min-score 85
 ```
 
@@ -318,7 +318,7 @@ campaign-factory pipeline-smoke \
   --user-id "<supabase_user_id>" \
   --hook "Just cracked you in my head hope you feel better twin ✌️❤️" \
   --recipes v01_original v05_hflip \
-  --contentforge-base-url http://127.0.0.1:3100
+  --contentforge-base-url http://127.0.0.1:3002
 ```
 
 Add `--run-reel` only when you want the smoke command to actually render videos.

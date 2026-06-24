@@ -135,7 +135,8 @@ def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
         caption_generation = json_load(row["caption_generation_json"], {})
         reference_pattern = self.active_reference_pattern_for_campaign(campaign["id"])
         source_prompt = json_load(row["source_prompt"], {}) if row["source_prompt"] else {}
-        generated_lineage = self._generated_asset_lineage(source_prompt, reference_pattern)
+        stored_lineage = caption_generation.get("generatedAssetLineage") if isinstance(caption_generation.get("generatedAssetLineage"), dict) else None
+        generated_lineage = stored_lineage or self._generated_asset_lineage(source_prompt, reference_pattern)
         caption_outcome_context = load_context_json(row.get("caption_outcome_context_json"))
         if not caption_outcome_context:
             caption_outcome_context = build_caption_outcome_context(

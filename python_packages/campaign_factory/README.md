@@ -58,7 +58,7 @@ campaign-factory prepare-from-reference --campaign may_launch \
 
 campaign-factory run-reel --campaign may_launch --workers 3
 campaign-factory sync-reel --campaign may_launch
-campaign-factory audit --campaign may_launch --contentforge-base-url http://127.0.0.1:3000
+campaign-factory audit --campaign may_launch --contentforge-base-url http://127.0.0.1:3002
 campaign-factory approve --rendered-asset-id <id>
 campaign-factory activity-log --campaign may_launch --limit 20
 campaign-factory jobs --campaign may_launch --limit 20
@@ -88,13 +88,13 @@ Override them with environment variables:
 ```bash
 REEL_FACTORY_ROOT=/path/to/reel_factory
 CONTENTFORGE_ROOT=/path/to/contentforge
-CONTENTFORGE_BASE_URL=http://127.0.0.1:3000
+CONTENTFORGE_BASE_URL=http://127.0.0.1:3002
 THREADSDASH_ROOT=/path/to/ThreadsDashboard
 REFERENCE_FACTORY_ROOT=/path/to/reference_factory
 CAMPAIGN_FACTORY_DB=/path/to/campaign_factory.sqlite
 ```
 
-Use `campaign-factory doctor --check-http --contentforge-base-url http://127.0.0.1:3100`
+Use `campaign-factory doctor --check-http --contentforge-base-url http://127.0.0.1:3002`
 to confirm Campaign Factory can see the local repos, renderer entrypoints,
 reference handoff file, and optional running ContentForge server before a batch.
 
@@ -124,7 +124,7 @@ before importing the package:
 creator-os review-batch-contentforge-audit \
   --manifest /path/to/review_manifest.json \
   --source /path/to/master_or_pre_overlay.mp4 \
-  --contentforge-base-url http://127.0.0.1:3100
+  --contentforge-base-url http://127.0.0.1:3002
 ```
 
 This calls ContentForge with `auditProfile: "campaign_factory_v1"`, writes a
