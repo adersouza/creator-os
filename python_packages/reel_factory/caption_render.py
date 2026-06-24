@@ -212,10 +212,16 @@ def _caption_xy(
     safe_bottom: int,
 ) -> tuple[int, int]:
     margin_x = max(56, round(canvas_w * 0.055))
+    center_y = (canvas_h - content_h) // 2
+    bottom_y = canvas_h - content_h - safe_bottom
     if band == "bottom":
-        y = canvas_h - content_h - safe_bottom
+        y = bottom_y
+    elif band == "lower_center":
+        y = min(bottom_y - 1, center_y + max(1, round(canvas_h * 0.09)))
+    elif band == "lower_center_alt":
+        y = min(bottom_y, center_y + max(2, round(canvas_h * 0.15)))
     elif band in {"center", "left", "right"}:
-        y = (canvas_h - content_h) // 2
+        y = center_y
     else:
         y = safe_top
 

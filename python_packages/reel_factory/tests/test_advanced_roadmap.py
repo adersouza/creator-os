@@ -2750,6 +2750,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
             min_chars=5,
             max_chars=80,
             strict=True,
+            min_similarity=0.18,
+            embedding_model="hash-v1",
         )
         self.assertTrue(ok, reason)
         ok, reason = validate_hook_variant(
@@ -2758,6 +2760,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
             min_chars=5,
             max_chars=80,
             strict=True,
+            min_similarity=0.18,
+            embedding_model="hash-v1",
         )
         self.assertFalse(ok)
         self.assertEqual(reason, "missing_core_concept:miss")

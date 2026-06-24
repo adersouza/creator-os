@@ -52,6 +52,73 @@ def _contentforge_profile(payload: dict[str, Any]) -> str:
     return str(payload.get("profile") or payload.get("auditProfile") or "")
 
 
+def _resolve_row_output(manifest_path: Path, row: dict[str, Any]) -> Path:
+    output = Path(str(row.get("output") or ""))
+    return (output if output.is_absolute() else manifest_path.parent / output).resolve()
+
+
+def _evidence_paths_match_rows(
+    *,
+    rows: list[Any],
+    manifest_path: Path,
+    values: list[Any],
+    base_path: Path,
+) -> bool:
+    evidence_paths: set[str] = set()
+    evidence_names: set[str] = set()
+    saw_absolute = False
+    for value in values:
+        raw = str(value or "")
+        if not raw:
+            continue
+        path = Path(raw)
+        if path.is_absolute():
+            saw_absolute = True
+            evidence_paths.add(str(path.resolve()))
+        else:
+            evidence_names.add(path.name)
+            evidence_paths.add(str((base_path.parent / path).resolve()))
+    if not evidence_paths and not evidence_names:
+        return False
+    for row in rows:
+        if not isinstance(row, dict):
+            return False
+        output = _resolve_row_output(manifest_path, row)
+        if saw_absolute:
+            if str(output) not in evidence_paths:
+                return False
+        elif output.name not in evidence_names:
+            return False
+    return True
+
+
+def _contentforge_files_match_rows(payload: dict[str, Any], *, manifest_path: Path, audit_path: Path, rows: list[Any]) -> bool:
+    values: list[Any] = []
+    if isinstance(payload.get("variantFiles"), list):
+        values.extend(payload["variantFiles"])
+    file_results = payload.get("fileResults")
+    if isinstance(file_results, list):
+        values.extend(result.get("outputPath") for result in file_results if isinstance(result, dict))
+    return _evidence_paths_match_rows(rows=rows, manifest_path=manifest_path, values=values, base_path=audit_path)
+
+
+def _readiness_records_match_rows(readiness: dict[str, Any], *, manifest_path: Path, rows: list[Any]) -> bool:
+    records = readiness.get("records")
+    if not isinstance(records, list):
+        return False
+    values: list[Any] = []
+    for record in records:
+        if not isinstance(record, dict) or record.get("status") != "ready":
+            continue
+        values.append(record.get("path") or record.get("filename"))
+    return _evidence_paths_match_rows(
+        rows=rows,
+        manifest_path=manifest_path,
+        values=values,
+        base_path=_readiness_path(Path(str((_load_json(manifest_path) or {}).get("outputDir") or manifest_path.parent))),
+    )
+
+
 def _lineage_path(output: Path) -> Path:
     return output.with_suffix(output.suffix + ".generated_asset_lineage.json")
 
@@ -146,6 +213,8 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
             blocking.append("contentforge_audit_count_mismatch")
         elif not _contentforge_passed(contentforge):
             blocking.append("contentforge_audit_not_passing")
+        elif not _contentforge_files_match_rows(contentforge, manifest_path=manifest_path, audit_path=contentforge_path, rows=rows):
+            blocking.append("contentforge_audit_file_mismatch")
 
     readiness = _load_json(_readiness_path(output_dir))
     summary = (readiness or {}).get("summary") or {}
@@ -153,6 +222,8 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
         blocking.append("missing_readiness_report")
     elif summary.get("total") != len(rows) or summary.get("ready") != len(rows) or summary.get("warn") or summary.get("not_ready"):
         blocking.append("readiness_not_all_ready")
+    elif not _readiness_records_match_rows(readiness, manifest_path=manifest_path, rows=rows):
+        blocking.append("readiness_file_mismatch")
 
     for row in rows:
         output = Path(str(row.get("output") or ""))

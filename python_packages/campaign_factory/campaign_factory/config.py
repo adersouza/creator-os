@@ -32,7 +32,7 @@ class Settings:
     contentforge_root: Path = Path(os.environ.get("CONTENTFORGE_ROOT", CREATOR_OS_CONTENTFORGE_ROOT))
     reference_factory_root: Path = Path(os.environ.get("REFERENCE_FACTORY_ROOT", CREATOR_OS_REFERENCE_FACTORY_ROOT))
     reference_reels_root: Path = Path(os.environ.get("REFERENCE_REELS_ROOT", WORKSPACE_ROOT / "reference_reels"))
-    contentforge_base_url: str = os.environ.get("CONTENTFORGE_BASE_URL", "http://127.0.0.1:3000")
+    contentforge_base_url: str = os.environ.get("CONTENTFORGE_BASE_URL", "http://127.0.0.1:3002")
     threadsdash_root: Path = Path(os.environ.get("THREADSDASH_ROOT", DEFAULT_THREADSDASH_ROOT))
     campaigns_dir: Path = Path(os.environ.get("CAMPAIGN_FACTORY_CAMPAIGNS", CREATOR_OS_CAMPAIGN_FACTORY_ROOT / "campaigns"))
 

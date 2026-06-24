@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "child_process";
 import { mkdir, readFile, rm } from "fs/promises";
 import path from "path";
 
-var base = process.env.CONTENTFORGE_URL || "http://localhost:3000";
+var base = process.env.CONTENTFORGE_URL || "http://localhost:3002";
 var tmpDir = "/tmp/contentforge-e2e";
 var cleanupTargets = [];
 

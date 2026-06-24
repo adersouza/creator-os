@@ -45,7 +45,15 @@ scan_pattern "vercel_token_value" 'vercel_[A-Za-z0-9_-]{20,}'
 
 if command -v gitleaks >/dev/null 2>&1; then
   scanner_ran=1
-  gitleaks detect --source . --no-git --redact --no-banner || failures=1
+  gitleaks detect --source . --redact --no-banner --log-opts HEAD --timeout "${GITLEAKS_TIMEOUT_SECONDS:-120}" || failures=1
+  if ! git diff --quiet --no-ext-diff -- .; then
+    git diff --no-ext-diff --binary -- . | gitleaks detect --pipe --redact --no-banner --timeout "${GITLEAKS_TIMEOUT_SECONDS:-120}" || failures=1
+  fi
+  while IFS= read -r -d '' untracked_file; do
+    if [[ -f "$untracked_file" ]] && [[ "$(wc -c < "$untracked_file")" -le 5242880 ]]; then
+      gitleaks detect --pipe --redact --no-banner --timeout "${GITLEAKS_TIMEOUT_SECONDS:-120}" < "$untracked_file" || failures=1
+    fi
+  done < <(git ls-files --others --exclude-standard -z)
 fi
 
 if command -v trufflehog >/dev/null 2>&1; then

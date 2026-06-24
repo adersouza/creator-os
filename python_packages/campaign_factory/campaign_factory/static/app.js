@@ -1079,7 +1079,7 @@ bind("railRefresh", () => {
   refresh().catch((err) => log(err.message));
 });
 bind("openThreadsDashboardBtn", () => {
-  window.open("http://localhost:3000/", "_blank", "noopener,noreferrer");
+  window.open("http://localhost:3002/", "_blank", "noopener,noreferrer");
 });
 bind("importBtn", () => post("/api/import-folder", {
   ...basePayload(),
