@@ -340,7 +340,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "make-batch" in result["commands"]["makeBatch"]
-    assert result["commands"]["startContentForge"] == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3100"
+    assert result["commands"]["startContentForge"] == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3002"
     assert result["commands"]["startCampaignFactory"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory"))
     assert result["commands"]["exportReferencePatterns"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory"))
     assert "cd " not in "\n".join(result["commands"].values())
@@ -1465,6 +1465,143 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
     assert captured["target_file"] == variant.name
 
 
+def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.mp4"
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    source.write_bytes(b"source")
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    manifest = tmp_path / "review_manifest.json"
+    manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(tmp_path),
+        "captionPlacementPolicy": "focal-safe",
+        "rows": [
+            {"output": str(first), "captionHash": "abc", "overlayPng": str(tmp_path / "first.png")},
+            {"output": str(second), "captionHash": "def", "overlayPng": str(tmp_path / "second.png")},
+        ],
+    }))
+
+    @contextmanager
+    def fake_stage(_root, _source, _variants):
+        yield source, [first, second]
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_similarity(*args, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("comparison_files"):
+            return {
+                "auditProfile": "campaign_factory_v1",
+                "overallVerdict": "warn",
+                "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": ["aggregate_review"]},
+            }
+        if kwargs["target_file"] == first.name:
+            return {
+                "auditProfile": "campaign_factory_v1",
+                "overallVerdict": "pass",
+                "safeZoneScore": 98,
+                "readabilityScore": 91,
+                "hookVisibilityScore": 88,
+                "ocr": {"available": True, "engine": "tesseract", "sampleCount": 3, "avgConfidence": 86, "results": []},
+                "timings": {"advisory": {"ocrMs": 12}},
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "recommendedAction": "approve",
+                    "blockingCodes": [],
+                    "warningCodes": [],
+                    "topWarnings": [],
+                },
+            }
+        return {
+            "auditProfile": "campaign_factory_v1",
+            "overallVerdict": "warn",
+            "safeZoneScore": 62,
+            "readabilityScore": 44,
+            "hookVisibilityScore": 55,
+            "ocr": {"available": True, "engine": "tesseract", "sampleCount": 3, "avgConfidence": 41, "results": []},
+            "readinessSummary": {
+                "uploadReady": False,
+                "recommendedAction": "review",
+                "blockingCodes": [],
+                "warningCodes": ["caption_low_contrast", "caption_too_small"],
+                "topWarnings": [{"code": "caption_low_contrast", "severity": "warn", "message": "Review caption contrast."}],
+            },
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+
+    report = contentforge_adapter.audit_review_batch_manifest(
+        contentforge_root=tmp_path / "contentforge",
+        manifest_path=manifest,
+        source_path=source,
+        contentforge_base_url="http://contentforge.test",
+        animation_mode="static_image_mp4",
+        allow_static_opening=True,
+        per_file=True,
+    )
+
+    assert len(calls) == 3
+    assert calls[1]["target_file"] == first.name
+    assert calls[1]["comparison_files"] == []
+    assert calls[2]["target_file"] == second.name
+    assert calls[2]["comparison_files"] == []
+    assert [row["outputPath"] for row in report["fileResults"]] == [str(first.resolve()), str(second.resolve())]
+    assert [row["status"] for row in report["fileResults"]] == ["ready", "review"]
+    assert report["fileStatusCounts"] == {"ready": 1, "review": 1}
+    assert report["fileOverallVerdictCounts"] == {"pass": 1, "warn": 1}
+    assert report["warningCodeFrequency"] == {"caption_low_contrast": 1, "caption_too_small": 1}
+    assert report["blockingCodeFrequency"] == {}
+    assert report["fileResults"][1]["topWarnings"][0]["code"] == "caption_low_contrast"
+    assert report["fileResults"][1]["safeZoneScore"] == 62
+
+
+def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = tmp_path / "source.mp4"
+    first = tmp_path / "first.mp4"
+    source.write_bytes(b"source")
+    first.write_bytes(b"first")
+    manifest = tmp_path / "review_manifest.json"
+    manifest.write_text(json.dumps({
+        "schema": "creator_os.reel_review_batch.v1",
+        "outputDir": str(tmp_path),
+        "rows": [{"output": str(first), "captionHash": "abc", "overlayPng": str(tmp_path / "first.png")}],
+    }))
+
+    @contextmanager
+    def fake_stage(_root, _source, _variants):
+        yield source, [first]
+
+    call_count = {"value": 0}
+
+    def fake_similarity(*args, **kwargs):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            return {
+                "auditProfile": "campaign_factory_v1",
+                "overallVerdict": "pass",
+                "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": []},
+            }
+        raise RuntimeError("ContentForge timed out")
+
+    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+
+    report = contentforge_adapter.audit_review_batch_manifest(
+        contentforge_root=tmp_path / "contentforge",
+        manifest_path=manifest,
+        source_path=source,
+        contentforge_base_url="http://contentforge.test",
+        per_file=True,
+    )
+
+    assert report["fileStatusCounts"] == {"blocked": 1}
+    assert report["blockingCodeFrequency"] == {"contentforge_http": 1}
+    assert report["fileResults"][0]["error"] == "ContentForge timed out"
+
+
 def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     folder = tmp_path / "review_batch"
     folder.mkdir()
@@ -1484,6 +1621,7 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
     lineage.write_text(json.dumps({
         "schema": "campaign_factory.generated_asset_lineage.v1",
         "workflow": "reel_factory_review_batch",
+        "pipelineTraceId": "trace_review_1",
         "captionPlacementDecision": {
             "status": "passed",
             "selectedLane": "top",
@@ -1550,7 +1688,10 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
         assert rendered["review_state"] == "review_ready"
         generation = json.loads(rendered["caption_generation_json"])
         assert generation["audioIntent"]["mode"] == "platform_auto_music"
+        validate_audio_intent(generation["audioIntent"])
         assert generation["generatedAssetLineage"]["workflow"] == "reel_factory_review_batch"
+        context = json.loads(rendered["caption_outcome_context_json"])
+        assert context["captionPlacementDecision"]["status"] == "passed"
         audit = cf.conn.execute("SELECT * FROM audit_reports WHERE rendered_asset_id = ?", (rendered["id"],)).fetchone()
         assert audit["overall_verdict"] == "pass"
         assert audit["report_path"] == str(contentforge_audit)
@@ -1561,6 +1702,7 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
         assert exported["assets"][0]["renderedAssetId"] == rendered["id"]
         assert exported["assets"][0]["contentForgeRunId"] == "reel_review_batch"
         assert exported["assets"][0]["auditSummary"]["overallVerdict"] == "pass"
+        assert exported["assets"][0]["generatedAssetLineage"]["pipelineTraceId"] == "trace_review_1"
     finally:
         cf.close()
 

@@ -159,7 +159,10 @@ def audit_review_batch_manifest(
     contentforge_base_url: str,
     report_path: Path | None = None,
     layers: list[str] | None = None,
+    animation_mode: str | None = None,
+    allow_static_opening: bool = False,
     update_manifest: bool = True,
+    per_file: bool = True,
 ) -> dict[str, Any]:
     manifest_path = Path(manifest_path).expanduser().resolve()
     source_path = Path(source_path).expanduser().resolve()
@@ -179,6 +182,7 @@ def audit_review_batch_manifest(
         raise ValueError("review batch manifest has no output rows to audit")
 
     report_path = (report_path or manifest_path.with_name(f"{manifest_path.stem}.contentforge_audit.json")).expanduser().resolve()
+    file_results: list[dict[str, Any]] = []
     with _stage_contentforge_variation_batch(contentforge_root, source_path, variant_paths) as (staged_source, staged_variants):
         response = _post_similarity(
             contentforge_base_url,
@@ -187,7 +191,25 @@ def audit_review_batch_manifest(
             comparison_files=[path.name for path in staged_variants[1:]],
             audit_profile=DEFAULT_AUDIT_PROFILE,
             layers=layers or ["pdq", "sscd", "forensics"],
+            animation_mode=animation_mode,
+            allow_static_opening=allow_static_opening,
         )
+        if per_file:
+            for original_path, staged_path in zip(variant_paths, staged_variants, strict=True):
+                try:
+                    file_response = _post_similarity(
+                        contentforge_base_url,
+                        source=staged_source.name,
+                        target_file=staged_path.name,
+                        comparison_files=[],
+                        audit_profile=DEFAULT_AUDIT_PROFILE,
+                        layers=layers or ["pdq", "sscd", "forensics"],
+                        animation_mode=animation_mode,
+                        allow_static_opening=allow_static_opening,
+                    )
+                    file_results.append(_review_file_result(original_path, file_response))
+                except Exception as exc:
+                    file_results.append(_missing_review_file_result(original_path, str(exc)))
 
     readiness = response.get("readinessSummary") if isinstance(response.get("readinessSummary"), dict) else {}
     blocking = (readiness.get("blockingCodes") or readiness.get("blockingReasons") or response.get("blockingCodes") or [])
@@ -204,15 +226,104 @@ def audit_review_batch_manifest(
         },
         "sourceFile": str(source_path),
         "variantFiles": [str(path) for path in variant_paths],
+        "animationMode": animation_mode,
+        "allowStaticOpening": allow_static_opening,
         "reportPath": str(report_path),
         "createdAt": utc_now(),
     }
+    if per_file:
+        report["fileResults"] = file_results
+        report["fileStatusCounts"] = _frequency(result.get("status") for result in file_results)
+        report["fileOverallVerdictCounts"] = _frequency(result.get("overallVerdict") for result in file_results)
+        report["warningCodeFrequency"] = _code_frequency(file_results, "warningCodes")
+        report["blockingCodeFrequency"] = _code_frequency(file_results, "blockingCodes")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     if update_manifest:
         manifest["contentForgeAuditPath"] = str(report_path)
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     return report
+
+
+def _review_file_result(output_path: Path, response: dict[str, Any]) -> dict[str, Any]:
+    readiness = response.get("readinessSummary") if isinstance(response.get("readinessSummary"), dict) else {}
+    warning_codes = _string_list(readiness.get("warningCodes") or response.get("warningCodes"))
+    blocking_codes = _string_list(readiness.get("blockingCodes") or readiness.get("blockingReasons") or response.get("blockingCodes"))
+    top_warnings = readiness.get("topWarnings") if isinstance(readiness.get("topWarnings"), list) else []
+    overall = str(response.get("overallVerdict") or "fail")
+    upload_ready = bool(readiness.get("uploadReady"))
+    if blocking_codes or overall == "fail":
+        status = "blocked"
+    elif warning_codes or overall == "warn" or not upload_ready:
+        status = "review"
+    else:
+        status = "ready"
+    ocr = response.get("ocr") if isinstance(response.get("ocr"), dict) else {}
+    timings = response.get("timings") if isinstance(response.get("timings"), dict) else {}
+    return {
+        "outputPath": str(output_path),
+        "status": status,
+        "overallVerdict": overall,
+        "uploadReady": upload_ready,
+        "recommendedAction": readiness.get("recommendedAction") or ("block" if status == "blocked" else "review" if status == "review" else "approve"),
+        "warningCodes": warning_codes,
+        "blockingCodes": blocking_codes,
+        "topWarnings": top_warnings,
+        "safeZoneScore": response.get("safeZoneScore"),
+        "readabilityScore": response.get("readabilityScore"),
+        "hookVisibilityScore": response.get("hookVisibilityScore"),
+        "ocr": {
+            "available": ocr.get("available"),
+            "engine": ocr.get("engine"),
+            "fallbackUsed": ocr.get("fallbackUsed"),
+            "avgConfidence": ocr.get("avgConfidence"),
+            "sampleCount": ocr.get("sampleCount"),
+            "frameSamples": ocr.get("results"),
+        },
+        "timings": timings,
+    }
+
+
+def _missing_review_file_result(output_path: Path, error: str) -> dict[str, Any]:
+    return {
+        "outputPath": str(output_path),
+        "status": "blocked",
+        "overallVerdict": "fail",
+        "uploadReady": False,
+        "recommendedAction": "block",
+        "warningCodes": [],
+        "blockingCodes": ["contentforge_http"],
+        "topWarnings": [{"code": "contentforge_http", "severity": "block", "message": error}],
+        "safeZoneScore": None,
+        "readabilityScore": None,
+        "hookVisibilityScore": None,
+        "ocr": {"available": False, "error": error},
+        "timings": {},
+        "error": error,
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item)]
+
+
+def _frequency(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _code_frequency(results: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        for code in result.get(key) or []:
+            code_key = str(code)
+            counts[code_key] = counts.get(code_key, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _audit_asset(

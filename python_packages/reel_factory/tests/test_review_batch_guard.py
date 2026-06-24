@@ -20,6 +20,8 @@ def _batch(
     contentforge_profile: str = "campaign_factory_v1",
     row_count: int = 1,
     contentforge_variants: int | None = None,
+    contentforge_variant_files: list[str] | None = None,
+    readiness_records: list[dict] | None = None,
 ) -> Path:
     root = tmp_path
     clip_dir = root / "02_processed" / "clip_001"
@@ -74,7 +76,7 @@ def _batch(
         {
             "schema": "reel_factory.readiness.v1",
             "summary": {"total": row_count, "ready": row_count, "warn": 0, "not_ready": 0},
-            "records": [
+            "records": readiness_records if readiness_records is not None else [
                 {"filename": Path(row["output"]).name, "status": "ready", "warnings": []}
                 for row in rows
             ],
@@ -92,6 +94,9 @@ def _batch(
                 "httpOk": variants,
                 "verdictCounts": {"pass": variants},
                 "blockingCodes": [],
+                "variantFiles": contentforge_variant_files
+                if contentforge_variant_files is not None
+                else [row["output"] for row in rows],
             },
         )
     manifest = root / "review_manifest.json"
@@ -140,6 +145,38 @@ def test_review_batch_guard_blocks_stale_contentforge_count(tmp_path: Path) -> N
 
     assert result["status"] == "blocked"
     assert "contentforge_audit_count_mismatch" in result["blockingReasons"]
+
+
+def test_review_batch_guard_blocks_same_count_contentforge_for_other_files(tmp_path: Path) -> None:
+    result = validate_review_batch(
+        _batch(
+            tmp_path,
+            row_count=2,
+            contentforge_variant_files=[
+                str(tmp_path / "02_processed" / "clip_001" / "foreign_a.mp4"),
+                str(tmp_path / "02_processed" / "clip_001" / "foreign_b.mp4"),
+            ],
+        )
+    )
+
+    assert result["status"] == "blocked"
+    assert "contentforge_audit_file_mismatch" in result["blockingReasons"]
+
+
+def test_review_batch_guard_blocks_same_count_readiness_for_other_files(tmp_path: Path) -> None:
+    result = validate_review_batch(
+        _batch(
+            tmp_path,
+            row_count=2,
+            readiness_records=[
+                {"filename": "foreign_a.mp4", "status": "ready", "warnings": []},
+                {"filename": "foreign_b.mp4", "status": "ready", "warnings": []},
+            ],
+        )
+    )
+
+    assert result["status"] == "blocked"
+    assert "readiness_file_mismatch" in result["blockingReasons"]
 
 
 def test_review_batch_guard_blocks_manual_font_and_placement(tmp_path: Path) -> None:

@@ -85,7 +85,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3002](http://localhost:3002).
 
 ## Scripts
 
@@ -126,7 +126,7 @@ Campaign Factory V1 calls ContentForge directly after staging one source file in
 `uploads/` and one rendered file in `output/final/`:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:3000/api/similarity \
+curl -sS -X POST http://127.0.0.1:3002/api/similarity \
   -H 'Content-Type: application/json' \
   -d '{
     "source": "<staged source filename>",
