@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 class CaptionRenderTests(unittest.TestCase):
     def test_long_caption_renders_inside_canvas(self):
         try:
-            from caption_render import render_caption_png
+            from caption_render import caption_alpha_box, render_caption_png
         except ModuleNotFoundError as e:
             if e.name == "pilmoji":
                 self.skipTest("pilmoji is not installed in this interpreter")
@@ -37,6 +37,13 @@ class CaptionRenderTests(unittest.TestCase):
             self.assertGreater(bbox[2] - bbox[0], 0)
             self.assertLessEqual(bbox[2], 540)
             self.assertLessEqual(bbox[3], 960)
+            box = caption_alpha_box(out)
+            self.assertIsNotNone(box)
+            assert box is not None
+            self.assertGreater(box["w"], 0)
+            self.assertGreater(box["h"], 0)
+            self.assertLessEqual(box["x"] + box["w"], 540)
+            self.assertLessEqual(box["y"] + box["h"], 960)
 
     def test_wrapped_caption_pixels_stay_out_of_reels_safe_zones(self):
         try:

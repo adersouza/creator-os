@@ -37,6 +37,18 @@ FONT_FILE = {
 CANVAS_W, CANVAS_H = 1080, 1920
 MAX_TEXT_W = 960
 REELS_SAFE_TEXT_W = 600
+LOWER_CENTER_Y_RATIO = 0.54
+LOWER_CENTER_ALT_Y_RATIO = 0.58
+
+
+def caption_alpha_box(path: Path) -> dict[str, int] | None:
+    """Return the visible alpha bounds for a rendered full-canvas caption PNG."""
+    img = Image.open(path).convert("RGBA")
+    bbox = img.getbbox()
+    if bbox is None:
+        return None
+    x0, y0, x1, y1 = bbox
+    return {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
 
 
 def _resolve_font_path(font_family: str, fonts_dir: Path) -> Path:
@@ -214,6 +226,10 @@ def _caption_xy(
     margin_x = max(56, round(canvas_w * 0.055))
     if band == "bottom":
         y = canvas_h - content_h - safe_bottom
+    elif band == "lower_center":
+        y = round(canvas_h * LOWER_CENTER_Y_RATIO) - content_h // 2
+    elif band == "lower_center_alt":
+        y = round(canvas_h * LOWER_CENTER_ALT_Y_RATIO) - content_h // 2
     elif band in {"center", "left", "right"}:
         y = (canvas_h - content_h) // 2
     else:

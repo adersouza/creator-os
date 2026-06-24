@@ -942,7 +942,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     )
 
     # Render each caption segment to a transparent 1080x1920 PNG via PIL+Pilmoji.
-    from caption_render import render_caption_png
+    from caption_render import caption_alpha_box, render_caption_png
+    caption_render_boxes = []
     try:
         for seg in seg_plans:
             render_caption_png(
@@ -957,6 +958,13 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 canvas_h=target_dims[1],
                 renderer=caption_renderer,
             )
+            caption_render_boxes.append({
+                "text": seg.text,
+                "band": seg.band,
+                "start": seg.start,
+                "end": seg.end,
+                "box": caption_alpha_box(seg.png_path),
+            })
     except Exception as e:
         msg = f"caption render failed: {e}"
         log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
@@ -1030,6 +1038,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             preview_path,
             {
                 **(caption_lineage or {}),
+                "captionRenderBoxes": caption_render_boxes,
                 "captionPlacementPolicy": placement_policy,
                 "captionPlacementDecision": {
                     **(placement_decision if isinstance(placement_decision, dict) else {}),
@@ -1300,6 +1309,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     placement_lineage = {
         **(caption_lineage or {}),
         "captionHash": caption_hash,
+        "captionRenderBoxes": caption_render_boxes,
         "captionPlacementPolicy": placement_policy,
         "captionPlacementDecision": {
             **(placement_decision if isinstance(placement_decision, dict) else {}),

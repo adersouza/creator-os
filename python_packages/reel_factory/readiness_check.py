@@ -16,6 +16,9 @@ from post_render_acceptance import acceptance_from_readiness
 from safe_zone import PLATFORM_SAFE_ZONES, score_safe_zone
 from virality_qc import evaluate_output_virality
 
+TIMED_CAPTION_TAIL_RESERVE_SECONDS = 0.20
+CAPTION_REJECTED_LANE_OVERLAP_RATIO = 0.35
+
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
     "instagram_reels": {
@@ -180,6 +183,102 @@ def _probe_dimensions(path: Path) -> tuple[int, int] | tuple[None, None]:
         return None, None
 
 
+def _probe_duration(path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error",
+            "-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
+            str(path),
+        ],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    try:
+        return float(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def _caption_lineage(output_path: Path) -> dict[str, Any] | None:
+    return _json_sidecar(output_path, "caption_lineage")
+
+
+def _segments_from_lineage(lineage: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(lineage, dict):
+        return []
+    segments = lineage.get("timedSegments")
+    if isinstance(segments, list):
+        return [row for row in segments if isinstance(row, dict)]
+    context = lineage.get("captionOutcomeContext")
+    text = context.get("caption_text") if isinstance(context, dict) else None
+    if isinstance(text, str) and '"segments"' in text:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        segments = payload.get("segments")
+        if isinstance(segments, list):
+            return [row for row in segments if isinstance(row, dict)]
+    return []
+
+
+def _caption_timing_warnings(output_path: Path, lineage: dict[str, Any] | None) -> list[str]:
+    duration = _probe_duration(output_path)
+    segments = _segments_from_lineage(lineage)
+    if not duration or not segments:
+        return []
+    warnings: list[str] = []
+    max_end = max((float(row.get("end") or 0.0) for row in segments), default=0.0)
+    if max_end > duration + 0.02:
+        warnings.append("timed_caption_exceeds_rendered_duration")
+    if duration - max_end < TIMED_CAPTION_TAIL_RESERVE_SECONDS:
+        warnings.append("timed_caption_no_tail_reserve")
+    return warnings
+
+
+def _lane_bounds(height: int) -> dict[str, tuple[float, float]]:
+    third = height / 3.0
+    return {
+        "top": (0.0, third),
+        "center": (third, third * 2.0),
+        "bottom": (third * 2.0, float(height)),
+    }
+
+
+def _caption_box_lane_warnings(lineage: dict[str, Any] | None, *, height: int | None) -> list[str]:
+    if not isinstance(lineage, dict) or not height:
+        return []
+    decision = lineage.get("captionPlacementDecision")
+    if not isinstance(decision, dict):
+        return []
+    rejected = {str(lane) for lane in decision.get("rejectedLanes") or []}
+    rejected = {lane for lane in rejected if lane in {"top", "center", "bottom"}}
+    if not rejected:
+        return []
+    boxes = lineage.get("captionRenderBoxes")
+    if not isinstance(boxes, list):
+        return []
+    lane_bounds = _lane_bounds(height)
+    for row in boxes:
+        if not isinstance(row, dict):
+            continue
+        box = row.get("box")
+        if not isinstance(box, dict):
+            continue
+        try:
+            y0 = float(box["y"])
+            y1 = y0 + float(box["h"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        box_h = max(1.0, y1 - y0)
+        for lane in rejected:
+            lane_y0, lane_y1 = lane_bounds[lane]
+            overlap = max(0.0, min(y1, lane_y1) - max(y0, lane_y0))
+            if overlap / box_h >= CAPTION_REJECTED_LANE_OVERLAP_RATIO:
+                return ["caption_box_over_rejected_focal_lane"]
+    return []
+
+
 def evaluate_output(
     *,
     root: Path,
@@ -230,6 +329,10 @@ def evaluate_output(
     if profile["requires_lineage"] and not _source_lineage_exists(root, clip, output_path):
         warnings.append("missing_generated_asset_lineage")
 
+    caption_lineage = _caption_lineage(output_path)
+    warnings.extend(_caption_timing_warnings(output_path, caption_lineage))
+    warnings.extend(_caption_box_lane_warnings(caption_lineage, height=height))
+
     ai_warnings = list((ai_qc or {}).get("warnings") or [])
     warnings.extend(f"ai_qc:{w}" for w in ai_warnings)
     if profile["strict_text_review"] and any("text" in w or "watermark" in w for w in ai_warnings):
@@ -260,6 +363,7 @@ def evaluate_output(
         "aiQc": ai_qc,
         "viralityQc": virality_qc,
         "lineagePresent": _source_lineage_exists(root, clip, output_path),
+        "captionLineage": caption_lineage,
     }
 
 

@@ -3,10 +3,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from readiness_check import evaluate_output, run_readiness
+from readiness_check import (
+    _caption_box_lane_warnings,
+    _caption_timing_warnings,
+    evaluate_output,
+    run_readiness,
+)
 from virality_qc import evaluate_virality_report
 
 
@@ -87,6 +93,40 @@ class ViralityQcTests(unittest.TestCase):
             self.assertEqual(result["summary"]["not_ready"], 0)
             self.assertEqual(result["records"][0]["viralityQc"]["status"], "passed")
             self.assertEqual(result["records"][0]["viralityQc"]["score"], 91)
+
+    def test_readiness_warns_when_timed_caption_outlasts_rendered_video(self):
+        lineage = {
+            "timedSegments": [
+                {"text": "first", "start": 0.0, "end": 2.0},
+                {"text": "last", "start": 2.0, "end": 6.03},
+            ]
+        }
+
+        with patch("readiness_check._probe_duration", return_value=5.53):
+            warnings = _caption_timing_warnings(Path("render.mp4"), lineage)
+
+        self.assertIn("timed_caption_exceeds_rendered_duration", warnings)
+        self.assertIn("timed_caption_no_tail_reserve", warnings)
+
+    def test_readiness_warns_when_caption_box_overlaps_rejected_lane(self):
+        lineage = {
+            "captionPlacementDecision": {
+                "status": "passed",
+                "selectedLane": "lower_center",
+                "rejectedLanes": ["center"],
+            },
+            "captionRenderBoxes": [
+                {
+                    "text": "anime guys say",
+                    "band": "lower_center",
+                    "box": {"x": 240, "y": 940, "w": 600, "h": 120},
+                }
+            ],
+        }
+
+        warnings = _caption_box_lane_warnings(lineage, height=1920)
+
+        self.assertIn("caption_box_over_rejected_focal_lane", warnings)
 
 
 if __name__ == "__main__":
