@@ -122,7 +122,7 @@ def plan_placement(root: Path) -> dict[str, Any]:
     payload["placementPlannedAt"] = int(time.time())
     payload["placementNotes"] = (
         "Stacey/Larissa overlay text uses stacey_static_center. Static hooks use lower_center. "
-        "Timed hooks omit explicit bands so placement.py can resolve lower_center/center/lower_center_alt from the actual video."
+        "Timed hooks omit explicit bands so placement.py can resolve lower_center/lower_center_alt from the actual video."
     )
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     review = reel_root / "caption_banks" / "candidate_intake_placement_review.md"
@@ -342,7 +342,7 @@ def _placement_intent(text: str) -> dict[str, Any]:
         "staticBand": "lower_center",
         "timedEligible": len(segments) > 1,
         "timedPlacementMode": "segment",
-        "timedBandFamily": ["lower_center", "center_if_safe", "lower_center_alt"],
+        "timedBandFamily": ["lower_center", "lower_center_alt"],
         "finalPlacement": "placement.py",
     }
 
