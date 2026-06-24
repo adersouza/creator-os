@@ -112,6 +112,8 @@ def main() -> int:
     review_batch_audit.add_argument("--contentforge-base-url")
     review_batch_audit.add_argument("--report-path")
     review_batch_audit.add_argument("--layer", action="append", dest="layers")
+    review_batch_audit.add_argument("--animation-mode")
+    review_batch_audit.add_argument("--allow-static-opening", action="store_true")
     review_batch_audit.add_argument("--no-update-manifest", action="store_true")
 
     inventory_slo = sub.add_parser("inventory-slo-report")
@@ -632,6 +634,8 @@ def main() -> int:
                 contentforge_base_url=args.contentforge_base_url or cf.settings.contentforge_base_url,
                 report_path=Path(args.report_path) if args.report_path else None,
                 layers=args.layers,
+                animation_mode=args.animation_mode,
+                allow_static_opening=args.allow_static_opening,
                 update_manifest=not args.no_update_manifest,
             ))
             return 0

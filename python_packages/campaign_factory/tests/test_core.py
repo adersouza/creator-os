@@ -1452,6 +1452,8 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
         manifest_path=manifest,
         source_path=source,
         contentforge_base_url="http://contentforge.test",
+        animation_mode="static_image_mp4",
+        allow_static_opening=True,
     )
 
     updated_manifest = json.loads(manifest.read_text())
@@ -1463,6 +1465,10 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
     assert report["verdictCounts"]["pass"] == 1
     assert captured["audit_profile"] == "campaign_factory_v1"
     assert captured["target_file"] == variant.name
+    assert captured["animation_mode"] == "static_image_mp4"
+    assert captured["allow_static_opening"] is True
+    assert report["animationMode"] == "static_image_mp4"
+    assert report["allowStaticOpening"] is True
 
 
 def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

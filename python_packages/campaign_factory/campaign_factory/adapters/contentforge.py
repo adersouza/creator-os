@@ -159,6 +159,8 @@ def audit_review_batch_manifest(
     contentforge_base_url: str,
     report_path: Path | None = None,
     layers: list[str] | None = None,
+    animation_mode: str | None = None,
+    allow_static_opening: bool = False,
     update_manifest: bool = True,
 ) -> dict[str, Any]:
     manifest_path = Path(manifest_path).expanduser().resolve()
@@ -187,6 +189,8 @@ def audit_review_batch_manifest(
             comparison_files=[path.name for path in staged_variants[1:]],
             audit_profile=DEFAULT_AUDIT_PROFILE,
             layers=layers or ["pdq", "sscd", "forensics"],
+            animation_mode=animation_mode,
+            allow_static_opening=allow_static_opening,
         )
 
     readiness = response.get("readinessSummary") if isinstance(response.get("readinessSummary"), dict) else {}
@@ -204,6 +208,8 @@ def audit_review_batch_manifest(
         },
         "sourceFile": str(source_path),
         "variantFiles": [str(path) for path in variant_paths],
+        "animationMode": animation_mode,
+        "allowStaticOpening": allow_static_opening,
         "reportPath": str(report_path),
         "createdAt": utc_now(),
     }
@@ -481,6 +487,8 @@ def _post_similarity(
     layers: list[str],
     originality_reference_files: list[str] | None = None,
     comparison_files: list[str] | None = None,
+    animation_mode: str | None = None,
+    allow_static_opening: bool = False,
 ) -> dict[str, Any]:
     endpoint = f"{base_url.rstrip('/')}/api/similarity"
     payload: dict[str, Any] = {
@@ -494,6 +502,10 @@ def _post_similarity(
         payload["originalityReferenceFiles"] = originality_reference_files
     if comparison_files:
         payload["comparisonFiles"] = comparison_files
+    if animation_mode:
+        payload["animationMode"] = animation_mode
+    if allow_static_opening:
+        payload["allowStaticOpening"] = True
     request = Request(
         endpoint,
         data=json.dumps(payload).encode("utf-8"),

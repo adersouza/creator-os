@@ -275,6 +275,91 @@ test("campaign profile blocks watchability warnings", function () {
   assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
 });
 
+test("campaign profile treats intentional static MP4 opening warnings as advisory", function () {
+  var results = {
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "static_opening", message: "opening is static", severity: "warn" },
+      ],
+    },
+    creativeQuality: {
+      verdict: "warn",
+      warnings: [
+        { code: "creative_opening_static", message: "creative opening is static", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, {
+    hookVisibility: "warn",
+    creativeQuality: "warn",
+  }, {
+    auditProfile: "campaign_factory_v1",
+    animationMode: "static_image_mp4",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("static_opening"), true);
+  assert.equal(summary.warningCodes.includes("creative_opening_static"), true);
+  assert.equal(summary.blockingCodes.includes("static_opening"), false);
+  assert.equal(summary.blockingCodes.includes("creative_opening_static"), false);
+});
+
+test("campaign profile still blocks static opening warnings without static MP4 intent", function () {
+  var results = {
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "static_opening", message: "opening is static", severity: "warn" },
+      ],
+    },
+    creativeQuality: {
+      verdict: "warn",
+      warnings: [
+        { code: "creative_opening_static", message: "creative opening is static", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, {
+    hookVisibility: "warn",
+    creativeQuality: "warn",
+  }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("static_opening"), true);
+  assert.equal(summary.blockingCodes.includes("creative_opening_static"), true);
+});
+
+test("static MP4 intent does not downgrade caption safety blockers", function () {
+  var results = {
+    readability: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_text_too_small", message: "caption too small", severity: "warn" },
+      ],
+    },
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "static_opening", message: "opening is static", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, {
+    readability: "warn",
+    hookVisibility: "warn",
+  }, {
+    auditProfile: "campaign_factory_v1",
+    animationMode: "static_image_mp4",
+  });
+
+  assert.equal(summary.uploadReady, false);
+  assert.equal(summary.blockingCodes.includes("caption_text_too_small"), true);
+  assert.equal(summary.warningCodes.includes("static_opening"), true);
+});
+
 test("default profile keeps virality gate warnings advisory", function () {
   var virality = buildViralityGate({
     provider: "higgsfield_virality_predictor",

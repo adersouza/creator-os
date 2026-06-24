@@ -341,6 +341,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   var campaignProfile = auditProfile === "campaign_factory_v1";
   var hasVariantCount = Object.prototype.hasOwnProperty.call(options, "variantCount");
   var fanoutDistinctness = !campaignProfile || !hasVariantCount || Number(options.variantCount || 0) > 1;
+  var staticOpeningAllowed = allowsStaticOpening(options);
   var blockingReasons = [];
   var warnings = [];
   var blockingItems = [];
@@ -388,9 +389,21 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "safe_zone", results.safeZone?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "caption", results.readability?.warnings);
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
-  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "hook", results.hookVisibility?.warnings);
+  addStaticAwareWarnings(
+    campaignProfile ? blockingItems : warningItems,
+    warningItems,
+    "hook",
+    results.hookVisibility?.warnings,
+    staticOpeningAllowed,
+  );
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "watchability", results.watchability?.warnings);
-  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "creative", results.creativeQuality?.warnings);
+  addStaticAwareWarnings(
+    campaignProfile ? blockingItems : warningItems,
+    warningItems,
+    "creative",
+    results.creativeQuality?.warnings,
+    staticOpeningAllowed,
+  );
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "virality", results.virality?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "video_analysis", results.videoAnalysis?.warnings);
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
@@ -462,7 +475,47 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     operatorLabels,
     uploadReady,
     recommendedAction,
+    staticOpeningAllowed,
   };
+}
+
+function allowsStaticOpening(options = {}) {
+  if (options.allowStaticOpening === true) return true;
+  var mode = String(options.animationMode || options.mediaMode || options.renderMode || "").toLowerCase();
+  return [
+    "static_image_mp4",
+    "static_mp4",
+    "static_hold",
+    "still_mp4",
+    "still_to_mp4",
+  ].includes(mode);
+}
+
+function addStaticAwareWarnings(blockingTarget, warningTarget, layer, warnings, staticOpeningAllowed) {
+  if (!staticOpeningAllowed) {
+    addAdvisoryWarnings(blockingTarget, layer, warnings);
+    return;
+  }
+  var staticOpeningCodes = new Set(["static_opening", "creative_opening_static"]);
+  for (var warning of warnings || []) {
+    if (staticOpeningCodes.has(warning.code)) {
+      addReadinessItem(
+        warningTarget,
+        warning.code || layer + "_review",
+        layer + ": " + (warning.message || warning.code || "needs review"),
+        warning.message || warning.code || "needs review",
+        warning.severity || "warn"
+      );
+    } else {
+      addReadinessItem(
+        blockingTarget,
+        warning.code || layer + "_review",
+        layer + ": " + (warning.message || warning.code || "needs review"),
+        warning.message || warning.code || "needs review",
+        warning.severity || "warn"
+      );
+    }
+  }
 }
 
 async function runForensicCheck(outputDir, files, options = {}) {
@@ -1770,6 +1823,8 @@ export async function POST(request) {
     var auditProfile = VALID_AUDIT_PROFILES.has(body.auditProfile) ? body.auditProfile : "default";
     var targetFile = body.targetFile || body.target || body.variant || body.outputFile || null;
     var requestedComparisonFiles = body.comparisonFiles ?? [];
+    var animationMode = body.animationMode || body.mediaMode || body.renderMode || null;
+    var allowStaticOpening = body.allowStaticOpening === true;
 
     if (!sourcePath) {
       return NextResponse.json({ error: "Missing or invalid source path" }, { status: 400 });
@@ -2006,7 +2061,12 @@ export async function POST(request) {
       verdicts.originality = results.multiAccountOriginalityAudit.verdict;
     }
 
-    var readinessSummary = buildReadinessSummary(results, verdicts, { auditProfile, variantCount: files.length });
+    var readinessSummary = buildReadinessSummary(results, verdicts, {
+      auditProfile,
+      variantCount: files.length,
+      animationMode,
+      allowStaticOpening,
+    });
     var overallVerdict = readinessSummary.blockingReasons.length > 0 ? "fail"
       : readinessSummary.warnings.length > 0 ? "warn" : "pass";
     var verdictCodes = Object.fromEntries(Object.entries(verdicts).map(function ([layer, verdict]) {
