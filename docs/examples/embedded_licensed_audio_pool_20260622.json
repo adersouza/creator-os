@@ -1,0 +1,457 @@
+{
+  "schema": "creator_os.embedded_licensed_audio_pool.v1",
+  "created_at": "2026-06-22",
+  "notes": "Local audio binaries live in python_packages/reel_factory/03_audio_library and are intentionally gitignored. This file records the royalty-free seed set.",
+  "tracks": [
+    {
+      "track_id": "incompetech_3b8d82e6ed69",
+      "track_name": "Club Diver",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_club_diver.mp3",
+      "tags": [
+        "club",
+        "licensed",
+        "nightlife",
+        "upbeat"
+      ],
+      "sha256": "3b8d82e6ed69cbd540e69794a252b7dced75a0af838914a094182115af3effb6",
+      "attribution": "Club Diver Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_ddfa5637036e",
+      "track_name": "Cut and Run",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_cut_and_run.mp3",
+      "tags": [
+        "action",
+        "licensed",
+        "movement",
+        "upbeat"
+      ],
+      "sha256": "ddfa5637036e97a313a2e7a01d37d00f85226469cf4df896c83da07f7f2c353e",
+      "attribution": "Cut and Run Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_cc34a2551ba2",
+      "track_name": "Dance Monster",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_dance_monster.mp3",
+      "tags": [
+        "dance",
+        "licensed",
+        "party",
+        "upbeat"
+      ],
+      "sha256": "cc34a2551ba2caef00469ecff3b7a86dae9e85f4f6fd3a8469724139bfed52a6",
+      "attribution": "Dance Monster Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_be9f665efd03",
+      "track_name": "Digital Lemonade",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_digital_lemonade.mp3",
+      "tags": [
+        "bright",
+        "licensed",
+        "lifestyle",
+        "playful"
+      ],
+      "sha256": "be9f665efd035dea23a1e9539c534ba905f44144f7dda05a0a663ccecda1ab21",
+      "attribution": "Digital Lemonade Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_931877813688",
+      "track_name": "Disco Lounge",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_disco_lounge.mp3",
+      "tags": [
+        "disco",
+        "licensed",
+        "lounge",
+        "upbeat"
+      ],
+      "sha256": "931877813688cff3b6bc2219a2a1992800b159a74fbf30365a03208f55eb1fab",
+      "attribution": "Disco Lounge Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_1b54c9d99110",
+      "track_name": "Disco Medusae",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_disco_medusae.mp3",
+      "tags": [
+        "disco",
+        "groove",
+        "licensed",
+        "upbeat"
+      ],
+      "sha256": "1b54c9d99110f5ad3e8ced322681f0f81d18c919434e55375b40dc75c8bb09f3",
+      "attribution": "Disco Medusae Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_2486b8ecfe45",
+      "track_name": "Easy Lemon",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_easy_lemon.mp3",
+      "tags": [
+        "bright",
+        "chill",
+        "licensed",
+        "lifestyle"
+      ],
+      "sha256": "2486b8ecfe4575f9ab31613a2c03c2ee45e6e5280301d05b4dd7237c9e1c2531",
+      "attribution": "Easy Lemon Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_746f7b1d4dad",
+      "track_name": "EDM Detection Mode",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_edm_detection_mode.mp3",
+      "tags": [
+        "electronic",
+        "licensed",
+        "reel_test",
+        "upbeat"
+      ],
+      "sha256": "746f7b1d4dad9c949a67bc063e0ca79da34452c69cd98f4ab9c16a712e92e951",
+      "attribution": "EDM Detection Mode Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_02f84e8cdd37",
+      "track_name": "Ether Disco",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_ether_disco.mp3",
+      "tags": [
+        "bright",
+        "disco",
+        "electronic",
+        "licensed"
+      ],
+      "sha256": "02f84e8cdd371fc9398ee36132c7e7154742691588a605dcac5dbfe7ff3e2e6d",
+      "attribution": "Ether Disco Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_441d1b594a15",
+      "track_name": "Exit the Premises",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_exit_the_premises.mp3",
+      "tags": [
+        "action",
+        "energetic",
+        "licensed",
+        "upbeat"
+      ],
+      "sha256": "441d1b594a15b0acdac531495e9c56906e3df5d4002fc651b5a0b763f679c70b",
+      "attribution": "Exit the Premises Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_77ee6c6263db",
+      "track_name": "Funk Game Loop",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_funk_game_loop.mp3",
+      "tags": [
+        "funk",
+        "licensed",
+        "loop",
+        "upbeat"
+      ],
+      "sha256": "77ee6c6263db62f5a14ecfdf9e8f758c61683a9d139e611a64790800bd9ea24f",
+      "attribution": "Funk Game Loop Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_e6203c8c8fdd",
+      "track_name": "Funky Chunk",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_funky_chunk.mp3",
+      "tags": [
+        "funk",
+        "groove",
+        "licensed",
+        "upbeat"
+      ],
+      "sha256": "e6203c8c8fddbae0d9790da391a6ea73ef765fc3eec08bd87441e63037dc3c9c",
+      "attribution": "Funky Chunk Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_ecd3073c0dd0",
+      "track_name": "Got Funk",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_got_funk.mp3",
+      "tags": [
+        "confident",
+        "funk",
+        "groove",
+        "licensed"
+      ],
+      "sha256": "ecd3073c0dd028ddb2da1ed8892443f73be019bd1161f99c75b573556d5e1299",
+      "attribution": "Got Funk Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_e47b9c1615ad",
+      "track_name": "Groove Grove",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_groove_grove.mp3",
+      "tags": [
+        "chill",
+        "groove",
+        "licensed",
+        "lifestyle"
+      ],
+      "sha256": "e47b9c1615ad8e759c19109f487f7c484dd0785d3a66499ecd240bc492ee33b5",
+      "attribution": "Groove Grove Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_75cf68132248",
+      "track_name": "Home Base Groove",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_home_base_groove.mp3",
+      "tags": [
+        "groove",
+        "licensed",
+        "lifestyle",
+        "upbeat"
+      ],
+      "sha256": "75cf6813224852d6c1777a2c3c145d7a13b9ed704e67f5ba46f425e67ea69162",
+      "attribution": "Home Base Groove Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_6444445b0e55",
+      "track_name": "Miami Nights - Opening Theme",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_miami_nights_opening_theme.mp3",
+      "tags": [
+        "licensed",
+        "moody",
+        "nightlife",
+        "retro"
+      ],
+      "sha256": "6444445b0e55c5ee8024dbff7b685a768fcbbf504bfdb2611c7832e1de3ddf76",
+      "attribution": "Miami Nights - Opening Theme Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_d0c9319fe0e7",
+      "track_name": "Night on the Docks",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_night_on_the_docks.mp3",
+      "tags": [
+        "cinematic",
+        "licensed",
+        "moody",
+        "night"
+      ],
+      "sha256": "d0c9319fe0e7e055f073ac81f52b56563bc151af823f7578374922788cf0e438",
+      "attribution": "Night on the Docks Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_732871fa3175",
+      "track_name": "Night on the Docks - Sax",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_night_on_the_docks_sax.mp3",
+      "tags": [
+        "licensed",
+        "moody",
+        "night",
+        "sax"
+      ],
+      "sha256": "732871fa31755c4a3ae260cccbdd4044b81ad49cabf8fbb1ee0f5927d36d7d79",
+      "attribution": "Night on the Docks - Sax Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_0a02d8843124",
+      "track_name": "Night on the Docks - Trumpet",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_night_on_the_docks_trumpet.mp3",
+      "tags": [
+        "licensed",
+        "moody",
+        "night",
+        "trumpet"
+      ],
+      "sha256": "0a02d88431244f60ff3962edbc3b5cc333ee887ec84a44146ff335c1fdcb1bd3",
+      "attribution": "Night on the Docks - Trumpet Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_9b28e419c338",
+      "track_name": "Protofunk",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_protofunk.mp3",
+      "tags": [
+        "funk",
+        "groove",
+        "licensed",
+        "retro"
+      ],
+      "sha256": "9b28e419c33831b67e44ecff94591568d0f65120d2bee383d7fb24278373c277",
+      "attribution": "Protofunk Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_99a86353e427",
+      "track_name": "Stealth Groover",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_stealth_groover.mp3",
+      "tags": [
+        "chill",
+        "groove",
+        "licensed",
+        "moody"
+      ],
+      "sha256": "99a86353e427d1f96371b5777ba461020d78ef6100a6954f9566c9c4995fed9b",
+      "attribution": "Stealth Groover Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_d8e5946c7510",
+      "track_name": "Stringed Disco",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_stringed_disco.mp3",
+      "tags": [
+        "disco",
+        "licensed",
+        "retro",
+        "upbeat"
+      ],
+      "sha256": "d8e5946c7510e8cb3304b98d1e704e9ce91046e2e22ac5c7bb023364b42efca6",
+      "attribution": "Stringed Disco Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_5036f27114e7",
+      "track_name": "StyleFunk",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_stylefunk.mp3",
+      "tags": [
+        "fashion",
+        "funk",
+        "groove",
+        "licensed"
+      ],
+      "sha256": "5036f27114e79c63d0fddf0c98562cce481b3e36d4de869bc3611b9ef90e4748",
+      "attribution": "StyleFunk Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_95953927dd2c",
+      "track_name": "Thief in the Night",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_thief_in_the_night.mp3",
+      "tags": [
+        "licensed",
+        "moody",
+        "nightlife",
+        "suspense"
+      ],
+      "sha256": "95953927dd2c50159734ba675de66e7060adaab60288415ea6b31cf971178563",
+      "attribution": "Thief in the Night Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    },
+    {
+      "track_id": "incompetech_4a5d168d1714",
+      "track_name": "Who Likes to Party",
+      "artist": "Kevin MacLeod",
+      "source": "incompetech",
+      "license": "Creative Commons Attribution 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source_url": "https://incompetech.com/music/royalty-free/music.html",
+      "local_file": "python_packages/reel_factory/03_audio_library/incompetech_kevin_macleod_who_likes_to_party.mp3",
+      "tags": [
+        "dance",
+        "licensed",
+        "party",
+        "upbeat"
+      ],
+      "sha256": "4a5d168d1714f750c85a928db9f61dba7e4c4a188965fdaac659f58daff4f7d6",
+      "attribution": "Who Likes to Party Kevin MacLeod (incompetech.com) Licensed under Creative Commons: By Attribution 4.0 License"
+    }
+  ]
+}

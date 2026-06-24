@@ -81,6 +81,67 @@ single-person reference image
 
 Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, and `_grok.json` are legacy/experimental unless explicitly requested.
 
+### Higgsfield Reference Prompting Rule
+
+If the user asks to recreate from a Twitter/X, Instagram, or local reference, the
+reference media must be passed into Higgsfield as media. Do **not** switch to
+text-only Soul prompting when a clean source image exists; that causes fake UI,
+wrong framing, and recycled-looking generations.
+
+Correct still command shape:
+
+```bash
+higgsfield --json generate create text2image_soul_v2 \
+  --image "$CLEAN_REFERENCE_IMAGE" \
+  --custom_reference_id d63ea9c7-b2c7-439c-bf0c-edfdf9938a36 \
+  --aspect_ratio 9:16 \
+  --quality 2k \
+  --prompt "Use the attached image as composition reference only. Replace the person with the trained Stacey Soul character. Keep the pose, crop, camera distance, lighting, outfit category, and setting. Output a clean full-bleed vertical camera photo."
+```
+
+Prompt rules:
+
+- Say "attached image" or "reference image"; do not describe the source from memory
+  if the image can be attached.
+- For Stacey/Soul text-only generations, do **not** use negative-prompt language.
+  Do not write clauses like "no UI", "no text", "no watermark", "without
+  interface", or long lists of forbidden artifacts. Soul ID often turns those
+  words into fake app UI. Use positive camera/scene language only.
+- Do not use generic "clean portrait" prompts for Stacey winners. The proven
+  prompt shape is detailed positive camera language: adult woman in her mid-20s,
+  close-up intimate camera portrait, low-angle or slightly elevated front-facing
+  crop, dark bedroom/night setting, one warm yellow bedside lamp, clean
+  low-light camera look, sharp face detail, natural skin texture, thick opaque
+  low-cut top, deep cleavage/curvy silhouette, confident seductive expression,
+  centered face and chest framing, moody amber shadows.
+- If a Soul text-only run adds app/story UI, the retry should remove literal
+  `phone`, `iPhone`, `smartphone`, and `selfie` tokens and keep the same look
+  with positive wording like "clean intimate low-light camera portrait",
+  "arm's-length front-facing portrait", "centered face and chest framing", and
+  "soft warm lamp glow with sharp face detail".
+- Do not dilute the genre into sterile fashion/editorial copy. Sensual cues such
+  as seductive expression, cleavage, curvy silhouette, low-cut opaque top,
+  bedroom lamp light, and intimate late-night phone-photo realism are part of the
+  Stacey winning style.
+- Keep all sexualized Stacey prompts adult-coded, e.g. "adult woman in her
+  mid-20s"; do not use teen, barely-legal, schoolgirl, or minor-coded wording.
+- For attached references, keep prompts concrete: pose, crop, lighting, outfit
+  category, setting.
+- For each strong reference, make a paired still set by default:
+  1. `faithful`: the clean reference-driven prompt above.
+  2. `amplified`: the same prompt plus one append-only body-emphasis clause, e.g.
+     "Make the Stacey model version slightly more seductive with fuller cleavage,
+     a more pronounced waist/hip curve, and stronger confident body pose, while
+     preserving the original composition."
+  Do not rewrite the whole prompt for the amplified pass; build on the same
+  attached-image prompt so pose, crop, lighting, and setting stay locked.
+- If the output adds UI/text anyway, reject it and try a different clean reference
+  or model. Do not use social UI outputs as Reel Factory inputs.
+- Stacey1 (`5828d958-91dd-4d6d-8909-934503f47644`) is an experimental fallback
+  for specific failed Stacey generations, not the default.
+- Never feed contact sheets, social screenshots, grids, thumbnails, or previous
+  Higgsfield outputs as references unless the user explicitly asks for that.
+
 ## Reel Captions, Overlay Text, And Fonts (Source Of Truth)
 
 Do not relearn or invent these each task. Read this section, then the named files.
@@ -112,21 +173,28 @@ Do not relearn or invent these each task. Read this section, then the named file
     Campaign Factory must reject it or keep it in review.
 - **Stacey/Larissa Instagram reel style is a special preset, not generic
   safe-zone placement.** The observed account format is static/near-static
-  selfie imagery with centered engagement-bait overlay text. For
-  Stacey/Larissa caption-bank renders, use Reel Factory's
-  `--creator-style-preset stacey_static_center` behavior: static image MP4s stay
-  locked still, overlay text defaults to centered, Instagram Sans Condensed,
-  white text with black stroke/shadow, no background plate. Do not move these
-  hooks to the bottom just because safe-zone scoring slightly prefers it.
+  selfie imagery with engagement-bait overlay text near the visual center, but
+  below the face and away from the main body focal point. For Stacey/Larissa
+  caption-bank renders, use Reel Factory's `--creator-style-preset
+  stacey_static_center` behavior: static image MP4s stay locked still, overlay
+  text defaults to `lower_center`, Instagram Sans Condensed, white text with
+  black stroke/shadow, no background plate. Timed captions should move slightly
+  between beats inside this same lower-center family: `lower_center` first, then
+  `center` only when the scorer says center is safe, otherwise
+  `lower_center_alt`. Do not move these hooks to generic top/bottom lanes just
+  because safe-zone scoring slightly prefers them.
 - **Overlay text comes from the caption bank, never freehand and never the
   Higgsfield prompt text.** Source: `python_packages/reel_factory/caption_banks/`
   (`banks.json` = hooks with `caption_hash` + bank membership, `mixes.json` =
   per-creator weights Larissa/Stacey/Lola, `performance.json` = perf metadata).
   Selection/rotation logic: `caption_bank.py`; rendering: `caption_render.py`;
   fit-to-frame: `caption_scene_fit.py` (`reel_pipeline.py --caption-fit auto`).
-- **Native audio is never burned into the MP4.** Campaign Factory recommends via
-  `audio_intent.v1`; ThreadsDashboard selects/verifies native audio. Publishing
-  is blocked until ThreadsDashboard has native-audio + publishability proof.
+- **Native/platform catalog audio is never burned into the MP4.** Campaign
+  Factory recommends it via `audio_intent.v1`; ThreadsDashboard selects/verifies
+  native audio. Explicitly licensed local audio may be muxed before publish only
+  when the MP4 has matching `audio_intent.v1` evidence
+  (`mode=licensed_music`, `selection_source=embedded_licensed_audio`, track id,
+  license/source sidecar). Anything else stays blocked.
 
 ## Durable System Map
 

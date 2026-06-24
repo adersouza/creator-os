@@ -46,6 +46,10 @@ uploads/
 output/
 graphify-out/
 
+# Local generated media archives; keep manifests/docs in Git, not multi-GB binaries.
+docs/examples/older_stacey_generations_20260621/
+docs/examples/x_reference_captures_20260621/
+
 # Local prompt/model experiments
 /*.grok_lineage.json
 /test_*.json

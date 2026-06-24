@@ -1,0 +1,85 @@
+{
+  "schema": "reel_factory.stacey_topic_prompt_board.v1",
+  "soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+  "rules": [
+    "review prompts before generation",
+    "use positive scene wording only",
+    "use clean full-bleed camera portrait wording",
+    "use sharp face detail and natural skin texture wording",
+    "still prompt review only before any generation step"
+  ],
+  "items": [
+    {
+      "id": "car_dashboard_gamer",
+      "setting": "car",
+      "topicCue": "white game controller",
+      "prompt": "Adult woman in her mid-20s, arm's-length front-facing portrait in a parked car at night, dashboard glow and warm streetlight, sharp face detail, natural skin texture, opaque low-cut fitted top, strong cleavage, controller held clearly near her chest, playful confident gaze, intimate private mood."
+    },
+    {
+      "id": "car_red_racing_top",
+      "setting": "car",
+      "topicCue": "red racing-inspired fitted tee",
+      "prompt": "Adult woman in her mid-20s, close front-facing car portrait at night, black leather passenger seat, warm parking-lot light, sharp face detail, fitted red racing-inspired opaque top with deep neckline, strong cleavage, confident smirk, centered face and chest framing."
+    },
+    {
+      "id": "bed_spider_plush",
+      "setting": "bed",
+      "topicCue": "red-blue spider hero plush",
+      "prompt": "Adult woman in her mid-20s, intimate bedroom portrait on pillows, warm bedside lamp, sharp face detail, opaque black low-cut top, strong cleavage, small red-blue spider hero plush held beside cheek and upper chest, flirty serious gaze, centered framing."
+    },
+    {
+      "id": "bed_black_bat_plush",
+      "setting": "bed",
+      "topicCue": "black bat hero plush",
+      "prompt": "Adult woman in her mid-20s, seated on bed in a dark cozy bedroom with a warm lamp, sharp face detail, opaque black deep-neckline top, strong cleavage, small black bat hero plush held separately near her shoulder, serious seductive expression, centered face and chest framing."
+    },
+    {
+      "id": "bed_yellow_anime",
+      "setting": "bed",
+      "topicCue": "yellow electric anime mascot plush",
+      "prompt": "Adult woman in her mid-20s, close bedroom portrait with warm lamp and soft pillows, sharp face detail, opaque fitted top with deep neckline, strong cleavage, small yellow electric anime mascot plush held near her cheek, playful teasing gaze, intimate framing."
+    },
+    {
+      "id": "bathroom_vanity_antihero",
+      "setting": "bathroom",
+      "topicCue": "red-black antihero plush",
+      "prompt": "Adult woman in her mid-20s, dim bathroom vanity portrait with warm mirror lights, sharp face detail, opaque fitted black top with deep neckline, strong cleavage, small red-black antihero plush held near her chest, confident mischievous expression, clean private setting."
+    },
+    {
+      "id": "bathroom_black_dress_bat",
+      "setting": "bathroom",
+      "topicCue": "black bat hero plush",
+      "prompt": "Adult woman in her mid-20s, private bathroom portrait near a vanity, warm light, sharp face detail, opaque black fitted dress with deep neckline, strong cleavage, tiny black bat hero plush visible in one hand, composed serious gaze, centered crop."
+    },
+    {
+      "id": "private_doorway_shark",
+      "setting": "private doorway",
+      "topicCue": "blue shark plush",
+      "prompt": "Adult woman in her mid-20s, intimate doorway portrait in a dark apartment hallway, warm room light behind her, sharp face detail, opaque low-cut top, strong cleavage, cute blue shark plush held against her shoulder and separate from body, playful smirk, centered framing."
+    },
+    {
+      "id": "private_kitchen_church",
+      "setting": "private kitchen",
+      "topicCue": "small cross necklace",
+      "prompt": "Adult woman in her mid-20s, private kitchen counter portrait at night, warm under-cabinet light, sharp face detail, opaque fitted white top with deep neckline, strong cleavage, small cross necklace visible, confident sweet-but-trouble expression, centered crop."
+    },
+    {
+      "id": "gaming_room_ps5",
+      "setting": "gaming room",
+      "topicCue": "white controller",
+      "prompt": "Adult woman in her mid-20s, cozy bedroom gaming corner portrait, soft monitor glow and warm lamp, sharp face detail, opaque fitted top with deep neckline, strong cleavage, white game controller held clearly near chest, teasing gamer-girl expression, clean background."
+    },
+    {
+      "id": "sporty_gray_tank_shark",
+      "setting": "bedroom",
+      "topicCue": "blue shark plush",
+      "prompt": "Adult woman in her mid-20s, close bedroom portrait, warm lamp, sharp face detail, opaque sporty gray tank with deep neckline, strong cleavage, blue shark plush near cheek, confident playful expression, centered face and chest framing."
+    },
+    {
+      "id": "patriotic_teddy_bed",
+      "setting": "bedroom",
+      "topicCue": "patriotic teddy and cross necklace",
+      "prompt": "Adult woman in her mid-20s, intimate bed portrait with warm bedside lamp, sharp face detail, opaque red fitted top with deep neckline, strong cleavage, small patriotic teddy and subtle cross necklace cue, playful controversial smirk, centered framing."
+    }
+  ]
+}

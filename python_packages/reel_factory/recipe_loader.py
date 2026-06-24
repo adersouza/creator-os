@@ -12,7 +12,7 @@ T = TypeVar("T")
 ALLOWED_COLOR_PRESETS = {"none", "bright_pop", "warm", "cool", "cinematic"}
 ALLOWED_CAPTION_COLORS = {"light", "dark", "auto"}
 ALLOWED_CAPTION_STYLES = {"classic", "meme", "ig", "thin", "soft", "bubble", "auto"}
-ALLOWED_CAPTION_BANDS = {"top", "center", "bottom", "left", "right", "auto"}
+ALLOWED_CAPTION_BANDS = {"top", "lower_center", "lower_center_alt", "center", "bottom", "left", "right", "auto"}
 ALLOWED_TEXT_VARIATION = {"off", "auto"}
 ALLOWED_FONTS = {
     "auto",

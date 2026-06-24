@@ -1,0 +1,144 @@
+{
+  "schema": "creator_os.style_reference_pack.v1",
+  "createdAt": "2026-06-21",
+  "source": "operator_supplied_screenshots_plus_safari_x_captures",
+  "captureDirectory": "docs/examples/x_reference_captures_20260621",
+  "higgsfieldUse": {
+    "referenceMode": "scene_pose_composition_only",
+    "identitySource": "creator_os_soul_or_operator_approved_model",
+    "instructions": [
+      "Use screenshots for framing, setting, camera distance, motion beat, and hook pattern.",
+      "Keep identity, face, styling details, and final media original.",
+      "Use archetype names in prompts instead of creator handles."
+    ],
+    "subjectRequirement": "Original adult model or generated persona, clearly 21+."
+  },
+  "liveCaptureStatus": [
+    {
+      "handle": "nayabarbiiee",
+      "status": "unavailable",
+      "note": "Safari/X returned account does not exist on 2026-06-21; use operator screenshot only.",
+      "capturePath": "docs/examples/x_reference_captures_20260621/nayabarbiiee_safari_visible.png"
+    },
+    {
+      "handle": "amausecretacc",
+      "status": "captured",
+      "capturePath": "docs/examples/x_reference_captures_20260621/amausecretacc_safari_profile.png",
+      "higgsfieldReferencePath": "docs/examples/x_reference_captures_20260621/higgsfield_refs/amausecretacc_safari_media_2_crop.png"
+    },
+    {
+      "handle": "baddiespremiere",
+      "status": "captured",
+      "capturePath": "docs/examples/x_reference_captures_20260621/baddiespremiere_safari_profile.png",
+      "higgsfieldReferencePath": "docs/examples/x_reference_captures_20260621/higgsfield_refs/baddiespremiere_safari_media_2_crop.png"
+    },
+    {
+      "handle": "BabyyMimiii_",
+      "status": "captured",
+      "capturePath": "docs/examples/x_reference_captures_20260621/BabyyMimiii__safari_profile.png",
+      "higgsfieldReferencePath": "docs/examples/x_reference_captures_20260621/higgsfield_refs/BabyyMimiii__safari_media_2_crop.png"
+    }
+  ],
+  "references": [
+    {
+      "id": "travel_boat_flirty_caption",
+      "sourceImagePath": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/resources/derivatives/E/E7F36169-DA90-4A31-AD87-09F6B606B9F4_1_105_c.jpeg",
+      "pattern": "travel fantasy plus soft danger caption",
+      "setting": "boat, tropical water, cliffs or lush background",
+      "composition": "vertical full-body seated shot, scenic depth, relaxed confidence",
+      "hookTypes": ["aspirational", "temptation", "escape"],
+      "safeCaptionSeeds": [
+        "Sunshine with a little trouble",
+        "Vacation mode, but make it dangerous",
+        "Soft view, sharp energy"
+      ]
+    },
+    {
+      "id": "bedroom_loop_rewatch",
+      "sourceImagePath": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/resources/derivatives/C/CDEAFE18-E4FA-44D3-85C8-34449ABA3605_1_105_c.jpeg",
+      "higgsfieldReferencePaths": [
+        "docs/examples/x_reference_captures_20260621/higgsfield_refs/amausecretacc_safari_media_2_crop.png"
+      ],
+      "pattern": "short loop with rewatch bait",
+      "setting": "simple bedroom, phone-native vertical frame",
+      "composition": "close vertical crop, casual movement, quick 5-7 second loop",
+      "hookTypes": ["rewatch", "casual tease", "movement loop"],
+      "safeCaptionSeeds": [
+        "How many rewatches is too many?",
+        "Wait for the little turn",
+        "This loop is too easy to replay"
+      ]
+    },
+    {
+      "id": "casual_room_identity_tease",
+      "sourceImagePath": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/resources/derivatives/9/9CB4A0C0-859E-4EB2-93AC-483EF49D6C5D_1_105_c.jpeg",
+      "higgsfieldReferencePaths": [
+        "docs/examples/x_reference_captures_20260621/higgsfield_refs/baddiespremiere_safari_media_2_crop.png"
+      ],
+      "pattern": "casual room fit check with simple identity label",
+      "setting": "bathroom or apartment mirror area",
+      "composition": "standing front frame, outfit adjustment, natural light",
+      "hookTypes": ["identity tease", "fit check", "simple label"],
+      "safeCaptionSeeds": [
+        "Weekend fit check",
+        "Guess the vibe",
+        "Too casual or just right?"
+      ]
+    },
+    {
+      "id": "pool_selfie_engagement_poll",
+      "sourceImagePath": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/resources/derivatives/4/43F8D9D3-DEB4-4E03-B8DB-E6683A078C1B_1_105_c.jpeg",
+      "higgsfieldReferencePaths": [
+        "docs/examples/x_reference_captures_20260621/higgsfield_refs/BabyyMimiii__safari_media_2_crop.png"
+      ],
+      "pattern": "sunny pool/beach selfie plus direct engagement prompt",
+      "setting": "pool, beach, resort seating, bright sun",
+      "composition": "tight selfie crop, strong eye contact, outdoor color",
+      "hookTypes": ["poll", "direct question", "first impression"],
+      "safeCaptionSeeds": [
+        "Be honest, pool day or beach day?",
+        "First impression?",
+        "Which shot wins?"
+      ]
+    }
+  ],
+  "firstBatch": {
+    "count": 4,
+    "format": "9:16 reel",
+    "durationSeconds": 5,
+    "styleRules": [
+      "phone-native vertical framing",
+      "single clear subject",
+      "one simple movement beat",
+      "caption under 12 words",
+      "no explicit nudity",
+      "no copied likeness or reposted media"
+    ],
+    "concepts": [
+      {
+        "name": "tropical_trouble",
+        "referencePattern": "travel_boat_flirty_caption",
+        "promptSeed": "Original 21+ brunette travel creator on a wooden boat in bright turquoise water, relaxed confident pose, cinematic phone video look, tropical cliffs in background, tasteful swimwear, luxury vacation energy.",
+        "caption": "Sunshine with a little trouble"
+      },
+      {
+        "name": "rewatch_turn",
+        "referencePattern": "bedroom_loop_rewatch",
+        "promptSeed": "Original 21+ lifestyle creator in a clean bedroom, casual lounge outfit, quick playful turn toward camera, phone-native vertical crop, natural indoor light, soft candid movement.",
+        "caption": "How many rewatches is too many?"
+      },
+      {
+        "name": "weekend_fit",
+        "referencePattern": "casual_room_identity_tease",
+        "promptSeed": "Original 21+ creator doing a casual weekend fit check in a bright apartment bathroom, simple outfit adjustment, confident smile, vertical phone framing, natural light.",
+        "caption": "Too casual or just right?"
+      },
+      {
+        "name": "pool_first_impression",
+        "referencePattern": "pool_selfie_engagement_poll",
+        "promptSeed": "Original 21+ creator at a sunny resort pool, close selfie framing, bright blue water, direct eye contact, polished but phone-native look, tasteful swimwear.",
+        "caption": "First impression?"
+      }
+    ]
+  }
+}

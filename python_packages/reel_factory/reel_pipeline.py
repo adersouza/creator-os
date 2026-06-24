@@ -88,7 +88,7 @@ CREATOR_STYLE_PRESETS = {"auto", "none", "stacey_static_center"}
 def apply_creator_style_preset(args) -> str | None:
     preset = getattr(args, "creator_style_preset", "auto") or "auto"
     if preset == "auto":
-        preset = "stacey_static_center" if args.caption_mix in {"Larissa", "Stacey"} else "none"
+        preset = "stacey_static_center" if getattr(args, "caption_mix", None) in {"Larissa", "Stacey"} else "none"
     if preset == "none":
         return None
     if preset != "stacey_static_center":
@@ -96,7 +96,7 @@ def apply_creator_style_preset(args) -> str | None:
 
     # ponytail: this is the whole Stacey/Larissa reel format; split presets only after another account needs different defaults.
     if args.band is None:
-        args.band = "center"
+        args.band = "lower_center"
     if args.style is None:
         args.style = "ig"
     if args.font is None:
@@ -177,7 +177,7 @@ class Recipe:
     burn_caption: bool = True       # set False to skip the PNG caption overlay
     caption_color: str = "auto"     # "light" / "dark" / "auto" (sampled luminance)
     caption_style: str = "auto"     # "classic" / "meme" / "ig" / "thin" / "soft" / "bubble" / "auto" (frame busyness)
-    caption_band:  str = "auto"     # "top" / "bottom" / "center" / "left" / "right" / "auto"
+    caption_band:  str = "auto"     # "top" / "lower_center" / "lower_center_alt" / "center" / "bottom" / "left" / "right" / "auto"
     font: str           = DEFAULT_CAPTION_FONT
     text_variation: str = "off"     # "off" → preserve original caption exactly; "auto" → slang/case mangle per recipe
     text_variation_pack: str = "default"
@@ -846,9 +846,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             seg_png = out_dir / f"_cap_h{hook_idx:02d}_{recipe.name}_{color}_s{i}.png"
             start = float(seg.get("start", 0.0))
             end = float(seg["end"]) if "end" in seg else None
-            # Per-segment explicit band wins; otherwise cycle top→center→bottom
-            # across segments so each caption appears in a different screen zone —
-            # drives retention by keeping the viewer's eye moving.
+            # Per-segment explicit band wins; otherwise resolve a safe lane per
+            # segment and only move when the scorer has an acceptable alternate.
             explicit_band = "band" in seg
             seg_band = str(seg["band"]) if explicit_band else band
             seg_plans.append(CaptionSegmentPlan(seg_png, start, end, seg_text, seg_band, explicit_band))
@@ -2173,7 +2172,7 @@ def main():
                     help="force caption style across all recipes (overrides recipe defaults)")
     ap.add_argument("--font", default=None,
                     help="force caption font family: 'Instagram Sans Condensed' or 'Instagram Sans Condensed Bold' (bold is used only for meme style)")
-    ap.add_argument("--band", choices=["top", "center", "bottom", "left", "right", "auto"], default=None,
+    ap.add_argument("--band", choices=["top", "lower_center", "lower_center_alt", "center", "bottom", "left", "right", "auto"], default=None,
                     help="force caption placement band across all recipes")
     ap.add_argument("--text-variation", choices=["off", "auto"], default="off",
                     help="caption text rewrite mode: off preserves exact text; auto applies deterministic slang/case variants")

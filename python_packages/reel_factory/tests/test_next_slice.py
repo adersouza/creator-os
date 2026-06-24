@@ -200,6 +200,143 @@ class NextSliceTests(unittest.TestCase):
             ))
             self.assertEqual([s.band for s in resolved], ["top", "bottom", "top"])
 
+    def test_segment_mode_moves_repeated_lane_for_retention_when_outer_lane_is_acceptable(self):
+        calls = [
+            PlacementSummary("top", {"top": 25.0, "bottom": 45.0, "center": 90.0}, 3, "top"),
+            PlacementSummary("top", {"top": 25.0, "bottom": 45.0, "center": 90.0}, 3, "top"),
+        ]
+
+        async def fake_probe(*args, **kwargs):
+            return calls.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plans = [
+                CaptionSegmentPlan(Path(tmp) / "a.png", 0.0, 2.0, "first", "bottom"),
+                CaptionSegmentPlan(Path(tmp) / "b.png", 2.0, 4.0, "second", "bottom"),
+            ]
+            resolved = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="bottom",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=5.0,
+                probe_func=fake_probe,
+            ))
+            self.assertEqual([s.band for s in resolved], ["top", "bottom"])
+
+    def test_segment_mode_does_not_move_retention_text_into_rejected_lane(self):
+        metadata = {
+            "captionPlacementDecision": {
+                "rejectedLanes": ["bottom"],
+                "components": {
+                    "top": {"face": 0.0, "focal": 5.0, "pose": 0.0},
+                    "center": {"face": 0.0, "focal": 90.0, "pose": 0.0},
+                    "bottom": {"face": 80.0, "focal": 90.0, "pose": 0.0},
+                },
+            },
+        }
+        calls = [
+            PlacementSummary("top", {"top": 10.0, "bottom": 18.0, "center": 25.0}, 3, "top", metadata),
+            PlacementSummary("top", {"top": 10.0, "bottom": 18.0, "center": 25.0}, 3, "top", metadata),
+        ]
+
+        async def fake_probe(*args, **kwargs):
+            return calls.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plans = [
+                CaptionSegmentPlan(Path(tmp) / "a.png", 0.0, 2.0, "first", "bottom"),
+                CaptionSegmentPlan(Path(tmp) / "b.png", 2.0, 4.0, "second", "bottom"),
+            ]
+            resolved = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="bottom",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=5.0,
+                probe_func=fake_probe,
+            ))
+            self.assertEqual([s.band for s in resolved], ["top", "top"])
+
+    def test_segment_mode_stacey_center_alternates_only_when_center_is_safe(self):
+        safe_metadata = {
+            "captionPlacementDecision": {
+                "rejectedLanes": [],
+                "components": {
+                    "center": {"face": 0.0, "focal": 20.0, "pose": 0.0},
+                },
+            },
+        }
+        rejected_metadata = {
+            "captionPlacementDecision": {
+                "rejectedLanes": ["center"],
+                "components": {
+                    "center": {"face": 0.0, "focal": 95.0, "pose": 0.0},
+                },
+            },
+        }
+
+        async def safe_probe(*args, **kwargs):
+            return PlacementSummary("bottom", {"top": 80.0, "center": 40.0, "bottom": 30.0}, 3, "bottom", safe_metadata)
+
+        async def rejected_probe(*args, **kwargs):
+            return PlacementSummary("bottom", {"top": 80.0, "center": 40.0, "bottom": 30.0}, 3, "bottom", rejected_metadata)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plans = [
+                CaptionSegmentPlan(Path(tmp) / "a.png", 0.0, 2.0, "first", "lower_center"),
+                CaptionSegmentPlan(Path(tmp) / "b.png", 2.0, 4.0, "second", "lower_center"),
+            ]
+            safe = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="lower_center",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=5.0,
+                probe_func=safe_probe,
+            ))
+            rejected = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="lower_center",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=5.0,
+                probe_func=rejected_probe,
+            ))
+
+        self.assertEqual([s.band for s in safe], ["lower_center", "center"])
+        self.assertEqual([s.band for s in rejected], ["lower_center", "lower_center_alt"])
+
+    def test_segment_mode_stacey_center_does_not_alternate_without_safe_score(self):
+        async def probe(*args, **kwargs):
+            return PlacementSummary("bottom", {"top": 20.0, "center": 90.0, "bottom": 15.0}, 3, "bottom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plans = [
+                CaptionSegmentPlan(Path(tmp) / "a.png", 0.0, 2.0, "first", "lower_center"),
+                CaptionSegmentPlan(Path(tmp) / "b.png", 2.0, 4.0, "second", "lower_center"),
+            ]
+            resolved = __import__("asyncio").run(resolve_segment_bands(
+                Path("clip.mp4"),
+                segments=plans,
+                source_band="lower_center",
+                placement_mode="segment",
+                placement_signals="basic",
+                recipe=Recipe("v01_original"),
+                duration=5.0,
+                probe_func=probe,
+            ))
+
+        self.assertEqual([s.band for s in resolved], ["lower_center", "lower_center_alt"])
+
     def test_segment_mode_keeps_repeated_lane_when_alternates_are_bad(self):
         calls = [
             PlacementSummary("top", {"top": 10.0, "bottom": 70.0, "center": 80.0}, 3, "top"),

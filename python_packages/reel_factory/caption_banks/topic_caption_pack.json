@@ -1,0 +1,1171 @@
+{
+  "schema": "reel_factory.topic_caption_pack.v1",
+  "purpose": "review_only_topic_caption_candidates",
+  "edgeLevel": "edgier_safe",
+  "rules": [
+    "candidate intake only; do not render or promote without approval",
+    "timed captions use stacey_static_center placement",
+    "regular Instagram Sans Condensed, no background plate"
+  ],
+  "count": 24,
+  "rejected": [],
+  "variants": [
+    {
+      "caption_hash": "4beda259119bb0340be1f66eb08f97fd4beb7175dc129103b2eb4389d20511f3",
+      "text": "every girl wants\nspider-man\nnobody wants\npeter parker",
+      "banks": [
+        "shared_girl_next_door",
+        "body_attention"
+      ],
+      "source": "generated_topic_seed:spider_peter_parker",
+      "status": "candidate",
+      "topicSeedId": "spider_peter_parker",
+      "topic": "spider hero",
+      "propCue": "red-blue spider hero plush",
+      "angleFamily": "fandom dating bait",
+      "stance": "mask over normal guy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "every girl wants\nspider-man",
+        "nobody wants\npeter parker"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "every girl wants\nspider-man\nnobody wants\npeter parker",
+        "timed": {
+          "segments": [
+            {
+              "text": "every girl wants\nspider-man"
+            },
+            {
+              "text": "nobody wants\npeter parker"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "9086abbf1d922503f3eda0d13ce85326b6a87a0bbec2798d3d04839a85e0c5ee",
+      "text": "he saved the city\nstill got left on read",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:spider_nice_guy",
+      "status": "candidate",
+      "topicSeedId": "spider_nice_guy",
+      "topic": "spider hero",
+      "propCue": "red-blue spider hero plush",
+      "angleFamily": "nice guy bait",
+      "stance": "against nice-guy cope",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "he saved the city",
+        "still got left on read"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "he saved the city\nstill got left on read",
+        "timed": {
+          "segments": [
+            {
+              "text": "he saved the city"
+            },
+            {
+              "text": "still got left on read"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "3f2dc72297d15740f63e431608518fcc85246242038d412a115bcea89ce2320d",
+      "text": "it's not the suit\nokay maybe it is",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:spider_mask",
+      "status": "candidate",
+      "topicSeedId": "spider_mask",
+      "topic": "spider hero",
+      "propCue": "red-blue spider hero plush",
+      "angleFamily": "identity bait",
+      "stance": "pro fantasy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "it's not the suit",
+        "okay maybe it is"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "it's not the suit\nokay maybe it is",
+        "timed": {
+          "segments": [
+            {
+              "text": "it's not the suit"
+            },
+            {
+              "text": "okay maybe it is"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "66e83012bcf1cdb926e3c885584fcf7e9af7419ac9d64d78186d0c3a2143e78d",
+      "text": "batman is just\na rich red flag\nand somehow\nthat works on me",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:bat_rich_red_flag",
+      "status": "candidate",
+      "topicSeedId": "bat_rich_red_flag",
+      "topic": "bat hero",
+      "propCue": "black bat hero plush",
+      "angleFamily": "controversial dating take",
+      "stance": "red flags win",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "batman is just\na rich red flag",
+        "and somehow\nthat works on me"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "batman is just\na rich red flag\nand somehow\nthat works on me",
+        "timed": {
+          "segments": [
+            {
+              "text": "batman is just\na rich red flag"
+            },
+            {
+              "text": "and somehow\nthat works on me"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "090b1372f4d3c774dea0db1c2c0446aba262f503c978035267af8849ca9e3150",
+      "text": "girls say they\nwant batman\nthen complain he\nnever texts back",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "generated_topic_seed:bat_never_texts",
+      "status": "candidate",
+      "topicSeedId": "bat_never_texts",
+      "topic": "bat hero",
+      "propCue": "black bat hero plush",
+      "angleFamily": "avoidant dating bait",
+      "stance": "calling out fantasy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "girls say they\nwant batman",
+        "then complain he\nnever texts back"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "girls say they\nwant batman\nthen complain he\nnever texts back",
+        "timed": {
+          "segments": [
+            {
+              "text": "girls say they\nwant batman"
+            },
+            {
+              "text": "then complain he\nnever texts back"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "1cbb4db5db7f52cfed3940add623a7d544da3cdced0d4a4840cd22dd332cf552",
+      "text": "trauma is not hot\nunless he has\na mansion",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:bat_trauma_hot",
+      "status": "candidate",
+      "topicSeedId": "bat_trauma_hot",
+      "topic": "bat hero",
+      "propCue": "black bat hero plush",
+      "angleFamily": "money versus trauma",
+      "stance": "pro toxic fantasy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "trauma is not hot",
+        "unless he has\na mansion"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "trauma is not hot\nunless he has\na mansion",
+        "timed": {
+          "segments": [
+            {
+              "text": "trauma is not hot"
+            },
+            {
+              "text": "unless he has\na mansion"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "feb3f2cf286784f9414ac755fe243ee31d9469998357a6ac1eff85332878603a",
+      "text": "when he's broke\nso I buy him\na PS5",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:ps5_broke",
+      "status": "candidate",
+      "topicSeedId": "ps5_broke",
+      "topic": "gaming",
+      "propCue": "white game-controller plush",
+      "angleFamily": "provider bait",
+      "stance": "girl buys console",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "when he's broke",
+        "so I buy him\na PS5"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "when he's broke\nso I buy him\na PS5",
+        "timed": {
+          "segments": [
+            {
+              "text": "when he's broke"
+            },
+            {
+              "text": "so I buy him\na PS5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "2fee904d95b39b8eef9534830f0ce500d562ea199d081298402cff742cea58db",
+      "text": "cute controller\nsucks xbox is\nstill better",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:ps5_xbox",
+      "status": "candidate",
+      "topicSeedId": "ps5_xbox",
+      "topic": "gaming",
+      "propCue": "white game-controller plush",
+      "angleFamily": "console war",
+      "stance": "anti PS5",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "cute controller",
+        "sucks xbox is\nstill better"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "cute controller\nsucks xbox is\nstill better",
+        "timed": {
+          "segments": [
+            {
+              "text": "cute controller"
+            },
+            {
+              "text": "sucks xbox is\nstill better"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "cad814c0d80d51c014582c291a89a726f8e4d32076498fae90b16e1ae591b51a",
+      "text": "press X\nif you'd fold",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:ps5_press_x",
+      "status": "candidate",
+      "topicSeedId": "ps5_press_x",
+      "topic": "gaming",
+      "propCue": "white game-controller plush",
+      "angleFamily": "flirty game command",
+      "stance": "comment bait",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "press X",
+        "if you'd fold"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "press X\nif you'd fold",
+        "timed": {
+          "segments": [
+            {
+              "text": "press X"
+            },
+            {
+              "text": "if you'd fold"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "53767b5a460ac18cbc1bb54db65ad3291ee27e5dd49bdc8b7764dc4e0d988d57",
+      "text": "anime guys say\nwaifu\nthen fold for\na real girl",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "generated_topic_seed:anime_waifu",
+      "status": "candidate",
+      "topicSeedId": "anime_waifu",
+      "topic": "anime mascot",
+      "propCue": "yellow electric anime mascot plush",
+      "angleFamily": "waifu bait",
+      "stance": "pro delusion",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "anime guys say\nwaifu",
+        "then fold for\na real girl"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "anime guys say\nwaifu\nthen fold for\na real girl",
+        "timed": {
+          "segments": [
+            {
+              "text": "anime guys say\nwaifu"
+            },
+            {
+              "text": "then fold for\na real girl"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "683e9e29e6c2ffc3d8239fa582e4014cbcc0ae8adfb6796c1275f665692817a5",
+      "text": "sub or dub?\nwrong answers\nget blocked",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:anime_sub_dub",
+      "status": "candidate",
+      "topicSeedId": "anime_sub_dub",
+      "topic": "anime mascot",
+      "propCue": "yellow electric anime mascot plush",
+      "angleFamily": "sub versus dub",
+      "stance": "fan war",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "sub or dub?",
+        "wrong answers\nget blocked"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "sub or dub?\nwrong answers\nget blocked",
+        "timed": {
+          "segments": [
+            {
+              "text": "sub or dub?"
+            },
+            {
+              "text": "wrong answers\nget blocked"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "4b6122dbe46f7436c042427b22ebb7b449c75d9e8ba822e72ffb19c405a3a219",
+      "text": "he said touch grass\nI brought\npikachu instead",
+      "banks": [
+        "body_attention"
+      ],
+      "source": "generated_topic_seed:anime_touch_grass",
+      "status": "candidate",
+      "topicSeedId": "anime_touch_grass",
+      "topic": "anime mascot",
+      "propCue": "yellow electric anime mascot plush",
+      "angleFamily": "fanboy bait",
+      "stance": "tease fanboys",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "he said touch grass",
+        "I brought\npikachu instead"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "he said touch grass\nI brought\npikachu instead",
+        "timed": {
+          "segments": [
+            {
+              "text": "he said touch grass"
+            },
+            {
+              "text": "I brought\npikachu instead"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "bdd9d7c51e8ebab3f57dd72ef0308c2858daf47040982aea65c7d669a5f407c5",
+      "text": "would you join\nmy crew\nor just stare\nat the captain?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:pirate_crew",
+      "status": "candidate",
+      "topicSeedId": "pirate_crew",
+      "topic": "pirate anime",
+      "propCue": "straw-hat pirate anime plush",
+      "angleFamily": "crew bait",
+      "stance": "join my side",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "would you join\nmy crew",
+        "or just stare\nat the captain?"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "would you join\nmy crew\nor just stare\nat the captain?",
+        "timed": {
+          "segments": [
+            {
+              "text": "would you join\nmy crew"
+            },
+            {
+              "text": "or just stare\nat the captain?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "74dacd4b158499b394d934d3b3e49109596427e20f951f3ffe75692ebef50af1",
+      "text": "loyal like zoro\nor useless like\nmy ex?",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "generated_topic_seed:pirate_loyal",
+      "status": "candidate",
+      "topicSeedId": "pirate_loyal",
+      "topic": "pirate anime",
+      "propCue": "straw-hat pirate anime plush",
+      "angleFamily": "loyalty bait",
+      "stance": "commitment test",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "loyal like zoro",
+        "or useless like\nmy ex?"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "loyal like zoro\nor useless like\nmy ex?",
+        "timed": {
+          "segments": [
+            {
+              "text": "loyal like zoro"
+            },
+            {
+              "text": "or useless like\nmy ex?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "a728f5497d77e75486fed8beadd85c0671c3b6db1435efbad7a7f1b12938a303",
+      "text": "devil fruit power?\nmaking men\ncomment twice",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "generated_topic_seed:pirate_devil_fruit",
+      "status": "candidate",
+      "topicSeedId": "pirate_devil_fruit",
+      "topic": "pirate anime",
+      "propCue": "straw-hat pirate anime plush",
+      "angleFamily": "power fantasy",
+      "stance": "flirty test",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "devil fruit power?",
+        "making men\ncomment twice"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "devil fruit power?\nmaking men\ncomment twice",
+        "timed": {
+          "segments": [
+            {
+              "text": "devil fruit power?"
+            },
+            {
+              "text": "making men\ncomment twice"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "370ce28ba368d7752cb96a8b8f7742c30e6904c9defbf8ccddb29480816353d5",
+      "text": "he said he bites\nI said same",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:shark_bite",
+      "status": "candidate",
+      "topicSeedId": "shark_bite",
+      "topic": "shark plush",
+      "propCue": "blue shark plush",
+      "angleFamily": "cute danger",
+      "stance": "bite back",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "he said he bites",
+        "I said same"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "he said he bites\nI said same",
+        "timed": {
+          "segments": [
+            {
+              "text": "he said he bites"
+            },
+            {
+              "text": "I said same"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "2e3f05e8d254e902e0479a249b225d6ffe350ed3290db2cf14c5843ecd811828",
+      "text": "soft girl era\nwith shark\nbehavior",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "generated_topic_seed:shark_soft_menace",
+      "status": "candidate",
+      "topicSeedId": "shark_soft_menace",
+      "topic": "shark plush",
+      "propCue": "blue shark plush",
+      "angleFamily": "soft versus menace",
+      "stance": "split identity",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "soft girl era",
+        "with shark\nbehavior"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "soft girl era\nwith shark\nbehavior",
+        "timed": {
+          "segments": [
+            {
+              "text": "soft girl era"
+            },
+            {
+              "text": "with shark\nbehavior"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "8cce9b821b5aa9fd4d3b30297d33e01d79de730fc8fe90637586b369079de898",
+      "text": "looks harmless\nthat's how\nI get you",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:shark_safe",
+      "status": "candidate",
+      "topicSeedId": "shark_safe",
+      "topic": "shark plush",
+      "propCue": "blue shark plush",
+      "angleFamily": "fake innocence",
+      "stance": "not innocent",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "looks harmless",
+        "that's how\nI get you"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "looks harmless\nthat's how\nI get you",
+        "timed": {
+          "segments": [
+            {
+              "text": "looks harmless"
+            },
+            {
+              "text": "that's how\nI get you"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "bc5bcb8ba68a35463091bc08008d8cc5ef150ec9b2f084fe3e453d9bc900b763",
+      "text": "red flag?\nI thought you\nliked those",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:antihero_red_flag",
+      "status": "candidate",
+      "topicSeedId": "antihero_red_flag",
+      "topic": "comic antihero",
+      "propCue": "red-black antihero plush",
+      "angleFamily": "red flag pride",
+      "stance": "pro chaos",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "red flag?",
+        "I thought you\nliked those"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "red flag?\nI thought you\nliked those",
+        "timed": {
+          "segments": [
+            {
+              "text": "red flag?"
+            },
+            {
+              "text": "I thought you\nliked those"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "5fdc611b19a3cae707e77bccd4f7bb9b5d0c5e9a4e2af6640551beacc47c9a61",
+      "text": "therapy is cute\nbut have you tried\nbad decisions?",
+      "banks": [
+        "experimental_edge"
+      ],
+      "source": "generated_topic_seed:antihero_therapy",
+      "status": "candidate",
+      "topicSeedId": "antihero_therapy",
+      "topic": "comic antihero",
+      "propCue": "red-black antihero plush",
+      "angleFamily": "chaos bait",
+      "stance": "anti therapy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "therapy is cute",
+        "but have you tried\nbad decisions?"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "therapy is cute\nbut have you tried\nbad decisions?",
+        "timed": {
+          "segments": [
+            {
+              "text": "therapy is cute"
+            },
+            {
+              "text": "but have you tried\nbad decisions?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "e40c9ae3faed82fde391b47306e8a6328a58ebf74e572a449ee7af191626b43d",
+      "text": "good girls scare me\nI trust the ones\nwith problems",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "generated_topic_seed:antihero_good_girls",
+      "status": "candidate",
+      "topicSeedId": "antihero_good_girls",
+      "topic": "comic antihero",
+      "propCue": "red-black antihero plush",
+      "angleFamily": "good girl bait",
+      "stance": "subvert innocent",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "good girls scare me",
+        "I trust the ones\nwith problems"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "good girls scare me\nI trust the ones\nwith problems",
+        "timed": {
+          "segments": [
+            {
+              "text": "good girls scare me"
+            },
+            {
+              "text": "I trust the ones\nwith problems"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "17883ac6e2bdf294e301410ef6c568c39c7a38f67fa9c4606b289d5a358c3a43",
+      "text": "church girl era\npray for me\nquick",
+      "banks": [
+        "shared_girl_next_door"
+      ],
+      "source": "generated_topic_seed:church_pray",
+      "status": "candidate",
+      "topicSeedId": "church_pray",
+      "topic": "patriotic religious",
+      "propCue": "patriotic red-cap teddy with small cross necklace cue",
+      "angleFamily": "church girl bait",
+      "stance": "needs prayer",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "church girl era",
+        "pray for me\nquick"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "church girl era\npray for me\nquick",
+        "timed": {
+          "segments": [
+            {
+              "text": "church girl era"
+            },
+            {
+              "text": "pray for me\nquick"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "3488e56dcc85e4d98feb9955830a239e870a5dbfafb91e512111a87c4b5ebfb2",
+      "text": "he wants a\nchurch girl\nuntil she dresses\nlike this",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "generated_topic_seed:church_sundress",
+      "status": "candidate",
+      "topicSeedId": "church_sundress",
+      "topic": "patriotic religious",
+      "propCue": "patriotic red-cap teddy with small cross necklace cue",
+      "angleFamily": "religion dating bait",
+      "stance": "playful hypocrisy",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "he wants a\nchurch girl",
+        "until she dresses\nlike this"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "he wants a\nchurch girl\nuntil she dresses\nlike this",
+        "timed": {
+          "segments": [
+            {
+              "text": "he wants a\nchurch girl"
+            },
+            {
+              "text": "until she dresses\nlike this"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "caption_hash": "ef64120dddd7bb954e9e61129be595dd8a7d8f16d00810b879d10928957223b4",
+      "text": "this outfit starts\narguments\ngood, comment\nfirst",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "generated_topic_seed:patriot_comments",
+      "status": "candidate",
+      "topicSeedId": "patriot_comments",
+      "topic": "patriotic religious",
+      "propCue": "patriotic red-cap teddy with small cross necklace cue",
+      "angleFamily": "comment war",
+      "stance": "mild political bait",
+      "edgeLevel": "edgier_safe",
+      "timedSegments": [
+        "this outfit starts\narguments",
+        "good, comment\nfirst"
+      ],
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "center_if_safe",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "this outfit starts\narguments\ngood, comment\nfirst",
+        "timed": {
+          "segments": [
+            {
+              "text": "this outfit starts\narguments"
+            },
+            {
+              "text": "good, comment\nfirst"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

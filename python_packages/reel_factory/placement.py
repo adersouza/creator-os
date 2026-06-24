@@ -713,17 +713,20 @@ async def resolve_segment_bands(
             if probe_func is None:
                 probe_kwargs["caption_placement_policy"] = caption_placement_policy
             summary = await probe(src, **probe_kwargs)
-            candidate = summary.lane
-            if candidate in {"left", "right"} and _too_tall_for_side(seg.text):
-                candidate = _lane_fallback(summary, source_band)
-            smoothed = _smooth_segment_band(previous_band, candidate, summary, seg_duration)
-            band = _retention_alternate_band(
-                previous_band,
-                smoothed,
-                summary,
-                seg_duration,
-                idx,
-            )
+            if source_band == "lower_center":
+                band = _center_style_segment_band(previous_band, summary)
+            else:
+                candidate = summary.lane
+                if candidate in {"left", "right"} and _too_tall_for_side(seg.text):
+                    candidate = _lane_fallback(summary, source_band)
+                smoothed = _smooth_segment_band(previous_band, candidate, summary, seg_duration)
+                band = _retention_alternate_band(
+                    previous_band,
+                    smoothed,
+                    summary,
+                    seg_duration,
+                    idx,
+                )
             reason = summary.reason
             if placement_debug:
                 log.info(
@@ -825,6 +828,26 @@ def _zone_score(summary: PlacementSummary, zone: str) -> float | None:
     return float(value) if value is not None else None
 
 
+def _zone_rejected(summary: PlacementSummary, zone: str) -> bool:
+    decision = summary.metadata.get("captionPlacementDecision")
+    if not isinstance(decision, dict):
+        return False
+    rejected = decision.get("rejectedLanes")
+    if isinstance(rejected, list) and zone in rejected:
+        return True
+    components = decision.get("components")
+    if not isinstance(components, dict):
+        return False
+    lane_components = components.get(zone)
+    if not isinstance(lane_components, dict):
+        return False
+    return (
+        float(lane_components.get("face", 0.0) or 0.0) >= 70.0
+        or float(lane_components.get("focal", 0.0) or 0.0) >= 70.0
+        or float(lane_components.get("pose", 0.0) or 0.0) >= 65.0
+    )
+
+
 def _too_tall_for_side(text: str) -> bool:
     estimated_lines = 0
     for line in text.splitlines() or [text]:
@@ -837,6 +860,15 @@ def _lane_fallback(summary: PlacementSummary, default: str) -> str:
     if not candidates:
         return default
     return min(candidates, key=lambda z: summary.scores[z])
+
+
+def _center_style_segment_band(previous: str | None, summary: PlacementSummary) -> str:
+    center_score = _zone_score(summary, "center")
+    if previous == "lower_center" and center_score is not None and center_score <= 55.0 and not _zone_rejected(summary, "center"):
+        return "center"
+    if previous == "lower_center":
+        return "lower_center_alt"
+    return "lower_center"
 
 
 def _smooth_segment_band(previous: str | None, candidate: str,
@@ -886,14 +918,14 @@ def _retention_alternate_band(previous: str | None, current: str,
         if current in {"left", "right"} and zone in {"left", "right"} and segment_duration < 1.75:
             continue
         score = _zone_score(summary, zone)
-        if score is not None:
+        if score is not None and not _zone_rejected(summary, zone):
             candidates.append((zone, score))
     if not candidates:
         return current
 
     # Scores are penalties, so lower is better. Allow a moderate trade-off for
     # retention movement, but do not place over a visibly busy/covered region.
-    max_allowed = max(current_score * 1.75, current_score + 18.0)
+    max_allowed = max(current_score * 2.0, current_score + 24.0)
     for zone, score in sorted(candidates, key=lambda item: order.index(item[0])):
         if score <= max_allowed:
             return zone

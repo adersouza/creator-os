@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from caption_bank import CaptionBankStore, caption_hash, load_or_build_caption_bank_store
-from caption_intake import plan_placement, promote, scan_local
+from caption_intake import plan_placement, promote, scan_local, seed_topics
 
 
 class CaptionIntakeTests(unittest.TestCase):
@@ -118,6 +118,65 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(row["placementIntent"]["timedPlacementMode"], "segment")
         self.assertFalse(any("band" in segment for segment in segments))
         self.assertTrue(Path(report["reviewFile"]).exists())
+
+    def test_seed_topics_writes_review_only_topic_candidates(self):
+        root = self._root()
+        original_banks = (root / "caption_banks" / "banks.json").read_text(encoding="utf-8")
+
+        report = seed_topics(root)
+        payload = json.loads((root / "caption_banks" / "candidate_intake.json").read_text(encoding="utf-8"))
+        row = next(item for item in payload["candidates"] if item["topicSeedId"] == "spider_peter_parker")
+        timed = row["hookVariants"]["timed"]["segments"]
+
+        self.assertEqual(report["candidateCount"], 24)
+        self.assertFalse(report["wouldWriteLiveBanks"])
+        self.assertEqual((root / "caption_banks" / "banks.json").read_text(encoding="utf-8"), original_banks)
+        self.assertEqual(row["placementIntent"]["creatorStylePreset"], "stacey_static_center")
+        self.assertEqual(row["placementIntent"]["fontFamily"], "Instagram Sans Condensed")
+        self.assertFalse(row["placementIntent"]["backgroundPlate"])
+        self.assertEqual(row["edgeLevel"], "edgier_safe")
+        self.assertEqual(timed[0]["text"], "every girl wants\nspider-man")
+        self.assertFalse(any("band" in segment for segment in timed))
+
+    def test_seed_topics_dedupes_existing_topic_caption(self):
+        root = self._root()
+        (root / "01_captions" / "existing_topic.json").write_text(
+            json.dumps({"hooks": ["every girl wants\nspider-man\nnobody wants\npeter parker"]}),
+            encoding="utf-8",
+        )
+        CaptionBankStore.build(root).write(root)
+
+        report = seed_topics(root)
+        texts = [row["text"] for row in report["candidates"]]
+
+        self.assertEqual(report["candidateCount"], 23)
+        self.assertNotIn("every girl wants\nspider-man\nnobody wants\npeter parker", texts)
+
+    def test_seed_topics_preserves_non_topic_review_candidates(self):
+        root = self._root()
+        candidate_path = root / "caption_banks" / "candidate_intake.json"
+        candidate_path.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_candidate_intake.v1",
+                    "candidates": [
+                        {
+                            "caption_hash": caption_hash("keep this review candidate"),
+                            "text": "keep this review candidate",
+                            "source": "scan-local:test",
+                            "status": "candidate",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        seed_topics(root)
+        payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+        texts = {row["text"] for row in payload["candidates"]}
+
+        self.assertIn("keep this review candidate", texts)
 
 
 if __name__ == "__main__":
