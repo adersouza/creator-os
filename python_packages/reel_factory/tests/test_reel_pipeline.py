@@ -37,6 +37,7 @@ from reel_pipeline import (
     phone_creation_time,
     reconcile_interrupted_temp_outputs,
     source_lineage_path_for,
+    timed_caption_band,
     write_caption_lineage_sidecar,
     write_generated_asset_lineage_sidecar,
 )
@@ -207,6 +208,18 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertGreater(lower_center_y, top_y)
         self.assertGreater(lower_center_y, center_y)
         self.assertGreater(lower_center_alt_y, lower_center_y)
+
+    def test_stacey_timed_caption_bands_stay_lower_center_when_center_rejected(self):
+        summary = PlacementSummary(
+            "bottom",
+            {"top": 140.0, "center": 170.0, "bottom": 42.0},
+            3,
+            "bottom selected",
+            {"captionPlacementDecision": {"rejectedLanes": ["center"]}},
+        )
+
+        self.assertEqual(timed_caption_band("lower_center", 0, summary), "lower_center")
+        self.assertEqual(timed_caption_band("lower_center", 1, summary), "lower_center_alt")
 
     def test_caption_set_reads_timed_json(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -437,6 +437,8 @@ def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
     rec_params = asdict(recipe)
     if not isinstance(caption, dict):
         rec_params["_static_caption_centered_policy"] = "v2"
+    else:
+        rec_params["_timed_caption_centered_policy"] = "v1"
     if caption_placement_policy != "legacy":
         rec_params["_caption_placement_policy"] = "focal_safe_v1"
     if placement_mode != "source":
@@ -480,6 +482,16 @@ def centered_static_caption_band(
         start = int(hashlib.sha256(diversity_key.encode("utf-8")).hexdigest()[:8], 16) % len(ranked)
         return ranked[start]
     return min(candidates, key=lambda zone: summary.scores[zone])
+
+
+def timed_caption_band(base_band: str, segment_index: int, summary: PlacementSummary) -> str:
+    if base_band != "lower_center":
+        return base_band
+    decision = summary.metadata.get("captionPlacementDecision") if isinstance(summary.metadata, dict) else None
+    rejected = {str(zone) for zone in (decision or {}).get("rejectedLanes", [])} if isinstance(decision, dict) else set()
+    if segment_index % 2 and "center" not in rejected:
+        return "center"
+    return "lower_center" if segment_index % 2 == 0 else "lower_center_alt"
 
 
 def build_caption_placement_qc_row(
@@ -877,11 +889,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             seg_png = out_dir / f"_cap_h{hook_idx:02d}_{recipe.name}_{color}_s{i}.png"
             start = float(seg.get("start", 0.0))
             end = float(seg["end"]) if "end" in seg else None
-            # Per-segment explicit band wins; otherwise cycle top→center→bottom
-            # across segments so each caption appears in a different screen zone —
-            # drives retention by keeping the viewer's eye moving.
             explicit_band = "band" in seg
-            seg_band = str(seg["band"]) if explicit_band else band
+            seg_band = str(seg["band"]) if explicit_band else timed_caption_band(band, i, _placement_summary)
             seg_plans.append(CaptionSegmentPlan(seg_png, start, end, seg_text, seg_band, explicit_band))
     else:
         text = vary_caption_text(
