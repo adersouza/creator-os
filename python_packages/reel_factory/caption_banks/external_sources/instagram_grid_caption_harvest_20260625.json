@@ -1,0 +1,312 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:grid_caption_harvest_20260625",
+  "captured_at": "2026-06-25",
+  "notes": "Chrome/IG grid scan from user-provided account set. Page screenshots and OCR output are saved under tmp/ig_caption_harvest_20260625. Captions below are adapted patterns, not direct production promotion.",
+  "scan_results_path": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/scan_results.json",
+  "usable_accounts": [
+    "staceybennetx",
+    "carlyxxbowman",
+    "cat_arango",
+    "lily_juicyy",
+    "notsasha999",
+    "realmartinachen"
+  ],
+  "unavailable_or_private_accounts": [
+    "avaghvu",
+    "zara.kwon",
+    "alexmoonfall",
+    "keegan.rosee",
+    "sofiareyesoliveira",
+    "flexibleblondie",
+    "sadiecarsons",
+    "thebiancarter",
+    "luna.paigee",
+    "aiyanaskyhawk",
+    "diana_haleeeee",
+    "chloeyonestar",
+    "cassiefreckles",
+    "zoeroses08"
+  ],
+  "captions": [
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 8754,
+      "text": "be a good boy\nand figure this out",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 2419,
+      "text": "it's always wyd\nand never this",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 2182,
+      "text": "i text everyone who follows me\nthinking we might be friends",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "follower_reply_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 656,
+      "text": "idk if ur single or not\nbut answer this",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 1639,
+      "text": "can you read backwards?",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 2436,
+      "text": "i wanna know\nif that's okay with u",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "soft_invite_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 2270,
+      "text": "if you're a man\nwho can decipher this",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 42000,
+      "text": "first clue\nthen second clue",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/staceybennetx.png",
+      "observedViewCount": 3304,
+      "text": "if you understand this\nwe should be friends",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "follower_reply_bait"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/carlyxxbowman.png",
+      "observedViewCount": null,
+      "text": "we're just friends\nbut you know better",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/carlyxxbowman.png",
+      "observedViewCount": null,
+      "text": "i'm jealous\nafter one drink",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/carlyxxbowman.png",
+      "observedViewCount": null,
+      "text": "five minutes later...",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "story_setup"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/carlyxxbowman.png",
+      "observedViewCount": null,
+      "text": "how normal people sit",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "body_attention"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/cat_arango.png",
+      "observedViewCount": 43500,
+      "text": "never had a boyfriend",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/cat_arango.png",
+      "observedViewCount": 3078,
+      "text": "would you go out for dinner\nwith a caring nurse?",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "career_niche_bait"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/cat_arango.png",
+      "observedViewCount": 2160,
+      "text": "if you're used to eating alone\nsit across from me",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "soft_invite_bait"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/cat_arango.png",
+      "observedViewCount": 1068,
+      "text": "you don't need to entertain me",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "soft_invite_bait"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/cat_arango.png",
+      "observedViewCount": null,
+      "text": "your caring nurse",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "career_niche_bait"
+    },
+    {
+      "account": "lily_juicyy",
+      "source_url": "https://www.instagram.com/lily_juicyy/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/lily_juicyy.png",
+      "observedViewCount": null,
+      "text": "replace the K with F\nand A with T",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "lily_juicyy",
+      "source_url": "https://www.instagram.com/lily_juicyy/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/lily_juicyy.png",
+      "observedViewCount": null,
+      "text": "hey remember me?",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "callback_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/notsasha999.png",
+      "observedViewCount": null,
+      "text": "three reasons to date me",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "dating_profile_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/notsasha999.png",
+      "observedViewCount": null,
+      "text": "who needs more?",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/notsasha999.png",
+      "observedViewCount": null,
+      "text": "average day\nafter moving",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "lifestyle_setup"
+    },
+    {
+      "account": "realmartinachen",
+      "source_url": "https://www.instagram.com/realmartinachen/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/realmartinachen.png",
+      "observedViewCount": null,
+      "text": "mommy?",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "short_reaction_bait"
+    },
+    {
+      "account": "realmartinachen",
+      "source_url": "https://www.instagram.com/realmartinachen/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/screenshots/realmartinachen.png",
+      "observedViewCount": null,
+      "text": "bake with me",
+      "postCaption": "adapted from grid OCR",
+      "archetype": "activity_niche_bait"
+    },
+    {
+      "account": "cheri_444",
+      "source_url": "https://www.instagram.com/cheri_444/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/D/D45F681C-6B30-4302-B4CD-945F4B38493D.png",
+      "observedViewCount": 8845,
+      "text": "if all laws disappeared\nwhat's your first move?",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "cassiefreckles",
+      "source_url": "https://www.instagram.com/cassiefreckles/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/1/1C8FB00A-FA6E-4F21-9A32-21B460D3C480.png",
+      "observedViewCount": 8488,
+      "text": "it's ok if you don't follow me\nwould you leave a heart anyway?",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "self_deprecating_comment_bait"
+    },
+    {
+      "account": "thebiancarter",
+      "source_url": "https://www.instagram.com/thebiancarter/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/61F85027-7A67-4860-8042-C932B57CD49F.png",
+      "observedViewCount": null,
+      "text": "you have to remove 3\nwhat did u remove?",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "zoeroses08",
+      "source_url": "https://www.instagram.com/zoeroses08/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/08BA4E19-B15F-4F5F-A5B0-336DDA91CD81.png",
+      "observedViewCount": 1268,
+      "text": "read 2,4,6,1,3,5",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/5/56ED2A0A-7DF4-4F3D-BEFA-E82EE00A48E3.png",
+      "observedViewCount": 1502,
+      "text": "after 7 dates in a month\nstill single because...",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/2/20717C15-97BA-4382-B89B-22D30B756911.png",
+      "observedViewCount": 657,
+      "text": "which emoji are you?",
+      "postCaption": "from user-provided screenshot",
+      "archetype": "choice_poll"
+    }
+  ]
+}

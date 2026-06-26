@@ -1,0 +1,110 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:user_screenshots_batch3_20260625",
+  "captured_at": "2026-06-25",
+  "notes": "Third user-provided Instagram reel screenshot batch. Captions are compact adapted overlays for Stacey/Larissa review-only intake; raw screenshots remain linked for source context.",
+  "accounts": [
+    {"handle": "kaylarold", "source_url": "https://www.instagram.com/kaylarold/reels/"},
+    {"handle": "lanad.ddd", "source_url": "https://www.instagram.com/lanad.ddd/reels/"},
+    {"handle": "alexmoonfall", "source_url": "https://www.instagram.com/alexmoonfall/reels/"},
+    {"handle": "xonatalie_quinn", "source_url": "https://www.instagram.com/xonatalie_quinn/reels/"},
+    {"handle": "luna.revira", "source_url": "https://www.instagram.com/luna.revira/reels/"},
+    {"handle": "aria_ivanov", "source_url": "https://www.instagram.com/aria_ivanov/reels/"},
+    {"handle": "sandy.miller02", "source_url": "https://www.instagram.com/sandy.miller02/reels/"},
+    {"handle": "mika.sleeps", "source_url": "https://www.instagram.com/mika.sleeps/reels/"},
+    {"handle": "michelle.yoonn", "source_url": "https://www.instagram.com/michelle.yoonn/reels/"},
+    {"handle": "emmimorgannn", "source_url": "https://www.instagram.com/emmimorgannn/reels/"}
+  ],
+  "captions": [
+    {
+      "account": "kaylarold",
+      "source_url": "https://www.instagram.com/kaylarold/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/456BCAA0-84AE-4BBC-9DB8-4091D34D123A.png",
+      "observedViewCount": 4735,
+      "text": "when I call him good boy\nand he says yes mommy",
+      "postCaption": "source overlay adapted from kaylarold screenshot",
+      "archetype": "good_boy_bait"
+    },
+    {
+      "account": "lanad.ddd",
+      "source_url": "https://www.instagram.com/lanad.ddd/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/9/9186457E-CF0D-4984-A225-2A06E8098E8E.png",
+      "observedViewCount": 85,
+      "text": "single\ndon't want your money\nwant kids\nleave a heart if I'm your type",
+      "postCaption": "Am I your type?",
+      "archetype": "type_bait"
+    },
+    {
+      "account": "alexmoonfall",
+      "source_url": "https://www.instagram.com/alexmoonfall/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/D/D69BA214-3CF7-4C9B-B3D4-8011C4FC68D3.png",
+      "observedViewCount": 1216,
+      "text": "hiring a BF\nmust be funny\nbe older than me",
+      "postCaption": "Anyone interested",
+      "archetype": "dating_requirements"
+    },
+    {
+      "account": "xonatalie_quinn",
+      "source_url": "https://www.instagram.com/xonatalie_quinn/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/7/75D40207-7826-496C-B2BC-C3F273B7D747.png",
+      "observedViewCount": 7490,
+      "text": "ngl it's kinda sad\nI'm not in your room rn",
+      "postCaption": "It's actually so sad",
+      "archetype": "room_bait"
+    },
+    {
+      "account": "luna.revira",
+      "source_url": "https://www.instagram.com/luna.revira/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/9/9E8232E4-004A-43CD-B1B3-3FEA7F5FF150.png",
+      "observedViewCount": 80800,
+      "text": "this good boy stuff ain't no joke\nwho's my good boy then",
+      "postCaption": "Who's my good boy then",
+      "archetype": "good_boy_bait"
+    },
+    {
+      "account": "aria_ivanov",
+      "source_url": "https://www.instagram.com/aria_ivanov/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/D/DA6D2E2C-1D99-4857-875E-5A6AF7F51B3B.png",
+      "observedViewCount": 100,
+      "text": "if you figure out each letter\nI'll give you a chance",
+      "postCaption": "See more",
+      "archetype": "decode_puzzle"
+    },
+    {
+      "account": "sandy.miller02",
+      "source_url": "https://www.instagram.com/sandy.miller02/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/D/D3FEF70C-C54B-4609-A6CB-549C7566CBD0.png",
+      "observedViewCount": 4515,
+      "text": "if you read this backwards\ncomment if you get it",
+      "postCaption": "comment if you get it",
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "account": "mika.sleeps",
+      "source_url": "https://www.instagram.com/mika.sleeps/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/C/C1E8AEEB-3C35-4804-BF27-CF6032D8692D.png",
+      "observedViewCount": 2204,
+      "text": "what would you choose?\nslow or intense",
+      "postCaption": "Or maybe both",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "michelle.yoonn",
+      "source_url": "https://www.instagram.com/michelle.yoonn/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/5/5832F5AE-D055-46B0-AE21-2EB7899BC979.png",
+      "observedViewCount": 1747,
+      "text": "never arguing with a man\nwho ruins his sleep for me",
+      "postCaption": "whatever you say my pretty boy",
+      "archetype": "pretty_boy_bait"
+    },
+    {
+      "account": "emmimorgannn",
+      "source_url": "https://www.instagram.com/emmimorgannn/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/3/39ED8BE3-8A70-4AFE-AE18-DCCDFA8C3127.png",
+      "observedViewCount": 8621,
+      "text": "be a good boy\nand read this backwards",
+      "postCaption": "I explain more in my story",
+      "archetype": "read_backwards_puzzle"
+    }
+  ]
+}

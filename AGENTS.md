@@ -81,6 +81,31 @@ single-person reference image
 
 Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, and `_grok.json` are legacy/experimental unless explicitly requested.
 
+### Higgsfield UI Artifact Salvage
+
+Do not automatically throw away a strong Stacey/Larissa generation just because
+Higgsfield added fake Instagram/story/app chrome around the edges. If the
+subject, face, pose, and setting are good and the UI is confined to cropable
+margins, make a non-destructive `__cropped_clean` derivative and use that file
+for static MP4, Kling, Reel Factory, and review boards. Preserve the original
+for audit/reference.
+
+Reject only when UI/text covers the face, body focal area, hands, or the crop
+would ruin the composition. Never feed a UI-laden original into Reel Factory
+when a clean cropped derivative exists.
+
+### Higgsfield Prompt UI Trigger Rule
+
+For Stacey/Soul text prompts, do not mention app/UI concepts, even as negatives.
+Avoid `phone`, `iPhone`, `smartphone`, `story`, `screenshot`, `social media`,
+`interface`, `icons`, `watermark`, `caption`, `overlay text`, and "for later
+text" wording. If room for future Reel Factory captions is needed, say "clean
+open area in the composition" rather than naming text or overlays.
+
+If a run adds fake UI, inspect the saved `.higgsfield.json` prompt before
+retrying and remove the triggering words first. Do not keep repeating the same
+prompt shape and hoping the next seed fixes it.
+
 ## Reel Captions, Overlay Text, And Fonts (Source Of Truth)
 
 Do not relearn or invent these each task. Read this section, then the named files.

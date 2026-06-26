@@ -1,0 +1,278 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:user_screenshots_20260625",
+  "captured_at": "2026-06-25",
+  "notes": "User-provided Instagram reel screenshots for caption/account follow-up. Review-only source; live caption banks are not updated from this file without explicit approval.",
+  "accounts": [
+    {
+      "handle": "avaghvu",
+      "source_url": "https://www.instagram.com/avaghvu/reels/"
+    },
+    {
+      "handle": "zara.kwon",
+      "source_url": "https://www.instagram.com/zara.kwon/reels/"
+    },
+    {
+      "handle": "alexmoonfall",
+      "source_url": "https://www.instagram.com/alexmoonfall/reels/"
+    },
+    {
+      "handle": "keegan.rosee",
+      "source_url": "https://www.instagram.com/keegan.rosee/reels/"
+    },
+    {
+      "handle": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/"
+    },
+    {
+      "handle": "sofiareyesoliveira",
+      "source_url": "https://www.instagram.com/sofiareyesoliveira/reels/"
+    },
+    {
+      "handle": "flexibleblondie",
+      "source_url": "https://www.instagram.com/flexibleblondie/reels/"
+    },
+    {
+      "handle": "realmartinachen",
+      "source_url": "https://www.instagram.com/realmartinachen/reels/"
+    },
+    {
+      "handle": "sadiecarsons",
+      "source_url": "https://www.instagram.com/sadiecarsons/reels/"
+    },
+    {
+      "handle": "thebiancarter",
+      "source_url": "https://www.instagram.com/thebiancarter/reels/"
+    },
+    {
+      "handle": "luna.paigee",
+      "source_url": "https://www.instagram.com/luna.paigee/reels/"
+    },
+    {
+      "handle": "lily_juicyy",
+      "source_url": "https://www.instagram.com/lily_juicyy/reels/"
+    },
+    {
+      "handle": "aiyanaskyhawk",
+      "source_url": "https://www.instagram.com/aiyanaskyhawk/reels/"
+    }
+  ],
+  "captions": [
+    {
+      "account": "avaghvu",
+      "source_url": "https://www.instagram.com/avaghvu/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/478F79C8-914E-4067-AD97-0DD5C18802A0.png",
+      "observedViewCount": null,
+      "text": "Pick one to eat:\n1) pizza\n2) burger\n3) me",
+      "postCaption": "pick one pizza burger",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "zara.kwon",
+      "source_url": "https://www.instagram.com/zara.kwon/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/1/122CA547-3D4D-4FE3-B0C6-0AC218130FBA.png",
+      "observedViewCount": null,
+      "text": "I'm so single I literally text everyone who follows me I get excited thinking we might be friends. send me this post and I'll dm you",
+      "postCaption": "just try me!",
+      "archetype": "dm_bait"
+    },
+    {
+      "account": "alexmoonfall",
+      "source_url": "https://www.instagram.com/alexmoonfall/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/E/E0595E2F-0AFC-4360-A5BE-3FDF4F605676.png",
+      "observedViewCount": null,
+      "text": "I'm so single I literally text everyone who follows me... I get excited thinking we might be friends. Send me this post and I'll",
+      "postCaption": "Anyone?",
+      "archetype": "dm_bait"
+    },
+    {
+      "account": "keegan.rosee",
+      "source_url": "https://www.instagram.com/keegan.rosee/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/60813549-26C7-4B8B-AE3B-157D2C2EA91D.png",
+      "observedViewCount": 17000,
+      "text": "19\nSingle\nDon't want your money\nWant kids\nLeave a heart if I'm your type",
+      "postCaption": "Say hello",
+      "archetype": "type_bait"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/5/5192DFF7-8E76-4822-A9C3-E847945B09E2.png",
+      "observedViewCount": null,
+      "text": "You can just pick 2\nA new muscle car\nA new house\nMe and my cat\nA new Rolex",
+      "postCaption": "",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "sofiareyesoliveira",
+      "source_url": "https://www.instagram.com/sofiareyesoliveira/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/B/BA503104-B220-44F0-A749-502E6953803D.png",
+      "observedViewCount": null,
+      "text": "red heart - if you love me\nblue heart - just be friends\nbroken heart - if you hate me\npurple heart - one night with me",
+      "postCaption": "Pick one!",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "sofiareyesoliveira",
+      "source_url": "https://www.instagram.com/sofiareyesoliveira/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/C/CA651601-B550-4A78-9E62-D80721A844AE.png",
+      "observedViewCount": null,
+      "text": "If you manage to read this sentence backwards it means that:\nyssup ym tae nac uoy os ecalp ruoy ot emoc ot evah",
+      "postCaption": "What I really want from you. Do you get it?",
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "account": "flexibleblondie",
+      "source_url": "https://www.instagram.com/flexibleblondie/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/4E19AB81-FE73-4FFE-B6C9-F847CDED6DEA.png",
+      "observedViewCount": null,
+      "text": "Say \"hi\" if you can read this backwards:\n\"margatsni no oediv pu-esolc a ni tnetnoc laiceps ym uoy dnes ot evah I\"",
+      "postCaption": "can you?",
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "account": "realmartinachen",
+      "source_url": "https://www.instagram.com/realmartinachen/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/5/5823C2A3-2023-4A06-8C41-9A5B5C5F8EC0.png",
+      "observedViewCount": null,
+      "text": "my crush kept looking at me all night..\nshould I text him first?",
+      "postCaption": "See more",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "sadiecarsons",
+      "source_url": "https://www.instagram.com/sadiecarsons/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/F/FE802C7C-B5A7-4F95-8011-E8B476552EDE.png",
+      "observedViewCount": 14000,
+      "text": "How many cold ones would it take for you to eat a taco made in 2007?",
+      "postCaption": "Comment, how many",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "thebiancarter",
+      "source_url": "https://www.instagram.com/thebiancarter/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/61F85027-7A67-4860-8042-C932B57CD49F.png",
+      "observedViewCount": null,
+      "text": "You have to remove 3\n1. Sex\n2. Gym\n3. Alcohol\n4. Love\n5. Money\n6. Social media\n7. Music\n8. Friends",
+      "postCaption": "What did u remove?",
+      "archetype": "choice_poll"
+    },
+    {
+      "account": "luna.paigee",
+      "source_url": "https://www.instagram.com/luna.paigee/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/0C629E5B-1CB9-4027-B15B-3F86F046FE0F.png",
+      "observedViewCount": 12600,
+      "text": "if you can read this sentence backwards\n- evresed uoy sniwt ym ees ot em wollof tsuj etavirp ni",
+      "postCaption": "Send me this reel and I'll ...",
+      "archetype": "read_backwards_puzzle"
+    },
+    {
+      "account": "lily_juicyy",
+      "source_url": "https://www.instagram.com/lily_juicyy/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/9/9F0A0BBD-B96A-4097-829F-7C26951D2181.png",
+      "observedViewCount": null,
+      "text": "19\nSingle\nNo boyfriend\nWant kids\nLeave a heart if I'm your type",
+      "postCaption": "Haha",
+      "archetype": "type_bait"
+    },
+    {
+      "account": "aiyanaskyhawk",
+      "source_url": "https://www.instagram.com/aiyanaskyhawk/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/444B3ED9-C979-437A-8906-825841B61FEE.png",
+      "observedViewCount": null,
+      "text": "If you F my A\nI'll S your C\nAnd R your B\nTill you C in my M\nIf you are in let me know",
+      "postCaption": "Are you in???",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "zara.kwon",
+      "source_url": "https://www.instagram.com/zara.kwon/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/1/122CA547-3D4D-4FE3-B0C6-0AC218130FBA.png",
+      "observedViewCount": null,
+      "text": "so single i get excited\nwhen you follow me",
+      "postCaption": "adapted from source overlay",
+      "archetype": "dm_bait_adapted"
+    },
+    {
+      "account": "alexmoonfall",
+      "source_url": "https://www.instagram.com/alexmoonfall/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/E/E0595E2F-0AFC-4360-A5BE-3FDF4F605676.png",
+      "observedViewCount": null,
+      "text": "if we follow each other\nwe're basically friends",
+      "postCaption": "adapted from source overlay",
+      "archetype": "dm_bait_adapted"
+    },
+    {
+      "account": "cat_arango",
+      "source_url": "https://www.instagram.com/cat_arango/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/5/5192DFF7-8E76-4822-A9C3-E847945B09E2.png",
+      "observedViewCount": null,
+      "text": "you can only pick 2\ncar\nhouse\nme\nrolex",
+      "postCaption": "adapted from source overlay",
+      "archetype": "choice_poll_adapted"
+    },
+    {
+      "account": "sofiareyesoliveira",
+      "source_url": "https://www.instagram.com/sofiareyesoliveira/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/B/BA503104-B220-44F0-A749-502E6953803D.png",
+      "observedViewCount": null,
+      "text": "pick one\nlove me\nfriend zone\nhate me\none night",
+      "postCaption": "adapted from source overlay",
+      "archetype": "choice_poll_adapted"
+    },
+    {
+      "account": "sofiareyesoliveira",
+      "source_url": "https://www.instagram.com/sofiareyesoliveira/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/C/CA651601-B550-4A78-9E62-D80721A844AE.png",
+      "observedViewCount": null,
+      "text": "read this backwards\nem etad dluow uoy",
+      "postCaption": "adapted from source overlay",
+      "archetype": "read_backwards_puzzle_adapted"
+    },
+    {
+      "account": "flexibleblondie",
+      "source_url": "https://www.instagram.com/flexibleblondie/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/4E19AB81-FE73-4FFE-B6C9-F847CDED6DEA.png",
+      "observedViewCount": null,
+      "text": "say hi if you can read this\nem wollof",
+      "postCaption": "adapted from source overlay",
+      "archetype": "read_backwards_puzzle_adapted"
+    },
+    {
+      "account": "sadiecarsons",
+      "source_url": "https://www.instagram.com/sadiecarsons/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/F/FE802C7C-B5A7-4F95-8011-E8B476552EDE.png",
+      "observedViewCount": 14000,
+      "text": "how many cold ones\nwould it take",
+      "postCaption": "adapted from source overlay",
+      "archetype": "comment_bait_adapted"
+    },
+    {
+      "account": "thebiancarter",
+      "source_url": "https://www.instagram.com/thebiancarter/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/61F85027-7A67-4860-8042-C932B57CD49F.png",
+      "observedViewCount": null,
+      "text": "remove 3\ngym\nmoney\nlove\nmusic\nfriends",
+      "postCaption": "adapted from source overlay",
+      "archetype": "choice_poll_adapted"
+    },
+    {
+      "account": "luna.paigee",
+      "source_url": "https://www.instagram.com/luna.paigee/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/0C629E5B-1CB9-4027-B15B-3F86F046FE0F.png",
+      "observedViewCount": 12600,
+      "text": "if you can read this backwards\nem wollof tsuj",
+      "postCaption": "adapted from source overlay",
+      "archetype": "read_backwards_puzzle_adapted"
+    },
+    {
+      "account": "aiyanaskyhawk",
+      "source_url": "https://www.instagram.com/aiyanaskyhawk/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/4/444B3ED9-C979-437A-8906-825841B61FEE.png",
+      "observedViewCount": null,
+      "text": "comment if you're in\nlet me know",
+      "postCaption": "adapted from source overlay",
+      "archetype": "coded_fill_in_adapted"
+    }
+  ]
+}

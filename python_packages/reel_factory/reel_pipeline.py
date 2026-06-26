@@ -31,6 +31,7 @@ from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import link_campaign_output
 from graph_builder import ENCODER_PROFILES, build_ffmpeg_cmd as build_graph_ffmpeg_cmd
 from graph_builder import build_video_filter as build_graph_video_filter
+from graph_builder import caption_overlay_enable
 from graph_builder import target_dimensions
 from identity_verification import get_identity_provider
 from media_metadata import normalize_media_metadata
@@ -229,8 +230,13 @@ class CaptionSet:
             hooks = data.get("hooks") or [data.get("caption", "")]
             if not isinstance(hooks, list):
                 raise ValueError(f"hooks must be a list in {path}")
+            lineage = {
+                int(k): v
+                for k, v in (data.get("hookLineage") or data.get("hook_lineage") or {}).items()
+                if str(k).isdigit() and isinstance(v, dict)
+            }
             parsed: list[str | dict] = []
-            for h in hooks:
+            for idx, h in enumerate(hooks):
                 _ensure_discoverability_safe_caption(h, source=str(path))
                 if isinstance(h, dict):
                     if "segments" not in h:
@@ -238,6 +244,9 @@ class CaptionSet:
                     parsed.append(h)
                 else:
                     s = str(h).strip()
+                    source_text = str(lineage.get(idx, {}).get("rawSourceCaptionText") or "").strip()
+                    if source_text and source_text != s and source_text.startswith(s):
+                        raise ValueError(f"caption hook is a clipped prefix of rawSourceCaptionText in {path}: {s}")
                     if s:
                         parsed.append(s)
             if not parsed:
@@ -251,6 +260,7 @@ class CaptionSet:
                 recipe_names=data.get("recipes"),
                 caption_color=caption_color,
                 notes=data.get("notes", ""),
+                hook_lineage=lineage,
             )
         raise ValueError(f"unknown caption format: {path}")
 
@@ -1037,7 +1047,12 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         for i in range(len(caption_pngs)):
             in_s = f"vs{i}"
             out_s = f"vs{i + 1}" if i < len(caption_pngs) - 1 else "vsf"
-            fc_parts.append(f"[{in_s}][cap{i}]overlay=0:0:eof_action=pass:format=auto[{out_s}]")
+            _, start, end = caption_pngs[i]
+            fc_parts.append(
+                f"[{in_s}][cap{i}]overlay=0:0"
+                f":enable={caption_overlay_enable(start, end)}"
+                f":eof_action=pass:format=auto[{out_s}]"
+            )
         fc_parts.append("[vsf]format=rgba[v]")
         p = await asyncio.create_subprocess_exec(
             FFMPEG, "-hide_banner", "-y", "-nostdin",

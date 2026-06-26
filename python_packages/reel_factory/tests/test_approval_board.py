@@ -8,7 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from approval_board import HARD_REJECT_REASONS, build_approval_board, promote_approval_decisions
+from approval_board import (
+    HARD_REJECT_REASONS,
+    build_approval_board,
+    build_assisted_approval_board,
+    build_variant_approval_board,
+    promote_approval_decisions,
+)
 
 
 class ApprovalBoardTests(unittest.TestCase):
@@ -154,6 +160,191 @@ class ApprovalBoardTests(unittest.TestCase):
         self.assertEqual(manifest["items"][0]["contentForgeStatus"], None)
         copied = [Path(item["outputPath"]).read_bytes() for item in manifest["items"]]
         self.assertEqual(copied, [b"clean", b"timed"])
+
+    def test_builds_lane_first_variant_swipe_board(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        clean = root / "clean.mp4"
+        timed = root / "timed.mp4"
+        clean.write_bytes(b"clean")
+        timed.write_bytes(b"timed")
+        decisions = root / "approval_decisions.json"
+        decisions.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.approval_decisions.v1",
+                    "createdAt": "2026-06-25T00:00:00Z",
+                    "manifestPath": str(root / "manifest.json"),
+                    "items": [
+                        {
+                            "id": 4,
+                            "stem": "ref04_stacey",
+                            "status": "pending",
+                            "image": str(root / "source.png"),
+                            "contentforge": {"warningCodes": ["silent_review_pack_no_audio"], "blockingCodes": []},
+                            "lanes": {
+                                "clean": {"path": str(clean)},
+                                "timed": {"path": str(timed), "placement": {"finalBand": "lower_center_alt", "font": "Instagram Sans Condensed"}},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = build_variant_approval_board(decisions, title="Variant Board")
+        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        html = Path(result["boardPath"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["count"], 2)
+        self.assertEqual([item["lane"] for item in payload["items"]], ["clean", "timed"])
+        self.assertIn("needs_ui_crop", payload["items"][0])
+        self.assertIn("variant_swipe_decisions.reviewed.json", html)
+        self.assertIn('data-filter="timed"', html)
+        self.assertIn('preload="none"', html)
+        self.assertIn("Needs UI crop", html)
+
+    def test_builds_assisted_review_with_recommendations(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        source = root / "source.mp4"
+        clean = root / "clean.mp4"
+        normal = root / "normal.mp4"
+        timed = root / "timed.mp4"
+        for path in (source, clean, normal, timed):
+            path.write_bytes(b"placeholder")
+        manifest = root / "manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "creator_os.bulk_review.v1",
+                    "rows": [
+                        {
+                            "source": {"id": "ref04_stacey", "path": str(source)},
+                            "captionSource": "caption_banks/banks.json",
+                            "clean": {"path": str(clean)},
+                            "normal": {"path": str(normal), "captionBank": {"captionRenderBoxes": [{"text": "anime guys say\nwaifu"}]}},
+                            "timed": {
+                                "path": str(timed),
+                                "captionBank": {
+                                    "captionRenderBoxes": [
+                                        {"text": "anime guys say\nwaifu"},
+                                        {"text": "then fold for\na real girl"},
+                                    ]
+                                },
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        decisions = root / "approval_decisions.json"
+        decisions.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.approval_decisions.v1",
+                    "manifestPath": str(manifest),
+                    "createdAt": "2026-06-25T00:00:00Z",
+                    "items": [
+                        {
+                            "id": 4,
+                            "stem": "ref04_stacey",
+                            "status": "pending",
+                            "image": str(source),
+                            "contentforge": {"warningCodes": ["silent_review_pack_no_audio"], "blockingCodes": []},
+                            "lanes": {
+                                "clean": {"path": str(clean)},
+                                "normal": {"path": str(normal)},
+                                "timed": {"path": str(timed)},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = build_assisted_approval_board(decisions, title="Assisted")
+        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        html = Path(result["boardPath"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["count"], 1)
+        item = payload["items"][0]
+        self.assertEqual(item["recommendation"]["confidence"], "high")
+        self.assertEqual(item["recommendation"]["selectedLanes"], ["clean", "timed"])
+        self.assertTrue(item["captionSourceApproved"])
+        self.assertIn("Accept all high-confidence", html)
+        self.assertIn("then fold for", html)
+        self.assertIn('preload="none"', html)
+
+    def test_assisted_review_skips_review_only_caption_sources(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        clean = root / "clean.mp4"
+        timed = root / "timed.mp4"
+        clean.write_bytes(b"clean")
+        timed.write_bytes(b"timed")
+        manifest = root / "manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "creator_os.bulk_review.v1",
+                    "rows": [
+                        {
+                            "source": {"id": "ref05_stacey", "path": str(root / "source.mp4")},
+                            "captionSource": "caption_banks/candidate_intake.json:review_only",
+                            "clean": {"path": str(clean)},
+                            "timed": {
+                                "path": str(timed),
+                                "captionBank": {
+                                    "captionRenderBoxes": [
+                                        {"text": "therapy is cute"},
+                                        {"text": "bad decisions are cuter"},
+                                    ]
+                                },
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        decisions = root / "approval_decisions.json"
+        decisions.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.approval_decisions.v1",
+                    "manifestPath": str(manifest),
+                    "createdAt": "2026-06-25T00:00:00Z",
+                    "items": [
+                        {
+                            "id": 5,
+                            "stem": "ref05_stacey",
+                            "status": "pending",
+                            "contentforge": {"warningCodes": [], "blockingCodes": []},
+                            "lanes": {
+                                "clean": {"path": str(clean)},
+                                "timed": {"path": str(timed)},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = build_assisted_approval_board(decisions, title="Assisted")
+        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+
+        item = payload["items"][0]
+        self.assertEqual(item["recommendation"]["selectedLanes"], ["clean"])
+        self.assertFalse(item["captionSourceApproved"])
+        self.assertIn("caption source is not approved live bank", " ".join(item["recommendation"]["reasons"]))
 
     def test_builds_board_from_contentforge_audit_path(self):
         tmp = tempfile.TemporaryDirectory()

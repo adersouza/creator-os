@@ -1,0 +1,69 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:user_screenshots_batch4_20260625",
+  "captured_at": "2026-06-25",
+  "notes": "Fourth user-provided Instagram reel screenshot batch. Captions are compact adapted overlays for Stacey/Larissa review-only intake; raw screenshots remain linked for source context.",
+  "accounts": [
+    {"handle": "carter_niaxx", "source_url": "https://www.instagram.com/carter_niaxx/reels/"},
+    {"handle": "heyitsclaire.rose", "source_url": "https://www.instagram.com/heyitsclaire.rose/reels/"},
+    {"handle": "alexmoonfall", "source_url": "https://www.instagram.com/alexmoonfall/reels/"},
+    {"handle": "laylaxxwalker", "source_url": "https://www.instagram.com/laylaxxwalker/reels/"},
+    {"handle": "nicolle_sterling", "source_url": "https://www.instagram.com/nicolle_sterling/reels/"}
+  ],
+  "captions": [
+    {
+      "account": "carter_niaxx",
+      "source_url": "https://www.instagram.com/carter_niaxx/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/68E11BC2-20B9-409C-A8EF-3058B4923122.png",
+      "observedViewCount": 2829,
+      "text": "type the password 4995\nfast",
+      "postCaption": "I tried and it was insane",
+      "archetype": "password_bait"
+    },
+    {
+      "account": "heyitsclaire.rose",
+      "source_url": "https://www.instagram.com/heyitsclaire.rose/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/E/E43BFF64-C055-4970-B386-DF324FD76805.png",
+      "observedViewCount": 13300,
+      "text": "rough nights don't ruin a friendship\nunless you let it",
+      "postCaption": "Someone had to say it",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "alexmoonfall",
+      "source_url": "https://www.instagram.com/alexmoonfall/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/C/CE938AEA-CA4B-479F-96DC-B1612578EE32.png",
+      "observedViewCount": 205,
+      "text": "replace the letters\nand tell me what it says",
+      "postCaption": "Would you trust me?",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "laylaxxwalker",
+      "source_url": "https://www.instagram.com/laylaxxwalker/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/8/8FC15DB7-7CC9-40B7-9288-4F7B3EA1E98D.png",
+      "observedViewCount": 2365,
+      "text": "new study confirms\nless makeup wins",
+      "postCaption": "Do you agree",
+      "archetype": "opinion_bait"
+    },
+    {
+      "account": "nicolle_sterling",
+      "source_url": "https://www.instagram.com/nicolle_sterling/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/0F6EB5D1-706D-4B2B-BCD1-0FF737146BD2.png",
+      "observedViewCount": 889,
+      "text": "my face = makeup practice",
+      "postCaption": "u wanna practise with me?",
+      "archetype": "makeup_bait"
+    },
+    {
+      "account": "laylaxxwalker",
+      "source_url": "https://www.instagram.com/laylaxxwalker/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/E/E3C7B0CF-6E31-4924-B460-19FE7BD1C350.png",
+      "observedViewCount": 3241,
+      "text": "older man scrolling\nbe honest, do I look good?",
+      "postCaption": "Answer it with honesty",
+      "archetype": "older_man_bait"
+    }
+  ]
+}

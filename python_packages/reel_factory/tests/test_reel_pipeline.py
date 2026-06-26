@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from caption_render import render_caption_png
 from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
-from graph_builder import build_ffmpeg_cmd, build_video_filter
+from graph_builder import build_ffmpeg_cmd, build_video_filter, caption_overlay_enable
 from recipe_loader import load_recipes
 from reel_pipeline import (
     CaptionSet,
@@ -239,6 +239,24 @@ class ReelPipelineTests(unittest.TestCase):
             cap_set = CaptionSet.from_path(path)
             self.assertEqual(cap_set.hooks[0], "plain hook")
             self.assertEqual(cap_set.hooks[1]["segments"][0]["text"], "first")
+
+    def test_caption_set_blocks_clipped_prefix_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip_001.json"
+            path.write_text(
+                json.dumps({
+                    "hooks": ["therapy is cute\nbut have you tried"],
+                    "hookLineage": {
+                        "0": {
+                            "rawSourceCaptionText": "therapy is cute\nbut have you tried\nbad decisions?"
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "clipped prefix"):
+                CaptionSet.from_path(path)
 
     def test_caption_bank_selection_builds_caption_set_with_lineage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -755,6 +773,27 @@ class ReelPipelineTests(unittest.TestCase):
             compute_job_key("video", "static caption", recipe),
             compute_job_key("video", "static caption", recipe, placement_mode="segment"),
         )
+
+    def test_timed_caption_overlay_timing_is_half_open(self):
+        recipe = Recipe("v01_original")
+        cmd = build_ffmpeg_cmd(
+            RenderPlan(
+                src=Path("in.mp4"),
+                caption_pngs=[(Path("first.png"), 0.0, 1.0), (Path("second.png"), 1.0, 2.0)],
+                recipe=recipe,
+                out=Path("out.mp4"),
+                duration=2.0,
+                fonts_dir=Path("fonts"),
+                src_hash="abc",
+                src_dims=(1080, 1920),
+            ),
+            "ffmpeg",
+        )
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+
+        self.assertIn(caption_overlay_enable(0.0, 1.0), filter_complex)
+        self.assertIn(caption_overlay_enable(1.0, 2.0), filter_complex)
+        self.assertNotIn("between(t", filter_complex)
 
     def test_per_clip_limit_caps_total_outputs_when_many_recipes(self):
         hooks = [(idx, f"hook {idx}") for idx in range(4)]

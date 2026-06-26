@@ -1,0 +1,57 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:staceybennetx/reels",
+  "captured_at": "2026-06-25",
+  "source_url": "https://www.instagram.com/staceybennetx/reels/",
+  "notes": "Visible overlay captions from user-provided reel grid screenshot. Review-only intake source; do not render until approved.",
+  "captions": [
+    {
+      "text": "What i need right now\nFire (without ire)\nTruck (without tr)\nChime (without chi)\nHome (without ome)\nAward (without aw)",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "Be a good boy and figure this out..\nIYLMTCOIYWSYDTUCIMM",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "It's always 'wyd'\nand never\n'COALMEYPUSI\nMMATSMDTIC' 👀",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "I'm so single I literally\ntext everyone who\nfollows me. I get excited\nthinking we might be\nfriends. Send me this\npost and I'll DM you!",
+      "archetype": "dm_bait"
+    },
+    {
+      "text": "Idk if ur single or not but\nCYCEMPWISYD 😣",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "Can you read backwards?\nednolb a ma I taht erac ton od uoy\nfi em wollof",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "i wanna\nsydapwybuycimm\nif that's okay with u 🤭",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "If you're a man who can decipher\nthis:\nL.M.S.Y.C.A.S.A.O.Y.C\nCan I?",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "First LMSYDTYCIMM\nThen LMPTICYM",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "if i syduycdmt would you\nempuisiymm?\nif you understand this lmk we\nshould be friends",
+      "archetype": "decoder_bait"
+    },
+    {
+      "text": "19\nSingle\nNo boyfriend\nWant kids\nLeave a ❤️ if I'm your type",
+      "archetype": "type_bait"
+    },
+    {
+      "text": "if you F my A\nill S your C\nand R your B\ntill you C in my M\nif you are in comment '❤️'",
+      "archetype": "decoder_bait"
+    }
+  ]
+}
