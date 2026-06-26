@@ -1,9 +1,9 @@
 {
   "schema": "reel_factory.caption_candidate_intake.v1",
-  "updated_at": 1782434070,
-  "command": "normalize-persona-captions",
-  "candidate_count": 116,
-  "rejected_count": 1,
+  "updated_at": 1782459377,
+  "command": "import-external",
+  "candidate_count": 117,
+  "rejected_count": 0,
   "candidates": [
     {
       "caption_hash": "6f815f2c3f4cda940cb3c577df1f778f6cab39733a3fd700e9bab2ab5b75183f",
@@ -5422,20 +5422,57 @@
         "postCaption": "Answer it with honesty"
       },
       "archetype": "older_man_bait"
+    },
+    {
+      "caption_hash": "79215277206558b10783e33691c3028eed0869a83aa8e83cd9ef8765d6b99799",
+      "text": "Trying to explain Israeli corruption to MAGA is like trying to explain biology to libtards",
+      "banks": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "source": "user_supplied_captions_20260626:user_supplied_captions_20260626.json:1",
+      "status": "candidate",
+      "placementIntent": {
+        "schema": "reel_factory.caption_placement_intent.v1",
+        "creatorStylePreset": "stacey_static_center",
+        "fontFamily": "Instagram Sans Condensed",
+        "style": "ig",
+        "backgroundPlate": false,
+        "staticBand": "lower_center",
+        "timedEligible": true,
+        "timedPlacementMode": "segment",
+        "timedBandFamily": [
+          "lower_center",
+          "lower_center_alt"
+        ],
+        "finalPlacement": "placement.py"
+      },
+      "hookVariants": {
+        "static": "Trying to explain Israeli corruption to MAGA is like trying to explain biology to libtards",
+        "timed": {
+          "segments": [
+            {
+              "text": "Trying to explain Israeli corruption to MAGA is"
+            },
+            {
+              "text": "like trying to explain biology to libtards"
+            }
+          ]
+        }
+      },
+      "externalSource": {
+        "account": "user_supplied",
+        "archetype": "political_ragebait",
+        "postCaption": "Political comment bait; review-only until explicitly approved."
+      },
+      "archetype": "political_ragebait"
     }
   ],
   "wouldWriteLiveBanks": false,
-  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_account_harvest_batch5_20260625.json",
-  "importedSource": "instagram:account_harvest_batch5_20260625",
-  "importedAt": 1782431775,
-  "added_count": 28,
-  "import_rejected_count": 1,
-  "rejectedSamples": [
-    {
-      "index": 2,
-      "text": "I'm so single\nsend me this post\nand I'll reply"
-    }
-  ],
-  "placementPlannedAt": 1782434470,
-  "placementNotes": "Stacey/Larissa overlay text uses stacey_static_center. Static hooks use lower_center. Timed hooks omit explicit bands so placement.py can resolve lower_center/lower_center_alt from the actual video."
+  "importedSourceFile": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/user_supplied_captions_20260626.json",
+  "importedSource": "user_supplied_captions_20260626",
+  "importedAt": 1782459377,
+  "added_count": 1,
+  "import_rejected_count": 0,
+  "rejectedSamples": []
 }
