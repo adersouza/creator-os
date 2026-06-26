@@ -8,6 +8,7 @@ from typing import Any
 
 
 CAPTION_SCENE_FIT_VERSION = "v1"
+CAPTION_TOPIC_FIT_VERSION = "v1"
 
 
 CAPTION_SCENE_TAGS = {
@@ -37,6 +38,20 @@ REEL_SCENE_TAGS = {
 
 SCENE_SPECIFIC_CAPTION_TAGS = CAPTION_SCENE_TAGS - {"general"}
 
+CAPTION_TOPIC_BANKS = {
+    "pick_one": {"choice_poll", "comment_bait"},
+    "reverse_puzzle": {"read_backwards_puzzle", "coded_fill_ins"},
+    "coded_fill": {"coded_fill_ins", "read_backwards_puzzle"},
+    "good_boy": {"boyfriend_bait", "comment_bait"},
+    "single_type": {"boyfriend_bait", "comment_bait", "shared_girl_next_door"},
+    "dm_follow": {"dm_follow_bait", "comment_bait"},
+    "gaming": {"choice_poll", "comment_bait", "boyfriend_bait"},
+    "fandom": {"comment_bait", "choice_poll", "boyfriend_bait"},
+    "political_ragebait": {"comment_bait"},
+}
+
+CAPTION_TOPIC_ORDER = tuple(CAPTION_TOPIC_BANKS)
+
 
 @dataclass(frozen=True)
 class SceneCompatibility:
@@ -44,6 +59,42 @@ class SceneCompatibility:
     reel_scene_tags: list[str]
     decision: str
     reason: str
+
+
+def topic_caption_banks(topic: str | None) -> list[str]:
+    if not topic:
+        return []
+    return sorted(CAPTION_TOPIC_BANKS.get(str(topic), set()))
+
+
+def infer_caption_topic_for_reel(
+    *,
+    frame_type: str,
+    video_stem: str = "",
+    prompt_text: str = "",
+) -> str | None:
+    value = f" {frame_type} {video_stem} {prompt_text} ".lower()
+    value = re.sub(r"[_\-]+", " ", value)
+    value = re.sub(r"\s+", " ", value)
+
+    def has(pattern: str) -> bool:
+        return bool(re.search(pattern, value))
+
+    if has(r"\b(backwards|read this|reverse|replace|without|swap|stands for|letters?|decipher)\b"):
+        return "reverse_puzzle"
+    if has(r"\b(pick one|choose|which one|option|remove [0-9]|password|rank|order)\b"):
+        return "pick_one"
+    if has(r"\b(ps5|playstation|xbox|controller|gaming|gamer|press x)\b"):
+        return "gaming"
+    if has(r"\b(spider|batman|bat hero|antihero|deadpool|shark|anime|waifu|plush|mascot)\b"):
+        return "fandom"
+    if has(r"\b(good boy|mommy|boyfriend|girlfriend|bf|relationship|crush|date me|wife)\b"):
+        return "good_boy"
+    if has(r"\b(dm|follow|message|send me|text me)\b"):
+        return "dm_follow"
+    if has(r"\b(maga|israel|israeli|politic|corruption|libtard)\b"):
+        return "political_ragebait"
+    return None
 
 
 def caption_text_for_scene(hook: str | dict) -> str:

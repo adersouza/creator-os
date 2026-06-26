@@ -10,7 +10,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from caption_render import render_caption_png
-from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
+from caption_scene_fit import (
+    CAPTION_SCENE_FIT_VERSION,
+    CAPTION_TOPIC_FIT_VERSION,
+    classify_reel_scene_tags,
+    infer_caption_topic_for_reel,
+)
 from graph_builder import build_ffmpeg_cmd, build_video_filter, caption_overlay_enable
 from recipe_loader import load_recipes
 from reel_pipeline import (
@@ -514,6 +519,104 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertEqual(cap_set.hooks, original_hooks)
         self.assertEqual(cap_set.hook_lineage, original_lineage)
+
+    def test_caption_topic_fit_blocks_unrelated_caption_banks(self):
+        cap_set = CaptionSet(
+            hooks=[
+                "pov: I'm the girl you rejected in high school",
+                "xbox boys still think this is a flex",
+            ],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+                1: {
+                    "selectedBanks": ["comment_bait"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            caption_topic="gaming",
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, ["xbox boys still think this is a flex"])
+        self.assertEqual(diagnostics[0]["suitabilityDecision"], "topic_mismatch")
+        self.assertEqual(diagnostics[0]["captionTopicDecision"], "blocked")
+        self.assertEqual(diagnostics[0]["captionTopic"], "gaming")
+        self.assertEqual(fitted.hook_lineage[0]["captionTopic"], "gaming")
+        self.assertEqual(fitted.hook_lineage[0]["captionTopicFitVersion"], CAPTION_TOPIC_FIT_VERSION)
+
+    def test_caption_topic_fit_returns_no_hooks_when_topic_has_no_match(self):
+        cap_set = CaptionSet(
+            hooks=["pov: I'm the girl you rejected in high school"],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            caption_topic="gaming",
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, [])
+        self.assertEqual(diagnostics[0]["suitabilityDecision"], "topic_mismatch")
+        self.assertIn("requires one of", diagnostics[0]["captionTopicReason"])
+
+    def test_caption_topic_inference_uses_source_specific_hints(self):
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="gaming_room_ps5_controller",
+                prompt_text="",
+            ),
+            "gaming",
+        )
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="bed_spider_plush",
+                prompt_text="",
+            ),
+            "fandom",
+        )
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="bathroom_read_this_backwards",
+                prompt_text="",
+            ),
+            "reverse_puzzle",
+        )
+        self.assertIsNone(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="single_person_reference_image",
+                prompt_text="",
+            )
+        )
 
     def test_reel_scene_tags_use_prompt_and_filename_hints(self):
         self.assertIn(

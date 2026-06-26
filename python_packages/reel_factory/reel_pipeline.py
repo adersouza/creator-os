@@ -49,9 +49,13 @@ from caption_bank import CaptionBankStore, caption_static_metadata, load_or_buil
 from discoverability_safety import discoverability_safe_content_contract
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
+    CAPTION_TOPIC_FIT_VERSION,
+    CAPTION_TOPIC_ORDER,
     caption_text_for_scene,
     classify_reel_scene_tags,
     evaluate_scene_compatibility,
+    infer_caption_topic_for_reel,
+    topic_caption_banks,
 )
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1424,6 +1428,7 @@ def caption_set_from_bank_selection(
     *,
     caption_mix: str | None,
     caption_banks: list[str] | None,
+    caption_topic: str | None = None,
     limit: int | None,
     seed: int,
 ) -> CaptionSet:
@@ -1436,7 +1441,18 @@ def caption_set_from_bank_selection(
         selected_mix = caption_mix
     else:
         raise ValueError("caption_mix or caption_banks is required")
+    topic_banks = topic_caption_banks(caption_topic)
+    if topic_banks and not caption_banks:
+        selected = [
+            item for item in selected
+            if set(item.get("selected_banks") or []) & set(topic_banks)
+        ]
     if not selected:
+        if topic_banks:
+            raise ValueError(
+                "caption bank selection produced no hooks for "
+                f"caption_topic={caption_topic} banks={','.join(topic_banks)}"
+            )
         raise ValueError("caption bank selection produced no hooks")
     unsafe_items = []
     for item in selected:
@@ -1452,17 +1468,26 @@ def caption_set_from_bank_selection(
         )
     hooks = [item["text"] for item in selected]
     lineage = {
-        idx: store.lineage_for(
-            item,
-            selected_mix=selected_mix,
-            selected_banks=item.get("selected_banks") or [],
-        )
+        idx: {
+            **store.lineage_for(
+                item,
+                selected_mix=selected_mix,
+                selected_banks=item.get("selected_banks") or [],
+            ),
+            **({
+                "captionTopic": caption_topic,
+                "captionTopicBanks": topic_banks,
+                "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
+            } if topic_banks else {}),
+        }
         for idx, item in enumerate(selected)
     }
     notes = (
         f"caption_mix={caption_mix}" if caption_mix
         else f"caption_banks={','.join(caption_banks or [])}"
     )
+    if topic_banks:
+        notes = f"{notes}; caption_topic={caption_topic}"
     return CaptionSet(hooks=hooks, recipe_names=None, caption_color=None, notes=notes, hook_lineage=lineage)
 
 
@@ -1544,6 +1569,7 @@ def apply_caption_fit_to_caption_set(
     *,
     frame_type: str,
     reel_scene_tags: list[str] | None = None,
+    caption_topic: str | None = None,
     max_hooks: int | None,
     seed: int,
     fit_mode: str,
@@ -1585,6 +1611,7 @@ def apply_caption_fit_to_caption_set(
 
     allowed_lengths = STATIC_ALLOWED_LENGTHS.get(frame_type, STATIC_ALLOWED_LENGTHS["unknown"])
     fallback_lengths = STATIC_FALLBACK_LENGTHS.get(frame_type, STATIC_FALLBACK_LENGTHS["unknown"])
+    topic_banks = topic_caption_banks(caption_topic)
     allowed: list[tuple[int, str | dict, dict]] = []
     fallback: list[tuple[int, str | dict, dict]] = []
 
@@ -1595,6 +1622,11 @@ def apply_caption_fit_to_caption_set(
         length_class = lineage.get("lengthClass") or meta["length_class"]
         format_class = lineage.get("formatClass") or meta["format_class"]
         bank = (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [None])[0]
+        selected_banks = {
+            str(bank_name)
+            for bank_name in (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [])
+        }
+        topic_allowed = not topic_banks or bool(selected_banks & set(topic_banks))
         readable = length_class in allowed_lengths
         scene = evaluate_scene_compatibility(
             caption_text=caption_text_for_scene(hook),
@@ -1607,6 +1639,18 @@ def apply_caption_fit_to_caption_set(
             f"{length_class} static caption allowed for {frame_type}"
             if readable else f"{length_class} static caption too long for {frame_type}"
         )
+        topic_decision = "fit_disabled"
+        topic_reason = "caption topic fit disabled"
+        if topic_banks:
+            topic_decision = "allowed" if topic_allowed else "blocked"
+            topic_reason = (
+                f"caption banks match {caption_topic}"
+                if topic_allowed else f"caption topic {caption_topic} requires one of "
+                f"{','.join(topic_banks)}; got {','.join(sorted(selected_banks)) or 'unknown'}"
+            )
+            if not topic_allowed:
+                decision = "topic_mismatch"
+                reason = topic_reason
         row = {
             "caption": text,
             "bank": bank,
@@ -1621,6 +1665,11 @@ def apply_caption_fit_to_caption_set(
             "sceneCompatibilityDecision": scene.decision,
             "sceneCompatibilityReason": scene.reason,
             "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+            "captionTopic": caption_topic,
+            "captionTopicBanks": topic_banks,
+            "captionTopicDecision": topic_decision,
+            "captionTopicReason": topic_reason,
+            "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
         }
         diagnostics.append(row)
         enriched_lineage = {
@@ -1639,11 +1688,16 @@ def apply_caption_fit_to_caption_set(
             "sceneCompatibilityDecision": scene.decision,
             "sceneCompatibilityReason": scene.reason,
             "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+            "captionTopic": caption_topic,
+            "captionTopicBanks": topic_banks,
+            "captionTopicDecision": topic_decision,
+            "captionTopicReason": topic_reason,
+            "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
         }
         scene_allowed = scene.decision in {"allowed", "unknown_allowed", "fit_disabled"}
-        if readable and scene_allowed:
+        if topic_allowed and readable and scene_allowed:
             allowed.append((idx, hook, enriched_lineage))
-        elif scene_allowed:
+        elif topic_allowed and scene_allowed:
             fallback.append((idx, hook, enriched_lineage))
 
     target = max_hooks if max_hooks is not None else len(cap_set.hooks)
@@ -1684,7 +1738,8 @@ def apply_caption_fit_to_caption_set(
         hooks=hooks,
         recipe_names=cap_set.recipe_names,
         caption_color=cap_set.caption_color,
-        notes=f"{cap_set.notes}; caption_fit={fit_mode}; frame_type={frame_type}",
+        notes=f"{cap_set.notes}; caption_fit={fit_mode}; frame_type={frame_type}"
+              + (f"; caption_topic={caption_topic}" if caption_topic else ""),
         hook_lineage=lineage,
     ), diagnostics
 
@@ -1945,10 +2000,21 @@ async def amain(args):
                 video_stem=video.stem,
                 prompt_text=prompt_text,
             )
+            if args.caption_topic == "off":
+                caption_topic = None
+            elif args.caption_topic == "auto":
+                caption_topic = infer_caption_topic_for_reel(
+                    frame_type=frame_type,
+                    video_stem=video.stem,
+                    prompt_text=prompt_text,
+                )
+            else:
+                caption_topic = args.caption_topic
             video_cap_set, fit_diagnostics = apply_caption_fit_to_caption_set(
                 cap_set,
                 frame_type=frame_type,
                 reel_scene_tags=reel_scene_tags,
+                caption_topic=caption_topic,
                 max_hooks=args.max_hooks,
                 seed=args.seed,
                 fit_mode=args.caption_fit,
@@ -1960,7 +2026,8 @@ async def amain(args):
             log.info(
                 f"caption fit for {video.stem}: mode={args.caption_fit} "
                 f"scene_fit={args.caption_scene_fit} frame_type={frame_type} "
-                f"reel_scene_tags={','.join(reel_scene_tags)} hooks={len(video_cap_set.hooks)}"
+                f"reel_scene_tags={','.join(reel_scene_tags)} "
+                f"caption_topic={caption_topic or 'none'} hooks={len(video_cap_set.hooks)}"
             )
 
         # Per-clip color override from sidecar JSON, account profile, or CLI
@@ -2230,6 +2297,8 @@ def main():
                     help="fit caption-bank hooks to the detected frame type before rendering (default: auto)")
     ap.add_argument("--caption-scene-fit", choices=["auto", "off"], default="auto",
                     help="block obvious scene/location caption mismatches for caption-bank hooks (default: auto)")
+    ap.add_argument("--caption-topic", choices=["auto", "off", *CAPTION_TOPIC_ORDER], default="auto",
+                    help="fit caption-bank hooks to source-specific topic cues before rendering (default: auto)")
     ap.add_argument("--campaign", default=None,
                     help="link rendered outputs to a Campaign Factory campaign")
     ap.add_argument("--asset-generation-id", default=None,
