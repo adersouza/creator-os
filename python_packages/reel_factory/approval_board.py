@@ -73,6 +73,48 @@ def build_approval_board(manifest_path: Path, *, out_dir: Path | None = None, ti
     }
 
 
+def build_variant_approval_board(decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None) -> dict[str, Any]:
+    decisions_path = Path(decisions_path).expanduser().resolve()
+    decisions = _load_decisions(decisions_path)
+    out_dir = Path(out_dir).expanduser().resolve() if out_dir else decisions_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    title = title or "Reel Variant Swipe Review"
+    variants = _build_variant_decisions(decisions, decisions_path, title)
+    html_path = out_dir / "variant_swipe_review.html"
+    json_path = out_dir / "variant_swipe_decisions.json"
+
+    json_path.write_text(json.dumps(variants, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    html_path.write_text(_render_variant_html(variants, title), encoding="utf-8")
+    return {
+        "schema": "reel_factory.variant_approval_board_result.v1",
+        "count": len(variants["items"]),
+        "boardPath": str(html_path),
+        "decisionJsonPath": str(json_path),
+    }
+
+
+def build_assisted_approval_board(decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None) -> dict[str, Any]:
+    decisions_path = Path(decisions_path).expanduser().resolve()
+    decisions = _load_decisions(decisions_path)
+    out_dir = Path(out_dir).expanduser().resolve() if out_dir else decisions_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    title = title or "Assisted Reel Review"
+    assisted = _build_assisted_decisions(decisions, decisions_path, title)
+    html_path = out_dir / "assisted_review.html"
+    json_path = out_dir / "assisted_review_decisions.json"
+
+    json_path.write_text(json.dumps(assisted, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    html_path.write_text(_render_assisted_html(assisted, title), encoding="utf-8")
+    return {
+        "schema": "reel_factory.assisted_approval_board_result.v1",
+        "count": len(assisted["items"]),
+        "boardPath": str(html_path),
+        "decisionJsonPath": str(json_path),
+    }
+
+
 def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | None = None) -> dict[str, Any]:
     decisions_path = Path(decisions_path).expanduser().resolve()
     decisions = _load_decisions(decisions_path)
@@ -201,6 +243,199 @@ def _build_decisions(manifest: dict[str, Any], manifest_path: Path, title: str) 
         "hardRejectReasons": list(HARD_REJECT_REASONS),
         "items": items,
     }
+
+
+def _build_variant_decisions(decisions: dict[str, Any], decisions_path: Path, title: str) -> dict[str, Any]:
+    variants = []
+    for item in decisions.get("items", []):
+        for lane in LANES:
+            lane_data = (item.get("lanes") or {}).get(lane) or {}
+            path = lane_data.get("path")
+            if not path:
+                continue
+            variants.append(
+                {
+                    "id": f"{item.get('id')}:{lane}",
+                    "parentId": item.get("id"),
+                    "stem": item.get("stem"),
+                    "lane": lane,
+                    "label": LANE_LABELS[lane],
+                    "path": path,
+                    "sourcePath": item.get("image"),
+                    "status": "pending",
+                    "needs_ui_crop": False,
+                    "starred": False,
+                    "notes": "",
+                    "review_status": item.get("review_status"),
+                    "warningCodes": (item.get("contentforge") or {}).get("warningCodes") or [],
+                    "blockingCodes": (item.get("contentforge") or {}).get("blockingCodes") or [],
+                    "placement": lane_data.get("placement") or {},
+                }
+            )
+    return {
+        "schema": "reel_factory.variant_swipe_decisions.v1",
+        "title": title,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceDecisionPath": str(decisions_path),
+        "count": len(variants),
+        "items": variants,
+    }
+
+
+def _build_assisted_decisions(decisions: dict[str, Any], decisions_path: Path, title: str) -> dict[str, Any]:
+    rows = _manifest_rows_by_stem(decisions)
+    items = []
+    stats = {"high": 0, "medium": 0, "low": 0, "blocked": 0}
+    for raw in decisions.get("items", []):
+        item = dict(raw)
+        row = rows.get(str(item.get("stem") or ""))
+        recommendation = _recommend_item(item, row)
+        item["selected_lanes"] = recommendation["selectedLanes"]
+        item["selected_lane"] = recommendation["selectedLanes"][0] if recommendation["selectedLanes"] else None
+        item["recommendation"] = recommendation
+        item["status"] = "pending"
+        item["captionPreviews"] = {
+            lane: _caption_preview(row, lane)
+            for lane in ("normal", "timed")
+            if _caption_preview(row, lane)
+        }
+        item["captionSource"] = _caption_source(row)
+        item["captionSourceApproved"] = _approved_caption_source(row)
+        stats[recommendation["confidence"]] = stats.get(recommendation["confidence"], 0) + 1
+        items.append(item)
+    return {
+        "schema": "reel_factory.approval_decisions.v1",
+        "reviewMode": "assisted",
+        "title": title,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceDecisionPath": str(decisions_path),
+        "manifestPath": decisions.get("manifestPath"),
+        "count": len(items),
+        "stats": stats,
+        "lanePolicy": LANE_POLICY,
+        "items": items,
+    }
+
+
+def _manifest_rows_by_stem(decisions: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    path = decisions.get("manifestPath")
+    if not path:
+        return {}
+    try:
+        manifest = json.loads(Path(str(path)).expanduser().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    mapped = {}
+    for row in manifest.get("items") if isinstance(manifest.get("items"), list) else manifest.get("rows", []):
+        if not isinstance(row, dict):
+            continue
+        keys = [row.get("stem"), row.get("id"), (row.get("source") or {}).get("id")]
+        for key in keys:
+            if key:
+                mapped[str(key)] = row
+    return mapped
+
+
+def _recommend_item(item: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
+    contentforge = item.get("contentforge") if isinstance(item.get("contentforge"), dict) else {}
+    blocking = [str(code) for code in contentforge.get("blockingCodes") or []]
+    warnings = [str(code) for code in contentforge.get("warningCodes") or []]
+    if blocking or item.get("review_status") == "blocked":
+        return {
+            "decision": "reject",
+            "selectedLanes": [],
+            "confidence": "blocked",
+            "reasons": ["ContentForge blocking evidence"] + blocking,
+        }
+
+    lanes = item.get("lanes") or {}
+    selected = ["clean"] if lanes.get("clean") else []
+    reasons = ["keep clean MP4 for manual edit"] if selected else []
+
+    caption_source = _caption_source(row)
+    if not _approved_caption_source(row):
+        if caption_source:
+            reasons.append(f"overlay skipped: caption source is not approved live bank ({caption_source})")
+        else:
+            reasons.append("overlay skipped: caption source missing")
+        confidence = "medium" if selected else "low"
+        return {
+            "decision": "approve" if selected else "review",
+            "selectedLanes": selected,
+            "confidence": confidence,
+            "reasons": reasons,
+        }
+
+    normal_text = _caption_preview(row, "normal")
+    timed_text = _caption_preview(row, "timed")
+    normal_bad = _suspicious_caption(normal_text)
+    timed_bad = _suspicious_caption(timed_text)
+    timed_beats = timed_text.count(" / ") + 1 if timed_text else 0
+
+    if lanes.get("timed") and timed_text and timed_beats > 1 and not timed_bad:
+        selected.append("timed")
+        reasons.append("timed caption has complete beat sequence")
+    elif lanes.get("normal") and normal_text and not normal_bad:
+        selected.append("normal")
+        reasons.append("normal caption is complete")
+    elif normal_bad or timed_bad:
+        reasons.append("caption text looks incomplete or weak")
+
+    severe_warnings = [
+        code for code in warnings
+        if not (
+            code.startswith("silent_")
+            or code.startswith("static_")
+            or code.startswith("creative_opening_static_expected")
+            or code.endswith("_caption_box_over_rejected_focal_lane")
+        )
+    ]
+    confidence = "high" if selected and not severe_warnings and not normal_bad and not timed_bad else "medium" if selected else "low"
+    if severe_warnings:
+        reasons.extend(severe_warnings[:3])
+    return {
+        "decision": "approve" if selected else "review",
+        "selectedLanes": selected,
+        "confidence": confidence,
+        "reasons": reasons,
+    }
+
+
+def _caption_source(row: dict[str, Any] | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get("captionSource") or "").strip()
+
+
+def _approved_caption_source(row: dict[str, Any] | None) -> bool:
+    source = _caption_source(row)
+    if not source:
+        return False
+    normalized = source.replace("\\", "/")
+    return normalized == "caption_banks/banks.json" or "/caption_banks/banks.json" in normalized
+
+
+def _caption_preview(row: dict[str, Any] | None, lane: str) -> str:
+    if not isinstance(row, dict):
+        return ""
+    lane_data = row.get(lane) if isinstance(row.get(lane), dict) else {}
+    boxes = (((lane_data.get("readiness") or {}).get("captionLineage") or {}).get("captionRenderBoxes") or
+             (lane_data.get("captionBank") or {}).get("captionRenderBoxes") or [])
+    texts = [str(box.get("text") or "").strip() for box in boxes if isinstance(box, dict) and str(box.get("text") or "").strip()]
+    if texts:
+        return " / ".join(texts)
+    text = lane_data.get("captionText") or lane_data.get("caption_text") or row.get("captionText")
+    return str(text or "").strip()
+
+
+def _suspicious_caption(text: str) -> bool:
+    if not text:
+        return False
+    flat = " ".join(text.lower().split())
+    if len(flat) < 8:
+        return True
+    dangling = ("but have you tried", "what about", "because", "unless", "when he", "when she", "pov:")
+    return flat.endswith(dangling) or " / " not in text and flat in {"2 truths 1 lie", "pick one"}
 
 
 def _lane_path(value: Any) -> str | None:
@@ -648,6 +883,375 @@ def _render_html(manifest: dict[str, Any], decisions: dict[str, Any], title: str
 """
 
 
+def _render_variant_html(decisions: dict[str, Any], title: str) -> str:
+    cards = "\n".join(_render_variant_card(item, index) for index, item in enumerate(decisions["items"]))
+    decisions_json = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    body {{ margin: 0; background: #09090b; color: #f4f4f5; }}
+    header {{ position: sticky; top: 0; z-index: 3; padding: 16px 20px; background: rgba(9,9,11,.96); border-bottom: 1px solid #27272a; }}
+    h1 {{ margin: 0 0 6px; font-size: 22px; }}
+    main {{ min-height: calc(100vh - 132px); display: grid; place-items: start center; padding: 18px; }}
+    button {{ cursor: pointer; border: 1px solid #3f3f46; border-radius: 999px; background: #18181b; color: #f4f4f5; padding: 9px 13px; font: inherit; }}
+    button[aria-pressed="true"] {{ outline: 2px solid #93c5fd; background: #1d4ed8; border-color: #60a5fa; }}
+    .bar, .filters {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }}
+    .primary {{ background: #16a34a; border-color: #22c55e; color: #052e16; font-weight: 700; }}
+    .danger {{ background: #991b1b; border-color: #ef4444; color: #fee2e2; font-weight: 700; }}
+    .meta {{ color: #a1a1aa; font-size: 13px; }}
+    article {{ width: min(520px, 96vw); border: 1px solid #27272a; border-radius: 10px; background: #111113; padding: 14px; }}
+    article.hidden {{ display: none; }}
+    article.approved {{ border-color: #22c55e; }}
+    article.rejected {{ border-color: #ef4444; }}
+    article.crop {{ border-color: #f59e0b; }}
+    h2 {{ margin: 0 0 8px; font-size: 17px; }}
+    video, img {{ width: 100%; max-height: 74vh; object-fit: contain; background: #000; border-radius: 8px; border: 1px solid #27272a; }}
+    .chips {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }}
+    .chip {{ padding: 3px 7px; border-radius: 999px; border: 1px solid #3f3f46; font-size: 12px; }}
+    .warn {{ color: #fde68a; border-color: #f59e0b; }}
+    .block {{ color: #fecaca; border-color: #ef4444; }}
+    .actions {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }}
+    .path {{ word-break: break-all; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{html.escape(title)}</h1>
+    <div class="meta">Items: {len(decisions["items"])} · keys: <code>←</code> reject, <code>→</code> approve, <code>u</code> crop, <code>s</code> star, <code>j/k</code> next/prev</div>
+    <div class="bar">
+      <button id="prevBtn">Prev</button><button id="rejectBtn" class="danger">Reject</button><button id="approveBtn" class="primary">Approve</button><button id="cropBtn">Needs UI crop</button><button id="starBtn">Star</button><button id="nextBtn">Next</button><button id="downloadBtn">Download JSON</button><span id="progress" class="meta"></span>
+    </div>
+    <div class="filters">
+      <button data-filter="all" aria-pressed="true">All</button>
+      <button data-filter="clean">Clean</button>
+      <button data-filter="normal">Captioned</button>
+      <button data-filter="timed">Timed</button>
+      <button data-filter="pending">Pending</button>
+      <button data-filter="approved">Approved</button>
+      <button data-filter="crop">UI crop</button>
+    </div>
+  </header>
+  <main>{cards}</main>
+  <script type="application/json" id="decisions-data">{decisions_json}</script>
+  <script>
+    (() => {{
+      const original = JSON.parse(document.getElementById("decisions-data").textContent);
+      const storageKey = "variant-swipe:" + original.sourceDecisionPath + ":" + original.createdAt;
+      const decisions = JSON.parse(localStorage.getItem(storageKey) || "null") || original;
+      const items = decisions.items || [];
+      const cards = Array.from(document.querySelectorAll("article[data-index]"));
+      let index = Math.max(0, items.findIndex((item) => item.status === "pending"));
+      if (index < 0) index = 0;
+      let filter = "all";
+      const save = () => localStorage.setItem(storageKey, JSON.stringify(decisions));
+      const current = () => items[index] || null;
+      function matches(i) {{
+        const item = items[i] || {{}};
+        if (filter === "all") return true;
+        if (["clean", "normal", "timed"].includes(filter)) return item.lane === filter;
+        if (filter === "crop") return Boolean(item.needs_ui_crop);
+        return item.status === filter;
+      }}
+      function seek(delta) {{
+        if (!items.length) return;
+        for (let step = 1; step <= items.length; step++) {{
+          const next = (index + delta * step + items.length) % items.length;
+          if (matches(next)) {{ index = next; return; }}
+        }}
+      }}
+      function loadCurrentVideo() {{
+        cards.forEach((card, i) => {{
+          const video = card.querySelector("video[data-src]");
+          if (!video) return;
+          if (i === index && !video.src) video.src = video.dataset.src;
+          if (i !== index) video.pause();
+        }});
+      }}
+      function render() {{
+        cards.forEach((card, i) => {{
+          const item = items[i] || {{}};
+          card.classList.toggle("hidden", i !== index || !matches(i));
+          card.classList.toggle("approved", item.status === "approved");
+          card.classList.toggle("rejected", item.status === "rejected");
+          card.classList.toggle("crop", Boolean(item.needs_ui_crop));
+        }});
+        loadCurrentVideo();
+        const done = items.filter((item) => item.status !== "pending").length;
+        document.getElementById("progress").textContent = `${{index + 1}}/${{items.length}} · ${{done}} reviewed`;
+      }}
+      function setStatus(status) {{ const item = current(); if (!item) return; item.status = status; save(); seek(1); render(); }}
+      function toggleCrop() {{ const item = current(); if (!item) return; item.needs_ui_crop = !item.needs_ui_crop; save(); render(); }}
+      function toggleStar() {{ const item = current(); if (!item) return; item.starred = !item.starred; save(); render(); }}
+      function download() {{
+        const blob = new Blob([JSON.stringify(decisions, null, 2) + "\\n"], {{ type: "application/json" }});
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "variant_swipe_decisions.reviewed.json";
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }}
+      document.getElementById("approveBtn").onclick = () => setStatus("approved");
+      document.getElementById("rejectBtn").onclick = () => setStatus("rejected");
+      document.getElementById("cropBtn").onclick = toggleCrop;
+      document.getElementById("starBtn").onclick = toggleStar;
+      document.getElementById("nextBtn").onclick = () => {{ seek(1); render(); }};
+      document.getElementById("prevBtn").onclick = () => {{ seek(-1); render(); }};
+      document.getElementById("downloadBtn").onclick = download;
+      document.querySelectorAll("[data-filter]").forEach((button) => {{
+        button.onclick = () => {{
+          filter = button.dataset.filter || "all";
+          document.querySelectorAll("[data-filter]").forEach((node) => node.setAttribute("aria-pressed", String(node === button)));
+          if (!matches(index)) seek(1);
+          render();
+        }};
+      }});
+      document.addEventListener("keydown", (event) => {{
+        if (event.key === "ArrowRight") setStatus("approved");
+        if (event.key === "ArrowLeft") setStatus("rejected");
+        if (event.key.toLowerCase() === "u") toggleCrop();
+        if (event.key.toLowerCase() === "s") toggleStar();
+        if (event.key.toLowerCase() === "j") {{ seek(1); render(); }}
+        if (event.key.toLowerCase() === "k") {{ seek(-1); render(); }}
+      }});
+      render();
+    }})();
+  </script>
+</body>
+</html>
+"""
+
+
+def _render_variant_card(item: dict[str, Any], index: int) -> str:
+    warnings = "".join(f'<span class="chip warn">{html.escape(str(code))}</span>' for code in item.get("warningCodes") or [])
+    blocks = "".join(f'<span class="chip block">{html.escape(str(code))}</span>' for code in item.get("blockingCodes") or [])
+    placement = item.get("placement") or {}
+    placement_text = " · ".join(
+        str(value) for value in (placement.get("finalBand"), placement.get("font")) if value
+    )
+    return f"""<article data-index="{index}" data-lane="{html.escape(str(item.get("lane")))}">
+  <h2>#{html.escape(str(index + 1))} {html.escape(str(item.get("label")))} · {html.escape(str(item.get("stem")))} </h2>
+  <video controls preload="none" data-src="{_uri(item.get("path"))}"></video>
+  <div class="chips"><span class="chip">{html.escape(str(item.get("lane")))}</span>{warnings}{blocks}</div>
+  <div class="meta">{html.escape(placement_text)}</div>
+  <div class="meta path">{html.escape(str(item.get("path")))}</div>
+  <div class="actions"><button class="danger" onclick="document.getElementById('rejectBtn').click()">Reject</button><button class="primary" onclick="document.getElementById('approveBtn').click()">Approve</button><button onclick="document.getElementById('cropBtn').click()">UI crop</button><button onclick="document.getElementById('starBtn').click()">Star</button></div>
+</article>"""
+
+
+def _render_assisted_html(decisions: dict[str, Any], title: str) -> str:
+    cards = "\n".join(_render_assisted_card(item, index) for index, item in enumerate(decisions["items"]))
+    decisions_json = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
+    stats = decisions.get("stats") or {}
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <style>
+    :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    body {{ margin: 0; background: #09090b; color: #f4f4f5; }}
+    header {{ position: sticky; top: 0; z-index: 3; padding: 16px 20px; background: rgba(9,9,11,.96); border-bottom: 1px solid #27272a; }}
+    h1 {{ margin: 0 0 6px; font-size: 22px; }}
+    main {{ min-height: calc(100vh - 150px); display: grid; place-items: start center; padding: 18px; }}
+    button {{ cursor: pointer; border: 1px solid #3f3f46; border-radius: 999px; background: #18181b; color: #f4f4f5; padding: 9px 13px; font: inherit; }}
+    button[aria-pressed="true"] {{ outline: 2px solid #93c5fd; background: #1d4ed8; border-color: #60a5fa; }}
+    .bar, .filters, .chips {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }}
+    .primary {{ background: #16a34a; border-color: #22c55e; color: #052e16; font-weight: 700; }}
+    .danger {{ background: #991b1b; border-color: #ef4444; color: #fee2e2; font-weight: 700; }}
+    .meta {{ color: #a1a1aa; font-size: 13px; }}
+    article {{ width: min(1180px, 96vw); border: 1px solid #27272a; border-radius: 10px; background: #111113; padding: 14px; }}
+    article.hidden {{ display: none; }}
+    article.approved {{ border-color: #22c55e; }}
+    article.rejected {{ border-color: #ef4444; }}
+    h2 {{ margin: 0 0 8px; font-size: 18px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }}
+    video, img {{ width: 100%; max-height: 68vh; object-fit: contain; background: #000; border-radius: 8px; border: 1px solid #27272a; }}
+    .lane.selected video {{ border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,.45); }}
+    .chip {{ padding: 3px 7px; border-radius: 999px; border: 1px solid #3f3f46; font-size: 12px; }}
+    .high {{ color: #bbf7d0; border-color: #22c55e; }}
+    .medium {{ color: #fde68a; border-color: #f59e0b; }}
+    .low, .blocked {{ color: #fecaca; border-color: #ef4444; }}
+    .path {{ word-break: break-all; }}
+    @media (max-width: 900px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{html.escape(title)}</h1>
+    <div class="meta">Source cards: {len(decisions["items"])} · high {stats.get("high", 0)} · medium {stats.get("medium", 0)} · low {stats.get("low", 0)} · blocked {stats.get("blocked", 0)}</div>
+    <div class="bar">
+      <button id="prevBtn">Prev</button><button id="rejectBtn" class="danger">Reject</button><button id="acceptBtn" class="primary">Accept recommendation</button><button id="acceptHighBtn">Accept all high-confidence</button><button id="nextBtn">Next</button><button id="downloadBtn">Download JSON</button><span id="progress" class="meta"></span>
+    </div>
+    <div class="filters">
+      <button data-filter="all" aria-pressed="true">All</button>
+      <button data-filter="high">High confidence</button>
+      <button data-filter="medium">Medium</button>
+      <button data-filter="low">Low</button>
+      <button data-filter="blocked">Blocked</button>
+      <button data-filter="pending">Pending</button>
+    </div>
+    <div class="meta">Keys: <code>→</code> accept recommendation, <code>←</code> reject, <code>1/2/3</code> toggle clean/normal/timed, <code>j/k</code> next/prev.</div>
+  </header>
+  <main>{cards}</main>
+  <script type="application/json" id="decisions-data">{decisions_json}</script>
+  <script>
+    (() => {{
+      const original = JSON.parse(document.getElementById("decisions-data").textContent);
+      const storageKey = "assisted-review:" + original.sourceDecisionPath + ":" + original.createdAt;
+      const decisions = JSON.parse(localStorage.getItem(storageKey) || "null") || original;
+      const items = decisions.items || [];
+      const cards = Array.from(document.querySelectorAll("article[data-index]"));
+      let index = Math.max(0, items.findIndex((item) => item.status === "pending"));
+      if (index < 0) index = 0;
+      let filter = "all";
+      const save = () => localStorage.setItem(storageKey, JSON.stringify(decisions));
+      const current = () => items[index] || null;
+      function confidence(item) {{ return (item.recommendation || {{}}).confidence || "low"; }}
+      function matches(i) {{
+        const item = items[i] || {{}};
+        if (filter === "all") return true;
+        if (["high", "medium", "low", "blocked"].includes(filter)) return confidence(item) === filter;
+        return item.status === filter;
+      }}
+      function seek(delta) {{
+        if (!items.length) return;
+        for (let step = 1; step <= items.length; step++) {{
+          const next = (index + delta * step + items.length) % items.length;
+          if (matches(next)) {{ index = next; return; }}
+        }}
+      }}
+      function setSelected(item, lanes) {{
+        item.selected_lanes = lanes.filter((lane, i) => item.lanes[lane] && lanes.indexOf(lane) === i);
+        item.selected_lane = item.selected_lanes[0] || null;
+      }}
+      function loadCurrentVideo() {{
+        cards.forEach((card, i) => {{
+          card.querySelectorAll("video[data-src]").forEach((video) => {{
+            if (i === index && !video.src) video.src = video.dataset.src;
+            if (i !== index) video.pause();
+          }});
+        }});
+      }}
+      function render() {{
+        cards.forEach((card, i) => {{
+          const item = items[i] || {{}};
+          card.classList.toggle("hidden", i !== index || !matches(i));
+          card.classList.toggle("approved", item.status === "approved");
+          card.classList.toggle("rejected", item.status === "rejected");
+          card.querySelectorAll("[data-lane]").forEach((node) => node.classList.toggle("selected", (item.selected_lanes || []).includes(node.dataset.lane)));
+        }});
+        loadCurrentVideo();
+        const done = items.filter((item) => item.status !== "pending").length;
+        document.getElementById("progress").textContent = `${{index + 1}}/${{items.length}} · ${{done}} reviewed`;
+        save();
+      }}
+      function accept() {{
+        const item = current();
+        if (!item) return;
+        const rec = item.recommendation || {{}};
+        item.status = rec.decision === "reject" ? "rejected" : "approved";
+        setSelected(item, rec.selectedLanes || []);
+        seek(1);
+        render();
+      }}
+      function reject() {{ const item = current(); if (!item) return; item.status = "rejected"; setSelected(item, []); seek(1); render(); }}
+      function toggleLane(lane) {{
+        const item = current();
+        if (!item || !item.lanes[lane]) return;
+        const lanes = item.selected_lanes || [];
+        setSelected(item, lanes.includes(lane) ? lanes.filter((value) => value !== lane) : lanes.concat(lane));
+        render();
+      }}
+      function acceptHigh() {{
+        items.forEach((item) => {{
+          const rec = item.recommendation || {{}};
+          if (item.status === "pending" && rec.confidence === "high") {{
+            item.status = rec.decision === "reject" ? "rejected" : "approved";
+            setSelected(item, rec.selectedLanes || []);
+          }}
+        }});
+        render();
+      }}
+      function download() {{
+        const blob = new Blob([JSON.stringify(decisions, null, 2) + "\\n"], {{ type: "application/json" }});
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "assisted_review_decisions.reviewed.json";
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }}
+      document.getElementById("acceptBtn").onclick = accept;
+      document.getElementById("rejectBtn").onclick = reject;
+      document.getElementById("acceptHighBtn").onclick = acceptHigh;
+      document.getElementById("nextBtn").onclick = () => {{ seek(1); render(); }};
+      document.getElementById("prevBtn").onclick = () => {{ seek(-1); render(); }};
+      document.getElementById("downloadBtn").onclick = download;
+      document.querySelectorAll("[data-filter]").forEach((button) => {{
+        button.onclick = () => {{
+          filter = button.dataset.filter || "all";
+          document.querySelectorAll("[data-filter]").forEach((node) => node.setAttribute("aria-pressed", String(node === button)));
+          if (!matches(index)) seek(1);
+          render();
+        }};
+      }});
+      document.addEventListener("keydown", (event) => {{
+        if (event.key === "ArrowRight") accept();
+        if (event.key === "ArrowLeft") reject();
+        if (event.key === "1") toggleLane("clean");
+        if (event.key === "2") toggleLane("normal");
+        if (event.key === "3") toggleLane("timed");
+        if (event.key.toLowerCase() === "j") {{ seek(1); render(); }}
+        if (event.key.toLowerCase() === "k") {{ seek(-1); render(); }}
+      }});
+      render();
+    }})();
+  </script>
+</body>
+</html>"""
+
+
+def _render_assisted_card(item: dict[str, Any], index: int) -> str:
+    rec = item.get("recommendation") or {}
+    confidence = str(rec.get("confidence") or "low")
+    reasons = "".join(f'<span class="chip {html.escape(confidence)}">{html.escape(str(reason))}</span>' for reason in rec.get("reasons") or [])
+    lanes = item.get("lanes") or {}
+    selected_lanes = [lane for lane in (rec.get("selectedLanes") or []) if lane in lanes]
+    if not selected_lanes:
+        selected_lanes = [lane for lane in LANES if lane in lanes][:1]
+    display_lanes = [lane for lane in selected_lanes if lane != "clean"] or selected_lanes
+    lane_html = "\n".join(_render_assisted_lane(lane, lanes[lane], True, (item.get("captionPreviews") or {}).get(lane)) for lane in display_lanes)
+    return f"""<article data-index="{index}" data-confidence="{html.escape(confidence)}">
+  <h2>#{html.escape(str(item.get("id", index + 1)))} {html.escape(str(item.get("stem", "")))}</h2>
+  <div class="chips"><span class="chip {html.escape(confidence)}">recommend: {html.escape(confidence)}</span>{reasons}</div>
+  <div class="grid">{lane_html}</div>
+</article>"""
+
+
+def _render_assisted_lane(lane: str, data: dict[str, Any], selected: bool, caption: str | None) -> str:
+    caption_html = f'<div class="meta">{html.escape(caption)}</div>' if caption else ""
+    return f"""<section class="lane{' selected' if selected else ''}" data-lane="{html.escape(lane)}">
+  <h3>{html.escape(LANE_LABELS[lane])}</h3>
+  <video controls preload="none" data-src="{_uri(data.get("path"))}"></video>
+  {caption_html}
+</section>"""
+
+
+def _render_source_media_lazy(item: dict[str, Any]) -> str:
+    path = item.get("image")
+    if not path:
+        return ""
+    suffix = Path(str(path)).suffix.lower()
+    if suffix in {".mp4", ".mov", ".webm"}:
+        return f'<video controls preload="none" data-src="{_uri(path)}"></video>'
+    return f'<img src="{_uri(path)}" alt="{html.escape(str(item.get("stem", "")))} source">'
+
+
 def _render_sheet_links(manifest: dict[str, Any]) -> str:
     links = []
     for label, key in (("Clean sheet", "cleanSheet"), ("Normal sheet", "normalSheet"), ("Timed sheet", "timedSheet")):
@@ -757,6 +1361,8 @@ def _uri(path: Any) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build a local reel approval board from an approved batch manifest.")
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--variant-board", type=Path, help="Build a lane-first swipe board from approval_decisions.json.")
+    parser.add_argument("--assisted-board", type=Path, help="Build a source-first board with auto lane recommendations from approval_decisions.json.")
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--title")
     parser.add_argument("--promote-decisions", type=Path)
@@ -765,8 +1371,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.promote_decisions:
         print(json.dumps(promote_approval_decisions(args.promote_decisions, selected_dir=args.selected_dir), indent=2))
         return 0
+    if args.variant_board:
+        print(json.dumps(build_variant_approval_board(args.variant_board, out_dir=args.out_dir, title=args.title), indent=2))
+        return 0
+    if args.assisted_board:
+        print(json.dumps(build_assisted_approval_board(args.assisted_board, out_dir=args.out_dir, title=args.title), indent=2))
+        return 0
     if not args.manifest:
-        parser.error("--manifest is required unless --promote-decisions is used")
+        parser.error("--manifest is required unless --promote-decisions, --variant-board, or --assisted-board is used")
     print(json.dumps(build_approval_board(args.manifest, out_dir=args.out_dir, title=args.title), indent=2))
     return 0
 

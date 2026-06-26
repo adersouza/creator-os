@@ -1,0 +1,112 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:account_retry_20260625",
+  "scanned_at": "2026-06-25",
+  "source_notes": "Follow-up scan of later screenshot accounts. Captions are adapted from readable public IG grid/screenshots; unavailable pages are recorded but not used.",
+  "scan_results_path": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/scan_results.json",
+  "usable_accounts": [
+    "celiacutiex",
+    "naomiii_life",
+    "cheri_444"
+  ],
+  "unavailable_or_private_accounts": [
+    "irresponsiblelenx",
+    "itsstellafrancis",
+    "avaghvu",
+    "zara.kwon",
+    "alexmoonfall",
+    "keegan.rosee",
+    "sofiareyesoliveira",
+    "flexibleblondie",
+    "sadiecarsons",
+    "thebiancarter",
+    "luna.paigee",
+    "aiyanaskyhawk",
+    "diana_haleeeee",
+    "chloeyonestar",
+    "cassiefreckles",
+    "zoeroses08"
+  ],
+  "captions": [
+    {
+      "text": "hiring a boyfriend\nmust be older than me",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "2390",
+      "archetype": "dating_requirements"
+    },
+    {
+      "text": "legs for days\nstill no boyfriend",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "1484",
+      "archetype": "body_attention"
+    },
+    {
+      "text": "if you don't like my scar\nyou can still like me",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "1207",
+      "archetype": "validation_bait"
+    },
+    {
+      "text": "now read every third word",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "3400",
+      "archetype": "decode_puzzle"
+    },
+    {
+      "text": "if you're in\nlet me know",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "2637",
+      "archetype": "comment_bait"
+    },
+    {
+      "text": "3 reasons why\nyou should date me",
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/naomiii_life.png",
+      "observedViewCount": "566",
+      "archetype": "dating_list"
+    },
+    {
+      "text": "how many cold ones\nwould you need?",
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/naomiii_life.png",
+      "observedViewCount": "93600",
+      "archetype": "question_bait"
+    },
+    {
+      "text": "pick one\nand be honest",
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/naomiii_life.png",
+      "observedViewCount": "488",
+      "archetype": "choice_poll"
+    },
+    {
+      "text": "POV thoughts everyone is thinking\nbut nobody says out loud",
+      "account": "cheri_444",
+      "source_url": "https://www.instagram.com/cheri_444/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/cheri_444.png",
+      "observedViewCount": "2800000",
+      "archetype": "pov_confession"
+    },
+    {
+      "text": "be honest\nwould you say hi?",
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/screenshots/celiacutiex.png",
+      "observedViewCount": "2818",
+      "archetype": "comment_bait"
+    }
+  ]
+}

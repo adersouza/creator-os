@@ -1,0 +1,57 @@
+{
+  "schema": "reel_factory.external_caption_account_shortlist.v1",
+  "captured_at": "2026-06-25",
+  "source": "chrome_manual_review",
+  "seed_account": "https://www.instagram.com/staceybennetx/reels/",
+  "notes": "Public IG accounts with visible white outlined reel overlay captions or adjacent high-performing caption formats. Use as review/reference sources only; do not auto-promote captions into live banks.",
+  "accounts": [
+    {
+      "handle": "staceybennetx",
+      "url": "https://www.instagram.com/staceybennetx/reels/",
+      "fit": "primary_seed",
+      "observed_style": "white outlined meme overlay, decoder bait, type bait, DM bait, centered/lower-center text"
+    },
+    {
+      "handle": "luanaxorr",
+      "url": "https://www.instagram.com/luanaxorr/reels/",
+      "fit": "strong",
+      "observed_style": "same white outlined caption family, Christian/ragebait, send-me-this-reel, remove-list prompts",
+      "visible_view_examples": ["4,668", "2,974", "2,818"]
+    },
+    {
+      "handle": "candyemxo",
+      "url": "https://www.instagram.com/candyemxo/reels/",
+      "fit": "strong",
+      "observed_style": "relationship/ragebait overlays, white outlined font, interview and selfie variants",
+      "visible_view_examples": ["340K", "201K", "165K", "102K", "27.7K"]
+    },
+    {
+      "handle": "nursingcarella",
+      "url": "https://www.instagram.com/nursingcarella/reels/",
+      "fit": "niche_reference",
+      "observed_style": "nurse persona niche, white outlined overlays, fantasy/ragebait framing",
+      "visible_view_examples": ["60.9K", "37.9K", "18.5K", "16.8K"]
+    },
+    {
+      "handle": "valentinaachantal",
+      "url": "https://www.instagram.com/valentinaachantal/reels/",
+      "fit": "secondary",
+      "observed_style": "simple outfit/rating overlays, fewer posts but strong view spikes",
+      "visible_view_examples": ["313K", "130K", "32K", "23.5K"]
+    },
+    {
+      "handle": "sophieraiin",
+      "url": "https://www.instagram.com/sophieraiin/reels/",
+      "fit": "broad_high_volume_reference",
+      "observed_style": "huge-volume account, some simple white label overlays, more sports/lifestyle than decoder captions",
+      "visible_view_examples": ["1.4M", "1.3M", "1M", "804K"]
+    },
+    {
+      "handle": "realcamillaara",
+      "url": "https://www.instagram.com/realcamillaara/reels/",
+      "fit": "broad_high_volume_reference",
+      "observed_style": "high-volume creator, less direct match for decoder captions; useful for non-caption composition and sports/lifestyle references",
+      "visible_view_examples": ["2.2M", "1.2M", "791K", "786K", "733K"]
+    }
+  ]
+}

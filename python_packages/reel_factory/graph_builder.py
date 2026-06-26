@@ -84,6 +84,13 @@ def target_dimensions(target_ratio: str) -> tuple[int, int]:
     return TARGET_DIMS[target_ratio]
 
 
+def caption_overlay_enable(start: float, end: float | None) -> str:
+    if end is None:
+        return f"gte(t\\,{start:.3f})"
+    # FFmpeg's between() includes both endpoints; half-open timing prevents adjacent captions from stacking.
+    return f"gte(t\\,{start:.3f})*lt(t\\,{end:.3f})"
+
+
 def _camera_variation_pre_scale(recipe_name: str, src_hash: str, account_scope: str = "local_review") -> list[str]:
     scope = (account_scope or "local_review").strip() or "local_review"
     rng = random.Random(f"camera|{recipe_name}|{src_hash}|{scope}")
@@ -245,8 +252,7 @@ def build_ffmpeg_cmd(plan: RenderPlan, ffmpeg: str) -> list[str]:
         for i in range(len(plan.caption_pngs)):
             fc_parts.append(f"[{i + 1}:v]format=rgba[cap{i}]")
         for i, (_, start, end) in enumerate(plan.caption_pngs):
-            end_t = end if end is not None else plan.duration + 10
-            enable = f"between(t\\,{start:.3f}\\,{end_t:.3f})"
+            enable = caption_overlay_enable(start, end)
             in_s = f"vs{i}"
             out_s = f"vs{i + 1}" if i < len(plan.caption_pngs) - 1 else "vsf"
             fc_parts.append(

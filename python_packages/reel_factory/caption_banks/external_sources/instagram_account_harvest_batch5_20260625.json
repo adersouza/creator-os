@@ -1,0 +1,253 @@
+{
+  "schema": "reel_factory.external_caption_source.v1",
+  "source": "instagram:account_harvest_batch5_20260625",
+  "captured_at": "2026-06-25",
+  "notes": "Live Instagram account pass from screenshot handles. Captions are compact adapted overlays for Stacey/Larissa review-only intake; raw live screenshots and OCR are stored under tmp/ig_caption_account_harvest_20260625.",
+  "accounts": [
+    {"handle": "staceybennetx", "source_url": "https://www.instagram.com/staceybennetx/reels/"},
+    {"handle": "carter_niaxx", "source_url": "https://www.instagram.com/carter_niaxx/reels/"},
+    {"handle": "laylaxxwalker", "source_url": "https://www.instagram.com/laylaxxwalker/reels/"},
+    {"handle": "kaylarold", "source_url": "https://www.instagram.com/kaylarold/reels/"},
+    {"handle": "luna.revira", "source_url": "https://www.instagram.com/luna.revira/reels/"},
+    {"handle": "carlyxxbowman", "source_url": "https://www.instagram.com/carlyxxbowman/reels/"},
+    {"handle": "irresponsiblenx", "source_url": "https://www.instagram.com/irresponsiblenx/reels/"},
+    {"handle": "celiacutiex", "source_url": "https://www.instagram.com/celiacutiex/reels/"},
+    {"handle": "naomiii_life", "source_url": "https://www.instagram.com/naomiii_life/reels/"},
+    {"handle": "cheri_444", "source_url": "https://www.instagram.com/cheri_444/reels/"},
+    {"handle": "notsasha999", "source_url": "https://www.instagram.com/notsasha999/reels/"}
+  ],
+  "captions": [
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/00_staceybennetx_01.png",
+      "text": "what I need right now\nfire without ire\nhome without me",
+      "postCaption": "yup",
+      "archetype": "wordplay_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/00_staceybennetx_02.png",
+      "text": "I'm so single\nsend me this post\nand I'll reply",
+      "postCaption": "comment-to-dm bait",
+      "archetype": "reply_bait"
+    },
+    {
+      "account": "staceybennetx",
+      "source_url": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/00_staceybennetx_03.png",
+      "text": "it's always wyd\nand never prove it",
+      "postCaption": "relationship bait",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "carter_niaxx",
+      "source_url": "https://www.instagram.com/carter_niaxx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/01_carter_niaxx_01.png",
+      "text": "is this how it should be\nor am I trouble",
+      "postCaption": "is this how it should be?",
+      "archetype": "question_bait"
+    },
+    {
+      "account": "laylaxxwalker",
+      "source_url": "https://www.instagram.com/laylaxxwalker/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/04_laylaxxwalker_01.png",
+      "text": "if we aren't like this\nwe better stay separated",
+      "postCaption": "couple standard bait",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "laylaxxwalker",
+      "source_url": "https://www.instagram.com/laylaxxwalker/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/04_laylaxxwalker_02.png",
+      "text": "we are just friends\nuntil you prove me wrong",
+      "postCaption": "friend-zone bait",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "kaylarold",
+      "source_url": "https://www.instagram.com/kaylarold/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/06_kaylarold_01.png",
+      "text": "when he's the 4am type",
+      "postCaption": "relationship bait",
+      "archetype": "late_night_bait"
+    },
+    {
+      "account": "kaylarold",
+      "source_url": "https://www.instagram.com/kaylarold/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/06_kaylarold_02.png",
+      "text": "if he gets it\nhe gets it",
+      "postCaption": "short hook",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "kaylarold",
+      "source_url": "https://www.instagram.com/kaylarold/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/06_kaylarold_03.png",
+      "text": "tell me yes\nwithout saying yes",
+      "postCaption": "answer bait",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "luna.revira",
+      "source_url": "https://www.instagram.com/luna.revira/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/07_luna.revira_01.png",
+      "text": "ask me whatever\nbut don't be boring",
+      "postCaption": "ask me whatever",
+      "archetype": "question_bait"
+    },
+    {
+      "account": "luna.revira",
+      "source_url": "https://www.instagram.com/luna.revira/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/07_luna.revira_02.png",
+      "text": "like come on\nwe both know what you want",
+      "postCaption": "direct bait",
+      "archetype": "attention_bait"
+    },
+    {
+      "account": "luna.revira",
+      "source_url": "https://www.instagram.com/luna.revira/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/07_luna.revira_03.png",
+      "text": "applications are open\nmake your case",
+      "postCaption": "applications ready",
+      "archetype": "dating_bait"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/13_carlyxxbowman_02.png",
+      "text": "you're too young for me\nbut say it anyway",
+      "postCaption": "age-gap bait",
+      "archetype": "dating_bait"
+    },
+    {
+      "account": "carlyxxbowman",
+      "source_url": "https://www.instagram.com/carlyxxbowman/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/13_carlyxxbowman_03.png",
+      "text": "say it once\nand I'll pretend I didn't hear it",
+      "postCaption": "tease bait",
+      "archetype": "tease_bait"
+    },
+    {
+      "account": "irresponsiblenx",
+      "source_url": "https://www.instagram.com/irresponsiblenx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/15_irresponsiblenx_01.png",
+      "text": "therapist asked my problem\nI said good boys",
+      "postCaption": "confused, am I wrong?",
+      "archetype": "good_boy_bait"
+    },
+    {
+      "account": "irresponsiblenx",
+      "source_url": "https://www.instagram.com/irresponsiblenx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/15_irresponsiblenx_02.png",
+      "text": "if he's a good boy\nI'm listening",
+      "postCaption": "good-boy bait",
+      "archetype": "good_boy_bait"
+    },
+    {
+      "account": "irresponsiblenx",
+      "source_url": "https://www.instagram.com/irresponsiblenx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/15_irresponsiblenx_03.png",
+      "text": "don't argue with me\njust be pretty",
+      "postCaption": "relationship bait",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/18_celiacutiex_01.png",
+      "text": "must be older than me\nmust make me laugh",
+      "postCaption": "list bait",
+      "archetype": "dating_bait"
+    },
+    {
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/18_celiacutiex_02.png",
+      "text": "am I your type\nanswer honestly",
+      "postCaption": "type bait",
+      "archetype": "body_attention"
+    },
+    {
+      "account": "celiacutiex",
+      "source_url": "https://www.instagram.com/celiacutiex/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/18_celiacutiex_03.png",
+      "text": "if you get the code\nyou get a chance",
+      "postCaption": "code bait",
+      "archetype": "coded_fill_in"
+    },
+    {
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/19_naomiii_life_01.png",
+      "text": "older man\nare you the one",
+      "postCaption": "older-man bait",
+      "archetype": "dating_bait"
+    },
+    {
+      "account": "naomiii_life",
+      "source_url": "https://www.instagram.com/naomiii_life/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/19_naomiii_life_02.png",
+      "text": "you know what to do\nso do it",
+      "postCaption": "direct comment bait",
+      "archetype": "comment_bait"
+    },
+    {
+      "account": "cheri_444",
+      "source_url": "https://www.instagram.com/cheri_444/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/20_cheri_444_01.png",
+      "text": "real question though\nwhat would you do",
+      "postCaption": "real question though",
+      "archetype": "question_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_01.png",
+      "text": "tell me one thing\nyou actually like about yourself",
+      "postCaption": "flirty things to ask",
+      "archetype": "question_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_01.png",
+      "text": "what part of your future\nmakes you smile",
+      "postCaption": "flirty things to ask",
+      "archetype": "question_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_01.png",
+      "text": "what is your love language\nbe honest",
+      "postCaption": "flirty things to ask",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_02.png",
+      "text": "soft but direct\nno guessing games",
+      "postCaption": "values bait",
+      "archetype": "relationship_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_02.png",
+      "text": "different values\nnot boring",
+      "postCaption": "values bait",
+      "archetype": "values_bait"
+    },
+    {
+      "account": "notsasha999",
+      "source_url": "https://www.instagram.com/notsasha999/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/22_notsasha999_03.png",
+      "text": "date me for my values\nor don't date me",
+      "postCaption": "values bait",
+      "archetype": "dating_bait"
+    }
+  ]
+}

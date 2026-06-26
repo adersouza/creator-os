@@ -10,8 +10,13 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from caption_render import render_caption_png
-from caption_scene_fit import CAPTION_SCENE_FIT_VERSION, classify_reel_scene_tags
-from graph_builder import build_ffmpeg_cmd, build_video_filter
+from caption_scene_fit import (
+    CAPTION_SCENE_FIT_VERSION,
+    CAPTION_TOPIC_FIT_VERSION,
+    classify_reel_scene_tags,
+    infer_caption_topic_for_reel,
+)
+from graph_builder import build_ffmpeg_cmd, build_video_filter, caption_overlay_enable
 from recipe_loader import load_recipes
 from reel_pipeline import (
     CaptionSet,
@@ -239,6 +244,24 @@ class ReelPipelineTests(unittest.TestCase):
             cap_set = CaptionSet.from_path(path)
             self.assertEqual(cap_set.hooks[0], "plain hook")
             self.assertEqual(cap_set.hooks[1]["segments"][0]["text"], "first")
+
+    def test_caption_set_blocks_clipped_prefix_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clip_001.json"
+            path.write_text(
+                json.dumps({
+                    "hooks": ["therapy is cute\nbut have you tried"],
+                    "hookLineage": {
+                        "0": {
+                            "rawSourceCaptionText": "therapy is cute\nbut have you tried\nbad decisions?"
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "clipped prefix"):
+                CaptionSet.from_path(path)
 
     def test_caption_bank_selection_builds_caption_set_with_lineage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -496,6 +519,104 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertEqual(cap_set.hooks, original_hooks)
         self.assertEqual(cap_set.hook_lineage, original_lineage)
+
+    def test_caption_topic_fit_blocks_unrelated_caption_banks(self):
+        cap_set = CaptionSet(
+            hooks=[
+                "pov: I'm the girl you rejected in high school",
+                "xbox boys still think this is a flex",
+            ],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+                1: {
+                    "selectedBanks": ["comment_bait"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            caption_topic="gaming",
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, ["xbox boys still think this is a flex"])
+        self.assertEqual(diagnostics[0]["suitabilityDecision"], "topic_mismatch")
+        self.assertEqual(diagnostics[0]["captionTopicDecision"], "blocked")
+        self.assertEqual(diagnostics[0]["captionTopic"], "gaming")
+        self.assertEqual(fitted.hook_lineage[0]["captionTopic"], "gaming")
+        self.assertEqual(fitted.hook_lineage[0]["captionTopicFitVersion"], CAPTION_TOPIC_FIT_VERSION)
+
+    def test_caption_topic_fit_returns_no_hooks_when_topic_has_no_match(self):
+        cap_set = CaptionSet(
+            hooks=["pov: I'm the girl you rejected in high school"],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["indoor_selfie"],
+            caption_topic="gaming",
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, [])
+        self.assertEqual(diagnostics[0]["suitabilityDecision"], "topic_mismatch")
+        self.assertIn("requires one of", diagnostics[0]["captionTopicReason"])
+
+    def test_caption_topic_inference_uses_source_specific_hints(self):
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="gaming_room_ps5_controller",
+                prompt_text="",
+            ),
+            "gaming",
+        )
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="bed_spider_plush",
+                prompt_text="",
+            ),
+            "fandom",
+        )
+        self.assertEqual(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="bathroom_read_this_backwards",
+                prompt_text="",
+            ),
+            "reverse_puzzle",
+        )
+        self.assertIsNone(
+            infer_caption_topic_for_reel(
+                frame_type="closeup",
+                video_stem="single_person_reference_image",
+                prompt_text="",
+            )
+        )
 
     def test_reel_scene_tags_use_prompt_and_filename_hints(self):
         self.assertIn(
@@ -755,6 +876,27 @@ class ReelPipelineTests(unittest.TestCase):
             compute_job_key("video", "static caption", recipe),
             compute_job_key("video", "static caption", recipe, placement_mode="segment"),
         )
+
+    def test_timed_caption_overlay_timing_is_half_open(self):
+        recipe = Recipe("v01_original")
+        cmd = build_ffmpeg_cmd(
+            RenderPlan(
+                src=Path("in.mp4"),
+                caption_pngs=[(Path("first.png"), 0.0, 1.0), (Path("second.png"), 1.0, 2.0)],
+                recipe=recipe,
+                out=Path("out.mp4"),
+                duration=2.0,
+                fonts_dir=Path("fonts"),
+                src_hash="abc",
+                src_dims=(1080, 1920),
+            ),
+            "ffmpeg",
+        )
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+
+        self.assertIn(caption_overlay_enable(0.0, 1.0), filter_complex)
+        self.assertIn(caption_overlay_enable(1.0, 2.0), filter_complex)
+        self.assertNotIn("between(t", filter_complex)
 
     def test_per_clip_limit_caps_total_outputs_when_many_recipes(self):
         hooks = [(idx, f"hook {idx}") for idx in range(4)]
