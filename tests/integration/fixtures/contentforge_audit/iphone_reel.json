@@ -1,0 +1,907 @@
+{
+  "contractVersion": "campaign_factory_audit.v1.9",
+  "auditProfile": "campaign_factory_v1",
+  "targetFile": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+  "comparisonFiles": [],
+  "layers": {
+    "forensics": {
+      "fileReports": [
+        {
+          "name": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "metadata": {
+            "videoCodec": "h264",
+            "width": 1080,
+            "height": 1920,
+            "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+            "majorBrand": "mp42",
+            "faststart": true,
+            "creationTime": "2026-05-14T12:00:00.000000Z",
+            "handlerName": "Core Media Video",
+            "audioHandlerName": "",
+            "audioCodec": "none",
+            "audioSampleRate": null,
+            "encoder": "Lavf62.12.100"
+          },
+          "uploadReady": true,
+          "issues": [
+            {
+              "severity": "warn",
+              "field": "audio",
+              "value": "missing",
+              "msg": "No audio track present",
+              "code": "forensics_audio_missing",
+              "blocking": false
+            },
+            {
+              "severity": "warn",
+              "field": "encoder",
+              "value": "Lavf62.12.100",
+              "msg": "FFmpeg/x264 encoder signature detected",
+              "code": "forensics_ffmpeg_signature",
+              "blocking": false
+            },
+            {
+              "severity": "medium",
+              "field": "bitrate",
+              "value": "75 kbps",
+              "msg": "Bitrate needs review",
+              "code": "forensics_bitrate_review",
+              "blocking": false
+            },
+            {
+              "severity": "warn",
+              "field": "binary_strings",
+              "value": "x264, Lavf, Lavc",
+              "msg": "Encoder signatures found in binary data (SEI/container)",
+              "code": "forensics_binary_signature",
+              "blocking": false
+            }
+          ],
+          "score": "warn"
+        }
+      ],
+      "crossCorrelation": {
+        "checked": false
+      },
+      "stats": {
+        "filesChecked": 1,
+        "critical": 0,
+        "warnings": 1,
+        "clean": 0,
+        "overallScore": "warn"
+      }
+    },
+    "pdq": {
+      "results": [
+        {
+          "name": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "distance": 132,
+          "safe": true,
+          "quality": 100,
+          "error": null
+        }
+      ],
+      "stats": {
+        "total": 1,
+        "safeCount": 1,
+        "safePercent": 100,
+        "avgDistance": 132,
+        "minDistance": 132,
+        "maxDistance": 132,
+        "threshold": 31,
+        "safeTarget": 40,
+        "crossCollisions": 0,
+        "crossSafeTargetViolations": 0
+      },
+      "sourceQuality": 100
+    },
+    "sscd": {
+      "results": [
+        {
+          "name": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "similarity": 0.4083,
+          "verdict": "pass",
+          "error": null
+        }
+      ],
+      "stats": {
+        "total": 1,
+        "passCount": 1,
+        "warnCount": 0,
+        "failCount": 0,
+        "passPercent": 100,
+        "avgSimilarity": 0.4083,
+        "minSimilarity": 0.4083,
+        "maxSimilarity": 0.4083,
+        "crossVariantCollisions": 0,
+        "crossVariantSafeTargetViolations": 0,
+        "thresholds": {
+          "pass": 0.5,
+          "warn": 0.75
+        }
+      }
+    },
+    "ocr": {
+      "available": true,
+      "engine": "tesseract",
+      "engineVersion": "tesseract 5.5.2",
+      "fallbackUsed": true,
+      "fallbackReason": "apple_vision: Command failed: swift /Users/aderdesouza/Developer/creator-os/apps/contentforge/scripts/apple-vision-ocr.swift /var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/contentforge-vision-FVDMjQ/frame.png\n",
+      "preprocessing": [
+        "original",
+        "enhanced_2x",
+        "threshold_2x"
+      ],
+      "boxesBeforeMerge": 0,
+      "error": null,
+      "frameSamples": 1,
+      "sampleCount": 1,
+      "avgConfidence": null,
+      "results": [
+        {
+          "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "timeSec": 0.4,
+          "available": true,
+          "engine": "tesseract",
+          "engineVersion": "tesseract 5.5.2",
+          "preprocessing": [
+            "original",
+            "enhanced_2x",
+            "threshold_2x"
+          ],
+          "boxesBeforeMerge": 0,
+          "fallbackUsed": true,
+          "fallbackReason": "apple_vision: Command failed: swift /Users/aderdesouza/Developer/creator-os/apps/contentforge/scripts/apple-vision-ocr.swift /var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/contentforge-vision-FVDMjQ/frame.png\n",
+          "ocrText": "",
+          "confidence": null,
+          "captionBoxes": []
+        }
+      ]
+    },
+    "captionBoxes": [],
+    "safeZoneScore": 50,
+    "readabilityScore": 0,
+    "hookVisibilityScore": 100,
+    "safeZone": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "caption_too_close_to_edge",
+          "label": "Caption may be too close to edge",
+          "message": "Caption-like text is close to an edge or platform UI safe zone",
+          "severity": "warn"
+        },
+        {
+          "code": "caption_overlaps_ui_safe_zone",
+          "label": "Caption may overlap Reels controls",
+          "message": "Caption-like text may overlap bottom or right-side Reels UI controls",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "frameSamples": 1,
+        "textBoxesDetected": 2,
+        "ocrTextBoxesDetected": 0,
+        "unsafeBoxes": 2
+      }
+    },
+    "readability": {
+      "verdict": "pass",
+      "warnings": [],
+      "metrics": {
+        "frameSamples": 1,
+        "textBoxesDetected": 2,
+        "ocrTextBoxesDetected": 0,
+        "lowContrastBoxes": 0,
+        "smallCaptionBoxes": 0
+      }
+    },
+    "cover": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "cover_candidates_similar",
+          "label": "Cover frames look too similar",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: cover candidate frames are visually similar",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "candidateCount": 3
+      },
+      "candidates": [
+        {
+          "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "timeSec": 0.5,
+          "score": 64,
+          "warnings": [
+            "cover_may_be_blurry"
+          ],
+          "stats": {
+            "brightness": 93,
+            "contrast": 77,
+            "edgeScore": 3
+          }
+        },
+        {
+          "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "timeSec": 0.8,
+          "score": 64,
+          "warnings": [
+            "cover_may_be_blurry"
+          ],
+          "stats": {
+            "brightness": 93,
+            "contrast": 77,
+            "edgeScore": 3
+          }
+        },
+        {
+          "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "timeSec": 1.1,
+          "score": 64,
+          "warnings": [
+            "cover_may_be_blurry"
+          ],
+          "stats": {
+            "brightness": 93,
+            "contrast": 77,
+            "edgeScore": 3
+          }
+        }
+      ]
+    },
+    "hookVisibility": {
+      "verdict": "pass",
+      "warnings": [],
+      "metrics": {
+        "frameSamples": 1,
+        "earlyTextBoxes": 2,
+        "avgFrameDelta": null
+      }
+    },
+    "watchability": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "video_vmaf_low",
+          "label": "Low VMAF score",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "fileCount": 1,
+        "measuredFiles": 1
+      },
+      "files": [
+        {
+          "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+          "qualityMetrics": {
+            "available": true,
+            "vmaf": 0,
+            "ssim": 0.639993,
+            "psnr": 8.882006,
+            "vmafmotion": 0,
+            "cambi": {
+              "available": false,
+              "value": null
+            }
+          },
+          "qaSignals": {
+            "blackFrames": [],
+            "silence": [],
+            "loudness": null,
+            "crop": {
+              "width": 1072,
+              "height": 1920,
+              "x": 4,
+              "y": 0
+            },
+            "letterbox": false,
+            "warnings": [
+              "Low video bitrate"
+            ]
+          },
+          "warnings": [
+            {
+              "code": "video_vmaf_low",
+              "label": "Low VMAF score",
+              "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+              "severity": "warn"
+            }
+          ]
+        }
+      ]
+    },
+    "coverCandidates": [
+      {
+        "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+        "timeSec": 0.5,
+        "score": 64,
+        "warnings": [
+          "cover_may_be_blurry"
+        ],
+        "stats": {
+          "brightness": 93,
+          "contrast": 77,
+          "edgeScore": 3
+        }
+      },
+      {
+        "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+        "timeSec": 0.8,
+        "score": 64,
+        "warnings": [
+          "cover_may_be_blurry"
+        ],
+        "stats": {
+          "brightness": 93,
+          "contrast": 77,
+          "edgeScore": 3
+        }
+      },
+      {
+        "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+        "timeSec": 1.1,
+        "score": 64,
+        "warnings": [
+          "cover_may_be_blurry"
+        ],
+        "stats": {
+          "brightness": 93,
+          "contrast": 77,
+          "edgeScore": 3
+        }
+      }
+    ],
+    "creativeQuality": {
+      "available": true,
+      "semanticEngine": "heuristic_v1",
+      "modelBacked": false,
+      "verdict": "warn",
+      "score": 57,
+      "hookClarity": {
+        "level": "weak",
+        "score": 20,
+        "text": "",
+        "wordCount": 0,
+        "confidence": null,
+        "warnings": [
+          {
+            "code": "creative_hook_missing",
+            "label": "Hook text missing",
+            "message": "No readable hook text was detected in the first 3 seconds",
+            "severity": "warn"
+          }
+        ]
+      },
+      "subjectVisibility": {
+        "level": "medium",
+        "score": 63,
+        "method": "heuristic_frame_clarity",
+        "modelBacked": false,
+        "brightness": 93,
+        "edgeScore": 3,
+        "contrast": 77,
+        "warnings": [
+          {
+            "code": "creative_subject_unclear",
+            "label": "Subject may be unclear",
+            "message": "Main subject may not be visually clear in sampled frames",
+            "severity": "warn"
+          }
+        ]
+      },
+      "visualClarity": {
+        "level": "weak",
+        "score": 49,
+        "brightness": 93,
+        "edgeScore": 3,
+        "warnings": [
+          {
+            "code": "creative_visual_soft",
+            "label": "Visual may be soft",
+            "message": "Sampled frames have low edge detail and may read as blurry",
+            "severity": "warn"
+          }
+        ]
+      },
+      "openingStrength": {
+        "level": "strong",
+        "score": 100,
+        "earlyTextBoxes": 2,
+        "avgFrameDelta": null,
+        "warnings": []
+      },
+      "warnings": [
+        {
+          "code": "creative_hook_missing",
+          "label": "Hook text missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "severity": "warn"
+        },
+        {
+          "code": "creative_visual_soft",
+          "label": "Visual may be soft",
+          "message": "Sampled frames have low edge detail and may read as blurry",
+          "severity": "warn"
+        },
+        {
+          "code": "creative_subject_unclear",
+          "label": "Subject may be unclear",
+          "message": "Main subject may not be visually clear in sampled frames",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "frameSamples": 1,
+        "ocrTextBoxesDetected": 0,
+        "coverCandidates": 3
+      }
+    }
+  },
+  "verdicts": {
+    "pdq": "pass",
+    "sscd": "pass",
+    "forensics": "warn",
+    "safeZone": "warn",
+    "readability": "pass",
+    "cover": "warn",
+    "hookVisibility": "pass",
+    "watchability": "warn",
+    "creativeQuality": "warn"
+  },
+  "verdictCodes": {
+    "pdq": "pdq_pass",
+    "sscd": "sscd_pass",
+    "forensics": "forensics_warn",
+    "safeZone": "safe_zone_warn",
+    "readability": "caption_readable",
+    "cover": "cover_warn",
+    "hookVisibility": "hook_pass",
+    "watchability": "watchability_warn",
+    "creativeQuality": "creative_quality_warn"
+  },
+  "overallVerdict": "fail",
+  "readinessSummary": {
+    "summaryText": "Blocked by 6 audit issue(s).",
+    "blockingReasons": [
+      "Caption-like text is close to an edge or platform UI safe zone",
+      "Caption-like text may overlap bottom or right-side Reels UI controls",
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+      "No readable hook text was detected in the first 3 seconds",
+      "Sampled frames have low edge detail and may read as blurry",
+      "Main subject may not be visually clear in sampled frames"
+    ],
+    "warnings": [
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: audio - No audio track present",
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: encoder - FFmpeg/x264 encoder signature detected",
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: bitrate - Bitrate needs review",
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: binary_strings - Encoder signatures found in binary data (SEI/container)",
+      "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: cover candidate frames are visually similar"
+    ],
+    "blockingCodes": [
+      "caption_too_close_to_edge",
+      "caption_overlaps_ui_safe_zone",
+      "video_vmaf_low",
+      "creative_hook_missing",
+      "creative_visual_soft",
+      "creative_subject_unclear"
+    ],
+    "warningCodes": [
+      "forensics_audio_missing",
+      "forensics_ffmpeg_signature",
+      "forensics_bitrate_review",
+      "forensics_binary_signature",
+      "cover_candidates_similar"
+    ],
+    "topWarnings": [
+      {
+        "code": "cover_candidates_similar",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: cover candidate frames are visually similar",
+        "label": "Cover frames look too similar",
+        "severity": "warn",
+        "operatorLabel": "needs review"
+      },
+      {
+        "code": "forensics_audio_missing",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: audio - No audio track present",
+        "label": "No audio track present",
+        "severity": "warn",
+        "operatorLabel": "advisory"
+      },
+      {
+        "code": "forensics_ffmpeg_signature",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: encoder - FFmpeg/x264 encoder signature detected",
+        "label": "FFmpeg/x264 encoder signature detected",
+        "severity": "warn",
+        "operatorLabel": "advisory"
+      },
+      {
+        "code": "forensics_bitrate_review",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: bitrate - Bitrate needs review",
+        "label": "Bitrate needs review",
+        "severity": "warn",
+        "operatorLabel": "informational"
+      },
+      {
+        "code": "forensics_binary_signature",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: binary_strings - Encoder signatures found in binary data (SEI/container)",
+        "label": "Encoder signatures found in binary data (SEI/container)",
+        "severity": "warn",
+        "operatorLabel": "advisory"
+      }
+    ],
+    "operatorLabels": {
+      "blocking": [
+        {
+          "code": "caption_too_close_to_edge",
+          "message": "Caption-like text is close to an edge or platform UI safe zone",
+          "label": "Caption may be too close to edge",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "caption_overlaps_ui_safe_zone",
+          "message": "Caption-like text may overlap bottom or right-side Reels UI controls",
+          "label": "Caption may overlap Reels controls",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "video_vmaf_low",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+          "label": "Low VMAF score",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_hook_missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "label": "Hook text missing",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_visual_soft",
+          "message": "Sampled frames have low edge detail and may read as blurry",
+          "label": "Visual may be soft",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_subject_unclear",
+          "message": "Main subject may not be visually clear in sampled frames",
+          "label": "Subject may be unclear",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        }
+      ],
+      "needsReview": [
+        {
+          "code": "cover_candidates_similar",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: cover candidate frames are visually similar",
+          "label": "Cover frames look too similar",
+          "severity": "warn",
+          "operatorLabel": "needs review"
+        }
+      ],
+      "advisory": [
+        {
+          "code": "forensics_audio_missing",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: audio - No audio track present",
+          "label": "No audio track present",
+          "severity": "warn",
+          "operatorLabel": "advisory"
+        },
+        {
+          "code": "forensics_ffmpeg_signature",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: encoder - FFmpeg/x264 encoder signature detected",
+          "label": "FFmpeg/x264 encoder signature detected",
+          "severity": "warn",
+          "operatorLabel": "advisory"
+        },
+        {
+          "code": "forensics_binary_signature",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: binary_strings - Encoder signatures found in binary data (SEI/container)",
+          "label": "Encoder signatures found in binary data (SEI/container)",
+          "severity": "warn",
+          "operatorLabel": "advisory"
+        }
+      ],
+      "informational": [
+        {
+          "code": "forensics_bitrate_review",
+          "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: bitrate - Bitrate needs review",
+          "label": "Bitrate needs review",
+          "severity": "warn",
+          "operatorLabel": "informational"
+        }
+      ]
+    },
+    "uploadReady": false,
+    "recommendedAction": "reject"
+  },
+  "ocr": {
+    "available": true,
+    "engine": "tesseract",
+    "engineVersion": "tesseract 5.5.2",
+    "fallbackUsed": true,
+    "fallbackReason": "apple_vision: Command failed: swift /Users/aderdesouza/Developer/creator-os/apps/contentforge/scripts/apple-vision-ocr.swift /var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/contentforge-vision-FVDMjQ/frame.png\n",
+    "preprocessing": [
+      "original",
+      "enhanced_2x",
+      "threshold_2x"
+    ],
+    "boxesBeforeMerge": 0,
+    "error": null,
+    "frameSamples": 1,
+    "sampleCount": 1,
+    "avgConfidence": null,
+    "results": [
+      {
+        "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+        "timeSec": 0.4,
+        "available": true,
+        "engine": "tesseract",
+        "engineVersion": "tesseract 5.5.2",
+        "preprocessing": [
+          "original",
+          "enhanced_2x",
+          "threshold_2x"
+        ],
+        "boxesBeforeMerge": 0,
+        "fallbackUsed": true,
+        "fallbackReason": "apple_vision: Command failed: swift /Users/aderdesouza/Developer/creator-os/apps/contentforge/scripts/apple-vision-ocr.swift /var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/contentforge-vision-FVDMjQ/frame.png\n",
+        "ocrText": "",
+        "confidence": null,
+        "captionBoxes": []
+      }
+    ]
+  },
+  "captionBoxes": [],
+  "safeZoneScore": 50,
+  "readabilityScore": 0,
+  "hookVisibilityScore": 100,
+  "safeZone": {
+    "verdict": "warn",
+    "warnings": [
+      {
+        "code": "caption_too_close_to_edge",
+        "label": "Caption may be too close to edge",
+        "message": "Caption-like text is close to an edge or platform UI safe zone",
+        "severity": "warn"
+      },
+      {
+        "code": "caption_overlaps_ui_safe_zone",
+        "label": "Caption may overlap Reels controls",
+        "message": "Caption-like text may overlap bottom or right-side Reels UI controls",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "frameSamples": 1,
+      "textBoxesDetected": 2,
+      "ocrTextBoxesDetected": 0,
+      "unsafeBoxes": 2
+    }
+  },
+  "readability": {
+    "verdict": "pass",
+    "warnings": [],
+    "metrics": {
+      "frameSamples": 1,
+      "textBoxesDetected": 2,
+      "ocrTextBoxesDetected": 0,
+      "lowContrastBoxes": 0,
+      "smallCaptionBoxes": 0
+    }
+  },
+  "coverCandidates": [
+    {
+      "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+      "timeSec": 0.5,
+      "score": 64,
+      "warnings": [
+        "cover_may_be_blurry"
+      ],
+      "stats": {
+        "brightness": 93,
+        "contrast": 77,
+        "edgeScore": 3
+      }
+    },
+    {
+      "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+      "timeSec": 0.8,
+      "score": 64,
+      "warnings": [
+        "cover_may_be_blurry"
+      ],
+      "stats": {
+        "brightness": 93,
+        "contrast": 77,
+        "edgeScore": 3
+      }
+    },
+    {
+      "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+      "timeSec": 1.1,
+      "score": 64,
+      "warnings": [
+        "cover_may_be_blurry"
+      ],
+      "stats": {
+        "brightness": 93,
+        "contrast": 77,
+        "edgeScore": 3
+      }
+    }
+  ],
+  "hookVisibility": {
+    "verdict": "pass",
+    "warnings": [],
+    "metrics": {
+      "frameSamples": 1,
+      "earlyTextBoxes": 2,
+      "avgFrameDelta": null
+    }
+  },
+  "watchability": {
+    "verdict": "warn",
+    "warnings": [
+      {
+        "code": "video_vmaf_low",
+        "label": "Low VMAF score",
+        "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "fileCount": 1,
+      "measuredFiles": 1
+    },
+    "files": [
+      {
+        "file": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
+        "qualityMetrics": {
+          "available": true,
+          "vmaf": 0,
+          "ssim": 0.639993,
+          "psnr": 8.882006,
+          "vmafmotion": 0,
+          "cambi": {
+            "available": false,
+            "value": null
+          }
+        },
+        "qaSignals": {
+          "blackFrames": [],
+          "silence": [],
+          "loudness": null,
+          "crop": {
+            "width": 1072,
+            "height": 1920,
+            "x": 4,
+            "y": 0
+          },
+          "letterbox": false,
+          "warnings": [
+            "Low video bitrate"
+          ]
+        },
+        "warnings": [
+          {
+            "code": "video_vmaf_low",
+            "label": "Low VMAF score",
+            "message": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4: VMAF 0 is below 78",
+            "severity": "warn"
+          }
+        ]
+      }
+    ]
+  },
+  "creativeQuality": {
+    "available": true,
+    "semanticEngine": "heuristic_v1",
+    "modelBacked": false,
+    "verdict": "warn",
+    "score": 57,
+    "hookClarity": {
+      "level": "weak",
+      "score": 20,
+      "text": "",
+      "wordCount": 0,
+      "confidence": null,
+      "warnings": [
+        {
+          "code": "creative_hook_missing",
+          "label": "Hook text missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "severity": "warn"
+        }
+      ]
+    },
+    "subjectVisibility": {
+      "level": "medium",
+      "score": 63,
+      "method": "heuristic_frame_clarity",
+      "modelBacked": false,
+      "brightness": 93,
+      "edgeScore": 3,
+      "contrast": 77,
+      "warnings": [
+        {
+          "code": "creative_subject_unclear",
+          "label": "Subject may be unclear",
+          "message": "Main subject may not be visually clear in sampled frames",
+          "severity": "warn"
+        }
+      ]
+    },
+    "visualClarity": {
+      "level": "weak",
+      "score": 49,
+      "brightness": 93,
+      "edgeScore": 3,
+      "warnings": [
+        {
+          "code": "creative_visual_soft",
+          "label": "Visual may be soft",
+          "message": "Sampled frames have low edge detail and may read as blurry",
+          "severity": "warn"
+        }
+      ]
+    },
+    "openingStrength": {
+      "level": "strong",
+      "score": 100,
+      "earlyTextBoxes": 2,
+      "avgFrameDelta": null,
+      "warnings": []
+    },
+    "warnings": [
+      {
+        "code": "creative_hook_missing",
+        "label": "Hook text missing",
+        "message": "No readable hook text was detected in the first 3 seconds",
+        "severity": "warn"
+      },
+      {
+        "code": "creative_visual_soft",
+        "label": "Visual may be soft",
+        "message": "Sampled frames have low edge detail and may read as blurry",
+        "severity": "warn"
+      },
+      {
+        "code": "creative_subject_unclear",
+        "label": "Subject may be unclear",
+        "message": "Main subject may not be visually clear in sampled frames",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "frameSamples": 1,
+      "ocrTextBoxesDetected": 0,
+      "coverCandidates": 3
+    }
+  },
+  "virality": null,
+  "videoAnalysis": null,
+  "audioFitSignals": {
+    "schema": "contentforge.audio_fit_signals.v1",
+    "scoringEnabled": false,
+    "advisoryOnly": true,
+    "variantTags": [
+      "hook_driven"
+    ],
+    "reasons": [
+      "Caption or hook warnings are present"
+    ],
+    "note": "Tags are for Campaign Factory audio matching context only; ContentForge is not scoring audio fit yet."
+  },
+  "referenceMatch": null,
+  "multiAccountOriginalityAudit": null,
+  "filesAnalyzed": 1
+}

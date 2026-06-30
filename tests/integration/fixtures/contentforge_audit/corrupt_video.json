@@ -1,0 +1,630 @@
+{
+  "contractVersion": "campaign_factory_audit.v1.9",
+  "auditProfile": "campaign_factory_v1",
+  "targetFile": "cf_golden_corrupt_video_corrupt_video.mp4",
+  "comparisonFiles": [],
+  "layers": {
+    "forensics": {
+      "fileReports": [
+        {
+          "name": "cf_golden_corrupt_video_corrupt_video.mp4",
+          "metadata": null,
+          "uploadReady": false,
+          "issues": [
+            {
+              "severity": "critical",
+              "field": "media",
+              "value": "unreadable",
+              "msg": "Video is corrupt or unreadable",
+              "code": "invalid_video",
+              "blocking": true
+            }
+          ],
+          "score": "fail"
+        }
+      ],
+      "crossCorrelation": {
+        "checked": false
+      },
+      "stats": {
+        "filesChecked": 1,
+        "critical": 1,
+        "warnings": 0,
+        "clean": 0,
+        "overallScore": "fail"
+      }
+    },
+    "pdq": {
+      "results": [
+        {
+          "name": "cf_golden_corrupt_video_corrupt_video.mp4",
+          "distance": null,
+          "safe": null,
+          "error": "frame extraction failed"
+        }
+      ],
+      "stats": {
+        "total": 1,
+        "safeCount": 0,
+        "safePercent": 0,
+        "avgDistance": null,
+        "minDistance": null,
+        "maxDistance": null,
+        "threshold": 31,
+        "safeTarget": 40,
+        "crossCollisions": 0,
+        "crossSafeTargetViolations": 0
+      },
+      "sourceQuality": 100
+    },
+    "sscd": {
+      "results": [
+        {
+          "name": "cf_golden_corrupt_video_corrupt_video.mp4",
+          "similarity": null,
+          "verdict": null,
+          "error": "frame extraction failed"
+        }
+      ],
+      "stats": {
+        "total": 1,
+        "passCount": 0,
+        "warnCount": 0,
+        "failCount": 0,
+        "passPercent": 0,
+        "avgSimilarity": null,
+        "minSimilarity": null,
+        "maxSimilarity": null,
+        "crossVariantCollisions": 0,
+        "crossVariantSafeTargetViolations": 0,
+        "thresholds": {
+          "pass": 0.5,
+          "warn": 0.75
+        }
+      }
+    },
+    "ocr": {
+      "available": false,
+      "engine": null,
+      "engineVersion": null,
+      "fallbackUsed": false,
+      "fallbackReason": null,
+      "preprocessing": [],
+      "boxesBeforeMerge": 0,
+      "error": "No frames available for OCR",
+      "frameSamples": 0,
+      "sampleCount": 0,
+      "avgConfidence": null,
+      "results": []
+    },
+    "captionBoxes": [],
+    "safeZoneScore": 100,
+    "readabilityScore": 0,
+    "hookVisibilityScore": 20,
+    "safeZone": {
+      "verdict": "pass",
+      "warnings": [],
+      "metrics": {
+        "frameSamples": 0,
+        "textBoxesDetected": 0,
+        "ocrTextBoxesDetected": 0,
+        "unsafeBoxes": 0
+      }
+    },
+    "readability": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "ocr_unavailable",
+          "label": "OCR unavailable",
+          "message": "OCR engine unavailable or failed: No frames available for OCR",
+          "severity": "warn"
+        },
+        {
+          "code": "caption_text_unreadable",
+          "label": "Caption text unreadable",
+          "message": "Could not sample frames for caption readability",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "frameSamples": 0,
+        "textBoxesDetected": 0,
+        "ocrTextBoxesDetected": 0,
+        "lowContrastBoxes": 0,
+        "smallCaptionBoxes": 0
+      }
+    },
+    "cover": {
+      "verdict": "pass",
+      "warnings": [],
+      "metrics": {
+        "candidateCount": 0
+      },
+      "candidates": []
+    },
+    "hookVisibility": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "hook_text_missing_first_3_seconds",
+          "label": "No hook text found early",
+          "message": "No large hook text detected in the first 3 seconds",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "frameSamples": 0,
+        "earlyTextBoxes": 0,
+        "avgFrameDelta": null
+      }
+    },
+    "watchability": {
+      "verdict": "warn",
+      "warnings": [
+        {
+          "code": "video_vmaf_low",
+          "label": "Low VMAF score",
+          "message": "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "fileCount": 1,
+        "measuredFiles": 0
+      },
+      "files": [
+        {
+          "file": "cf_golden_corrupt_video_corrupt_video.mp4",
+          "qualityMetrics": {
+            "available": false,
+            "vmaf": null,
+            "ssim": null,
+            "psnr": null,
+            "vmafmotion": null,
+            "cambi": {
+              "available": false,
+              "value": null
+            },
+            "reason": "No optional quality metrics completed"
+          },
+          "qaSignals": {
+            "blackFrames": [],
+            "silence": [],
+            "loudness": null,
+            "crop": null,
+            "letterbox": false,
+            "warnings": []
+          },
+          "warnings": [
+            {
+              "code": "video_vmaf_low",
+              "label": "Low VMAF score",
+              "message": "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+              "severity": "warn"
+            }
+          ]
+        }
+      ]
+    },
+    "coverCandidates": [],
+    "creativeQuality": {
+      "available": true,
+      "semanticEngine": "heuristic_v1",
+      "modelBacked": false,
+      "verdict": "warn",
+      "score": 25,
+      "hookClarity": {
+        "level": "weak",
+        "score": 20,
+        "text": "",
+        "wordCount": 0,
+        "confidence": null,
+        "warnings": [
+          {
+            "code": "creative_hook_missing",
+            "label": "Hook text missing",
+            "message": "No readable hook text was detected in the first 3 seconds",
+            "severity": "warn"
+          }
+        ]
+      },
+      "subjectVisibility": {
+        "level": "weak",
+        "score": 35,
+        "method": "heuristic_frame_clarity",
+        "modelBacked": false,
+        "brightness": null,
+        "edgeScore": null,
+        "contrast": null,
+        "warnings": [
+          {
+            "code": "creative_subject_uncertain",
+            "label": "Subject visibility uncertain",
+            "message": "No sampled cover frames were available for subject visibility review",
+            "severity": "warn"
+          }
+        ]
+      },
+      "visualClarity": {
+        "level": "medium",
+        "score": 55,
+        "brightness": null,
+        "edgeScore": null,
+        "warnings": []
+      },
+      "openingStrength": {
+        "level": "weak",
+        "score": 2,
+        "earlyTextBoxes": 0,
+        "avgFrameDelta": null,
+        "warnings": [
+          {
+            "code": "creative_opening_no_early_hook",
+            "label": "Opening lacks early hook",
+            "message": "No readable hook text appears in the first 3 seconds",
+            "severity": "warn"
+          }
+        ]
+      },
+      "warnings": [
+        {
+          "code": "creative_hook_missing",
+          "label": "Hook text missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "severity": "warn"
+        },
+        {
+          "code": "creative_subject_uncertain",
+          "label": "Subject visibility uncertain",
+          "message": "No sampled cover frames were available for subject visibility review",
+          "severity": "warn"
+        },
+        {
+          "code": "creative_opening_no_early_hook",
+          "label": "Opening lacks early hook",
+          "message": "No readable hook text appears in the first 3 seconds",
+          "severity": "warn"
+        }
+      ],
+      "metrics": {
+        "frameSamples": 0,
+        "ocrTextBoxesDetected": 0,
+        "coverCandidates": 0
+      }
+    }
+  },
+  "verdicts": {
+    "pdq": "pass",
+    "sscd": "pass",
+    "forensics": "fail",
+    "safeZone": "pass",
+    "readability": "warn",
+    "cover": "pass",
+    "hookVisibility": "warn",
+    "watchability": "warn",
+    "creativeQuality": "warn"
+  },
+  "verdictCodes": {
+    "pdq": "pdq_pass",
+    "sscd": "sscd_pass",
+    "forensics": "forensics_fail",
+    "safeZone": "safe_zone_pass",
+    "readability": "caption_review",
+    "cover": "cover_pass",
+    "hookVisibility": "hook_warn",
+    "watchability": "watchability_warn",
+    "creativeQuality": "creative_quality_warn"
+  },
+  "overallVerdict": "fail",
+  "readinessSummary": {
+    "summaryText": "Blocked by 8 audit issue(s).",
+    "blockingReasons": [
+      "cf_golden_corrupt_video_corrupt_video.mp4: media - Video is corrupt or unreadable",
+      "OCR engine unavailable or failed: No frames available for OCR",
+      "Could not sample frames for caption readability",
+      "No large hook text detected in the first 3 seconds",
+      "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+      "No readable hook text was detected in the first 3 seconds",
+      "No sampled cover frames were available for subject visibility review",
+      "No readable hook text appears in the first 3 seconds"
+    ],
+    "warnings": [],
+    "blockingCodes": [
+      "invalid_video",
+      "ocr_unavailable",
+      "caption_text_unreadable",
+      "hook_text_missing_first_3_seconds",
+      "video_vmaf_low",
+      "creative_hook_missing",
+      "creative_subject_uncertain",
+      "creative_opening_no_early_hook"
+    ],
+    "warningCodes": [],
+    "topWarnings": [],
+    "operatorLabels": {
+      "blocking": [
+        {
+          "code": "invalid_video",
+          "message": "cf_golden_corrupt_video_corrupt_video.mp4: media - Video is corrupt or unreadable",
+          "label": "Video is corrupt or unreadable",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "ocr_unavailable",
+          "message": "OCR engine unavailable or failed: No frames available for OCR",
+          "label": "OCR unavailable",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "caption_text_unreadable",
+          "message": "Could not sample frames for caption readability",
+          "label": "Caption text unreadable",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "hook_text_missing_first_3_seconds",
+          "message": "No large hook text detected in the first 3 seconds",
+          "label": "No hook text found early",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "video_vmaf_low",
+          "message": "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+          "label": "Low VMAF score",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_hook_missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "label": "Hook text missing",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_subject_uncertain",
+          "message": "No sampled cover frames were available for subject visibility review",
+          "label": "Subject visibility uncertain",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        },
+        {
+          "code": "creative_opening_no_early_hook",
+          "message": "No readable hook text appears in the first 3 seconds",
+          "label": "Opening lacks early hook",
+          "severity": "warn",
+          "operatorLabel": "blocking"
+        }
+      ],
+      "needsReview": [],
+      "advisory": [],
+      "informational": []
+    },
+    "uploadReady": false,
+    "recommendedAction": "reject"
+  },
+  "ocr": {
+    "available": false,
+    "engine": null,
+    "engineVersion": null,
+    "fallbackUsed": false,
+    "fallbackReason": null,
+    "preprocessing": [],
+    "boxesBeforeMerge": 0,
+    "error": "No frames available for OCR",
+    "frameSamples": 0,
+    "sampleCount": 0,
+    "avgConfidence": null,
+    "results": []
+  },
+  "captionBoxes": [],
+  "safeZoneScore": 100,
+  "readabilityScore": 0,
+  "hookVisibilityScore": 20,
+  "safeZone": {
+    "verdict": "pass",
+    "warnings": [],
+    "metrics": {
+      "frameSamples": 0,
+      "textBoxesDetected": 0,
+      "ocrTextBoxesDetected": 0,
+      "unsafeBoxes": 0
+    }
+  },
+  "readability": {
+    "verdict": "warn",
+    "warnings": [
+      {
+        "code": "ocr_unavailable",
+        "label": "OCR unavailable",
+        "message": "OCR engine unavailable or failed: No frames available for OCR",
+        "severity": "warn"
+      },
+      {
+        "code": "caption_text_unreadable",
+        "label": "Caption text unreadable",
+        "message": "Could not sample frames for caption readability",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "frameSamples": 0,
+      "textBoxesDetected": 0,
+      "ocrTextBoxesDetected": 0,
+      "lowContrastBoxes": 0,
+      "smallCaptionBoxes": 0
+    }
+  },
+  "coverCandidates": [],
+  "hookVisibility": {
+    "verdict": "warn",
+    "warnings": [
+      {
+        "code": "hook_text_missing_first_3_seconds",
+        "label": "No hook text found early",
+        "message": "No large hook text detected in the first 3 seconds",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "frameSamples": 0,
+      "earlyTextBoxes": 0,
+      "avgFrameDelta": null
+    }
+  },
+  "watchability": {
+    "verdict": "warn",
+    "warnings": [
+      {
+        "code": "video_vmaf_low",
+        "label": "Low VMAF score",
+        "message": "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "fileCount": 1,
+      "measuredFiles": 0
+    },
+    "files": [
+      {
+        "file": "cf_golden_corrupt_video_corrupt_video.mp4",
+        "qualityMetrics": {
+          "available": false,
+          "vmaf": null,
+          "ssim": null,
+          "psnr": null,
+          "vmafmotion": null,
+          "cambi": {
+            "available": false,
+            "value": null
+          },
+          "reason": "No optional quality metrics completed"
+        },
+        "qaSignals": {
+          "blackFrames": [],
+          "silence": [],
+          "loudness": null,
+          "crop": null,
+          "letterbox": false,
+          "warnings": []
+        },
+        "warnings": [
+          {
+            "code": "video_vmaf_low",
+            "label": "Low VMAF score",
+            "message": "cf_golden_corrupt_video_corrupt_video.mp4: VMAF 0 is below 78",
+            "severity": "warn"
+          }
+        ]
+      }
+    ]
+  },
+  "creativeQuality": {
+    "available": true,
+    "semanticEngine": "heuristic_v1",
+    "modelBacked": false,
+    "verdict": "warn",
+    "score": 25,
+    "hookClarity": {
+      "level": "weak",
+      "score": 20,
+      "text": "",
+      "wordCount": 0,
+      "confidence": null,
+      "warnings": [
+        {
+          "code": "creative_hook_missing",
+          "label": "Hook text missing",
+          "message": "No readable hook text was detected in the first 3 seconds",
+          "severity": "warn"
+        }
+      ]
+    },
+    "subjectVisibility": {
+      "level": "weak",
+      "score": 35,
+      "method": "heuristic_frame_clarity",
+      "modelBacked": false,
+      "brightness": null,
+      "edgeScore": null,
+      "contrast": null,
+      "warnings": [
+        {
+          "code": "creative_subject_uncertain",
+          "label": "Subject visibility uncertain",
+          "message": "No sampled cover frames were available for subject visibility review",
+          "severity": "warn"
+        }
+      ]
+    },
+    "visualClarity": {
+      "level": "medium",
+      "score": 55,
+      "brightness": null,
+      "edgeScore": null,
+      "warnings": []
+    },
+    "openingStrength": {
+      "level": "weak",
+      "score": 2,
+      "earlyTextBoxes": 0,
+      "avgFrameDelta": null,
+      "warnings": [
+        {
+          "code": "creative_opening_no_early_hook",
+          "label": "Opening lacks early hook",
+          "message": "No readable hook text appears in the first 3 seconds",
+          "severity": "warn"
+        }
+      ]
+    },
+    "warnings": [
+      {
+        "code": "creative_hook_missing",
+        "label": "Hook text missing",
+        "message": "No readable hook text was detected in the first 3 seconds",
+        "severity": "warn"
+      },
+      {
+        "code": "creative_subject_uncertain",
+        "label": "Subject visibility uncertain",
+        "message": "No sampled cover frames were available for subject visibility review",
+        "severity": "warn"
+      },
+      {
+        "code": "creative_opening_no_early_hook",
+        "label": "Opening lacks early hook",
+        "message": "No readable hook text appears in the first 3 seconds",
+        "severity": "warn"
+      }
+    ],
+    "metrics": {
+      "frameSamples": 0,
+      "ocrTextBoxesDetected": 0,
+      "coverCandidates": 0
+    }
+  },
+  "virality": null,
+  "videoAnalysis": null,
+  "audioFitSignals": {
+    "schema": "contentforge.audio_fit_signals.v1",
+    "scoringEnabled": false,
+    "advisoryOnly": true,
+    "variantTags": [
+      "hook_driven"
+    ],
+    "reasons": [
+      "Caption or hook warnings are present"
+    ],
+    "note": "Tags are for Campaign Factory audio matching context only; ContentForge is not scoring audio fit yet."
+  },
+  "referenceMatch": null,
+  "multiAccountOriginalityAudit": null,
+  "filesAnalyzed": 1
+}
