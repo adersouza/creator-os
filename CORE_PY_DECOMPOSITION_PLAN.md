@@ -1,5 +1,25 @@
 # core.py Decomposition Plan — the Campaign Factory god-class
 
+> **⚠️ SUPERSEDED — DO NOT EXECUTE (2026-06-30).**
+> This plan was carried out across the `refactor(campaign): extract … to services`
+> PR series (ledger closed in #226, facade invariant locked in #233). The
+> dangerous part it feared — untangling mutable god-class state — no longer
+> exists: all logic now lives in `CoreServices` + the 65 repository modules.
+> `core.py`'s `CampaignFactory` is already a thin facade (824 methods, 808 are
+> ≤12-line pass-throughs). It is still ~6000 lines only because it is a *verbose*
+> facade, not because it holds logic. **Re-running the extraction below would
+> relocate delegators for zero behavior change — do not do it.**
+>
+> **Only real remaining cleanup (optional, risky, low ROI):** there is a redundant
+> double-delegation layer — `CampaignFactory.X → CoreServices.X → Repo.X`, two
+> ~800-method pass-through layers. Collapsing it touches the public API surface
+> the whole codebase calls, so it is not worth it unless that verbosity becomes a
+> concrete problem. Left as-is deliberately.
+>
+> Original plan retained below for history.
+
+---
+
 **Audience:** Codex + owner. **Repo:** creator-os. **Target:** `python_packages/campaign_factory/campaign_factory/core.py` — single class `CampaignFactory`, **lines 623–26,760, ~831 methods**. This is the single biggest lever on the system score (caps Campaign Factory ~7.3 → 9; maint sub-score 4). It is also the **highest-risk** change in the codebase — this plan exists so it's executed with a net, not freehand.
 
 ---
