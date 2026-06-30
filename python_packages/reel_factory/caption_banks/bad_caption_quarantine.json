@@ -1,0 +1,1094 @@
+{
+  "schema": "reel_factory.bad_caption_quarantine.v1",
+  "updatedAt": 1782799252,
+  "quarantineCount": 43,
+  "captions": [
+    {
+      "caption_hash": "25bc5066366cdbf6feea0fa203cf4f86c99cc72d08853154452068f72ae7c2f6",
+      "rawCaption": "I hate old men but you calling me good girl while gripping my hair might change my mind.",
+      "normalizedCaption": "I hate old men but you calling me good girl while gripping my hair might change my mind.",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[200].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "013102df277151d22d926a9c53421c0f41e7f6adea1f1e061e869a49fb6daf5b",
+      "rawCaption": "If I can still walk we're not done yet, go take a water break old man",
+      "normalizedCaption": "If I can still walk we're not done yet, go take a water break old man",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[189].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "58d737026a06d9448f651101dbb47e09edc1e08a0a0e60d23a4bc35dc7cf231c",
+      "rawCaption": "If you're a man who can decipher\nthis:\nL.M.S.Y.C.A.S.A.O.Y.C\nCan I?",
+      "normalizedCaption": "If you're a man who can decipher\nthis:\nL.M.S.Y.C.A.S.A.O.Y.C\nCan I?",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/staceybennetx_reels_20260625.json:captions[7].text",
+      "sourceAccount": null,
+      "sourceUrl": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "face_cover_risk",
+        "nonsense_ocr"
+      ],
+      "timedSegments": [
+        "If you're a man who can decipher",
+        "this:",
+        "L.M.S.Y.C.A.S.A.O.Y.C",
+        "Can I?"
+      ],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "16049769481b7ea183a1c365cabbf4fabbe3693bb4b0810e4d31016dee51da22",
+      "rawCaption": "Imagine I invite you to my room while everyone's distracted at Christmas dinner... what do you do?",
+      "normalizedCaption": "Imagine I invite you to my room while everyone's distracted at Christmas dinner... what do you do?",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[85].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "bedroom_mirror"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "0e4e393d705c288a096afc1fb48b01d30ebc57ec6454bc6d16d3a4d0924acd74",
+      "rawCaption": "Lets address the rumours Arthur TV is actually my twin i am actually 5ft4 I'm not AI",
+      "normalizedCaption": "Lets address the rumours Arthur TV is actually my twin i am actually 5ft4 I'm not AI",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[232].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "a76a1c65c7697ad8b8b58554c49c9cbefde0e9907edc64671a811db13af3556b",
+      "rawCaption": "Most guys talk big until it gets real. think you'd actually be able to handle me?",
+      "normalizedCaption": "Most guys talk big until it gets real. think you'd actually be able to handle me?",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[195].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "0436d3cc9fe55af639f13ae29d0a14d9d754bd072e7ad58651f5ea2da5aca19e",
+      "rawCaption": "Resisting the random urge once a month to download hinge and set the age range from 29-37",
+      "normalizedCaption": "Resisting the random urge once a month to download hinge and set the age range from 29-37",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[202].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "ec06151c0bfbd26151e715cc391791a268565775c6b03ab1399e98e4b4f215c6",
+      "rawCaption": "Why are older guys scared of younger women? Ipromise I don't bite (unless you want me to D)",
+      "normalizedCaption": "Why are older guys scared of younger women? Ipromise I don't bite (unless you want me to D)",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[561].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "dc3996da14e8ce2dbc9f7adf0b26e4baa1d99526831834f6b9dd5ce072ab5c16",
+      "rawCaption": "Why are older guys scared of younger women? Ipromise I don't bite (unless you want me to O)",
+      "normalizedCaption": "Why are older guys scared of younger women? Ipromise I don't bite (unless you want me to O)",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[459].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "7d6b841788a23df0a7b83bf5f773dbb69b09a8c0cb8cec96c19954162af0fb9d",
+      "rawCaption": "a man can have money, confidence and options, but one dark-haired woman can still humble him",
+      "normalizedCaption": "a man can have money, confidence and options, but one dark-haired woman can still humble him",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[78].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "choice_poll",
+        "goth_dark_alt"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "6c31ff7de567919334a123f7f10da64a10b311b02f99081bf12fcb3f204a62b8",
+      "rawCaption": "bedroom whit s.75 Dck.cep jean 75. black hater jears.7 block, ounge. mio block, ounge. mio.",
+      "normalizedCaption": "bedroom whit s.75 Dck.cep jean 75. black hater jears.7 block, ounge. mio block, ounge. mio.",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/more_from_images_and_saved_jsons.json:candidates[317].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "body_attention",
+        "bedroom_mirror"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr",
+        "persona_or_race_specific"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "04c77876922802b1cb7d4f6c5f91b9bf43821232be7e1885939c064b69ed6d59",
+      "rawCaption": "cute idea: we take a nap together and the first person awake has to wake the other up",
+      "normalizedCaption": "cute idea: we take a nap together and the first person awake has to wake the other up",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[224].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "58ccaedd5c6705b80ef2698a31340eb8de8835f95eacd3231a300629731a3686",
+      "rawCaption": "don't talk to strangers online well I did and it was the best decision of my life",
+      "normalizedCaption": "don't talk to strangers online well I did and it was the best decision of my life",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[277].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "61caeb3a7144db9e9c7032a9934515869b2223677d2695ea6c98af37ad3d230e",
+      "rawCaption": "here's a list of the top 5 worst guy names 🤮... no 1... jk im not that shallow",
+      "normalizedCaption": "here's a list of the top 5 worst guy names 🤮... no 1... jk im not that shallow",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[231].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "0bdc7f4b10671a8a3ef8fd2093519ea5bd126232621d7334b14c54dd80767f30",
+      "rawCaption": "i hate old men but u calling me good girl while gripping my hair mught chage my mind",
+      "normalizedCaption": "i hate old men but u calling me good girl while gripping my hair mught chage my mind",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[223].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "255458f9fbc0ad7de179bc8a0d0ea0fafbf41c099476f648a16f883c1dfb5be4",
+      "rawCaption": "idc if I'm shaking and tearssss already falling down my face make me shut up and keep going",
+      "normalizedCaption": "idc if I'm shaking and tearssss already falling down my face make me shut up and keep going",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[203].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "0abc7c546280ff21e4df9d29582b2e8b980cfe83019fb005b0ca45d417fef6d8",
+      "rawCaption": "if he asks for a lot of pics he's gonna save them later I hope so",
+      "normalizedCaption": "if he asks for a lot of pics he's gonna save them later I hope so",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[217].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "9cf77603e0d75c188f623fd1ae1e36fb07dd5184311e8dd3119cf8c1d6c49744",
+      "rawCaption": "if i can still walk, we're not done yet, go tak a water break old man",
+      "normalizedCaption": "if i can still walk, we're not done yet, go tak a water break old man",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[219].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "dd6a5fb6cf328707440c4485f10ad58022f317cee46ef945d9602d78308ef6b4",
+      "rawCaption": "if we're kissing and you kiss my neck, I am no longer responsible for my actions",
+      "normalizedCaption": "if we're kissing and you kiss my neck, I am no longer responsible for my actions",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[276].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "body_attention"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "371f0dc9346f53e1a54d56bc6d374cce21710cfe26f9ca9468d7d0ce43ba1186",
+      "rawCaption": "if you have a crush on me, pls go for it, you literally have no competition at all",
+      "normalizedCaption": "if you have a crush on me, pls go for it, you literally have no competition at all",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[84].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "boyfriend_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "74aef5ff7c796231c8f9a10e1ac131a59e603bce967261e76781a9909727d939",
+      "rawCaption": "if you manage to read this sentence backwards it means that: I have to come to your place",
+      "normalizedCaption": "if you manage to read this sentence backwards it means that: I have to come to your place",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[225].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "read_backwards_puzzle"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "bf7e562420915eb281508c6bc557c498ae105df1ec83afeffec0912afddc15a8",
+      "rawCaption": "if you scroll, nothing happens... but if you share this... a goth girl will text you tonight 🖤",
+      "normalizedCaption": "if you scroll, nothing happens... but if you share this... a girl will text you tonight 🖤",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[206].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr",
+        "persona_or_race_specific",
+        "stacey_adapted_from_persona_specific"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "fd5f9340d560d23b18b04ac34ee8f234919caaa2f06a3f4846593bed4a4c2a50",
+      "rawCaption": "let's test your reflexes... don't blink let's test your reflexes... don't blink let's test your reflexes... don't blink",
+      "normalizedCaption": "let's test your reflexes... don't blink let's test your reflexes... don't blink let's test your reflexes... don't blink",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[562].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "face_cover_risk",
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "8bb652999dd7692cfaaae2f123a08ecb430739f60fa1235312b71010d41f7e8b",
+      "rawCaption": "men choose any three: 1. pretty 2. rich 3. loyal 4. family oriented 5. no male friends",
+      "normalizedCaption": "men choose any three: 1. pretty 2. rich 3. loyal 4. family oriented 5. no male friends",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[198].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "choice_poll"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "67dad581a74ef008689b0c0fa09ad21024670e9a32a56af6d604f8d3d7cfed88",
+      "rawCaption": "my actual wishlist: Dress without Dre Ink without In Apple without pple now say it in reverse",
+      "normalizedCaption": "my actual wishlist: Dress without Dre Ink without In Apple without pple now say it in reverse",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[113].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "coded_fill_ins"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "55fb266c282035b9a1e0f79f0a94e9ecb0d51fecd0eea611a5f62defab1e3849",
+      "rawCaption": "pov: I slide into YOUR dms first",
+      "normalizedCaption": "pov: I slide into YOUR dms first",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[380].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "8c096971971f39894fc95fd4732656d91b24bed6a4f926496c8235447d2a9739",
+      "rawCaption": "question for the men: is it really true that some bend one way and some bend the other?",
+      "normalizedCaption": "question for the men: is it really true that some bend one way and some bend the other?",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[199].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "d1def4c917f962bb4ebb08cc2e2481cf2a42efee93111994e31510d51d594406",
+      "rawCaption": "rate me honestly but don't fall in love Now read: 4,5,6,7,8,1,2,3",
+      "normalizedCaption": "rate me honestly but don't fall in love Now read: 4,5,6,7,8,1,2,3",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[271].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "ed42d431c619b54a44c1d2ddf00cbd5e0c9dbcea74b2c0690c1a1fbb9f089674",
+      "rawCaption": "the coach said that's the first exercise for today... still wondering which muscle is this exercise for...",
+      "normalizedCaption": "the coach said that's the first exercise for today... still wondering which muscle is this exercise for...",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[278].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "gym_body"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "59acdf62dbc8bebcdbe0a77b8770d3ba44ab699dd0f6d97663bdd1b73ad1c188",
+      "rawCaption": "what I really want: Dress (without dre) Ink (without n) Apple (without pple) now read it backwards",
+      "normalizedCaption": "what I really want: Dress (without dre) Ink (without n) Apple (without pple) now read it backwards",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[86].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "coded_fill_ins",
+        "read_backwards_puzzle"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "67053d231d1966034ef4fcc8955f34f283a47f0faf28663434297b672f892c88",
+      "rawCaption": "what's one spicy thing you would do if you knew no one would judge you? be honest!",
+      "normalizedCaption": "what's one spicy thing you would do if you knew no one would judge you? be honest!",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[197].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "9bfc42e9cae28d07c66831d069c2ab49f9aaa0165c4c85d23754b81a6539304a",
+      "rawCaption": "when you're trying to focus but the fake scenarios in your head start getting a little too good",
+      "normalizedCaption": "when you're trying to focus but the fake scenarios in your head start getting a little too good",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[109].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "8d6510e994fa462d831d39ddcc90de3bf3d648ef807787574fd8a8d6c70d46a8",
+      "rawCaption": "would you like to wake up next to me? (if yes follow & send this reel to me)",
+      "normalizedCaption": "would you like to wake up next to me? (if yes follow & send this reel to me)",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[53].text",
+      "sourceAccount": null,
+      "sourceUrl": null,
+      "screenshot": null,
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "bedroom_mirror"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "775d6eaf5b689acdd6d4a73d1cbc970c5b501a037678e2b25fb68a0d936a3ae6",
+      "rawCaption": "The link you followed may be broken, or the page may have been removed. Go back to Instagram.",
+      "normalizedCaption": "The link you followed may be broken, or the page may have been removed. Go back to Instagram.",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/ocr/aiyanaskyhawk.txt:ocr:2",
+      "sourceAccount": "aiyanaskyhawk",
+      "sourceUrl": null,
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/ocr/aiyanaskyhawk.txt",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "dm_follow_bait",
+        "goth_dark_alt"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "2aafff25f7d1c100d812c794eed1ea8e15c7a093a92dca43c03314427273f49e",
+      "rawCaption": "hi, i'm trouble\nsingle and love long walks\nsay hi if you'd honestly date me",
+      "normalizedCaption": "hi, i'm trouble\nsingle and love long walks\nsay hi if you'd honestly date me",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_screenshot_captions_batch2_20260625.json:captions[3].text",
+      "sourceAccount": "irresponsiblenx",
+      "sourceUrl": "https://www.instagram.com/irresponsiblenx/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/D/DBE6A641-1EAC-4B96-92AA-662CFD6E43AC.png",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "nonsense_ocr"
+      ],
+      "timedSegments": [
+        "hi, i'm trouble",
+        "single and love long walks",
+        "say hi if you'd honestly date me"
+      ],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "5dc5c17e84861f4991cef49a7244ddf66d250b79279133fd8b16ffa525fc390f",
+      "rawCaption": "19\nSingle\nDon't want your money\nWant kids\nLeave a heart if I'm your type",
+      "normalizedCaption": "19\nSingle\nDon't want your money\nWant kids\nLeave a heart if I'm your type",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_screenshot_captions_20260625.json:captions[3].text",
+      "sourceAccount": "keegan.rosee",
+      "sourceUrl": "https://www.instagram.com/keegan.rosee/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/6/60813549-26C7-4B8B-AE3B-157D2C2EA91D.png",
+      "observedViews": 17000,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "face_cover_risk",
+        "nonsense_ocr"
+      ],
+      "timedSegments": [
+        "19",
+        "Single",
+        "Don't want your money",
+        "Want kids"
+      ],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    },
+    {
+      "caption_hash": "69fe8618a13c81d77737f4407823f2ed9e93bbd592c29510257534193e83acba",
+      "rawCaption": "Send me this reel and I'll ...",
+      "normalizedCaption": "Send me this reel and I'll ...",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_screenshot_captions_20260625.json:captions[11].postCaption",
+      "sourceAccount": "luna.paigee",
+      "sourceUrl": "https://www.instagram.com/luna.paigee/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/0C629E5B-1CB9-4027-B15B-3F86F046FE0F.png",
+      "observedViews": 12600,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "99d25bddd6cc352fb62006d10657a81dbc8143440b7ae797f0e9d75b2945a152",
+      "rawCaption": "I = v Not bectenielia living life the best | can® Check the link for more content if",
+      "normalizedCaption": "I = v Not bectenielia living life the best | can® Check the link for more content if",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/ocr/naomiii_life.txt:ocr:5",
+      "sourceAccount": "naomiii_life",
+      "sourceUrl": null,
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_retry_20260625/ocr/naomiii_life.txt",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "ddfe250db436e075d685282b28bbec1d2ef43ab2994fbdf9288f442ea0988791",
+      "rawCaption": "I'm so single\nsend me this post\nand I'll reply",
+      "normalizedCaption": "I'm so single\nsend me this post\nand I'll reply",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_account_harvest_batch5_20260625.json:captions[1].text",
+      "sourceAccount": "staceybennetx",
+      "sourceUrl": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/00_staceybennetx_02.png",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait",
+        "boyfriend_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [
+        "I'm so single",
+        "send me this post",
+        "and I'll reply"
+      ],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "92d82b81687f798e09ac4fe8966c5afc034ecaf39554402295740603e60605f1",
+      "rawCaption": "comment-to-dm bait",
+      "normalizedCaption": "comment-to-dm bait",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_account_harvest_batch5_20260625.json:captions[1].postCaption",
+      "sourceAccount": "staceybennetx",
+      "sourceUrl": "https://www.instagram.com/staceybennetx/reels/",
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_account_harvest_20260625/screenshots/00_staceybennetx_02.png",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "comment_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "31aca4c77d2ab740a2afcfdd3c6a6ab050db7720714d4b66f786c4ab12a771d4",
+      "rawCaption": "ofte(withoutae) t a ( CONLEYPUNSI Gfjends. Send me thi",
+      "normalizedCaption": "ofte(withoutae) t a ( CONLEYPUNSI Gfjends. Send me thi",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/staceybennetx.txt:ocr:21",
+      "sourceAccount": "staceybennetx",
+      "sourceUrl": null,
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/staceybennetx.txt",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "dm_follow_bait",
+        "coded_fill_ins"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "f95df2ce8631ec567ff4f41110bfcb37eb228fa7ecbeaf26f09af5e61d928997",
+      "rawCaption": "| =a snap staceybennz",
+      "normalizedCaption": "| =a snap staceybennz",
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/ocr/staceybennetx.txt:ocr:7",
+      "sourceAccount": "staceybennetx",
+      "sourceUrl": null,
+      "screenshot": "/Users/aderdesouza/Developer/creator-os/tmp/ig_caption_harvest_20260625/ocr/staceybennetx.txt",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "experimental_edge"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "unsafe"
+      ],
+      "timedSegments": [],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "unsafe"
+      ]
+    },
+    {
+      "caption_hash": "73304a916cc5dfa3cf42f8fe1367588b58765349569e993c803c577ebc36a8ad",
+      "rawCaption": "1. eat\n2. say hi\n3. this\n4. if you\n5. taco\n6. would\nNow read 2,4,6,1,3,5",
+      "normalizedCaption": "1. eat\n2. say hi\n3. this\n4. if you\n5. taco\n6. would\nNow read 2,4,6,1,3,5",
+      "source": "/Users/aderdesouza/Developer/creator-os/python_packages/reel_factory/caption_banks/external_sources/instagram_screenshot_captions_batch2_20260625.json:captions[5].text",
+      "sourceAccount": "zoeroses08",
+      "sourceUrl": "https://www.instagram.com/zoeroses08/reels/",
+      "screenshot": "/Users/aderdesouza/Pictures/Photos Library.photoslibrary/originals/0/08BA4E19-B15F-4F5F-A5B0-336DDA91CD81.png",
+      "observedViews": null,
+      "observedLikes": null,
+      "observedComments": null,
+      "captionFamily": [
+        "shared_girl_next_door",
+        "comment_bait"
+      ],
+      "staceyFitRating": "reject",
+      "issues": [
+        "face_cover_risk",
+        "nonsense_ocr"
+      ],
+      "timedSegments": [
+        "1. eat",
+        "2. say hi",
+        "3. this",
+        "4. if you"
+      ],
+      "candidateStatus": "quarantined",
+      "quarantineReason": [
+        "nonsense_ocr"
+      ]
+    }
+  ]
+}

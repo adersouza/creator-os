@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from caption_bank import CaptionBankStore, caption_hash, load_or_build_caption_bank_store
-from caption_intake import import_external, plan_placement, promote, scan_local, swipe_review
+from caption_intake import build_inventory, import_external, plan_placement, promote, scan_local, swipe_review
 
 
 class CaptionIntakeTests(unittest.TestCase):
@@ -123,6 +123,77 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(candidate["reviewOnlyReason"], "sourced_excluded_bank_candidate")
         self.assertEqual(candidate["reviewOnlyExcludedBanks"], ["experimental_edge"])
         self.assertNotIn("your caring nurse", {item["text"] for item in store.all_items()})
+
+    def test_build_inventory_quarantines_generated_seed_and_adapts_stacey(self):
+        root = self._root()
+        source_dir = root / "caption_banks" / "external_sources"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        source = source_dir / "sample_harvest.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.external_caption_source.v1",
+                    "source": "instagram:test_account/reels",
+                    "captions": [
+                        {"text": "real harvested hook", "account": "test_account"},
+                        {"text": "asian girl trouble", "account": "test_account"},
+                        {"text": "synthetic filler hook", "source": "generated_seed:0"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = build_inventory(root, stamp="20260629")
+        candidate_payload = json.loads((root / "caption_banks" / "candidate_intake.json").read_text(encoding="utf-8"))
+        quarantine = json.loads((root / "caption_banks" / "bad_caption_quarantine.json").read_text(encoding="utf-8"))
+        adaptations = json.loads((root / "caption_banks" / "stacey_caption_adaptations.json").read_text(encoding="utf-8"))
+        store = load_or_build_caption_bank_store(root)
+        candidate_texts = {row["text"] for row in candidate_payload["candidates"]}
+
+        self.assertEqual(report["wouldWriteLiveBanks"], False)
+        self.assertIn("real harvested hook", candidate_texts)
+        self.assertIn("girl trouble", candidate_texts)
+        self.assertNotIn("synthetic filler hook", candidate_texts)
+        self.assertIn("synthetic filler hook", {row["normalizedCaption"] for row in quarantine["captions"]})
+        self.assertIn("asian girl trouble", {row["rawCaption"] for row in adaptations["adaptations"]})
+        self.assertNotIn("real harvested hook", {item["text"] for item in store.all_items()})
+
+    def test_build_inventory_reports_live_account_probe_status(self):
+        root = self._root()
+        harvest_dir = root / "tmp" / "ig_caption_account_harvest_20260629"
+        harvest_dir.mkdir(parents=True)
+        (harvest_dir / "live_account_probe_20260629.json").write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.ig_live_account_probe.v1",
+                    "accounts": [
+                        {
+                            "handle": "visible_creator",
+                            "status": "ok",
+                            "profileUrl": "https://www.instagram.com/visible_creator/reels/",
+                            "reelLinksVisible": 12,
+                        },
+                        {
+                            "handle": "private_creator",
+                            "status": "blocked_or_unavailable",
+                            "profileUrl": "https://www.instagram.com/private_creator/reels/",
+                            "reelLinksVisible": 0,
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = build_inventory(root, stamp="20260629")
+        inventory = json.loads((root / "caption_banks" / "caption_source_inventory_20260629.json").read_text(encoding="utf-8"))
+        report_md = (root / "caption_banks" / "caption_source_inventory_20260629_report.md").read_text(encoding="utf-8")
+
+        self.assertIn("visible_creator", report["accountsSuccessfullyRevisited"])
+        self.assertIn("private_creator", report["accountsBlockedPrivateUnavailable"])
+        self.assertIn("private_creator", inventory["accountsBlockedPrivateUnavailable"])
+        self.assertIn("visible_reels=12", report_md)
 
     def test_promote_rejects_unsafe_approved_caption(self):
         root = self._root()
