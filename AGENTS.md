@@ -46,6 +46,10 @@ from its own external checkout, not from a Creator OS mirror path.
 
 ## Tooling And PR Safety
 
+- One command verifies everything locally, mirroring CI: `make verify` (static
+  gates + all test suites) or `pnpm check:all` (static gates only: contracts,
+  ruff lint/format, mypy, contentforge eslint, arch boundaries, artifacts). Run
+  one of these before pushing instead of guessing which individual check to run.
 - Use GitHub Actions logs/checks before guessing at PR failures.
 - CodeQL and TruffleHog run from `.github/workflows/security.yml`.
 - Use `pnpm security:secrets` for local secret scanning when `gitleaks` or
