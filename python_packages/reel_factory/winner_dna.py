@@ -246,6 +246,12 @@ def upsert_reel_feature(
         or video_analysis_features_for_output(root, output_path)
         or infer_features_from_text(feature_text_for_output(root, output_path))
     )
+    # Provenance so the loop never silently treats keyword-guessed features as
+    # ground truth. video_analysis_features_for_output already stamps
+    # "video_analysis"; everything else fell back to text inference.
+    # ponytail: tag only -- down-weighting weak features in the DNA waits until
+    # real video_analysis sidecars exist to compare against (none do yet).
+    features.setdefault("feature_source", "text_inference")
     now = int(time.time())
     feature_id = f"feat_{abs(hash(str(output_path))) & 0xFFFFFFFF:x}"
     conn.execute(
