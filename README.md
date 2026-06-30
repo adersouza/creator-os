@@ -59,7 +59,13 @@ Reference Media (reels, images, TikTok archives)
 | [ThreadsDashboard](https://github.com/adersouza/ThreadsDashboard) | TypeScript | Product — dashboard, scheduling, auto-posting, analytics, multi-account management | 4,557 |
 | [pipeline_contracts](https://github.com/adersouza/pipeline_contracts) | Python + TS | Schemas — shared JSON schemas and validators for cross-repo payloads | ✓ |
 
-**Total verified tests across the pipeline: 5,311+**
+> **This repo is a source-integrated monorepo.** reference_factory, reel_factory,
+> campaign_factory, contentforge, and pipeline_contracts all live here under
+> `python_packages/`, `apps/`, and `packages/` (the links above are external
+> mirrors). ThreadsDashboard is the one genuinely external dependency.
+>
+> **In-repo tests: ~1,150 Python (`make test`) + ~130 contentforge JS.** The
+> ~4,557 ThreadsDashboard tests run in that separate repo, not here.
 
 ---
 
