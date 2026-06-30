@@ -1,10 +1,12 @@
 """Recipe config loading and validation."""
+
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -58,7 +60,9 @@ def _validate_recipe_item(item: dict, idx: int) -> None:
             raise ValueError(f"recipe {name} target_ratios must be a non-empty list")
         unknown = set(ratios) - ALLOWED_TARGET_RATIOS
         if unknown:
-            raise ValueError(f"recipe {name} target_ratios has unknown values: {sorted(unknown)}")
+            raise ValueError(
+                f"recipe {name} target_ratios has unknown values: {sorted(unknown)}"
+            )
 
 
 def load_recipes(path: Path, recipe_factory: Callable[..., T]) -> list[T]:
@@ -84,10 +88,14 @@ def load_recipes(path: Path, recipe_factory: Callable[..., T]) -> list[T]:
             raise ValueError(f"recipe #{idx} must be an object in {path}")
         missing = required - set(item)
         if missing:
-            raise ValueError(f"recipe #{idx} missing required fields: {sorted(missing)}")
+            raise ValueError(
+                f"recipe #{idx} missing required fields: {sorted(missing)}"
+            )
         unknown = set(item) - allowed
         if unknown:
-            raise ValueError(f"recipe {item.get('name')} has unknown fields: {sorted(unknown)}")
+            raise ValueError(
+                f"recipe {item.get('name')} has unknown fields: {sorted(unknown)}"
+            )
         if item["name"] in seen:
             raise ValueError(f"duplicate recipe name: {item['name']}")
         _validate_recipe_item(item, idx)

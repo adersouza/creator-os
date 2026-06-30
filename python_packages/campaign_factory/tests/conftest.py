@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 MONOREPO_ROOT = Path(__file__).resolve().parents[3]
 PIPELINE_CONTRACTS = MONOREPO_ROOT / "packages" / "pipeline_contracts"
 

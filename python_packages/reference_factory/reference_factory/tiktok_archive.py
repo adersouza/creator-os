@@ -5,7 +5,7 @@ import gzip
 import json
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -147,7 +147,9 @@ def import_tiktok_archive(
                 f"tiktok_{video_id}",
                 f"https://www.tiktok.com/@{username}/video/{video_id}",
                 _timestamp_from_epoch(video.get("createTime")),
-                "tiktok_slideshow_reference" if treat_as_slideshow else "tiktok_reference",
+                "tiktok_slideshow_reference"
+                if treat_as_slideshow
+                else "tiktok_reference",
                 "TikTok Slideshow" if treat_as_slideshow else "TikTok Video",
                 caption,
                 play_count,
@@ -179,7 +181,10 @@ def import_tiktok_archive(
         "treatAsSlideshow": treat_as_slideshow,
         "topLimit": top_limit,
         "topPosts": len(top["items"]),
-        "topAccounts": [{"account": account, "videos": count} for account, count in accounts.most_common(20)],
+        "topAccounts": [
+            {"account": account, "videos": count}
+            for account, count in accounts.most_common(20)
+        ],
         **paths,
     }
 
@@ -208,7 +213,7 @@ def _timestamp_from_epoch(value: object) -> str | None:
     seconds = _int_or_none(value)
     if seconds is None:
         return None
-    return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+    return datetime.fromtimestamp(seconds, UTC).isoformat()
 
 
 def _int_or_none(value: object) -> int | None:

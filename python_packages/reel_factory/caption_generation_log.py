@@ -1,17 +1,18 @@
 """Persistent metadata for AI-generated reel hooks."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def caption_hash(text: str) -> str:
@@ -142,12 +143,18 @@ def caption_library(path: Path) -> dict[str, Any]:
         for hook in record.get("acceptedHooks") or []:
             captions.append({"state": "accepted", **common, **_caption_payload(hook)})
         for hook in record.get("rejectedHooks") or []:
-            item = _caption_payload(hook.get("quality") if isinstance(hook, dict) else {})
+            item = _caption_payload(
+                hook.get("quality") if isinstance(hook, dict) else {}
+            )
             if isinstance(hook, dict):
                 item["text"] = hook.get("hook") or hook.get("text") or item.get("text")
                 item["reason"] = hook.get("reason")
             captions.append({"state": "rejected", **common, **item})
-    return {"schema": "reel_factory.caption_library.v1", "count": len(captions), "captions": captions}
+    return {
+        "schema": "reel_factory.caption_library.v1",
+        "count": len(captions),
+        "captions": captions,
+    }
 
 
 def rank_captions(
@@ -162,26 +169,32 @@ def rank_captions(
     ranked = []
     seen: set[str] = set()
     for index, text in enumerate(captions):
-        quality = score_caption_quality(text, recent_hooks=recent_hooks, min_chars=min_chars, max_chars=max_chars)
+        quality = score_caption_quality(
+            text, recent_hooks=recent_hooks, min_chars=min_chars, max_chars=max_chars
+        )
         warnings = set(quality["warnings"])
         normalized = _normalize(text)
         if normalized in seen:
             warnings.add("duplicate_in_batch")
         seen.add(normalized)
-        performance = (performance_by_caption_hash or {}).get(quality["captionHash"]) or {}
+        performance = (performance_by_caption_hash or {}).get(
+            quality["captionHash"]
+        ) or {}
         perf_score = _performance_component(performance)
         quality_score = int(quality["qualityScore"])
         score = round(quality_score * 0.75 + perf_score * 0.25)
-        ranked.append({
-            "index": index,
-            "text": text,
-            "captionHash": quality["captionHash"],
-            "score": max(0, min(100, score)),
-            "quality": {**quality, "warnings": sorted(warnings)},
-            "performance": performance or None,
-            "reasons": _rank_reasons(quality_score, perf_score, warnings),
-        })
-    return sorted(ranked, key=lambda row: row["score"], reverse=True)[:max(1, top)]
+        ranked.append(
+            {
+                "index": index,
+                "text": text,
+                "captionHash": quality["captionHash"],
+                "score": max(0, min(100, score)),
+                "quality": {**quality, "warnings": sorted(warnings)},
+                "performance": performance or None,
+                "reasons": _rank_reasons(quality_score, perf_score, warnings),
+            }
+        )
+    return sorted(ranked, key=lambda row: row["score"], reverse=True)[: max(1, top)]
 
 
 def rank_clip_sidecar(
@@ -233,7 +246,11 @@ def _hook_text(hook: Any) -> str:
         return hook
     if isinstance(hook, dict):
         if isinstance(hook.get("segments"), list):
-            return " ".join(str(seg.get("text", "")).strip() for seg in hook["segments"] if isinstance(seg, dict)).strip()
+            return " ".join(
+                str(seg.get("text", "")).strip()
+                for seg in hook["segments"]
+                if isinstance(seg, dict)
+            ).strip()
         return str(hook.get("text") or "")
     return str(hook)
 
@@ -241,7 +258,12 @@ def _hook_text(hook: Any) -> str:
 def _performance_component(performance: dict[str, Any]) -> int:
     if not performance:
         return 50
-    metrics = performance.get("metrics") or performance.get("totals") or performance.get("averages") or performance
+    metrics = (
+        performance.get("metrics")
+        or performance.get("totals")
+        or performance.get("averages")
+        or performance
+    )
     views = float(metrics.get("views") or 0)
     shares = float(metrics.get("shares") or 0)
     saves = float(metrics.get("saves") or 0)

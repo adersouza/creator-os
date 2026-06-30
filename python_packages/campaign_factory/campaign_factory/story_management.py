@@ -5,9 +5,11 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
-from datetime import datetime, time as datetime_time, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from datetime import time as datetime_time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class StoryManagementRepository:
@@ -79,7 +81,9 @@ class StoryManagementRepository:
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        inventory = self._build_surface_inventory(creator=creator_label, campaign_slug=campaign_slug)
+        inventory = self._build_surface_inventory(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         assets = inventory["assetsBySurface"].get("story") or []
         schedule_safe = 0
         publishable = 0
@@ -94,7 +98,15 @@ class StoryManagementRepository:
             quality = self.story_quality_gate_for_asset(asset)
             if quality.get("story_quality_gate_passed"):
                 quality_passed += 1
-            if str(asset.get("audit_status") or "").lower() in {"passed", "pass", "approved", "approved_candidate"} or str(asset.get("review_state") or "").lower() in {"approved", "review_ready"}:
+            if str(asset.get("audit_status") or "").lower() in {
+                "passed",
+                "pass",
+                "approved",
+                "approved_candidate",
+            } or str(asset.get("review_state") or "").lower() in {
+                "approved",
+                "review_ready",
+            }:
                 publishable += 1
             generation = self._json_load(asset.get("caption_generation_json"), {})
             if not isinstance(generation, dict):
@@ -109,7 +121,12 @@ class StoryManagementRepository:
             ).strip()
             if story_class:
                 classifications[story_class] = classifications.get(story_class, 0) + 1
-            cta_type = str(asset.get("story_cta_type") or generation.get("story_cta_type") or generation.get("storyCtaType") or "").strip()
+            cta_type = str(
+                asset.get("story_cta_type")
+                or generation.get("story_cta_type")
+                or generation.get("storyCtaType")
+                or ""
+            ).strip()
             if cta_type:
                 cta_types[cta_type] = cta_types.get(cta_type, 0) + 1
             intent = self.story_intent_value(asset)
@@ -117,7 +134,18 @@ class StoryManagementRepository:
                 intent_counts[intent] = intent_counts.get(intent, 0) + 1
         snapchat_count = int(intent_counts.get("snapchat_promo") or 0)
         reel_teaser_count = int(intent_counts.get("reel_teaser") or 0)
-        casual_count = sum(int(intent_counts.get(intent) or 0) for intent in ("casual_selfie", "mirror_selfie", "outfit_check", "gym_selfie", "bedroom_selfie", "lifestyle", "behind_the_scenes"))
+        casual_count = sum(
+            int(intent_counts.get(intent) or 0)
+            for intent in (
+                "casual_selfie",
+                "mirror_selfie",
+                "outfit_check",
+                "gym_selfie",
+                "bedroom_selfie",
+                "lifestyle",
+                "behind_the_scenes",
+            )
+        )
         return {
             "schema": "campaign_factory.story_inventory_report.v1",
             "creator": creator_label,
@@ -132,7 +160,8 @@ class StoryManagementRepository:
             "snapchatPromoStories": snapchat_count,
             "reelTeaserStories": reel_teaser_count,
             "casualStories": casual_count,
-            "storyIntentCoverage": bool(assets) and sum(intent_counts.values()) == len(assets),
+            "storyIntentCoverage": bool(assets)
+            and sum(intent_counts.values()) == len(assets),
             "storyIntentCounts": intent_counts,
             "storyPublishingEnabled": False,
             "wouldWrite": False,
@@ -145,7 +174,9 @@ class StoryManagementRepository:
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        inventory = self._build_surface_inventory(creator=creator_label, campaign_slug=campaign_slug)
+        inventory = self._build_surface_inventory(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         assets = inventory["assetsBySurface"].get("story") or []
         intent_counts: dict[str, int] = {}
         goal_counts: dict[str, int] = {}
@@ -209,7 +240,9 @@ class StoryManagementRepository:
             "wouldWrite": False,
         }
 
-    def story_intent_summary(self, *, creator: str, campaign_slug: str | None = None) -> dict[str, Any]:
+    def story_intent_summary(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> dict[str, Any]:
         report = self.story_intent_report(creator=creator, campaign_slug=campaign_slug)
         mix = self.story_mix_plan(creator=creator)
         calendar = self.story_calendar_plan(creator=creator)
@@ -229,23 +262,44 @@ class StoryManagementRepository:
         generation = self._json_load(asset.get("caption_generation_json"), {})
         if not isinstance(generation, dict):
             return {}
-        meta = generation.get("storyIntent") or generation.get("story_intent") or generation.get("storyMetadata") or generation.get("story_metadata") or {}
+        meta = (
+            generation.get("storyIntent")
+            or generation.get("story_intent")
+            or generation.get("storyMetadata")
+            or generation.get("story_metadata")
+            or {}
+        )
         return meta if isinstance(meta, dict) else {}
 
     def story_intent_value(self, asset: dict[str, Any]) -> str | None:
         meta = self.story_metadata_payload(asset)
-        return self.normalize_story_enum(asset.get("story_intent") or meta.get("storyIntent") or meta.get("story_intent"), self._story_intents)
+        return self.normalize_story_enum(
+            asset.get("story_intent")
+            or meta.get("storyIntent")
+            or meta.get("story_intent"),
+            self._story_intents,
+        )
 
     def story_goal_value(self, asset: dict[str, Any]) -> str | None:
         meta = self.story_metadata_payload(asset)
-        return self.normalize_story_enum(asset.get("story_goal") or meta.get("storyGoal") or meta.get("story_goal"), self._story_goals)
+        return self.normalize_story_enum(
+            asset.get("story_goal") or meta.get("storyGoal") or meta.get("story_goal"),
+            self._story_goals,
+        )
 
     def story_style_value(self, asset: dict[str, Any]) -> str | None:
         meta = self.story_metadata_payload(asset)
-        return self.normalize_story_enum(asset.get("story_style") or meta.get("storyStyle") or meta.get("story_style"), self._story_styles)
+        return self.normalize_story_enum(
+            asset.get("story_style")
+            or meta.get("storyStyle")
+            or meta.get("story_style"),
+            self._story_styles,
+        )
 
     def normalize_story_enum(self, value: Any, allowed: set[str]) -> str | None:
-        normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        normalized = (
+            str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        )
         return normalized if normalized in allowed else None
 
     def story_quality_gate_v1(self, rendered_asset_id: str) -> dict[str, Any]:
@@ -259,14 +313,18 @@ class StoryManagementRepository:
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        inventory = self._build_surface_inventory(creator=creator_label, campaign_slug=campaign_slug)
+        inventory = self._build_surface_inventory(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         assets = inventory["assetsBySurface"].get("story") or []
         results = [self.story_quality_gate_for_asset(asset) for asset in assets]
-        failures = sorted({
-            reason
-            for result in results
-            for reason in result.get("failureReasons") or []
-        })
+        failures = sorted(
+            {
+                reason
+                for result in results
+                for reason in result.get("failureReasons") or []
+            }
+        )
         passed = sum(1 for result in results if result.get("story_quality_gate_passed"))
         return {
             "schema": "campaign_factory.story_quality_report.v1",
@@ -281,18 +339,38 @@ class StoryManagementRepository:
         }
 
     def story_quality_gate_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
-        surface = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
-        media_path = Path(str(asset.get("campaign_path") or asset.get("output_path") or ""))
-        media_type = str(asset.get("media_type") or self._media_type_for_path(media_path)).lower()
+        surface = self._normalize_content_surface(
+            asset.get("content_surface") or asset.get("source_content_surface")
+        )
+        media_path = Path(
+            str(asset.get("campaign_path") or asset.get("output_path") or "")
+        )
+        media_type = str(
+            asset.get("media_type") or self._media_type_for_path(media_path)
+        ).lower()
         failures: list[str] = []
         warnings: list[str] = []
         if surface != "story":
             failures.append("not_story_surface")
-        shape = self._probe_image_shape(media_path) if media_type == "image" else self._probe_video_shape(media_path)
-        width = int((shape or {}).get("effectiveWidth") or (shape or {}).get("width") or 0)
-        height = int((shape or {}).get("effectiveHeight") or (shape or {}).get("height") or 0)
+        shape = (
+            self._probe_image_shape(media_path)
+            if media_type == "image"
+            else self._probe_video_shape(media_path)
+        )
+        width = int(
+            (shape or {}).get("effectiveWidth") or (shape or {}).get("width") or 0
+        )
+        height = int(
+            (shape or {}).get("effectiveHeight") or (shape or {}).get("height") or 0
+        )
         aspect = (width / height) if width and height else None
-        geometry_passed = bool(width and height and abs((aspect or 0) - (9 / 16)) <= 0.0025 and width >= 1080 and height >= 1920)
+        geometry_passed = bool(
+            width
+            and height
+            and abs((aspect or 0) - (9 / 16)) <= 0.0025
+            and width >= 1080
+            and height >= 1920
+        )
         if not width or not height:
             failures.append("unknown_aspect_ratio")
         elif abs((aspect or 0) - (9 / 16)) > 0.0025:
@@ -305,11 +383,28 @@ class StoryManagementRepository:
         if black_bar_check.get("warning"):
             warnings.append(str(black_bar_check["warning"]))
         quality = self.story_quality_metadata(asset)
-        safe_zone_score = self.bounded_score(quality.get("story_safe_zone_score") or quality.get("storySafeZoneScore"), default=100)
-        focal_score = self.bounded_score(quality.get("story_focal_safety_score") or quality.get("storyFocalSafetyScore"), default=100)
-        text_score = self.bounded_score(quality.get("story_text_readability_score") or quality.get("storyTextReadabilityScore"), default=100)
-        contains_text = self._truthy(quality.get("containsRenderedText") or quality.get("contains_rendered_text"))
-        focal_reason = str(quality.get("focalFailureReason") or quality.get("focal_failure_reason") or "focal_safety_violation").strip()
+        safe_zone_score = self.bounded_score(
+            quality.get("story_safe_zone_score") or quality.get("storySafeZoneScore"),
+            default=100,
+        )
+        focal_score = self.bounded_score(
+            quality.get("story_focal_safety_score")
+            or quality.get("storyFocalSafetyScore"),
+            default=100,
+        )
+        text_score = self.bounded_score(
+            quality.get("story_text_readability_score")
+            or quality.get("storyTextReadabilityScore"),
+            default=100,
+        )
+        contains_text = self._truthy(
+            quality.get("containsRenderedText") or quality.get("contains_rendered_text")
+        )
+        focal_reason = str(
+            quality.get("focalFailureReason")
+            or quality.get("focal_failure_reason")
+            or "focal_safety_violation"
+        ).strip()
         if safe_zone_score < 95:
             failures.append("safe_zone_violation")
         if focal_score < 95:
@@ -318,9 +413,13 @@ class StoryManagementRepository:
             failures.append("text_hidden")
         source_blockers = self.story_existing_asset_source_blockers(asset)
         failures.extend(source_blockers)
-        no_text_check = self.story_no_text_check(media_path, media_type=media_type, quality=quality)
+        no_text_check = self.story_no_text_check(
+            media_path, media_type=media_type, quality=quality
+        )
         if no_text_check["required"] and not no_text_check["passed"]:
-            failures.append(no_text_check.get("failureReason") or "story_no_text_violation")
+            failures.append(
+                no_text_check.get("failureReason") or "story_no_text_violation"
+            )
         failures = sorted(set(failures))
         return {
             "schema": "campaign_factory.story_quality_gate_v1",
@@ -355,7 +454,9 @@ class StoryManagementRepository:
         generation = self._json_load(asset.get("caption_generation_json"), {})
         if not isinstance(generation, dict):
             return {}
-        quality = generation.get("storyQuality") or generation.get("story_quality") or {}
+        quality = (
+            generation.get("storyQuality") or generation.get("story_quality") or {}
+        )
         return quality if isinstance(quality, dict) else {}
 
     def bounded_score(self, value: Any, *, default: int) -> int:
@@ -364,7 +465,9 @@ class StoryManagementRepository:
         except (TypeError, ValueError):
             return default
 
-    def story_black_bar_check(self, media_path: Path, *, media_type: str) -> dict[str, Any]:
+    def story_black_bar_check(
+        self, media_path: Path, *, media_type: str
+    ) -> dict[str, Any]:
         if media_type != "image":
             return {
                 "blackBarsDetected": False,
@@ -391,14 +494,20 @@ class StoryManagementRepository:
         band_w = max(1, width // 12)
         result = {
             "top": self.pixel_region_black(rows, x0=0, x1=width, y0=0, y1=band_h),
-            "bottom": self.pixel_region_black(rows, x0=0, x1=width, y0=height - band_h, y1=height),
+            "bottom": self.pixel_region_black(
+                rows, x0=0, x1=width, y0=height - band_h, y1=height
+            ),
             "left": self.pixel_region_black(rows, x0=0, x1=band_w, y0=0, y1=height),
-            "right": self.pixel_region_black(rows, x0=width - band_w, x1=width, y0=0, y1=height),
+            "right": self.pixel_region_black(
+                rows, x0=width - band_w, x1=width, y0=0, y1=height
+            ),
         }
         result["blackBarsDetected"] = any(result.values())
         return result
 
-    def story_no_text_check(self, media_path: Path, *, media_type: str, quality: dict[str, Any]) -> dict[str, Any]:
+    def story_no_text_check(
+        self, media_path: Path, *, media_type: str, quality: dict[str, Any]
+    ) -> dict[str, Any]:
         required = self._truthy(
             quality.get("storyNoTextRequired")
             or quality.get("story_no_text_required")
@@ -478,9 +587,20 @@ class StoryManagementRepository:
         for index, offset in enumerate((0, 1, 2)):
             frame = tmpdir / f"frame_{index}.png"
             result = subprocess.run(
-                [ffmpeg, "-y", "-ss", str(offset), "-i", str(media_path), "-frames:v", "1", "-vf", "scale=1080:-1", str(frame)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                [
+                    ffmpeg,
+                    "-y",
+                    "-ss",
+                    str(offset),
+                    "-i",
+                    str(media_path),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=1080:-1",
+                    str(frame),
+                ],
+                capture_output=True,
                 text=True,
                 check=False,
                 timeout=20,
@@ -489,11 +609,12 @@ class StoryManagementRepository:
                 frames.append(frame)
         return frames
 
-    def story_ocr_detect_text(self, image_path: Path, *, frame_index: int) -> list[dict[str, Any]]:
+    def story_ocr_detect_text(
+        self, image_path: Path, *, frame_index: int
+    ) -> list[dict[str, Any]]:
         result = subprocess.run(
             ["tesseract", str(image_path), "stdout", "--psm", "6", "tsv"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
             timeout=20,
@@ -513,10 +634,20 @@ class StoryManagementRepository:
             except ValueError:
                 confidence = 0.0
             if confidence >= 45:
-                detected.append({"text": text, "confidence": confidence, "frameIndex": frame_index})
+                detected.append(
+                    {"text": text, "confidence": confidence, "frameIndex": frame_index}
+                )
         return detected
 
-    def pixel_region_black(self, rows: list[list[tuple[int, int, int]]], *, x0: int, x1: int, y0: int, y1: int) -> bool:
+    def pixel_region_black(
+        self,
+        rows: list[list[tuple[int, int, int]]],
+        *,
+        x0: int,
+        x1: int,
+        y0: int,
+        y1: int,
+    ) -> bool:
         total = 0
         black = 0
         step_y = max(1, (y1 - y0) // 64)
@@ -545,30 +676,37 @@ class StoryManagementRepository:
         blocked = 0
         for account in needs.get("accounts") or []:
             story_obligations = [
-                obligation for obligation in account.get("obligations") or []
+                obligation
+                for obligation in account.get("obligations") or []
                 if obligation.get("surface") == "story"
             ]
             if not story_obligations:
                 continue
             required = sum(int(item.get("required") or 0) for item in story_obligations)
-            remaining = sum(int(item.get("remaining") or 0) for item in story_obligations)
+            remaining = sum(
+                int(item.get("remaining") or 0) for item in story_obligations
+            )
             needed = remaining > 0
             is_satisfied = required > 0 and not needed
-            is_blocked = needed and int(inventory.get("storyAssetsScheduleSafe") or 0) == 0
+            is_blocked = (
+                needed and int(inventory.get("storyAssetsScheduleSafe") or 0) == 0
+            )
             needs_story += 1 if needed else 0
             satisfied += 1 if is_satisfied else 0
             blocked += 1 if is_blocked else 0
-            accounts.append({
-                "accountId": account.get("accountId"),
-                "account": account.get("account"),
-                "instagramAccountId": account.get("instagramAccountId"),
-                "storyNeededToday": needed,
-                "required": required,
-                "remaining": remaining,
-                "blocked": is_blocked,
-                "blockedReason": "story_inventory_missing" if is_blocked else "",
-                "wouldWrite": False,
-            })
+            accounts.append(
+                {
+                    "accountId": account.get("accountId"),
+                    "account": account.get("account"),
+                    "instagramAccountId": account.get("instagramAccountId"),
+                    "storyNeededToday": needed,
+                    "required": required,
+                    "remaining": remaining,
+                    "blocked": is_blocked,
+                    "blockedReason": "story_inventory_missing" if is_blocked else "",
+                    "wouldWrite": False,
+                }
+            )
         return {
             "schema": "campaign_factory.story_gap_report.v1",
             "creator": creator_label,
@@ -588,9 +726,12 @@ class StoryManagementRepository:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        needs = self._account_content_needs(account_id=account_id, creator=creator, date=date)
+        needs = self._account_content_needs(
+            account_id=account_id, creator=creator, date=date
+        )
         story_obligations = [
-            item for item in needs.get("obligations") or []
+            item
+            for item in needs.get("obligations") or []
             if item.get("surface") == "story"
         ]
         required = sum(int(item.get("required") or 0) for item in story_obligations)
@@ -606,10 +747,12 @@ class StoryManagementRepository:
         hours_since = None
         if last_story:
             try:
-                reference = datetime.combine(target_date + timedelta(days=1), datetime_time.min, tzinfo=timezone.utc)
+                reference = datetime.combine(
+                    target_date + timedelta(days=1), datetime_time.min, tzinfo=UTC
+                )
                 posted = datetime.fromisoformat(last_story.replace("Z", "+00:00"))
                 if posted.tzinfo is None:
-                    posted = posted.replace(tzinfo=timezone.utc)
+                    posted = posted.replace(tzinfo=UTC)
                 hours_since = round((reference - posted).total_seconds() / 3600, 2)
             except ValueError:
                 hours_since = None
@@ -663,8 +806,12 @@ class StoryManagementRepository:
             "wouldWrite": False,
         }
 
-    def story_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
-        asset = self._certification_asset_for_surface("story", rendered_asset_id=rendered_asset_id)
+    def story_certification_proof(
+        self, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any]:
+        asset = self._certification_asset_for_surface(
+            "story", rendered_asset_id=rendered_asset_id
+        )
         blockers: list[str] = []
         if not asset:
             blockers.append("story_asset_missing")
@@ -683,34 +830,55 @@ class StoryManagementRepository:
             }
         readiness = self._surface_handoff_readiness_for_asset(asset)
         draft = self._surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
+            creator=asset.get("creator_mix")
+            or asset.get("creator_model")
+            or asset.get("model_name"),
             campaign=asset.get("campaign_slug"),
             rendered_asset_id=asset["id"],
         )
         proof_run = self._latest_proof_run_for_asset(asset["id"])
         metrics = self._latest_surface_metric_for_asset(asset["id"], "story")
         draft_payload = draft["drafts"][0] if draft.get("drafts") else {}
-        created = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "story"
-        validated = bool(readiness.get("canHandoff") and draft.get("canProduceDraftPayload"))
+        created = (
+            self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == "story"
+        )
+        validated = bool(
+            readiness.get("canHandoff") and draft.get("canProduceDraftPayload")
+        )
         scheduled = bool(
             proof_run
-            and (proof_run.get("threadsdash_draft_id") or proof_run.get("distribution_plan_id"))
+            and (
+                proof_run.get("threadsdash_draft_id")
+                or proof_run.get("distribution_plan_id")
+            )
         )
         published = bool(
             metrics
-            or (proof_run and proof_run.get("threadsdash_post_id") and str(proof_run.get("current_state") or "").lower() in {"published", "metrics_imported", "complete", "completed"})
+            or (
+                proof_run
+                and proof_run.get("threadsdash_post_id")
+                and str(proof_run.get("current_state") or "").lower()
+                in {"published", "metrics_imported", "complete", "completed"}
+            )
         )
         metrics_imported = bool(metrics)
         if not validated:
             blockers.append("story_validation_failed")
-            blockers.extend(str(reason) for reason in readiness.get("blockingReasons") or [])
+            blockers.extend(
+                str(reason) for reason in readiness.get("blockingReasons") or []
+            )
         if not scheduled:
             blockers.append("story_schedule_evidence_missing")
         if not published:
             blockers.append("story_publish_evidence_missing")
         if not metrics_imported:
             blockers.append("story_metrics_evidence_missing")
-        lifecycle = bool(created and validated and scheduled and published and metrics_imported)
+        lifecycle = bool(
+            created and validated and scheduled and published and metrics_imported
+        )
         return {
             "schema": "creator_os.story_certification_proof.v1",
             "storyCreated": bool(created),
@@ -748,7 +916,9 @@ class StoryManagementRepository:
         return {
             **readiness,
             "schema": "creator_os.story_proof_gap_analysis.v1",
-            "nextProofsRequired": ["story_publish_proof", "story_metrics_proof"] if readiness["publishProofMissing"] or readiness["metricsProofMissing"] else [],
+            "nextProofsRequired": ["story_publish_proof", "story_metrics_proof"]
+            if readiness["publishProofMissing"] or readiness["metricsProofMissing"]
+            else [],
             "wouldWrite": False,
         }
 
@@ -762,10 +932,31 @@ class StoryManagementRepository:
             name = path.name.lower()
             if "campaign_factory" in parts and {"02_rendered", "04_approved"} & parts:
                 blockers.append("story_source_must_be_raw_not_rendered_reel_asset")
-            if item.get("mediaType") == "video" and any(marker in lower_path for marker in ("variant_fanout", "parent_repair", "asset_finished", "caption_family", "contentforge")):
-                blockers.append("story_video_source_looks_like_reel_or_contentforge_output")
-            if any(marker in name for marker in ("captioned", "caption_bg", "burned_caption", "parent_repair")):
-                blockers.append("story_source_appears_to_have_burned_caption_or_reel_lineage")
+            if item.get("mediaType") == "video" and any(
+                marker in lower_path
+                for marker in (
+                    "variant_fanout",
+                    "parent_repair",
+                    "asset_finished",
+                    "caption_family",
+                    "contentforge",
+                )
+            ):
+                blockers.append(
+                    "story_video_source_looks_like_reel_or_contentforge_output"
+                )
+            if any(
+                marker in name
+                for marker in (
+                    "captioned",
+                    "caption_bg",
+                    "burned_caption",
+                    "parent_repair",
+                )
+            ):
+                blockers.append(
+                    "story_source_appears_to_have_burned_caption_or_reel_lineage"
+                )
         return sorted(set(blockers))
 
     def story_existing_asset_source_blockers(self, asset: dict[str, Any]) -> list[str]:
@@ -783,8 +974,30 @@ class StoryManagementRepository:
             parts = {part.lower() for part in Path(str(raw)).parts}
             if "campaign_factory" in parts and {"04_approved"} & parts:
                 blockers.append("story_source_must_be_raw_not_approved_reel_asset")
-            if "campaign_factory" in parts and "02_rendered" in parts and any(marker in lower for marker in ("variant_fanout", "parent_repair", "asset_finished", "contentforge")):
+            if (
+                "campaign_factory" in parts
+                and "02_rendered" in parts
+                and any(
+                    marker in lower
+                    for marker in (
+                        "variant_fanout",
+                        "parent_repair",
+                        "asset_finished",
+                        "contentforge",
+                    )
+                )
+            ):
                 blockers.append("story_source_must_be_raw_not_rendered_reel_asset")
-            if any(marker in lower for marker in ("captioned", "caption_bg", "burned_caption", "parent_repair")):
-                blockers.append("story_source_appears_to_have_burned_caption_or_reel_lineage")
+            if any(
+                marker in lower
+                for marker in (
+                    "captioned",
+                    "caption_bg",
+                    "burned_caption",
+                    "parent_repair",
+                )
+            ):
+                blockers.append(
+                    "story_source_appears_to_have_burned_caption_or_reel_lineage"
+                )
         return sorted(set(blockers))

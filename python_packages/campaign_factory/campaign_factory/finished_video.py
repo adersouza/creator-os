@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import shutil
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class FinishedVideoRepository:
@@ -31,7 +32,9 @@ class FinishedVideoRepository:
         discoverability_pre_render_gate: Callable[[dict[str, Any]], dict[str, Any]],
         capture_discoverability_gate_rejection_evidence: Callable[..., dict[str, Any]],
         explain_publishability: Callable[[str], dict[str, Any]],
-        capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
+        capture_publishability_rejection_evidence_from_result: Callable[
+            ..., dict[str, Any]
+        ],
         record_creative_plan_event: Callable[..., None],
         record_event: Callable[..., None],
         ensure_graph_node: Callable[..., str],
@@ -57,9 +60,13 @@ class FinishedVideoRepository:
         self._creative_plan = creative_plan
         self._load_source_lineage = load_source_lineage
         self._discoverability_pre_render_gate = discoverability_pre_render_gate
-        self._capture_discoverability_gate_rejection_evidence = capture_discoverability_gate_rejection_evidence
+        self._capture_discoverability_gate_rejection_evidence = (
+            capture_discoverability_gate_rejection_evidence
+        )
         self._explain_publishability = explain_publishability
-        self._capture_publishability_rejection_evidence_from_result = capture_publishability_rejection_evidence_from_result
+        self._capture_publishability_rejection_evidence_from_result = (
+            capture_publishability_rejection_evidence_from_result
+        )
         self._record_creative_plan_event = record_creative_plan_event
         self._record_event = record_event
         self._ensure_graph_node = ensure_graph_node
@@ -78,17 +85,26 @@ class FinishedVideoRepository:
     ) -> dict[str, Any]:
         if decision not in {"approved", "rejected"}:
             raise ValueError("decision must be approved or rejected")
-        row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
         approvable_audit_statuses = {"approved_candidate", "needs_review"}
-        if decision == "approved" and require_safe_audit and row["audit_status"] not in approvable_audit_statuses:
+        if (
+            decision == "approved"
+            and require_safe_audit
+            and row["audit_status"] not in approvable_audit_statuses
+        ):
             raise ValueError(
                 f"approval blocked: audit_status:{row['audit_status']}; run audit or use an explicit force override"
             )
         now = self._utc_now()
         decision_id = self._new_id("approval")
-        self.conn.execute("UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?", (decision, now, rendered_asset_id))
+        self.conn.execute(
+            "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
+            (decision, now, rendered_asset_id),
+        )
         self.conn.execute(
             "INSERT INTO approval_decisions (id, campaign_id, rendered_asset_id, decision, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (decision_id, row["campaign_id"], rendered_asset_id, decision, notes, now),
@@ -97,10 +113,16 @@ class FinishedVideoRepository:
             "approval_decision",
             local_table="approval_decisions",
             local_id=decision_id,
-            payload={"decision": decision, "renderedAssetId": rendered_asset_id, "notes": notes},
+            payload={
+                "decision": decision,
+                "renderedAssetId": rendered_asset_id,
+                "notes": notes,
+            },
         )
         self._ensure_graph_edge(
-            self._graph_id_for("rendered_assets", rendered_asset_id, entity_type="rendered_asset"),
+            self._graph_id_for(
+                "rendered_assets", rendered_asset_id, entity_type="rendered_asset"
+            ),
             approval_graph_id,
             "rendered_asset_to_approval_decision",
             evidence={"decision": decision},
@@ -112,11 +134,19 @@ class FinishedVideoRepository:
             rendered_asset_id=rendered_asset_id,
             status="success",
             message=f"Asset {decision}: {row['filename']}",
-            metadata={"decision": decision, "notes": notes, "approvalDecisionId": decision_id},
+            metadata={
+                "decision": decision,
+                "notes": notes,
+                "approvalDecisionId": decision_id,
+            },
             commit=False,
         )
         self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+            ).fetchone()
+        )
 
     def approve_rendered_asset(
         self,
@@ -142,7 +172,9 @@ class FinishedVideoRepository:
         operator: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
         caption = (instagram_post_caption or "").strip()
@@ -152,7 +184,9 @@ class FinishedVideoRepository:
         if visual_status and visual_status not in allowed_statuses:
             raise ValueError("visual_qc_status must be passed, failed, or unavailable")
         if identity_status and identity_status not in allowed_statuses:
-            raise ValueError("identity_verification_status must be passed, failed, or unavailable")
+            raise ValueError(
+                "identity_verification_status must be passed, failed, or unavailable"
+            )
         now = self._utc_now()
         caption_generation = json.loads(row["caption_generation_json"] or "{}")
         if not isinstance(caption_generation, dict):
@@ -168,29 +202,48 @@ class FinishedVideoRepository:
             "attestedAt": now,
         }
         if caption:
-            caption_hash = hashlib.sha256(" ".join(caption.lower().split()).encode("utf-8")).hexdigest()
-            caption_generation.update({
-                "instagram_post_caption": caption,
-                "instagramPostCaption": caption,
-                "instagram_post_caption_hash": caption_hash,
-                "instagramPostCaptionHash": caption_hash,
-                "post_caption_style": caption_generation.get("post_caption_style") or "short_natural",
-            })
+            caption_hash = hashlib.sha256(
+                " ".join(caption.lower().split()).encode("utf-8")
+            ).hexdigest()
+            caption_generation.update(
+                {
+                    "instagram_post_caption": caption,
+                    "instagramPostCaption": caption,
+                    "instagram_post_caption_hash": caption_hash,
+                    "instagramPostCaptionHash": caption_hash,
+                    "post_caption_style": caption_generation.get("post_caption_style")
+                    or "short_natural",
+                }
+            )
             attestation["instagramPostCaptionHash"] = caption_hash
         if visual_status:
-            metadata.update({
-                "visualQcStatus": visual_status,
-                "visualQc": {"status": visual_status, "operator": operator, "attestedAt": now, "notes": notes},
-            })
+            metadata.update(
+                {
+                    "visualQcStatus": visual_status,
+                    "visualQc": {
+                        "status": visual_status,
+                        "operator": operator,
+                        "attestedAt": now,
+                        "notes": notes,
+                    },
+                }
+            )
             if visual_status == "passed":
                 metadata["visual_qc_passed"] = True
                 metadata["operator_visual_review_passed"] = True
             attestation["visualQcStatus"] = visual_status
         if identity_status:
-            metadata.update({
-                "identityVerificationStatus": identity_status,
-                "identityVerification": {"status": identity_status, "operator": operator, "attestedAt": now, "notes": notes},
-            })
+            metadata.update(
+                {
+                    "identityVerificationStatus": identity_status,
+                    "identityVerification": {
+                        "status": identity_status,
+                        "operator": operator,
+                        "attestedAt": now,
+                        "notes": notes,
+                    },
+                }
+            )
             attestation["identityVerificationStatus"] = identity_status
         metadata["operatorPublishabilityAttestation"] = attestation
         caption_generation["operatorPublishabilityAttestation"] = attestation
@@ -214,7 +267,9 @@ class FinishedVideoRepository:
             commit=False,
         )
         self.conn.commit()
-        refreshed = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        refreshed = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
         return {
             "schema": "campaign_factory.operator_publishability_attestation_result.v1",
             "renderedAssetId": rendered_asset_id,
@@ -227,7 +282,9 @@ class FinishedVideoRepository:
         try:
             self._ensure_cost_table(self.conn)
             lineage_hash = hashlib.sha256(
-                json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+                json.dumps(
+                    lineage, ensure_ascii=False, sort_keys=True, default=str
+                ).encode("utf-8")
             ).hexdigest()[:24]
             usage = lineage.get("usage")
             if isinstance(usage, dict):
@@ -238,7 +295,10 @@ class FinishedVideoRepository:
                     campaign_id=lineage.get("campaign"),
                     input_tokens=usage.get("input_tokens"),
                     output_tokens=usage.get("output_tokens"),
-                    metadata={"lineage_schema": lineage.get("schema"), "model": lineage.get("model")},
+                    metadata={
+                        "lineage_schema": lineage.get("schema"),
+                        "model": lineage.get("model"),
+                    },
                     source_event_key=f"lineage:{lineage_hash}:grok:image_prompt",
                 )
             generation = lineage.get("generation")
@@ -251,7 +311,10 @@ class FinishedVideoRepository:
                         operation="soul_grid",
                         campaign_id=lineage.get("campaign"),
                         generations=1,
-                        metadata={"tool": tool, "modelProfile": generation.get("modelProfile")},
+                        metadata={
+                            "tool": tool,
+                            "modelProfile": generation.get("modelProfile"),
+                        },
                         source_event_key=f"lineage:{lineage_hash}:higgsfield:soul_grid",
                     )
                 if "kling" in tool:
@@ -261,13 +324,18 @@ class FinishedVideoRepository:
                         operation="video_animate",
                         campaign_id=lineage.get("campaign"),
                         generations=1,
-                        metadata={"tool": tool, "modelProfile": generation.get("modelProfile")},
+                        metadata={
+                            "tool": tool,
+                            "modelProfile": generation.get("modelProfile"),
+                        },
                         source_event_key=f"lineage:{lineage_hash}:kling:video_animate",
                     )
         except Exception:
             pass  # Cost tracking is best-effort; never block the import pipeline
 
-    def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+    def finished_video_hooks(
+        self, format_type: str, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
         pools = {
             "mirror_selfie": [
                 "he thinks this was for him",
@@ -303,18 +371,20 @@ class FinishedVideoRepository:
         hooks = []
         for idx in range(max(1, count)):
             text = candidates[idx % len(candidates)]
-            hooks.append({
-                "text": text,
-                "referenceClusterKey": pattern["clusterKey"],
-                "referenceLabel": pattern["label"],
-                "hookType": "finished_video_native_hook",
-                "captionArchetype": f"{format_type}_native",
-                "audioRecommendations": pattern.get("audioRecommendations") or {},
-                "formulaIndex": idx % len(candidates),
-                "candidateKind": "finished_video_caption",
-                "source": "campaign_factory_finished_video",
-                "formatType": format_type,
-            })
+            hooks.append(
+                {
+                    "text": text,
+                    "referenceClusterKey": pattern["clusterKey"],
+                    "referenceLabel": pattern["label"],
+                    "hookType": "finished_video_native_hook",
+                    "captionArchetype": f"{format_type}_native",
+                    "audioRecommendations": pattern.get("audioRecommendations") or {},
+                    "formulaIndex": idx % len(candidates),
+                    "candidateKind": "finished_video_caption",
+                    "source": "campaign_factory_finished_video",
+                    "formatType": format_type,
+                }
+            )
         return hooks
 
     def intake_finished_video(
@@ -346,66 +416,102 @@ class FinishedVideoRepository:
         digest = self._sha256_file(source)
         source_probe = self._probe_video_shape(source)
         source_preflight = self.finished_video_preflight(source_probe)
-        intake_dir = self.settings.campaigns_dir / "_finished_video_intake" / f"{campaign}_{digest[:10]}"
+        intake_dir = (
+            self.settings.campaigns_dir
+            / "_finished_video_intake"
+            / f"{campaign}_{digest[:10]}"
+        )
         intake_dir.mkdir(parents=True, exist_ok=True)
-        staged = intake_dir / f"{self._slugify(source.stem)}_{digest[:10]}{source.suffix.lower()}"
+        staged = (
+            intake_dir
+            / f"{self._slugify(source.stem)}_{digest[:10]}{source.suffix.lower()}"
+        )
         if not staged.exists():
             shutil.copy2(source, staged)
         style_lane_format = self.finished_video_style_lane_format(style_lane)
         format_type = style_lane_format or self.classify_finished_video_format(source)
-        creative_plan_payload = self._creative_plan(creative_plan) if creative_plan else None
-        creative_plan_id = creative_plan_payload["id"] if creative_plan_payload else None
+        creative_plan_payload = (
+            self._creative_plan(creative_plan) if creative_plan else None
+        )
+        creative_plan_id = (
+            creative_plan_payload["id"] if creative_plan_payload else None
+        )
         source_lineage = self._load_source_lineage(source_lineage_path)
-        generation = source_lineage.get("generation") if isinstance(source_lineage.get("generation"), dict) else {}
-        source_meta = source_lineage.get("source") if isinstance(source_lineage.get("source"), dict) else {}
+        generation = (
+            source_lineage.get("generation")
+            if isinstance(source_lineage.get("generation"), dict)
+            else {}
+        )
+        source_meta = (
+            source_lineage.get("source")
+            if isinstance(source_lineage.get("source"), dict)
+            else {}
+        )
         if not style_lane_format and source_meta.get("formatType"):
             format_type = str(source_meta["formatType"])
-        generated_lineage = source_lineage if source_lineage.get("schema") == "campaign_factory.generated_asset_lineage.v1" else {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
-            "pipelineTraceId": f"trace_finished_video_{digest[:16]}",
-            "source": {
-                "referenceId": None,
-                "patternCardId": None,
-                "promptId": None,
-                "formatType": format_type,
-                "referencePattern": reference_pattern or "auto",
-            },
-            "generation": {
-                "tool": "manual_finished_video",
-                "modelProfile": model_slug,
-                "assetPath": str(source),
-            },
-            "review": {
-                "humanReviewRequired": True,
-                "status": "draft",
-            },
-            "quality": {
-                "copyRisk": "unknown",
-            },
-        }
+        generated_lineage = (
+            source_lineage
+            if source_lineage.get("schema")
+            == "campaign_factory.generated_asset_lineage.v1"
+            else {
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "pipelineTraceId": f"trace_finished_video_{digest[:16]}",
+                "source": {
+                    "referenceId": None,
+                    "patternCardId": None,
+                    "promptId": None,
+                    "formatType": format_type,
+                    "referencePattern": reference_pattern or "auto",
+                },
+                "generation": {
+                    "tool": "manual_finished_video",
+                    "modelProfile": model_slug,
+                    "assetPath": str(source),
+                },
+                "review": {
+                    "humanReviewRequired": True,
+                    "status": "draft",
+                },
+                "quality": {
+                    "copyRisk": "unknown",
+                },
+            }
+        )
         generated_lineage.setdefault("source", {}).setdefault("formatType", format_type)
-        generated_lineage.setdefault("generation", {}).setdefault("assetPath", str(source))
-        generated_lineage.setdefault("generation", {}).setdefault("modelProfile", model_slug)
-        generated_lineage.setdefault("review", {}).setdefault("humanReviewRequired", True)
+        generated_lineage.setdefault("generation", {}).setdefault(
+            "assetPath", str(source)
+        )
+        generated_lineage.setdefault("generation", {}).setdefault(
+            "modelProfile", model_slug
+        )
+        generated_lineage.setdefault("review", {}).setdefault(
+            "humanReviewRequired", True
+        )
         generated_lineage.setdefault("review", {}).setdefault("status", "draft")
         source_prompt = json.dumps(
             {
                 "schema": "campaign_factory.finished_video_intake.v1",
                 "creativePlanId": creative_plan_id,
-                "creativePlanName": creative_plan_payload["name"] if creative_plan_payload else None,
+                "creativePlanName": creative_plan_payload["name"]
+                if creative_plan_payload
+                else None,
                 "styleLane": style_lane or format_type,
                 "inputPath": str(source),
                 "stagedPath": str(staged),
                 "platform": platform,
                 "goal": goal,
-                "referencePattern": reference_pattern or source_meta.get("referencePattern") or "auto",
+                "referencePattern": reference_pattern
+                or source_meta.get("referencePattern")
+                or "auto",
                 "patternCardId": source_meta.get("patternCardId"),
                 "promptId": source_meta.get("promptId"),
                 "generationTool": generation.get("tool"),
                 "modelProfile": generation.get("modelProfile") or model_slug,
                 "formatType": format_type,
                 "strategy": {
-                    "distributionPriority": "instagram_reels_first" if platform == "instagram" else platform,
+                    "distributionPriority": "instagram_reels_first"
+                    if platform == "instagram"
+                    else platform,
                     "primaryMetric": "views_reach",
                     "humanReviewRequired": True,
                     "nativeAudioRequired": platform == "instagram",
@@ -447,7 +553,9 @@ class FinishedVideoRepository:
             "goal": goal,
             "formatType": format_type,
             "sourcePrompt": self._json_load(source_prompt, {}),
-            "sourceLineagePath": str(source_lineage_path) if source_lineage_path else None,
+            "sourceLineagePath": str(source_lineage_path)
+            if source_lineage_path
+            else None,
             "sourcePreflight": source_preflight,
             "creativePlan": creative_plan_payload,
             "draftFirst": True,
@@ -521,7 +629,9 @@ class FinishedVideoRepository:
             return "mirror_selfie"
         if "selfie" in text:
             return "selfie_video"
-        if any(token in text for token in ("bedroom", "car", "lifestyle", "fit", "glam")):
+        if any(
+            token in text for token in ("bedroom", "car", "lifestyle", "fit", "glam")
+        ):
             return "spicy_lifestyle"
         if "slide" in text:
             return "slideshow"
@@ -557,14 +667,18 @@ class FinishedVideoRepository:
         if not caption.strip():
             raise ValueError("caption is required for publishability lineage")
         model = self._upsert_model(model_slug, model_slug.title())
-        campaign = self._upsert_campaign(campaign_slug, model["slug"], platform="instagram")
+        campaign = self._upsert_campaign(
+            campaign_slug, model["slug"], platform="instagram"
+        )
         normalized_caption = caption.strip()
         normalized_post_caption = (instagram_post_caption or normalized_caption).strip()
-        pre_render_gate = self._discoverability_pre_render_gate({
-            "caption_text": normalized_caption,
-            "burned_caption_text": normalized_caption,
-            "instagram_post_caption": normalized_post_caption,
-        })
+        pre_render_gate = self._discoverability_pre_render_gate(
+            {
+                "caption_text": normalized_caption,
+                "burned_caption_text": normalized_caption,
+                "instagram_post_caption": normalized_post_caption,
+            }
+        )
         if not pre_render_gate["canProceed"]:
             capture = self._capture_discoverability_gate_rejection_evidence(
                 gate_result=pre_render_gate,
@@ -590,7 +704,10 @@ class FinishedVideoRepository:
             }
         dirs = self._campaign_dirs(model["slug"], campaign["slug"])
         digest = self._sha256_file(source)
-        staged = dirs["rendered"] / f"{self._slugify(source.stem)}_{digest[:10]}{source.suffix.lower()}"
+        staged = (
+            dirs["rendered"]
+            / f"{self._slugify(source.stem)}_{digest[:10]}{source.suffix.lower()}"
+        )
         if not staged.exists():
             shutil.copy2(source, staged)
         now = self._utc_now()
@@ -666,9 +783,11 @@ class FinishedVideoRepository:
                 now,
             ),
         )
-        caption_hash_value = (caption_hash or "").strip() or hashlib.sha256(normalized_caption.lower().encode("utf-8")).hexdigest()
+        caption_hash_value = (caption_hash or "").strip() or hashlib.sha256(
+            normalized_caption.lower().encode("utf-8")
+        ).hexdigest()
         caption_bank_value = (caption_bank or "").strip() or "operator_finished_video"
-        creator_value = (creator_mix or creator_model or model_slug)
+        creator_value = creator_mix or creator_model or model_slug
         caption_context = {
             "schema": "campaign_factory.caption_outcome_context.v1",
             "caption_hash": caption_hash_value,
@@ -676,7 +795,9 @@ class FinishedVideoRepository:
             "burned_caption_text": normalized_caption,
             "burned_caption_hash": caption_hash_value,
             "instagram_post_caption": normalized_post_caption,
-            "instagram_post_caption_hash": self._text_hash(normalized_post_caption) if normalized_post_caption else None,
+            "instagram_post_caption_hash": self._text_hash(normalized_post_caption)
+            if normalized_post_caption
+            else None,
             "caption_bank": caption_bank_value,
             "caption_banks": [caption_bank_value],
             "creator_mix": creator_value,
@@ -721,11 +842,15 @@ class FinishedVideoRepository:
             "burned_caption_text": normalized_caption,
             "burned_caption_hash": caption_hash_value,
             "instagram_post_caption": normalized_post_caption,
-            "instagram_post_caption_hash": self._text_hash(normalized_post_caption) if normalized_post_caption else None,
+            "instagram_post_caption_hash": self._text_hash(normalized_post_caption)
+            if normalized_post_caption
+            else None,
             "captionOutcomeContext": caption_context,
             "audioIntent": audio_intent,
             "captionPlacementPolicy": caption_placement_policy,
-            "captionPlacementDecision": caption_placement_decision if isinstance(caption_placement_decision, dict) else None,
+            "captionPlacementDecision": caption_placement_decision
+            if isinstance(caption_placement_decision, dict)
+            else None,
             "operatorReview": {
                 "operator": operator,
                 "approvalReason": approval_reason,
@@ -824,7 +949,9 @@ class FinishedVideoRepository:
         audit_dir = dirs["audits"] / "finished_video_operator"
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_path = audit_dir / f"{audit_id}.json"
-        audit_path.write_text(json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        audit_path.write_text(
+            json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         self.conn.execute(
             """
             INSERT INTO audit_reports
@@ -873,10 +1000,12 @@ class FinishedVideoRepository:
         publishability = self._explain_publishability(rendered_id)
         rejection_capture = None
         if not publishability.get("publishableCandidate"):
-            rejection_capture = self._capture_publishability_rejection_evidence_from_result(
-                rendered_id,
-                publishability,
-                commit=True,
+            rejection_capture = (
+                self._capture_publishability_rejection_evidence_from_result(
+                    rendered_id,
+                    publishability,
+                    commit=True,
+                )
             )
         return {
             "schema": "campaign_factory.register_finished_video.v1",

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Default-off post-render virality evidence checks for Reel Factory outputs."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
-
 
 MIN_VIRALITY_SCORE = 70.0
 MIN_HOOK_SCORE = 60.0
@@ -44,7 +44,9 @@ def _report_body(report: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
-def evaluate_virality_report(report: dict[str, Any] | None, *, required: bool = False) -> dict[str, Any]:
+def evaluate_virality_report(
+    report: dict[str, Any] | None, *, required: bool = False
+) -> dict[str, Any]:
     """Evaluate a supplied Higgsfield/operator virality report without making provider calls."""
     if not isinstance(report, dict):
         return {
@@ -64,9 +66,15 @@ def evaluate_virality_report(report: dict[str, Any] | None, *, required: bool = 
         }
 
     body = _report_body(report)
-    score = _first_score(body, ("score", "viralityScore", "overallScore", "predictionScore"))
-    hook_score = _first_score(body, ("hookScore", "hookViralityScore", "firstThreeSecondsScore"))
-    retention_risk = _first_score(body, ("retentionRisk", "retentionRiskScore", "dropoffRisk"))
+    score = _first_score(
+        body, ("score", "viralityScore", "overallScore", "predictionScore")
+    )
+    hook_score = _first_score(
+        body, ("hookScore", "hookViralityScore", "firstThreeSecondsScore")
+    )
+    retention_risk = _first_score(
+        body, ("retentionRisk", "retentionRiskScore", "dropoffRisk")
+    )
     warnings: list[str] = []
     if score is None:
         warnings.append("virality_score_missing")
@@ -84,8 +92,13 @@ def evaluate_virality_report(report: dict[str, Any] | None, *, required: bool = 
         "reportPresent": True,
         "provider": body.get("provider") or report.get("provider"),
         "model": body.get("model") or report.get("model"),
-        "modelBacked": body.get("modelBacked") if "modelBacked" in body else report.get("modelBacked"),
-        "reportId": body.get("reportId") or body.get("report_id") or report.get("reportId") or report.get("report_id"),
+        "modelBacked": body.get("modelBacked")
+        if "modelBacked" in body
+        else report.get("modelBacked"),
+        "reportId": body.get("reportId")
+        or body.get("report_id")
+        or report.get("reportId")
+        or report.get("report_id"),
         "score": score,
         "hookScore": hook_score,
         "retentionRisk": retention_risk,
@@ -133,7 +146,9 @@ def load_virality_report(output_path: Path) -> dict[str, Any] | None:
     return None
 
 
-def evaluate_output_virality(output_path: Path, *, required: bool = False) -> dict[str, Any] | None:
+def evaluate_output_virality(
+    output_path: Path, *, required: bool = False
+) -> dict[str, Any] | None:
     report = load_virality_report(output_path)
     if report is None and not required:
         return None

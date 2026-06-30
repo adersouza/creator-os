@@ -20,9 +20,9 @@ from pipeline_contracts import (
     validate_pattern_card,
     validate_performance_sync,
     validate_post_metric_history_read,
-    validate_repurposing_plan,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
+    validate_repurposing_plan,
     validate_schema_examples,
     validate_variant_assignment,
     validate_video_analysis,
@@ -53,12 +53,16 @@ def test_named_validators_accept_examples():
     validate_variant_assignment(load_example("variant_assignment"))
     validate_motion_edit_render(load_example("motion_edit_render"))
     validate_front_generation_plan(load_example("front_generation_plan"))
-    validate_recommendation_accuracy_report(load_example("recommendation_accuracy_report"))
+    validate_recommendation_accuracy_report(
+        load_example("recommendation_accuracy_report")
+    )
 
 
 def test_validator_reports_nested_required_field():
     payload = load_example("campaign_draft_payload")
-    del payload["drafts"][0]["metadata"]["campaign_factory"]["audio_intent"]["gates"]["allow_publish"]
+    del payload["drafts"][0]["metadata"]["campaign_factory"]["audio_intent"]["gates"][
+        "allow_publish"
+    ]
 
     with pytest.raises(ContractValidationError, match="allow_publish"):
         validate_campaign_draft_payload(payload)
@@ -74,7 +78,9 @@ def test_generated_asset_lineage_requires_pipeline_trace_id():
 
 def test_campaign_draft_payload_requires_generated_asset_lineage():
     payload = load_example("campaign_draft_payload")
-    payload["drafts"][0]["metadata"]["campaign_factory"].pop("generated_asset_lineage", None)
+    payload["drafts"][0]["metadata"]["campaign_factory"].pop(
+        "generated_asset_lineage", None
+    )
 
     with pytest.raises(ContractValidationError, match="generated_asset_lineage"):
         validate_campaign_draft_payload(payload)
@@ -282,7 +288,9 @@ def test_front_generation_plan_rejects_missing_budget_status():
 
 def test_campaign_draft_payload_validates_nested_ref_constraints():
     payload = load_example("campaign_draft_payload")
-    context = payload["drafts"][0]["metadata"]["campaign_factory"]["captionOutcomeContext"]
+    context = payload["drafts"][0]["metadata"]["campaign_factory"][
+        "captionOutcomeContext"
+    ]
     context["schema"] = "wrong.schema"
 
     with pytest.raises(ContractValidationError, match="captionOutcomeContext"):

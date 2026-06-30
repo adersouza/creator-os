@@ -4,7 +4,6 @@ import hashlib
 import json
 from typing import Any
 
-
 SCHEMA = "campaign_factory.caption_outcome_context.v1"
 
 CONTEXT_COLUMNS = {
@@ -52,7 +51,9 @@ def build_caption_outcome_context(
         caption_lineage.get("selectedBank"),
         caption_lineage.get("selected_bank"),
         selected_banks[0] if selected_banks else None,
-        lineage.get("captionBank") if isinstance(lineage.get("captionBank"), str) else None,
+        lineage.get("captionBank")
+        if isinstance(lineage.get("captionBank"), str)
+        else None,
     )
     text = _first_text(
         existing.get("caption_text"),
@@ -72,24 +73,92 @@ def build_caption_outcome_context(
         _text_hash(text) if text else None,
     )
     context = dict(existing)
-    context.update({
-        "schema": SCHEMA,
-        "caption_hash": resolved_hash,
-        "caption_text": text,
-        "caption_bank": primary_bank,
-        "caption_banks": selected_banks or ([primary_bank] if primary_bank else []),
-        "creator_mix": _first_text(existing.get("creator_mix"), caption_lineage.get("selectedMix"), caption_lineage.get("selected_mix"), lineage.get("creatorMix"), lineage.get("creator_mix")),
-        "creator_model": _first_text(existing.get("creator_model"), lineage.get("creatorModel"), lineage.get("creator_model"), creator_model),
-        "frame_type": _first_text(existing.get("frame_type"), caption_lineage.get("frameType"), caption_lineage.get("frame_type"), lineage.get("frameType"), lineage.get("frame_type")),
-        "length_class": _first_text(existing.get("length_class"), caption_lineage.get("lengthClass"), caption_lineage.get("length_class"), lineage.get("lengthClass"), lineage.get("length_class")),
-        "format_class": _first_text(existing.get("format_class"), caption_lineage.get("formatClass"), caption_lineage.get("format_class"), lineage.get("formatClass"), lineage.get("format_class")),
-        "caption_fit_version": _first_text(existing.get("caption_fit_version"), caption_lineage.get("captionFitVersion"), caption_lineage.get("caption_fit_version"), lineage.get("captionFitVersion"), lineage.get("caption_fit_version")),
-        "suitability_decision": _first_text(existing.get("suitability_decision"), caption_lineage.get("suitabilityDecision"), caption_lineage.get("suitability_decision"), lineage.get("suitabilityDecision"), lineage.get("suitability_decision")),
-        "suitability_reason": _first_text(existing.get("suitability_reason"), caption_lineage.get("suitabilityReason"), caption_lineage.get("suitability_reason"), lineage.get("suitabilityReason"), lineage.get("suitability_reason")),
-        "render_recipe": existing.get("render_recipe") if "render_recipe" in existing else _first_text(lineage.get("recipe"), lineage.get("renderRecipe"), lineage.get("render_recipe"), render_recipe),
-        "source_clip": _first_text(existing.get("source_clip"), caption_lineage.get("sourceClip"), caption_lineage.get("source_clip"), lineage.get("sourceClip"), lineage.get("source_clip"), source_clip),
-        "rendered_output": _first_text(existing.get("rendered_output"), lineage.get("renderedOutput"), lineage.get("rendered_output"), rendered_output),
-    })
+    context.update(
+        {
+            "schema": SCHEMA,
+            "caption_hash": resolved_hash,
+            "caption_text": text,
+            "caption_bank": primary_bank,
+            "caption_banks": selected_banks or ([primary_bank] if primary_bank else []),
+            "creator_mix": _first_text(
+                existing.get("creator_mix"),
+                caption_lineage.get("selectedMix"),
+                caption_lineage.get("selected_mix"),
+                lineage.get("creatorMix"),
+                lineage.get("creator_mix"),
+            ),
+            "creator_model": _first_text(
+                existing.get("creator_model"),
+                lineage.get("creatorModel"),
+                lineage.get("creator_model"),
+                creator_model,
+            ),
+            "frame_type": _first_text(
+                existing.get("frame_type"),
+                caption_lineage.get("frameType"),
+                caption_lineage.get("frame_type"),
+                lineage.get("frameType"),
+                lineage.get("frame_type"),
+            ),
+            "length_class": _first_text(
+                existing.get("length_class"),
+                caption_lineage.get("lengthClass"),
+                caption_lineage.get("length_class"),
+                lineage.get("lengthClass"),
+                lineage.get("length_class"),
+            ),
+            "format_class": _first_text(
+                existing.get("format_class"),
+                caption_lineage.get("formatClass"),
+                caption_lineage.get("format_class"),
+                lineage.get("formatClass"),
+                lineage.get("format_class"),
+            ),
+            "caption_fit_version": _first_text(
+                existing.get("caption_fit_version"),
+                caption_lineage.get("captionFitVersion"),
+                caption_lineage.get("caption_fit_version"),
+                lineage.get("captionFitVersion"),
+                lineage.get("caption_fit_version"),
+            ),
+            "suitability_decision": _first_text(
+                existing.get("suitability_decision"),
+                caption_lineage.get("suitabilityDecision"),
+                caption_lineage.get("suitability_decision"),
+                lineage.get("suitabilityDecision"),
+                lineage.get("suitability_decision"),
+            ),
+            "suitability_reason": _first_text(
+                existing.get("suitability_reason"),
+                caption_lineage.get("suitabilityReason"),
+                caption_lineage.get("suitability_reason"),
+                lineage.get("suitabilityReason"),
+                lineage.get("suitability_reason"),
+            ),
+            "render_recipe": existing.get("render_recipe")
+            if "render_recipe" in existing
+            else _first_text(
+                lineage.get("recipe"),
+                lineage.get("renderRecipe"),
+                lineage.get("render_recipe"),
+                render_recipe,
+            ),
+            "source_clip": _first_text(
+                existing.get("source_clip"),
+                caption_lineage.get("sourceClip"),
+                caption_lineage.get("source_clip"),
+                lineage.get("sourceClip"),
+                lineage.get("source_clip"),
+                source_clip,
+            ),
+            "rendered_output": _first_text(
+                existing.get("rendered_output"),
+                lineage.get("renderedOutput"),
+                lineage.get("rendered_output"),
+                rendered_output,
+            ),
+        }
+    )
     for key in (
         "captionSceneTags",
         "reelSceneTags",
@@ -134,7 +203,9 @@ def column_values(context: dict[str, Any] | None) -> dict[str, Any]:
         "caption_hash": context.get("caption_hash"),
         "caption_text": context.get("caption_text"),
         "caption_bank": context.get("caption_bank"),
-        "caption_banks_json": json.dumps(context.get("caption_banks") or [], ensure_ascii=False, sort_keys=True),
+        "caption_banks_json": json.dumps(
+            context.get("caption_banks") or [], ensure_ascii=False, sort_keys=True
+        ),
         "creator_mix": context.get("creator_mix"),
         "creator_model": context.get("creator_model"),
         "frame_type": context.get("frame_type"),

@@ -3,14 +3,14 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
 import hook_ai
 import preflight
-
+import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-ALLOWLIST = Path(__file__).resolve().parent / "fixtures" / "broad_exception_allowlist.txt"
+ALLOWLIST = (
+    Path(__file__).resolve().parent / "fixtures" / "broad_exception_allowlist.txt"
+)
 
 
 def _broad_exception_handlers() -> list[str]:
@@ -39,7 +39,9 @@ def _broad_exception_handlers() -> list[str]:
                     for item in node.type.elts
                 )
                 if broad or broad_tuple:
-                    entries.append(f"{path.relative_to(PACKAGE_ROOT)}:{stack[-1] if stack else '<module>'}:{node.lineno}")
+                    entries.append(
+                        f"{path.relative_to(PACKAGE_ROOT)}:{stack[-1] if stack else '<module>'}:{node.lineno}"
+                    )
                 self.generic_visit(node)
 
         Visitor().visit(tree)
@@ -56,7 +58,9 @@ def test_broad_exception_boundaries_are_explicitly_allowlisted() -> None:
     assert _broad_exception_handlers() == expected
 
 
-def test_preflight_narrowed_probe_boundary_propagates_unexpected_errors(monkeypatch, tmp_path: Path) -> None:
+def test_preflight_narrowed_probe_boundary_propagates_unexpected_errors(
+    monkeypatch, tmp_path: Path
+) -> None:
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"video")
 
@@ -69,7 +73,9 @@ def test_preflight_narrowed_probe_boundary_propagates_unexpected_errors(monkeypa
         preflight.check_clip_readiness(video, None, ffprobe="ffprobe")
 
 
-def test_hook_generation_narrowed_boundary_propagates_unexpected_errors(monkeypatch) -> None:
+def test_hook_generation_narrowed_boundary_propagates_unexpected_errors(
+    monkeypatch,
+) -> None:
     class BrokenProvider:
         def __init__(self, *args, **kwargs):
             pass

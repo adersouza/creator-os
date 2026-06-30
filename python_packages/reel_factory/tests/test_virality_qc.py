@@ -46,7 +46,12 @@ class ViralityQcTests(unittest.TestCase):
     def test_readiness_blocks_missing_virality_only_when_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            output = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            output = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            )
             output.parent.mkdir(parents=True)
             output.write_bytes(b"fake")
 
@@ -74,11 +79,23 @@ class ViralityQcTests(unittest.TestCase):
     def test_run_readiness_reads_output_virality_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            output = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            output = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            )
             output.parent.mkdir(parents=True)
             output.write_bytes(b"fake")
             output.with_suffix(output.suffix + ".virality_report.json").write_text(
-                json.dumps({"provider": "higgsfield", "score": 91, "hookScore": 75, "retentionRisk": 20}),
+                json.dumps(
+                    {
+                        "provider": "higgsfield",
+                        "score": 91,
+                        "hookScore": 75,
+                        "retentionRisk": 20,
+                    }
+                ),
                 encoding="utf-8",
             )
 

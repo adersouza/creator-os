@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class SurfaceSummaryRepository:
@@ -48,7 +49,8 @@ class SurfaceSummaryRepository:
             "date": target_date,
             "accountsAnalyzed": needs.get("accountsAnalyzed", 0),
             "surfaceRequirementsTracked": list(self._content_surfaces),
-            "totalsBySurface": needs.get("totalsBySurface") or self._empty_surface_totals(),
+            "totalsBySurface": needs.get("totalsBySurface")
+            or self._empty_surface_totals(),
             "surfaceInventory": inventory.get("inventoryBySurface") or {},
             "surfaceShortfalls": gap.get("surfaceGaps") or {},
             "wouldWrite": False,
@@ -65,8 +67,12 @@ class SurfaceSummaryRepository:
         creator_label = self._creator_label(creator)
         target_date = self._creator_os_target_date(date=date, generated_at=generated_at)
         if account_id:
-            return self._account_content_needs(account_id=account_id, creator=creator_label, date=target_date)
-        obligations = self._account_surface_obligations_plan(creator=creator_label, date=target_date)
+            return self._account_content_needs(
+                account_id=account_id, creator=creator_label, date=target_date
+            )
+        obligations = self._account_surface_obligations_plan(
+            creator=creator_label, date=target_date
+        )
         return {
             "schema": "creator_os.account_surface_summary.v1",
             "creator": creator_label,

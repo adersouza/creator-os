@@ -4,6 +4,7 @@
 Ollama is the first provider. The module keeps a tiny provider seam so a
 future llama.cpp or MLX backend can plug in without changing the GUI or tests.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,16 +24,20 @@ from caption_generation_log import (
     rank_clip_sidecar,
     score_caption_quality,
 )
-from embedding_provider import DEFAULT_EMBEDDING_MODEL, HASH_MODEL, cosine_similarity, get_embedding_provider
+from embedding_provider import (
+    DEFAULT_EMBEDDING_MODEL,
+    HASH_MODEL,
+    cosine_similarity,
+    get_embedding_provider,
+)
 
 
 class HookProvider(Protocol):
-    def available(self) -> tuple[bool, str]:
-        ...
+    def available(self) -> tuple[bool, str]: ...
 
-    def rewrite(self, base: str, *, n: int, min_chars: int,
-                max_chars: int, seed: int = 42) -> list[str]:
-        ...
+    def rewrite(
+        self, base: str, *, n: int, min_chars: int, max_chars: int, seed: int = 42
+    ) -> list[str]: ...
 
 
 @dataclass
@@ -43,19 +48,34 @@ class OllamaHookProvider:
 
     def available(self) -> tuple[bool, str]:
         try:
-            with urllib.request.urlopen(f"{self.base_url}/api/tags", timeout=2.0) as res:
+            with urllib.request.urlopen(
+                f"{self.base_url}/api/tags", timeout=2.0
+            ) as res:
                 data = json.loads(res.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            OSError,
+        ) as e:
             return False, f"Ollama is not reachable: {e}"
-        models = [m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)]
+        models = [
+            m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)
+        ]
         if not models:
             return False, "Ollama is running but no models are installed."
-        if self.model and not any(name == self.model or name.startswith(f"{self.model}:") for name in models):
-            return False, f"Ollama model '{self.model}' is not installed. Available: {', '.join(models[:5])}"
+        if self.model and not any(
+            name == self.model or name.startswith(f"{self.model}:") for name in models
+        ):
+            return (
+                False,
+                f"Ollama model '{self.model}' is not installed. Available: {', '.join(models[:5])}",
+            )
         return True, "ok"
 
-    def rewrite(self, base: str, *, n: int, min_chars: int,
-                max_chars: int, seed: int = 42) -> list[str]:
+    def rewrite(
+        self, base: str, *, n: int, min_chars: int, max_chars: int, seed: int = 42
+    ) -> list[str]:
         prompt = _rewrite_prompt(base, n=n, min_chars=min_chars, max_chars=max_chars)
         payload = {
             "model": self.model,
@@ -126,9 +146,33 @@ def _required_terms(base: str) -> list[str]:
 
 def _keyword_terms(base: str) -> list[str]:
     stop = {
-        "the", "and", "but", "for", "with", "when", "what", "that", "this",
-        "you", "your", "from", "into", "just", "like", "then", "than", "are",
-        "was", "were", "been", "have", "has", "had", "not", "all", "one",
+        "the",
+        "and",
+        "but",
+        "for",
+        "with",
+        "when",
+        "what",
+        "that",
+        "this",
+        "you",
+        "your",
+        "from",
+        "into",
+        "just",
+        "like",
+        "then",
+        "than",
+        "are",
+        "was",
+        "were",
+        "been",
+        "have",
+        "has",
+        "had",
+        "not",
+        "all",
+        "one",
     }
     terms = []
     for token in re.findall(r"[a-zA-Z][a-zA-Z0-9']{3,}", base.lower()):
@@ -140,17 +184,25 @@ def _keyword_terms(base: str) -> list[str]:
 def _missing_concepts(base: str, hook: str) -> str | None:
     base_norm = base.lower()
     hook_norm = hook.lower()
-    if re.search(r"\bmiss(?:es|ing|ed)?\b", base_norm) and not re.search(r"\bmiss(?:es|ing|ed)?\b", hook_norm):
+    if re.search(r"\bmiss(?:es|ing|ed)?\b", base_norm) and not re.search(
+        r"\bmiss(?:es|ing|ed)?\b", hook_norm
+    ):
         return "miss"
     return None
 
 
-def validate_hook_variant(base: str, hook: str, *, min_chars: int,
-                          max_chars: int, required_terms: list[str] | None = None,
-                          reject_identical: bool = False,
-                          strict: bool = False,
-                          min_similarity: float | None = None,
-                          embedding_model: str | None = HASH_MODEL) -> tuple[bool, str]:
+def validate_hook_variant(
+    base: str,
+    hook: str,
+    *,
+    min_chars: int,
+    max_chars: int,
+    required_terms: list[str] | None = None,
+    reject_identical: bool = False,
+    strict: bool = False,
+    min_similarity: float | None = None,
+    embedding_model: str | None = HASH_MODEL,
+) -> tuple[bool, str]:
     text = hook.strip()
     if len(text) < min_chars:
         return False, "too_short"
@@ -185,14 +237,25 @@ def validate_hook_variant(base: str, hook: str, *, min_chars: int,
 
 def hook_similarity_mode(embedding_model: str | None) -> str:
     provider = get_embedding_provider(embedding_model)
-    return "lexical_fallback_similarity" if provider.name == HASH_MODEL else "semantic_embedding_similarity"
+    return (
+        "lexical_fallback_similarity"
+        if provider.name == HASH_MODEL
+        else "semantic_embedding_similarity"
+    )
 
 
-def validate_hook_variants(base: str, hooks: list[str], *, min_chars: int,
-                           max_chars: int, required_terms: list[str] | None = None,
-                           reject_identical: bool = False, strict: bool = False,
-                           min_similarity: float | None = None,
-                           embedding_model: str | None = HASH_MODEL) -> tuple[list[str], list[dict[str, str]]]:
+def validate_hook_variants(
+    base: str,
+    hooks: list[str],
+    *,
+    min_chars: int,
+    max_chars: int,
+    required_terms: list[str] | None = None,
+    reject_identical: bool = False,
+    strict: bool = False,
+    min_similarity: float | None = None,
+    embedding_model: str | None = HASH_MODEL,
+) -> tuple[list[str], list[dict[str, str]]]:
     accepted: list[str] = []
     rejected: list[dict[str, str]] = []
     seen = set()
@@ -212,19 +275,29 @@ def validate_hook_variants(base: str, hooks: list[str], *, min_chars: int,
             accepted.append(hook)
             seen.add(hook)
         else:
-            rejected.append({"hook": hook, "reason": "duplicate" if hook in seen else reason})
+            rejected.append(
+                {"hook": hook, "reason": "duplicate" if hook in seen else reason}
+            )
     return accepted, rejected
 
 
-def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
-                   min_chars: int = 20, max_chars: int = 120,
-                   seed: int = 42, strict: bool = False,
-                   required_terms: list[str] | None = None,
-                   reject_identical: bool = False,
-                   min_similarity: float | None = None,
-                   embedding_model: str | None = HASH_MODEL,
-                   log_path: str | Path | None = None,
-                   recent_hooks: list[str] | None = None) -> dict[str, Any]:
+def generate_hooks(
+    *,
+    backend: str,
+    model: str,
+    base: str,
+    n: int = 20,
+    min_chars: int = 20,
+    max_chars: int = 120,
+    seed: int = 42,
+    strict: bool = False,
+    required_terms: list[str] | None = None,
+    reject_identical: bool = False,
+    min_similarity: float | None = None,
+    embedding_model: str | None = HASH_MODEL,
+    log_path: str | Path | None = None,
+    recent_hooks: list[str] | None = None,
+) -> dict[str, Any]:
     if backend != "ollama":
         return {"ok": False, "error": f"unsupported backend: {backend}", "hooks": []}
     similarity_mode = hook_similarity_mode(embedding_model)
@@ -237,7 +310,9 @@ def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
         return {"ok": False, "error": reason, "hooks": []}
     try:
         prompt = _rewrite_prompt(base, n=n, min_chars=min_chars, max_chars=max_chars)
-        raw_hooks = provider.rewrite(base, n=n, min_chars=min_chars, max_chars=max_chars, seed=seed)
+        raw_hooks = provider.rewrite(
+            base, n=n, min_chars=min_chars, max_chars=max_chars, seed=seed
+        )
         hooks, rejected = validate_hook_variants(
             base,
             raw_hooks,
@@ -253,13 +328,20 @@ def generate_hooks(*, backend: str, model: str, base: str, n: int = 20,
         return {"ok": False, "error": str(e), "hooks": []}
     generation_id = new_generation_id()
     quality = [
-        score_caption_quality(hook, recent_hooks=recent_hooks, min_chars=min_chars, max_chars=max_chars)
+        score_caption_quality(
+            hook, recent_hooks=recent_hooks, min_chars=min_chars, max_chars=max_chars
+        )
         for hook in hooks
     ]
     rejected_with_quality = [
         {
             **item,
-            "quality": score_caption_quality(str(item.get("hook", "")), recent_hooks=recent_hooks, min_chars=min_chars, max_chars=max_chars),
+            "quality": score_caption_quality(
+                str(item.get("hook", "")),
+                recent_hooks=recent_hooks,
+                min_chars=min_chars,
+                max_chars=max_chars,
+            ),
         }
         for item in rejected
     ]
@@ -321,27 +403,37 @@ def main() -> int:
     ap.add_argument("--performance-json")
     args = ap.parse_args()
     if args.caption_library:
-        print(json.dumps(caption_library(Path(args.log_path)), indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                caption_library(Path(args.log_path)), indent=2, ensure_ascii=False
+            )
+        )
         return 0
     if args.rank_existing:
         if not args.clip:
             raise SystemExit("--rank-existing requires --clip")
         performance = {}
         if args.performance_json:
-            performance = json.loads(Path(args.performance_json).read_text(encoding="utf-8"))
+            performance = json.loads(
+                Path(args.performance_json).read_text(encoding="utf-8")
+            )
         result = rank_clip_sidecar(
             Path(args.captions_dir),
             args.clip,
             recent_hooks=None,
             top=args.top,
-            performance_by_caption_hash=performance.get("captionHashes") if isinstance(performance, dict) else None,
+            performance_by_caption_hash=performance.get("captionHashes")
+            if isinstance(performance, dict)
+            else None,
             min_chars=args.min_chars,
             max_chars=args.max_chars,
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     if not args.model or not args.base:
-        raise SystemExit("--model and --base are required unless using --caption-library or --rank-existing")
+        raise SystemExit(
+            "--model and --base are required unless using --caption-library or --rank-existing"
+        )
     result = generate_hooks(
         backend=args.backend,
         model=args.model,

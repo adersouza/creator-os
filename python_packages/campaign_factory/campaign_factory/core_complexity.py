@@ -27,12 +27,20 @@ class CoreComplexityRepository:
         conflicts = [
             {
                 "concept": "account eligibility",
-                "owners": ["account tiers", "account health", "recommendation eligibility"],
+                "owners": [
+                    "account tiers",
+                    "account health",
+                    "recommendation eligibility",
+                ],
                 "risk": "eligibility can be interpreted differently across manager views",
             },
             {
                 "concept": "learning/winner status",
-                "owners": ["winner reports", "Creative Knowledge Base", "creative performance analysis"],
+                "owners": [
+                    "winner reports",
+                    "Creative Knowledge Base",
+                    "creative performance analysis",
+                ],
                 "risk": "winner definitions can drift unless Creative KB remains canonical",
             },
         ]
@@ -61,10 +69,22 @@ class CoreComplexityRepository:
                 "surface readiness logic: publishability, handoff manifest v2, story quality, and carousel components intersect",
             ],
             "recommendedExtractions": [
-                {"module": "campaign_factory/operations/readiness.py", "reason": "isolate execution-readiness and inventory SLO proofs"},
-                {"module": "campaign_factory/operations/exceptions.py", "reason": "centralize blocker-to-operator-action mapping"},
-                {"module": "campaign_factory/operations/scale_acceptance.py", "reason": "keep synthetic scale harness out of core.py"},
-                {"module": "campaign_factory/learning/reports.py", "reason": "keep Creative KB views behind one learning boundary"},
+                {
+                    "module": "campaign_factory/operations/readiness.py",
+                    "reason": "isolate execution-readiness and inventory SLO proofs",
+                },
+                {
+                    "module": "campaign_factory/operations/exceptions.py",
+                    "reason": "centralize blocker-to-operator-action mapping",
+                },
+                {
+                    "module": "campaign_factory/operations/scale_acceptance.py",
+                    "reason": "keep synthetic scale harness out of core.py",
+                },
+                {
+                    "module": "campaign_factory/learning/reports.py",
+                    "reason": "keep Creative KB views behind one learning boundary",
+                },
             ],
             "expectedComplexityReductionPct": 25,
             "wouldWrite": False,
@@ -85,9 +105,13 @@ class CoreComplexityRepository:
                 lines = len(path.read_text(encoding="utf-8").splitlines())
             except OSError:
                 lines = 0
-            rows.append({
-                "file": str(path),
-                "lines": lines,
-                "risk": "high" if lines > 5000 else ("medium" if lines > 1000 else "low"),
-            })
+            rows.append(
+                {
+                    "file": str(path),
+                    "lines": lines,
+                    "risk": "high"
+                    if lines > 5000
+                    else ("medium" if lines > 1000 else "low"),
+                }
+            )
         return sorted(rows, key=lambda row: (-int(row["lines"]), row["file"]))

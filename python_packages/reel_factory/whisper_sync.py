@@ -1,4 +1,5 @@
 """Generate timed caption segments from local speech transcription."""
+
 from __future__ import annotations
 
 import argparse
@@ -24,7 +25,11 @@ def transcribe_clip(
     if not src.exists():
         raise FileNotFoundError(f"source clip not found: {src}")
     if not _has_audio_stream(src):
-        return {"ok": False, "error": "source clip has no audio stream to transcribe", "code": "no_audio"}
+        return {
+            "ok": False,
+            "error": "source clip has no audio stream to transcribe",
+            "code": "no_audio",
+        }
     if not _module_available("mlx_whisper"):
         return {
             "ok": False,
@@ -32,6 +37,7 @@ def transcribe_clip(
         }
     try:
         import mlx_whisper  # type: ignore
+
         data = mlx_whisper.transcribe(
             str(src),
             path_or_hf_repo=model,
@@ -46,7 +52,12 @@ def transcribe_clip(
     out_path = root / "01_captions" / f"{clip}.whisper.json"
     if out_path.exists() and not overwrite:
         return {"ok": True, "path": str(out_path), "hook": hook, "written": False}
-    out_path.write_text(json.dumps({"hooks": [hook], "caption_color": "auto"}, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(
+            {"hooks": [hook], "caption_color": "auto"}, indent=2, ensure_ascii=False
+        ),
+        encoding="utf-8",
+    )
     return {"ok": True, "path": str(out_path), "hook": hook, "written": True}
 
 
@@ -61,16 +72,20 @@ def _segments_from_whisper(data: dict[str, Any]) -> list[dict[str, Any]]:
         end = float(seg.get("end") or start + 1.5)
         pieces = _phrase_chunks(text, max_chars=54)
         if len(pieces) == 1:
-            segments.append({"text": pieces[0], "start": round(start, 2), "end": round(end, 2)})
+            segments.append(
+                {"text": pieces[0], "start": round(start, 2), "end": round(end, 2)}
+            )
             continue
         dur = max(0.1, end - start)
         step = dur / len(pieces)
         for idx, piece in enumerate(pieces):
-            segments.append({
-                "text": piece,
-                "start": round(start + step * idx, 2),
-                "end": round(start + step * (idx + 1), 2),
-            })
+            segments.append(
+                {
+                    "text": piece,
+                    "start": round(start + step * idx, 2),
+                    "end": round(start + step * (idx + 1), 2),
+                }
+            )
     return segments
 
 
@@ -92,19 +107,32 @@ def _phrase_chunks(text: str, max_chars: int) -> list[str]:
 
 def _module_available(name: str) -> bool:
     import importlib.util
+
     return importlib.util.find_spec(name) is not None
 
 
 def _has_audio_stream(path: Path) -> bool:
     ffprobe = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
     try:
-        out = subprocess.check_output([
-            ffprobe, "-v", "0",
-            "-select_streams", "a",
-            "-show_entries", "stream=index",
-            "-of", "csv=p=0",
-            str(path),
-        ], stderr=subprocess.DEVNULL).decode().strip()
+        out = (
+            subprocess.check_output(
+                [
+                    ffprobe,
+                    "-v",
+                    "0",
+                    "-select_streams",
+                    "a",
+                    "-show_entries",
+                    "stream=index",
+                    "-of",
+                    "csv=p=0",
+                    str(path),
+                ],
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return False
     return bool(out)
@@ -118,10 +146,19 @@ def main() -> None:
     parser.add_argument("--model", default="mlx-community/whisper-tiny")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(transcribe_clip(
-        Path(args.root), args.clip,
-        backend=args.backend, model=args.model, overwrite=args.overwrite,
-    ), indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            transcribe_clip(
+                Path(args.root),
+                args.clip,
+                backend=args.backend,
+                model=args.model,
+                overwrite=args.overwrite,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

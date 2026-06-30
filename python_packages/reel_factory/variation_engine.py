@@ -4,12 +4,12 @@ The renderer calls this module only when text variation is enabled. The
 default pack keeps changes surface-level: casual spelling, abbreviation, and
 case shifts while preserving the original hook shape.
 """
+
 from __future__ import annotations
 
 import random
 import re
 from dataclasses import dataclass
-
 
 DEFAULT_SLANG_PACK: dict[str, list[str]] = {
     "you": ["u", "u", "you"],

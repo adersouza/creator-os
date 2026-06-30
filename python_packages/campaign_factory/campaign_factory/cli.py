@@ -17,26 +17,26 @@ from .adapters.threadsdash import (
     promote_preview_schedule,
     safe_live_smoke_export,
     summarize_threadsdash_usage,
-    sync_threadsdash_account_assignments,
     sync_performance_snapshots,
+    sync_threadsdash_account_assignments,
     verify_threadsdash_export,
 )
-from .config import get_settings
-from .control import operator_control_check
-from .core import CampaignFactory
 from .closed_loop_proof import (
     DEFAULT_STACEY_PROMPT_PATH,
     build_account_routing_audit,
     run_stacey_closed_loop_proof,
 )
+from .config import get_settings
+from .control import operator_control_check
+from .core import CampaignFactory
+from .front_generation_stage import run_front_generation_stage
+from .learning_readiness import closed_loop_learning_status
+from .motion_edit_stage import run_motion_edit_stage
+from .proactive_cycle_stage import run_proactive_cycle_stage
+from .quality_calibration import track_q_calibration_status
 from .readiness_report import build_mass_production_readiness_report
 from .reel_ledger_promotion import promote_reel_ledger
 from .variation_stage import run_variation_stage
-from .motion_edit_stage import run_motion_edit_stage
-from .front_generation_stage import run_front_generation_stage
-from .proactive_cycle_stage import run_proactive_cycle_stage
-from .quality_calibration import track_q_calibration_status
-from .learning_readiness import closed_loop_learning_status
 
 
 def print_json(value) -> None:
@@ -84,8 +84,14 @@ def main() -> int:
     sub.add_parser("init")
 
     doctor = sub.add_parser("doctor")
-    doctor.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
-    doctor.add_argument("--check-http", action="store_true", help="Also check whether ContentForge is responding over HTTP")
+    doctor.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
+    doctor.add_argument(
+        "--check-http",
+        action="store_true",
+        help="Also check whether ContentForge is responding over HTTP",
+    )
 
     serve = sub.add_parser("serve")
     serve.add_argument("--host", default="127.0.0.1")
@@ -116,7 +122,11 @@ def main() -> int:
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--band", choices=["top", "center", "bottom"], default="center")
     run.add_argument("--color", choices=["light", "dark", "auto"], default="light")
-    run.add_argument("--style", choices=["classic", "meme", "ig", "thin", "soft", "bubble", "auto"], default="ig")
+    run.add_argument(
+        "--style",
+        choices=["classic", "meme", "ig", "thin", "soft", "bubble", "auto"],
+        default="ig",
+    )
     run.add_argument("--font", default="Instagram Sans Condensed")
     run.add_argument("--no-phone-finalize", action="store_true")
     run.add_argument("--rerender-all", action="store_true")
@@ -131,7 +141,9 @@ def main() -> int:
     variation_run.add_argument("--campaign", required=True)
     variation_run.add_argument("--preset", default="ig_subtle")
     variation_run.add_argument("--rendered-asset-id", action="append", default=[])
-    variation_run.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    variation_run.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
 
@@ -160,7 +172,9 @@ def main() -> int:
     soul_group.add_argument("--soul-id")
     soul_group.add_argument("--soul-name")
     front_link.add_argument("--scene-type", default="room_selfie")
-    front_link.add_argument("--animation-mode", choices=["kling", "motion_edit"], default="kling")
+    front_link.add_argument(
+        "--animation-mode", choices=["kling", "motion_edit"], default="kling"
+    )
     front_link.add_argument("--accepted-still")
     front_link.add_argument("--estimated-image-cost-usd", type=float, default=0.05)
     front_link.add_argument("--estimated-video-cost-usd", type=float, default=0.10)
@@ -180,11 +194,17 @@ def main() -> int:
     proactive_run.add_argument("--count", type=int, default=3)
     proactive_run.add_argument("--account")
     proactive_run.add_argument("--reference-image")
-    proactive_run.add_argument("--generation-mode", choices=["existing_asset", "motion_edit", "front_generation_kling"], default="existing_asset")
+    proactive_run.add_argument(
+        "--generation-mode",
+        choices=["existing_asset", "motion_edit", "front_generation_kling"],
+        default="existing_asset",
+    )
     proactive_run.add_argument("--enable-variation", action="store_true")
     proactive_run.add_argument("--enable-export", action="store_true")
     proactive_run.add_argument("--enable-schedule", action="store_true")
-    proactive_run.add_argument("--schedule-mode", choices=["draft", "preview", "live"], default="draft")
+    proactive_run.add_argument(
+        "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
+    )
     proactive_run.add_argument("--user-id")
     proactive_run.add_argument("--dry-run", action="store_true")
     proactive_run.add_argument("--apply", action="store_true")
@@ -197,25 +217,39 @@ def main() -> int:
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
     audit.add_argument("--min-score", type=int, default=85)
-    audit.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    audit.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     audit.add_argument("--layer", action="append", default=[])
 
     approve = sub.add_parser("approve")
     approve.add_argument("--rendered-asset-id", required=True)
     approve.add_argument("--notes")
-    approve.add_argument("--force-unsafe-audit", action="store_true", help="Allow approval even when audit is missing or not an approved candidate")
+    approve.add_argument(
+        "--force-unsafe-audit",
+        action="store_true",
+        help="Allow approval even when audit is missing or not an approved candidate",
+    )
 
     review = sub.add_parser("review-decision")
     review.add_argument("--rendered-asset-id", required=True)
     review.add_argument("--decision", choices=["approved", "rejected"], required=True)
     review.add_argument("--notes")
-    review.add_argument("--force-unsafe-audit", action="store_true", help="Allow approval even when audit is missing or not an approved candidate")
+    review.add_argument(
+        "--force-unsafe-audit",
+        action="store_true",
+        help="Allow approval even when audit is missing or not an approved candidate",
+    )
 
     attest = sub.add_parser("attest-publishability")
     attest.add_argument("--rendered-asset-id", required=True)
     attest.add_argument("--instagram-post-caption")
-    attest.add_argument("--visual-qc-status", choices=["passed", "failed", "unavailable"])
-    attest.add_argument("--identity-verification-status", choices=["passed", "failed", "unavailable"])
+    attest.add_argument(
+        "--visual-qc-status", choices=["passed", "failed", "unavailable"]
+    )
+    attest.add_argument(
+        "--identity-verification-status", choices=["passed", "failed", "unavailable"]
+    )
     attest.add_argument("--operator")
     attest.add_argument("--notes")
 
@@ -223,19 +257,27 @@ def main() -> int:
     readiness.add_argument("--campaign", required=True)
     readiness.add_argument("--user-id", required=True)
     readiness.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    readiness.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    readiness.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     readiness.add_argument("--limit", type=int, default=1000)
     readiness.add_argument("--content-pillar")
     readiness.add_argument("--cta-type")
     readiness.add_argument("--language")
-    readiness.add_argument("--schedule-mode", choices=["draft", "preview", "live"], default="draft")
+    readiness.add_argument(
+        "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
+    )
 
     mass_ready = sub.add_parser("readiness-report")
     mass_ready.add_argument("--campaign-id", required=True)
     mass_ready.add_argument("--days", type=int, default=7)
     mass_ready.add_argument("--user-id")
     mass_ready.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    mass_ready.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    mass_ready.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     mass_ready.add_argument("--limit", type=int, default=1000)
     mass_ready.add_argument("--format", choices=["json", "markdown"], default="json")
 
@@ -248,7 +290,9 @@ def main() -> int:
     track_q_calibration = sub.add_parser("track-q-calibration-status")
     track_q_calibration.add_argument("--campaign")
     track_q_calibration.add_argument("--min-reviewed-reels", type=int, default=30)
-    track_q_calibration.add_argument("--min-low-score-or-rejected-samples", type=int, default=10)
+    track_q_calibration.add_argument(
+        "--min-low-score-or-rejected-samples", type=int, default=10
+    )
     track_q_calibration.add_argument("--low-score-threshold", type=int, default=70)
 
     closed_loop_status = sub.add_parser("closed-loop-learning-status")
@@ -261,16 +305,25 @@ def main() -> int:
     routing_audit.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
     routing_audit.add_argument(
         "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_KEY"),
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_KEY"),
     )
 
     closed_loop = sub.add_parser("closed-loop-proof")
     closed_loop.add_argument("--campaign", default="stacey_closed_loop")
     closed_loop.add_argument("--user-id", default=os.environ.get("THREADSDASH_USER_ID"))
-    closed_loop.add_argument("--output-dir", default=str(Path(__file__).resolve().parents[1]))
+    closed_loop.add_argument(
+        "--output-dir", default=str(Path(__file__).resolve().parents[1])
+    )
     closed_loop.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    closed_loop.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
-    closed_loop.add_argument("--supabase-storage-bucket", default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"))
+    closed_loop.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    closed_loop.add_argument(
+        "--supabase-storage-bucket",
+        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+    )
     closed_loop.add_argument("--operator", default=os.environ.get("USER"))
     closed_loop.add_argument("--approval-reason")
     closed_loop.add_argument("--approved-rendered-asset-id")
@@ -294,55 +347,89 @@ def main() -> int:
     export.add_argument("--user-id", required=True)
     export.add_argument("--dry-run", action="store_true")
     export.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    export.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
-    export.add_argument("--supabase-storage-bucket", default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"))
+    export.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    export.add_argument(
+        "--supabase-storage-bucket",
+        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+    )
     export.add_argument("--allow-warnings", action="store_true")
     export.add_argument("--content-pillar")
     export.add_argument("--cta-type")
     export.add_argument("--language")
     export.add_argument("--max-drafts", type=int)
     export.add_argument("--rendered-asset-id", action="append", default=[])
-    export.add_argument("--schedule-mode", choices=["draft", "preview", "live"], default="draft")
+    export.add_argument(
+        "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
+    )
     export.add_argument("--enable-variation", action="store_true")
     export.add_argument("--variation-preset", default="ig_subtle")
 
     preflight = sub.add_parser("supabase-preflight")
     preflight.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    preflight.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
-    preflight.add_argument("--supabase-storage-bucket", default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"))
+    preflight.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    preflight.add_argument(
+        "--supabase-storage-bucket",
+        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+    )
 
     verify = sub.add_parser("verify-threadsdash-export")
     verify.add_argument("export_manifest")
     verify.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    verify.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    verify.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
 
     live_smoke = sub.add_parser("safe-live-smoke")
     live_smoke.add_argument("--campaign", required=True)
     live_smoke.add_argument("--user-id", required=True)
     live_smoke.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    live_smoke.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
-    live_smoke.add_argument("--supabase-storage-bucket", default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"))
+    live_smoke.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    live_smoke.add_argument(
+        "--supabase-storage-bucket",
+        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+    )
     live_smoke.add_argument("--allow-warnings", action="store_true")
 
     usage = sub.add_parser("threadsdash-usage")
     usage.add_argument("--campaign", required=True)
     usage.add_argument("--user-id", required=True)
     usage.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    usage.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    usage.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     usage.add_argument("--limit", type=int, default=1000)
 
     assignment_sync = sub.add_parser("sync-threadsdash-assignments")
     assignment_sync.add_argument("--campaign", required=True)
     assignment_sync.add_argument("--user-id", required=True)
-    assignment_sync.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    assignment_sync.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    assignment_sync.add_argument(
+        "--supabase-url", default=os.environ.get("SUPABASE_URL")
+    )
+    assignment_sync.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     assignment_sync.add_argument("--limit", type=int, default=1000)
 
     perf_sync = sub.add_parser("sync-performance")
     perf_sync.add_argument("--campaign", required=True)
     perf_sync.add_argument("--user-id", required=True)
     perf_sync.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    perf_sync.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    perf_sync.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     perf_sync.add_argument("--limit", type=int, default=1000)
 
     perf_summary = sub.add_parser("performance-summary")
@@ -373,6 +460,7 @@ def main() -> int:
     surface_gap = sub.add_parser("surface-gap-report")
     surface_gap.add_argument("--creator", required=True)
     surface_gap.add_argument("--date", required=True)
+
     def add_inventory_recovery_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -381,6 +469,7 @@ def main() -> int:
         command.add_argument("--account-target", type=int, default=25)
         command.add_argument("--posts-per-account-per-day", type=int, default=3)
         command.add_argument("--buffer-days", type=int, default=3)
+
     inventory_recovery = sub.add_parser("inventory-recovery-report")
     add_inventory_recovery_args(inventory_recovery)
     inventory_recovery_priority = sub.add_parser("inventory-recovery-priority-report")
@@ -389,6 +478,7 @@ def main() -> int:
     add_inventory_recovery_args(inventory_recovery_by_blocker)
     inventory_recovery_master = sub.add_parser("inventory-recovery-master-report")
     add_inventory_recovery_args(inventory_recovery_master)
+
     def add_schedule_safe_production_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -396,6 +486,7 @@ def main() -> int:
         command.add_argument("--lookback-days", type=int, default=1)
         command.add_argument("--required-inventory", type=int)
         command.add_argument("--current-inventory", type=int)
+
     production_report = sub.add_parser("schedule-safe-production-report")
     add_schedule_safe_production_args(production_report)
     production_waterfall = sub.add_parser("schedule-safe-production-waterfall")
@@ -416,12 +507,14 @@ def main() -> int:
     add_schedule_safe_production_args(visual_qc_repair)
     visual_qc_master = sub.add_parser("contentforge-visual-qc-master-report")
     add_schedule_safe_production_args(visual_qc_master)
+
     def add_inventory_unlock_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
         command.add_argument("--content-surface", default="reel")
         command.add_argument("--required-inventory", type=int, default=225)
         command.add_argument("--current-inventory", type=int)
+
     multi_unlock = sub.add_parser("multi-blocker-inventory-unlock-report")
     add_inventory_unlock_args(multi_unlock)
     multi_unlock_plan = sub.add_parser("multi-blocker-inventory-unlock-plan")
@@ -448,6 +541,7 @@ def main() -> int:
     add_inventory_unlock_args(review_minimum)
     review_master = sub.add_parser("operator-review-master-report")
     add_inventory_unlock_args(review_master)
+
     def add_fresh_reel_production_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -456,6 +550,7 @@ def main() -> int:
         command.add_argument("--caption-versions-per-parent", type=int, default=5)
         command.add_argument("--variants-per-caption", type=int, default=3)
         command.add_argument("--batch-schedule-safe-target", type=int, default=90)
+
     fresh_plan = sub.add_parser("fresh-schedule-safe-production-plan")
     add_fresh_reel_production_args(fresh_plan)
     fresh_batch = sub.add_parser("fresh-reel-production-batch-plan")
@@ -558,7 +653,9 @@ def main() -> int:
 
     register_surface = sub.add_parser("register-surface-asset")
     register_surface.add_argument("--input", nargs="+", required=True)
-    register_surface.add_argument("--surface", choices=["feed_single", "story", "feed_carousel"], required=True)
+    register_surface.add_argument(
+        "--surface", choices=["feed_single", "story", "feed_carousel"], required=True
+    )
     register_surface.add_argument("--creator", required=True)
     register_surface.add_argument("--campaign", required=True)
     register_surface.add_argument("--instagram-post-caption")
@@ -582,11 +679,17 @@ def main() -> int:
     lifecycle = sub.add_parser("lifecycle-report")
     lifecycle.add_argument("--campaign", required=True)
     lifecycle.add_argument("--user-id")
-    lifecycle.add_argument("--include-threadsdash", choices=["auto", "live", "off"], default="auto")
+    lifecycle.add_argument(
+        "--include-threadsdash", choices=["auto", "live", "off"], default="auto"
+    )
     lifecycle.add_argument("--state")
     lifecycle.add_argument("--blocking-reason")
     lifecycle.add_argument("--rendered-asset-id")
-    lifecycle.add_argument("--json", action="store_true", help="Print JSON output; retained for explicit operator intent")
+    lifecycle.add_argument(
+        "--json",
+        action="store_true",
+        help="Print JSON output; retained for explicit operator intent",
+    )
 
     publishability = sub.add_parser("explain-publishability")
     publishability.add_argument("--rendered-asset-id", required=True)
@@ -613,19 +716,27 @@ def main() -> int:
     generate_variants.add_argument("--caption-version-id")
     generate_variants.add_argument("--count", type=int, default=10)
     generate_variants.add_argument("--contentforge-preset", default="caption_safe")
-    generate_variants.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    generate_variants.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     generate_variants.add_argument("--source-media-path")
     generate_variants.add_argument("--dry-run", action="store_true")
 
     winner_plan = sub.add_parser("winner-expansion-plan")
-    winner_plan.add_argument("--input-json", help="JSON string or path containing creator, parentAssetId, targetVariants, and preset")
+    winner_plan.add_argument(
+        "--input-json",
+        help="JSON string or path containing creator, parentAssetId, targetVariants, and preset",
+    )
     winner_plan.add_argument("--creator")
     winner_plan.add_argument("--parent-asset-id")
     winner_plan.add_argument("--target-variants", type=int)
     winner_plan.add_argument("--preset")
 
     caption_plan = sub.add_parser("caption-family-plan")
-    caption_plan.add_argument("--input-json", help="JSON string or path containing creator, parentAssetId, requestedCaptionVersions, style, and dryRun")
+    caption_plan.add_argument(
+        "--input-json",
+        help="JSON string or path containing creator, parentAssetId, requestedCaptionVersions, style, and dryRun",
+    )
     caption_plan.add_argument("--creator")
     caption_plan.add_argument("--parent-asset-id")
     caption_plan.add_argument("--requested-caption-versions", type=int)
@@ -633,7 +744,10 @@ def main() -> int:
     caption_plan.add_argument("--dry-run", action="store_true")
 
     caption_create = sub.add_parser("caption-family-create")
-    caption_create.add_argument("--input-json", help="JSON string or path containing creator, parentAssetId, requestedCaptionVersions, style, and dryRun")
+    caption_create.add_argument(
+        "--input-json",
+        help="JSON string or path containing creator, parentAssetId, requestedCaptionVersions, style, and dryRun",
+    )
     caption_create.add_argument("--creator")
     caption_create.add_argument("--parent-asset-id")
     caption_create.add_argument("--requested-caption-versions", type=int)
@@ -641,7 +755,10 @@ def main() -> int:
     caption_create.add_argument("--dry-run", action="store_true")
 
     inventory_plan = sub.add_parser("variant-inventory-plan")
-    inventory_plan.add_argument("--input-json", help="JSON string or path containing creator, campaign, targetDraftShortfall, preset, maxVariantsPerParent, minimumRecommendedPerParent, and dryRun")
+    inventory_plan.add_argument(
+        "--input-json",
+        help="JSON string or path containing creator, campaign, targetDraftShortfall, preset, maxVariantsPerParent, minimumRecommendedPerParent, and dryRun",
+    )
     inventory_plan.add_argument("--creator")
     inventory_plan.add_argument("--campaign")
     inventory_plan.add_argument("--target-draft-shortfall", type=int)
@@ -723,8 +840,14 @@ def main() -> int:
     tribev2_review = sub.add_parser("tribev2-reel-review")
     tribev2_review.add_argument("--creator", required=True)
     tribev2_review.add_argument("--campaign")
-    tribev2_review.add_argument("--sort-by", default="meanAbsActivation", choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"])
-    tribev2_review.add_argument("--bucket", default="top", choices=["top", "bottom", "both"])
+    tribev2_review.add_argument(
+        "--sort-by",
+        default="meanAbsActivation",
+        choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"],
+    )
+    tribev2_review.add_argument(
+        "--bucket", default="top", choices=["top", "bottom", "both"]
+    )
     tribev2_review.add_argument("--limit", type=int, default=12)
     tribev2_review.add_argument("--contact-sheet", action="store_true")
     tribev2_review.add_argument("--show-metrics", action="store_true")
@@ -776,7 +899,11 @@ def main() -> int:
 
     dist = sub.add_parser("distribution-plan")
     dist.add_argument("--rendered-asset-id", required=True)
-    dist.add_argument("--surface", choices=["regular_reel", "trial_reel", "story", "story_cta", "feed_single"], default="regular_reel")
+    dist.add_argument(
+        "--surface",
+        choices=["regular_reel", "trial_reel", "story", "story_cta", "feed_single"],
+        default="regular_reel",
+    )
     dist.add_argument("--account-id")
     dist.add_argument("--instagram-account-id")
     dist.add_argument("--planned-window-start")
@@ -786,7 +913,9 @@ def main() -> int:
     dist.add_argument("--smart-link")
     dist.add_argument("--cta-text")
     dist.add_argument("--instagram-trial-reels", action="store_true")
-    dist.add_argument("--trial-graduation-strategy", choices=["MANUAL", "SS_PERFORMANCE"])
+    dist.add_argument(
+        "--trial-graduation-strategy", choices=["MANUAL", "SS_PERFORMANCE"]
+    )
 
     plan_dist = sub.add_parser("plan-distribution")
     plan_dist.add_argument("--campaign", required=True)
@@ -799,14 +928,22 @@ def main() -> int:
     promote.add_argument("--campaign", required=True)
     promote.add_argument("--user-id", required=True)
     promote.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    promote.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    promote.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     promote.add_argument("--limit", type=int, default=1000)
 
     clear_schedule = sub.add_parser("clear-preview-schedule")
     clear_schedule.add_argument("--campaign", required=True)
     clear_schedule.add_argument("--user-id", required=True)
-    clear_schedule.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    clear_schedule.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    clear_schedule.add_argument(
+        "--supabase-url", default=os.environ.get("SUPABASE_URL")
+    )
+    clear_schedule.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
     clear_schedule.add_argument("--limit", type=int, default=1000)
     clear_schedule.add_argument("--reason", default="audio_workflow_not_ready")
 
@@ -814,13 +951,18 @@ def main() -> int:
     account_plan.add_argument("--campaign", required=True)
     account_plan.add_argument("--user-id", required=True)
     account_plan.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    account_plan.add_argument("--supabase-service-role-key", default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    account_plan.add_argument(
+        "--supabase-service-role-key",
+        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+    )
 
     ranking = sub.add_parser("ranking")
     ranking.add_argument("--campaign", required=True)
 
     autonomy = sub.add_parser("autonomy-policy")
-    autonomy.add_argument("--set", choices=["level_1", "level_2", "level_3"], dest="set_level")
+    autonomy.add_argument(
+        "--set", choices=["level_1", "level_2", "level_3"], dest="set_level"
+    )
 
     trust_summary = sub.add_parser("trust-summary")
     trust_summary.add_argument("--campaign", required=True)
@@ -879,7 +1021,9 @@ def main() -> int:
     execute_rec.add_argument("--force", action="store_true")
     execute_rec.add_argument("--dry-run-render", action="store_true")
     execute_rec.add_argument("--no-audit", action="store_true")
-    execute_rec.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    execute_rec.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
 
     account_memory = sub.add_parser("account-memory")
     account_memory.add_argument("--campaign", required=True)
@@ -910,7 +1054,9 @@ def main() -> int:
 
     ref_import = sub.add_parser("import-reference-bank")
     ref_import.add_argument("--path", default=os.environ.get("CAMPAIGN_REFERENCE_BANK"))
-    ref_import.add_argument("--prompt-pack", default=os.environ.get("HIGGSFIELD_PROMPT_PACK"))
+    ref_import.add_argument(
+        "--prompt-pack", default=os.environ.get("HIGGSFIELD_PROMPT_PACK")
+    )
 
     audio_import = sub.add_parser("import-audio-catalog")
     audio_import.add_argument("--path", required=True)
@@ -934,7 +1080,9 @@ def main() -> int:
     audio_recommend.add_argument("--account")
     audio_recommend.add_argument("--content-tags", default="")
     audio_recommend.add_argument("--account-tags", default="")
-    audio_recommend.add_argument("--visual-energy", choices=["low", "medium", "high"], default=None)
+    audio_recommend.add_argument(
+        "--visual-energy", choices=["low", "medium", "high"], default=None
+    )
     audio_recommend.add_argument("--cuts-per-second", type=float, default=None)
     audio_recommend.add_argument("--avg-frame-delta", type=float, default=None)
     audio_recommend.add_argument("--limit", "--count", type=int, default=5)
@@ -946,7 +1094,9 @@ def main() -> int:
     audio_decide.add_argument("--account")
     audio_decide.add_argument("--content-tags", default="")
     audio_decide.add_argument("--account-tags", default="")
-    audio_decide.add_argument("--visual-energy", choices=["low", "medium", "high"], default=None)
+    audio_decide.add_argument(
+        "--visual-energy", choices=["low", "medium", "high"], default=None
+    )
     audio_decide.add_argument("--cuts-per-second", type=float, default=None)
     audio_decide.add_argument("--avg-frame-delta", type=float, default=None)
     audio_decide.add_argument("--limit", "--count", type=int, default=5)
@@ -1017,10 +1167,14 @@ def main() -> int:
     make_batch.add_argument("--folder", required=True)
     make_batch.add_argument("--campaign", required=True)
     make_batch.add_argument("--model", required=True)
-    make_batch.add_argument("--format", choices=["reel", "slideshow", "auto"], default="auto")
+    make_batch.add_argument(
+        "--format", choices=["reel", "slideshow", "auto"], default="auto"
+    )
     make_batch.add_argument("--variant-count", type=int, default=20)
     make_batch.add_argument("--reference-pattern", default="auto")
-    make_batch.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    make_batch.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     make_batch.add_argument("--dry-run-export", action="store_true")
     make_batch.add_argument("--user-id")
     make_batch.add_argument("--workers", type=int, default=3)
@@ -1034,7 +1188,9 @@ def main() -> int:
     finished.add_argument("--platform", default="instagram")
     finished.add_argument("--goal", default="reach")
     finished.add_argument("--reference-pattern", default="auto")
-    finished.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    finished.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     finished.add_argument("--dry-run-export", action="store_true", default=True)
     finished.add_argument("--user-id")
     finished.add_argument("--variant-count", type=int, default=10)
@@ -1074,14 +1230,19 @@ def main() -> int:
     archive_quality = sub.add_parser("archive-candidate-quality")
     archive_quality.add_argument("--inventory-report", required=True)
     archive_quality.add_argument("--requested-count", type=int, default=25)
-    archive_quality.add_argument("--exclude-index", type=int, action="append", default=[])
+    archive_quality.add_argument(
+        "--exclude-index", type=int, action="append", default=[]
+    )
 
     creative_create = sub.add_parser("create-creative-plan")
     creative_create.add_argument("--name", required=True)
     creative_create.add_argument("--platform", default="instagram")
     creative_create.add_argument("--target-account", required=True)
     creative_create.add_argument("--daily-base-video-target", type=int, default=10)
-    creative_create.add_argument("--style-lanes", default="amateur_native,polished_glam,slideshow_story,pov_relationship,lifestyle_scene")
+    creative_create.add_argument(
+        "--style-lanes",
+        default="amateur_native,polished_glam,slideshow_story,pov_relationship,lifestyle_scene",
+    )
     creative_create.add_argument("--model-profile", default="")
     creative_create.add_argument("--source-accounts", default="")
     creative_create.add_argument("--goal", default="views_reach")
@@ -1118,7 +1279,9 @@ def main() -> int:
     smoke.add_argument("--hooks")
     smoke.add_argument("--recipes", nargs="*", default=None)
     smoke.add_argument("--account", action="append", default=[])
-    smoke.add_argument("--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL"))
+    smoke.add_argument(
+        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
+    )
     smoke.add_argument("--run-reel", action="store_true")
     smoke.add_argument("--workers", type=int, default=3)
     smoke.add_argument("--min-score", type=int, default=85)
@@ -1127,167 +1290,209 @@ def main() -> int:
     settings = get_settings()
 
     if args.cmd == "serve":
-        uvicorn.run("campaign_factory.app:app", host=args.host, port=args.port, reload=False)
+        uvicorn.run(
+            "campaign_factory.app:app", host=args.host, port=args.port, reload=False
+        )
         return 0
 
     cf = CampaignFactory(settings)
     try:
         if args.cmd == "init":
-            print_json({"ok": True, "db": str(settings.db_path), "campaigns": str(settings.campaigns_dir)})
+            print_json(
+                {
+                    "ok": True,
+                    "db": str(settings.db_path),
+                    "campaigns": str(settings.campaigns_dir),
+                }
+            )
         elif args.cmd == "doctor":
-            print_json(operator_control_check(
-                settings,
-                contentforge_base_url=args.contentforge_base_url,
-                check_http=args.check_http,
-            ))
+            print_json(
+                operator_control_check(
+                    settings,
+                    contentforge_base_url=args.contentforge_base_url,
+                    check_http=args.check_http,
+                )
+            )
         elif args.cmd == "import-folder":
-            print_json(cf.import_folder(
-                Path(args.folder),
-                campaign_slug=args.campaign,
-                model_slug=args.model,
-                model_name=args.model_name,
-                platform=args.platform,
-                account_handles=args.account,
-                source_prompt=args.source_prompt,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.import_folder(
+                    Path(args.folder),
+                    campaign_slug=args.campaign,
+                    model_slug=args.model,
+                    model_name=args.model_name,
+                    platform=args.platform,
+                    account_handles=args.account,
+                    source_prompt=args.source_prompt,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "prepare-reel":
-            print_json(cf.prepare_reel_inputs(
-                campaign_slug=args.campaign,
-                hooks=load_hooks(args.hooks, args.hook),
-                recipes=args.recipes,
-                caption_color=args.caption_color,
-                notes=args.notes,
-                force_new=args.force_new,
-            ))
+            print_json(
+                cf.prepare_reel_inputs(
+                    campaign_slug=args.campaign,
+                    hooks=load_hooks(args.hooks, args.hook),
+                    recipes=args.recipes,
+                    caption_color=args.caption_color,
+                    notes=args.notes,
+                    force_new=args.force_new,
+                )
+            )
         elif args.cmd == "run-reel":
-            print_json(cf.run_reel_factory(
-                campaign_slug=args.campaign,
-                workers=args.workers,
-                dry_run=args.dry_run,
-                caption_band=args.band,
-                caption_color=args.color,
-                caption_style=args.style,
-                caption_font=args.font,
-                phone_finalize=not args.no_phone_finalize,
-                rerender_all=args.rerender_all,
-                max_outputs_per_clip=args.max_outputs_per_clip,
-            ))
+            print_json(
+                cf.run_reel_factory(
+                    campaign_slug=args.campaign,
+                    workers=args.workers,
+                    dry_run=args.dry_run,
+                    caption_band=args.band,
+                    caption_color=args.color,
+                    caption_style=args.style,
+                    caption_font=args.font,
+                    phone_finalize=not args.no_phone_finalize,
+                    rerender_all=args.rerender_all,
+                    max_outputs_per_clip=args.max_outputs_per_clip,
+                )
+            )
         elif args.cmd == "sync-reel":
             print_json(cf.sync_reel_outputs(campaign_slug=args.campaign))
         elif args.cmd == "variation":
             if args.variation_cmd == "run":
-                print_json(run_variation_stage(
-                    cf,
-                    campaign_slug=args.campaign,
-                    preset_name=args.preset,
-                    rendered_asset_ids=args.rendered_asset_id or None,
-                    dry_run=not args.apply or args.dry_run,
-                    contentforge_base_url=args.contentforge_base_url,
-                ))
+                print_json(
+                    run_variation_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        preset_name=args.preset,
+                        rendered_asset_ids=args.rendered_asset_id or None,
+                        dry_run=not args.apply or args.dry_run,
+                        contentforge_base_url=args.contentforge_base_url,
+                    )
+                )
         elif args.cmd == "animation":
             if args.animation_cmd == "motion-edit":
-                caption = args.caption if args.caption is not None else Path(args.caption_file).read_text(encoding="utf-8").strip()
-                print_json(run_motion_edit_stage(
-                    cf,
-                    campaign_slug=args.campaign,
-                    still_path=Path(args.still),
-                    caption=caption,
-                    duration_seconds=args.duration,
-                    dry_run=not args.apply or args.dry_run,
-                    apply=args.apply,
-                    enable_variation=args.enable_variation,
-                    variation_preset=args.variation_preset,
-                    allow_upscale=args.allow_upscale,
-                ))
+                caption = (
+                    args.caption
+                    if args.caption is not None
+                    else Path(args.caption_file).read_text(encoding="utf-8").strip()
+                )
+                print_json(
+                    run_motion_edit_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        still_path=Path(args.still),
+                        caption=caption,
+                        duration_seconds=args.duration,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                        enable_variation=args.enable_variation,
+                        variation_preset=args.variation_preset,
+                        allow_upscale=args.allow_upscale,
+                    )
+                )
         elif args.cmd == "generation":
             if args.generation_cmd == "front-link":
-                print_json(run_front_generation_stage(
-                    cf,
-                    campaign_slug=args.campaign,
-                    reference_image_path=Path(args.reference_image),
-                    creator=args.creator,
-                    soul_id=args.soul_id,
-                    soul_name=args.soul_name,
-                    scene_type=args.scene_type,
-                    animation_mode=args.animation_mode,
-                    accepted_still_path=Path(args.accepted_still) if args.accepted_still else None,
-                    estimated_image_cost_usd=args.estimated_image_cost_usd,
-                    estimated_video_cost_usd=args.estimated_video_cost_usd,
-                    budget_cap_usd=args.budget_cap_usd,
-                    enable_paid_generation=args.enable_paid_generation,
-                    wait=args.wait,
-                    download=args.download,
-                    enable_variation=args.enable_variation,
-                    variation_preset=args.variation_preset,
-                    dry_run=not args.apply or args.dry_run,
-                    apply=args.apply,
-                ))
+                print_json(
+                    run_front_generation_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        reference_image_path=Path(args.reference_image),
+                        creator=args.creator,
+                        soul_id=args.soul_id,
+                        soul_name=args.soul_name,
+                        scene_type=args.scene_type,
+                        animation_mode=args.animation_mode,
+                        accepted_still_path=Path(args.accepted_still)
+                        if args.accepted_still
+                        else None,
+                        estimated_image_cost_usd=args.estimated_image_cost_usd,
+                        estimated_video_cost_usd=args.estimated_video_cost_usd,
+                        budget_cap_usd=args.budget_cap_usd,
+                        enable_paid_generation=args.enable_paid_generation,
+                        wait=args.wait,
+                        download=args.download,
+                        enable_variation=args.enable_variation,
+                        variation_preset=args.variation_preset,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                    )
+                )
         elif args.cmd == "proactive-cycle":
             if args.proactive_cmd == "run":
-                print_json(run_proactive_cycle_stage(
+                print_json(
+                    run_proactive_cycle_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        count=args.count,
+                        account=args.account,
+                        reference_image_path=Path(args.reference_image)
+                        if args.reference_image
+                        else None,
+                        generation_mode=args.generation_mode,
+                        enable_variation=args.enable_variation,
+                        enable_export=args.enable_export,
+                        enable_schedule=args.enable_schedule,
+                        schedule_mode=args.schedule_mode,
+                        user_id=args.user_id,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                        enable_live=args.enable_live,
+                        enable_paid_generation=args.enable_paid_generation,
+                        budget_cap_usd=args.budget_cap_usd,
+                        idempotency_key=args.idempotency_key,
+                        kill_switch=args.kill_switch,
+                    )
+                )
+        elif args.cmd == "audit":
+            print_json(
+                audit_campaign(
                     cf,
                     campaign_slug=args.campaign,
-                    count=args.count,
-                    account=args.account,
-                    reference_image_path=Path(args.reference_image) if args.reference_image else None,
-                    generation_mode=args.generation_mode,
-                    enable_variation=args.enable_variation,
-                    enable_export=args.enable_export,
-                    enable_schedule=args.enable_schedule,
-                    schedule_mode=args.schedule_mode,
-                    user_id=args.user_id,
-                    dry_run=not args.apply or args.dry_run,
-                    apply=args.apply,
-                    enable_live=args.enable_live,
-                    enable_paid_generation=args.enable_paid_generation,
-                    budget_cap_usd=args.budget_cap_usd,
-                    idempotency_key=args.idempotency_key,
-                    kill_switch=args.kill_switch,
-                ))
-        elif args.cmd == "audit":
-            print_json(audit_campaign(
-                cf,
-                campaign_slug=args.campaign,
-                min_score=args.min_score,
-                contentforge_base_url=args.contentforge_base_url,
-                layers=args.layer or None,
-            ))
+                    min_score=args.min_score,
+                    contentforge_base_url=args.contentforge_base_url,
+                    layers=args.layer or None,
+                )
+            )
         elif args.cmd == "approve":
-            print_json(cf.approve_rendered_asset(
-                args.rendered_asset_id,
-                notes=args.notes,
-                require_safe_audit=not args.force_unsafe_audit,
-            ))
+            print_json(
+                cf.approve_rendered_asset(
+                    args.rendered_asset_id,
+                    notes=args.notes,
+                    require_safe_audit=not args.force_unsafe_audit,
+                )
+            )
         elif args.cmd == "review-decision":
-            print_json(cf.review_rendered_asset(
-                args.rendered_asset_id,
-                decision=args.decision,
-                notes=args.notes,
-                require_safe_audit=not args.force_unsafe_audit,
-            ))
+            print_json(
+                cf.review_rendered_asset(
+                    args.rendered_asset_id,
+                    decision=args.decision,
+                    notes=args.notes,
+                    require_safe_audit=not args.force_unsafe_audit,
+                )
+            )
         elif args.cmd == "attest-publishability":
-            print_json(cf.attest_publishability_evidence(
-                args.rendered_asset_id,
-                instagram_post_caption=args.instagram_post_caption,
-                visual_qc_status=args.visual_qc_status,
-                identity_verification_status=args.identity_verification_status,
-                operator=args.operator,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.attest_publishability_evidence(
+                    args.rendered_asset_id,
+                    instagram_post_caption=args.instagram_post_caption,
+                    visual_qc_status=args.visual_qc_status,
+                    identity_verification_status=args.identity_verification_status,
+                    operator=args.operator,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "export-readiness":
-            print_json(evaluate_export_readiness(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-                content_pillar=args.content_pillar,
-                cta_type=args.cta_type,
-                language=args.language,
-                schedule_mode=args.schedule_mode,
-            ))
+            print_json(
+                evaluate_export_readiness(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                    content_pillar=args.content_pillar,
+                    cta_type=args.cta_type,
+                    language=args.language,
+                    schedule_mode=args.schedule_mode,
+                )
+            )
         elif args.cmd == "readiness-report":
             campaign_row = cf.conn.execute(
                 "SELECT slug FROM campaigns WHERE id = ? OR slug = ?",
@@ -1343,32 +1548,39 @@ def main() -> int:
             else:
                 print_json(report)
         elif args.cmd == "promote-reel-ledger":
-            print_json(promote_reel_ledger(
-                cf,
-                campaign_id=args.campaign,
-                reel_factory_root=Path(args.reel_factory_root) if args.reel_factory_root else settings.reel_factory_root,
-                days=args.days,
-                apply=args.apply,
-            ))
+            print_json(
+                promote_reel_ledger(
+                    cf,
+                    campaign_id=args.campaign,
+                    reel_factory_root=Path(args.reel_factory_root)
+                    if args.reel_factory_root
+                    else settings.reel_factory_root,
+                    days=args.days,
+                    apply=args.apply,
+                )
+            )
         elif args.cmd == "export-threadsdash":
-            print_json(export_threadsdash(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                dry_run=args.dry_run or not (args.supabase_url and args.supabase_service_role_key),
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                supabase_storage_bucket=args.supabase_storage_bucket,
-                allow_warnings=args.allow_warnings,
-                content_pillar=args.content_pillar,
-                cta_type=args.cta_type,
-                language=args.language,
-                max_drafts=args.max_drafts,
-                rendered_asset_ids=args.rendered_asset_id or None,
-                schedule_mode=args.schedule_mode,
-                enable_variation=args.enable_variation,
-                variation_preset=args.variation_preset,
-            ))
+            print_json(
+                export_threadsdash(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    dry_run=args.dry_run
+                    or not (args.supabase_url and args.supabase_service_role_key),
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    supabase_storage_bucket=args.supabase_storage_bucket,
+                    allow_warnings=args.allow_warnings,
+                    content_pillar=args.content_pillar,
+                    cta_type=args.cta_type,
+                    language=args.language,
+                    max_drafts=args.max_drafts,
+                    rendered_asset_ids=args.rendered_asset_id or None,
+                    schedule_mode=args.schedule_mode,
+                    enable_variation=args.enable_variation,
+                    variation_preset=args.variation_preset,
+                )
+            )
         elif args.cmd == "supabase-preflight":
             pipeline_job = cf.create_pipeline_job(
                 "supabase_preflight",
@@ -1392,12 +1604,28 @@ def main() -> int:
                     pipeline_job_id=pipeline_job["id"],
                     status="success" if result["ok"] else "failure",
                     message=f"Supabase preflight {'passed' if result['ok'] else 'failed'}",
-                    metadata={"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []},
+                    metadata={
+                        "ok": result["ok"],
+                        "blockingReasons": result.get("blockingReasons") or [],
+                    },
                 )
                 if result["ok"]:
-                    cf.finish_pipeline_job(pipeline_job["id"], {"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []})
+                    cf.finish_pipeline_job(
+                        pipeline_job["id"],
+                        {
+                            "ok": result["ok"],
+                            "blockingReasons": result.get("blockingReasons") or [],
+                        },
+                    )
                 else:
-                    cf.fail_pipeline_job(pipeline_job["id"], "Supabase preflight failed", {"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []})
+                    cf.fail_pipeline_job(
+                        pipeline_job["id"],
+                        "Supabase preflight failed",
+                        {
+                            "ok": result["ok"],
+                            "blockingReasons": result.get("blockingReasons") or [],
+                        },
+                    )
                 print_json(result)
             except Exception as exc:
                 result = {
@@ -1419,7 +1647,11 @@ def main() -> int:
                 print_json(result)
                 return 1
         elif args.cmd == "verify-threadsdash-export":
-            pipeline_job = cf.create_pipeline_job("verify_threadsdash_export", None, {"exportManifest": args.export_manifest})
+            pipeline_job = cf.create_pipeline_job(
+                "verify_threadsdash_export",
+                None,
+                {"exportManifest": args.export_manifest},
+            )
             cf.start_pipeline_job(pipeline_job["id"])
             try:
                 result = verify_threadsdash_export(
@@ -1433,12 +1665,32 @@ def main() -> int:
                     pipeline_job_id=pipeline_job["id"],
                     status="success" if result["ok"] else "failure",
                     message=f"ThreadsDash export {'verified' if result['ok'] else 'verification failed'}",
-                    metadata={"ok": result["ok"], "campaign": result.get("campaign"), "exportPath": result.get("exportPath"), "blockingReasons": result.get("blockingReasons") or []},
+                    metadata={
+                        "ok": result["ok"],
+                        "campaign": result.get("campaign"),
+                        "exportPath": result.get("exportPath"),
+                        "blockingReasons": result.get("blockingReasons") or [],
+                    },
                 )
                 if result["ok"]:
-                    cf.finish_pipeline_job(pipeline_job["id"], {"ok": result["ok"], "campaign": result.get("campaign"), "blockingReasons": result.get("blockingReasons") or []})
+                    cf.finish_pipeline_job(
+                        pipeline_job["id"],
+                        {
+                            "ok": result["ok"],
+                            "campaign": result.get("campaign"),
+                            "blockingReasons": result.get("blockingReasons") or [],
+                        },
+                    )
                 else:
-                    cf.fail_pipeline_job(pipeline_job["id"], "ThreadsDash export verification failed", {"ok": result["ok"], "campaign": result.get("campaign"), "blockingReasons": result.get("blockingReasons") or []})
+                    cf.fail_pipeline_job(
+                        pipeline_job["id"],
+                        "ThreadsDash export verification failed",
+                        {
+                            "ok": result["ok"],
+                            "campaign": result.get("campaign"),
+                            "blockingReasons": result.get("blockingReasons") or [],
+                        },
+                    )
                 print_json(result)
             except Exception as exc:
                 cf.record_event(
@@ -1451,77 +1703,102 @@ def main() -> int:
                 cf.fail_pipeline_job(pipeline_job["id"], str(exc))
                 raise
         elif args.cmd == "safe-live-smoke":
-            print_json(safe_live_smoke_export(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                supabase_storage_bucket=args.supabase_storage_bucket,
-                allow_warnings=args.allow_warnings,
-            ))
+            print_json(
+                safe_live_smoke_export(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    supabase_storage_bucket=args.supabase_storage_bucket,
+                    allow_warnings=args.allow_warnings,
+                )
+            )
         elif args.cmd == "threadsdash-usage":
-            print_json(summarize_threadsdash_usage(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-            ))
+            print_json(
+                summarize_threadsdash_usage(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "sync-threadsdash-assignments":
-            print_json(sync_threadsdash_account_assignments(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-            ))
+            print_json(
+                sync_threadsdash_account_assignments(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "sync-performance":
-            print_json(sync_performance_snapshots(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-            ))
+            print_json(
+                sync_performance_snapshots(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "performance-summary":
             print_json(cf.performance_summary(args.campaign))
         elif args.cmd == "multi-surface-inventory-audit":
-            print_json(cf.multi_surface_inventory_audit(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.multi_surface_inventory_audit(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
         elif args.cmd == "account-surface-obligations-plan":
-            print_json(cf.account_surface_obligations_plan(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.account_surface_obligations_plan(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "account-content-needs":
-            print_json(cf.account_content_needs(
-                account_id=args.account_id,
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.account_content_needs(
+                    account_id=args.account_id,
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "account-surface-status":
-            print_json(cf.account_surface_status(
-                account_id=args.account_id,
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.account_surface_status(
+                    account_id=args.account_id,
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "creator-content-needs":
-            print_json(cf.creator_content_needs(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_content_needs(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "surface-gap-report":
-            print_json(cf.surface_gap_report(
-                creator=args.creator,
-                date=args.date,
-            ))
-        elif args.cmd in {"inventory-recovery-report", "inventory-recovery-priority-report", "inventory-recovery-by-blocker", "inventory-recovery-master-report"}:
+            print_json(
+                cf.surface_gap_report(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
+        elif args.cmd in {
+            "inventory-recovery-report",
+            "inventory-recovery-priority-report",
+            "inventory-recovery-by-blocker",
+            "inventory-recovery-master-report",
+        }:
             payload = {
                 "creator": args.creator,
                 "campaign_slug": args.campaign,
@@ -1610,7 +1887,10 @@ def main() -> int:
                 print_json(cf.inventory_unlock_minimal_fix_set(**payload))
             else:
                 print_json(cf.inventory_unlock_master_report(**payload))
-        elif args.cmd in {"operator-inventory-review-batch-plan", "operator-inventory-review-batch-summary"}:
+        elif args.cmd in {
+            "operator-inventory-review-batch-plan",
+            "operator-inventory-review-batch-summary",
+        }:
             payload = {
                 "creator": args.creator,
                 "campaign_slug": args.campaign,
@@ -1672,38 +1952,52 @@ def main() -> int:
             else:
                 print_json(cf.fresh_reel_production_master_report(**payload))
         elif args.cmd == "story-inventory-report":
-            print_json(cf.story_inventory_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_inventory_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
         elif args.cmd == "story-gap-report":
-            print_json(cf.story_gap_report(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.story_gap_report(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "story-quality-report":
-            print_json(cf.story_quality_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_quality_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
         elif args.cmd == "story-intent-report":
-            print_json(cf.story_intent_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_intent_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
         elif args.cmd == "story-mix-plan":
-            print_json(cf.story_mix_plan(
-                creator=args.creator,
-            ))
+            print_json(
+                cf.story_mix_plan(
+                    creator=args.creator,
+                )
+            )
         elif args.cmd == "story-calendar-plan":
-            print_json(cf.story_calendar_plan(
-                creator=args.creator,
-            ))
+            print_json(
+                cf.story_calendar_plan(
+                    creator=args.creator,
+                )
+            )
         elif args.cmd == "story-intent-summary":
-            print_json(cf.story_intent_summary(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_intent_summary(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
         elif args.cmd == "decision-ledger-preview":
             print_json(cf.decision_ledger_preview(**decision_ledger_kwargs(args)))
         elif args.cmd == "decision-ledger-report":
@@ -1713,111 +2007,147 @@ def main() -> int:
         elif args.cmd == "decision-ledger-by-creator":
             print_json(cf.decision_ledger_by_creator(**decision_ledger_kwargs(args)))
         elif args.cmd == "decision-ledger-by-account":
-            print_json(cf.decision_ledger_by_account(account_id=args.account_id, **decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_account(
+                    account_id=args.account_id, **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-by-surface":
-            print_json(cf.decision_ledger_by_surface(surface=args.surface, **decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_surface(
+                    surface=args.surface, **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-by-decision-type":
-            print_json(cf.decision_ledger_by_decision_type(decision_type=args.decision_type, **decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_decision_type(
+                    decision_type=args.decision_type, **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "account-story-status":
-            print_json(cf.account_story_status(
-                account_id=args.account_id,
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.account_story_status(
+                    account_id=args.account_id,
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "creator-story-summary":
-            print_json(cf.creator_story_summary(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_story_summary(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
         elif args.cmd == "surface-handoff-readiness-report":
-            print_json(cf.surface_handoff_readiness_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.surface_handoff_readiness_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
         elif args.cmd == "surface-draft-proof":
-            print_json(cf.surface_draft_proof(
-                creator=args.creator,
-                campaign=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.surface_draft_proof(
+                    creator=args.creator,
+                    campaign=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
         elif args.cmd == "carousel-integrity-report":
-            print_json(cf.carousel_integrity_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.carousel_integrity_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
         elif args.cmd == "carousel-child-metrics-plan":
-            print_json(cf.carousel_child_metrics_plan(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.carousel_child_metrics_plan(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
         elif args.cmd == "register-surface-asset":
             inputs = [Path(item) for item in args.input]
-            print_json(cf.register_surface_asset(
-                input_path=inputs if args.surface == "feed_carousel" else inputs[0],
-                surface=args.surface,
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                instagram_post_caption=args.instagram_post_caption,
-                target_ratio=args.target_ratio,
-                model_slug=args.model,
-                operator=args.operator,
-                story_asset_class=args.story_asset_class,
-                story_cta_type=args.story_cta_type,
-                story_cta_text=args.story_cta_text,
-                story_cta_target_url=args.story_cta_target_url,
-                story_intent=args.story_intent,
-                story_goal=args.story_goal,
-                story_style=args.story_style,
-                snapchat_username=args.snapchat_username,
-                snapchat_display_name=args.snapchat_display_name,
-                snapchat_cta_text=args.snapchat_cta_text,
-            ))
+            print_json(
+                cf.register_surface_asset(
+                    input_path=inputs if args.surface == "feed_carousel" else inputs[0],
+                    surface=args.surface,
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    instagram_post_caption=args.instagram_post_caption,
+                    target_ratio=args.target_ratio,
+                    model_slug=args.model,
+                    operator=args.operator,
+                    story_asset_class=args.story_asset_class,
+                    story_cta_type=args.story_cta_type,
+                    story_cta_text=args.story_cta_text,
+                    story_cta_target_url=args.story_cta_target_url,
+                    story_intent=args.story_intent,
+                    story_goal=args.story_goal,
+                    story_style=args.story_style,
+                    snapchat_username=args.snapchat_username,
+                    snapchat_display_name=args.snapchat_display_name,
+                    snapchat_cta_text=args.snapchat_cta_text,
+                )
+            )
         elif args.cmd == "caption-outcome-report":
             print_json(cf.caption_outcome_report(args.campaign))
         elif args.cmd == "reference-outcome-report":
             print_json(cf.reference_outcome_report(args.campaign))
         elif args.cmd == "track-q-calibration-status":
-            print_json(track_q_calibration_status(
-                cf.conn,
-                campaign_slug=args.campaign,
-                min_reviewed_reels=args.min_reviewed_reels,
-                min_low_score_or_rejected_samples=args.min_low_score_or_rejected_samples,
-                low_score_threshold=args.low_score_threshold,
-            ))
+            print_json(
+                track_q_calibration_status(
+                    cf.conn,
+                    campaign_slug=args.campaign,
+                    min_reviewed_reels=args.min_reviewed_reels,
+                    min_low_score_or_rejected_samples=args.min_low_score_or_rejected_samples,
+                    low_score_threshold=args.low_score_threshold,
+                )
+            )
         elif args.cmd == "lifecycle-report":
-            print_json(cf.lifecycle_report(
-                args.campaign,
-                user_id=args.user_id,
-                include_threadsdash=args.include_threadsdash,
-                state=args.state,
-                blocking_reason=args.blocking_reason,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.lifecycle_report(
+                    args.campaign,
+                    user_id=args.user_id,
+                    include_threadsdash=args.include_threadsdash,
+                    state=args.state,
+                    blocking_reason=args.blocking_reason,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
         elif args.cmd == "explain-publishability":
-            print_json(cf.explain_publishability(
-                args.rendered_asset_id,
-                distribution_plan_id=args.distribution_plan_id,
-            ))
+            print_json(
+                cf.explain_publishability(
+                    args.rendered_asset_id,
+                    distribution_plan_id=args.distribution_plan_id,
+                )
+            )
         elif args.cmd == "register-parent-reel":
             metadata = json.loads(args.metadata_json) if args.metadata_json else None
-            print_json(cf.register_parent_reel(
-                args.rendered_asset_id,
-                operator=args.operator,
-                status=args.status,
-                metadata=metadata,
-            ))
+            print_json(
+                cf.register_parent_reel(
+                    args.rendered_asset_id,
+                    operator=args.operator,
+                    status=args.status,
+                    metadata=metadata,
+                )
+            )
         elif args.cmd == "parent-variant-inventory":
             print_json(cf.parent_variant_inventory(args.campaign))
         elif args.cmd == "variant-plan":
-            print_json(cf.variant_plan(
-                parent_asset_id=args.parent_asset_id,
-                count=args.count,
-                contentforge_preset=args.contentforge_preset,
-                cooldown_days=args.cooldown_days,
-            ))
+            print_json(
+                cf.variant_plan(
+                    parent_asset_id=args.parent_asset_id,
+                    count=args.count,
+                    contentforge_preset=args.contentforge_preset,
+                    cooldown_days=args.cooldown_days,
+                )
+            )
         elif args.cmd == "generate-variants":
             if args.dry_run or not args.contentforge_base_url:
                 plan = cf.variant_plan(
@@ -1828,17 +2158,21 @@ def main() -> int:
                 )
                 plan["schema"] = "campaign_factory.generate_variants.preview.v1"
                 plan["status"] = "dry_run" if args.dry_run else "blocked"
-                plan["blockingReason"] = None if args.dry_run else "contentforge_base_url_required"
+                plan["blockingReason"] = (
+                    None if args.dry_run else "contentforge_base_url_required"
+                )
                 print_json(plan)
             else:
-                print_json(cf.generate_variants(
-                    parent_asset_id=args.parent_asset_id,
-                    caption_version_id=args.caption_version_id,
-                    count=args.count,
-                    contentforge_preset=args.contentforge_preset,
-                    contentforge_base_url=args.contentforge_base_url,
-                    source_media_path=args.source_media_path,
-                ))
+                print_json(
+                    cf.generate_variants(
+                        parent_asset_id=args.parent_asset_id,
+                        caption_version_id=args.caption_version_id,
+                        count=args.count,
+                        contentforge_preset=args.contentforge_preset,
+                        contentforge_base_url=args.contentforge_base_url,
+                        source_media_path=args.source_media_path,
+                    )
+                )
         elif args.cmd == "winner-expansion-plan":
             payload = {}
             if args.input_json:
@@ -1847,15 +2181,24 @@ def main() -> int:
                     payload = json.loads(input_value)
                 else:
                     payload = json.loads(Path(input_value).read_text(encoding="utf-8"))
-            parent_asset_id = args.parent_asset_id or payload.get("parentAssetId") or payload.get("parent_asset_id")
+            parent_asset_id = (
+                args.parent_asset_id
+                or payload.get("parentAssetId")
+                or payload.get("parent_asset_id")
+            )
             if not parent_asset_id:
                 raise ValueError("parentAssetId is required")
-            print_json(cf.winner_expansion_plan(
-                creator=args.creator or payload.get("creator"),
-                parent_asset_id=parent_asset_id,
-                target_variants=args.target_variants or payload.get("targetVariants") or payload.get("target_variants") or 10,
-                preset=args.preset or payload.get("preset") or "caption_safe_v2",
-            ))
+            print_json(
+                cf.winner_expansion_plan(
+                    creator=args.creator or payload.get("creator"),
+                    parent_asset_id=parent_asset_id,
+                    target_variants=args.target_variants
+                    or payload.get("targetVariants")
+                    or payload.get("target_variants")
+                    or 10,
+                    preset=args.preset or payload.get("preset") or "caption_safe_v2",
+                )
+            )
         elif args.cmd in {"caption-family-plan", "caption-family-create"}:
             payload = {}
             if args.input_json:
@@ -1864,7 +2207,11 @@ def main() -> int:
                     payload = json.loads(input_value)
                 else:
                     payload = json.loads(Path(input_value).read_text(encoding="utf-8"))
-            parent_asset_id = args.parent_asset_id or payload.get("parentAssetId") or payload.get("parent_asset_id")
+            parent_asset_id = (
+                args.parent_asset_id
+                or payload.get("parentAssetId")
+                or payload.get("parent_asset_id")
+            )
             if not parent_asset_id:
                 raise ValueError("parentAssetId is required")
             common = {
@@ -1873,20 +2220,28 @@ def main() -> int:
                 "requested_caption_versions": (
                     args.requested_caption_versions
                     if args.requested_caption_versions is not None
-                    else payload.get("requestedCaptionVersions") or payload.get("requested_caption_versions") or 5
+                    else payload.get("requestedCaptionVersions")
+                    or payload.get("requested_caption_versions")
+                    or 5
                 ),
                 "style": args.style or payload.get("style") or "ig_short",
             }
             if args.cmd == "caption-family-plan":
-                print_json(cf.caption_family_plan(
-                    **common,
-                    dry_run=bool(args.dry_run or payload.get("dryRun") is not False),
-                ))
+                print_json(
+                    cf.caption_family_plan(
+                        **common,
+                        dry_run=bool(
+                            args.dry_run or payload.get("dryRun") is not False
+                        ),
+                    )
+                )
             else:
-                print_json(cf.caption_family_create(
-                    **common,
-                    dry_run=bool(args.dry_run or payload.get("dryRun") is True),
-                ))
+                print_json(
+                    cf.caption_family_create(
+                        **common,
+                        dry_run=bool(args.dry_run or payload.get("dryRun") is True),
+                    )
+                )
         elif args.cmd == "variant-inventory-plan":
             payload = {}
             if args.input_json:
@@ -1901,224 +2256,294 @@ def main() -> int:
                 raise ValueError("creator is required")
             if not campaign:
                 raise ValueError("campaign is required")
-            print_json(cf.variant_inventory_plan(
-                creator=creator,
-                campaign=campaign,
-                target_draft_shortfall=(
-                    args.target_draft_shortfall
-                    if args.target_draft_shortfall is not None
-                    else payload.get("targetDraftShortfall") or payload.get("target_draft_shortfall") or 0
-                ),
-                preset=args.preset or payload.get("preset") or "caption_safe_v2",
-                max_variants_per_parent=(
-                    args.max_variants_per_parent
-                    if args.max_variants_per_parent is not None
-                    else payload.get("maxVariantsPerParent") or payload.get("max_variants_per_parent") or 10
-                ),
-                minimum_recommended_per_parent=(
-                    args.minimum_recommended_per_parent
-                    if args.minimum_recommended_per_parent is not None
-                    else payload.get("minimumRecommendedPerParent") or payload.get("minimum_recommended_per_parent") or 3
-                ),
-                dry_run=bool(args.dry_run or payload.get("dryRun") is not False),
-            ))
+            print_json(
+                cf.variant_inventory_plan(
+                    creator=creator,
+                    campaign=campaign,
+                    target_draft_shortfall=(
+                        args.target_draft_shortfall
+                        if args.target_draft_shortfall is not None
+                        else payload.get("targetDraftShortfall")
+                        or payload.get("target_draft_shortfall")
+                        or 0
+                    ),
+                    preset=args.preset or payload.get("preset") or "caption_safe_v2",
+                    max_variants_per_parent=(
+                        args.max_variants_per_parent
+                        if args.max_variants_per_parent is not None
+                        else payload.get("maxVariantsPerParent")
+                        or payload.get("max_variants_per_parent")
+                        or 10
+                    ),
+                    minimum_recommended_per_parent=(
+                        args.minimum_recommended_per_parent
+                        if args.minimum_recommended_per_parent is not None
+                        else payload.get("minimumRecommendedPerParent")
+                        or payload.get("minimum_recommended_per_parent")
+                        or 3
+                    ),
+                    dry_run=bool(args.dry_run or payload.get("dryRun") is not False),
+                )
+            )
         elif args.cmd == "winner-expansion-report":
-            print_json(cf.winner_expansion_report(
-                args.campaign,
-                min_views=args.min_views,
-                min_reach=args.min_reach,
-                min_followers=args.min_followers,
-            ))
+            print_json(
+                cf.winner_expansion_report(
+                    args.campaign,
+                    min_views=args.min_views,
+                    min_reach=args.min_reach,
+                    min_followers=args.min_followers,
+                )
+            )
         elif args.cmd == "concept-registry":
-            print_json(cf.concept_registry(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                min_views=args.min_views,
-                min_reach=args.min_reach,
-                min_followers=args.min_followers,
-            ))
+            print_json(
+                cf.concept_registry(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    min_views=args.min_views,
+                    min_reach=args.min_reach,
+                    min_followers=args.min_followers,
+                )
+            )
         elif args.cmd == "winner-registry":
-            print_json(cf.winner_registry(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                min_views=args.min_views,
-                min_reach=args.min_reach,
-                min_followers=args.min_followers,
-            ))
+            print_json(
+                cf.winner_registry(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    min_views=args.min_views,
+                    min_reach=args.min_reach,
+                    min_followers=args.min_followers,
+                )
+            )
         elif args.cmd == "winner-patterns":
-            print_json(cf.winner_patterns(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                min_views=args.min_views,
-                min_reach=args.min_reach,
-                min_followers=args.min_followers,
-            ))
+            print_json(
+                cf.winner_patterns(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    min_views=args.min_views,
+                    min_reach=args.min_reach,
+                    min_followers=args.min_followers,
+                )
+            )
         elif args.cmd == "winner-knowledge-base":
-            print_json(cf.winner_knowledge_base(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                min_views=args.min_views,
-                min_reach=args.min_reach,
-                min_followers=args.min_followers,
-            ))
+            print_json(
+                cf.winner_knowledge_base(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    min_views=args.min_views,
+                    min_reach=args.min_reach,
+                    min_followers=args.min_followers,
+                )
+            )
         elif args.cmd == "creative-knowledge-base":
-            print_json(cf.creative_knowledge_base(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_knowledge_base(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-pattern-report":
-            print_json(cf.creative_pattern_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_pattern_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-surface-report":
-            print_json(cf.creative_surface_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_surface_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-account-tier-report":
-            print_json(cf.creative_account_tier_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_account_tier_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-caption-report":
-            print_json(cf.creative_caption_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_caption_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-audio-report":
-            print_json(cf.creative_audio_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_audio_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-window-report":
-            print_json(cf.creative_window_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_window_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-performance-analysis":
-            print_json(cf.creative_performance_analysis(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_performance_analysis(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creator-learning-summary":
-            print_json(cf.creator_learning_summary(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creator_learning_summary(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "next-content-recommendations":
-            print_json(cf.next_content_recommendations(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.next_content_recommendations(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-learning-confidence-model":
-            print_json(cf.creative_learning_confidence_model(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-            ))
+            print_json(
+                cf.creative_learning_confidence_model(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                )
+            )
         elif args.cmd == "creative-fatigue-report":
-            print_json(cf.creative_fatigue_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_fatigue_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "creative-surface-comparison-report":
-            print_json(cf.creative_surface_comparison_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_surface_comparison_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "recommendation-quality-audit":
-            print_json(cf.recommendation_quality_audit(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.recommendation_quality_audit(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "tribev2-reel-analysis":
-            print_json(cf.tribev2_reel_analysis(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.tribev2_reel_analysis(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "tribev2-reel-review":
-            print_json(cf.tribev2_reel_review(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                sort_by=args.sort_by,
-                bucket=args.bucket,
-                limit=args.limit,
-                contact_sheet=args.contact_sheet,
-                show_metrics=True if args.show_metrics or not args.blind_mode else False,
-                show_tribe_score=not args.hide_tribe_score,
-                blind_mode=args.blind_mode,
-            ))
+            print_json(
+                cf.tribev2_reel_review(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    sort_by=args.sort_by,
+                    bucket=args.bucket,
+                    limit=args.limit,
+                    contact_sheet=args.contact_sheet,
+                    show_metrics=True
+                    if args.show_metrics or not args.blind_mode
+                    else False,
+                    show_tribe_score=not args.hide_tribe_score,
+                    blind_mode=args.blind_mode,
+                )
+            )
         elif args.cmd == "tribev2-holdout-pilot-review":
-            print_json(cf.tribev2_holdout_pilot_review(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-                contact_sheet=args.contact_sheet,
-            ))
+            print_json(
+                cf.tribev2_holdout_pilot_review(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                    contact_sheet=args.contact_sheet,
+                )
+            )
         elif args.cmd == "caption-quality-repair-plan":
-            print_json(cf.caption_quality_repair_plan(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                content_surface=args.content_surface,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.caption_quality_repair_plan(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    content_surface=args.content_surface,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "recommended-inventory-request-plan":
-            print_json(cf.recommended_inventory_request_plan(
-                creator=args.creator,
-                target_count=args.target_count,
-                daily_plan=load_json_object(args.daily_plan_json),
-                variant_inventory_plan=load_json_object(args.variant_inventory_plan_json),
-            ))
+            print_json(
+                cf.recommended_inventory_request_plan(
+                    creator=args.creator,
+                    target_count=args.target_count,
+                    daily_plan=load_json_object(args.daily_plan_json),
+                    variant_inventory_plan=load_json_object(
+                        args.variant_inventory_plan_json
+                    ),
+                )
+            )
         elif args.cmd == "variant-metrics-rollup":
             print_json(cf.variant_metrics_rollup(args.campaign))
         elif args.cmd == "account-routing-audit":
             if not args.supabase_url or not args.supabase_service_role_key:
-                print_json({
-                    "schema": "campaign_factory.account_routing_audit.v1",
-                    "mode": "preview",
-                    "mutatesSupabase": False,
-                    "creator": args.creator,
-                    "userId": args.user_id,
-                    "status": "blocked",
-                    "blockingReasons": ["missing_supabase_credentials"],
-                    "hasSupabaseUrl": bool(args.supabase_url),
-                    "hasSupabaseServiceRoleKey": bool(args.supabase_service_role_key),
-                    "recommendations": ["load ThreadsDashboard Supabase credentials before running the routing audit"],
-                })
+                print_json(
+                    {
+                        "schema": "campaign_factory.account_routing_audit.v1",
+                        "mode": "preview",
+                        "mutatesSupabase": False,
+                        "creator": args.creator,
+                        "userId": args.user_id,
+                        "status": "blocked",
+                        "blockingReasons": ["missing_supabase_credentials"],
+                        "hasSupabaseUrl": bool(args.supabase_url),
+                        "hasSupabaseServiceRoleKey": bool(
+                            args.supabase_service_role_key
+                        ),
+                        "recommendations": [
+                            "load ThreadsDashboard Supabase credentials before running the routing audit"
+                        ],
+                    }
+                )
                 return 1
-            client = SupabaseRestClient(args.supabase_url.rstrip("/"), args.supabase_service_role_key)
-            print_json(build_account_routing_audit(
-                client,
-                user_id=args.user_id,
-                creator=args.creator,
-            ))
+            client = SupabaseRestClient(
+                args.supabase_url.rstrip("/"), args.supabase_service_role_key
+            )
+            print_json(
+                build_account_routing_audit(
+                    client,
+                    user_id=args.user_id,
+                    creator=args.creator,
+                )
+            )
         elif args.cmd == "closed-loop-proof":
             result = run_stacey_closed_loop_proof(
                 campaign_slug=args.campaign,
@@ -2142,11 +2567,13 @@ def main() -> int:
             if result.get("result") == "failed":
                 return 1
         elif args.cmd == "closed-loop-learning-status":
-            print_json(closed_loop_learning_status(
-                cf.conn,
-                campaign_slug=args.campaign,
-                min_posts_with_1h_and_24h=args.min_posts_with_1h_and_24h,
-            ))
+            print_json(
+                closed_loop_learning_status(
+                    cf.conn,
+                    campaign_slug=args.campaign,
+                    min_posts_with_1h_and_24h=args.min_posts_with_1h_and_24h,
+                )
+            )
         elif args.cmd == "campaign-health":
             print_json(cf.campaign_health(args.campaign))
         elif args.cmd == "asset-detail":
@@ -2154,66 +2581,78 @@ def main() -> int:
         elif args.cmd == "campaign-readiness":
             print_json(cf.campaign_readiness(args.campaign, user_id=args.user_id))
         elif args.cmd == "assign-account":
-            print_json(cf.assign_asset_account(
-                args.rendered_asset_id,
-                account_id=args.account_id,
-                instagram_account_id=args.instagram_account_id,
-                planned_window_start=args.planned_window_start,
-                planned_window_end=args.planned_window_end,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.assign_asset_account(
+                    args.rendered_asset_id,
+                    account_id=args.account_id,
+                    instagram_account_id=args.instagram_account_id,
+                    planned_window_start=args.planned_window_start,
+                    planned_window_end=args.planned_window_end,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "model-account-profile":
-            print_json(cf.upsert_model_account_profile(
-                args.model,
-                label=args.label,
-                allowed_instagram_account_ids=args.instagram_account_id,
-                allowed_account_group_names=args.account_group_name,
-                allowed_handle_patterns=args.handle_pattern,
-                default_smart_link=args.smart_link,
-                story_cta_text=args.story_cta,
-            ))
+            print_json(
+                cf.upsert_model_account_profile(
+                    args.model,
+                    label=args.label,
+                    allowed_instagram_account_ids=args.instagram_account_id,
+                    allowed_account_group_names=args.account_group_name,
+                    allowed_handle_patterns=args.handle_pattern,
+                    default_smart_link=args.smart_link,
+                    story_cta_text=args.story_cta,
+                )
+            )
         elif args.cmd == "distribution-plan":
-            print_json(cf.create_distribution_plan(
-                args.rendered_asset_id,
-                surface=args.surface,
-                account_id=args.account_id,
-                instagram_account_id=args.instagram_account_id,
-                planned_window_start=args.planned_window_start,
-                planned_window_end=args.planned_window_end,
-                paired_rendered_asset_id=args.paired_rendered_asset_id,
-                reason_code=args.reason_code,
-                smart_link=args.smart_link,
-                cta_text=args.cta_text,
-                instagram_trial_reels=args.instagram_trial_reels,
-                trial_graduation_strategy=args.trial_graduation_strategy,
-            ))
+            print_json(
+                cf.create_distribution_plan(
+                    args.rendered_asset_id,
+                    surface=args.surface,
+                    account_id=args.account_id,
+                    instagram_account_id=args.instagram_account_id,
+                    planned_window_start=args.planned_window_start,
+                    planned_window_end=args.planned_window_end,
+                    paired_rendered_asset_id=args.paired_rendered_asset_id,
+                    reason_code=args.reason_code,
+                    smart_link=args.smart_link,
+                    cta_text=args.cta_text,
+                    instagram_trial_reels=args.instagram_trial_reels,
+                    trial_graduation_strategy=args.trial_graduation_strategy,
+                )
+            )
         elif args.cmd == "plan-distribution":
-            print_json(cf.plan_distribution(
-                args.campaign,
-                user_id=args.user_id,
-                mode=args.mode,
-                strategy=args.strategy,
-                replace=not args.no_replace,
-            ))
+            print_json(
+                cf.plan_distribution(
+                    args.campaign,
+                    user_id=args.user_id,
+                    mode=args.mode,
+                    strategy=args.strategy,
+                    replace=not args.no_replace,
+                )
+            )
         elif args.cmd == "promote-preview-schedule":
-            print_json(promote_preview_schedule(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-            ))
+            print_json(
+                promote_preview_schedule(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "clear-preview-schedule":
-            print_json(clear_preview_schedule(
-                cf,
-                campaign_slug=args.campaign,
-                user_id=args.user_id,
-                supabase_url=args.supabase_url,
-                supabase_service_role_key=args.supabase_service_role_key,
-                limit=args.limit,
-                reason=args.reason,
-            ))
+            print_json(
+                clear_preview_schedule(
+                    cf,
+                    campaign_slug=args.campaign,
+                    user_id=args.user_id,
+                    supabase_url=args.supabase_url,
+                    supabase_service_role_key=args.supabase_service_role_key,
+                    limit=args.limit,
+                    reason=args.reason,
+                )
+            )
         elif args.cmd == "account-plan":
             usage_result = None
             if args.supabase_url and args.supabase_service_role_key:
@@ -2224,7 +2663,9 @@ def main() -> int:
                     supabase_url=args.supabase_url,
                     supabase_service_role_key=args.supabase_service_role_key,
                 )
-            print_json(cf.account_plan(args.campaign, user_id=args.user_id, usage=usage_result))
+            print_json(
+                cf.account_plan(args.campaign, user_id=args.user_id, usage=usage_result)
+            )
         elif args.cmd == "ranking":
             print_json(cf.ranking(args.campaign))
         elif args.cmd == "autonomy-policy":
@@ -2235,62 +2676,82 @@ def main() -> int:
         elif args.cmd == "trust-summary":
             print_json(cf.trust_summary(args.campaign))
         elif args.cmd == "recommendation-accuracy":
-            print_json(cf.recommendation_accuracy(args.campaign, account=args.account, window_days=args.window_days))
+            print_json(
+                cf.recommendation_accuracy(
+                    args.campaign, account=args.account, window_days=args.window_days
+                )
+            )
         elif args.cmd == "rebuild-recommendation-accuracy":
-            print_json(cf.rebuild_recommendation_accuracy(args.campaign, account=args.account, window_days=args.window_days))
+            print_json(
+                cf.rebuild_recommendation_accuracy(
+                    args.campaign, account=args.account, window_days=args.window_days
+                )
+            )
         elif args.cmd == "recommend-next-batch":
-            print_json(cf.recommend_next_batch(
-                args.campaign,
-                count=args.count,
-                account=args.account,
-                persist=args.persist,
-            ))
+            print_json(
+                cf.recommend_next_batch(
+                    args.campaign,
+                    count=args.count,
+                    account=args.account,
+                    persist=args.persist,
+                )
+            )
         elif args.cmd == "accept-recommendation":
-            print_json(cf.accept_recommendation_item(
-                args.id,
-                operator=args.operator,
-                notes=args.notes,
-                admin_override=args.admin_override,
-                override_reason=args.override_reason,
-            ))
+            print_json(
+                cf.accept_recommendation_item(
+                    args.id,
+                    operator=args.operator,
+                    notes=args.notes,
+                    admin_override=args.admin_override,
+                    override_reason=args.override_reason,
+                )
+            )
         elif args.cmd == "reject-recommendation":
-            print_json(cf.reject_recommendation_item(
-                args.id,
-                reason=args.reason,
-                operator=args.operator,
-                notes=args.notes,
-                admin_override=args.admin_override,
-                override_reason=args.override_reason,
-            ))
+            print_json(
+                cf.reject_recommendation_item(
+                    args.id,
+                    reason=args.reason,
+                    operator=args.operator,
+                    notes=args.notes,
+                    admin_override=args.admin_override,
+                    override_reason=args.override_reason,
+                )
+            )
         elif args.cmd == "link-recommendation":
             evidence = json.loads(args.evidence_json) if args.evidence_json else None
-            print_json(cf.link_recommendation_item(
-                args.id,
-                source_asset_id=args.source_asset_id,
-                render_job_id=args.render_job_id,
-                rendered_asset_id=args.rendered_asset_id,
-                post_id=args.post_id,
-                performance_snapshot_id=args.performance_snapshot_id,
-                evidence=evidence,
-                admin_override=args.admin_override,
-                override_reason=args.override_reason,
-            ))
+            print_json(
+                cf.link_recommendation_item(
+                    args.id,
+                    source_asset_id=args.source_asset_id,
+                    render_job_id=args.render_job_id,
+                    rendered_asset_id=args.rendered_asset_id,
+                    post_id=args.post_id,
+                    performance_snapshot_id=args.performance_snapshot_id,
+                    evidence=evidence,
+                    admin_override=args.admin_override,
+                    override_reason=args.override_reason,
+                )
+            )
         elif args.cmd == "measure-recommendation":
-            print_json(cf.measure_recommendation_item(
-                args.id,
-                performance_snapshot_id=args.performance_snapshot_id,
-                admin_override=args.admin_override,
-                override_reason=args.override_reason,
-            ))
+            print_json(
+                cf.measure_recommendation_item(
+                    args.id,
+                    performance_snapshot_id=args.performance_snapshot_id,
+                    admin_override=args.admin_override,
+                    override_reason=args.override_reason,
+                )
+            )
         elif args.cmd == "execute-recommendation":
-            print_json(cf.execute_accepted_recommendation(
-                args.id,
-                mode=args.mode,
-                force=args.force,
-                dry_run_render=args.dry_run_render,
-                run_audit=not args.no_audit,
-                contentforge_base_url=args.contentforge_base_url,
-            ))
+            print_json(
+                cf.execute_accepted_recommendation(
+                    args.id,
+                    mode=args.mode,
+                    force=args.force,
+                    dry_run_render=args.dry_run_render,
+                    run_audit=not args.no_audit,
+                    contentforge_base_url=args.contentforge_base_url,
+                )
+            )
         elif args.cmd == "account-memory":
             print_json(cf.account_memory(args.campaign, account=args.account))
         elif args.cmd == "rebuild-account-memory":
@@ -2298,15 +2759,44 @@ def main() -> int:
         elif args.cmd == "exceptions":
             print_json(cf.exceptions(args.campaign, status=args.status))
         elif args.cmd == "resolve-exception":
-            print_json(cf.resolve_exception(args.id, resolution=args.resolution, operator=args.operator))
+            print_json(
+                cf.resolve_exception(
+                    args.id, resolution=args.resolution, operator=args.operator
+                )
+            )
         elif args.cmd == "snooze-exception":
-            print_json(cf.snooze_exception(args.id, until=args.until, reason=args.reason, operator=args.operator))
+            print_json(
+                cf.snooze_exception(
+                    args.id,
+                    until=args.until,
+                    reason=args.reason,
+                    operator=args.operator,
+                )
+            )
         elif args.cmd == "reopen-exception":
-            print_json(cf.reopen_exception(args.id, reason=args.reason, operator=args.operator))
+            print_json(
+                cf.reopen_exception(args.id, reason=args.reason, operator=args.operator)
+            )
         elif args.cmd == "import-reference-bank":
-            bank_path = Path(args.path) if args.path else settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
-            prompt_pack = Path(args.prompt_pack) if args.prompt_pack else settings.reference_reels_root / "learning" / "higgsfield_prompt_pack_top300.json"
-            print_json(cf.import_reference_bank(bank_path, prompt_pack if prompt_pack.exists() else None))
+            bank_path = (
+                Path(args.path)
+                if args.path
+                else settings.reference_reels_root
+                / "learning"
+                / "campaign_reference_bank.json"
+            )
+            prompt_pack = (
+                Path(args.prompt_pack)
+                if args.prompt_pack
+                else settings.reference_reels_root
+                / "learning"
+                / "higgsfield_prompt_pack_top300.json"
+            )
+            print_json(
+                cf.import_reference_bank(
+                    bank_path, prompt_pack if prompt_pack.exists() else None
+                )
+            )
         elif args.cmd == "import-audio-catalog":
             print_json(cf.import_audio_catalog(Path(args.path)))
         elif args.cmd == "import-audio-memory":
@@ -2314,7 +2804,11 @@ def main() -> int:
         elif args.cmd == "audio-catalog":
             print_json(cf.audio_catalog(platform=args.platform, limit=args.limit))
         elif args.cmd == "audio-memory":
-            print_json(cf.audio_memory(platform=args.platform, account=args.account, limit=args.limit))
+            print_json(
+                cf.audio_memory(
+                    platform=args.platform, account=args.account, limit=args.limit
+                )
+            )
         elif args.cmd == "recommend-audio":
             visual_signal = {
                 key: value
@@ -2325,50 +2819,66 @@ def main() -> int:
                 }.items()
                 if value is not None
             }
-            print_json(cf.recommend_audio(
-                platform=args.platform,
-                campaign_slug=args.campaign,
-                recommendation_item_id=args.recommendation_item,
-                account=args.account,
-                content_tags=[tag.strip() for tag in args.content_tags.split(",") if tag.strip()],
-                account_tags=[tag.strip() for tag in args.account_tags.split(",") if tag.strip()],
-                visual_signal=visual_signal or None,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.recommend_audio(
+                    platform=args.platform,
+                    campaign_slug=args.campaign,
+                    recommendation_item_id=args.recommendation_item,
+                    account=args.account,
+                    content_tags=[
+                        tag.strip()
+                        for tag in args.content_tags.split(",")
+                        if tag.strip()
+                    ],
+                    account_tags=[
+                        tag.strip()
+                        for tag in args.account_tags.split(",")
+                        if tag.strip()
+                    ],
+                    visual_signal=visual_signal or None,
+                    limit=args.limit,
+                )
+            )
         elif args.cmd == "select-audio":
-            print_json(cf.select_audio_for_recommendation(
-                args.recommendation_item,
-                args.audio_id,
-                operator=args.operator,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.select_audio_for_recommendation(
+                    args.recommendation_item,
+                    args.audio_id,
+                    operator=args.operator,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "attach-audio":
-            print_json(cf.attach_audio_to_distribution_plan(
-                args.distribution_plan_id,
-                track_id=args.track_id,
-                track_name=args.track_name,
-                source=args.source,
-                audio_url=args.audio_url,
-                native_audio_id=args.native_audio_id,
-                local_winner_audio_id=args.local_winner_audio_id,
-                selected_reason=args.selected_reason,
-                segment_start_seconds=args.segment_start_seconds,
-                segment_duration_seconds=args.segment_duration_seconds,
-                segment_label=args.segment_label,
-                segment_reason=args.segment_reason,
-                operator=args.operator,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.attach_audio_to_distribution_plan(
+                    args.distribution_plan_id,
+                    track_id=args.track_id,
+                    track_name=args.track_name,
+                    source=args.source,
+                    audio_url=args.audio_url,
+                    native_audio_id=args.native_audio_id,
+                    local_winner_audio_id=args.local_winner_audio_id,
+                    selected_reason=args.selected_reason,
+                    segment_start_seconds=args.segment_start_seconds,
+                    segment_duration_seconds=args.segment_duration_seconds,
+                    segment_label=args.segment_label,
+                    segment_reason=args.segment_reason,
+                    operator=args.operator,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "attach-cover-frame":
-            print_json(cf.attach_cover_frame_to_rendered_asset(
-                args.rendered_asset_id,
-                seconds=args.seconds,
-                cover_image_path=args.cover_image_path,
-                cover_image_url=args.cover_image_url,
-                cover_image_hash=args.cover_image_hash,
-                reason=args.reason,
-                operator=args.operator,
-            ))
+            print_json(
+                cf.attach_cover_frame_to_rendered_asset(
+                    args.rendered_asset_id,
+                    seconds=args.seconds,
+                    cover_image_path=args.cover_image_path,
+                    cover_image_url=args.cover_image_url,
+                    cover_image_hash=args.cover_image_hash,
+                    reason=args.reason,
+                    operator=args.operator,
+                )
+            )
         elif args.cmd == "decide-audio":
             visual_signal = {
                 key: value
@@ -2379,143 +2889,201 @@ def main() -> int:
                 }.items()
                 if value is not None
             }
-            print_json(cf.decide_audio(
-                platform=args.platform,
-                campaign_slug=args.campaign,
-                recommendation_item_id=args.recommendation_item,
-                account=args.account,
-                content_tags=[tag.strip() for tag in args.content_tags.split(",") if tag.strip()],
-                account_tags=[tag.strip() for tag in args.account_tags.split(",") if tag.strip()],
-                visual_signal=visual_signal or None,
-                limit=args.limit,
-                select=args.select,
-                operator=args.operator,
-            ))
+            print_json(
+                cf.decide_audio(
+                    platform=args.platform,
+                    campaign_slug=args.campaign,
+                    recommendation_item_id=args.recommendation_item,
+                    account=args.account,
+                    content_tags=[
+                        tag.strip()
+                        for tag in args.content_tags.split(",")
+                        if tag.strip()
+                    ],
+                    account_tags=[
+                        tag.strip()
+                        for tag in args.account_tags.split(",")
+                        if tag.strip()
+                    ],
+                    visual_signal=visual_signal or None,
+                    limit=args.limit,
+                    select=args.select,
+                    operator=args.operator,
+                )
+            )
         elif args.cmd == "verify-audio":
-            print_json(cf.verify_audio_for_post(
-                args.post_id,
-                proof_url=args.proof_url,
-                proof_note=args.proof_note,
-                operator=args.operator,
-            ))
+            print_json(
+                cf.verify_audio_for_post(
+                    args.post_id,
+                    proof_url=args.proof_url,
+                    proof_note=args.proof_note,
+                    operator=args.operator,
+                )
+            )
         elif args.cmd == "reference-patterns":
             print_json(cf.reference_patterns(args.limit))
         elif args.cmd == "select-reference-pattern":
-            print_json(cf.select_reference_pattern(
-                args.campaign,
-                cluster_key=args.cluster_key,
-                reference_pattern_id=args.reference_pattern_id,
-                variant_count=args.variant_count,
-                notes=args.notes,
-            ))
+            print_json(
+                cf.select_reference_pattern(
+                    args.campaign,
+                    cluster_key=args.cluster_key,
+                    reference_pattern_id=args.reference_pattern_id,
+                    variant_count=args.variant_count,
+                    notes=args.notes,
+                )
+            )
         elif args.cmd == "reference-plan":
             print_json(cf.campaign_reference_plan(args.campaign))
         elif args.cmd == "prepare-from-reference":
-            print_json(cf.prepare_reel_from_reference(
-                campaign_slug=args.campaign,
-                cluster_key=args.cluster_key,
-                reference_pattern_id=args.reference_pattern_id,
-                variant_count=args.variant_count,
-                recipes=args.recipes,
-                caption_color=args.caption_color,
-                notes=args.notes,
-                force_new=not args.reuse_existing,
-            ))
+            print_json(
+                cf.prepare_reel_from_reference(
+                    campaign_slug=args.campaign,
+                    cluster_key=args.cluster_key,
+                    reference_pattern_id=args.reference_pattern_id,
+                    variant_count=args.variant_count,
+                    recipes=args.recipes,
+                    caption_color=args.caption_color,
+                    notes=args.notes,
+                    force_new=not args.reuse_existing,
+                )
+            )
         elif args.cmd == "make-batch":
-            print_json(cf.make_batch(
-                folder=Path(args.folder),
-                campaign_slug=args.campaign,
-                model_slug=args.model,
-                output_format=args.format,
-                variant_count=args.variant_count,
-                reference_pattern=args.reference_pattern,
-                contentforge_base_url=args.contentforge_base_url,
-                user_id=args.user_id,
-                dry_run_export=args.dry_run_export or True,
-                workers=args.workers,
-                recipes=args.recipes,
-                auto_approve_warning_only=not args.no_auto_approve,
-            ))
+            print_json(
+                cf.make_batch(
+                    folder=Path(args.folder),
+                    campaign_slug=args.campaign,
+                    model_slug=args.model,
+                    output_format=args.format,
+                    variant_count=args.variant_count,
+                    reference_pattern=args.reference_pattern,
+                    contentforge_base_url=args.contentforge_base_url,
+                    user_id=args.user_id,
+                    dry_run_export=args.dry_run_export or True,
+                    workers=args.workers,
+                    recipes=args.recipes,
+                    auto_approve_warning_only=not args.no_auto_approve,
+                )
+            )
         elif args.cmd == "intake-finished-video":
-            print_json(cf.intake_finished_video(
-                input_path=Path(args.input),
-                model_slug=args.model,
-                platform=args.platform,
-                goal=args.goal,
-                reference_pattern=args.reference_pattern,
-                campaign_slug=args.campaign,
-                contentforge_base_url=args.contentforge_base_url,
-                user_id=args.user_id,
-                dry_run_export=args.dry_run_export or True,
-                variant_count=args.variant_count,
-                workers=args.workers,
-                recipes=args.recipes,
-                creative_plan=args.creative_plan,
-                style_lane=args.style_lane,
-                source_lineage_path=Path(args.source_lineage).expanduser() if args.source_lineage else None,
-            ))
+            print_json(
+                cf.intake_finished_video(
+                    input_path=Path(args.input),
+                    model_slug=args.model,
+                    platform=args.platform,
+                    goal=args.goal,
+                    reference_pattern=args.reference_pattern,
+                    campaign_slug=args.campaign,
+                    contentforge_base_url=args.contentforge_base_url,
+                    user_id=args.user_id,
+                    dry_run_export=args.dry_run_export or True,
+                    variant_count=args.variant_count,
+                    workers=args.workers,
+                    recipes=args.recipes,
+                    creative_plan=args.creative_plan,
+                    style_lane=args.style_lane,
+                    source_lineage_path=Path(args.source_lineage).expanduser()
+                    if args.source_lineage
+                    else None,
+                )
+            )
         elif args.cmd == "register-finished-video":
             placement_decision = None
             if args.caption_placement_decision_json:
                 placement_decision = json.loads(args.caption_placement_decision_json)
                 if not isinstance(placement_decision, dict):
-                    raise SystemExit("--caption-placement-decision-json must be a JSON object")
-            print_json(cf.register_finished_video(
-                input_path=Path(args.input),
-                campaign_slug=args.campaign,
-                model_slug=args.model,
-                caption=args.caption,
-                caption_hash=args.caption_hash,
-                caption_bank=args.caption_bank,
-                creator_mix=args.creator_mix,
-                creator_model=args.creator_model,
-                track_id=args.track_id,
-                track_name=args.track_name,
-                audio_source=args.audio_source,
-                selected_reason=args.selected_reason,
-                operator=args.operator,
-                approval_reason=args.approval_reason,
-                review_batch=args.review_batch,
-                caption_placement_policy=args.caption_placement_policy,
-                caption_placement_decision=placement_decision,
-            ))
+                    raise SystemExit(
+                        "--caption-placement-decision-json must be a JSON object"
+                    )
+            print_json(
+                cf.register_finished_video(
+                    input_path=Path(args.input),
+                    campaign_slug=args.campaign,
+                    model_slug=args.model,
+                    caption=args.caption,
+                    caption_hash=args.caption_hash,
+                    caption_bank=args.caption_bank,
+                    creator_mix=args.creator_mix,
+                    creator_model=args.creator_model,
+                    track_id=args.track_id,
+                    track_name=args.track_name,
+                    audio_source=args.audio_source,
+                    selected_reason=args.selected_reason,
+                    operator=args.operator,
+                    approval_reason=args.approval_reason,
+                    review_batch=args.review_batch,
+                    caption_placement_policy=args.caption_placement_policy,
+                    caption_placement_decision=placement_decision,
+                )
+            )
         elif args.cmd == "archive-inventory":
-            print_json(cf.archive_inventory_report(
-                folder=Path(args.folder),
-                campaign_slug=args.campaign,
-                creator=args.creator,
-                requested_count=args.requested_count,
-                model_slug=args.model,
-                recent_days=args.recent_days,
-            ))
+            print_json(
+                cf.archive_inventory_report(
+                    folder=Path(args.folder),
+                    campaign_slug=args.campaign,
+                    creator=args.creator,
+                    requested_count=args.requested_count,
+                    model_slug=args.model,
+                    recent_days=args.recent_days,
+                )
+            )
         elif args.cmd == "archive-candidate-quality":
-            print_json(cf.archive_candidate_quality_report(
-                inventory_report_path=Path(args.inventory_report),
-                requested_count=args.requested_count,
-                exclude_indices=args.exclude_index,
-            ))
+            print_json(
+                cf.archive_candidate_quality_report(
+                    inventory_report_path=Path(args.inventory_report),
+                    requested_count=args.requested_count,
+                    exclude_indices=args.exclude_index,
+                )
+            )
         elif args.cmd == "create-creative-plan":
-            print_json(cf.create_creative_plan(
-                name=args.name,
-                platform=args.platform,
-                target_account=args.target_account,
-                daily_base_video_target=args.daily_base_video_target,
-                style_lanes=[lane.strip() for lane in args.style_lanes.split(",") if lane.strip()],
-                model_profile=args.model_profile,
-                source_accounts=[account.strip() for account in args.source_accounts.split(",") if account.strip()],
-                goal=args.goal,
-                linked_campaign=args.linked_campaign,
-            ))
+            print_json(
+                cf.create_creative_plan(
+                    name=args.name,
+                    platform=args.platform,
+                    target_account=args.target_account,
+                    daily_base_video_target=args.daily_base_video_target,
+                    style_lanes=[
+                        lane.strip()
+                        for lane in args.style_lanes.split(",")
+                        if lane.strip()
+                    ],
+                    model_profile=args.model_profile,
+                    source_accounts=[
+                        account.strip()
+                        for account in args.source_accounts.split(",")
+                        if account.strip()
+                    ],
+                    goal=args.goal,
+                    linked_campaign=args.linked_campaign,
+                )
+            )
         elif args.cmd == "creative-plan":
             print_json(cf.creative_plan(args.name))
         elif args.cmd == "update-creative-plan-status":
-            print_json(cf.update_creative_plan_status(name=args.name, status=args.status))
+            print_json(
+                cf.update_creative_plan_status(name=args.name, status=args.status)
+            )
         elif args.cmd == "sync-creative-plan-progress":
-            print_json(cf.sync_creative_plan_progress(name=args.name, prompt_export_path=Path(args.prompt_export)))
+            print_json(
+                cf.sync_creative_plan_progress(
+                    name=args.name, prompt_export_path=Path(args.prompt_export)
+                )
+            )
         elif args.cmd == "activity-log":
-            print_json({"schema": "campaign_factory.activity_log.v1", "campaign": args.campaign, "events": cf.events_for_campaign(args.campaign, limit=args.limit)})
+            print_json(
+                {
+                    "schema": "campaign_factory.activity_log.v1",
+                    "campaign": args.campaign,
+                    "events": cf.events_for_campaign(args.campaign, limit=args.limit),
+                }
+            )
         elif args.cmd == "jobs":
-            print_json({"schema": "campaign_factory.jobs.v1", "campaign": args.campaign, "jobs": cf.jobs_for_campaign(args.campaign, limit=args.limit)})
+            print_json(
+                {
+                    "schema": "campaign_factory.jobs.v1",
+                    "campaign": args.campaign,
+                    "jobs": cf.jobs_for_campaign(args.campaign, limit=args.limit),
+                }
+            )
         elif args.cmd == "job":
             print_json(cf.pipeline_job(args.id))
         elif args.cmd == "pipeline-smoke":
@@ -2540,7 +3108,9 @@ def main() -> int:
             cf.start_pipeline_job(pipeline_job["id"])
             hooks = load_hooks(args.hooks, args.hook)
             if not hooks:
-                cf.fail_pipeline_job(pipeline_job["id"], "pipeline-smoke requires --hook or --hooks")
+                cf.fail_pipeline_job(
+                    pipeline_job["id"], "pipeline-smoke requires --hook or --hooks"
+                )
                 raise SystemExit("pipeline-smoke requires --hook or --hooks")
             try:
                 result = {
@@ -2562,7 +3132,9 @@ def main() -> int:
                     "dryRunExport": None,
                     "readiness": None,
                 }
-                cf.set_pipeline_job_campaign(pipeline_job["id"], result["import"]["campaign"]["id"])
+                cf.set_pipeline_job_campaign(
+                    pipeline_job["id"], result["import"]["campaign"]["id"]
+                )
                 result["prepare"] = cf.prepare_reel_inputs(
                     campaign_slug=args.campaign,
                     hooks=hooks,
@@ -2599,12 +3171,21 @@ def main() -> int:
                     campaign_slug=args.campaign,
                     user_id=args.user_id,
                 )
-                cf.finish_pipeline_job(pipeline_job["id"], {
-                    "campaign": args.campaign,
-                    "importedCount": len((result.get("import") or {}).get("imported") or []),
-                    "syncedCount": len((result.get("sync") or {}).get("synced") or []),
-                    "draftCount": (result.get("dryRunExport") or {}).get("draftCount"),
-                })
+                cf.finish_pipeline_job(
+                    pipeline_job["id"],
+                    {
+                        "campaign": args.campaign,
+                        "importedCount": len(
+                            (result.get("import") or {}).get("imported") or []
+                        ),
+                        "syncedCount": len(
+                            (result.get("sync") or {}).get("synced") or []
+                        ),
+                        "draftCount": (result.get("dryRunExport") or {}).get(
+                            "draftCount"
+                        ),
+                    },
+                )
                 print_json(result)
             except Exception as exc:
                 cf.record_event(

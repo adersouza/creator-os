@@ -11,7 +11,6 @@ from .identity import stable_id
 from .scoring import shortlist
 from .timeutil import now_iso
 
-
 VALID_LABELS = {"gold", "maybe", "ignore"}
 DEFAULT_GOLD_TARGET = 300
 DEFAULT_ACCOUNT_CAP = 30
@@ -126,7 +125,9 @@ def reference_query(
 
 
 def reference_detail(conn: Connection, reference_id: str) -> dict[str, object] | None:
-    row = conn.execute(_REFERENCE_SQL + " HAVING sf.reference_id = ?", (reference_id,)).fetchone()
+    row = conn.execute(
+        _REFERENCE_SQL + " HAVING sf.reference_id = ?", (reference_id,)
+    ).fetchone()
     if not row:
         return None
     item = _inflate_reference(row)
@@ -155,17 +156,31 @@ def reference_detail(conn: Connection, reference_id: str) -> dict[str, object] |
 def review_stats(conn: Connection) -> dict[str, object]:
     counts = {
         "total": conn.execute("SELECT COUNT(*) FROM source_files").fetchone()[0],
-        "videos": conn.execute("SELECT COUNT(*) FROM source_files WHERE kind = 'video'").fetchone()[0],
-        "validVideos": conn.execute("SELECT COUNT(*) FROM video_probes WHERE valid = 1").fetchone()[0],
+        "videos": conn.execute(
+            "SELECT COUNT(*) FROM source_files WHERE kind = 'video'"
+        ).fetchone()[0],
+        "validVideos": conn.execute(
+            "SELECT COUNT(*) FROM video_probes WHERE valid = 1"
+        ).fetchone()[0],
         "contactThumbnails": conn.execute(
             "SELECT COUNT(*) FROM frame_samples WHERE role = 'contact'"
         ).fetchone()[0],
-        "captionPatterns": conn.execute("SELECT COUNT(*) FROM caption_patterns").fetchone()[0],
-        "gold": conn.execute("SELECT COUNT(*) FROM review_labels WHERE label = 'gold'").fetchone()[0],
-        "maybe": conn.execute("SELECT COUNT(*) FROM review_labels WHERE label = 'maybe'").fetchone()[0],
-        "ignore": conn.execute("SELECT COUNT(*) FROM review_labels WHERE label = 'ignore'").fetchone()[0],
+        "captionPatterns": conn.execute(
+            "SELECT COUNT(*) FROM caption_patterns"
+        ).fetchone()[0],
+        "gold": conn.execute(
+            "SELECT COUNT(*) FROM review_labels WHERE label = 'gold'"
+        ).fetchone()[0],
+        "maybe": conn.execute(
+            "SELECT COUNT(*) FROM review_labels WHERE label = 'maybe'"
+        ).fetchone()[0],
+        "ignore": conn.execute(
+            "SELECT COUNT(*) FROM review_labels WHERE label = 'ignore'"
+        ).fetchone()[0],
     }
-    counts["missingContactThumbnails"] = max(0, counts["validVideos"] - counts["contactThumbnails"])
+    counts["missingContactThumbnails"] = max(
+        0, counts["validVideos"] - counts["contactThumbnails"]
+    )
     accounts = [
         {"account": row["account"], "videos": row["videos"]}
         for row in conn.execute(
@@ -204,7 +219,9 @@ def review_stats(conn: Connection) -> dict[str, object]:
     }
 
 
-def export_gold(conn: Connection, data_root: Path = DEFAULT_DATA_ROOT) -> dict[str, object]:
+def export_gold(
+    conn: Connection, data_root: Path = DEFAULT_DATA_ROOT
+) -> dict[str, object]:
     rows = conn.execute(
         """
         SELECT
@@ -262,7 +279,9 @@ def export_gold(conn: Connection, data_root: Path = DEFAULT_DATA_ROOT) -> dict[s
             manifest_items.append(item)
             f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
     summary = build_gold_summary(conn, manifest_items)
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
     return {
         "schema": "reference_factory.export_gold.v1",
         "count": len(rows),
@@ -284,7 +303,9 @@ def review_batch(
 ) -> dict[str, object]:
     if mode != "balanced":
         raise ValueError(f"Unsupported review batch mode: {mode}")
-    rows = reference_query(conn, label="unreviewed", sort="score", limit=100000)["items"]
+    rows = reference_query(conn, label="unreviewed", sort="score", limit=100000)[
+        "items"
+    ]
     caption_goal = min(120, target // 2)
     visual_goal = min(120, target // 2)
     selected: list[dict[str, object]] = []
@@ -297,7 +318,10 @@ def review_batch(
         for item in candidates:
             if len(selected) >= target:
                 return
-            if goal is not None and sum(1 for row in selected if _same_bucket(row, item)) >= goal:
+            if (
+                goal is not None
+                and sum(1 for row in selected if _same_bucket(row, item)) >= goal
+            ):
                 return
             reference_id = str(item["referenceId"])
             account = str(item["account"] or "_root")
@@ -334,13 +358,17 @@ def review_batch(
         "skippedDueAccountCap": skipped_account_cap,
         "accountCounts": [
             {"account": account, "count": count}
-            for account, count in sorted(account_counts.items(), key=lambda item: (-item[1], item[0]))
+            for account, count in sorted(
+                account_counts.items(), key=lambda item: (-item[1], item[0])
+            )
         ],
         "items": selected,
     }
 
 
-def build_gold_summary(conn: Connection, manifest_items: list[dict[str, object]] | None = None) -> dict[str, object]:
+def build_gold_summary(
+    conn: Connection, manifest_items: list[dict[str, object]] | None = None
+) -> dict[str, object]:
     if manifest_items is None:
         manifest_items = []
     labels = Counter(
@@ -447,7 +475,9 @@ def _inflate_reference(row) -> dict[str, object]:
         "aspectRatio": item["aspect_ratio"],
         "thumbnailFrameId": item["thumbnail_frame_id"],
         "thumbnailPath": item["thumbnail_path"],
-        "thumbnailUrl": f"/api/frame/{item['thumbnail_frame_id']}" if item["thumbnail_frame_id"] else None,
+        "thumbnailUrl": f"/api/frame/{item['thumbnail_frame_id']}"
+        if item["thumbnail_frame_id"]
+        else None,
         "label": item["label"],
         "tags": json_load(item["tags_json"], []),
         "notes": item["notes"],
@@ -466,7 +496,9 @@ def _score(row: dict[str, object]) -> tuple[int, list[str]]:
     return score_reference(row)
 
 
-def _sort_references(rows: list[dict[str, object]], sort: str) -> list[dict[str, object]]:
+def _sort_references(
+    rows: list[dict[str, object]], sort: str
+) -> list[dict[str, object]]:
     if sort == "random":
         import random
 
@@ -486,7 +518,10 @@ def _sort_references(rows: list[dict[str, object]], sort: str) -> list[dict[str,
                 if groups[account]:
                     balanced.append(groups[account].pop(0))
         return balanced
-    return sorted(rows, key=lambda row: (-int(row["score"]), str(row["account"]), str(row["fileName"])))
+    return sorted(
+        rows,
+        key=lambda row: (-int(row["score"]), str(row["account"]), str(row["fileName"])),
+    )
 
 
 def reference_score_from_export_row(row) -> int:

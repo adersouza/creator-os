@@ -23,5 +23,7 @@ class VisualEngine:
             print("[VisualEngine] skipped: reel_factory.generate_assets is unavailable")
             return video_path
 
-        print("[VisualEngine] skipped: paid visual generation is disabled for zero-cost variation")
+        print(
+            "[VisualEngine] skipped: paid visual generation is disabled for zero-cost variation"
+        )
         return video_path

@@ -1,4 +1,5 @@
 """Review-first caption intake for Reel Factory overlay hooks."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,12 +11,17 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from caption_bank import CaptionBankStore, DEFAULT_EXCLUDED_BANKS, caption_hash, classify_caption
+from caption_bank import (
+    DEFAULT_EXCLUDED_BANKS,
+    CaptionBankStore,
+    caption_hash,
+    classify_caption,
+)
 from discoverability_safety import discoverability_safe_content_contract
-
 
 CANDIDATE_SCHEMA = "reel_factory.caption_candidate_intake.v1"
 INVENTORY_SCHEMA = "reel_factory.caption_source_inventory.v1"
@@ -57,7 +63,9 @@ RACE_OR_PERSONA_PATTERN = re.compile(
     r"trans|tranny|femboy|goth girl|emo girl|freckle girl)\b",
     re.IGNORECASE,
 )
-GENERATED_SEED_PATTERN = re.compile(r"generated_seed|seed-topics|synthetic", re.IGNORECASE)
+GENERATED_SEED_PATTERN = re.compile(
+    r"generated_seed|seed-topics|synthetic", re.IGNORECASE
+)
 
 
 def scan_local(root: Path, *, include_seed: bool = False) -> dict[str, Any]:
@@ -77,7 +85,9 @@ def scan_local(root: Path, *, include_seed: bool = False) -> dict[str, Any]:
                 continue
             rejected += 1
 
-    return _write_candidates(reel_root, candidates.values(), rejected=rejected, command="scan-local")
+    return _write_candidates(
+        reel_root, candidates.values(), rejected=rejected, command="scan-local"
+    )
 
 
 def ocr_folder(root: Path, folder: Path) -> dict[str, Any]:
@@ -102,7 +112,9 @@ def ocr_folder(root: Path, folder: Path) -> dict[str, Any]:
                 continue
             rejected += 1
 
-    return _write_candidates(reel_root, candidates.values(), rejected=rejected, command="ocr")
+    return _write_candidates(
+        reel_root, candidates.values(), rejected=rejected, command="ocr"
+    )
 
 
 def import_external(root: Path, source_path: Path) -> dict[str, Any]:
@@ -133,7 +145,14 @@ def import_external(root: Path, source_path: Path) -> dict[str, Any]:
             metadata = {
                 "externalSource": {
                     key: item[key]
-                    for key in ("account", "source_url", "screenshot", "observedViewCount", "archetype", "postCaption")
+                    for key in (
+                        "account",
+                        "source_url",
+                        "screenshot",
+                        "observedViewCount",
+                        "archetype",
+                        "postCaption",
+                    )
                     if item.get(key) not in (None, "")
                 }
             }
@@ -143,13 +162,22 @@ def import_external(root: Path, source_path: Path) -> dict[str, Any]:
             rejected += 1
             continue
         source = f"{source_label}:{source_path.name}:{index}"
-        if _add_candidate(candidates, text, source, existing, metadata=metadata, allow_excluded_review_only=True):
+        if _add_candidate(
+            candidates,
+            text,
+            source,
+            existing,
+            metadata=metadata,
+            allow_excluded_review_only=True,
+        ):
             added += 1
             existing.update({caption_hash(text), _caption_key(text)})
         else:
             rejected += 1
             if len(rejected_samples) < 12:
-                rejected_samples.append({"index": index, "text": _clean_caption(text)[:180]})
+                rejected_samples.append(
+                    {"index": index, "text": _clean_caption(text)[:180]}
+                )
 
     return _write_candidates(
         reel_root,
@@ -202,9 +230,13 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
             continue
         source = str(raw.get("source") or "")
         source_label = str(raw.get("sourceLabel") or "")
-        account = _clean_account(raw.get("account") or raw.get("handle") or raw.get("username"))
+        account = _clean_account(
+            raw.get("account") or raw.get("handle") or raw.get("username")
+        )
         if account:
-            account_row = accounts.setdefault(account, {"account": account, "sourceCount": 0})
+            account_row = accounts.setdefault(
+                account, {"account": account, "sourceCount": 0}
+            )
             account_row["sourceCount"] = int(account_row.get("sourceCount") or 0) + 1
             account_row["status"] = "local_capture_available"
             account_row.setdefault("localStatus", "local_capture_available")
@@ -241,7 +273,11 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
         existing_row = inventory_by_key.get(key)
         if existing_row:
             existing_row.setdefault("additionalSources", []).append(
-                {k: row.get(k) for k in ("source", "sourceAccount", "sourceUrl", "screenshot") if row.get(k)}
+                {
+                    k: row.get(k)
+                    for k in ("source", "sourceAccount", "sourceUrl", "screenshot")
+                    if row.get(k)
+                }
             )
             continue
         inventory_by_key[key] = row
@@ -257,9 +293,15 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
                 "source": source,
             }
 
-        hard_blocked = bool({"generated_seed", "unsafe", "nonsense_ocr"}.intersection(issues))
+        hard_blocked = bool(
+            {"generated_seed", "unsafe", "nonsense_ocr"}.intersection(issues)
+        )
         if hard_blocked:
-            quarantine_by_key[key] = row | {"quarantineReason": sorted({"generated_seed", "unsafe", "nonsense_ocr"}.intersection(issues))}
+            quarantine_by_key[key] = row | {
+                "quarantineReason": sorted(
+                    {"generated_seed", "unsafe", "nonsense_ocr"}.intersection(issues)
+                )
+            }
             continue
         if row["caption_hash"] in candidates:
             row["candidateStatus"] = "accepted_for_review"
@@ -296,10 +338,29 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
             row["candidateStatus"] = "deduped_or_review_rejected"
 
     out_dir = reel_root / "caption_banks"
-    inventory_rows = sorted(inventory_by_key.values(), key=lambda item: (str(item.get("sourceAccount") or ""), item["normalizedCaption"]))
-    quarantine_rows = sorted(quarantine_by_key.values(), key=lambda item: (str(item.get("sourceAccount") or ""), item["normalizedCaption"]))
-    adaptation_rows = sorted(adaptations_by_key.values(), key=lambda item: (str(item.get("sourceAccount") or ""), item["staceyCaption"]))
-    accepted_for_review = sum(1 for row in inventory_rows if row.get("candidateStatus") == "accepted_for_review")
+    inventory_rows = sorted(
+        inventory_by_key.values(),
+        key=lambda item: (
+            str(item.get("sourceAccount") or ""),
+            item["normalizedCaption"],
+        ),
+    )
+    quarantine_rows = sorted(
+        quarantine_by_key.values(),
+        key=lambda item: (
+            str(item.get("sourceAccount") or ""),
+            item["normalizedCaption"],
+        ),
+    )
+    adaptation_rows = sorted(
+        adaptations_by_key.values(),
+        key=lambda item: (str(item.get("sourceAccount") or ""), item["staceyCaption"]),
+    )
+    accepted_for_review = sum(
+        1
+        for row in inventory_rows
+        if row.get("candidateStatus") == "accepted_for_review"
+    )
 
     inventory_json = out_dir / f"caption_source_inventory_{stamp}.json"
     inventory_csv = out_dir / f"caption_source_inventory_{stamp}.csv"
@@ -331,7 +392,9 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
         "accountsBlockedPrivateUnavailable": blocked_accounts,
         "captions": inventory_rows,
     }
-    inventory_json.write_text(json.dumps(inventory_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    inventory_json.write_text(
+        json.dumps(inventory_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     _write_inventory_csv(inventory_csv, inventory_rows)
     adaptations_json.write_text(
         json.dumps(
@@ -410,12 +473,19 @@ def promote(root: Path, approved_path: Path) -> dict[str, Any]:
         h = caption_hash(cleaned)
         key = _caption_key(cleaned)
         contract = discoverability_safe_content_contract(cleaned)
-        if not cleaned or h in existing or key in existing or not contract["discoverabilitySafe"]:
-            rejected.append({
-                "text": cleaned,
-                "reason": "duplicate_or_unsafe",
-                "blockedTerms": contract.get("blockedTerms", []),
-            })
+        if (
+            not cleaned
+            or h in existing
+            or key in existing
+            or not contract["discoverabilitySafe"]
+        ):
+            rejected.append(
+                {
+                    "text": cleaned,
+                    "reason": "duplicate_or_unsafe",
+                    "blockedTerms": contract.get("blockedTerms", []),
+                }
+            )
             continue
         existing.update({h, key})
         promoted.append(cleaned)
@@ -425,7 +495,10 @@ def promote(root: Path, approved_path: Path) -> dict[str, Any]:
         out_dir = reel_root / "01_captions"
         out_dir.mkdir(parents=True, exist_ok=True)
         sidecar = _next_sidecar_path(out_dir)
-        sidecar.write_text(json.dumps({"hooks": promoted}, indent=2, ensure_ascii=False), encoding="utf-8")
+        sidecar.write_text(
+            json.dumps({"hooks": promoted}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
         CaptionBankStore.build(reel_root).write(reel_root)
 
     return {
@@ -459,7 +532,9 @@ def plan_placement(root: Path) -> dict[str, Any]:
         "candidateFile": str(path),
         "reviewFile": str(review),
         "planned": len(rows),
-        "timedEligible": sum(1 for row in rows if row.get("placementIntent", {}).get("timedEligible")),
+        "timedEligible": sum(
+            1 for row in rows if row.get("placementIntent", {}).get("timedEligible")
+        ),
     }
 
 
@@ -473,13 +548,25 @@ def swipe_review(
     reel_root = _reel_root(root)
     candidate_path = reel_root / "caption_banks" / "candidate_intake.json"
     payload = json.loads(candidate_path.read_text(encoding="utf-8"))
-    rows = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    rows = (
+        payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    )
     if not include_generated_seed:
-        rows = [row for row in rows if not str(row.get("source") or "").startswith("generated_seed:")]
+        rows = [
+            row
+            for row in rows
+            if not str(row.get("source") or "").startswith("generated_seed:")
+        ]
     if mode not in {"static", "timed"}:
         raise ValueError("mode must be static or timed")
     if mode == "timed":
-        rows = [row for row in rows if (row.get("hookVariants") or _hook_variants(str(row.get("text") or ""))).get("timed")]
+        rows = [
+            row
+            for row in rows
+            if (
+                row.get("hookVariants") or _hook_variants(str(row.get("text") or ""))
+            ).get("timed")
+        ]
     out_dir = Path(out_dir).resolve() if out_dir else reel_root / "caption_banks"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -496,8 +583,10 @@ def swipe_review(
                 "text": row.get("text"),
                 "banks": row.get("banks") or [],
                 "source": row.get("source"),
-                "placementIntent": row.get("placementIntent") or _placement_intent(str(row.get("text") or "")),
-                "hookVariants": row.get("hookVariants") or _hook_variants(str(row.get("text") or "")),
+                "placementIntent": row.get("placementIntent")
+                or _placement_intent(str(row.get("text") or "")),
+                "hookVariants": row.get("hookVariants")
+                or _hook_variants(str(row.get("text") or "")),
                 "status": "pending",
                 "approvedUse": [],
                 "notes": "",
@@ -508,7 +597,9 @@ def swipe_review(
 
     json_path = out_dir / f"caption_{mode}_swipe_decisions.json"
     html_path = out_dir / f"caption_{mode}_swipe_review.html"
-    json_path.write_text(json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
     html_path.write_text(_render_swipe_review_html(decisions), encoding="utf-8")
     return {
         "schema": "reel_factory.caption_swipe_review_result.v1",
@@ -580,7 +671,11 @@ def _current_candidate_rows(reel_root: Path) -> list[dict[str, Any]]:
     except (OSError, json.JSONDecodeError):
         return []
     rows = payload.get("candidates")
-    return [dict(row) for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    return (
+        [dict(row) for row in rows if isinstance(row, dict)]
+        if isinstance(rows, list)
+        else []
+    )
 
 
 def _add_candidate(
@@ -623,7 +718,13 @@ def _add_candidate(
         row["reviewOnlyReason"] = "sourced_excluded_bank_candidate"
         row["reviewOnlyExcludedBanks"] = excluded_banks
     if metadata:
-        row.update({key: value for key, value in metadata.items() if value not in (None, {}, [])})
+        row.update(
+            {
+                key: value
+                for key, value in metadata.items()
+                if value not in (None, {}, [])
+            }
+        )
     candidates[h] = row
     return True
 
@@ -639,7 +740,11 @@ def _candidate_text(text: str) -> bool:
         return False
     if len(text.split()) > 18:
         return False
-    if re.search(r"(schema|http|/Users/|\.mp4|\.png|\.json|blocked by|audit issue|\b\d{3,4}x\d{3,4}\b|#|remove the)", text, re.I):
+    if re.search(
+        r"(schema|http|/Users/|\.mp4|\.png|\.json|blocked by|audit issue|\b\d{3,4}x\d{3,4}\b|#|remove the)",
+        text,
+        re.I,
+    ):
         return False
     return bool(re.search(r"[a-zA-Z]", text))
 
@@ -652,7 +757,9 @@ def _clean_caption(text: Any) -> str:
 
 
 def _caption_key(text: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", _clean_caption(text).lower())).strip()
+    return re.sub(
+        r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", _clean_caption(text).lower())
+    ).strip()
 
 
 def _local_caption_strings(reel_root: Path) -> Iterable[tuple[str, str]]:
@@ -683,10 +790,17 @@ def _local_caption_strings(reel_root: Path) -> Iterable[tuple[str, str]]:
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
             for match in re.finditer(r'<div class="facts">(.*?)</div>', text, re.S):
-                yield (_clean_caption(re.sub(r"<[^>]+>", " ", match.group(1)).split("·")[0]), str(path))
+                yield (
+                    _clean_caption(
+                        re.sub(r"<[^>]+>", " ", match.group(1)).split("·")[0]
+                    ),
+                    str(path),
+                )
 
 
-def _walk_producer_text(payload: Any, path: Path, key_path: str) -> Iterable[tuple[str, str]]:
+def _walk_producer_text(
+    payload: Any, path: Path, key_path: str
+) -> Iterable[tuple[str, str]]:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child = f"{key_path}.{key}" if key_path else str(key)
@@ -708,7 +822,12 @@ def _inventory_source_rows(reel_root: Path) -> Iterable[dict[str, Any]]:
         if not base.exists():
             continue
         for path in sorted(base.rglob("*.json")):
-            if path.name in {"banks.json", "mixes.json", "performance.json", "candidate_intake.json"}:
+            if path.name in {
+                "banks.json",
+                "mixes.json",
+                "performance.json",
+                "candidate_intake.json",
+            }:
                 continue
             if path.stat().st_size > 20_000_000:
                 continue
@@ -732,7 +851,8 @@ def _inventory_source_rows(reel_root: Path) -> Iterable[dict[str, Any]]:
             if path.stat().st_size > 2_000_000:
                 continue
             if base == workspace / "tmp" and not (
-                "ig_caption_harvest_" in str(path) or "caption_candidate_scan_" in str(path)
+                "ig_caption_harvest_" in str(path)
+                or "caption_candidate_scan_" in str(path)
             ):
                 continue
             try:
@@ -760,7 +880,10 @@ def _inventory_account_probes(reel_root: Path) -> dict[str, dict[str, Any]]:
         for path in sorted(base.rglob("*.json")):
             if path.stat().st_size > 20_000_000:
                 continue
-            if "ig_caption_account_harvest_" not in str(path) and path.parent.name != "external_sources":
+            if (
+                "ig_caption_account_harvest_" not in str(path)
+                and path.parent.name != "external_sources"
+            ):
                 continue
             try:
                 payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
@@ -780,12 +903,21 @@ def _inventory_account_probes(reel_root: Path) -> dict[str, dict[str, Any]]:
             for item in accounts:
                 if not isinstance(item, dict):
                     continue
-                account = _clean_account(item.get("handle") or item.get("account") or item.get("username"))
+                account = _clean_account(
+                    item.get("handle") or item.get("account") or item.get("username")
+                )
                 if not account:
                     continue
                 status = str(item.get("status") or "").lower()
-                live_status = "blocked_or_unavailable" if status in {"blocked_or_unavailable", "blocked", "private", "unavailable"} else "live_revisited"
-                existing = probes.setdefault(account, {"account": account, "sourceCount": 0})
+                live_status = (
+                    "blocked_or_unavailable"
+                    if status
+                    in {"blocked_or_unavailable", "blocked", "private", "unavailable"}
+                    else "live_revisited"
+                )
+                existing = probes.setdefault(
+                    account, {"account": account, "sourceCount": 0}
+                )
                 existing["liveStatus"] = live_status
                 existing["status"] = existing.get("status") or live_status
                 if item.get("profileUrl"):
@@ -818,9 +950,16 @@ def _walk_inventory_payload(
                     "text": value,
                     "source": f"{path}:{child}",
                     "sourceLabel": local_meta.get("source"),
-                    "account": local_meta.get("account") or local_meta.get("handle") or local_meta.get("username") or _account_from_path(path),
+                    "account": local_meta.get("account")
+                    or local_meta.get("handle")
+                    or local_meta.get("username")
+                    or _account_from_path(path),
                 }
-            elif isinstance(value, list) and key.lower() in {"hooks", "captions", "texts"}:
+            elif isinstance(value, list) and key.lower() in {
+                "hooks",
+                "captions",
+                "texts",
+            }:
                 for index, item in enumerate(value):
                     if isinstance(item, str):
                         yield {
@@ -828,15 +967,22 @@ def _walk_inventory_payload(
                             "text": item,
                             "source": f"{path}:{child}[{index}]",
                             "sourceLabel": local_meta.get("source"),
-                            "account": local_meta.get("account") or local_meta.get("handle") or local_meta.get("username") or _account_from_path(path),
+                            "account": local_meta.get("account")
+                            or local_meta.get("handle")
+                            or local_meta.get("username")
+                            or _account_from_path(path),
                         }
                     else:
-                        yield from _walk_inventory_payload(item, path, f"{child}[{index}]", local_meta)
+                        yield from _walk_inventory_payload(
+                            item, path, f"{child}[{index}]", local_meta
+                        )
             else:
                 yield from _walk_inventory_payload(value, path, child, local_meta)
     elif isinstance(payload, list):
         for index, value in enumerate(payload):
-            yield from _walk_inventory_payload(value, path, f"{key_path}[{index}]", inherited)
+            yield from _walk_inventory_payload(
+                value, path, f"{key_path}[{index}]", inherited
+            )
 
 
 def _caption_inventory_issues(text: str, source: str) -> list[str]:
@@ -864,7 +1010,9 @@ def _looks_like_ocr_noise(text: str) -> bool:
     if len(words) > 16:
         return True
     long_tokens = [word for word in words if len(word) >= 10]
-    vowel_light = [word for word in long_tokens if len(re.findall(r"[aeiou]", word)) <= 2]
+    vowel_light = [
+        word for word in long_tokens if len(re.findall(r"[aeiou]", word)) <= 2
+    ]
     return len(vowel_light) >= 2
 
 
@@ -901,7 +1049,12 @@ def _stacey_fit_rating(text: str, issues: list[str], banks: list[str]) -> str:
         return "reject"
     if "face_cover_risk" in issues:
         return "review"
-    if {"comment_bait", "boyfriend_bait", "body_attention", "shared_girl_next_door"}.intersection(banks):
+    if {
+        "comment_bait",
+        "boyfriend_bait",
+        "body_attention",
+        "shared_girl_next_door",
+    }.intersection(banks):
         return "high"
     return "medium"
 
@@ -941,7 +1094,9 @@ def _account_from_path(path: Path) -> str | None:
         if (
             cleaned
             and lowered not in blocked
-            and not cleaned.startswith(("caption", "instagram", "ig", "tmp", "screenshots", "external_sources"))
+            and not cleaned.startswith(
+                ("caption", "instagram", "ig", "tmp", "screenshots", "external_sources")
+            )
             and not re.search(r"_20\d{6}$", cleaned)
             and "candidate" not in cleaned
             and "saved_json" not in cleaned
@@ -971,20 +1126,32 @@ def _write_inventory_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            writer.writerow({
-                key: (
-                    json.dumps(row.get(key), ensure_ascii=False)
-                    if isinstance(row.get(key), (list, dict))
-                    else row.get(key)
-                )
-                for key in fieldnames
-            })
+            writer.writerow(
+                {
+                    key: (
+                        json.dumps(row.get(key), ensure_ascii=False)
+                        if isinstance(row.get(key), (list, dict))
+                        else row.get(key)
+                    )
+                    for key in fieldnames
+                }
+            )
 
 
 def _write_inventory_report(path: Path, payload: dict[str, Any]) -> None:
-    accounts = payload.get("accounts") if isinstance(payload.get("accounts"), list) else []
-    blocked = payload.get("accountsBlockedPrivateUnavailable") if isinstance(payload.get("accountsBlockedPrivateUnavailable"), list) else []
-    revisited = payload.get("accountsSuccessfullyRevisited") if isinstance(payload.get("accountsSuccessfullyRevisited"), list) else []
+    accounts = (
+        payload.get("accounts") if isinstance(payload.get("accounts"), list) else []
+    )
+    blocked = (
+        payload.get("accountsBlockedPrivateUnavailable")
+        if isinstance(payload.get("accountsBlockedPrivateUnavailable"), list)
+        else []
+    )
+    revisited = (
+        payload.get("accountsSuccessfullyRevisited")
+        if isinstance(payload.get("accountsSuccessfullyRevisited"), list)
+        else []
+    )
     with path.open("w", encoding="utf-8") as handle:
         handle.write("# Caption Source Inventory Report\n\n")
         handle.write(f"- source rows scanned: {payload['sourceRowsScanned']}\n")
@@ -997,7 +1164,10 @@ def _write_inventory_report(path: Path, payload: dict[str, Any]) -> None:
         handle.write(f"- accounts blocked/private/unavailable: {len(blocked)}\n\n")
         handle.write("## Accounts\n\n")
         for account in accounts:
-            details = [f"{account['sourceCount']} local caption sources", str(account.get("status") or "unknown")]
+            details = [
+                f"{account['sourceCount']} local caption sources",
+                str(account.get("status") or "unknown"),
+            ]
             if account.get("liveStatus"):
                 details.append(f"live={account['liveStatus']}")
             if account.get("reelLinksVisible") is not None:
@@ -1020,7 +1190,19 @@ def _ocr_video_frame(path: Path) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         frame = Path(tmp) / "frame.png"
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-ss", "1", "-i", str(path), "-frames:v", "1", str(frame)],
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                "1",
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                str(frame),
+            ],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -1043,16 +1225,23 @@ def _approved_texts(path: Path) -> list[str]:
     except json.JSONDecodeError:
         return [line.strip() for line in raw.splitlines() if line.strip()]
     if isinstance(payload, list):
-        return [str(item.get("text") if isinstance(item, dict) else item) for item in payload]
+        return [
+            str(item.get("text") if isinstance(item, dict) else item)
+            for item in payload
+        ]
     if isinstance(payload, dict):
         if isinstance(payload.get("items"), list):
             return [
                 str(item.get("text"))
                 for item in payload["items"]
-                if isinstance(item, dict) and item.get("status") == "approved" and item.get("text")
+                if isinstance(item, dict)
+                and item.get("status") == "approved"
+                and item.get("text")
             ]
         rows = payload.get("candidates") or payload.get("hooks") or []
-        return [str(item.get("text") if isinstance(item, dict) else item) for item in rows]
+        return [
+            str(item.get("text") if isinstance(item, dict) else item) for item in rows
+        ]
     return []
 
 
@@ -1079,7 +1268,8 @@ def _hook_variants(text: str) -> dict[str, Any]:
         "static": cleaned,
         "timed": (
             {"segments": [{"text": segment} for segment in segments]}
-            if len(segments) > 1 else None
+            if len(segments) > 1
+            else None
         ),
     }
 
@@ -1107,7 +1297,9 @@ def _write_placement_review(path: Path, rows: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         handle.write("# Candidate Caption Placement Review\n\n")
         handle.write("- Static: lower_center through `stacey_static_center`.\n")
-        handle.write("- Timed: segment mode, no explicit segment bands; `placement.py` chooses safe lower-center movement.\n")
+        handle.write(
+            "- Timed: segment mode, no explicit segment bands; `placement.py` chooses safe lower-center movement.\n"
+        )
         handle.write("- Background plate: false. Font: Instagram Sans Condensed.\n\n")
         for index, row in enumerate(rows, 1):
             timed = (row.get("hookVariants") or {}).get("timed")
@@ -1121,7 +1313,9 @@ def _write_placement_review(path: Path, rows: list[dict[str, Any]]) -> None:
 def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
     items = decisions.get("items") if isinstance(decisions.get("items"), list) else []
     mode = str(decisions.get("reviewMode") or "static")
-    cards = "\n".join(_render_swipe_card(item, index, mode=mode) for index, item in enumerate(items))
+    cards = "\n".join(
+        _render_swipe_card(item, index, mode=mode) for index, item in enumerate(items)
+    )
     data = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
     approve_label = "Approve timed" if mode == "timed" else "Approve static"
     return f"""<!doctype html>
@@ -1238,10 +1432,17 @@ def _render_swipe_review_html(decisions: dict[str, Any]) -> str:
 
 def _render_swipe_card(item: dict[str, Any], index: int, *, mode: str) -> str:
     text = str(item.get("text") or "")
-    banks = " ".join(f'<span class="chip">{html.escape(str(bank))}</span>' for bank in item.get("banks") or [])
+    banks = " ".join(
+        f'<span class="chip">{html.escape(str(bank))}</span>'
+        for bank in item.get("banks") or []
+    )
     timed = ((item.get("hookVariants") or {}).get("timed") or {}).get("segments") or []
-    timed_lines = [str(segment.get("text") or "") for segment in timed if isinstance(segment, dict)]
-    beats = " ".join(f'<span class="beat">{html.escape(line)}</span>' for line in timed_lines)
+    timed_lines = [
+        str(segment.get("text") or "") for segment in timed if isinstance(segment, dict)
+    ]
+    beats = " ".join(
+        f'<span class="beat">{html.escape(line)}</span>' for line in timed_lines
+    )
     detail = (
         f'<div class="label">Timed beats</div><div class="beats">{beats}</div>'
         if mode == "timed"
@@ -1309,7 +1510,9 @@ def _seed_caption_texts() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=".", help="repo root or python_packages/reel_factory")
+    parser.add_argument(
+        "--root", default=".", help="repo root or python_packages/reel_factory"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     scan = sub.add_parser("scan-local")

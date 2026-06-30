@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .config import DEFAULT_DB_PATH, ensure_data_dirs
-
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -368,7 +368,9 @@ def _ensure_schema_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
     existing = {
         str(row["name"])
         for row in conn.execute(f"PRAGMA table_info({table})").fetchall()

@@ -1,4 +1,5 @@
 """Durable local review truth helpers for Reel Factory."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,12 +9,16 @@ from pathlib import Path
 from manifest import Manifest
 
 
-def review_integrity_check(root: Path, *, deck_id: str | None = None, folder_root: Path | None = None) -> dict:
+def review_integrity_check(
+    root: Path, *, deck_id: str | None = None, folder_root: Path | None = None
+) -> dict:
     manifest = Manifest(root / "manifest.json")
     return manifest.review_integrity_check(deck_id=deck_id, folder_root=folder_root)
 
 
-def regenerate_review_folders(root: Path, *, folder_root: Path, deck_id: str | None = None) -> dict:
+def regenerate_review_folders(
+    root: Path, *, folder_root: Path, deck_id: str | None = None
+) -> dict:
     manifest = Manifest(root / "manifest.json")
     return {
         "schema": "reel_factory.review_folder_regeneration.v1",
@@ -24,7 +29,9 @@ def regenerate_review_folders(root: Path, *, folder_root: Path, deck_id: str | N
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Reel Factory review source-of-truth tools")
+    parser = argparse.ArgumentParser(
+        description="Reel Factory review source-of-truth tools"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
     check = sub.add_parser("review-integrity-check")
     check.add_argument("--root", default=".")

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class FreshReelProductionRepository:
@@ -67,16 +68,26 @@ class FreshReelProductionRepository:
         current = (
             int(current_inventory)
             if current_inventory is not None
-            else self.fresh_reel_current_schedule_safe_inventory(creator=creator, campaign_slug=campaign_slug)
+            else self.fresh_reel_current_schedule_safe_inventory(
+                creator=creator, campaign_slug=campaign_slug
+            )
         )
         needed = max(0, target - current)
         versions_per_parent = max(1, int(caption_versions_per_parent or 5))
         variants_per_version = max(1, int(variants_per_caption or 3))
         variants_per_parent = versions_per_parent * variants_per_version
         downstream_yield = self.fresh_reel_downstream_schedule_safe_yield_pct()
-        variants_needed = int(math.ceil(needed / max(0.01, downstream_yield / 100))) if needed else 0
-        parents_needed = int(math.ceil(variants_needed / variants_per_parent)) if variants_needed else 0
-        raw_parent_candidates_needed = int(math.ceil(parents_needed / 0.828)) if parents_needed else 0
+        variants_needed = (
+            int(math.ceil(needed / max(0.01, downstream_yield / 100))) if needed else 0
+        )
+        parents_needed = (
+            int(math.ceil(variants_needed / variants_per_parent))
+            if variants_needed
+            else 0
+        )
+        raw_parent_candidates_needed = (
+            int(math.ceil(parents_needed / 0.828)) if parents_needed else 0
+        )
         caption_families_needed = parents_needed
         caption_versions_needed = parents_needed * versions_per_parent
         stages = self.fresh_reel_expected_stage_rows(
@@ -93,13 +104,33 @@ class FreshReelProductionRepository:
             batch_target=batch_schedule_safe_target,
         )
         batch_count = len(execution_batches)
-        daily_schedule_safe_target = min(max(1, int(batch_schedule_safe_target or 90)), needed) if needed else 0
-        estimated_days = int(math.ceil(needed / daily_schedule_safe_target)) if daily_schedule_safe_target else 0
+        daily_schedule_safe_target = (
+            min(max(1, int(batch_schedule_safe_target or 90)), needed) if needed else 0
+        )
+        estimated_days = (
+            int(math.ceil(needed / daily_schedule_safe_target))
+            if daily_schedule_safe_target
+            else 0
+        )
         conservative_yield = 50.0
-        conservative_variants = int(math.ceil(needed / (conservative_yield / 100))) if needed else 0
-        conservative_parents = int(math.ceil(conservative_variants / variants_per_parent)) if conservative_variants else 0
+        conservative_variants = (
+            int(math.ceil(needed / (conservative_yield / 100))) if needed else 0
+        )
+        conservative_parents = (
+            int(math.ceil(conservative_variants / variants_per_parent))
+            if conservative_variants
+            else 0
+        )
         conservative_daily = (
-            max(1, int(math.floor(daily_schedule_safe_target * (conservative_yield / max(0.01, downstream_yield)))))
+            max(
+                1,
+                int(
+                    math.floor(
+                        daily_schedule_safe_target
+                        * (conservative_yield / max(0.01, downstream_yield))
+                    )
+                ),
+            )
             if daily_schedule_safe_target
             else 0
         )
@@ -125,14 +156,22 @@ class FreshReelProductionRepository:
             "executionBatches": execution_batches,
             "batchesRequired": batch_count,
             "estimatedDaysToBuffer": estimated_days,
-            "dailyParentTarget": int(math.ceil(parents_needed / max(1, estimated_days))) if parents_needed else 0,
-            "dailyVariantTarget": int(math.ceil(variants_needed / max(1, estimated_days))) if variants_needed else 0,
+            "dailyParentTarget": int(math.ceil(parents_needed / max(1, estimated_days)))
+            if parents_needed
+            else 0,
+            "dailyVariantTarget": int(
+                math.ceil(variants_needed / max(1, estimated_days))
+            )
+            if variants_needed
+            else 0,
             "dailyScheduleSafeTarget": daily_schedule_safe_target,
             "conservativeScenario": {
                 "conservativeYieldPct": conservative_yield,
                 "parentsNeededConservative": conservative_parents,
                 "variantsNeededConservative": conservative_variants,
-                "estimatedDaysConservative": int(math.ceil(needed / conservative_daily)) if conservative_daily and needed else 0,
+                "estimatedDaysConservative": int(math.ceil(needed / conservative_daily))
+                if conservative_daily and needed
+                else 0,
             },
             "constraints": {
                 "noStoryFeedCarouselPadding": True,
@@ -154,7 +193,9 @@ class FreshReelProductionRepository:
             "creator": report.get("creator"),
             "campaign": report.get("campaign"),
             "contentSurface": "reel",
-            "freshScheduleSafeAssetsNeeded": report.get("freshScheduleSafeAssetsNeeded"),
+            "freshScheduleSafeAssetsNeeded": report.get(
+                "freshScheduleSafeAssetsNeeded"
+            ),
             "batchesRequired": report.get("batchesRequired"),
             "executionBatches": report.get("executionBatches"),
             "largestProductionRisk": report.get("largestProductionRisk"),
@@ -169,7 +210,9 @@ class FreshReelProductionRepository:
             "campaign": report.get("campaign"),
             "targetScheduleSafeInventory": report.get("targetScheduleSafeInventory"),
             "currentScheduleSafeInventory": report.get("currentScheduleSafeInventory"),
-            "freshScheduleSafeAssetsNeeded": report.get("freshScheduleSafeAssetsNeeded"),
+            "freshScheduleSafeAssetsNeeded": report.get(
+                "freshScheduleSafeAssetsNeeded"
+            ),
             "parentsNeeded": report.get("parentsNeeded"),
             "captionFamiliesNeeded": report.get("captionFamiliesNeeded"),
             "variantsNeeded": report.get("variantsNeeded"),
@@ -199,10 +242,20 @@ class FreshReelProductionRepository:
         campaign_slug: str | None,
     ) -> int:
         assets = [
-            asset for asset in self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
-            if self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "reel"
+            asset
+            for asset in self._surface_report_assets(
+                creator=creator, campaign_slug=campaign_slug
+            )
+            if self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == "reel"
         ]
-        return sum(1 for readiness in self._build_surface_readiness(assets) if readiness.get("canHandoff"))
+        return sum(
+            1
+            for readiness in self._build_surface_readiness(assets)
+            if readiness.get("canHandoff")
+        )
 
     def fresh_reel_downstream_schedule_safe_yield_pct(self) -> float:
         yield_pct = 100.0
@@ -230,7 +283,10 @@ class FreshReelProductionRepository:
         counts = {
             "parent_accepted": (raw_parent_candidates_needed, parents_needed),
             "caption_family_created": (parents_needed, caption_families_needed),
-            "caption_versions_created": (caption_families_needed, caption_versions_needed),
+            "caption_versions_created": (
+                caption_families_needed,
+                caption_versions_needed,
+            ),
             "contentforge_variants_created": (caption_versions_needed, variants_needed),
         }
         current = variants_needed
@@ -243,14 +299,16 @@ class FreshReelProductionRepository:
         rows = []
         for stage, yield_pct, risk in self.FRESH_REEL_STAGE_YIELDS:
             input_count, output_count = counts.get(stage, (0, 0))
-            rows.append({
-                "stage": stage,
-                "expectedInput": int(input_count),
-                "expectedOutput": int(output_count),
-                "assumedYieldPct": float(yield_pct),
-                "risk": risk,
-                "evidence": self.fresh_reel_stage_evidence(stage),
-            })
+            rows.append(
+                {
+                    "stage": stage,
+                    "expectedInput": int(input_count),
+                    "expectedOutput": int(output_count),
+                    "assumedYieldPct": float(yield_pct),
+                    "risk": risk,
+                    "evidence": self.fresh_reel_stage_evidence(stage),
+                }
+            )
         return rows
 
     def fresh_reel_stage_evidence(self, stage: str) -> str:
@@ -280,18 +338,24 @@ class FreshReelProductionRepository:
         batch_index = 1
         while remaining > 0:
             schedule_safe_target = min(target, remaining)
-            variants_required = int(math.ceil(schedule_safe_target / max(0.01, downstream_yield_pct / 100)))
-            parents_required = int(math.ceil(variants_required / max(1, variants_per_parent)))
-            batches.append({
-                "batchId": f"fresh_reel_batch_{batch_index:02d}",
-                "targetScheduleSafeAssets": schedule_safe_target,
-                "parentsRequired": parents_required,
-                "captionFamiliesRequired": parents_required,
-                "variantsRequired": variants_required,
-                "expectedScheduleSafeOutput": schedule_safe_target,
-                "gatesToVerify": list(self.FRESH_REEL_GATES_TO_VERIFY),
-                "wouldWrite": False,
-            })
+            variants_required = int(
+                math.ceil(schedule_safe_target / max(0.01, downstream_yield_pct / 100))
+            )
+            parents_required = int(
+                math.ceil(variants_required / max(1, variants_per_parent))
+            )
+            batches.append(
+                {
+                    "batchId": f"fresh_reel_batch_{batch_index:02d}",
+                    "targetScheduleSafeAssets": schedule_safe_target,
+                    "parentsRequired": parents_required,
+                    "captionFamiliesRequired": parents_required,
+                    "variantsRequired": variants_required,
+                    "expectedScheduleSafeOutput": schedule_safe_target,
+                    "gatesToVerify": list(self.FRESH_REEL_GATES_TO_VERIFY),
+                    "wouldWrite": False,
+                }
+            )
             remaining -= schedule_safe_target
             batch_index += 1
         return batches

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class OperatorReviewRepository:
@@ -16,7 +17,9 @@ class OperatorReviewRepository:
     ) -> None:
         self.conn = conn
         self._normalize_content_surface = normalize_content_surface
-        self._multi_blocker_inventory_unlock_report = multi_blocker_inventory_unlock_report
+        self._multi_blocker_inventory_unlock_report = (
+            multi_blocker_inventory_unlock_report
+        )
         self._repair_minutes = repair_minutes
 
     def operator_inventory_review_batch_plan(
@@ -37,7 +40,10 @@ class OperatorReviewRepository:
             required_inventory=required_inventory,
             current_inventory=current_inventory,
         )
-        shortfall = max(0, int(required_inventory) - int(unlock.get("currentScheduleSafeAssets") or 0))
+        shortfall = max(
+            0,
+            int(required_inventory) - int(unlock.get("currentScheduleSafeAssets") or 0),
+        )
         target = int(target_unlock) if target_unlock is not None else shortfall
         candidates = [
             self.operator_review_candidate_row(asset)
@@ -56,7 +62,9 @@ class OperatorReviewRepository:
         selected: list[dict[str, Any]] = []
         unlocked = 0
         for row in candidates:
-            if max_batch_size is not None and len(selected) >= max(0, int(max_batch_size)):
+            if max_batch_size is not None and len(selected) >= max(
+                0, int(max_batch_size)
+            ):
                 break
             if unlocked >= target:
                 break
@@ -67,17 +75,30 @@ class OperatorReviewRepository:
             "schema": "creator_os.operator_inventory_review_batch_plan.v1",
             "creator": creator,
             "campaign": campaign_slug,
-            "contentSurface": self._normalize_content_surface(content_surface or "reel"),
+            "contentSurface": self._normalize_content_surface(
+                content_surface or "reel"
+            ),
             "targetUnlock": target,
-            "currentScheduleSafeAssets": int(unlock.get("currentScheduleSafeAssets") or 0),
+            "currentScheduleSafeAssets": int(
+                unlock.get("currentScheduleSafeAssets") or 0
+            ),
             "requiredFor25Accounts": int(required_inventory),
             "shortfall": shortfall,
             "reviewCandidates": len(candidates),
             "recommendedReviewBatchSize": len(selected),
             "estimatedInventoryGain": unlocked,
             "estimatedOperatorMinutes": minutes,
-            "wouldPass25GateAfterBatch": int(unlock.get("currentScheduleSafeAssets") or 0) + unlocked >= int(required_inventory),
-            "remainingGapAfterBatch": max(0, int(required_inventory) - int(unlock.get("currentScheduleSafeAssets") or 0) - unlocked),
+            "wouldPass25GateAfterBatch": int(
+                unlock.get("currentScheduleSafeAssets") or 0
+            )
+            + unlocked
+            >= int(required_inventory),
+            "remainingGapAfterBatch": max(
+                0,
+                int(required_inventory)
+                - int(unlock.get("currentScheduleSafeAssets") or 0)
+                - unlocked,
+            ),
             "excludedRiskClasses": [
                 "wrong_visual",
                 "actual_visual_quality_failure",
@@ -146,18 +167,32 @@ class OperatorReviewRepository:
             "schema": "creator_os.operator_review_simulator.v1",
             "creator": creator,
             "campaign": campaign_slug,
-            "contentSurface": self._normalize_content_surface(content_surface or "reel"),
-            "currentScheduleSafeAssets": int(plan.get("currentScheduleSafeAssets") or 0),
+            "contentSurface": self._normalize_content_surface(
+                content_surface or "reel"
+            ),
+            "currentScheduleSafeAssets": int(
+                plan.get("currentScheduleSafeAssets") or 0
+            ),
             "requiredFor25Accounts": int(required_inventory),
-            "shortfall": max(0, int(required_inventory) - int(plan.get("currentScheduleSafeAssets") or 0)),
+            "shortfall": max(
+                0,
+                int(required_inventory)
+                - int(plan.get("currentScheduleSafeAssets") or 0),
+            ),
             "reviewCandidates": int(plan.get("reviewCandidates") or 0),
             "scenarios": scenarios,
             "minimumCertificationPath": minimum,
-            "minimumAssetsReviewedToPass25Gate": int(minimum.get("minimumAssetsReviewedToPass25Gate") or 0),
-            "minimumOperatorMinutesToPass25Gate": int(minimum.get("minimumOperatorMinutesToPass25Gate") or 0),
+            "minimumAssetsReviewedToPass25Gate": int(
+                minimum.get("minimumAssetsReviewedToPass25Gate") or 0
+            ),
+            "minimumOperatorMinutesToPass25Gate": int(
+                minimum.get("minimumOperatorMinutesToPass25Gate") or 0
+            ),
             "highestROIBatchType": self.operator_review_highest_roi_batch_type(ordered),
             "lowestRiskBatchType": self.operator_review_lowest_risk_batch_type(ordered),
-            "recommendedExecutionOrder": self.operator_review_batch_order_labels(ordered),
+            "recommendedExecutionOrder": self.operator_review_batch_order_labels(
+                ordered
+            ),
             "wouldWrite": False,
         }
 
@@ -184,15 +219,21 @@ class OperatorReviewRepository:
             "wouldWrite": False,
         }
 
-    def operator_review_minimum_certification_path(self, **kwargs: Any) -> dict[str, Any]:
+    def operator_review_minimum_certification_path(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
         report = self.operator_review_simulator(**kwargs)
         return {
             "schema": "creator_os.operator_review_minimum_certification_path.v1",
             "creator": report.get("creator"),
             "contentSurface": report.get("contentSurface"),
             "minimumCertificationPath": report.get("minimumCertificationPath"),
-            "minimumAssetsReviewedToPass25Gate": report.get("minimumAssetsReviewedToPass25Gate"),
-            "minimumOperatorMinutesToPass25Gate": report.get("minimumOperatorMinutesToPass25Gate"),
+            "minimumAssetsReviewedToPass25Gate": report.get(
+                "minimumAssetsReviewedToPass25Gate"
+            ),
+            "minimumOperatorMinutesToPass25Gate": report.get(
+                "minimumOperatorMinutesToPass25Gate"
+            ),
             "wouldWrite": False,
         }
 
@@ -204,7 +245,9 @@ class OperatorReviewRepository:
             "wouldWrite": False,
         }
 
-    def operator_review_execution_order(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def operator_review_execution_order(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return sorted(
             rows,
             key=lambda row: (
@@ -218,9 +261,15 @@ class OperatorReviewRepository:
         classes = set(repair_classes)
         if classes == {"instagram_post_caption_quality_failed"}:
             return 0
-        if classes <= {"instagram_post_caption_quality_failed", "discoverability_failure"}:
+        if classes <= {
+            "instagram_post_caption_quality_failed",
+            "discoverability_failure",
+        }:
             return 1
-        if classes <= {"instagram_post_caption_quality_failed", "operator_visual_review_required"}:
+        if classes <= {
+            "instagram_post_caption_quality_failed",
+            "operator_visual_review_required",
+        }:
             return 2
         if "quarantined_asset" in classes:
             return 3
@@ -230,9 +279,15 @@ class OperatorReviewRepository:
         classes = set(repair_classes)
         if classes == {"instagram_post_caption_quality_failed"}:
             return "caption_only"
-        if classes <= {"instagram_post_caption_quality_failed", "discoverability_failure"}:
+        if classes <= {
+            "instagram_post_caption_quality_failed",
+            "discoverability_failure",
+        }:
             return "caption_discoverability"
-        if classes <= {"instagram_post_caption_quality_failed", "operator_visual_review_required"}:
+        if classes <= {
+            "instagram_post_caption_quality_failed",
+            "operator_visual_review_required",
+        }:
             return "caption_visual_review"
         if "quarantined_asset" in classes:
             return "quarantine_review"
@@ -247,8 +302,12 @@ class OperatorReviewRepository:
         approval_rate: int,
     ) -> dict[str, Any]:
         reviewed = len(ordered_rows)
-        recovered = min(reviewed, int(math.floor(reviewed * max(0, min(100, approval_rate)) / 100)))
-        minutes = sum(int(row.get("estimatedOperatorMinutes") or 0) for row in ordered_rows)
+        recovered = min(
+            reviewed, int(math.floor(reviewed * max(0, min(100, approval_rate)) / 100))
+        )
+        minutes = sum(
+            int(row.get("estimatedOperatorMinutes") or 0) for row in ordered_rows
+        )
         inventory = current_inventory + recovered
         return {
             "approvalRate": approval_rate,
@@ -292,14 +351,31 @@ class OperatorReviewRepository:
             bucket["minutes"] += int(row.get("estimatedOperatorMinutes") or 0)
         if not by_type:
             return ""
-        return sorted(by_type, key=lambda key: (-(by_type[key]["gain"] / max(1, by_type[key]["minutes"])), key))[0]
+        return sorted(
+            by_type,
+            key=lambda key: (
+                -(by_type[key]["gain"] / max(1, by_type[key]["minutes"])),
+                key,
+            ),
+        )[0]
 
     def operator_review_lowest_risk_batch_type(self, rows: list[dict[str, Any]]) -> str:
-        order = ["caption_only", "caption_discoverability", "caption_visual_review", "quarantine_review", "mixed_review"]
-        present = {self.operator_review_batch_type(row.get("repairClasses") or []) for row in rows}
+        order = [
+            "caption_only",
+            "caption_discoverability",
+            "caption_visual_review",
+            "quarantine_review",
+            "mixed_review",
+        ]
+        present = {
+            self.operator_review_batch_type(row.get("repairClasses") or [])
+            for row in rows
+        }
         return next((item for item in order if item in present), "")
 
-    def operator_review_batch_order_labels(self, rows: list[dict[str, Any]]) -> list[str]:
+    def operator_review_batch_order_labels(
+        self, rows: list[dict[str, Any]]
+    ) -> list[str]:
         order = []
         for row in rows:
             label = self.operator_review_batch_type(row.get("repairClasses") or [])
@@ -322,13 +398,15 @@ class OperatorReviewRepository:
             return False
         if asset.get("unrepairableBlockers"):
             return False
-        return classes.issubset({
-            "operator_visual_review_required",
-            "instagram_post_caption_quality_failed",
-            "discoverability_failure",
-            "caption_placement_qc_failed",
-            "quarantined_asset",
-        })
+        return classes.issubset(
+            {
+                "operator_visual_review_required",
+                "instagram_post_caption_quality_failed",
+                "discoverability_failure",
+                "caption_placement_qc_failed",
+                "quarantined_asset",
+            }
+        )
 
     def operator_review_candidate_row(self, asset: dict[str, Any]) -> dict[str, Any]:
         classes = list(asset.get("repairClasses") or [])

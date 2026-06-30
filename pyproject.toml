@@ -38,7 +38,23 @@ pythonpath = [
 [dependency-groups]
 dev = [
     "import-linter>=2.11",
+    "ruff>=0.8,<1",
 ]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = [
+  ".venv",
+  ".uv-cache",
+  "node_modules",
+  "graphify-out",
+  "**/static/vendor",
+]
+
+[tool.ruff.lint]
+# Conservative start: real-bug rules (pyflakes) + import sorting + pyupgrade.
+# Broaden later; this keeps the first adoption green and meaningful.
+select = ["F", "I", "UP"]
 
 [tool.importlinter]
 root_packages = [

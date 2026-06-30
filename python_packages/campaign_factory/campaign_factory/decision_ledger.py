@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class DecisionLedgerRepository:
@@ -68,79 +69,108 @@ class DecisionLedgerRepository:
         decisions: list[dict[str, Any]] = []
         creator_row = daily["creators"][0] if daily.get("creators") else {}
         if int(creator_row.get("inventoryShortfall") or 0) > 0:
-            decisions.append(self.manager_decision_entry(
-                decision_type="inventory_shortfall",
-                reason="insufficient_schedule_safe_drafts",
-                timestamp=timestamp,
-                creator=creator_label,
-                source_system="creator_os.daily_plan",
-                explanation=(
-                    f"{creator_label} needs {creator_row.get('accountsNeedingPostsToday') or 0} posts today "
-                    f"but only {creator_row.get('validatedDraftsAvailable') or 0} validated schedule-safe drafts are available."
-                ),
-                payload={
-                    "inventoryShortfall": int(creator_row.get("inventoryShortfall") or 0),
-                    "validatedDraftsAvailable": int(creator_row.get("validatedDraftsAvailable") or 0),
-                    "accountsNeedingPostsToday": int(creator_row.get("accountsNeedingPostsToday") or 0),
-                },
-                context_snapshot={
-                    "managerDecision": creator_row.get("managerDecision"),
-                    "managerReason": creator_row.get("managerReason"),
-                    "nextSafeActions": creator_row.get("nextSafeActions") or [],
-                },
-            ))
+            decisions.append(
+                self.manager_decision_entry(
+                    decision_type="inventory_shortfall",
+                    reason="insufficient_schedule_safe_drafts",
+                    timestamp=timestamp,
+                    creator=creator_label,
+                    source_system="creator_os.daily_plan",
+                    explanation=(
+                        f"{creator_label} needs {creator_row.get('accountsNeedingPostsToday') or 0} posts today "
+                        f"but only {creator_row.get('validatedDraftsAvailable') or 0} validated schedule-safe drafts are available."
+                    ),
+                    payload={
+                        "inventoryShortfall": int(
+                            creator_row.get("inventoryShortfall") or 0
+                        ),
+                        "validatedDraftsAvailable": int(
+                            creator_row.get("validatedDraftsAvailable") or 0
+                        ),
+                        "accountsNeedingPostsToday": int(
+                            creator_row.get("accountsNeedingPostsToday") or 0
+                        ),
+                    },
+                    context_snapshot={
+                        "managerDecision": creator_row.get("managerDecision"),
+                        "managerReason": creator_row.get("managerReason"),
+                        "nextSafeActions": creator_row.get("nextSafeActions") or [],
+                    },
+                )
+            )
 
-        decisions.extend(self.decision_entries_from_account_content_needs(
-            creator=creator_label,
-            date=target_date,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self.decision_entries_from_daily_plan_accounts(
-            daily=daily,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self.decision_entries_from_winner_expansion_report(
-            report=winner_expansion_report,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self.decision_entries_from_variant_inventory_plan(
-            plan=variant_inventory_plan,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
-        decisions.extend(self.decision_entries_from_winner_expansion_plan(
-            plan=winner_expansion_plan,
-            creator=creator_label,
-            timestamp=timestamp,
-        ))
+        decisions.extend(
+            self.decision_entries_from_account_content_needs(
+                creator=creator_label,
+                date=target_date,
+                timestamp=timestamp,
+            )
+        )
+        decisions.extend(
+            self.decision_entries_from_daily_plan_accounts(
+                daily=daily,
+                creator=creator_label,
+                timestamp=timestamp,
+            )
+        )
+        decisions.extend(
+            self.decision_entries_from_winner_expansion_report(
+                report=winner_expansion_report,
+                creator=creator_label,
+                timestamp=timestamp,
+            )
+        )
+        decisions.extend(
+            self.decision_entries_from_variant_inventory_plan(
+                plan=variant_inventory_plan,
+                creator=creator_label,
+                timestamp=timestamp,
+            )
+        )
+        decisions.extend(
+            self.decision_entries_from_winner_expansion_plan(
+                plan=winner_expansion_plan,
+                creator=creator_label,
+                timestamp=timestamp,
+            )
+        )
 
         story_intent = str(
             creator_row.get("recommendedStoryIntent")
-            or self._recommended_story_intent_for_date(target_date, creator=creator_label)
+            or self._recommended_story_intent_for_date(
+                target_date, creator=creator_label
+            )
         )
-        story_style = str(creator_row.get("recommendedStoryStyle") or self._recommended_story_style_for_intent(story_intent))
-        decisions.append(self.manager_decision_entry(
-            decision_type="story_intent_recommended",
-            reason="creator_story_mix_plan",
-            timestamp=timestamp,
-            creator=creator_label,
-            surface="story",
-            source_system="story_mix_plan",
-            explanation=f"Creator OS recommends a {story_intent} Story using {story_style} styling based on the current Story mix/calendar plan.",
-            payload={
-                "storyIntent": story_intent,
-                "storyStyle": story_style,
-                "storyGoal": self.story_goal_for_intent(story_intent),
-            },
-            context_snapshot={
-                "storyMixPlan": self._story_mix_plan(creator=creator_label).get("storyMix"),
-                "storyCalendarPlan": self._story_calendar_plan(creator=creator_label).get("calendar"),
-                "recommendedStoryIntent": story_intent,
-                "recommendedStoryStyle": story_style,
-            },
-        ))
+        story_style = str(
+            creator_row.get("recommendedStoryStyle")
+            or self._recommended_story_style_for_intent(story_intent)
+        )
+        decisions.append(
+            self.manager_decision_entry(
+                decision_type="story_intent_recommended",
+                reason="creator_story_mix_plan",
+                timestamp=timestamp,
+                creator=creator_label,
+                surface="story",
+                source_system="story_mix_plan",
+                explanation=f"Creator OS recommends a {story_intent} Story using {story_style} styling based on the current Story mix/calendar plan.",
+                payload={
+                    "storyIntent": story_intent,
+                    "storyStyle": story_style,
+                    "storyGoal": self.story_goal_for_intent(story_intent),
+                },
+                context_snapshot={
+                    "storyMixPlan": self._story_mix_plan(creator=creator_label).get(
+                        "storyMix"
+                    ),
+                    "storyCalendarPlan": self._story_calendar_plan(
+                        creator=creator_label
+                    ).get("calendar"),
+                    "recommendedStoryIntent": story_intent,
+                    "recommendedStoryStyle": story_style,
+                },
+            )
+        )
 
         if isinstance(account_tiers, dict):
             for account in account_tiers.get("accounts") or []:
@@ -149,17 +179,22 @@ class DecisionLedgerRepository:
                 tier = str(account.get("tier") or account.get("accountTier") or "")
                 if not tier:
                     continue
-                decisions.append(self.manager_decision_entry(
-                    decision_type="account_tier_classified",
-                    reason=f"account_tier_{tier}",
-                    timestamp=timestamp,
-                    creator=creator_label,
-                    account_id=str(account.get("accountId") or ""),
-                    source_system="account_tier_engine",
-                    explanation=f"Account was classified as {tier}, which determines the recommended posting guidance.",
-                    payload={"accountTier": tier, "postingGuidance": account.get("postingGuidance") or {}},
-                    context_snapshot=account,
-                ))
+                decisions.append(
+                    self.manager_decision_entry(
+                        decision_type="account_tier_classified",
+                        reason=f"account_tier_{tier}",
+                        timestamp=timestamp,
+                        creator=creator_label,
+                        account_id=str(account.get("accountId") or ""),
+                        source_system="account_tier_engine",
+                        explanation=f"Account was classified as {tier}, which determines the recommended posting guidance.",
+                        payload={
+                            "accountTier": tier,
+                            "postingGuidance": account.get("postingGuidance") or {},
+                        },
+                        context_snapshot=account,
+                    )
+                )
 
         decisions = self.dedupe_manager_decisions(decisions)
         return {
@@ -173,12 +208,24 @@ class DecisionLedgerRepository:
             "wouldWrite": False,
             "inputs": {
                 "dailyPlanSchema": daily.get("schema"),
-                "threadsdashReportSchema": (threadsdash_report or {}).get("schema") if isinstance(threadsdash_report, dict) else None,
-                "schedulePlanSchema": schedule_plan.get("schema") if isinstance(schedule_plan, dict) else None,
-                "timePlanSchema": time_plan.get("schema") if isinstance(time_plan, dict) else None,
-                "winnerExpansionReportSchema": winner_expansion_report.get("schema") if isinstance(winner_expansion_report, dict) else None,
-                "winnerExpansionPlanSchema": winner_expansion_plan.get("schema") if isinstance(winner_expansion_plan, dict) else None,
-                "variantInventoryPlanSchema": variant_inventory_plan.get("schema") if isinstance(variant_inventory_plan, dict) else None,
+                "threadsdashReportSchema": (threadsdash_report or {}).get("schema")
+                if isinstance(threadsdash_report, dict)
+                else None,
+                "schedulePlanSchema": schedule_plan.get("schema")
+                if isinstance(schedule_plan, dict)
+                else None,
+                "timePlanSchema": time_plan.get("schema")
+                if isinstance(time_plan, dict)
+                else None,
+                "winnerExpansionReportSchema": winner_expansion_report.get("schema")
+                if isinstance(winner_expansion_report, dict)
+                else None,
+                "winnerExpansionPlanSchema": winner_expansion_plan.get("schema")
+                if isinstance(winner_expansion_plan, dict)
+                else None,
+                "variantInventoryPlanSchema": variant_inventory_plan.get("schema")
+                if isinstance(variant_inventory_plan, dict)
+                else None,
             },
         }
 
@@ -215,7 +262,9 @@ class DecisionLedgerRepository:
             "wouldWrite": False,
         }
 
-    def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_creator(
+        self, *, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
         report = self.query_decision_ledger(creator=creator_label, **kwargs)
         decisions = report.get("decisions") or []
@@ -226,9 +275,13 @@ class DecisionLedgerRepository:
             extra={"creator": creator_label},
         )
 
-    def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_account(
+        self, *, account_id: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         account_key = str(account_id or "").strip()
-        report = self.query_decision_ledger(creator=creator, account_id=account_key, **kwargs)
+        report = self.query_decision_ledger(
+            creator=creator, account_id=account_key, **kwargs
+        )
         decisions = report.get("decisions") or []
         return self.manager_decision_filtered_report(
             schema="creator_os.decision_ledger_by_account.v1",
@@ -237,9 +290,13 @@ class DecisionLedgerRepository:
             extra={"accountId": account_key},
         )
 
-    def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_surface(
+        self, *, surface: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         normalized_surface = self._normalize_content_surface(surface)
-        report = self.query_decision_ledger(creator=creator, surface=normalized_surface, **kwargs)
+        report = self.query_decision_ledger(
+            creator=creator, surface=normalized_surface, **kwargs
+        )
         decisions = report.get("decisions") or []
         return self.manager_decision_filtered_report(
             schema="creator_os.decision_ledger_by_surface.v1",
@@ -248,9 +305,13 @@ class DecisionLedgerRepository:
             extra={"surface": normalized_surface},
         )
 
-    def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_decision_type(
+        self, *, decision_type: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         normalized_type = str(decision_type or "").strip()
-        report = self.query_decision_ledger(creator=creator, decision_type=normalized_type, **kwargs)
+        report = self.query_decision_ledger(
+            creator=creator, decision_type=normalized_type, **kwargs
+        )
         decisions = report.get("decisions") or []
         return self.manager_decision_filtered_report(
             schema="creator_os.decision_ledger_by_decision_type.v1",
@@ -272,21 +333,32 @@ class DecisionLedgerRepository:
         decisions = list(report.get("decisions") or [])
         creator_label = self._creator_label(creator)
         decisions = [
-            entry for entry in decisions
+            entry
+            for entry in decisions
             if self._creator_label(entry.get("creator")) == creator_label
         ]
         if account_id is not None:
             account_key = str(account_id or "").strip()
-            decisions = [entry for entry in decisions if str(entry.get("accountId") or "") == account_key]
+            decisions = [
+                entry
+                for entry in decisions
+                if str(entry.get("accountId") or "") == account_key
+            ]
         if surface is not None:
             normalized_surface = self._normalize_content_surface(surface)
             decisions = [
-                entry for entry in decisions
-                if self._normalize_content_surface(entry.get("surface")) == normalized_surface
+                entry
+                for entry in decisions
+                if self._normalize_content_surface(entry.get("surface"))
+                == normalized_surface
             ]
         if decision_type is not None:
             normalized_type = str(decision_type or "").strip()
-            decisions = [entry for entry in decisions if str(entry.get("decisionType") or "") == normalized_type]
+            decisions = [
+                entry
+                for entry in decisions
+                if str(entry.get("decisionType") or "") == normalized_type
+            ]
         result = dict(report)
         result["decisions"] = decisions
         result["decisionCount"] = len(decisions)
@@ -332,26 +404,28 @@ class DecisionLedgerRepository:
                 surface = self._normalize_content_surface(obligation.get("surface"))
                 decision_type = f"account_needs_{surface}"
                 reason = self.manager_obligation_reason(obligation)
-                entries.append(self.manager_decision_entry(
-                    decision_type=decision_type,
-                    reason=reason,
-                    timestamp=timestamp,
-                    creator=creator,
-                    account_id=str(account.get("accountId") or ""),
-                    surface=surface,
-                    source_system="account_content_requirements",
-                    explanation=self.manager_obligation_explanation(obligation),
-                    payload={
-                        "account": account.get("account"),
-                        "instagramAccountId": account.get("instagramAccountId"),
-                        "surface": surface,
-                        "required": obligation.get("required"),
-                        "completed": obligation.get("completed"),
-                        "scheduled": obligation.get("scheduled"),
-                        "remaining": obligation.get("remaining"),
-                    },
-                    context_snapshot=obligation,
-                ))
+                entries.append(
+                    self.manager_decision_entry(
+                        decision_type=decision_type,
+                        reason=reason,
+                        timestamp=timestamp,
+                        creator=creator,
+                        account_id=str(account.get("accountId") or ""),
+                        surface=surface,
+                        source_system="account_content_requirements",
+                        explanation=self.manager_obligation_explanation(obligation),
+                        payload={
+                            "account": account.get("account"),
+                            "instagramAccountId": account.get("instagramAccountId"),
+                            "surface": surface,
+                            "required": obligation.get("required"),
+                            "completed": obligation.get("completed"),
+                            "scheduled": obligation.get("scheduled"),
+                            "remaining": obligation.get("remaining"),
+                        },
+                        context_snapshot=obligation,
+                    )
+                )
         return entries
 
     def decision_entries_from_daily_plan_accounts(
@@ -368,17 +442,22 @@ class DecisionLedgerRepository:
             if account.get("state") != "blocked":
                 continue
             reason = str(account.get("blockedReason") or "account_blocked")
-            entries.append(self.manager_decision_entry(
-                decision_type="account_blocked",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                account_id=str(account.get("accountId") or ""),
-                source_system="creator_os.daily_plan",
-                explanation=f"Account is blocked for scheduling because {reason}.",
-                payload={"accountTier": account.get("accountTier"), "username": account.get("username")},
-                context_snapshot=account,
-            ))
+            entries.append(
+                self.manager_decision_entry(
+                    decision_type="account_blocked",
+                    reason=reason,
+                    timestamp=timestamp,
+                    creator=creator,
+                    account_id=str(account.get("accountId") or ""),
+                    source_system="creator_os.daily_plan",
+                    explanation=f"Account is blocked for scheduling because {reason}.",
+                    payload={
+                        "accountTier": account.get("accountTier"),
+                        "username": account.get("username"),
+                    },
+                    context_snapshot=account,
+                )
+            )
         return entries
 
     def decision_entries_from_winner_expansion_report(
@@ -392,32 +471,45 @@ class DecisionLedgerRepository:
             return []
         entries: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for winner in [item for item in (report.get("winners") or report.get("recommendations") or []) if isinstance(item, dict)]:
-            key = str(winner.get("postId") or winner.get("assetId") or winner.get("parentAssetId") or "")
+        for winner in [
+            item
+            for item in (report.get("winners") or report.get("recommendations") or [])
+            if isinstance(item, dict)
+        ]:
+            key = str(
+                winner.get("postId")
+                or winner.get("assetId")
+                or winner.get("parentAssetId")
+                or ""
+            )
             if key in seen:
                 continue
             seen.add(key)
-            reason = str(winner.get("reason") or winner.get("winnerReason") or "manual_winner")
+            reason = str(
+                winner.get("reason") or winner.get("winnerReason") or "manual_winner"
+            )
             asset_id = str(winner.get("assetId") or winner.get("parentAssetId") or "")
-            entries.append(self.manager_decision_entry(
-                decision_type="winner_selected",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                rendered_asset_id=asset_id,
-                parent_asset_id=asset_id,
-                source_system="winner_expansion_report",
-                explanation=f"Asset {asset_id or key} was selected as a winner because {reason}.",
-                payload={
-                    "postId": winner.get("postId"),
-                    "assetId": asset_id,
-                    "parentReelId": winner.get("parentReelId"),
-                    "variantFamilyId": winner.get("variantFamilyId"),
-                    "winnerReason": reason,
-                    "recommendedAction": winner.get("recommendedAction"),
-                },
-                context_snapshot=winner,
-            ))
+            entries.append(
+                self.manager_decision_entry(
+                    decision_type="winner_selected",
+                    reason=reason,
+                    timestamp=timestamp,
+                    creator=creator,
+                    rendered_asset_id=asset_id,
+                    parent_asset_id=asset_id,
+                    source_system="winner_expansion_report",
+                    explanation=f"Asset {asset_id or key} was selected as a winner because {reason}.",
+                    payload={
+                        "postId": winner.get("postId"),
+                        "assetId": asset_id,
+                        "parentReelId": winner.get("parentReelId"),
+                        "variantFamilyId": winner.get("variantFamilyId"),
+                        "winnerReason": reason,
+                        "recommendedAction": winner.get("recommendedAction"),
+                    },
+                    context_snapshot=winner,
+                )
+            )
         return entries
 
     def decision_entries_from_variant_inventory_plan(
@@ -434,23 +526,25 @@ class DecisionLedgerRepository:
             if not isinstance(batch, dict):
                 continue
             parent_asset_id = str(batch.get("parentAssetId") or "")
-            entries.append(self.manager_decision_entry(
-                decision_type="parent_selected",
-                reason="variant_inventory_plan",
-                timestamp=timestamp,
-                creator=creator,
-                parent_asset_id=parent_asset_id,
-                source_system="variant_inventory_plan",
-                explanation=f"Parent asset {parent_asset_id} was selected for ContentForge expansion to satisfy inventory planning.",
-                payload={
-                    "parentAssetId": parent_asset_id,
-                    "requestedVariants": batch.get("requestedVariants"),
-                    "minimumRecommended": batch.get("minimumRecommended"),
-                    "operationFamilies": batch.get("operationFamilies") or [],
-                    "preset": batch.get("preset"),
-                },
-                context_snapshot=batch,
-            ))
+            entries.append(
+                self.manager_decision_entry(
+                    decision_type="parent_selected",
+                    reason="variant_inventory_plan",
+                    timestamp=timestamp,
+                    creator=creator,
+                    parent_asset_id=parent_asset_id,
+                    source_system="variant_inventory_plan",
+                    explanation=f"Parent asset {parent_asset_id} was selected for ContentForge expansion to satisfy inventory planning.",
+                    payload={
+                        "parentAssetId": parent_asset_id,
+                        "requestedVariants": batch.get("requestedVariants"),
+                        "minimumRecommended": batch.get("minimumRecommended"),
+                        "operationFamilies": batch.get("operationFamilies") or [],
+                        "preset": batch.get("preset"),
+                    },
+                    context_snapshot=batch,
+                )
+            )
         return entries
 
     def decision_entries_from_winner_expansion_plan(
@@ -463,7 +557,11 @@ class DecisionLedgerRepository:
         if not isinstance(plan, dict):
             return []
         parent_asset_id = str(plan.get("parentAssetId") or "")
-        rejected = plan.get("rejectedExistingVariants") if isinstance(plan.get("rejectedExistingVariants"), dict) else {}
+        rejected = (
+            plan.get("rejectedExistingVariants")
+            if isinstance(plan.get("rejectedExistingVariants"), dict)
+            else {}
+        )
         mapping = {
             "lowQuality": ("low_quality", "caption_readability_below_threshold"),
             "duplicateSiblings": ("duplicate_sibling", "duplicate_sibling"),
@@ -474,21 +572,23 @@ class DecisionLedgerRepository:
             count = int(rejected.get(key) or 0)
             if count <= 0:
                 continue
-            entries.append(self.manager_decision_entry(
-                decision_type="variant_rejected",
-                reason=reason,
-                timestamp=timestamp,
-                creator=creator,
-                parent_asset_id=parent_asset_id,
-                source_system="winner_expansion_plan",
-                explanation=f"{count} existing sibling variant(s) were rejected for {example_reason}.",
-                payload={
-                    "parentAssetId": parent_asset_id,
-                    "rejectedCount": count,
-                    "rejectionFamily": key,
-                },
-                context_snapshot=plan,
-            ))
+            entries.append(
+                self.manager_decision_entry(
+                    decision_type="variant_rejected",
+                    reason=reason,
+                    timestamp=timestamp,
+                    creator=creator,
+                    parent_asset_id=parent_asset_id,
+                    source_system="winner_expansion_plan",
+                    explanation=f"{count} existing sibling variant(s) were rejected for {example_reason}.",
+                    payload={
+                        "parentAssetId": parent_asset_id,
+                        "rejectedCount": count,
+                        "rejectionFamily": key,
+                    },
+                    context_snapshot=plan,
+                )
+            )
         return entries
 
     def manager_decision_entry(
@@ -510,18 +610,22 @@ class DecisionLedgerRepository:
     ) -> dict[str, Any]:
         decision_payload = self._sanitize_for_storage(payload or {})
         context = self._sanitize_for_storage(context_snapshot or {})
-        stable_key = json.dumps({
-            "decisionType": decision_type,
-            "reason": reason,
-            "timestamp": timestamp,
-            "creator": creator,
-            "accountId": account_id,
-            "surface": surface,
-            "renderedAssetId": rendered_asset_id,
-            "parentAssetId": parent_asset_id,
-            "variantId": variant_id,
-            "payload": decision_payload,
-        }, ensure_ascii=False, sort_keys=True)
+        stable_key = json.dumps(
+            {
+                "decisionType": decision_type,
+                "reason": reason,
+                "timestamp": timestamp,
+                "creator": creator,
+                "accountId": account_id,
+                "surface": surface,
+                "renderedAssetId": rendered_asset_id,
+                "parentAssetId": parent_asset_id,
+                "variantId": variant_id,
+                "payload": decision_payload,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         return {
             "decisionId": f"mdec_preview_{hashlib.sha256(stable_key.encode('utf-8')).hexdigest()[:16]}",
             "decisionType": decision_type,
@@ -541,7 +645,9 @@ class DecisionLedgerRepository:
         }
 
     @staticmethod
-    def dedupe_manager_decisions(decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def dedupe_manager_decisions(
+        decisions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         seen: set[str] = set()
         unique: list[dict[str, Any]] = []
         for decision in decisions:
@@ -590,7 +696,11 @@ class DecisionLedgerRepository:
         remaining = int(obligation.get("remaining") or 0)
         cadence = str(obligation.get("cadence") or "configured")
         if surface == "story" and cadence == "daily":
-            return "Account requires one Story every day and none has been completed today." if remaining == 1 and completed == 0 and scheduled == 0 else f"Account has a daily Story requirement with {remaining} Story obligation(s) still remaining today."
+            return (
+                "Account requires one Story every day and none has been completed today."
+                if remaining == 1 and completed == 0 and scheduled == 0
+                else f"Account has a daily Story requirement with {remaining} Story obligation(s) still remaining today."
+            )
         return f"Account requires {required} {surface} item(s) for cadence {cadence}; {completed} completed, {scheduled} scheduled, {remaining} remaining."
 
     @staticmethod

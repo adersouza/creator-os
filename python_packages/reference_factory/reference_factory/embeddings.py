@@ -4,10 +4,10 @@ import hashlib
 import json
 import math
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from sqlite3 import Connection
-from typing import Any, Callable
-
+from typing import Any
 
 DEFAULT_EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"
 DEFAULT_EMBEDDING_THRESHOLD = 0.86
@@ -49,16 +49,22 @@ def build_embedding_clusters(
     for card in cards:
         source = _source_image(conn, card, cache_dir)
         if source is None:
-            failures.append({"referenceId": card.get("referenceId"), "reason": "no_supported_media"})
+            failures.append(
+                {"referenceId": card.get("referenceId"), "reason": "no_supported_media"}
+            )
             continue
         vector = _cached_vector(card, source, cache_dir, model, embed)
         if vector is None:
-            failures.append({"referenceId": card.get("referenceId"), "reason": "embedding_failed"})
+            failures.append(
+                {"referenceId": card.get("referenceId"), "reason": "embedding_failed"}
+            )
             continue
         embedded.append((card, _normalize(vector)))
 
     if not embedded:
-        report = _fallback(model, threshold, "no usable embeddings", reference_count=len(cards))
+        report = _fallback(
+            model, threshold, "no usable embeddings", reference_count=len(cards)
+        )
         report["failures"] = failures
         return report
 
@@ -67,14 +73,35 @@ def build_embedding_clusters(
     assignments: dict[str, dict[str, Any]] = {}
     groups = []
     for component in components:
-        refs = [str(embedded[i][0].get("referenceId") or embedded[i][0].get("id") or i) for i in component]
-        cluster_id = "emb_" + hashlib.sha1(("|".join(sorted(refs)) + model + str(threshold)).encode()).hexdigest()[:12]
+        refs = [
+            str(embedded[i][0].get("referenceId") or embedded[i][0].get("id") or i)
+            for i in component
+        ]
+        cluster_id = (
+            "emb_"
+            + hashlib.sha1(
+                ("|".join(sorted(refs)) + model + str(threshold)).encode()
+            ).hexdigest()[:12]
+        )
         medoid = _medoid(component, vectors)
-        medoid_ref = str(embedded[medoid][0].get("referenceId") or embedded[medoid][0].get("id") or medoid)
+        medoid_ref = str(
+            embedded[medoid][0].get("referenceId")
+            or embedded[medoid][0].get("id")
+            or medoid
+        )
         noise = len(component) == 1
-        groups.append({"embeddingClusterId": cluster_id, "referenceIds": refs, "medoidReferenceId": medoid_ref, "noise": noise})
+        groups.append(
+            {
+                "embeddingClusterId": cluster_id,
+                "referenceIds": refs,
+                "medoidReferenceId": medoid_ref,
+                "noise": noise,
+            }
+        )
         for i in component:
-            ref = str(embedded[i][0].get("referenceId") or embedded[i][0].get("id") or i)
+            ref = str(
+                embedded[i][0].get("referenceId") or embedded[i][0].get("id") or i
+            )
             assignments[ref] = {
                 "embeddingClusterId": cluster_id,
                 "embeddingModel": model,
@@ -97,7 +124,9 @@ def build_embedding_clusters(
     }
 
 
-def _fallback(model: str, threshold: float, reason: str, *, reference_count: int = 0) -> dict[str, Any]:
+def _fallback(
+    model: str, threshold: float, reason: str, *, reference_count: int = 0
+) -> dict[str, Any]:
     return {
         "schema": "reference_factory.embedding_clusters.v1",
         "status": "fallback",
@@ -120,7 +149,9 @@ def _cached_vector(
     provider: Callable[[Path], list[float]],
 ) -> list[float] | None:
     stat = source.stat()
-    cache_key = hashlib.sha1(str(card.get("referenceId") or card.get("id") or source).encode()).hexdigest()[:16]
+    cache_key = hashlib.sha1(
+        str(card.get("referenceId") or card.get("id") or source).encode()
+    ).hexdigest()[:16]
     cache_path = cache_dir / f"{cache_key}.json"
     metadata = {
         "model": model,
@@ -141,11 +172,17 @@ def _cached_vector(
         vector = [float(value) for value in provider(source)]
     except Exception:
         return None
-    cache_path.write_text(json.dumps({**metadata, "dim": len(vector), "vector": vector}, sort_keys=True) + "\n", encoding="utf-8")
+    cache_path.write_text(
+        json.dumps({**metadata, "dim": len(vector), "vector": vector}, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
     return vector
 
 
-def _source_image(conn: Connection | None, card: dict[str, Any], cache_dir: Path) -> Path | None:
+def _source_image(
+    conn: Connection | None, card: dict[str, Any], cache_dir: Path
+) -> Path | None:
     path_value = card.get("localPath")
     if not path_value:
         return None
@@ -185,11 +222,25 @@ def _existing_frame(conn: Connection | None, reference_id: str) -> Path | None:
 def _extract_preview(video_path: Path, cache_dir: Path) -> Path | None:
     frame_dir = cache_dir / "frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
-    target = frame_dir / f"{hashlib.sha1(str(video_path).encode()).hexdigest()[:16]}.jpg"
+    target = (
+        frame_dir / f"{hashlib.sha1(str(video_path).encode()).hexdigest()[:16]}.jpg"
+    )
     if target.exists():
         return target
     result = subprocess.run(
-        ["ffmpeg", "-y", "-ss", "1", "-i", str(video_path), "-frames:v", "1", "-q:v", "3", str(target)],
+        [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            "1",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            str(target),
+        ],
         capture_output=True,
         timeout=20,
         text=True,
@@ -225,7 +276,10 @@ def _components(vectors: list[list[float]], threshold: float) -> list[list[int]]
 def _medoid(component: list[int], vectors: list[list[float]]) -> int:
     return max(
         component,
-        key=lambda idx: sum(_cosine(vectors[idx], vectors[other]) for other in component) / max(1, len(component)),
+        key=lambda idx: (
+            sum(_cosine(vectors[idx], vectors[other]) for other in component)
+            / max(1, len(component))
+        ),
     )
 
 
@@ -244,8 +298,14 @@ def _timm_provider(model_name: str) -> Callable[[Path], list[float]]:
     from PIL import Image
     from timm.data import create_transform, resolve_model_data_config
 
-    device = "mps" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "cpu"
-    model = timm.create_model(model_name, pretrained=True, num_classes=0).to(device).eval()
+    device = (
+        "mps"
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()
+        else "cpu"
+    )
+    model = (
+        timm.create_model(model_name, pretrained=True, num_classes=0).to(device).eval()
+    )
     transform = create_transform(**resolve_model_data_config(model))
 
     def embed(path: Path) -> list[float]:

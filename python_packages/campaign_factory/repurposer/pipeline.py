@@ -1,8 +1,9 @@
-from pathlib import Path
-from typing import Any, List
 import json
 import re
 import shutil
+from datetime import UTC
+from pathlib import Path
+from typing import Any
 
 from .config import RepurposeConfig
 from .engines.audio import AudioEngine
@@ -16,6 +17,7 @@ from .qa.similarity import SimilarityGate
 
 class RepurposeError(RuntimeError):
     """Raised when a repurposing run cannot produce a valid real variant."""
+
 
 class VariantPipeline:
     def __init__(
@@ -31,16 +33,23 @@ class VariantPipeline:
         self.accounts = accounts
         self.target = len(accounts) if accounts is not None else int(target_count or 0)
         self.platform = platform
-        self.output_dir = Path(output_dir) if output_dir else self.master.parent / "repurposed_variants"
+        self.output_dir = (
+            Path(output_dir)
+            if output_dir
+            else self.master.parent / "repurposed_variants"
+        )
         self.similarity_threshold = similarity_threshold
-        
-    def generate_batch(self, preset_name: str) -> List[Path]:
-        return [Path(item["variant_path"]) for item in self.generate_assignment_manifest(
-            preset_name=preset_name,
-            campaign_slug="standalone",
-            master_asset_id=self.master.stem,
-            write_manifest=False,
-        )["assignments"]]
+
+    def generate_batch(self, preset_name: str) -> list[Path]:
+        return [
+            Path(item["variant_path"])
+            for item in self.generate_assignment_manifest(
+                preset_name=preset_name,
+                campaign_slug="standalone",
+                master_asset_id=self.master.stem,
+                write_manifest=False,
+            )["assignments"]
+        ]
 
     def generate_assignment_manifest(
         self,
@@ -59,9 +68,11 @@ class VariantPipeline:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         assignments: list[dict[str, Any]] = []
         variants: list[tuple[Path, dict[str, Any], str, bool]] = []
-        
-        print(f"Generating {self.target} variants for {self.platform} using preset {preset_name}")
-        
+
+        print(
+            f"Generating {self.target} variants for {self.platform} using preset {preset_name}"
+        )
+
         for i, account in enumerate(account_targets):
             account_preset = str(account.get("preset_name") or preset_name)
             config = RepurposeConfig.from_preset(account_preset)
@@ -72,7 +83,9 @@ class VariantPipeline:
                         if not sibling_transformed:
                             continue
                         sibling_ssim = SimilarityGate.calculate_ssim(sibling, variant)
-                        scores["sibling_max_ssim"] = max(scores["sibling_max_ssim"], sibling_ssim)
+                        scores["sibling_max_ssim"] = max(
+                            scores["sibling_max_ssim"], sibling_ssim
+                        )
             except Exception as exc:
                 for created, _, _, _ in variants:
                     created.unlink(missing_ok=True)
@@ -81,7 +94,9 @@ class VariantPipeline:
                 "account_id": account["account_id"],
                 "instagram_account_id": account.get("instagram_account_id"),
                 "persona": account.get("persona"),
-                "variant_asset_id": self._variant_asset_id(master_asset_id, account["account_id"]),
+                "variant_asset_id": self._variant_asset_id(
+                    master_asset_id, account["account_id"]
+                ),
                 "variant_path": str(variant),
                 "parent_master_asset_id": master_asset_id,
                 "preset_name": account_preset,
@@ -106,13 +121,20 @@ class VariantPipeline:
             "assignments": assignments,
         }
         if write_manifest:
-            self.manifest_path(master_asset_id).write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+            self.manifest_path(master_asset_id).write_text(
+                json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+            )
         return manifest
 
     def manifest_path(self, master_asset_id: str) -> Path:
-        return self.output_dir / f"{_safe_slug(master_asset_id)}.variant_assignment.v1.json"
+        return (
+            self.output_dir
+            / f"{_safe_slug(master_asset_id)}.variant_assignment.v1.json"
+        )
 
-    def _generate_one(self, config: RepurposeConfig, index: int, account: dict[str, Any]) -> tuple[Path, dict[str, float], bool]:
+    def _generate_one(
+        self, config: RepurposeConfig, index: int, account: dict[str, Any]
+    ) -> tuple[Path, dict[str, float], bool]:
         stage_dir = self.output_dir / f".tmp_{self.master.stem}_{index:03d}"
         if stage_dir.exists():
             shutil.rmtree(stage_dir)
@@ -137,8 +159,12 @@ class VariantPipeline:
                 current = AudioEngine.apply(
                     current,
                     stage_dir / "02_audio.mp4",
-                    music_track=Path(config.music_track_path) if config.music_track_path else None,
-                    voiceover=Path(config.voiceover_path) if config.voiceover_path else None,
+                    music_track=Path(config.music_track_path)
+                    if config.music_track_path
+                    else None,
+                    voiceover=Path(config.voiceover_path)
+                    if config.voiceover_path
+                    else None,
                     platform=self.platform,
                     account_index=index,
                     require_audio_change=config.require_audio_change,
@@ -174,7 +200,10 @@ class VariantPipeline:
                 )
                 transformed = transformed or current != self.master
 
-            final = self.output_dir / f"{self.master.stem}_{_safe_slug(account['account_id'])}_variant.mp4"
+            final = (
+                self.output_dir
+                / f"{self.master.stem}_{_safe_slug(account['account_id'])}_variant.mp4"
+            )
             shutil.copy2(current, final)
             if not final.exists() or final.stat().st_size <= 0:
                 raise RuntimeError(f"variant output missing: {final}")
@@ -187,11 +216,15 @@ class VariantPipeline:
             if transformed:
                 master_ssim = SimilarityGate.calculate_ssim(self.master, final)
 
-            return final, {
-                "master_ssim": round(master_ssim, 6),
-                "sibling_max_ssim": 0.0,
-                "threshold": self.similarity_threshold,
-            }, transformed
+            return (
+                final,
+                {
+                    "master_ssim": round(master_ssim, 6),
+                    "sibling_max_ssim": 0.0,
+                    "threshold": self.similarity_threshold,
+                },
+                transformed,
+            )
         finally:
             shutil.rmtree(stage_dir, ignore_errors=True)
 
@@ -201,26 +234,44 @@ class VariantPipeline:
                 raise ValueError("accounts must not be empty")
             targets = []
             for index, account in enumerate(self.accounts):
-                account_id = str(account.get("account_id") or account.get("accountId") or "").strip()
+                account_id = str(
+                    account.get("account_id") or account.get("accountId") or ""
+                ).strip()
                 if not account_id:
                     raise ValueError(f"accounts[{index}].account_id is required")
-                targets.append({
-                    "account_id": account_id,
-                    "instagram_account_id": account.get("instagram_account_id") or account.get("instagramAccountId"),
-                    "persona": account.get("persona") or account.get("preset") or account.get("preset_name"),
-                    "preset_name": account.get("preset_name") or account.get("preset"),
-                })
+                targets.append(
+                    {
+                        "account_id": account_id,
+                        "instagram_account_id": account.get("instagram_account_id")
+                        or account.get("instagramAccountId"),
+                        "persona": account.get("persona")
+                        or account.get("preset")
+                        or account.get("preset_name"),
+                        "preset_name": account.get("preset_name")
+                        or account.get("preset"),
+                    }
+                )
             return targets
-        return [{"account_id": f"account_{index + 1:03d}", "instagram_account_id": None, "persona": None, "preset_name": None} for index in range(self.target)]
+        return [
+            {
+                "account_id": f"account_{index + 1:03d}",
+                "instagram_account_id": None,
+                "persona": None,
+                "preset_name": None,
+            }
+            for index in range(self.target)
+        ]
 
     def _variant_asset_id(self, master_asset_id: str, account_id: str) -> str:
         return f"{_safe_slug(master_asset_id)}_{_safe_slug(account_id)}"
 
     @staticmethod
     def _utc_now() -> str:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return (
+            datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        )
 
 
 def _safe_slug(value: str) -> str:

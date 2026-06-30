@@ -1,10 +1,11 @@
 """Hook normalization, fuzzy duplicate detection, and local hook library."""
+
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
-import hashlib
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -29,9 +30,7 @@ def hook_text(hook: str | dict[str, Any]) -> str:
         segments = hook.get("segments")
         if isinstance(segments, list):
             return " ".join(
-                str(seg.get("text", ""))
-                for seg in segments
-                if isinstance(seg, dict)
+                str(seg.get("text", "")) for seg in segments if isinstance(seg, dict)
             )
         return json.dumps(hook, sort_keys=True, ensure_ascii=False)
     return str(hook)
@@ -66,8 +65,9 @@ def find_near_duplicates(
     return out
 
 
-def semantic_vector(text: str | dict[str, Any],
-                    embedding_model: str | None = HASH_MODEL) -> list[float]:
+def semantic_vector(
+    text: str | dict[str, Any], embedding_model: str | None = HASH_MODEL
+) -> list[float]:
     provider = get_embedding_provider(embedding_model)
     return provider.embed(normalize_hook_text(text))
 
@@ -88,16 +88,22 @@ def find_semantic_duplicates(
     return out
 
 
-def semantic_group_for(library: list[dict[str, Any]], hook: str | dict[str, Any],
-                       threshold: float = SEMANTIC_DUPLICATE_THRESHOLD,
-                       embedding_model: str | None = HASH_MODEL) -> str:
+def semantic_group_for(
+    library: list[dict[str, Any]],
+    hook: str | dict[str, Any],
+    threshold: float = SEMANTIC_DUPLICATE_THRESHOLD,
+    embedding_model: str | None = HASH_MODEL,
+) -> str:
     provider = get_embedding_provider(embedding_model)
     vector = provider.embed(normalize_hook_text(hook))
     for item in library:
         group = item.get("semantic_group")
         if not group:
             continue
-        score = cosine_similarity(vector, provider.embed(normalize_hook_text(item.get("hook", item.get("text", "")))))
+        score = cosine_similarity(
+            vector,
+            provider.embed(normalize_hook_text(item.get("hook", item.get("text", "")))),
+        )
         if score >= threshold:
             return str(group)
     normalized = normalize_hook_text(hook)
@@ -122,9 +128,12 @@ def read_hook_library(path: Path) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
-def save_hook_to_library(path: Path, hook: str | dict[str, Any],
-                         tags: list[str] | None = None,
-                         embedding_model: str | None = HASH_MODEL) -> dict[str, Any]:
+def save_hook_to_library(
+    path: Path,
+    hook: str | dict[str, Any],
+    tags: list[str] | None = None,
+    embedding_model: str | None = HASH_MODEL,
+) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     library = read_hook_library(path)
     normalized = normalize_hook_text(hook)
@@ -133,10 +142,15 @@ def save_hook_to_library(path: Path, hook: str | dict[str, Any],
         if item.get("normalized_text") == normalized:
             item["last_used_at"] = now
             item["use_count"] = int(item.get("use_count", 0)) + 1
-            item.setdefault("semantic_group", semantic_group_for(library, hook, embedding_model=embedding_model))
+            item.setdefault(
+                "semantic_group",
+                semantic_group_for(library, hook, embedding_model=embedding_model),
+            )
             item["embedding_model"] = get_embedding_provider(embedding_model).name
             item["embedding_dims"] = len(semantic_vector(hook, embedding_model))
-            path.write_text(json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
+            path.write_text(
+                json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
             return item
     provider = get_embedding_provider(embedding_model)
     semantic_group = semantic_group_for(library, hook, embedding_model=embedding_model)
@@ -158,8 +172,12 @@ def save_hook_to_library(path: Path, hook: str | dict[str, Any],
     return item
 
 
-def reindex_hook_library(path: Path, *, embedding_model: str | None = None,
-                         threshold: float = SEMANTIC_DUPLICATE_THRESHOLD) -> dict[str, Any]:
+def reindex_hook_library(
+    path: Path,
+    *,
+    embedding_model: str | None = None,
+    threshold: float = SEMANTIC_DUPLICATE_THRESHOLD,
+) -> dict[str, Any]:
     library = read_hook_library(path)
     provider = get_embedding_provider(embedding_model)
     groups: list[tuple[str, list[float]]] = []
@@ -173,7 +191,10 @@ def reindex_hook_library(path: Path, *, embedding_model: str | None = None,
                 break
         if group is None:
             normalized = item.get("normalized_text") or normalize_hook_text(text)
-            group = "sem_" + hashlib.sha256(str(normalized).encode("utf-8")).hexdigest()[:10]
+            group = (
+                "sem_"
+                + hashlib.sha256(str(normalized).encode("utf-8")).hexdigest()[:10]
+            )
             groups.append((group, vec))
         item["semantic_group"] = group
         item["embedding_model"] = provider.name

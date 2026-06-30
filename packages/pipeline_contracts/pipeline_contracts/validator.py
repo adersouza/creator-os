@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from functools import lru_cache
+from collections.abc import Callable
+from functools import cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
@@ -91,9 +92,14 @@ def example_names() -> list[str]:
 
 def validate_contract(value: Any, schema_name: str) -> None:
     validator = _validator_for(schema_name)
-    errors = sorted(validator.iter_errors(value), key=lambda error: [str(part) for part in error.path])
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda error: [str(part) for part in error.path],
+    )
     if errors:
-        raise ContractValidationError("; ".join(_format_error(error) for error in errors))
+        raise ContractValidationError(
+            "; ".join(_format_error(error) for error in errors)
+        )
 
 
 def validate_audio_intent(value: Any) -> None:
@@ -109,7 +115,9 @@ STRICT_CAMPAIGN_DRAFT_GRAPH_FIELDS = [
 ]
 
 
-def validate_campaign_draft_payload(value: Any, *, strict_graph_ids: bool = False) -> None:
+def validate_campaign_draft_payload(
+    value: Any, *, strict_graph_ids: bool = False
+) -> None:
     validate_contract(value, CAMPAIGN_DRAFT_PAYLOAD_SCHEMA)
     if strict_graph_ids:
         _validate_campaign_draft_graph_ids(value)
@@ -206,7 +214,9 @@ def _validate_campaign_draft_graph_ids(value: Any) -> None:
         if not isinstance(draft, dict):
             continue
         metadata = draft.get("metadata")
-        campaign_factory = metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+        campaign_factory = (
+            metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+        )
         if not isinstance(campaign_factory, dict):
             errors.append(f"$.drafts[{index}].metadata.campaign_factory is required")
             continue
@@ -215,7 +225,9 @@ def _validate_campaign_draft_graph_ids(value: Any) -> None:
         for key in STRICT_CAMPAIGN_DRAFT_GRAPH_FIELDS:
             value = campaign_factory.get(key)
             if not isinstance(value, str) or not value.strip():
-                errors.append(f"$.drafts[{index}].metadata.campaign_factory.{key} is required in strict mode")
+                errors.append(
+                    f"$.drafts[{index}].metadata.campaign_factory.{key} is required in strict mode"
+                )
     if errors:
         raise ContractValidationError("; ".join(errors))
 
@@ -256,7 +268,7 @@ def _schema_filename(name: str) -> str:
     return name
 
 
-@lru_cache(maxsize=None)
+@cache
 def _schema_registry() -> Registry:
     resources: list[tuple[str, Resource[Any]]] = []
     for path in SCHEMA_DIR.glob("*.schema.json"):
@@ -270,7 +282,7 @@ def _schema_registry() -> Registry:
     return Registry().with_resources(resources)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _validator_for(schema_name: str) -> Draft202012Validator:
     schema = load_schema(schema_name)
     Draft202012Validator.check_schema(schema)

@@ -1,37 +1,40 @@
 import dataclasses
-from typing import Optional
+
 
 @dataclasses.dataclass
 class RepurposeConfig:
     """Constraints and logic configuration for a given variant generation run."""
+
     target_platform: str  # "reels", "tiktok", "shorts"
-    aggressiveness: float # 0.0 to 1.0 (how heavy the spoofing and re-ordering should be)
-    
+    aggressiveness: (
+        float  # 0.0 to 1.0 (how heavy the spoofing and re-ordering should be)
+    )
+
     # Layer 1: Editorial
     enable_editorial: bool = True
     new_hook: bool = True
     reorder_broll: bool = True
-    
+
     # Layer 2: Audio
     enable_audio: bool = True
     require_audio_change: bool = False
-    music_track_path: Optional[str] = None
-    voiceover_path: Optional[str] = None
-    
+    music_track_path: str | None = None
+    voiceover_path: str | None = None
+
     # Layer 3: Visual Generative
     enable_generative: bool = False
-    generative_prompt: Optional[str] = None
-    
+    generative_prompt: str | None = None
+
     # Layer 4: Polish
     enable_polish: bool = True
     zoom_factor: float = 1.05
     color_shift: bool = True
-    
+
     # Layer 5: Micro
     enable_micro: bool = False
     strip_metadata: bool = True
     inject_noise: bool = True
-    
+
     @classmethod
     def from_preset(cls, preset_name: str) -> "RepurposeConfig":
         if preset_name == "tiktok_aggressive":
@@ -49,7 +52,7 @@ class RepurposeConfig:
                 color_shift=True,
                 enable_micro=False,
                 strip_metadata=True,
-                inject_noise=True
+                inject_noise=True,
             )
         elif preset_name == "ig_subtle":
             return cls(
@@ -66,6 +69,6 @@ class RepurposeConfig:
                 color_shift=False,
                 enable_micro=False,
                 strip_metadata=True,
-                inject_noise=False
+                inject_noise=False,
             )
         return cls(target_platform="reels", aggressiveness=0.5, enable_micro=False)

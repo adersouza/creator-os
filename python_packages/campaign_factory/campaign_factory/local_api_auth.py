@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ipaddress
 import os
-
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Header, HTTPException, Request

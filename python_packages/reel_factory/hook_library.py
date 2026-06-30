@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Manage the local reusable hook library."""
+
 from __future__ import annotations
 
 import argparse
@@ -19,13 +20,19 @@ def main() -> int:
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
-    library = Path(args.library) if args.library else root / "project_data" / "hook_library.json"
+    library = (
+        Path(args.library)
+        if args.library
+        else root / "project_data" / "hook_library.json"
+    )
     if args.reindex:
-        print(json.dumps(
-            reindex_hook_library(library, embedding_model=args.embedding_model),
-            indent=2,
-            ensure_ascii=False,
-        ))
+        print(
+            json.dumps(
+                reindex_hook_library(library, embedding_model=args.embedding_model),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return 0
     print(json.dumps({"library": str(library), "exists": library.exists()}, indent=2))
     return 0

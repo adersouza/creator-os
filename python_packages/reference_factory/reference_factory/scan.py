@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import UTC
 from pathlib import Path
 from sqlite3 import Connection
 
@@ -102,6 +103,6 @@ def scan_source(conn: Connection, source_root: Path) -> dict[str, object]:
 
 
 def timestamp_from_stat(mtime: float) -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.fromtimestamp(mtime, timezone.utc).isoformat()
+    return datetime.fromtimestamp(mtime, UTC).isoformat()

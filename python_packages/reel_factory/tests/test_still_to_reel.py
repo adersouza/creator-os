@@ -5,9 +5,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from PIL import Image
-
 from audio_intent import read_audio_intent
+from PIL import Image
 from still_to_reel import MotionEditRequest, render_motion_edit
 
 
@@ -69,7 +68,9 @@ def test_motion_edit_dry_run_is_zero_cost_and_no_paid_command(tmp_path: Path) ->
     out = tmp_path / "out.mp4"
 
     result = render_motion_edit(
-        MotionEditRequest(still_path=still, output_path=out, caption="same still, new motion"),
+        MotionEditRequest(
+            still_path=still, output_path=out, caption="same still, new motion"
+        ),
         dry_run=True,
     )
 
@@ -127,7 +128,11 @@ def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
 def test_motion_edit_missing_still_fails_cleanly(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="still image not found"):
         render_motion_edit(
-            MotionEditRequest(still_path=tmp_path / "missing.png", output_path=tmp_path / "out.mp4", caption="x"),
+            MotionEditRequest(
+                still_path=tmp_path / "missing.png",
+                output_path=tmp_path / "out.mp4",
+                caption="x",
+            ),
             dry_run=True,
         )
 
@@ -137,19 +142,28 @@ def test_motion_edit_low_resolution_requires_explicit_upscale(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="too small"):
         render_motion_edit(
-            MotionEditRequest(still_path=still, output_path=tmp_path / "out.mp4", caption="x"),
+            MotionEditRequest(
+                still_path=still, output_path=tmp_path / "out.mp4", caption="x"
+            ),
             dry_run=True,
         )
 
     result = render_motion_edit(
-        MotionEditRequest(still_path=still, output_path=tmp_path / "out.mp4", caption="x", allow_upscale=True),
+        MotionEditRequest(
+            still_path=still,
+            output_path=tmp_path / "out.mp4",
+            caption="x",
+            allow_upscale=True,
+        ),
         dry_run=True,
     )
 
     assert result["quality"]["status"] == "planned"
 
 
-def test_motion_edit_optional_local_audio_is_explicit_licensed_music(tmp_path: Path) -> None:
+def test_motion_edit_optional_local_audio_is_explicit_licensed_music(
+    tmp_path: Path,
+) -> None:
     still = _still(tmp_path / "still.png")
     audio = _tone(tmp_path / "tone.m4a")
     out = tmp_path / "with_audio.mp4"

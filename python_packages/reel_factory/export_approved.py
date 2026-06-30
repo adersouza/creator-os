@@ -1,4 +1,5 @@
 """Export approved outputs into a local posting manifest."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,9 +9,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from readiness_check import load_readiness_for_output, normalize_platform
 from campaign_store import ensure_campaign_schema
 from posting_ledger import content_fingerprint
+from readiness_check import load_readiness_for_output, normalize_platform
 
 
 def export_approved(
@@ -64,7 +65,9 @@ def export_approved(
         audio_intent = _load_audio_intent_sidecar(output_path)
         generated_asset_lineage = _load_generated_asset_lineage_sidecar(output_path)
         try:
-            platform_readiness = load_readiness_for_output(output_path, platform=normalize_platform(platform))
+            platform_readiness = load_readiness_for_output(
+                output_path, platform=normalize_platform(platform)
+            )
         except ValueError:
             platform_readiness = load_readiness_for_output(output_path)
         audio_workflow = {
@@ -75,39 +78,44 @@ def export_approved(
             audio_workflow["audio_intent_preserved"] = True
         else:
             audio_workflow["warning"] = "missing_audio_intent"
-        items.append({
-            "index": idx,
-            "account": account,
-            "platform": platform,
-            "scheduled_date": date,
-            "scheduled_time": None,
-            "filename": output_path.name,
-            "output_path": str(output_path),
-            "content_fingerprint": fingerprint,
-            "job_key": row["job_key"],
-            "hook_index": _hook_idx(output_path.name),
-            "hook_text": row["caption_text"],
-            "recipe": row["recipe"],
-            "target_ratio": recipe_params.get("_target_ratio") or _ratio_from_filename(output_path.name),
-            "review_state": row["review_state"],
-            "metrics": {
-                "views": row["views"],
-                "likes": row["likes"],
-                "comments": row["comments"],
-                "shares": row["shares"],
-                "saves": row["saves"],
-                "manual_score": row["manual_score"],
-            },
-            "audio_intent": audio_intent,
-            "audio_workflow": audio_workflow,
-            "generated_asset_lineage": generated_asset_lineage,
-            "platform_readiness": platform_readiness,
-            "campaign": {
-                "campaign_id": row["campaign_id"],
-                "asset_generation_id": row["asset_generation_id"],
-            } if row["campaign_id"] or row["asset_generation_id"] else None,
-            "notes": row["metric_notes"] or notes,
-        })
+        items.append(
+            {
+                "index": idx,
+                "account": account,
+                "platform": platform,
+                "scheduled_date": date,
+                "scheduled_time": None,
+                "filename": output_path.name,
+                "output_path": str(output_path),
+                "content_fingerprint": fingerprint,
+                "job_key": row["job_key"],
+                "hook_index": _hook_idx(output_path.name),
+                "hook_text": row["caption_text"],
+                "recipe": row["recipe"],
+                "target_ratio": recipe_params.get("_target_ratio")
+                or _ratio_from_filename(output_path.name),
+                "review_state": row["review_state"],
+                "metrics": {
+                    "views": row["views"],
+                    "likes": row["likes"],
+                    "comments": row["comments"],
+                    "shares": row["shares"],
+                    "saves": row["saves"],
+                    "manual_score": row["manual_score"],
+                },
+                "audio_intent": audio_intent,
+                "audio_workflow": audio_workflow,
+                "generated_asset_lineage": generated_asset_lineage,
+                "platform_readiness": platform_readiness,
+                "campaign": {
+                    "campaign_id": row["campaign_id"],
+                    "asset_generation_id": row["asset_generation_id"],
+                }
+                if row["campaign_id"] or row["asset_generation_id"]
+                else None,
+                "notes": row["metric_notes"] or notes,
+            }
+        )
     out_dir = root / "04_exports"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"approved_{platform}_{account}_{date}_{int(time.time())}.json"
@@ -120,7 +128,9 @@ def export_approved(
         "count": len(items),
         "items": items,
     }
-    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {"ok": True, "count": len(items), "path": str(out_path), "items": items}
 
 
@@ -169,10 +179,19 @@ def main() -> None:
     parser.add_argument("--date", required=True)
     parser.add_argument("--notes", default=None)
     args = parser.parse_args()
-    print(json.dumps(export_approved(
-        Path(args.root), account=args.account, platform=args.platform,
-        date=args.date, notes=args.notes,
-    ), indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            export_approved(
+                Path(args.root),
+                account=args.account,
+                platform=args.platform,
+                date=args.date,
+                notes=args.notes,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

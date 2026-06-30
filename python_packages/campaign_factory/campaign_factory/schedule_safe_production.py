@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 
 class ScheduleSafeProductionRepository:
@@ -43,15 +44,25 @@ class ScheduleSafeProductionRepository:
             content_surface=surface,
             lookback_days=lookback_days,
         )
-        all_surface_assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+        all_surface_assets = self._surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
         all_surface_assets = [
-            asset for asset in all_surface_assets
-            if self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == surface
+            asset
+            for asset in all_surface_assets
+            if self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == surface
         ]
         current = (
             int(current_inventory)
             if current_inventory is not None
-            else sum(1 for item in self._build_surface_readiness(all_surface_assets) if item.get("canHandoff"))
+            else sum(
+                1
+                for item in self._build_surface_readiness(all_surface_assets)
+                if item.get("canHandoff")
+            )
         )
         waterfall = self.schedule_safe_production_waterfall_rows(assets, surface)
         largest_loss = self.schedule_safe_production_largest_loss(waterfall)
@@ -73,15 +84,30 @@ class ScheduleSafeProductionRepository:
             "lookbackDays": days,
             "freshProductionOnly": True,
             "waterfall": waterfall,
-            "waterfallSummary": {self.schedule_safe_production_summary_key(row["stage"]): int(row["outputCount"]) for row in waterfall},
+            "waterfallSummary": {
+                self.schedule_safe_production_summary_key(row["stage"]): int(
+                    row["outputCount"]
+                )
+                for row in waterfall
+            },
             "largestProductionLoss": largest_loss,
             "largestLossGate": largest_loss["largestLossGate"],
             "scheduleSafeAssetsProducedPerDay": produced_per_day,
             "scheduleSafeYieldPct": round(self._ratio(schedule_safe, raw) * 100, 1),
-            "parentsRequiredPerDay": self.schedule_safe_required_parents_per_day(produced_per_day, schedule_safe, len(assets)),
-            "variantsRequiredPerDay": self.schedule_safe_required_variants_per_day(produced_per_day, schedule_safe, len([
-                asset for asset in assets if self.schedule_safe_is_variant_asset(asset)
-            ])),
+            "parentsRequiredPerDay": self.schedule_safe_required_parents_per_day(
+                produced_per_day, schedule_safe, len(assets)
+            ),
+            "variantsRequiredPerDay": self.schedule_safe_required_variants_per_day(
+                produced_per_day,
+                schedule_safe,
+                len(
+                    [
+                        asset
+                        for asset in assets
+                        if self.schedule_safe_is_variant_asset(asset)
+                    ]
+                ),
+            ),
             "requiredFor25Accounts": required,
             "currentInventory": current,
             "capacityProjections": capacity["capacityProjections"],
@@ -118,7 +144,17 @@ class ScheduleSafeProductionRepository:
                 "gate": row["stage"],
                 "lossCount": int(row.get("lossCount") or 0),
                 "percentOfTotalLoss": round(
-                    (int(row.get("lossCount") or 0) / max(1, sum(int(item.get("lossCount") or 0) for item in report.get("waterfall") or []))) * 100,
+                    (
+                        int(row.get("lossCount") or 0)
+                        / max(
+                            1,
+                            sum(
+                                int(item.get("lossCount") or 0)
+                                for item in report.get("waterfall") or []
+                            ),
+                        )
+                    )
+                    * 100,
                     1,
                 ),
             }
@@ -130,7 +166,9 @@ class ScheduleSafeProductionRepository:
             "creator": report.get("creator"),
             "contentSurface": report.get("contentSurface"),
             "largestProductionLoss": report.get("largestProductionLoss"),
-            "rankedLosses": sorted(losses, key=lambda row: (-row["lossCount"], row["gate"])),
+            "rankedLosses": sorted(
+                losses, key=lambda row: (-row["lossCount"], row["gate"])
+            ),
             "wouldWrite": False,
         }
 
@@ -140,7 +178,9 @@ class ScheduleSafeProductionRepository:
             "schema": "creator_os.schedule_safe_production_capacity_model.v1",
             "creator": report.get("creator"),
             "contentSurface": report.get("contentSurface"),
-            "scheduleSafeAssetsProducedPerDay": report.get("scheduleSafeAssetsProducedPerDay"),
+            "scheduleSafeAssetsProducedPerDay": report.get(
+                "scheduleSafeAssetsProducedPerDay"
+            ),
             "scheduleSafeYieldPct": report.get("scheduleSafeYieldPct"),
             "currentInventory": report.get("currentInventory"),
             "capacityProjections": report.get("capacityProjections"),
@@ -166,11 +206,17 @@ class ScheduleSafeProductionRepository:
         content_surface: str,
         lookback_days: int,
     ) -> list[dict[str, Any]]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(lookback_days or 1)))
-        assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+        cutoff = datetime.now(UTC) - timedelta(days=max(1, int(lookback_days or 1)))
+        assets = self._surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
         return [
-            asset for asset in assets
-            if self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == content_surface
+            asset
+            for asset in assets
+            if self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == content_surface
             and self.schedule_safe_asset_created_at(asset) >= cutoff
         ]
 
@@ -179,35 +225,84 @@ class ScheduleSafeProductionRepository:
         try:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
-            return datetime(1970, 1, 1, tzinfo=timezone.utc)
+            return datetime(1970, 1, 1, tzinfo=UTC)
         if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
-    def schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
-        parent_assets = [asset for asset in assets if not self.schedule_safe_is_variant_asset(asset)]
-        variant_assets = [asset for asset in assets if self.schedule_safe_is_variant_asset(asset)]
+    def schedule_safe_production_waterfall_rows(
+        self, assets: list[dict[str, Any]], surface: str
+    ) -> list[dict[str, Any]]:
+        parent_assets = [
+            asset for asset in assets if not self.schedule_safe_is_variant_asset(asset)
+        ]
+        variant_assets = [
+            asset for asset in assets if self.schedule_safe_is_variant_asset(asset)
+        ]
         parent_ids = {str(asset["id"]) for asset in parent_assets}
         accepted_parents = [
-            asset for asset in parent_assets
-            if str(asset.get("review_state") or "").lower() in {"approved", "review_ready"}
-            or str(asset.get("audit_status") or "").lower() in {"passed", "pass", "approved", "approved_candidate"}
+            asset
+            for asset in parent_assets
+            if str(asset.get("review_state") or "").lower()
+            in {"approved", "review_ready"}
+            or str(asset.get("audit_status") or "").lower()
+            in {"passed", "pass", "approved", "approved_candidate"}
         ]
-        caption_families = self.schedule_safe_related_count("caption_families", "parent_asset_id", parent_ids)
-        caption_versions = self.schedule_safe_related_count("caption_versions", "parent_asset_id", parent_ids)
-        checks = [self.schedule_safe_production_variant_checks(asset, surface) for asset in variant_assets]
+        caption_families = self.schedule_safe_related_count(
+            "caption_families", "parent_asset_id", parent_ids
+        )
+        caption_versions = self.schedule_safe_related_count(
+            "caption_versions", "parent_asset_id", parent_ids
+        )
+        checks = [
+            self.schedule_safe_production_variant_checks(asset, surface)
+            for asset in variant_assets
+        ]
         visual = sum(1 for item in checks if item["visual_qc_passed"])
-        placement = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"])
-        discoverability = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"] and item["discoverability_passed"])
-        caption_quality = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"] and item["discoverability_passed"] and item["instagram_post_caption_quality_passed"])
-        publishability = sum(1 for item in checks if item["visual_qc_passed"] and item["caption_placement_qc_passed"] and item["discoverability_passed"] and item["instagram_post_caption_quality_passed"] and item["publishability_passed"])
+        placement = sum(
+            1
+            for item in checks
+            if item["visual_qc_passed"] and item["caption_placement_qc_passed"]
+        )
+        discoverability = sum(
+            1
+            for item in checks
+            if item["visual_qc_passed"]
+            and item["caption_placement_qc_passed"]
+            and item["discoverability_passed"]
+        )
+        caption_quality = sum(
+            1
+            for item in checks
+            if item["visual_qc_passed"]
+            and item["caption_placement_qc_passed"]
+            and item["discoverability_passed"]
+            and item["instagram_post_caption_quality_passed"]
+        )
+        publishability = sum(
+            1
+            for item in checks
+            if item["visual_qc_passed"]
+            and item["caption_placement_qc_passed"]
+            and item["discoverability_passed"]
+            and item["instagram_post_caption_quality_passed"]
+            and item["publishability_passed"]
+        )
         schedule_safe = sum(1 for item in checks if item["schedule_safe"])
         stage_counts = [
             ("raw_parent_reels", len(parent_assets), len(parent_assets)),
             ("accepted_parent_reels", len(parent_assets), len(accepted_parents)),
             ("caption_families_created", len(accepted_parents), caption_families),
-            ("caption_families_accepted", caption_families, min(caption_families, caption_versions)),
-            ("contentforge_variants_created", max(caption_versions, len(accepted_parents), len(variant_assets)), len(variant_assets)),
+            (
+                "caption_families_accepted",
+                caption_families,
+                min(caption_families, caption_versions),
+            ),
+            (
+                "contentforge_variants_created",
+                max(caption_versions, len(accepted_parents), len(variant_assets)),
+                len(variant_assets),
+            ),
             ("visual_qc_passed", len(variant_assets), visual),
             ("caption_placement_qc_passed", visual, placement),
             ("discoverability_passed", placement, discoverability),
@@ -229,29 +324,72 @@ class ScheduleSafeProductionRepository:
     def schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
         return bool(asset.get("parent_asset_id") or asset.get("variant_id"))
 
-    def schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
+    def schedule_safe_related_count(
+        self, table: str, column: str, asset_ids: set[str]
+    ) -> int:
         if not asset_ids:
             return 0
         placeholders = ",".join("?" for _ in asset_ids)
         try:
-            return int(self.conn.execute(
-                f"SELECT COUNT(*) AS c FROM {table} WHERE {column} IN ({placeholders})",
-                sorted(asset_ids),
-            ).fetchone()["c"] or 0)
+            return int(
+                self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM {table} WHERE {column} IN ({placeholders})",
+                    sorted(asset_ids),
+                ).fetchone()["c"]
+                or 0
+            )
         except sqlite3.OperationalError:
             return 0
 
-    def schedule_safe_production_variant_checks(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+    def schedule_safe_production_variant_checks(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
         readiness = self._surface_handoff_readiness_for_asset(asset)
-        publishability = self._explain_publishability(str(asset["id"])) if surface == "reel" else {}
-        checks = publishability.get("checks") if isinstance(publishability.get("checks"), dict) else {}
-        blockers = {str(reason).replace("publishability:", "") for reason in readiness.get("blockingReasons") or []}
-        blockers.update(str(reason) for reason in publishability.get("publishability_failure_reasons") or [])
-        visual_passed = bool(checks.get("operator_visual_review_passed", "operator_visual_review_required" not in blockers))
-        placement_passed = bool(checks.get("caption_placement_qc_passed", "caption_placement_qc_failed" not in blockers))
-        discoverability_passed = bool(readiness.get("discoverabilitySafe") and checks.get("discoverability_safe", "discoverability_safety_failed" not in blockers))
-        caption_quality_passed = bool(checks.get("instagram_post_caption_quality_passed", "instagram_post_caption_quality_failed" not in blockers))
-        publishability_passed = bool(publishability.get("publishableCandidate")) if surface == "reel" else not blockers
+        publishability = (
+            self._explain_publishability(str(asset["id"])) if surface == "reel" else {}
+        )
+        checks = (
+            publishability.get("checks")
+            if isinstance(publishability.get("checks"), dict)
+            else {}
+        )
+        blockers = {
+            str(reason).replace("publishability:", "")
+            for reason in readiness.get("blockingReasons") or []
+        }
+        blockers.update(
+            str(reason)
+            for reason in publishability.get("publishability_failure_reasons") or []
+        )
+        visual_passed = bool(
+            checks.get(
+                "operator_visual_review_passed",
+                "operator_visual_review_required" not in blockers,
+            )
+        )
+        placement_passed = bool(
+            checks.get(
+                "caption_placement_qc_passed",
+                "caption_placement_qc_failed" not in blockers,
+            )
+        )
+        discoverability_passed = bool(
+            readiness.get("discoverabilitySafe")
+            and checks.get(
+                "discoverability_safe", "discoverability_safety_failed" not in blockers
+            )
+        )
+        caption_quality_passed = bool(
+            checks.get(
+                "instagram_post_caption_quality_passed",
+                "instagram_post_caption_quality_failed" not in blockers,
+            )
+        )
+        publishability_passed = (
+            bool(publishability.get("publishableCandidate"))
+            if surface == "reel"
+            else not blockers
+        )
         return {
             "assetId": asset["id"],
             "visual_qc_passed": visual_passed,
@@ -262,14 +400,25 @@ class ScheduleSafeProductionRepository:
             "schedule_safe": bool(readiness.get("canHandoff")),
         }
 
-    def schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
+    def schedule_safe_production_largest_loss(
+        self, waterfall: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         total_loss = sum(int(row.get("lossCount") or 0) for row in waterfall)
-        largest = max(waterfall, key=lambda row: (int(row.get("lossCount") or 0), str(row.get("stage") or "")), default={})
+        largest = max(
+            waterfall,
+            key=lambda row: (
+                int(row.get("lossCount") or 0),
+                str(row.get("stage") or ""),
+            ),
+            default={},
+        )
         loss = int(largest.get("lossCount") or 0)
         return {
             "largestLossGate": largest.get("stage") or "",
             "lossCount": loss,
-            "percentOfTotalLoss": round((loss / max(1, total_loss)) * 100, 1) if total_loss else 0,
+            "percentOfTotalLoss": round((loss / max(1, total_loss)) * 100, 1)
+            if total_loss
+            else 0,
         }
 
     def schedule_safe_production_capacity(
@@ -287,28 +436,44 @@ class ScheduleSafeProductionRepository:
         projections: dict[str, Any] = {}
         for key, required in targets.items():
             shortfall = max(0, required - int(current_inventory or 0))
-            days = math.ceil(shortfall / daily_production) if daily_production > 0 and shortfall > 0 else (0 if shortfall == 0 else None)
+            days = (
+                math.ceil(shortfall / daily_production)
+                if daily_production > 0 and shortfall > 0
+                else (0 if shortfall == 0 else None)
+            )
             projections[key] = {
                 "requiredInventory": required,
                 "currentInventory": int(current_inventory or 0),
                 "shortfall": shortfall,
                 "daysToReachBuffer": days,
-                "blockedReason": "" if days is not None else "no_schedule_safe_production_observed",
+                "blockedReason": ""
+                if days is not None
+                else "no_schedule_safe_production_observed",
             }
         return {
             "capacityProjections": projections,
-            "daysToReach25AccountBuffer": projections["25Accounts"]["daysToReachBuffer"],
-            "daysToReach50AccountBuffer": projections["50Accounts"]["daysToReachBuffer"],
-            "daysToReach100AccountBuffer": projections["100Accounts"]["daysToReachBuffer"],
+            "daysToReach25AccountBuffer": projections["25Accounts"][
+                "daysToReachBuffer"
+            ],
+            "daysToReach50AccountBuffer": projections["50Accounts"][
+                "daysToReachBuffer"
+            ],
+            "daysToReach100AccountBuffer": projections["100Accounts"][
+                "daysToReachBuffer"
+            ],
         }
 
-    def schedule_safe_required_parents_per_day(self, produced_per_day: float, produced: int, parent_count: int) -> int:
+    def schedule_safe_required_parents_per_day(
+        self, produced_per_day: float, produced: int, parent_count: int
+    ) -> int:
         if produced_per_day <= 0 or produced <= 0:
             return 0
         parents_per_asset = parent_count / max(1, produced)
         return int(math.ceil(75 * parents_per_asset))
 
-    def schedule_safe_required_variants_per_day(self, produced_per_day: float, produced: int, variant_count: int) -> int:
+    def schedule_safe_required_variants_per_day(
+        self, produced_per_day: float, produced: int, variant_count: int
+    ) -> int:
         if produced_per_day <= 0 or produced <= 0:
             return 0
         variants_per_asset = variant_count / max(1, produced)

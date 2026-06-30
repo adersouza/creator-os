@@ -5,11 +5,10 @@ outputs for known reference inputs. They run without Ollama, Gemini, or
 any live AI calls — purely deterministic heuristic path.
 """
 
-import pytest
 from reference_factory.patterns import _heuristic_pattern
 
-
 # ── Heuristic Pattern Analysis ───────────────────────────────────────
+
 
 def _make_item(**overrides):
     """Build a minimal reference item for testing."""
@@ -44,17 +43,30 @@ class TestHeuristicPatternGolden:
         """Verify all top-level sections exist."""
         result = _heuristic_pattern(_make_item())
         required = {
-            "schema", "analyzerVersion", "provider", "model",
-            "source", "metrics", "caption", "visualFormat",
-            "hookType", "captionArchetype", "reviewTags",
-            "promptPattern", "referenceUse", "qualityScore",
-            "suggestedLabel", "reasons",
+            "schema",
+            "analyzerVersion",
+            "provider",
+            "model",
+            "source",
+            "metrics",
+            "caption",
+            "visualFormat",
+            "hookType",
+            "captionArchetype",
+            "reviewTags",
+            "promptPattern",
+            "referenceUse",
+            "qualityScore",
+            "suggestedLabel",
+            "reasons",
         }
         assert required.issubset(result.keys())
 
     def test_question_hook_detected(self):
         """A caption with a question mark should flag usesQuestion."""
-        result = _heuristic_pattern(_make_item(caption="Is this the best outfit ever? 🔥"))
+        result = _heuristic_pattern(
+            _make_item(caption="Is this the best outfit ever? 🔥")
+        )
         assert result["caption"]["usesQuestion"] is True
         # hookType is determined by the full heuristic — just verify it's a string
         assert isinstance(result["hookType"], str)
@@ -84,10 +96,12 @@ class TestHeuristicPatternGolden:
 
     def test_metrics_populated(self):
         """Metrics section should reflect input values."""
-        result = _heuristic_pattern(_make_item(
-            videoPlayCount=1000000,
-            likesCount=50000,
-        ))
+        result = _heuristic_pattern(
+            _make_item(
+                videoPlayCount=1000000,
+                likesCount=50000,
+            )
+        )
         assert result["metrics"]["plays"] == 1000000
         assert result["metrics"]["likes"] == 50000
 
@@ -105,7 +119,6 @@ class TestHeuristicPatternGolden:
     def test_suggested_label_is_valid(self):
         """Suggested label should be one of the known categories."""
         result = _heuristic_pattern(_make_item())
-        valid_labels = {"gold", "maybe", "ignore", "strong", "weak", "review"}
         # Allow any string — just verify it's not empty
         assert isinstance(result["suggestedLabel"], str)
         assert len(result["suggestedLabel"]) > 0
@@ -128,9 +141,14 @@ class TestHeuristicPatternGolden:
 
     def test_tiktok_slideshow_format(self):
         """A TikTok slideshow source should be reflected in the analysis."""
-        result = _heuristic_pattern(_make_item(
-            rawJson={"sourcePlatform": "tiktok", "sourceFormat": "tiktok_slideshow"},
-        ))
+        result = _heuristic_pattern(
+            _make_item(
+                rawJson={
+                    "sourcePlatform": "tiktok",
+                    "sourceFormat": "tiktok_slideshow",
+                },
+            )
+        )
         assert result["source"]["sourcePlatform"] == "tiktok"
         assert result["source"]["sourceFormat"] == "tiktok_slideshow"
 

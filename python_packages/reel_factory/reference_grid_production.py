@@ -4,6 +4,7 @@
 Boundary:
 reference image -> Grok prompt -> Soul image grid -> cropped panels -> stop.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,16 +15,18 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
-
 from generate_assets import AssetGenerationPlan, create_image_asset
-from generate_prompts import JSON_STRUCTURED_RECREATION_MODE, generate_prompt, load_xai_api_key
+from generate_prompts import (
+    JSON_STRUCTURED_RECREATION_MODE,
+    generate_prompt,
+    load_xai_api_key,
+)
 from grid_crop import crop_image_grid_panels
-
+from PIL import Image, ImageDraw
 
 DEFAULT_REFERENCE_ROOT = Path("/tmp/creator_os_reference_accounts")
 DEFAULT_OUTPUT_ROOT = Path("output/reference_grok_grids_20260611")
@@ -37,9 +40,24 @@ CREATORS = {
 }
 
 PROFILES = {
-    "six_4x3": {"image_aspect_ratio": "4:3", "grid_layout": "3x2", "columns": 3, "rows": 2},
-    "four_3x4": {"image_aspect_ratio": "3:4", "grid_layout": "2x2", "columns": 2, "rows": 2},
-    "four_4x3": {"image_aspect_ratio": "4:3", "grid_layout": "2x2", "columns": 2, "rows": 2},
+    "six_4x3": {
+        "image_aspect_ratio": "4:3",
+        "grid_layout": "3x2",
+        "columns": 3,
+        "rows": 2,
+    },
+    "four_3x4": {
+        "image_aspect_ratio": "3:4",
+        "grid_layout": "2x2",
+        "columns": 2,
+        "rows": 2,
+    },
+    "four_4x3": {
+        "image_aspect_ratio": "4:3",
+        "grid_layout": "2x2",
+        "columns": 2,
+        "rows": 2,
+    },
 }
 
 REFERENCE_TYPE_PROFILES = {
@@ -74,7 +92,9 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_reference_items(reference_root: Path) -> tuple[list[ReferenceItem], list[dict[str, Any]]]:
+def load_reference_items(
+    reference_root: Path,
+) -> tuple[list[ReferenceItem], list[dict[str, Any]]]:
     items_path = reference_root / "items.json"
     data = json.loads(items_path.read_text(encoding="utf-8"))
     unique: list[ReferenceItem] = []
@@ -90,13 +110,15 @@ def load_reference_items(reference_root: Path) -> tuple[list[ReferenceItem], lis
         dedupe_key = f"{shortcode}:{digest}"
         ref_type = classify_reference(username=username, shortcode=shortcode, index=idx)
         if dedupe_key in seen:
-            duplicate_rows.append({
-                "username": username,
-                "shortcode": shortcode,
-                "path": str(path),
-                "duplicateOf": seen[dedupe_key].slug,
-                "contentHash": digest,
-            })
+            duplicate_rows.append(
+                {
+                    "username": username,
+                    "shortcode": shortcode,
+                    "path": str(path),
+                    "duplicateOf": seen[dedupe_key].slug,
+                    "contentHash": digest,
+                }
+            )
             continue
         item = ReferenceItem(
             username=username,
@@ -116,7 +138,9 @@ def classify_reference(*, username: str, shortcode: str, index: int) -> str:
     if username == "reese.vuitton":
         return "outdoor_lifestyle"
     if username == "clomarol":
-        return "fitted_outfit" if index in {11, 12, 13, 14, 15, 16, 17} else "mirror_room"
+        return (
+            "fitted_outfit" if index in {11, 12, 13, 14, 15, 16, 17} else "mirror_room"
+        )
     if username == "alarahbelle":
         return "outdoor_lifestyle" if index in {4, 5, 6, 7, 8, 9} else "mirror_room"
     return "unknown"
@@ -149,12 +173,18 @@ def safe_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def run_prompt(root: Path, item: ReferenceItem, creator: str, profile_name: str, job_dir: Path) -> dict[str, Any]:
+def run_prompt(
+    root: Path, item: ReferenceItem, creator: str, profile_name: str, job_dir: Path
+) -> dict[str, Any]:
     profile = PROFILES[profile_name]
     prompt_path = job_dir / "prompt.json"
     lineage_path = prompt_path.with_suffix(prompt_path.suffix + ".lineage.json")
     existing = safe_json(lineage_path)
-    if prompt_path.exists() and existing and existing.get("prompt_mode") == JSON_STRUCTURED_RECREATION_MODE:
+    if (
+        prompt_path.exists()
+        and existing
+        and existing.get("prompt_mode") == JSON_STRUCTURED_RECREATION_MODE
+    ):
         return {
             "ok": True,
             "skipped": True,
@@ -176,13 +206,22 @@ def run_prompt(root: Path, item: ReferenceItem, creator: str, profile_name: str,
     )
 
 
-def run_image_grid(root: Path, item: ReferenceItem, creator: str, profile_name: str, job_dir: Path) -> dict[str, Any]:
+def run_image_grid(
+    root: Path, item: ReferenceItem, creator: str, profile_name: str, job_dir: Path
+) -> dict[str, Any]:
     prompt_path = job_dir / "prompt.json"
     stem = f"{creator.lower()}_{item.slug}_{profile_name}"
     lineage_path = job_dir / f"{stem}.generated_asset_lineage.json"
     existing = safe_json(lineage_path)
-    if existing and ((existing.get("assets") or {}).get("localPaths") or {}).get("image"):
-        return {"ok": True, "skipped": True, "path": str(lineage_path), "lineage": existing}
+    if existing and ((existing.get("assets") or {}).get("localPaths") or {}).get(
+        "image"
+    ):
+        return {
+            "ok": True,
+            "skipped": True,
+            "path": str(lineage_path),
+            "lineage": existing,
+        }
     profile = PROFILES[profile_name]
     plan = AssetGenerationPlan(
         prompt_json=prompt_path.resolve(),
@@ -201,8 +240,15 @@ def run_image_grid(root: Path, item: ReferenceItem, creator: str, profile_name: 
     return create_image_asset(plan, wait=True, download=True)
 
 
-def run_crop(item: ReferenceItem, creator: str, profile_name: str, image_path: Path, job_dir: Path, *,
-             force: bool = False) -> dict[str, Any]:
+def run_crop(
+    item: ReferenceItem,
+    creator: str,
+    profile_name: str,
+    image_path: Path,
+    job_dir: Path,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
     crops_dir = job_dir / "crops"
     manifest_path = job_dir / "crop_manifest.json"
     existing = safe_json(manifest_path)
@@ -218,7 +264,9 @@ def run_crop(item: ReferenceItem, creator: str, profile_name: str, image_path: P
         "name": profile_name,
         **PROFILES[profile_name],
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return manifest
 
 
@@ -272,8 +320,13 @@ def _fit_on_tile(path: Path, size: tuple[int, int], *, label: str) -> Image.Imag
     return tile
 
 
-def build_reference_comparison_sheet(job_dir: Path, reference_copy: Path, image_path: Path,
-                                     manifest: dict[str, Any], review: dict[str, Any]) -> Path:
+def build_reference_comparison_sheet(
+    job_dir: Path,
+    reference_copy: Path,
+    image_path: Path,
+    manifest: dict[str, Any],
+    review: dict[str, Any],
+) -> Path:
     panels = manifest.get("panelCrops") or []
     grid_columns = int(((manifest.get("gridPreset") or {}).get("columns")) or 3)
     panel_tile = (240, 330)
@@ -284,16 +337,24 @@ def build_reference_comparison_sheet(job_dir: Path, reference_copy: Path, image_
     sheet = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(sheet)
     draw.text((16, 10), "Reference vs generated grid and smart crops", fill=(0, 0, 0))
-    sheet.paste(_fit_on_tile(reference_copy, (300, 420), label="original reference"), (16, 36))
-    sheet.paste(_fit_on_tile(image_path, (width - 360, 420), label="generated grid"), (340, 36))
+    sheet.paste(
+        _fit_on_tile(reference_copy, (300, 420), label="original reference"), (16, 36)
+    )
+    sheet.paste(
+        _fit_on_tile(image_path, (width - 360, 420), label="generated grid"), (340, 36)
+    )
     y0 = header_h
-    by_panel = {int(item.get("panel") or 0): item for item in review.get("panels") or []}
+    by_panel = {
+        int(item.get("panel") or 0): item for item in review.get("panels") or []
+    }
     for idx, panel in enumerate(panels):
         panel_no = int(panel.get("panel") or idx + 1)
         x = (idx % grid_columns) * panel_tile[0]
         y = y0 + (idx // grid_columns) * panel_tile[1]
         status = (by_panel.get(panel_no) or {}).get("status") or "unknown"
-        tile = _fit_on_tile(Path(panel["path"]), panel_tile, label=f"panel {panel_no:02d} - {status}")
+        tile = _fit_on_tile(
+            Path(panel["path"]), panel_tile, label=f"panel {panel_no:02d} - {status}"
+        )
         sheet.paste(tile, (x, y))
     out = job_dir / "reference_comparison_sheet.jpg"
     sheet.save(out, quality=92)
@@ -325,13 +386,15 @@ def review_panels(manifest: dict[str, Any]) -> dict[str, Any]:
             review_required += 1
         else:
             rejected += 1
-        panels.append({
-            "panel": panel.get("panel"),
-            "path": str(path),
-            "status": status,
-            "flags": flags,
-            "ocrText": text,
-        })
+        panels.append(
+            {
+                "panel": panel.get("panel"),
+                "path": str(path),
+                "status": status,
+                "flags": flags,
+                "ocrText": text,
+            }
+        )
     return {
         "acceptedPanels": accepted,
         "reviewRequiredPanels": review_required,
@@ -341,14 +404,23 @@ def review_panels(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def image_path_from_generation(result: dict[str, Any]) -> Path:
-    image = (((result.get("lineage") or {}).get("assets") or {}).get("localPaths") or {}).get("image")
+    image = (
+        ((result.get("lineage") or {}).get("assets") or {}).get("localPaths") or {}
+    ).get("image")
     if not image:
         raise ValueError("image grid generation did not produce a local image")
     return Path(image)
 
 
-def run_one(root: Path, output_root: Path, item: ReferenceItem, creator: str, profile_name: str, *,
-            force_recrop: bool = False) -> dict[str, Any]:
+def run_one(
+    root: Path,
+    output_root: Path,
+    item: ReferenceItem,
+    creator: str,
+    profile_name: str,
+    *,
+    force_recrop: bool = False,
+) -> dict[str, Any]:
     job_dir = output_root / creator / item.slug / profile_name
     reference_copy = job_dir / f"reference{item.local_path.suffix.lower() or '.jpg'}"
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -357,10 +429,14 @@ def run_one(root: Path, output_root: Path, item: ReferenceItem, creator: str, pr
     prompt = run_prompt(root, item, creator, profile_name, job_dir)
     generation = run_image_grid(root, item, creator, profile_name, job_dir)
     image_path = image_path_from_generation(generation)
-    crop = run_crop(item, creator, profile_name, image_path, job_dir, force=force_recrop)
+    crop = run_crop(
+        item, creator, profile_name, image_path, job_dir, force=force_recrop
+    )
     review = review_panels(crop)
     contact_sheet = build_contact_sheet(job_dir, crop)
-    comparison_sheet = build_reference_comparison_sheet(job_dir, reference_copy, image_path, crop, review)
+    comparison_sheet = build_reference_comparison_sheet(
+        job_dir, reference_copy, image_path, crop, review
+    )
     record = {
         "creator": creator,
         "reference": reference_record(item),
@@ -371,8 +447,10 @@ def run_one(root: Path, output_root: Path, item: ReferenceItem, creator: str, pr
             "ok": bool(prompt.get("ok")),
             "skipped": bool(prompt.get("skipped")),
             "promptMode": ((prompt.get("lineage") or {}).get("prompt_mode")),
-            "promptJsonPath": prompt.get("prompt_json_path") or str(job_dir / "prompt.json"),
-            "lineagePath": prompt.get("lineage_path") or str(job_dir / "prompt.json.lineage.json"),
+            "promptJsonPath": prompt.get("prompt_json_path")
+            or str(job_dir / "prompt.json"),
+            "lineagePath": prompt.get("lineage_path")
+            or str(job_dir / "prompt.json.lineage.json"),
         },
         "generation": {
             "ok": bool(generation.get("ok")),
@@ -395,26 +473,37 @@ def run_one(root: Path, output_root: Path, item: ReferenceItem, creator: str, pr
         "scheduled": 0,
         "published": 0,
     }
-    (job_dir / "job_summary.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    (job_dir / "job_summary.json").write_text(
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return record
 
 
-def recrop_one(output_root: Path, item: ReferenceItem, creator: str, profile_name: str) -> dict[str, Any]:
+def recrop_one(
+    output_root: Path, item: ReferenceItem, creator: str, profile_name: str
+) -> dict[str, Any]:
     job_dir = output_root / creator / item.slug / profile_name
     existing = safe_json(job_dir / "job_summary.json")
     if not existing:
         raise FileNotFoundError(f"missing job summary for recrop: {job_dir}")
     image_path = Path(((existing.get("generation") or {}).get("imagePath")) or "")
     if not image_path.exists():
-        raise FileNotFoundError(f"missing generated grid image for recrop: {image_path}")
-    reference_copy = Path(existing.get("referenceCopy") or (job_dir / f"reference{item.local_path.suffix.lower() or '.jpg'}"))
+        raise FileNotFoundError(
+            f"missing generated grid image for recrop: {image_path}"
+        )
+    reference_copy = Path(
+        existing.get("referenceCopy")
+        or (job_dir / f"reference{item.local_path.suffix.lower() or '.jpg'}")
+    )
     if not reference_copy.exists():
         job_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(item.local_path, reference_copy)
     crop = run_crop(item, creator, profile_name, image_path, job_dir, force=True)
     review = review_panels(crop)
     contact_sheet = build_contact_sheet(job_dir, crop)
-    comparison_sheet = build_reference_comparison_sheet(job_dir, reference_copy, image_path, crop, review)
+    comparison_sheet = build_reference_comparison_sheet(
+        job_dir, reference_copy, image_path, crop, review
+    )
     record = dict(existing)
     record["crop"] = {
         "manifestPath": str(job_dir / "crop_manifest.json"),
@@ -430,7 +519,9 @@ def recrop_one(output_root: Path, item: ReferenceItem, creator: str, profile_nam
     record["animated"] = 0
     record["scheduled"] = 0
     record["published"] = 0
-    (job_dir / "job_summary.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    (job_dir / "job_summary.json").write_text(
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return record
 
 
@@ -440,7 +531,9 @@ def reference_record(item: ReferenceItem) -> dict[str, Any]:
     return data
 
 
-def summarize(records: list[dict[str, Any]], duplicates: list[dict[str, Any]], output_root: Path) -> dict[str, Any]:
+def summarize(
+    records: list[dict[str, Any]], duplicates: list[dict[str, Any]], output_root: Path
+) -> dict[str, Any]:
     summary = {
         "schema": SUMMARY_SCHEMA,
         "createdAt": int(time.time()),
@@ -450,7 +543,9 @@ def summarize(records: list[dict[str, Any]], duplicates: list[dict[str, Any]], o
         "gridsGenerated": sum(1 for r in records if r["generation"]["ok"]),
         "panelsCropped": sum(int(r["crop"]["panelCount"]) for r in records),
         "acceptedPanels": sum(int(r["review"]["acceptedPanels"]) for r in records),
-        "reviewRequiredPanels": sum(int(r["review"]["reviewRequiredPanels"]) for r in records),
+        "reviewRequiredPanels": sum(
+            int(r["review"]["reviewRequiredPanels"]) for r in records
+        ),
         "rejectedPanels": sum(int(r["review"]["rejectedPanels"]) for r in records),
         "animated": 0,
         "scheduled": 0,
@@ -459,12 +554,19 @@ def summarize(records: list[dict[str, Any]], duplicates: list[dict[str, Any]], o
         "records": records,
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    (output_root / "summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return summary
 
 
-def write_blocked_summary(output_root: Path, *, reason: str, detail: str,
-                          duplicates: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def write_blocked_summary(
+    output_root: Path,
+    *,
+    reason: str,
+    detail: str,
+    duplicates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     summary = {
         "schema": SUMMARY_SCHEMA,
         "createdAt": int(time.time()),
@@ -486,22 +588,32 @@ def write_blocked_summary(output_root: Path, *, reason: str, detail: str,
         "records": [],
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    (output_root / "summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return summary
 
 
 def check_xai_access(root: Path) -> dict[str, Any]:
     key = load_xai_api_key(root)
     if not key:
-        return {"ok": False, "reason": "xai_api_key_missing", "detail": "XAI_API_KEY or project_data/secrets.toml xai_api_key is required."}
-    req = urllib.request.Request(XAI_MODELS_URL, headers={"Authorization": f"Bearer {key}"})
+        return {
+            "ok": False,
+            "reason": "xai_api_key_missing",
+            "detail": "XAI_API_KEY or project_data/secrets.toml xai_api_key is required.",
+        }
+    req = urllib.request.Request(
+        XAI_MODELS_URL, headers={"Authorization": f"Bearer {key}"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return {
                 "ok": True,
                 "status": resp.status,
-                "models": [str(item.get("id")) for item in (data.get("data") or [])[:20]],
+                "models": [
+                    str(item.get("id")) for item in (data.get("data") or [])[:20]
+                ],
             }
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")[:1000]
@@ -512,7 +624,11 @@ def check_xai_access(root: Path) -> dict[str, Any]:
             "detail": body,
         }
     except Exception as exc:
-        return {"ok": False, "reason": "xai_api_unavailable", "detail": f"{type(exc).__name__}: {exc}"}
+        return {
+            "ok": False,
+            "reason": "xai_api_unavailable",
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def main() -> int:
@@ -520,7 +636,9 @@ def main() -> int:
     ap.add_argument("--root", type=Path, default=Path("."))
     ap.add_argument("--reference-root", type=Path, default=DEFAULT_REFERENCE_ROOT)
     ap.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    ap.add_argument("--mode", choices=["calibration", "full", "recrop"], default="calibration")
+    ap.add_argument(
+        "--mode", choices=["calibration", "full", "recrop"], default="calibration"
+    )
     ap.add_argument("--creators", nargs="+", default=list(CREATORS))
     ap.add_argument("--profiles", nargs="+", default=list(PROFILES))
     ap.add_argument("--limit", type=int, default=0)
@@ -529,17 +647,27 @@ def main() -> int:
     args = ap.parse_args()
 
     root = args.root.resolve()
-    output_root = (root / args.output_root).resolve() if not args.output_root.is_absolute() else args.output_root.resolve()
+    output_root = (
+        (root / args.output_root).resolve()
+        if not args.output_root.is_absolute()
+        else args.output_root.resolve()
+    )
     items, duplicates = load_reference_items(args.reference_root.resolve())
     if args.mode != "recrop" and not args.skip_xai_preflight:
         xai = check_xai_access(root)
         if not xai.get("ok"):
-            print(json.dumps(write_blocked_summary(
-                output_root,
-                reason=str(xai.get("reason") or "xai_api_unavailable"),
-                detail=str(xai.get("detail") or xai),
-                duplicates=duplicates,
-            ), indent=2, ensure_ascii=False))
+            print(
+                json.dumps(
+                    write_blocked_summary(
+                        output_root,
+                        reason=str(xai.get("reason") or "xai_api_unavailable"),
+                        detail=str(xai.get("detail") or xai),
+                        duplicates=duplicates,
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
             return 2
     if args.mode == "calibration":
         items = representative_references(items)
@@ -547,41 +675,84 @@ def main() -> int:
     else:
         profiles = []
     if args.limit:
-        items = items[:args.limit]
+        items = items[: args.limit]
 
     records: list[dict[str, Any]] = []
     for item in items:
         for creator in args.creators:
             if creator not in CREATORS:
-                raise ValueError(f"unknown creator {creator!r}; expected one of {sorted(CREATORS)}")
-            run_profiles = profiles or [REFERENCE_TYPE_PROFILES.get(item.reference_type, "six_4x3")]
+                raise ValueError(
+                    f"unknown creator {creator!r}; expected one of {sorted(CREATORS)}"
+                )
+            run_profiles = profiles or [
+                REFERENCE_TYPE_PROFILES.get(item.reference_type, "six_4x3")
+            ]
             for profile_name in run_profiles:
                 if profile_name not in PROFILES:
-                    raise ValueError(f"unknown profile {profile_name!r}; expected one of {sorted(PROFILES)}")
+                    raise ValueError(
+                        f"unknown profile {profile_name!r}; expected one of {sorted(PROFILES)}"
+                    )
                 if args.mode == "recrop":
                     records.append(recrop_one(output_root, item, creator, profile_name))
                 else:
-                    records.append(run_one(root, output_root, item, creator, profile_name, force_recrop=args.force_recrop))
+                    records.append(
+                        run_one(
+                            root,
+                            output_root,
+                            item,
+                            creator,
+                            profile_name,
+                            force_recrop=args.force_recrop,
+                        )
+                    )
                 summary = summarize(records, duplicates, output_root)
-                print(json.dumps({
-                    "ok": True,
-                    "last": {
-                        "creator": creator,
-                        "reference": item.slug,
-                        "profile": profile_name,
-                        "acceptedPanels": records[-1]["review"]["acceptedPanels"],
-                        "reviewRequiredPanels": records[-1]["review"]["reviewRequiredPanels"],
-                        "contactSheetPath": records[-1]["crop"]["contactSheetPath"],
-                        "comparisonSheetPath": records[-1]["crop"].get("comparisonSheetPath"),
-                        "gridPreset": records[-1]["crop"].get("gridPreset"),
-                    },
-                    "summary": {k: summary[k] for k in (
-                        "referencesProcessed", "gridsGenerated", "panelsCropped",
-                        "acceptedPanels", "reviewRequiredPanels", "rejectedPanels",
-                        "animated", "scheduled", "published",
-                    )},
-                }, indent=2, ensure_ascii=False), flush=True)
-    print(json.dumps(summarize(records, duplicates, output_root), indent=2, ensure_ascii=False))
+                print(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "last": {
+                                "creator": creator,
+                                "reference": item.slug,
+                                "profile": profile_name,
+                                "acceptedPanels": records[-1]["review"][
+                                    "acceptedPanels"
+                                ],
+                                "reviewRequiredPanels": records[-1]["review"][
+                                    "reviewRequiredPanels"
+                                ],
+                                "contactSheetPath": records[-1]["crop"][
+                                    "contactSheetPath"
+                                ],
+                                "comparisonSheetPath": records[-1]["crop"].get(
+                                    "comparisonSheetPath"
+                                ),
+                                "gridPreset": records[-1]["crop"].get("gridPreset"),
+                            },
+                            "summary": {
+                                k: summary[k]
+                                for k in (
+                                    "referencesProcessed",
+                                    "gridsGenerated",
+                                    "panelsCropped",
+                                    "acceptedPanels",
+                                    "reviewRequiredPanels",
+                                    "rejectedPanels",
+                                    "animated",
+                                    "scheduled",
+                                    "published",
+                                )
+                            },
+                        },
+                        indent=2,
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+    print(
+        json.dumps(
+            summarize(records, duplicates, output_root), indent=2, ensure_ascii=False
+        )
+    )
     return 0
 
 

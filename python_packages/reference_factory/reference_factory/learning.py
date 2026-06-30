@@ -8,14 +8,20 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .audio import cluster_audio_recommendations, extract_audio_signal
-from .audio import analyze_audio_patterns
+from .audio import (
+    analyze_audio_patterns,
+    cluster_audio_recommendations,
+    extract_audio_signal,
+)
 from .db import json_dump, json_load
-from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD, build_embedding_clusters
+from .embeddings import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_THRESHOLD,
+    build_embedding_clusters,
+)
 from .identity import stable_id
 from .patterns import analyze_patterns
 from .timeutil import now_iso
-
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
 
@@ -35,7 +41,13 @@ def build_learning_system(
         analyze_patterns(conn, limit=limit, provider="auto", output_dir=output_dir)
     cards = _pattern_cards(conn, limit)
     embedding_report = (
-        build_embedding_clusters(conn, cards, output_dir, model=embedding_model, threshold=embedding_threshold)
+        build_embedding_clusters(
+            conn,
+            cards,
+            output_dir,
+            model=embedding_model,
+            threshold=embedding_threshold,
+        )
         if embedding_clusters
         else {
             "schema": "reference_factory.embedding_clusters.v1",
@@ -56,7 +68,14 @@ def build_learning_system(
         INSERT INTO learning_runs (id, analyzer_version, limit_count, output_dir, summary_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (run_id, LEARNING_VERSION, limit, str(output_dir), json_dump(summary), timestamp),
+        (
+            run_id,
+            LEARNING_VERSION,
+            limit,
+            str(output_dir),
+            json_dump(summary),
+            timestamp,
+        ),
     )
     for cluster in clusters:
         conn.execute(
@@ -160,8 +179,12 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "views": int(row["video_view_count"] or 0),
                 "likes": int(row["likes_count"] or 0),
                 "comments": int(row["comments_count"] or 0),
-                "measuredOutcome": (pattern.get("metrics") or {}).get("measuredOutcome"),
-                "publicRateScore": (pattern.get("metrics") or {}).get("publicRateScore"),
+                "measuredOutcome": (pattern.get("metrics") or {}).get(
+                    "measuredOutcome"
+                ),
+                "publicRateScore": (pattern.get("metrics") or {}).get(
+                    "publicRateScore"
+                ),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
                 "visualFormat": row["visual_format"],
@@ -169,7 +192,7 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "captionArchetype": row["caption_archetype"],
                 "performanceClass": pattern.get("performanceClass") or "unproven",
                 "winnerDna": pattern.get("winnerDna") or {},
-                "tags": list((pattern.get("reviewTags") or [])),
+                "tags": list(pattern.get("reviewTags") or []),
                 "pattern": pattern,
                 "audioSignal": extract_audio_signal(raw_json, row["product_type"]),
             }
@@ -177,8 +200,14 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
     return cards
 
 
-def _cluster_cards(cards: list[dict[str, Any]], embedding_report: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    assignments = embedding_report.get("assignments") if isinstance(embedding_report, dict) else {}
+def _cluster_cards(
+    cards: list[dict[str, Any]], embedding_report: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    assignments = (
+        embedding_report.get("assignments")
+        if isinstance(embedding_report, dict)
+        else {}
+    )
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     embedding_meta: dict[str, dict[str, Any]] = {}
     for card in cards:
@@ -193,7 +222,9 @@ def _cluster_cards(cards: list[dict[str, Any]], embedding_report: dict[str, Any]
     clusters = []
     for key, items in grouped.items():
         clusters.append(_cluster_from_items(key, items, embedding_meta.get(key)))
-    clusters.sort(key=lambda item: (-item["clusterScore"], -item["itemCount"], item["label"]))
+    clusters.sort(
+        key=lambda item: (-item["clusterScore"], -item["itemCount"], item["label"])
+    )
     for idx, cluster in enumerate(clusters, 1):
         cluster["rank"] = idx
     return clusters
@@ -209,26 +240,46 @@ def _cluster_key(card: dict[str, Any]) -> str:
     )
 
 
-def _cluster_from_items(key: str, items: list[dict[str, Any]], embedding_meta: dict[str, Any] | None = None) -> dict[str, Any]:
-    ranked = sorted(items, key=lambda item: (int(item.get("rank") or 999999), -float(item.get("qualityScore") or 0)))
+def _cluster_from_items(
+    key: str, items: list[dict[str, Any]], embedding_meta: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            int(item.get("rank") or 999999),
+            -float(item.get("qualityScore") or 0),
+        ),
+    )
     top = ranked[0]
-    visual, hook, caption = _cluster_key(top).split("::") if embedding_meta else key.split("::")
+    visual, hook, caption = (
+        _cluster_key(top).split("::") if embedding_meta else key.split("::")
+    )
     plays = [int(item.get("plays") or 0) for item in items]
     quality = [float(item.get("qualityScore") or 0) for item in items]
     accounts = sorted(set(str(item.get("account") or "_unknown") for item in items))
     tags = Counter(tag for item in items for tag in item.get("tags", []))
-    performance_classes = Counter(str(item.get("performanceClass") or "unproven") for item in items)
-    audio_roles = sorted({
-        str((item.get("winnerDna") or {}).get("audioRole"))
-        for item in items
-        if (item.get("winnerDna") or {}).get("audioRole")
-    })
-    captions = [str(item.get("caption") or "").strip() for item in ranked if str(item.get("caption") or "").strip()]
+    performance_classes = Counter(
+        str(item.get("performanceClass") or "unproven") for item in items
+    )
+    audio_roles = sorted(
+        {
+            str((item.get("winnerDna") or {}).get("audioRole"))
+            for item in items
+            if (item.get("winnerDna") or {}).get("audioRole")
+        }
+    )
+    captions = [
+        str(item.get("caption") or "").strip()
+        for item in ranked
+        if str(item.get("caption") or "").strip()
+    ]
     measured_scores = [
         float((item.get("measuredOutcome") or {}).get("rewardScore"))
         for item in items
         if isinstance(item.get("measuredOutcome"), dict)
-        and isinstance((item.get("measuredOutcome") or {}).get("rewardScore"), (int, float))
+        and isinstance(
+            (item.get("measuredOutcome") or {}).get("rewardScore"), (int, float)
+        )
     ]
     cluster_score = _cluster_score(items, plays, quality, accounts, measured_scores)
     label = _cluster_label(visual, hook, caption)
@@ -253,13 +304,17 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]], embedding_meta: d
         "topPublicPostId": top.get("publicPostId"),
         "topUrl": top.get("url"),
         "topLocalPath": top.get("localPath"),
-        "referenceFiles": [item.get("localPath") for item in ranked[:8] if item.get("localPath")],
+        "referenceFiles": [
+            item.get("localPath") for item in ranked[:8] if item.get("localPath")
+        ],
         "topExamples": [_compact_example(item) for item in ranked[:8]],
         "captionFormulas": _caption_formulas(caption, hook, captions),
         "visualRecipeHints": _visual_recipe_hints(visual, hook, caption),
         "suggestedVariantRecipes": _suggested_variant_recipes(visual, hook, caption),
         "suggestedFormats": _suggested_formats(visual, hook, caption),
-        "audioRecommendations": cluster_audio_recommendations(items, visual, hook, caption),
+        "audioRecommendations": cluster_audio_recommendations(
+            items, visual, hook, caption
+        ),
         "winnerDna": {
             "visualStructure": visual,
             "hookType": hook,
@@ -273,7 +328,9 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]], embedding_meta: d
             "medianViews": int(statistics.median(plays)) if plays else 0,
             "totalPlays": sum(plays),
             "measuredOutcomeSamples": len(measured_scores),
-            "avgMeasuredReward": round(sum(measured_scores) / len(measured_scores), 4) if measured_scores else None,
+            "avgMeasuredReward": round(sum(measured_scores) / len(measured_scores), 4)
+            if measured_scores
+            else None,
             "performanceClassCounts": dict(performance_classes.most_common()),
             "topAccounts": accounts[:10],
         },
@@ -286,8 +343,12 @@ def _cluster_from_items(key: str, items: list[dict[str, Any]], embedding_meta: d
             {
                 "embeddingClusterId": embedding_meta["embeddingClusterId"],
                 "embeddingModel": embedding_meta.get("embeddingModel"),
-                "embeddingMedoidReferenceId": embedding_meta.get("embeddingMedoidReferenceId"),
-                "embeddingSimilarityThreshold": embedding_meta.get("embeddingSimilarityThreshold"),
+                "embeddingMedoidReferenceId": embedding_meta.get(
+                    "embeddingMedoidReferenceId"
+                ),
+                "embeddingSimilarityThreshold": embedding_meta.get(
+                    "embeddingSimilarityThreshold"
+                ),
                 "embeddingNoise": bool(embedding_meta.get("embeddingNoise")),
             }
         )
@@ -314,7 +375,9 @@ def _performance_rank(performance_class: str) -> int:
     }.get(performance_class, 0)
 
 
-def _winner_signals(items: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+def _winner_signals(
+    items: list[dict[str, Any]], key: str, output_key: str
+) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in items:
         group_key = _winner_signal_key(item, key)
@@ -326,15 +389,23 @@ def _winner_signals(items: list[dict[str, Any]], key: str, output_key: str) -> l
             float((item.get("measuredOutcome") or {}).get("rewardScore"))
             for item in group_items
             if isinstance(item.get("measuredOutcome"), dict)
-            and isinstance((item.get("measuredOutcome") or {}).get("rewardScore"), (int, float))
+            and isinstance(
+                (item.get("measuredOutcome") or {}).get("rewardScore"), (int, float)
+            )
         ]
-        classes = Counter(str(item.get("performanceClass") or "unproven") for item in group_items)
-        best_class = max(classes, key=lambda value: (_performance_rank(value), classes[value]))
-        audio_roles = sorted({
-            str((item.get("winnerDna") or {}).get("audioRole"))
-            for item in group_items
-            if (item.get("winnerDna") or {}).get("audioRole")
-        })
+        classes = Counter(
+            str(item.get("performanceClass") or "unproven") for item in group_items
+        )
+        best_class = max(
+            classes, key=lambda value: (_performance_rank(value), classes[value])
+        )
+        audio_roles = sorted(
+            {
+                str((item.get("winnerDna") or {}).get("audioRole"))
+                for item in group_items
+                if (item.get("winnerDna") or {}).get("audioRole")
+            }
+        )
         top = sorted(
             group_items,
             key=lambda item: (
@@ -343,21 +414,29 @@ def _winner_signals(items: list[dict[str, Any]], key: str, output_key: str) -> l
                 int(item.get("rank") or 999999),
             ),
         )[0]
-        signals.append({
-            output_key: group_key,
-            "performanceClass": best_class,
-            "performanceClassCounts": dict(classes.most_common()),
-            "measuredOutcomeSamples": len(measured),
-            "avgMeasuredReward": round(sum(measured) / len(measured), 4) if measured else None,
-            "audioRoles": audio_roles,
-            "topReferenceId": top.get("referenceId"),
-        })
+        signals.append(
+            {
+                output_key: group_key,
+                "performanceClass": best_class,
+                "performanceClassCounts": dict(classes.most_common()),
+                "measuredOutcomeSamples": len(measured),
+                "avgMeasuredReward": round(sum(measured) / len(measured), 4)
+                if measured
+                else None,
+                "audioRoles": audio_roles,
+                "topReferenceId": top.get("referenceId"),
+            }
+        )
     return sorted(
         signals,
         key=lambda item: (
             -int(item["measuredOutcomeSamples"]),
             -_performance_rank(str(item["performanceClass"])),
-            -(float(item["avgMeasuredReward"]) if item["avgMeasuredReward"] is not None else 0.0),
+            -(
+                float(item["avgMeasuredReward"])
+                if item["avgMeasuredReward"] is not None
+                else 0.0
+            ),
             str(item[output_key]),
         ),
     )
@@ -379,7 +458,14 @@ def _cluster_score(
     if measured_scores:
         avg_measured = sum(measured_scores) / len(measured_scores)
         outcome_score = max(-8.0, min(18.0, (avg_measured - 1.0) * 20.0))
-    return round((avg_quality * 0.47) + play_score + count_score + diversity_score + outcome_score, 2)
+    return round(
+        (avg_quality * 0.47)
+        + play_score
+        + count_score
+        + diversity_score
+        + outcome_score,
+        2,
+    )
 
 
 def _cluster_label(visual: str, hook: str, caption: str) -> str:
@@ -395,7 +481,15 @@ def _visual_recipe_hints(visual: str, hook: str, caption: str) -> list[str]:
     if caption != "captionless_visual":
         hints.append("center caption")
     if visual == "tiktok_slideshow":
-        hints.extend(["grid collage", "first slide headline", "photo sequence", "centered bold callout", "native slideshow pacing"])
+        hints.extend(
+            [
+                "grid collage",
+                "first slide headline",
+                "photo sequence",
+                "centered bold callout",
+                "native slideshow pacing",
+            ]
+        )
     if visual == "mirror_selfie":
         hints.append("mirror shot")
     if visual == "fit_check":
@@ -410,7 +504,9 @@ def _visual_recipe_hints(visual: str, hook: str, caption: str) -> list[str]:
 def _suggested_variant_recipes(visual: str, hook: str, caption: str) -> list[str]:
     recipes = ["v01_original", "v05_hflip", "v06_zoom"]
     if visual == "tiktok_slideshow":
-        recipes.extend(["slideshow_grid", "slideshow_story_cards", "slideshow_caption_callout"])
+        recipes.extend(
+            ["slideshow_grid", "slideshow_story_cards", "slideshow_caption_callout"]
+        )
     if caption != "captionless_visual":
         recipes.append("v09_caption_bg")
     if visual in {"walking_clip", "short_vertical_visual_hook"}:
@@ -424,7 +520,10 @@ def _suggested_formats(visual: str, hook: str, caption: str) -> list[str]:
     if visual == "tiktok_slideshow":
         return ["slideshow", "reel"]
     formats = ["reel"]
-    if visual in {"mirror_selfie", "fit_check", "caption_led_visual"} or caption != "captionless_visual":
+    if (
+        visual in {"mirror_selfie", "fit_check", "caption_led_visual"}
+        or caption != "captionless_visual"
+    ):
         formats.append("slideshow")
     return formats
 
@@ -444,7 +543,9 @@ def _compact_example(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _caption_formulas(caption_archetype: str, hook_type: str, examples: list[str]) -> list[dict[str, object]]:
+def _caption_formulas(
+    caption_archetype: str, hook_type: str, examples: list[str]
+) -> list[dict[str, object]]:
     base = {
         "short_meme_caption": [
             "{pronoun/persona} can't resist {persona/context} {emoji}",
@@ -513,9 +614,13 @@ def _prompt_template(visual: str, hook: str, caption: str) -> dict[str, str]:
     }
 
 
-def _higgsfield_json_template(visual: str, hook: str, caption: str) -> dict[str, object]:
+def _higgsfield_json_template(
+    visual: str, hook: str, caption: str
+) -> dict[str, object]:
     template = _prompt_template(visual, hook, caption)
-    output_format = "vertical_slideshow" if visual == "tiktok_slideshow" else "vertical_reel"
+    output_format = (
+        "vertical_slideshow" if visual == "tiktok_slideshow" else "vertical_reel"
+    )
     duration = "6-10" if visual == "tiktok_slideshow" else "6-12"
     return {
         "format": output_format,
@@ -529,7 +634,13 @@ def _higgsfield_json_template(visual: str, hook: str, caption: str) -> dict[str,
         "reference_match_goal": "close_format_variation",
         "variation_controls": {
             "keep": ["structure", "pacing", "hook timing", "caption placement style"],
-            "vary": ["model identity", "background details", "wording", "exact gesture", "wardrobe"],
+            "vary": [
+                "model identity",
+                "background details",
+                "wording",
+                "exact gesture",
+                "wardrobe",
+            ],
         },
         "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
     }
@@ -537,7 +648,9 @@ def _higgsfield_json_template(visual: str, hook: str, caption: str) -> dict[str,
 
 def _operator_use(label: str, item_count: int, score: float) -> dict[str, object]:
     return {
-        "recommendedUse": "primary_generation_pattern" if item_count >= 8 and score >= 85 else "secondary_generation_pattern",
+        "recommendedUse": "primary_generation_pattern"
+        if item_count >= 8 and score >= 85
+        else "secondary_generation_pattern",
         "batchIdea": f"Use this cluster as a source format for {min(10, max(3, item_count // 2))} initial variants.",
         "reviewInstruction": f"Compare outputs against the '{label}' pattern with ContentForge reference match.",
     }
@@ -552,13 +665,27 @@ def _learning_summary(
         "schema": "reference_factory.learning_system_summary.v1",
         "referenceCount": len(cards),
         "clusterCount": len(clusters),
-        "embeddingClustering": _embedding_report_summary(embedding_report) if embedding_report else None,
+        "embeddingClustering": _embedding_report_summary(embedding_report)
+        if embedding_report
+        else None,
         "topClusterLabels": [cluster["label"] for cluster in clusters[:10]],
-        "captionArchetypes": dict(Counter(card.get("captionArchetype") for card in cards).most_common()),
-        "hookTypes": dict(Counter(card.get("hookType") for card in cards).most_common()),
-        "visualFormats": dict(Counter(card.get("visualFormat") for card in cards).most_common()),
-        "topAccounts": dict(Counter(card.get("account") for card in cards).most_common(20)),
-        "avgQualityScore": round(sum(float(card.get("qualityScore") or 0) for card in cards) / max(1, len(cards)), 2),
+        "captionArchetypes": dict(
+            Counter(card.get("captionArchetype") for card in cards).most_common()
+        ),
+        "hookTypes": dict(
+            Counter(card.get("hookType") for card in cards).most_common()
+        ),
+        "visualFormats": dict(
+            Counter(card.get("visualFormat") for card in cards).most_common()
+        ),
+        "topAccounts": dict(
+            Counter(card.get("account") for card in cards).most_common(20)
+        ),
+        "avgQualityScore": round(
+            sum(float(card.get("qualityScore") or 0) for card in cards)
+            / max(1, len(cards)),
+            2,
+        ),
         "totalPlays": sum(int(card.get("plays") or 0) for card in cards),
     }
 
@@ -618,18 +745,26 @@ def _write_learning_outputs(
     }
     campaign_payload = _campaign_reference_bank(run_id, clusters)
 
-    clusters_json.write_text(json.dumps(clusters_payload, indent=2, ensure_ascii=False) + "\n")
+    clusters_json.write_text(
+        json.dumps(clusters_payload, indent=2, ensure_ascii=False) + "\n"
+    )
     with clusters_jsonl.open("w", encoding="utf-8") as f:
         for cluster in clusters:
             f.write(json.dumps(cluster, ensure_ascii=False, sort_keys=True) + "\n")
     playbook_json.write_text(json.dumps(playbook, indent=2, ensure_ascii=False) + "\n")
     playbook_md.write_text(_playbook_markdown(playbook), encoding="utf-8")
-    prompt_pack_json.write_text(json.dumps(prompt_pack, indent=2, ensure_ascii=False) + "\n")
+    prompt_pack_json.write_text(
+        json.dumps(prompt_pack, indent=2, ensure_ascii=False) + "\n"
+    )
     with prompt_pack_jsonl.open("w", encoding="utf-8") as f:
         for prompt in prompt_pack["prompts"]:
             f.write(json.dumps(prompt, ensure_ascii=False, sort_keys=True) + "\n")
-    campaign_bank.write_text(json.dumps(campaign_payload, indent=2, ensure_ascii=False) + "\n")
-    caption_bank.write_text(json.dumps(caption_formulas, indent=2, ensure_ascii=False) + "\n")
+    campaign_bank.write_text(
+        json.dumps(campaign_payload, indent=2, ensure_ascii=False) + "\n"
+    )
+    caption_bank.write_text(
+        json.dumps(caption_formulas, indent=2, ensure_ascii=False) + "\n"
+    )
     return {
         "clustersJsonPath": str(clusters_json),
         "clustersJsonlPath": str(clusters_jsonl),
@@ -659,11 +794,15 @@ def _prompt_pack(run_id: str, clusters: list[dict[str, Any]]) -> dict[str, objec
                     for example in cluster["topExamples"]
                     if example.get("referenceId")
                 ],
-                "publicUrls": [example["url"] for example in cluster["topExamples"] if example.get("url")],
-        "referenceFiles": cluster.get("referenceFiles") or [],
-        "higgsfieldJson": cluster["higgsfieldJsonTemplate"],
-        "audioRecommendations": cluster.get("audioRecommendations") or {},
-        "captionFormulas": cluster["captionFormulas"],
+                "publicUrls": [
+                    example["url"]
+                    for example in cluster["topExamples"]
+                    if example.get("url")
+                ],
+                "referenceFiles": cluster.get("referenceFiles") or [],
+                "higgsfieldJson": cluster["higgsfieldJsonTemplate"],
+                "audioRecommendations": cluster.get("audioRecommendations") or {},
+                "captionFormulas": cluster["captionFormulas"],
                 "visualRecipeHints": cluster.get("visualRecipeHints") or [],
                 "suggestedVariantRecipes": cluster.get("suggestedVariantRecipes") or [],
                 "suggestedFormats": cluster.get("suggestedFormats") or ["reel"],
@@ -686,13 +825,14 @@ def _caption_bank(clusters: list[dict[str, Any]]) -> dict[str, object]:
     return {
         "schema": "reference_factory.caption_formula_bank.v1",
         "captionArchetypes": {
-            archetype: values[:12]
-            for archetype, values in sorted(formulas.items())
+            archetype: values[:12] for archetype, values in sorted(formulas.items())
         },
     }
 
 
-def _campaign_reference_bank(run_id: str, clusters: list[dict[str, Any]]) -> dict[str, object]:
+def _campaign_reference_bank(
+    run_id: str, clusters: list[dict[str, Any]]
+) -> dict[str, object]:
     return {
         "schema": "reference_factory.campaign_reference_bank.v1",
         "runId": run_id,

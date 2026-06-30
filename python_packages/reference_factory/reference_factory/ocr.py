@@ -10,11 +10,10 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .config import CONTENTFORGE_APPLE_VISION_SCRIPT, DEFAULT_DATA_ROOT
+from .config import CONTENTFORGE_APPLE_VISION_SCRIPT
 from .db import json_dump
 from .identity import stable_id, text_hash
 from .timeutil import now_iso
-
 
 VALID_ENGINES = {"auto", "apple_vision", "tesseract", "heuristic"}
 
@@ -62,7 +61,9 @@ def run_tesseract(frame_path: Path) -> dict[str, Any]:
         tmp_path = Path(tmp)
         enhanced = tmp_path / "enhanced.png"
         threshold = tmp_path / "threshold.png"
-        make_variant(frame_path, enhanced, "scale=iw*2:ih*2,eq=contrast=1.2:brightness=0.03")
+        make_variant(
+            frame_path, enhanced, "scale=iw*2:ih*2,eq=contrast=1.2:brightness=0.03"
+        )
         make_variant(frame_path, threshold, "scale=iw*2:ih*2,format=gray,threshold")
         if enhanced.exists():
             variants.append(("enhanced_2x", enhanced))
@@ -105,7 +106,18 @@ def run_tesseract(frame_path: Path) -> dict[str, Any]:
 
 def make_variant(input_path: Path, output_path: Path, vf: str) -> None:
     subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(input_path), "-vf", vf, str(output_path)],
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(input_path),
+            "-vf",
+            vf,
+            str(output_path),
+        ],
         capture_output=True,
         text=True,
         timeout=15,
@@ -113,7 +125,9 @@ def make_variant(input_path: Path, output_path: Path, vf: str) -> None:
     )
 
 
-def run_apple_vision(frame_path: Path, script_path: Path = CONTENTFORGE_APPLE_VISION_SCRIPT) -> dict[str, Any]:
+def run_apple_vision(
+    frame_path: Path, script_path: Path = CONTENTFORGE_APPLE_VISION_SCRIPT
+) -> dict[str, Any]:
     if not script_path.exists():
         return {
             "available": False,
@@ -166,7 +180,9 @@ def run_apple_vision(frame_path: Path, script_path: Path = CONTENTFORGE_APPLE_VI
     }
 
 
-def run_selected_ocr(frame_path: Path, requested_engine: str = "auto") -> dict[str, Any]:
+def run_selected_ocr(
+    frame_path: Path, requested_engine: str = "auto"
+) -> dict[str, Any]:
     requested_engine = requested_engine.lower()
     if requested_engine not in VALID_ENGINES:
         return {
@@ -185,10 +201,18 @@ def run_selected_ocr(frame_path: Path, requested_engine: str = "auto") -> dict[s
             "fallbackReason": "heuristic mode does not run OCR",
             "boxes": [],
         }
-    order = ["apple_vision", "tesseract"] if requested_engine == "auto" else [requested_engine]
+    order = (
+        ["apple_vision", "tesseract"]
+        if requested_engine == "auto"
+        else [requested_engine]
+    )
     errors: list[str] = []
     for idx, engine in enumerate(order):
-        result = run_apple_vision(frame_path) if engine == "apple_vision" else run_tesseract(frame_path)
+        result = (
+            run_apple_vision(frame_path)
+            if engine == "apple_vision"
+            else run_tesseract(frame_path)
+        )
         if result.get("available") is not False:
             result["requestedEngine"] = requested_engine
             result["fallbackUsed"] = idx > 0
@@ -225,7 +249,9 @@ def dedupe_boxes(boxes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def first_line(cmd: list[str]) -> str | None:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, check=False
+        )
     except Exception:  # noqa: BLE001
         return None
     text = result.stdout or result.stderr
@@ -311,7 +337,9 @@ def run_ocr(
         )
         if text:
             detected += 1
-            upsert_caption_pattern(conn, row["reference_id"], ocr_id, text, boxes, avg_confidence)
+            upsert_caption_pattern(
+                conn, row["reference_id"], ocr_id, text, boxes, avg_confidence
+            )
         if result.get("available") is False:
             errors += 1
         processed += 1
@@ -397,7 +425,10 @@ def ocr_cleanup(conn: Connection, min_confidence: float = 35.0) -> dict[str, obj
         is_junk = (
             len(text) < 2
             or text.lower() in {"be", "bee", "®", ".", "-", "_"}
-            or ((confidence is None or confidence < min_confidence) and observed_count < 2)
+            or (
+                (confidence is None or confidence < min_confidence)
+                and observed_count < 2
+            )
         )
         if is_junk:
             conn.execute(

@@ -5,6 +5,7 @@ The worker is intentionally operator-controlled:
 it can dry-run the planned Kling jobs, or spend at most ``--max-kling``
 jobs when ``--create-kling`` is provided.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -13,19 +14,17 @@ import json
 import math
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageChops
-
 from asset_prompt_contract import AssetPromptSet
-from caption_render import render_caption_png
 from campaign_store import rate_output
+from caption_render import render_caption_png
 from generate_assets import AssetGenerationPlan, create_video_asset
+from PIL import Image, ImageChops
 
 
 def _flattened_pixels(image: Image.Image):
@@ -66,11 +65,21 @@ def _run(cmd: list[str], *, timeout: int = 60 * 20) -> None:
 
 
 def probe_video(path: Path) -> dict[str, Any]:
-    raw = subprocess.check_output([
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,duration",
-        "-of", "json", str(path),
-    ], text=True)
+    raw = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        text=True,
+    )
     streams = json.loads(raw).get("streams", [])
     if not streams:
         raise ValueError(f"no video stream found: {path}")
@@ -90,7 +99,9 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def infer_grid(path: Path, *, columns: int | None = None, rows: int | None = None) -> GridSpec:
+def infer_grid(
+    path: Path, *, columns: int | None = None, rows: int | None = None
+) -> GridSpec:
     with Image.open(path) as im:
         width, height = im.size
     if columns and rows:
@@ -103,8 +114,13 @@ def infer_grid(path: Path, *, columns: int | None = None, rows: int | None = Non
     return GridSpec(path.resolve(), 3, 2)
 
 
-def grid_assets(root: Path, explicit: list[str] | None = None,
-                *, columns: int | None = None, rows: int | None = None) -> list[GridSpec]:
+def grid_assets(
+    root: Path,
+    explicit: list[str] | None = None,
+    *,
+    columns: int | None = None,
+    rows: int | None = None,
+) -> list[GridSpec]:
     base = root / "project_data" / "generated_assets"
     paths: list[Path] = []
     if explicit:
@@ -147,7 +163,9 @@ def prompt_for_grid(root: Path, grid: GridSpec) -> Path:
         ),
         notes="Shared motion prompt for overnight crop-and-review workflow.",
     )
-    path.write_text(json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 
@@ -168,16 +186,26 @@ def prompt_for_panel(root: Path, grid: GridSpec, panel: int) -> Path:
         ),
         notes="Shared panel fanout motion prompt.",
     )
-    path.write_text(json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 
 def animation_path(root: Path, grid: GridSpec) -> Path:
     stem = grid.path.stem.replace("_soul_image", "")
-    return root / "project_data" / "generated_assets" / "animations" / f"{stem}_whole_grid_kling.mp4"
+    return (
+        root
+        / "project_data"
+        / "generated_assets"
+        / "animations"
+        / f"{stem}_whole_grid_kling.mp4"
+    )
 
 
-def create_kling_for_grid(root: Path, grid: GridSpec, *, dry_run: bool) -> dict[str, Any]:
+def create_kling_for_grid(
+    root: Path, grid: GridSpec, *, dry_run: bool
+) -> dict[str, Any]:
     prompt_json = prompt_for_grid(root, grid)
     out = animation_path(root, grid)
     stem = out.stem
@@ -207,7 +235,12 @@ def create_kling_for_grid(root: Path, grid: GridSpec, *, dry_run: bool) -> dict[
             "start_image": str(grid.path),
         }
     result = create_video_asset(plan, wait=True, download=True)
-    downloaded = result.get("lineage", {}).get("generation", {}).get("localPaths", {}).get("video")
+    downloaded = (
+        result.get("lineage", {})
+        .get("generation", {})
+        .get("localPaths", {})
+        .get("video")
+    )
     if downloaded and Path(downloaded).exists() and Path(downloaded) != out:
         shutil.copy2(downloaded, out)
     return result | {"animation_path": str(out)}
@@ -225,7 +258,9 @@ def _even_ceil(value: float, limit: int) -> int:
     return min(limit, value)
 
 
-def detect_visible_content_box(image: Path, *, threshold: int = 18) -> tuple[int, int, int, int]:
+def detect_visible_content_box(
+    image: Path, *, threshold: int = 18
+) -> tuple[int, int, int, int]:
     """Find the real grid area, ignoring black/solid outer padding when present."""
     with Image.open(image) as raw:
         im = raw.convert("RGB")
@@ -258,16 +293,35 @@ def detect_visible_content_box(image: Path, *, threshold: int = 18) -> tuple[int
 def first_frame_path(video: Path, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     frame = out_dir / f"{video.stem}_first_frame.jpg"
-    _run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", "0.250", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(frame),
-    ])
+    _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            "0.250",
+            "-i",
+            str(video),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(frame),
+        ]
+    )
     return frame
 
 
-def panel_crop_boxes(width: int, height: int, grid: GridSpec, *,
-                     content_box: tuple[int, int, int, int] | None = None,
-                     inset: int = 0) -> list[tuple[int, int, int, int]]:
+def panel_crop_boxes(
+    width: int,
+    height: int,
+    grid: GridSpec,
+    *,
+    content_box: tuple[int, int, int, int] | None = None,
+    inset: int = 0,
+) -> list[tuple[int, int, int, int]]:
     left, top, right, bottom = content_box or (0, 0, width, height)
     left = max(0, min(width - 2, left + inset))
     top = max(0, min(height - 2, top + inset))
@@ -286,8 +340,9 @@ def panel_crop_boxes(width: int, height: int, grid: GridSpec, *,
     return boxes
 
 
-def crop_grid_video(video: Path, grid: GridSpec, out_dir: Path, *,
-                    smart: bool = False, inset: int = 2) -> list[Path]:
+def crop_grid_video(
+    video: Path, grid: GridSpec, out_dir: Path, *, smart: bool = False, inset: int = 2
+) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     info = probe_video(video)
     width = info["width"]
@@ -297,16 +352,30 @@ def crop_grid_video(video: Path, grid: GridSpec, out_dir: Path, *,
         with tempfile.TemporaryDirectory(prefix="grid_crop_") as tmp:
             frame = first_frame_path(video, Path(tmp))
             content_box = detect_visible_content_box(frame)
-    boxes = panel_crop_boxes(width, height, grid, content_box=content_box, inset=inset if smart else 0)
+    boxes = panel_crop_boxes(
+        width, height, grid, content_box=content_box, inset=inset if smart else 0
+    )
     outputs: list[Path] = []
     for panel, (x, y, crop_w, crop_h) in enumerate(boxes, start=1):
         out = out_dir / f"{video.stem}_panel_{panel:02d}.mp4"
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(video),
-            "-vf", f"crop={crop_w}:{crop_h}:{x}:{y}",
-            "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart", str(out),
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(video),
+            "-vf",
+            f"crop={crop_w}:{crop_h}:{x}:{y}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(out),
         ]
         _run(cmd)
         outputs.append(out)
@@ -330,8 +399,9 @@ def crop_grid_image(grid: GridSpec, panel: int, out_dir: Path) -> Path:
         return out
 
 
-def create_kling_for_panel(root: Path, grid: GridSpec, panel: int,
-                           *, dry_run: bool) -> dict[str, Any]:
+def create_kling_for_panel(
+    root: Path, grid: GridSpec, panel: int, *, dry_run: bool
+) -> dict[str, Any]:
     panel_image = crop_grid_image(
         grid,
         panel,
@@ -365,7 +435,12 @@ def create_kling_for_panel(root: Path, grid: GridSpec, panel: int,
             "selected_panel": panel,
         }
     result = create_video_asset(plan, wait=True, download=True)
-    downloaded = result.get("lineage", {}).get("generation", {}).get("localPaths", {}).get("video")
+    downloaded = (
+        result.get("lineage", {})
+        .get("generation", {})
+        .get("localPaths", {})
+        .get("video")
+    )
     if downloaded and Path(downloaded).exists() and Path(downloaded) != out:
         shutil.copy2(downloaded, out)
     return result | {"animation_path": str(out), "start_image": str(panel_image)}
@@ -377,7 +452,13 @@ def simple_rating(video: Path) -> dict[str, Any]:
     except Exception as exc:
         return {
             "keep": False,
-            "scores": {"identity": 1, "pose": 1, "taste": 1, "artifacts": 1, "motion": 1},
+            "scores": {
+                "identity": 1,
+                "pose": 1,
+                "taste": 1,
+                "artifacts": 1,
+                "motion": 1,
+            },
             "labels": ["probe_failed"],
             "reason": str(exc),
         }
@@ -390,7 +471,12 @@ def simple_rating(video: Path) -> dict[str, Any]:
         labels.append("too_short")
         scores["motion"] = 2
     keep = min(scores.values()) >= 3
-    return {"keep": keep, "scores": scores, "labels": labels or ["auto_review_pass"], "reason": ""}
+    return {
+        "keep": keep,
+        "scores": scores,
+        "labels": labels or ["auto_review_pass"],
+        "reason": "",
+    }
 
 
 def next_clip_stem(root: Path) -> str:
@@ -405,13 +491,22 @@ def next_clip_stem(root: Path) -> str:
 
 
 def source_lineage_for_animation(root: Path, animation: Path) -> Path | None:
-    lineage = root / "00_source_videos" / f"{animation.stem}.generated_asset_lineage.json"
+    lineage = (
+        root / "00_source_videos" / f"{animation.stem}.generated_asset_lineage.json"
+    )
     return lineage if lineage.exists() else None
 
 
-def write_candidate_lineage(root: Path, *, source_clip: Path, panel_video: Path,
-                            grid: GridSpec, animation: Path, panel_index: int,
-                            rating: dict[str, Any]) -> Path:
+def write_candidate_lineage(
+    root: Path,
+    *,
+    source_clip: Path,
+    panel_video: Path,
+    grid: GridSpec,
+    animation: Path,
+    panel_index: int,
+    rating: dict[str, Any],
+) -> Path:
     source_lineage = source_lineage_for_animation(root, animation)
     payload = {
         "schema": "reel_factory.cropped_grid_candidate_lineage.v1",
@@ -437,24 +532,39 @@ def write_candidate_lineage(root: Path, *, source_clip: Path, panel_video: Path,
     return out
 
 
-def install_candidate(root: Path, panel_video: Path, caption: str, *, index: int,
-                      grid: GridSpec, animation: Path, panel_index: int,
-                      rating: dict[str, Any]) -> dict[str, str]:
+def install_candidate(
+    root: Path,
+    panel_video: Path,
+    caption: str,
+    *,
+    index: int,
+    grid: GridSpec,
+    animation: Path,
+    panel_index: int,
+    rating: dict[str, Any],
+) -> dict[str, str]:
     stem = next_clip_stem(root)
     src = root / "00_source_videos" / f"{stem}.mp4"
     cap = root / "01_captions" / f"{stem}.json"
     src.parent.mkdir(parents=True, exist_ok=True)
     cap.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(panel_video, src)
-    cap.write_text(json.dumps({
-        "hooks": [caption],
-        "recipes": ["v01_original", "v09_caption_bg"],
-        "caption_color": "auto",
-        "source": {
-            "panel_video": str(panel_video.resolve()),
-            "overnight_index": index,
-        },
-    }, indent=2, ensure_ascii=False), encoding="utf-8")
+    cap.write_text(
+        json.dumps(
+            {
+                "hooks": [caption],
+                "recipes": ["v01_original", "v09_caption_bg"],
+                "caption_color": "auto",
+                "source": {
+                    "panel_video": str(panel_video.resolve()),
+                    "overnight_index": index,
+                },
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     lineage = write_candidate_lineage(
         root,
         source_clip=src,
@@ -464,7 +574,12 @@ def install_candidate(root: Path, panel_video: Path, caption: str, *, index: int
         panel_index=panel_index,
         rating=rating,
     )
-    return {"stem": stem, "source": str(src), "caption": str(cap), "lineage": str(lineage)}
+    return {
+        "stem": stem,
+        "source": str(src),
+        "caption": str(cap),
+        "lineage": str(lineage),
+    }
 
 
 def _fit_render_installed(root: Path, stem: str) -> Path:
@@ -487,7 +602,7 @@ def _fit_render_installed(root: Path, stem: str) -> Path:
     caption = str((cap_data.get("hooks") or [""])[0])
     out_dir = root / "02_processed" / stem
     out_dir.mkdir(parents=True, exist_ok=True)
-    cap_png = out_dir / f"_cap_h00_fit_nocrop_light.png"
+    cap_png = out_dir / "_cap_h00_fit_nocrop_light.png"
     render_caption_png(
         caption,
         font_family="Instagram Sans Condensed Bold",
@@ -508,17 +623,42 @@ def _fit_render_installed(root: Path, stem: str) -> Path:
         "[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
         "[1:v]format=rgba[cap];[base][cap]overlay=0:0:format=auto[v]"
     )
-    _run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(src),
-        "-loop", "1", "-i", str(cap_png),
-        "-filter_complex", filt,
-        "-map", "[v]", "-map", "0:a?",
-        "-t", "5.05",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-shortest", str(out),
-    ], timeout=90)
+    _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(src),
+            "-loop",
+            "1",
+            "-i",
+            str(cap_png),
+            "-filter_complex",
+            filt,
+            "-map",
+            "[v]",
+            "-map",
+            "0:a?",
+            "-t",
+            "5.05",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-shortest",
+            str(out),
+        ],
+        timeout=90,
+    )
     return out
 
 
@@ -529,7 +669,9 @@ def render_installed(root: Path, stems: list[str]) -> None:
 
 def run_worker(args: argparse.Namespace) -> dict[str, Any]:
     root = Path(args.root).resolve()
-    specs = grid_assets(root, args.grid, columns=args.columns, rows=args.rows)[:args.max_grids]
+    specs = grid_assets(root, args.grid, columns=args.columns, rows=args.rows)[
+        : args.max_grids
+    ]
     report: dict[str, Any] = {
         "createdAt": int(time.time()),
         "maxKling": args.max_kling,
@@ -563,11 +705,17 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
             continue
         grid_entry["animation"] = str(anim)
         crop_dir = root / "project_data" / "overnight_candidates" / anim.stem
-        panels = crop_grid_video(anim, spec, crop_dir, smart=args.smart_crop, inset=args.crop_inset)
+        panels = crop_grid_video(
+            anim, spec, crop_dir, smart=args.smart_crop, inset=args.crop_inset
+        )
         grid_entry["croppedPanels"] = [str(p) for p in panels]
         for i, panel in enumerate(panels, start=1):
             rating = simple_rating(panel)
-            record = {"panel": str(panel), "sourceGrid": str(spec.path), "rating": rating}
+            record = {
+                "panel": str(panel),
+                "sourceGrid": str(spec.path),
+                "rating": rating,
+            }
             if rating["keep"] and len(report["kept"]) < args.keep_limit:
                 caption = CAPTIONS[(len(report["kept"]) + i - 1) % len(CAPTIONS)]
                 installed = install_candidate(
@@ -601,14 +749,23 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
                 report["rejected"].append(record)
         report["grids"].append(grid_entry)
     if args.render and report["kept"]:
-        stems = [item["installed"]["stem"] for item in report["kept"] if "installed" in item]
+        stems = [
+            item["installed"]["stem"] for item in report["kept"] if "installed" in item
+        ]
         render_installed(root, stems)
         for stem in stems:
             out_dir = root / "02_processed" / stem
             report["rendered"].extend(str(p) for p in sorted(out_dir.glob("*.mp4")))
-    out_path = root / "project_data" / "overnight_candidates" / f"overnight_report_{int(time.time())}.json"
+    out_path = (
+        root
+        / "project_data"
+        / "overnight_candidates"
+        / f"overnight_report_{int(time.time())}.json"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     report["reportPath"] = str(out_path)
     return report
 
@@ -634,14 +791,18 @@ def run_individual_panels(args: argparse.Namespace) -> dict[str, Any]:
         "rejected": [],
         "rendered": [],
     }
-    panel_specs = [parse_panel_spec(root, value) for value in args.individual_panel or []]
+    panel_specs = [
+        parse_panel_spec(root, value) for value in args.individual_panel or []
+    ]
     for grid, panel in panel_specs:
         if report["klingUsed"] >= args.max_kling:
-            report["rejected"].append({
-                "sourceGrid": str(grid.path),
-                "panel": panel,
-                "reason": "skipped_max_kling",
-            })
+            report["rejected"].append(
+                {
+                    "sourceGrid": str(grid.path),
+                    "panel": panel,
+                    "reason": "skipped_max_kling",
+                }
+            )
             continue
         result = create_kling_for_panel(root, grid, panel, dry_run=args.dry_run)
         if args.dry_run:
@@ -650,12 +811,14 @@ def run_individual_panels(args: argparse.Namespace) -> dict[str, Any]:
         report["klingUsed"] += 1
         video = Path(result.get("animation_path", ""))
         if not video.exists():
-            report["rejected"].append({
-                "sourceGrid": str(grid.path),
-                "panel": panel,
-                "reason": "missing_downloaded_video",
-                "result": result,
-            })
+            report["rejected"].append(
+                {
+                    "sourceGrid": str(grid.path),
+                    "panel": panel,
+                    "reason": "missing_downloaded_video",
+                    "result": result,
+                }
+            )
             continue
         rating = simple_rating(video)
         caption = CAPTIONS[len(report["kept"]) % len(CAPTIONS)]
@@ -670,27 +833,40 @@ def run_individual_panels(args: argparse.Namespace) -> dict[str, Any]:
                 panel_index=panel,
                 rating=rating,
             )
-            report["kept"].append({
-                "panel": str(video),
-                "sourceGrid": str(grid.path),
-                "rating": rating,
-                "installed": installed,
-            })
+            report["kept"].append(
+                {
+                    "panel": str(video),
+                    "sourceGrid": str(grid.path),
+                    "rating": rating,
+                    "installed": installed,
+                }
+            )
         else:
-            report["rejected"].append({
-                "panel": str(video),
-                "sourceGrid": str(grid.path),
-                "rating": rating,
-            })
+            report["rejected"].append(
+                {
+                    "panel": str(video),
+                    "sourceGrid": str(grid.path),
+                    "rating": rating,
+                }
+            )
     if args.render and report["kept"]:
-        stems = [item["installed"]["stem"] for item in report["kept"] if "installed" in item]
+        stems = [
+            item["installed"]["stem"] for item in report["kept"] if "installed" in item
+        ]
         render_installed(root, stems)
         for stem in stems:
             out_dir = root / "02_processed" / stem
             report["rendered"].extend(str(p) for p in sorted(out_dir.glob("*.mp4")))
-    out_path = root / "project_data" / "overnight_candidates" / f"individual_panel_report_{int(time.time())}.json"
+    out_path = (
+        root
+        / "project_data"
+        / "overnight_candidates"
+        / f"individual_panel_report_{int(time.time())}.json"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     report["reportPath"] = str(out_path)
     return report
 
@@ -698,29 +874,55 @@ def run_individual_panels(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
-    ap.add_argument("--grid", action="append", help="specific grid image path; can be repeated")
+    ap.add_argument(
+        "--grid", action="append", help="specific grid image path; can be repeated"
+    )
     ap.add_argument("--max-grids", type=int, default=4)
     ap.add_argument("--max-kling", type=int, default=20)
-    ap.add_argument("--create-kling", action="store_true",
-                    help="actually create missing Kling whole-grid animations")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="show planned missing Kling jobs without spending credits")
+    ap.add_argument(
+        "--create-kling",
+        action="store_true",
+        help="actually create missing Kling whole-grid animations",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show planned missing Kling jobs without spending credits",
+    )
     ap.add_argument("--columns", type=int)
     ap.add_argument("--rows", type=int)
     ap.add_argument("--keep-limit", type=int, default=12)
-    ap.add_argument("--render", action="store_true",
-                    help="render kept cropped panels through Reel Factory")
-    ap.add_argument("--smart-crop", action="store_true",
-                    help="detect visible grid bounds before splitting panels")
-    ap.add_argument("--crop-inset", type=int, default=2,
-                    help="pixels to inset each smart panel crop to avoid seams")
-    ap.add_argument("--individual-panel", action="append",
-                    help="fallback mode: animate one high-quality panel crop, format grid.png:panel")
-    ap.add_argument("--allow-individual", action="store_true",
-                    help="explicit override to allow individual-panel Kling fallback spending")
+    ap.add_argument(
+        "--render",
+        action="store_true",
+        help="render kept cropped panels through Reel Factory",
+    )
+    ap.add_argument(
+        "--smart-crop",
+        action="store_true",
+        help="detect visible grid bounds before splitting panels",
+    )
+    ap.add_argument(
+        "--crop-inset",
+        type=int,
+        default=2,
+        help="pixels to inset each smart panel crop to avoid seams",
+    )
+    ap.add_argument(
+        "--individual-panel",
+        action="append",
+        help="fallback mode: animate one high-quality panel crop, format grid.png:panel",
+    )
+    ap.add_argument(
+        "--allow-individual",
+        action="store_true",
+        help="explicit override to allow individual-panel Kling fallback spending",
+    )
     args = ap.parse_args()
     if args.individual_panel and not args.allow_individual:
-        ap.error("--individual-panel is disabled by default; pass --allow-individual to spend individual Kling jobs")
+        ap.error(
+            "--individual-panel is disabled by default; pass --allow-individual to spend individual Kling jobs"
+        )
     report = run_individual_panels(args) if args.individual_panel else run_worker(args)
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0

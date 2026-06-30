@@ -1,4 +1,5 @@
 """Reusable caption banks and creator-weighted caption selection."""
+
 from __future__ import annotations
 
 import argparse
@@ -11,7 +12,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 ACTIVE_BANKS = [
     "shared_girl_next_door",
@@ -116,8 +116,27 @@ def caption_static_metadata(text: str) -> dict[str, Any]:
         length_class = "long"
 
     numbered = bool(re.search(r"(^|\n)\s*\d+[\).]", value))
-    coded = any(token in lower for token in ("without", "replace", "swap", "fill in", "if you f my", "if you e my"))
-    puzzle = any(token in lower for token in ("backwards", "read every", "bottom to top", "third word", "fourth word"))
+    coded = any(
+        token in lower
+        for token in (
+            "without",
+            "replace",
+            "swap",
+            "fill in",
+            "if you f my",
+            "if you e my",
+        )
+    )
+    puzzle = any(
+        token in lower
+        for token in (
+            "backwards",
+            "read every",
+            "bottom to top",
+            "third word",
+            "fourth word",
+        )
+    )
     if numbered:
         format_class = "numbered_list"
     elif coded:
@@ -149,33 +168,132 @@ def classify_caption(text: str, *, history_only: bool = False) -> list[str]:
     def has_any(words: list[str]) -> bool:
         return any(word in value for word in words)
 
-    if has_any(["follow", "dm", "message", "send me", "send this", "account so small", "text me"]):
+    if has_any(
+        [
+            "follow",
+            "dm",
+            "message",
+            "send me",
+            "send this",
+            "account so small",
+            "text me",
+        ]
+    ):
         banks.add("dm_follow_bait")
-    if has_any(["leave a", "drop a", "comment", "like ", "say hi", "heart", "respond", "reply"]):
+    if has_any(
+        ["leave a", "drop a", "comment", "like ", "say hi", "heart", "respond", "reply"]
+    ):
         banks.add("comment_bait")
-    if has_any(["choose", "pick", "options", "option", "which one", "rank", "order", "only pick"]):
+    if has_any(
+        [
+            "choose",
+            "pick",
+            "options",
+            "option",
+            "which one",
+            "rank",
+            "order",
+            "only pick",
+        ]
+    ):
         banks.add("choice_poll")
-    if has_any(["replace", "without", "swap", "fill in", "fill the blank", "if you f my", "if you e my"]):
+    if has_any(
+        [
+            "replace",
+            "without",
+            "swap",
+            "fill in",
+            "fill the blank",
+            "if you f my",
+            "if you e my",
+        ]
+    ):
         banks.add("coded_fill_ins")
-    if has_any(["backwards", "read every", "read this", "bottom to top", "third word", "fourth word"]):
+    if has_any(
+        [
+            "backwards",
+            "read every",
+            "read this",
+            "bottom to top",
+            "third word",
+            "fourth word",
+        ]
+    ):
         banks.add("read_backwards_puzzle")
-    if has_any(["boyfriend", "date", "dating", "crush", "relationship", "good boy", "nerd", "single", "wife", "girlfriend"]):
+    if has_any(
+        [
+            "boyfriend",
+            "date",
+            "dating",
+            "crush",
+            "relationship",
+            "good boy",
+            "nerd",
+            "single",
+            "wife",
+            "girlfriend",
+        ]
+    ):
         banks.add("boyfriend_bait")
-    if has_any([
-        "tits", "boobs", "cleavage", "ass", "butt", "kiss", "lips", "body", "curves",
-        "legs", "thigh", "panties", "bra", "bikini", "strip", "make out", "bed",
-    ]):
+    if has_any(
+        [
+            "tits",
+            "boobs",
+            "cleavage",
+            "ass",
+            "butt",
+            "kiss",
+            "lips",
+            "body",
+            "curves",
+            "legs",
+            "thigh",
+            "panties",
+            "bra",
+            "bikini",
+            "strip",
+            "make out",
+            "bed",
+        ]
+    ):
         banks.add("body_attention")
-    if has_any(["bed", "mirror", "selfie", "room", "wake up", "bathroom", "in my bed", "sleep"]):
+    if has_any(
+        ["bed", "mirror", "selfie", "room", "wake up", "bathroom", "in my bed", "sleep"]
+    ):
         banks.add("bedroom_mirror")
-    if has_any(["gym", "coach", "workout", "leggings", "protein", "fitness", "squat", "gymgirl"]):
+    if has_any(
+        [
+            "gym",
+            "coach",
+            "workout",
+            "leggings",
+            "protein",
+            "fitness",
+            "squat",
+            "gymgirl",
+        ]
+    ):
         banks.add("gym_body")
     if has_any(["goth", "dark", "black lipstick", "alt ", "emo", "depressed goth"]):
         banks.add("goth_dark_alt")
 
-    default_fit = (
-        has_any(["girl", "single", "date", "crush", "selfie", "mirror", "bed", "room", "type", "pretty"])
-        or bool(banks.intersection({"dm_follow_bait", "comment_bait", "boyfriend_bait", "bedroom_mirror"}))
+    default_fit = has_any(
+        [
+            "girl",
+            "single",
+            "date",
+            "crush",
+            "selfie",
+            "mirror",
+            "bed",
+            "room",
+            "type",
+            "pretty",
+        ]
+    ) or bool(
+        banks.intersection(
+            {"dm_follow_bait", "comment_bait", "boyfriend_bait", "bedroom_mirror"}
+        )
     )
     if default_fit and not banks.intersection({"goth_dark_alt"}):
         banks.add("shared_girl_next_door")
@@ -194,7 +312,7 @@ class CaptionBankStore:
     source_hash: str
 
     @classmethod
-    def build(cls, root: Path) -> "CaptionBankStore":
+    def build(cls, root: Path) -> CaptionBankStore:
         root = Path(root).resolve()
         by_hash: dict[str, dict[str, Any]] = {}
         sidecar_hashes: set[str] = set()
@@ -234,7 +352,9 @@ class CaptionBankStore:
             _merge_item(by_hash, item)
 
         banks = {bank: [] for bank in ACTIVE_BANKS}
-        for item in sorted(by_hash.values(), key=lambda row: (row["source_type"], row["text"])):
+        for item in sorted(
+            by_hash.values(), key=lambda row: (row["source_type"], row["text"])
+        ):
             for bank in item["banks"]:
                 banks.setdefault(bank, []).append(item)
         banks["winner_bank"] = []
@@ -249,19 +369,26 @@ class CaptionBankStore:
         )
 
     @classmethod
-    def from_root(cls, root: Path) -> "CaptionBankStore":
+    def from_root(cls, root: Path) -> CaptionBankStore:
         root = Path(root).resolve()
         base = root / "caption_banks"
         banks_payload = json.loads((base / "banks.json").read_text(encoding="utf-8"))
         mixes_payload = json.loads((base / "mixes.json").read_text(encoding="utf-8"))
         perf_path = base / "performance.json"
-        performance = json.loads(perf_path.read_text(encoding="utf-8")) if perf_path.exists() else empty_performance_payload()
+        performance = (
+            json.loads(perf_path.read_text(encoding="utf-8"))
+            if perf_path.exists()
+            else empty_performance_payload()
+        )
         return cls(
             banks=_hydrate_bank_metadata(banks_payload.get("banks") or {}),
             mixes=mixes_payload.get("mixes") or default_mixes(),
             performance=performance,
             version=banks_payload.get("version", "caption_banks_v1"),
-            source_hash=banks_payload.get("source_hash") or _source_hash(banks_payload.get("banks") or {}, mixes_payload.get("mixes") or {}),
+            source_hash=banks_payload.get("source_hash")
+            or _source_hash(
+                banks_payload.get("banks") or {}, mixes_payload.get("mixes") or {}
+            ),
         )
 
     def write(self, root: Path) -> None:
@@ -283,8 +410,12 @@ class CaptionBankStore:
             "source_hash": source_hash,
             "mixes": self.mixes,
         }
-        (base / "banks.json").write_text(json.dumps(banks_payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        (base / "mixes.json").write_text(json.dumps(mixes_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        (base / "banks.json").write_text(
+            json.dumps(banks_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        (base / "mixes.json").write_text(
+            json.dumps(mixes_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         if not (base / "performance.json").exists():
             (base / "performance.json").write_text(
                 json.dumps(empty_performance_payload(), indent=2, ensure_ascii=False),
@@ -309,19 +440,31 @@ class CaptionBankStore:
     def bank_items(self, bank: str) -> list[dict[str, Any]]:
         return list(self.banks.get(bank, []))
 
-    def resolve_mix(self, creator: str, *, limit: int | None = None, seed: int = 42) -> list[dict[str, Any]]:
+    def resolve_mix(
+        self, creator: str, *, limit: int | None = None, seed: int = 42
+    ) -> list[dict[str, Any]]:
         mix = self.mixes.get(creator) or self.mixes.get(creator.capitalize())
         if not mix:
             raise ValueError(f"unknown caption mix: {creator}")
         return self._weighted_select(mix, limit=limit, seed=seed)
 
-    def resolve_banks(self, banks: list[str], *, limit: int | None = None, seed: int = 42) -> list[dict[str, Any]]:
+    def resolve_banks(
+        self, banks: list[str], *, limit: int | None = None, seed: int = 42
+    ) -> list[dict[str, Any]]:
         unknown = [bank for bank in banks if bank not in ACTIVE_BANKS]
         if unknown:
             raise ValueError(f"unknown caption bank(s): {', '.join(unknown)}")
-        return self._weighted_select({bank: 1 for bank in banks}, limit=limit, seed=seed)
+        return self._weighted_select(
+            {bank: 1 for bank in banks}, limit=limit, seed=seed
+        )
 
-    def lineage_for(self, item: dict[str, Any], *, selected_mix: str | None, selected_banks: list[str]) -> dict[str, Any]:
+    def lineage_for(
+        self,
+        item: dict[str, Any],
+        *,
+        selected_mix: str | None,
+        selected_banks: list[str],
+    ) -> dict[str, Any]:
         h = item["caption_hash"]
         return {
             "schema": "reel_factory.caption_lineage.v1",
@@ -331,7 +474,8 @@ class CaptionBankStore:
             "selectedBanks": selected_banks,
             "selectedBankWeight": (
                 self.mixes.get(selected_mix, {}).get(selected_banks[0])
-                if selected_mix and selected_banks else None
+                if selected_mix and selected_banks
+                else None
             ),
             "selectedMix": selected_mix,
             "sourceFile": item.get("source_file"),
@@ -349,7 +493,9 @@ class CaptionBankStore:
             "outcomeWeight": item.get("outcome_weight"),
         }
 
-    def _weighted_select(self, weights: dict[str, int], *, limit: int | None, seed: int) -> list[dict[str, Any]]:
+    def _weighted_select(
+        self, weights: dict[str, int], *, limit: int | None, seed: int
+    ) -> list[dict[str, Any]]:
         usable_weights = {
             bank: int(weight)
             for bank, weight in weights.items()
@@ -373,11 +519,13 @@ class CaptionBankStore:
         seen: set[str] = set()
         bank_names = list(usable_weights)
         bank_weights = [usable_weights[bank] for bank in bank_names]
-        max_unique = len({
-            item["caption_hash"]
-            for bank in bank_names
-            for item in self.banks.get(bank, [])
-        })
+        max_unique = len(
+            {
+                item["caption_hash"]
+                for bank in bank_names
+                for item in self.banks.get(bank, [])
+            }
+        )
         target = min(limit, max_unique)
         attempts = 0
         while len(selected) < target and attempts < target * 100:
@@ -404,8 +552,14 @@ class CaptionBankStore:
         return selected
 
     def _approved_caption_weights(self) -> dict[str, float]:
-        approved = self.performance.get("approvedWeights") if isinstance(self.performance, dict) else {}
-        caption_hashes = approved.get("captionHashes") if isinstance(approved, dict) else {}
+        approved = (
+            self.performance.get("approvedWeights")
+            if isinstance(self.performance, dict)
+            else {}
+        )
+        caption_hashes = (
+            approved.get("captionHashes") if isinstance(approved, dict) else {}
+        )
         if not isinstance(caption_hashes, dict):
             return {}
         out: dict[str, float] = {}
@@ -421,12 +575,18 @@ class CaptionBankStore:
         approved_weights = self._approved_caption_weights()
         if not approved_weights:
             return rng.choice(items)
-        weights = [approved_weights.get(str(item.get("caption_hash")), 1.0) for item in items]
+        weights = [
+            approved_weights.get(str(item.get("caption_hash")), 1.0) for item in items
+        ]
         item = rng.choices(items, weights=weights, k=1)[0]
         weight = approved_weights.get(str(item.get("caption_hash")))
         if weight is None:
             return item
-        return {**item, "caption_weight_source": "approved_outcome_weights", "outcome_weight": weight}
+        return {
+            **item,
+            "caption_weight_source": "approved_outcome_weights",
+            "outcome_weight": weight,
+        }
 
 
 def load_or_build_caption_bank_store(root: Path) -> CaptionBankStore:
@@ -437,8 +597,15 @@ def load_or_build_caption_bank_store(root: Path) -> CaptionBankStore:
     return store
 
 
-def _caption_item(*, text: str, banks: list[str], source_type: str, source_file: str,
-                  source_clip: str | None, source_index: int | None) -> dict[str, Any]:
+def _caption_item(
+    *,
+    text: str,
+    banks: list[str],
+    source_type: str,
+    source_file: str,
+    source_clip: str | None,
+    source_index: int | None,
+) -> dict[str, Any]:
     h = caption_hash(text)
     return {
         "caption_hash": h,
@@ -452,7 +619,9 @@ def _caption_item(*, text: str, banks: list[str], source_type: str, source_file:
     }
 
 
-def _hydrate_bank_metadata(banks: dict[str, list[dict[str, Any]]]) -> dict[str, list[dict[str, Any]]]:
+def _hydrate_bank_metadata(
+    banks: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
     hydrated: dict[str, list[dict[str, Any]]] = {}
     for bank, items in banks.items():
         hydrated[bank] = []
@@ -460,7 +629,9 @@ def _hydrate_bank_metadata(banks: dict[str, list[dict[str, Any]]]) -> dict[str, 
             if "length_class" in item and "format_class" in item:
                 hydrated[bank].append(item)
                 continue
-            hydrated[bank].append({**item, **caption_static_metadata(str(item.get("text") or ""))})
+            hydrated[bank].append(
+                {**item, **caption_static_metadata(str(item.get("text") or ""))}
+            )
     for bank in ACTIVE_BANKS:
         hydrated.setdefault(bank, [])
     return hydrated
@@ -472,14 +643,19 @@ def _merge_item(by_hash: dict[str, dict[str, Any]], item: dict[str, Any]) -> Non
     if not existing:
         by_hash[h] = item
         return
-    existing["banks"] = sorted(set(existing.get("banks", [])) | set(item.get("banks", [])), key=ACTIVE_BANKS.index)
+    existing["banks"] = sorted(
+        set(existing.get("banks", [])) | set(item.get("banks", [])),
+        key=ACTIVE_BANKS.index,
+    )
     sources = existing.setdefault("additional_sources", [])
-    sources.append({
-        "source_type": item.get("source_type"),
-        "source_file": item.get("source_file"),
-        "source_clip": item.get("source_clip"),
-        "source_index": item.get("source_index"),
-    })
+    sources.append(
+        {
+            "source_type": item.get("source_type"),
+            "source_file": item.get("source_file"),
+            "source_clip": item.get("source_clip"),
+            "source_index": item.get("source_index"),
+        }
+    )
 
 
 def _history_captions(root: Path) -> list[tuple[str, str]]:
@@ -488,7 +664,9 @@ def _history_captions(root: Path) -> list[tuple[str, str]]:
     if db_path.exists():
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            for (text,) in conn.execute("SELECT DISTINCT caption_text FROM variations WHERE caption_text != ''"):
+            for (text,) in conn.execute(
+                "SELECT DISTINCT caption_text FROM variations WHERE caption_text != ''"
+            ):
                 clean = str(text).strip()
                 if clean:
                     rows[caption_hash(clean)] = (clean, "manifest.sqlite")
@@ -511,7 +689,9 @@ def _history_captions(root: Path) -> list[tuple[str, str]]:
 
 def _source_hash(banks: dict[str, list[dict[str, Any]]], mixes: dict[str, Any]) -> str:
     payload = {"banks": banks, "mixes": mixes}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def _readme_text() -> str:
@@ -537,12 +717,18 @@ def main() -> None:
     store = CaptionBankStore.build(root)
     if args.write:
         store.write(root)
-    print(json.dumps({
-        "schema": "reel_factory.caption_bank_summary.v1",
-        "banks": {bank: len(items) for bank, items in store.banks.items()},
-        "mixes": store.mixes,
-        "source_hash": store.source_hash,
-    }, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "schema": "reel_factory.caption_bank_summary.v1",
+                "banks": {bank: len(items) for bank, items in store.banks.items()},
+                "mixes": store.mixes,
+                "source_hash": store.source_hash,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

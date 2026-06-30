@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import json
 import random
 import subprocess
 from pathlib import Path
@@ -123,7 +122,9 @@ def generate_contact_sheet(
     }
 
 
-def ensure_thumbnails(conn: Connection, refs: list[dict[str, object]], data_root: Path) -> None:
+def ensure_thumbnails(
+    conn: Connection, refs: list[dict[str, object]], data_root: Path
+) -> None:
     timestamp = now_iso()
     for row in refs:
         thumb = row.get("thumbnail_path")
@@ -198,7 +199,7 @@ def write_html(path: Path, refs: list[dict[str, object]], mode: str) -> None:
 </head>
 <body>
   <h1>Reference Factory Contact Sheet - {html.escape(mode)} ({len(refs)})</h1>
-  <section class="grid">{''.join(cards)}</section>
+  <section class="grid">{"".join(cards)}</section>
 </body>
 </html>
 """,
@@ -207,7 +208,11 @@ def write_html(path: Path, refs: list[dict[str, object]], mode: str) -> None:
 
 
 def write_montage(path: Path, refs: list[dict[str, object]]) -> None:
-    thumbs = [str(row.get("thumbnail_path")) for row in refs if row.get("thumbnail_path") and Path(str(row.get("thumbnail_path"))).exists()]
+    thumbs = [
+        str(row.get("thumbnail_path"))
+        for row in refs
+        if row.get("thumbnail_path") and Path(str(row.get("thumbnail_path"))).exists()
+    ]
     if not thumbs:
         path.write_text("No thumbnails available yet.\n", encoding="utf-8")
         return

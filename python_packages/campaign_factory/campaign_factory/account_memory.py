@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 
 class AccountMemoryRepository:
@@ -46,14 +47,20 @@ class AccountMemoryRepository:
         snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
         by_account: dict[str, list[dict[str, Any]]] = {}
         for snapshot in snapshots:
-            account_id = snapshot.get("instagramAccountId") or snapshot.get("accountId") or "unassigned"
+            account_id = (
+                snapshot.get("instagramAccountId")
+                or snapshot.get("accountId")
+                or "unassigned"
+            )
             by_account.setdefault(str(account_id), []).append(snapshot)
         accounts = sorted(by_account)
         account_baselines = self._account_reward_baselines(snapshots)
         now = self._utc_now()
         for account_id in accounts:
             account_snapshots = by_account[account_id]
-            aggregate = self._aggregate_performance(account_snapshots, account_baselines=account_baselines)
+            aggregate = self._aggregate_performance(
+                account_snapshots, account_baselines=account_baselines
+            )
             performance_score = self._performance_quality_score(aggregate)
             pattern_stats = self.account_pattern_stats_from_snapshots(
                 campaign["id"],
@@ -70,10 +77,16 @@ class AccountMemoryRepository:
                 account_baselines=account_baselines,
             )
             fatigue = self.account_fatigue_from_pattern_stats(pattern_stats)
-            outcomes = self.account_recommendation_outcomes(campaign["id"], account_id, now)
-            confidence = self.account_memory_confidence(len(account_snapshots), outcomes)
+            outcomes = self.account_recommendation_outcomes(
+                campaign["id"], account_id, now
+            )
+            confidence = self.account_memory_confidence(
+                len(account_snapshots), outcomes
+            )
             memory_key = f"{campaign['id']}:{account_id}"
-            memory_id = f"acctmem_{hashlib.sha256(memory_key.encode('utf-8')).hexdigest()[:12]}"
+            memory_id = (
+                f"acctmem_{hashlib.sha256(memory_key.encode('utf-8')).hexdigest()[:12]}"
+            )
             self.conn.execute(
                 """
                 INSERT INTO account_memory (
@@ -99,10 +112,26 @@ class AccountMemoryRepository:
                     len(account_snapshots),
                     confidence,
                     performance_score,
-                    json.dumps(self._sanitize_for_storage(pattern_stats[:20]), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(posting_windows[:20]), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(fatigue), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(outcomes), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(pattern_stats[:20]),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(posting_windows[:20]),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(fatigue),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(outcomes),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     now,
                 ),
             )
@@ -110,10 +139,20 @@ class AccountMemoryRepository:
                 "account_memory",
                 local_table="account_memory",
                 local_id=memory_id,
-                payload={"campaign": campaign["slug"], "accountId": account_id, "sampleSize": len(account_snapshots), "confidence": confidence},
+                payload={
+                    "campaign": campaign["slug"],
+                    "accountId": account_id,
+                    "sampleSize": len(account_snapshots),
+                    "confidence": confidence,
+                },
             )
             self._ensure_graph_edge(
-                self._graph_id_for("campaigns", campaign["id"], entity_type="campaign", payload={"slug": campaign["slug"]}),
+                self._graph_id_for(
+                    "campaigns",
+                    campaign["id"],
+                    entity_type="campaign",
+                    payload={"slug": campaign["slug"]},
+                ),
                 memory_graph_id,
                 "campaign_to_account_memory",
                 evidence={"source": "rebuild_account_memory"},
@@ -125,13 +164,18 @@ class AccountMemoryRepository:
             "rebuiltAt": now,
             "accountCount": len(accounts),
             "snapshotCount": len(snapshots),
-            "accounts": [self.account_memory_payload(dict(row)) for row in self.conn.execute(
-                "SELECT * FROM account_memory WHERE campaign_id = ? ORDER BY account_id",
-                (campaign["id"],),
-            ).fetchall()],
+            "accounts": [
+                self.account_memory_payload(dict(row))
+                for row in self.conn.execute(
+                    "SELECT * FROM account_memory WHERE campaign_id = ? ORDER BY account_id",
+                    (campaign["id"],),
+                ).fetchall()
+            ],
         }
 
-    def account_memory(self, campaign_slug: str, account: str | None = None) -> dict[str, Any]:
+    def account_memory(
+        self, campaign_slug: str, account: str | None = None
+    ) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
         if account:
             rows = self.conn.execute(
@@ -166,12 +210,16 @@ class AccountMemoryRepository:
             "postingWindows": self._json_load(row["posting_windows_json"], []),
             "fatigue": self._json_load(row["fatigue_json"], {}),
             "audienceNotes": self._json_load(row["audience_notes_json"], {}),
-            "recommendationOutcomes": self._json_load(row["recommendation_outcomes_json"], {}),
+            "recommendationOutcomes": self._json_load(
+                row["recommendation_outcomes_json"], {}
+            ),
             "updatedAt": row["updated_at"],
             "graphId": self._graph_id_for("account_memory", row["id"]),
         }
 
-    def account_memory_for(self, campaign_id: str, account_id: str | None) -> dict[str, Any] | None:
+    def account_memory_for(
+        self, campaign_id: str, account_id: str | None
+    ) -> dict[str, Any] | None:
         if not account_id:
             return None
         row = self.conn.execute(
@@ -194,20 +242,49 @@ class AccountMemoryRepository:
             dimensions = snapshot.get("dimensions") or {}
             candidates: list[tuple[str, str, str | None]] = []
             if snapshot.get("recipe"):
-                candidates.append(("recipe", str(snapshot["recipe"]), str(snapshot["recipe"])))
-            for key in ("hook", "audio", "referenceFormat", "promptPattern", "patternCard", "captionFormula", "modelAccount", "variationPreset"):
+                candidates.append(
+                    ("recipe", str(snapshot["recipe"]), str(snapshot["recipe"]))
+                )
+            for key in (
+                "hook",
+                "audio",
+                "referenceFormat",
+                "promptPattern",
+                "patternCard",
+                "captionFormula",
+                "modelAccount",
+                "variationPreset",
+            ):
                 value = dimensions.get(key)
                 if isinstance(value, dict) and value.get("key"):
-                    candidates.append((key, str(value["key"]), str(value.get("label") or value["key"])))
+                    candidates.append(
+                        (
+                            key,
+                            str(value["key"]),
+                            str(value.get("label") or value["key"]),
+                        )
+                    )
             for pattern_type, pattern_key, label in candidates:
-                bucket = buckets.setdefault((pattern_type, pattern_key), {"patternType": pattern_type, "patternKey": pattern_key, "label": label, "snapshots": []})
+                bucket = buckets.setdefault(
+                    (pattern_type, pattern_key),
+                    {
+                        "patternType": pattern_type,
+                        "patternKey": pattern_key,
+                        "label": label,
+                        "snapshots": [],
+                    },
+                )
                 bucket["snapshots"].append(snapshot)
         stats = []
         for (pattern_type, pattern_key), bucket in buckets.items():
-            aggregate = self._aggregate_performance(bucket["snapshots"], account_baselines=account_baselines)
+            aggregate = self._aggregate_performance(
+                bucket["snapshots"], account_baselines=account_baselines
+            )
             sample_size = int(aggregate.get("count") or 0)
             performance_score = self._performance_quality_score(aggregate)
-            fatigue_score = min(100, round((sample_size / max(1, len(snapshots))) * 100))
+            fatigue_score = min(
+                100, round((sample_size / max(1, len(snapshots))) * 100)
+            )
             stat = {
                 "patternType": pattern_type,
                 "patternKey": pattern_key,
@@ -218,7 +295,7 @@ class AccountMemoryRepository:
                 "performance": aggregate,
             }
             stats.append(stat)
-            stat_id = f"acctpat_{hashlib.sha256(f'{campaign_id}:{account_id}:{pattern_type}:{pattern_key}'.encode('utf-8')).hexdigest()[:12]}"
+            stat_id = f"acctpat_{hashlib.sha256(f'{campaign_id}:{account_id}:{pattern_type}:{pattern_key}'.encode()).hexdigest()[:12]}"
             self.conn.execute(
                 """
                 INSERT INTO account_pattern_stats (
@@ -244,11 +321,21 @@ class AccountMemoryRepository:
                     sample_size,
                     performance_score,
                     fatigue_score,
-                    json.dumps(self._sanitize_for_storage(stat), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(stat),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     updated_at,
                 ),
             )
-        stats.sort(key=lambda item: (item.get("performanceScore") or 0, item.get("sampleSize") or 0), reverse=True)
+        stats.sort(
+            key=lambda item: (
+                item.get("performanceScore") or 0,
+                item.get("sampleSize") or 0,
+            ),
+            reverse=True,
+        )
         return stats
 
     def account_posting_windows_from_snapshots(
@@ -272,11 +359,19 @@ class AccountMemoryRepository:
             buckets.setdefault((dt.weekday(), dt.hour), []).append(snapshot)
         windows = []
         for (weekday, hour), rows in buckets.items():
-            aggregate = self._aggregate_performance(rows, account_baselines=account_baselines)
+            aggregate = self._aggregate_performance(
+                rows, account_baselines=account_baselines
+            )
             score = self._performance_quality_score(aggregate)
-            payload = {"weekday": weekday, "hour": hour, "sampleSize": len(rows), "performanceScore": score, "performance": aggregate}
+            payload = {
+                "weekday": weekday,
+                "hour": hour,
+                "sampleSize": len(rows),
+                "performanceScore": score,
+                "performance": aggregate,
+            }
             windows.append(payload)
-            window_id = f"acctwin_{hashlib.sha256(f'{campaign_id}:{account_id}:{weekday}:{hour}'.encode('utf-8')).hexdigest()[:12]}"
+            window_id = f"acctwin_{hashlib.sha256(f'{campaign_id}:{account_id}:{weekday}:{hour}'.encode()).hexdigest()[:12]}"
             self.conn.execute(
                 """
                 INSERT INTO account_posting_windows (
@@ -297,16 +392,35 @@ class AccountMemoryRepository:
                     hour,
                     len(rows),
                     score,
-                    json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(payload),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     updated_at,
                 ),
             )
-        windows.sort(key=lambda item: (item.get("performanceScore") or 0, item.get("sampleSize") or 0), reverse=True)
+        windows.sort(
+            key=lambda item: (
+                item.get("performanceScore") or 0,
+                item.get("sampleSize") or 0,
+            ),
+            reverse=True,
+        )
         return windows
 
-    def account_fatigue_from_pattern_stats(self, pattern_stats: list[dict[str, Any]]) -> dict[str, Any]:
-        overused = [item for item in pattern_stats if int(item.get("sampleSize") or 0) >= 2 and int(item.get("fatigueScore") or 0) >= 40]
-        max_score = max([int(item.get("fatigueScore") or 0) for item in overused], default=0)
+    def account_fatigue_from_pattern_stats(
+        self, pattern_stats: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        overused = [
+            item
+            for item in pattern_stats
+            if int(item.get("sampleSize") or 0) >= 2
+            and int(item.get("fatigueScore") or 0) >= 40
+        ]
+        max_score = max(
+            [int(item.get("fatigueScore") or 0) for item in overused], default=0
+        )
         if max_score >= 60:
             level = "high"
         elif max_score >= 40:
@@ -316,10 +430,14 @@ class AccountMemoryRepository:
         return {
             "level": level,
             "score": max_score,
-            "overusedPatterns": sorted(overused, key=lambda item: item.get("fatigueScore") or 0, reverse=True)[:10],
+            "overusedPatterns": sorted(
+                overused, key=lambda item: item.get("fatigueScore") or 0, reverse=True
+            )[:10],
         }
 
-    def account_recommendation_outcomes(self, campaign_id: str, account_id: str, updated_at: str) -> dict[str, Any]:
+    def account_recommendation_outcomes(
+        self, campaign_id: str, account_id: str, updated_at: str
+    ) -> dict[str, Any]:
         rows = self.conn.execute(
             """
             SELECT ri.*
@@ -340,7 +458,10 @@ class AccountMemoryRepository:
             totals[status] = totals.get(status, 0) + 1
             outcome = self._json_load(item.get("outcome_json"), {})
             lift = None
-            if outcome.get("outcomeScore") is not None and outcome.get("baselineScore") is not None:
+            if (
+                outcome.get("outcomeScore") is not None
+                and outcome.get("baselineScore") is not None
+            ):
                 lift = int(outcome["outcomeScore"]) - int(outcome["baselineScore"])
             outcome_key = f"{campaign_id}:{account_id}:{item['id']}"
             outcome_id = f"acctout_{hashlib.sha256(outcome_key.encode('utf-8')).hexdigest()[:12]}"
@@ -375,16 +496,31 @@ class AccountMemoryRepository:
                     outcome.get("outcomeScore"),
                     outcome.get("baselineScore"),
                     lift,
-                    json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(payload),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     updated_at,
                 ),
             )
             latest.append(payload)
         measured_total = sum(totals.values())
-        accuracy = (totals["proved"] / (totals["proved"] + totals["disproved"])) if (totals["proved"] + totals["disproved"]) else None
-        return {"counts": totals, "measuredTotal": measured_total, "proofAccuracy": accuracy, "latest": latest[:10]}
+        accuracy = (
+            (totals["proved"] / (totals["proved"] + totals["disproved"]))
+            if (totals["proved"] + totals["disproved"])
+            else None
+        )
+        return {
+            "counts": totals,
+            "measuredTotal": measured_total,
+            "proofAccuracy": accuracy,
+            "latest": latest[:10],
+        }
 
-    def account_memory_confidence(self, sample_size: int, outcomes: dict[str, Any]) -> str:
+    def account_memory_confidence(
+        self, sample_size: int, outcomes: dict[str, Any]
+    ) -> str:
         measured = int(outcomes.get("measuredTotal") or 0)
         if sample_size >= 20 and measured >= 5:
             return "high"

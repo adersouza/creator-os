@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Mux local audio-library tracks onto rendered silent outputs."""
+
 from __future__ import annotations
 
 import argparse
@@ -11,17 +12,27 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
 AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac"}
 
 
 def probe_media(path: Path) -> dict[str, Any]:
-    result = subprocess.run([
-        FFPROBE, "-v", "error", "-print_format", "json",
-        "-show_format", "-show_streams", str(path),
-    ], capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip())
     return json.loads(result.stdout)
@@ -77,18 +88,31 @@ def discover_audio(root: Path, *, tag: str | None = None) -> list[Path]:
     return out
 
 
-def select_audio(root: Path, *, tag: str | None = None,
-                 seed: int = 42, target_duration: float | None = None) -> Path:
+def select_audio(
+    root: Path,
+    *,
+    tag: str | None = None,
+    seed: int = 42,
+    target_duration: float | None = None,
+) -> Path:
     tracks = discover_audio(root, tag=tag)
     if not tracks:
-        raise FileNotFoundError(f"no audio tracks found in 03_audio_library for tag={tag!r}")
+        raise FileNotFoundError(
+            f"no audio tracks found in 03_audio_library for tag={tag!r}"
+        )
     rng = random.Random(f"{seed}|{tag}|{round(target_duration or 0, 1)}")
     return rng.choice(tracks)
 
 
-def mux_audio(video: Path, audio: Path, *, out: Path | None = None,
-              audio_volume: float = 0.82, fade_seconds: float = 0.15,
-              overwrite: bool = False) -> Path:
+def mux_audio(
+    video: Path,
+    audio: Path,
+    *,
+    out: Path | None = None,
+    audio_volume: float = 0.82,
+    fade_seconds: float = 0.15,
+    overwrite: bool = False,
+) -> Path:
     video = Path(video)
     audio = Path(audio)
     out = out or output_path_for(video, audio)
@@ -103,15 +127,31 @@ def mux_audio(video: Path, audio: Path, *, out: Path | None = None,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        FFMPEG, "-hide_banner", "-y", "-nostdin",
-        "-i", str(video),
-        "-stream_loop", "-1", "-i", str(audio),
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "160k",
-        "-af", af,
+        FFMPEG,
+        "-hide_banner",
+        "-y",
+        "-nostdin",
+        "-i",
+        str(video),
+        "-stream_loop",
+        "-1",
+        "-i",
+        str(audio),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-af",
+        af,
         "-shortest",
-        "-movflags", "+faststart",
+        "-movflags",
+        "+faststart",
         str(out),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -120,12 +160,21 @@ def mux_audio(video: Path, audio: Path, *, out: Path | None = None,
     return out
 
 
-def mux_root(root: Path, *, clip: str | None = None, audio_tag: str | None = None,
-             seed: int = 42, audio_volume: float = 0.82,
-             fade_seconds: float = 0.15, overwrite: bool = False) -> dict[str, Any]:
+def mux_root(
+    root: Path,
+    *,
+    clip: str | None = None,
+    audio_tag: str | None = None,
+    seed: int = 42,
+    audio_volume: float = 0.82,
+    fade_seconds: float = 0.15,
+    overwrite: bool = False,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     proc = root / "02_processed"
-    videos = sorted((proc / clip).glob("*.mp4")) if clip else sorted(proc.glob("*/*.mp4"))
+    videos = (
+        sorted((proc / clip).glob("*.mp4")) if clip else sorted(proc.glob("*/*.mp4"))
+    )
     videos = [v for v in videos if "_audio_" not in v.stem]
     created: list[str] = []
     skipped: list[str] = []
@@ -135,16 +184,28 @@ def mux_root(root: Path, *, clip: str | None = None, audio_tag: str | None = Non
             skipped.append(str(video))
             continue
         try:
-            track = select_audio(root, tag=audio_tag, seed=seed, target_duration=duration_seconds(video))
-            created.append(str(mux_audio(
-                video, track,
-                audio_volume=audio_volume,
-                fade_seconds=fade_seconds,
-                overwrite=overwrite,
-            )))
+            track = select_audio(
+                root, tag=audio_tag, seed=seed, target_duration=duration_seconds(video)
+            )
+            created.append(
+                str(
+                    mux_audio(
+                        video,
+                        track,
+                        audio_volume=audio_volume,
+                        fade_seconds=fade_seconds,
+                        overwrite=overwrite,
+                    )
+                )
+            )
         except Exception as e:
             failed[str(video)] = str(e)
-    return {"created": created, "skipped": skipped, "failed": failed, "count": len(created)}
+    return {
+        "created": created,
+        "skipped": skipped,
+        "failed": failed,
+        "count": len(created),
+    }
 
 
 def main() -> int:
@@ -157,15 +218,21 @@ def main() -> int:
     ap.add_argument("--fade-seconds", type=float, default=0.15)
     ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(mux_root(
-        Path(args.root),
-        clip=args.clip,
-        audio_tag=args.audio_tag,
-        seed=args.seed,
-        audio_volume=args.audio_volume,
-        fade_seconds=args.fade_seconds,
-        overwrite=args.overwrite,
-    ), indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            mux_root(
+                Path(args.root),
+                clip=args.clip,
+                audio_tag=args.audio_tag,
+                seed=args.seed,
+                audio_volume=args.audio_volume,
+                fade_seconds=args.fade_seconds,
+                overwrite=args.overwrite,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

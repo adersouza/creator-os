@@ -3,25 +3,38 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
+import struct
 import subprocess
 import sys
 import threading
-import struct
-import shutil
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-
-import pytest
-from fastapi.testclient import TestClient
 
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
 import campaign_factory.core as core_module
+import pytest
+from campaign_factory.adapters import contentforge as contentforge_adapter
+from campaign_factory.adapters import threadsdash as threadsdash_adapter
+from campaign_factory.adapters.contentforge import audit_campaign
+from campaign_factory.adapters.threadsdash import (
+    build_draft_payloads,
+    clear_preview_schedule,
+    evaluate_export_readiness,
+    export_threadsdash,
+    preflight_supabase,
+    safe_live_smoke_export,
+    summarize_threadsdash_usage,
+    sync_performance_snapshots,
+    sync_threadsdash_account_assignments,
+    verify_threadsdash_export,
+)
 from campaign_factory.audio_smoke import (
     CONTENTFORGE_SMOKE_RESPONSE,
     SMOKE_CSV,
@@ -34,68 +47,64 @@ from campaign_factory.audio_smoke import (
     write_smoke_audio_csv,
     write_smoke_audio_snapshot_csv,
 )
-from campaign_factory.adapters.contentforge import audit_campaign
-from campaign_factory.adapters import contentforge as contentforge_adapter
-from campaign_factory.adapters import threadsdash as threadsdash_adapter
-from campaign_factory.adapters.threadsdash import (
-    build_draft_payloads,
-    clear_preview_schedule,
-    evaluate_export_readiness,
-    export_threadsdash,
-    preflight_supabase,
-    safe_live_smoke_export,
-    summarize_threadsdash_usage,
-    sync_threadsdash_account_assignments,
-    sync_performance_snapshots,
-    verify_threadsdash_export,
+from campaign_factory.caption_outcome import (
+    build_caption_outcome_context,
+    column_values,
 )
 from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
-    validate_audio_catalog_export,
     validate_audio_intent,
     validate_front_generation_plan,
+    validate_motion_edit_render,
     validate_performance_sync,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
     validate_schema_examples,
-    validate_motion_edit_render,
-    validate_threadsdash_draft_payload,
     validate_variant_assignment,
 )
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
 from campaign_factory.db import _repair_source_asset_fk_references
+from campaign_factory.front_generation_stage import (
+    ACCEPTED_STILL_PLACEHOLDER,
+    run_front_generation_stage,
+)
+from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
+from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
 from campaign_factory.readiness_report import build_mass_production_readiness_report
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger
-from campaign_factory.caption_outcome import build_caption_outcome_context, column_values
-from campaign_factory.variation_stage import load_variant_assignment_index, run_variation_stage
-from campaign_factory.motion_edit_stage import run_motion_edit_stage
-from campaign_factory.front_generation_stage import ACCEPTED_STILL_PLACEHOLDER, run_front_generation_stage
-from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
-
+from campaign_factory.variation_stage import (
+    load_variant_assignment_index,
+    run_variation_stage,
+)
+from fastapi.testclient import TestClient
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 MONOREPO_ROOT = Path(__file__).resolve().parents[3]
-CLI_PYTHONPATH = os.pathsep.join([
-    str(PACKAGE_ROOT),
-    str(MONOREPO_ROOT / "packages" / "pipeline_contracts"),
-])
+CLI_PYTHONPATH = os.pathsep.join(
+    [
+        str(PACKAGE_ROOT),
+        str(MONOREPO_ROOT / "packages" / "pipeline_contracts"),
+    ]
+)
 
 
 def make_factory(tmp_path: Path) -> CampaignFactory:
     reel_root = tmp_path / "reel_factory"
     (reel_root / "00_source_videos").mkdir(parents=True, exist_ok=True)
     (reel_root / "01_captions").mkdir(parents=True, exist_ok=True)
-    return CampaignFactory(Settings(
-        root=tmp_path,
-        db_path=tmp_path / "campaign_factory.sqlite",
-        reel_factory_root=reel_root,
-        contentforge_root=tmp_path / "contentforge",
-        threadsdash_root=tmp_path / "ThreadsDashboard",
-        campaigns_dir=tmp_path / "campaigns",
-    ))
+    return CampaignFactory(
+        Settings(
+            root=tmp_path,
+            db_path=tmp_path / "campaign_factory.sqlite",
+            reel_factory_root=reel_root,
+            contentforge_root=tmp_path / "contentforge",
+            threadsdash_root=tmp_path / "ThreadsDashboard",
+            campaigns_dir=tmp_path / "campaigns",
+        )
+    )
 
 
 def test_ai_cost_source_event_key_is_idempotent(tmp_path: Path):
@@ -166,7 +175,9 @@ def test_ai_cost_table_migrates_source_event_key(tmp_path: Path):
     assert count == 1
 
 
-def test_finished_video_lineage_cost_recorder_records_generation_costs_once(tmp_path: Path):
+def test_finished_video_lineage_cost_recorder_records_generation_costs_once(
+    tmp_path: Path,
+):
     factory = make_factory(tmp_path)
     lineage = {
         "schema": "reel_factory.lineage.v1",
@@ -176,7 +187,9 @@ def test_finished_video_lineage_cost_recorder_records_generation_costs_once(tmp_
         "generation": {"tool": "higgsfield_kling_cli", "modelProfile": "soul_grid"},
     }
     lineage_hash = hashlib.sha256(
-        json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        json.dumps(lineage, ensure_ascii=False, sort_keys=True, default=str).encode(
+            "utf-8"
+        )
     ).hexdigest()[:24]
 
     try:
@@ -276,7 +289,15 @@ def test_rendered_asset_content_hash_is_scoped_to_campaign(tmp_path: Path):
             (id, campaign_id, model_id, content_hash, original_path, stored_path, filename, created_at, updated_at)
             VALUES (?, ?, 'model_1', ?, ?, ?, 'source.mp4', ?, ?)
             """,
-            (source_id, campaign_id, f"source-{campaign_id}", str(tmp_path / "source.mp4"), str(tmp_path / "source.mp4"), now, now),
+            (
+                source_id,
+                campaign_id,
+                f"source-{campaign_id}",
+                str(tmp_path / "source.mp4"),
+                str(tmp_path / "source.mp4"),
+                now,
+                now,
+            ),
         )
         cf.conn.execute(
             """
@@ -284,7 +305,16 @@ def test_rendered_asset_content_hash_is_scoped_to_campaign(tmp_path: Path):
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, created_at, updated_at)
             VALUES (?, ?, ?, 'same-render-hash', ?, ?, ?, ?, ?)
             """,
-            (asset_id, campaign_id, source_id, str(tmp_path / f"{slug}.mp4"), str(tmp_path / f"{slug}.mp4"), f"{slug}.mp4", now, now),
+            (
+                asset_id,
+                campaign_id,
+                source_id,
+                str(tmp_path / f"{slug}.mp4"),
+                str(tmp_path / f"{slug}.mp4"),
+                f"{slug}.mp4",
+                now,
+                now,
+            ),
         )
     rows = cf.conn.execute(
         "SELECT id FROM rendered_assets WHERE content_hash = 'same-render-hash' ORDER BY id"
@@ -311,8 +341,12 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     (reel_root / "reel_pipeline.py").write_text("", encoding="utf-8")
     (reel_root / "slideshow_factory.py").write_text("", encoding="utf-8")
     (contentforge_root / "package.json").write_text("{}", encoding="utf-8")
-    (contentforge_root / "app" / "api" / "variant-pack" / "route.js").write_text("", encoding="utf-8")
-    (contentforge_root / "app" / "api" / "similarity" / "route.js").write_text("", encoding="utf-8")
+    (contentforge_root / "app" / "api" / "variant-pack" / "route.js").write_text(
+        "", encoding="utf-8"
+    )
+    (contentforge_root / "app" / "api" / "similarity" / "route.js").write_text(
+        "", encoding="utf-8"
+    )
     (reference_root / "reference_factory" / "cli.py").write_text("", encoding="utf-8")
     (root / "schemas").mkdir(parents=True)
     for name in [
@@ -340,9 +374,16 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "make-batch" in result["commands"]["makeBatch"]
-    assert result["commands"]["startContentForge"] == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3002"
-    assert result["commands"]["startCampaignFactory"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory"))
-    assert result["commands"]["exportReferencePatterns"].startswith(str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory"))
+    assert (
+        result["commands"]["startContentForge"]
+        == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3002"
+    )
+    assert result["commands"]["startCampaignFactory"].startswith(
+        str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory")
+    )
+    assert result["commands"]["exportReferencePatterns"].startswith(
+        str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory")
+    )
     assert "cd " not in "\n".join(result["commands"].values())
 
 
@@ -378,7 +419,12 @@ def test_import_folder_dedupes_by_hash_and_ignores_unsupported(tmp_path: Path):
     (folder / "ignore.txt").write_text("no")
     cf = make_factory(tmp_path)
     try:
-        result = cf.import_folder(folder, campaign_slug="May Launch", model_slug="Model A", account_handles=["ig_a"])
+        result = cf.import_folder(
+            folder,
+            campaign_slug="May Launch",
+            model_slug="Model A",
+            account_handles=["ig_a"],
+        )
         assert len(result["imported"]) == 1
         assert len(result["duplicates"]) == 1
         assert len(result["ignored"]) == 1
@@ -400,8 +446,13 @@ def test_import_folder_allows_same_source_in_different_campaigns(tmp_path: Path)
 
         assert len(first["imported"]) == 1
         assert len(second["imported"]) == 1
-        assert first["imported"][0]["content_hash"] == second["imported"][0]["content_hash"]
-        assert first["imported"][0]["campaign_id"] != second["imported"][0]["campaign_id"]
+        assert (
+            first["imported"][0]["content_hash"]
+            == second["imported"][0]["content_hash"]
+        )
+        assert (
+            first["imported"][0]["campaign_id"] != second["imported"][0]["campaign_id"]
+        )
     finally:
         cf.close()
 
@@ -425,7 +476,9 @@ def test_db_repair_restores_source_asset_foreign_key_table_names():
 
     _repair_source_asset_fk_references(conn)
 
-    sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'render_jobs'").fetchone()["sql"]
+    sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'render_jobs'"
+    ).fetchone()["sql"]
     assert "source_assets_old_global_hash" not in sql
     assert "source_assets" in sql
     assert conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"] == 1
@@ -437,11 +490,15 @@ def test_import_folder_accepts_images_as_slideshow_sources(tmp_path: Path):
     (folder / "a.jpg").write_bytes(b"image")
     cf = make_factory(tmp_path)
     try:
-        result = cf.import_folder(folder, campaign_slug="May Slides", model_slug="Model A")
+        result = cf.import_folder(
+            folder, campaign_slug="May Slides", model_slug="Model A"
+        )
 
         assert len(result["imported"]) == 1
         assert result["imported"][0]["media_type"] == "image"
-        assert cf.assets_for_campaign(result["campaign"]["id"])[0]["media_type"] == "image"
+        assert (
+            cf.assets_for_campaign(result["campaign"]["id"])[0]["media_type"] == "image"
+        )
     finally:
         cf.close()
 
@@ -453,10 +510,23 @@ def test_prepare_reel_writes_video_and_caption_sidecar(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        result = cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook one"], recipes=["v01_original"], caption_color="auto")
+        result = cf.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=["hook one"],
+            recipes=["v01_original"],
+            caption_color="auto",
+        )
         job = result["prepared"][0]
-        video = cf.settings.reel_factory_root / "00_source_videos" / f"{job['reel_clip_stem']}.mp4"
-        sidecar = cf.settings.reel_factory_root / "01_captions" / f"{job['reel_clip_stem']}.json"
+        video = (
+            cf.settings.reel_factory_root
+            / "00_source_videos"
+            / f"{job['reel_clip_stem']}.mp4"
+        )
+        sidecar = (
+            cf.settings.reel_factory_root
+            / "01_captions"
+            / f"{job['reel_clip_stem']}.json"
+        )
         assert video.exists()
         assert sidecar.exists()
         data = json.loads(sidecar.read_text())
@@ -481,8 +551,16 @@ def test_prepare_reel_rotates_hook_order_across_sources(tmp_path: Path):
             caption_color="auto",
         )
         stems = [job["reel_clip_stem"] for job in result["prepared"]]
-        first = json.loads((cf.settings.reel_factory_root / "01_captions" / f"{stems[0]}.json").read_text())
-        second = json.loads((cf.settings.reel_factory_root / "01_captions" / f"{stems[1]}.json").read_text())
+        first = json.loads(
+            (
+                cf.settings.reel_factory_root / "01_captions" / f"{stems[0]}.json"
+            ).read_text()
+        )
+        second = json.loads(
+            (
+                cf.settings.reel_factory_root / "01_captions" / f"{stems[1]}.json"
+            ).read_text()
+        )
         assert first["hooks"] == ["hook one", "hook two", "hook three"]
         assert second["hooks"] == ["hook two", "hook three", "hook one"]
     finally:
@@ -492,52 +570,65 @@ def test_prepare_reel_rotates_hook_order_across_sources(tmp_path: Path):
 def test_reference_bank_import_select_and_prepare(tmp_path: Path):
     bank_path = tmp_path / "campaign_reference_bank.json"
     prompt_pack_path = tmp_path / "higgsfield_prompt_pack_top300.json"
-    bank_path.write_text(json.dumps({
-        "schema": "reference_factory.campaign_reference_bank.v1",
-        "clusters": [
+    bank_path.write_text(
+        json.dumps(
             {
-                "clusterRank": 1,
-                "clusterKey": "caption_led_visual::direct_response::question_hook",
-                "embeddingClusterId": "emb_test_cluster",
-                "label": "caption led visual / direct response / question hook",
-                "visualFormat": "caption_led_visual",
-                "hookType": "direct_response",
-                "captionArchetype": "question_hook",
-                "referenceIds": ["ref_1"],
-                "localPaths": [str(tmp_path / "ref.mp4")],
-                "promptTemplate": {"captionBrief": "short direct question"},
-                "audioRecommendations": {
-                    "schema": "reference_factory.audio_recommendations.v1",
-                    "primaryStrategy": "light_trending_response_sound",
-                    "nativeAudioPreferred": True,
-                    "recommendations": [
-                        {
-                            "platform": "instagram",
-                            "audioId": "ig_audio_1",
-                            "audioVibe": "caption_friendly",
-                            "instruction": "Use a low-volume native trending sound.",
-                        }
-                    ],
-                },
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterRank": 1,
+                        "clusterKey": "caption_led_visual::direct_response::question_hook",
+                        "embeddingClusterId": "emb_test_cluster",
+                        "label": "caption led visual / direct response / question hook",
+                        "visualFormat": "caption_led_visual",
+                        "hookType": "direct_response",
+                        "captionArchetype": "question_hook",
+                        "referenceIds": ["ref_1"],
+                        "localPaths": [str(tmp_path / "ref.mp4")],
+                        "promptTemplate": {"captionBrief": "short direct question"},
+                        "audioRecommendations": {
+                            "schema": "reference_factory.audio_recommendations.v1",
+                            "primaryStrategy": "light_trending_response_sound",
+                            "nativeAudioPreferred": True,
+                            "recommendations": [
+                                {
+                                    "platform": "instagram",
+                                    "audioId": "ig_audio_1",
+                                    "audioVibe": "caption_friendly",
+                                    "instruction": "Use a low-volume native trending sound.",
+                                }
+                            ],
+                        },
+                    }
+                ],
             }
-        ],
-    }))
-    prompt_pack_path.write_text(json.dumps({
-        "schema": "reference_factory.higgsfield_prompt_pack.v1",
-        "prompts": [
+        )
+    )
+    prompt_pack_path.write_text(
+        json.dumps(
             {
-                "clusterKey": "caption_led_visual::direct_response::question_hook",
-                "referenceIds": ["ref_1"],
-                "publicUrls": ["https://instagram.com/p/example/"],
-                "higgsfieldJson": {"scene": "caption-led vertical reel"},
-                "captionFormulas": [{"formula": "{direct question}?", "exampleCaptions": ["red or pink ?"]}],
-                "audioRecommendations": {
-                    "primaryStrategy": "current_native_trending_sound",
-                    "nativeAudioPreferred": True,
-                },
+                "schema": "reference_factory.higgsfield_prompt_pack.v1",
+                "prompts": [
+                    {
+                        "clusterKey": "caption_led_visual::direct_response::question_hook",
+                        "referenceIds": ["ref_1"],
+                        "publicUrls": ["https://instagram.com/p/example/"],
+                        "higgsfieldJson": {"scene": "caption-led vertical reel"},
+                        "captionFormulas": [
+                            {
+                                "formula": "{direct question}?",
+                                "exampleCaptions": ["red or pink ?"],
+                            }
+                        ],
+                        "audioRecommendations": {
+                            "primaryStrategy": "current_native_trending_sound",
+                            "nativeAudioPreferred": True,
+                        },
+                    }
+                ],
             }
-        ],
-    }))
+        )
+    )
     (tmp_path / "ref.mp4").write_bytes(b"reference")
     folder = tmp_path / "inputs"
     folder.mkdir()
@@ -547,9 +638,18 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
         imported = cf.import_reference_bank(bank_path, prompt_pack_path)
         assert imported["patternsImported"] == 1
         patterns = cf.reference_patterns()
-        assert patterns["patterns"][0]["raw"]["bank"]["embeddingClusterId"] == "emb_test_cluster"
-        assert patterns["patterns"][0]["captionFormulas"][0]["formula"] == "{direct question}?"
-        assert patterns["patterns"][0]["audioRecommendations"]["primaryStrategy"] == "light_trending_response_sound"
+        assert (
+            patterns["patterns"][0]["raw"]["bank"]["embeddingClusterId"]
+            == "emb_test_cluster"
+        )
+        assert (
+            patterns["patterns"][0]["captionFormulas"][0]["formula"]
+            == "{direct question}?"
+        )
+        assert (
+            patterns["patterns"][0]["audioRecommendations"]["primaryStrategy"]
+            == "light_trending_response_sound"
+        )
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
         prepared = cf.prepare_reel_from_reference(
             campaign_slug="may",
@@ -557,23 +657,43 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
             variant_count=2,
             recipes=["v01_original"],
         )
-        assert prepared["selection"]["pattern"]["label"].startswith("caption led visual")
-        sidecar = cf.settings.reel_factory_root / "01_captions" / f"{prepared['prepare']['prepared'][0]['reel_clip_stem']}.json"
+        assert prepared["selection"]["pattern"]["label"].startswith(
+            "caption led visual"
+        )
+        sidecar = (
+            cf.settings.reel_factory_root
+            / "01_captions"
+            / f"{prepared['prepare']['prepared'][0]['reel_clip_stem']}.json"
+        )
         sidecar_data = json.loads(sidecar.read_text())
         assert sidecar_data["hooks"][0] == "red or pink ?"
-        assert sidecar_data["hook_metadata"][0]["referenceClusterKey"] == "caption_led_visual::direct_response::question_hook"
+        assert (
+            sidecar_data["hook_metadata"][0]["referenceClusterKey"]
+            == "caption_led_visual::direct_response::question_hook"
+        )
         assert sidecar_data["hook_metadata"][0]["text"] == "red or pink ?"
         assert sidecar_data["hook_metadata"][0]["candidateKind"] == "example_caption"
-        assert sidecar_data["hook_metadata"][0]["audioRecommendations"]["primaryStrategy"] == "light_trending_response_sound"
-        generation_payload = cf._caption_generation_for_clip(prepared["prepare"]["prepared"][0]["reel_clip_stem"])
-        assert generation_payload["audioRecommendations"]["primaryStrategy"] == "light_trending_response_sound"
+        assert (
+            sidecar_data["hook_metadata"][0]["audioRecommendations"]["primaryStrategy"]
+            == "light_trending_response_sound"
+        )
+        generation_payload = cf._caption_generation_for_clip(
+            prepared["prepare"]["prepared"][0]["reel_clip_stem"]
+        )
+        assert (
+            generation_payload["audioRecommendations"]["primaryStrategy"]
+            == "light_trending_response_sound"
+        )
         second = cf.prepare_reel_from_reference(
             campaign_slug="may",
             cluster_key="caption_led_visual::direct_response::question_hook",
             variant_count=1,
             recipes=["v01_original"],
         )
-        assert second["prepare"]["prepared"][0]["reel_clip_stem"] != prepared["prepare"]["prepared"][0]["reel_clip_stem"]
+        assert (
+            second["prepare"]["prepared"][0]["reel_clip_stem"]
+            != prepared["prepare"]["prepared"][0]["reel_clip_stem"]
+        )
         assert second["prepare"]["reusedExisting"] == []
     finally:
         cf.close()
@@ -606,7 +726,11 @@ def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path
 
         hooks = cf.reference_hooks(pattern, count=3)
 
-        assert [hook["text"] for hook in hooks] == ["mirror check", "mirror check", "mirror check"]
+        assert [hook["text"] for hook in hooks] == [
+            "mirror check",
+            "mirror check",
+            "mirror check",
+        ]
         assert all(hook["candidateKind"] == "example_caption" for hook in hooks)
     finally:
         cf.close()
@@ -614,46 +738,58 @@ def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path
 
 def test_audio_catalog_import_and_recommendation_flow(tmp_path: Path):
     catalog_path = tmp_path / "audio_catalog.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_1",
-                "title": "Runway Pop",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_1",
-                "nativeAudioUrl": "https://instagram.com/audio/1",
-                "moodTags": ["glam", "confident"],
-                "bestContentTypes": ["fit_check", "mirror_selfie"],
-                "accountFit": ["ig_a"],
-                "trendStatus": "rising",
-                "usageCount": 120000,
-                "bpm": 124,
-                "energy": 8,
-                "safeUsageNotes": "attach natively",
-            },
-            {
-                "id": "aud_2",
-                "title": "Sleepy Song",
-                "artistName": "DJ B",
-                "platform": "instagram",
-                "nativeAudioId": "ig_2",
-                "moodTags": ["chill"],
-                "bestContentTypes": ["tutorial"],
-                "trendStatus": "stale",
-                "usageCount": 500,
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_1",
+                        "title": "Runway Pop",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_1",
+                        "nativeAudioUrl": "https://instagram.com/audio/1",
+                        "moodTags": ["glam", "confident"],
+                        "bestContentTypes": ["fit_check", "mirror_selfie"],
+                        "accountFit": ["ig_a"],
+                        "trendStatus": "rising",
+                        "usageCount": 120000,
+                        "bpm": 124,
+                        "energy": 8,
+                        "safeUsageNotes": "attach natively",
+                    },
+                    {
+                        "id": "aud_2",
+                        "title": "Sleepy Song",
+                        "artistName": "DJ B",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_2",
+                        "moodTags": ["chill"],
+                        "bestContentTypes": ["tutorial"],
+                        "trendStatus": "stale",
+                        "usageCount": 500,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         imported = cf.import_audio_catalog(catalog_path)
-        recs = cf.recommend_audio(platform="instagram", content_tags=["fit_check", "glam"], account_tags=["ig_a"], limit=2)
+        recs = cf.recommend_audio(
+            platform="instagram",
+            content_tags=["fit_check", "glam"],
+            account_tags=["ig_a"],
+            limit=2,
+        )
 
         assert imported["tracksImported"] == 2
         assert recs["recommendations"][0]["audioTitle"] == "Runway Pop"
-        assert recs["recommendations"][0]["platformUrl"] == "https://instagram.com/audio/1"
+        assert (
+            recs["recommendations"][0]["platformUrl"] == "https://instagram.com/audio/1"
+        )
         assert recs["recommendations"][0]["safeUsageNotes"] == "attach natively"
     finally:
         cf.close()
@@ -661,34 +797,46 @@ def test_audio_catalog_import_and_recommendation_flow(tmp_path: Path):
 
 def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path):
     catalog_path = tmp_path / "audio_memory.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_mem",
-                "title": "Mirror Trend",
-                "artistName": "DJ M",
-                "platform": "instagram",
-                "nativeAudioId": "ig_mem",
-                "nativeAudioUrl": "https://instagram.com/audio/mem",
-                "moodTags": ["mirror"],
-                "bestContentTypes": ["v01_original"],
-                "accountFit": ["ig_1"],
-                "trendStatus": "rising",
-                "trendScore": 91,
-                "velocityScore": 88,
-                "creatorFitScore": 94,
-                "usageCount": 50000,
-                "trendSources": ["reference_factory", "tiktok_creative_center"],
-                "trendSnapshots": [{"observedAt": "2026-01-01T00:00:00+00:00", "trendStatus": "rising", "usageCount": 50000, "velocityScore": 88}],
-                "exampleReels": ["https://instagram.com/reel/example"],
-                "performanceSummary": {"postCount": 3, "performanceLift": 12},
-                "fatigue": {"level": "low"},
-                "resolved": True,
-                "sourceConfidence": 0.9,
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_mem",
+                        "title": "Mirror Trend",
+                        "artistName": "DJ M",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_mem",
+                        "nativeAudioUrl": "https://instagram.com/audio/mem",
+                        "moodTags": ["mirror"],
+                        "bestContentTypes": ["v01_original"],
+                        "accountFit": ["ig_1"],
+                        "trendStatus": "rising",
+                        "trendScore": 91,
+                        "velocityScore": 88,
+                        "creatorFitScore": 94,
+                        "usageCount": 50000,
+                        "trendSources": ["reference_factory", "tiktok_creative_center"],
+                        "trendSnapshots": [
+                            {
+                                "observedAt": "2026-01-01T00:00:00+00:00",
+                                "trendStatus": "rising",
+                                "usageCount": 50000,
+                                "velocityScore": 88,
+                            }
+                        ],
+                        "exampleReels": ["https://instagram.com/reel/example"],
+                        "performanceSummary": {"postCount": 3, "performanceLift": 12},
+                        "fatigue": {"level": "low"},
+                        "resolved": True,
+                        "sourceConfidence": 0.9,
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         first_import = cf.import_audio_memory(catalog_path)
@@ -696,32 +844,54 @@ def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path
         assert first_import["tracksImported"] == 1
         assert second_import["trendSnapshotsImported"] == 1
         assert cf.conn.execute("SELECT COUNT(*) FROM audio_catalog").fetchone()[0] == 1
-        assert cf.conn.execute("SELECT COUNT(*) FROM audio_trend_snapshots").fetchone()[0] == 1
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM audio_trend_snapshots").fetchone()[0]
+            == 1
+        )
 
         source, _ = add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
         rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
         item = rec["items"][0]
-        assert item["audioRecommendations"]["recommendations"][0]["audioTitle"] == "Mirror Trend"
+        assert (
+            item["audioRecommendations"]["recommendations"][0]["audioTitle"]
+            == "Mirror Trend"
+        )
         assert item["audioDecision"]["primaryAudio"]["audioTitle"] == "Mirror Trend"
         assert item["audioDecision"]["decisionConfidence"] in {"usable", "strong"}
-        assert item["audioRecommendations"]["recommendations"][0]["audioMemoryGraphId"].startswith("cg_audio_memory_")
-        assert item["audioRecommendations"]["recommendations"][0]["scoreComponents"]["creatorFit"] == 94
-        assert item["audioRecommendations"]["recommendations"][0]["recommendationConfidence"] in {"usable", "strong"}
+        assert item["audioRecommendations"]["recommendations"][0][
+            "audioMemoryGraphId"
+        ].startswith("cg_audio_memory_")
+        assert (
+            item["audioRecommendations"]["recommendations"][0]["scoreComponents"][
+                "creatorFit"
+            ]
+            == 94
+        )
+        assert item["audioRecommendations"]["recommendations"][0][
+            "recommendationConfidence"
+        ] in {"usable", "strong"}
         memory = cf.audio_memory(platform="instagram", account="ig_1", limit=5)
         assert memory["audioTrust"]["averageScore"] is not None
         assert memory["items"][0]["audioMemoryScore"] > 80
 
-        selected = cf.select_audio_for_recommendation(item["recommendationId"], "aud_mem", operator="tester")
+        selected = cf.select_audio_for_recommendation(
+            item["recommendationId"], "aud_mem", operator="tester"
+        )
         assert selected["selection"]["status"] == "selected"
         updated = cf.rendered_asset("asset_1")
         caption_generation = json.loads(updated["caption_generation_json"])
         assert caption_generation["audioIntent"]["status"] == "selected"
-        assert caption_generation["audioIntent"]["operator_selection"]["catalog_audio_id"] == "aud_mem"
+        assert (
+            caption_generation["audioIntent"]["operator_selection"]["catalog_audio_id"]
+            == "aud_mem"
+        )
         edges = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "recommendation_item_to_audio_recommendation" in edges
         assert "audio_recommendation_to_audio_selection" in edges
@@ -733,84 +903,106 @@ def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path
 
 def test_record_audio_performance_snapshot_writes_rollup_and_graph(tmp_path: Path):
     catalog_path = tmp_path / "audio_memory.json"
-    catalog_path.write_text(json.dumps({
-        "items": [{
-            "id": "aud_mem",
-            "title": "Mirror Trend",
-            "artistName": "DJ M",
-            "platform": "instagram",
-            "nativeAudioId": "ig_mem",
-            "moodTags": ["mirror"],
-            "bestContentTypes": ["v01_original"],
-            "resolved": True,
-        }],
-    }), encoding="utf-8")
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "id": "aud_mem",
+                        "title": "Mirror Trend",
+                        "artistName": "DJ M",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_mem",
+                        "moodTags": ["mirror"],
+                        "bestContentTypes": ["v01_original"],
+                        "resolved": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
         add_rendered_asset(cf, tmp_path)
         campaign = cf.campaign_by_slug("may")
-        result = cf.record_audio_performance_snapshot({
-            "id": "snap_audio_1",
-            "campaign_id": campaign["id"],
-            "rendered_asset_id": "asset_1",
-            "source_asset_id": None,
-            "content_hash": "hash_1",
-            "source_content_hash": None,
-            "concept_id": None,
-            "parent_reel_id": None,
-            "variant_family_id": None,
-            "variant_id": None,
-            "variant_index": None,
-            "variant_operations_json": "[]",
-            "audio_id": "aud_mem",
-            "caption_hash": None,
-            "caption_text": None,
-            "caption_bank": None,
-            "caption_banks_json": "[]",
-            "creator_mix": None,
-            "creator_model": None,
-            "frame_type": None,
-            "length_class": None,
-            "format_class": None,
-            "caption_fit_version": None,
-            "caption_outcome_context_json": "{}",
-            "recipe": "v01_original",
-            "account_id": "acct_1",
-            "instagram_account_id": "ig_1",
-            "post_id": "post_audio_1",
-            "platform": "instagram",
-            "content_surface": "reel",
-            "snapshot_at": "2026-06-06T10:00:00+00:00",
-            "views": 1000,
-            "likes": 50,
-            "comments": 5,
-            "shares": 4,
-            "saves": 3,
-            "impressions": 1000,
-            "reach": 900,
-            "watch_time_seconds": None,
-            "status": "published",
-            "permalink": None,
-            "published_at": None,
-            "raw_json": json.dumps({
-                "metadata": {
-                    "campaign_factory": {
-                        "audio_intent": {
-                            "operator_selection": {
-                                "catalog_audio_id": "aud_mem",
-                                "platform_audio_id": "ig_mem",
-                                "audio_title": "Mirror Trend",
+        result = cf.record_audio_performance_snapshot(
+            {
+                "id": "snap_audio_1",
+                "campaign_id": campaign["id"],
+                "rendered_asset_id": "asset_1",
+                "source_asset_id": None,
+                "content_hash": "hash_1",
+                "source_content_hash": None,
+                "concept_id": None,
+                "parent_reel_id": None,
+                "variant_family_id": None,
+                "variant_id": None,
+                "variant_index": None,
+                "variant_operations_json": "[]",
+                "audio_id": "aud_mem",
+                "caption_hash": None,
+                "caption_text": None,
+                "caption_bank": None,
+                "caption_banks_json": "[]",
+                "creator_mix": None,
+                "creator_model": None,
+                "frame_type": None,
+                "length_class": None,
+                "format_class": None,
+                "caption_fit_version": None,
+                "caption_outcome_context_json": "{}",
+                "recipe": "v01_original",
+                "account_id": "acct_1",
+                "instagram_account_id": "ig_1",
+                "post_id": "post_audio_1",
+                "platform": "instagram",
+                "content_surface": "reel",
+                "snapshot_at": "2026-06-06T10:00:00+00:00",
+                "views": 1000,
+                "likes": 50,
+                "comments": 5,
+                "shares": 4,
+                "saves": 3,
+                "impressions": 1000,
+                "reach": 900,
+                "watch_time_seconds": None,
+                "status": "published",
+                "permalink": None,
+                "published_at": None,
+                "raw_json": json.dumps(
+                    {
+                        "metadata": {
+                            "campaign_factory": {
+                                "audio_intent": {
+                                    "operator_selection": {
+                                        "catalog_audio_id": "aud_mem",
+                                        "platform_audio_id": "ig_mem",
+                                        "audio_title": "Mirror Trend",
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }),
-        })
-        rollup = cf.conn.execute("SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'").fetchone()
-        edges = {row["relation_type"] for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()}
+                ),
+            }
+        )
+        rollup = cf.conn.execute(
+            "SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'"
+        ).fetchone()
+        edges = {
+            row["relation_type"]
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
+        }
 
-        assert result == {"audioKey": "instagram:aud_mem", "audioCatalogId": "aud_mem", "score": 100.0}
+        assert result == {
+            "audioKey": "instagram:aud_mem",
+            "audioCatalogId": "aud_mem",
+            "score": 100.0,
+        }
         assert rollup["post_count"] == 1
         assert rollup["view_count"] == 1000
         assert json.loads(rollup["stats_json"])["lastPostId"] == "post_audio_1"
@@ -821,18 +1013,25 @@ def test_record_audio_performance_snapshot_writes_rollup_and_graph(tmp_path: Pat
 
 def test_verify_audio_for_post_creates_verified_selection_and_rollup(tmp_path: Path):
     catalog_path = tmp_path / "audio_memory.json"
-    catalog_path.write_text(json.dumps({
-        "items": [{
-            "id": "aud_mem",
-            "title": "Mirror Trend",
-            "artistName": "DJ M",
-            "platform": "instagram",
-            "nativeAudioId": "ig_mem",
-            "moodTags": ["mirror"],
-            "bestContentTypes": ["v01_original"],
-            "resolved": True,
-        }],
-    }), encoding="utf-8")
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "id": "aud_mem",
+                        "title": "Mirror Trend",
+                        "artistName": "DJ M",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_mem",
+                        "moodTags": ["mirror"],
+                        "bestContentTypes": ["v01_original"],
+                        "resolved": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
@@ -862,20 +1061,22 @@ def test_verify_audio_for_post_creates_verified_selection_and_rollup(tmp_path: P
                 2,
                 1,
                 4,
-                json.dumps({
-                    "metadata": {
-                        "campaign_factory": {
-                            "audio_intent": {
-                                "operator_selection": {
-                                    "catalog_audio_id": "aud_mem",
-                                    "platform_audio_id": "ig_mem",
-                                    "audio_title": "Mirror Trend",
-                                    "selected_at": "2026-06-06T09:00:00+00:00",
+                json.dumps(
+                    {
+                        "metadata": {
+                            "campaign_factory": {
+                                "audio_intent": {
+                                    "operator_selection": {
+                                        "catalog_audio_id": "aud_mem",
+                                        "platform_audio_id": "ig_mem",
+                                        "audio_title": "Mirror Trend",
+                                        "selected_at": "2026-06-06T09:00:00+00:00",
+                                    }
                                 }
                             }
                         }
                     }
-                }),
+                ),
                 "2026-06-06T10:00:00+00:00",
             ),
         )
@@ -888,8 +1089,15 @@ def test_verify_audio_for_post_creates_verified_selection_and_rollup(tmp_path: P
             operator="tester",
         )
         selection = result["selection"]
-        rollup = cf.conn.execute("SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'").fetchone()
-        edges = {row["relation_type"] for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()}
+        rollup = cf.conn.execute(
+            "SELECT * FROM audio_performance_rollups WHERE audio_catalog_id = 'aud_mem'"
+        ).fetchone()
+        edges = {
+            row["relation_type"]
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
+        }
 
         assert selection["status"] == "verified"
         assert selection["proof_url"] == "https://proof.example/audio"
@@ -902,7 +1110,9 @@ def test_verify_audio_for_post_creates_verified_selection_and_rollup(tmp_path: P
         cf.close()
 
 
-def test_audio_recommendations_include_contentforge_audio_fit_when_available(tmp_path: Path):
+def test_audio_recommendations_include_contentforge_audio_fit_when_available(
+    tmp_path: Path,
+):
     contentforge_lib = tmp_path / "contentforge" / "lib"
     contentforge_lib.mkdir(parents=True)
     (contentforge_lib / "audio-fit.js").write_text(
@@ -924,36 +1134,46 @@ export function scoreAudioFit(input) {
         encoding="utf-8",
     )
     catalog_path = tmp_path / "audio_catalog.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_fit",
-                "title": "Good Fit",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_fit",
-                "moodTags": ["fit_check"],
-                "bestContentTypes": ["mirror_selfie"],
-                "trendStatus": "rising",
-                "bpm": 128,
-            },
-            {
-                "id": "aud_bad",
-                "title": "Bad Fit",
-                "artistName": "DJ B",
-                "platform": "instagram",
-                "nativeAudioId": "ig_bad",
-                "moodTags": ["stale"],
-                "bestContentTypes": ["tutorial"],
-                "trendStatus": "rising",
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_fit",
+                        "title": "Good Fit",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_fit",
+                        "moodTags": ["fit_check"],
+                        "bestContentTypes": ["mirror_selfie"],
+                        "trendStatus": "rising",
+                        "bpm": 128,
+                    },
+                    {
+                        "id": "aud_bad",
+                        "title": "Bad Fit",
+                        "artistName": "DJ B",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_bad",
+                        "moodTags": ["stale"],
+                        "bestContentTypes": ["tutorial"],
+                        "trendStatus": "rising",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_catalog(catalog_path)
-        result = cf.recommend_audio(platform="instagram", content_tags=["fit_check"], visual_signal={"energy": "high"}, limit=2)
+        result = cf.recommend_audio(
+            platform="instagram",
+            content_tags=["fit_check"],
+            visual_signal={"energy": "high"},
+            limit=2,
+        )
         recs = result["recommendations"]
 
         assert result["visualSignal"] == {"energy": "high"}
@@ -970,53 +1190,62 @@ export function scoreAudioFit(input) {
         cf.close()
 
 
-def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(tmp_path: Path):
+def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(
+    tmp_path: Path,
+):
     catalog_path = tmp_path / "audio_decision.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "ig_resolved",
-                "title": "Resolved IG Winner",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_resolved",
-                "nativeAudioUrl": "https://instagram.com/reels/audio/ig_resolved",
-                "moodTags": ["mirror", "glam"],
-                "bestContentTypes": ["ofm_reels"],
-                "trendStatus": "rising",
-                "creatorFitScore": 86,
-                "accountFitScore": 88,
-                "fatigue": {"level": "low"},
-            },
-            {
-                "id": "ig_unresolved",
-                "title": "Instagram audio example_deadbeef",
-                "platform": "instagram",
-                "nativeAudioId": "example_deadbeef",
-                "nativeAudioUrl": "https://instagram.com/p/example",
-                "moodTags": ["mirror", "glam"],
-                "bestContentTypes": ["ofm_reels"],
-                "trendStatus": "rising",
-                "creatorFitScore": 90,
-            },
-            {
-                "id": "tt_signal",
-                "title": "TikTok audio 12345",
-                "platform": "tiktok",
-                "nativeAudioId": "12345",
-                "nativeAudioUrl": "https://www.tiktok.com/@creator/video/1",
-                "moodTags": ["mirror", "glam"],
-                "bestContentTypes": ["ofm_reels"],
-                "trendStatus": "rising",
-                "creatorFitScore": 92,
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "ig_resolved",
+                        "title": "Resolved IG Winner",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_resolved",
+                        "nativeAudioUrl": "https://instagram.com/reels/audio/ig_resolved",
+                        "moodTags": ["mirror", "glam"],
+                        "bestContentTypes": ["ofm_reels"],
+                        "trendStatus": "rising",
+                        "creatorFitScore": 86,
+                        "accountFitScore": 88,
+                        "fatigue": {"level": "low"},
+                    },
+                    {
+                        "id": "ig_unresolved",
+                        "title": "Instagram audio example_deadbeef",
+                        "platform": "instagram",
+                        "nativeAudioId": "example_deadbeef",
+                        "nativeAudioUrl": "https://instagram.com/p/example",
+                        "moodTags": ["mirror", "glam"],
+                        "bestContentTypes": ["ofm_reels"],
+                        "trendStatus": "rising",
+                        "creatorFitScore": 90,
+                    },
+                    {
+                        "id": "tt_signal",
+                        "title": "TikTok audio 12345",
+                        "platform": "tiktok",
+                        "nativeAudioId": "12345",
+                        "nativeAudioUrl": "https://www.tiktok.com/@creator/video/1",
+                        "moodTags": ["mirror", "glam"],
+                        "bestContentTypes": ["ofm_reels"],
+                        "trendStatus": "rising",
+                        "creatorFitScore": 92,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
-        result = cf.recommend_audio(platform="instagram", content_tags=["mirror", "glam"], limit=3)
+        result = cf.recommend_audio(
+            platform="instagram", content_tags=["mirror", "glam"], limit=3
+        )
         decision = result["decision"]
 
         assert decision["primaryAudio"]["catalogAudioId"] == "ig_resolved"
@@ -1030,37 +1259,44 @@ def test_audio_decision_prefers_resolved_instagram_over_unresolved_and_tiktok(tm
 
 def test_audio_decision_moves_high_fatigue_or_stale_audio_to_do_not_use(tmp_path: Path):
     catalog_path = tmp_path / "audio_decision_risks.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "safe",
-                "title": "Safe Audio",
-                "platform": "instagram",
-                "nativeAudioId": "ig_safe",
-                "nativeAudioUrl": "https://instagram.com/reels/audio/ig_safe",
-                "moodTags": ["glam"],
-                "bestContentTypes": ["ofm_reels"],
-                "trendStatus": "current",
-                "fatigue": {"level": "low"},
-            },
-            {
-                "id": "tired",
-                "title": "Tired Audio",
-                "platform": "instagram",
-                "nativeAudioId": "ig_tired",
-                "nativeAudioUrl": "https://instagram.com/reels/audio/ig_tired",
-                "moodTags": ["glam"],
-                "bestContentTypes": ["ofm_reels"],
-                "trendStatus": "stale",
-                "fatigue": {"level": "high"},
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "safe",
+                        "title": "Safe Audio",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_safe",
+                        "nativeAudioUrl": "https://instagram.com/reels/audio/ig_safe",
+                        "moodTags": ["glam"],
+                        "bestContentTypes": ["ofm_reels"],
+                        "trendStatus": "current",
+                        "fatigue": {"level": "low"},
+                    },
+                    {
+                        "id": "tired",
+                        "title": "Tired Audio",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_tired",
+                        "nativeAudioUrl": "https://instagram.com/reels/audio/ig_tired",
+                        "moodTags": ["glam"],
+                        "bestContentTypes": ["ofm_reels"],
+                        "trendStatus": "stale",
+                        "fatigue": {"level": "high"},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
-        result = cf.recommend_audio(platform="instagram", content_tags=["glam"], limit=2)
+        result = cf.recommend_audio(
+            platform="instagram", content_tags=["glam"], limit=2
+        )
         decision = result["decision"]
 
         assert decision["primaryAudio"]["catalogAudioId"] == "safe"
@@ -1070,52 +1306,64 @@ def test_audio_decision_moves_high_fatigue_or_stale_audio_to_do_not_use(tmp_path
         cf.close()
 
 
-def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(tmp_path: Path):
+def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(
+    tmp_path: Path,
+):
     catalog_path = tmp_path / "audio_v2.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "ofm_fast",
-                "title": "OFM Fast Riser",
-                "platform": "tiktok",
-                "nativeAudioId": "tt_fast",
-                "nativeAudioUrl": "https://www.tiktok.com/music/fast",
-                "moodTags": ["ofm_reels", "glam", "mirror"],
-                "bestContentTypes": ["ig_reels", "fit_check"],
-                "accountFit": ["onlyfans_ig_reels", "ig_1"],
-                "trendStatus": "rising",
-                "trendScore": 86,
-                "velocityScore": 96,
-                "creatorFitScore": 92,
-                "accountFitScore": 88,
-                "sourceConfidence": 0.9,
-                "fatigue": {"level": "low", "fatigueScore": 10},
-                "performanceSummary": {"postCount": 2, "performanceLift": 8},
-                "trendSources": ["tiktok_creative_center", "reference_factory"],
-                "resolved": True,
-            },
-            {
-                "id": "generic_big",
-                "title": "Generic Viral",
-                "platform": "tiktok",
-                "nativeAudioId": "tt_big",
-                "moodTags": ["tutorial"],
-                "bestContentTypes": ["explainer"],
-                "trendStatus": "trending",
-                "trendScore": 95,
-                "velocityScore": 30,
-                "usageCount": 9000000,
-                "fatigue": {"level": "high", "fatigueScore": 90},
-                "sourceConfidence": 0.8,
-                "resolved": True,
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "ofm_fast",
+                        "title": "OFM Fast Riser",
+                        "platform": "tiktok",
+                        "nativeAudioId": "tt_fast",
+                        "nativeAudioUrl": "https://www.tiktok.com/music/fast",
+                        "moodTags": ["ofm_reels", "glam", "mirror"],
+                        "bestContentTypes": ["ig_reels", "fit_check"],
+                        "accountFit": ["onlyfans_ig_reels", "ig_1"],
+                        "trendStatus": "rising",
+                        "trendScore": 86,
+                        "velocityScore": 96,
+                        "creatorFitScore": 92,
+                        "accountFitScore": 88,
+                        "sourceConfidence": 0.9,
+                        "fatigue": {"level": "low", "fatigueScore": 10},
+                        "performanceSummary": {"postCount": 2, "performanceLift": 8},
+                        "trendSources": ["tiktok_creative_center", "reference_factory"],
+                        "resolved": True,
+                    },
+                    {
+                        "id": "generic_big",
+                        "title": "Generic Viral",
+                        "platform": "tiktok",
+                        "nativeAudioId": "tt_big",
+                        "moodTags": ["tutorial"],
+                        "bestContentTypes": ["explainer"],
+                        "trendStatus": "trending",
+                        "trendScore": 95,
+                        "velocityScore": 30,
+                        "usageCount": 9000000,
+                        "fatigue": {"level": "high", "fatigueScore": 90},
+                        "sourceConfidence": 0.8,
+                        "resolved": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
-        result = cf.recommend_audio(platform="instagram", content_tags=["mirror", "fit_check"], account="ig_1", limit=2)
+        result = cf.recommend_audio(
+            platform="instagram",
+            content_tags=["mirror", "fit_check"],
+            account="ig_1",
+            limit=2,
+        )
         first = result["recommendations"][0]
         assert first["catalogAudioId"] == "ofm_fast"
         assert first["platform"] == "tiktok"
@@ -1131,23 +1379,28 @@ def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(t
 
 def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: Path):
     catalog_path = tmp_path / "audio_catalog.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_1",
-                "title": "Runway Pop",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_1",
-                "nativeAudioUrl": "https://instagram.com/audio/1",
-                "moodTags": ["fit_check"],
-                "bestContentTypes": ["v01_original"],
-                "trendStatus": "rising",
-                "safeUsageNotes": "native only",
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_1",
+                        "title": "Runway Pop",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_1",
+                        "nativeAudioUrl": "https://instagram.com/audio/1",
+                        "moodTags": ["fit_check"],
+                        "bestContentTypes": ["v01_original"],
+                        "trendStatus": "rising",
+                        "safeUsageNotes": "native only",
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_catalog(catalog_path)
@@ -1168,7 +1421,10 @@ def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: P
         assert intent["decision"]["decisionConfidence"] in {"usable", "strong"}
         assert intent["recommendations"][0]["audio_title"] == "Runway Pop"
         assert intent["recommendations"][0]["platform_audio_id"] == "ig_1"
-        assert intent["recommendations"][0]["platform_url"] == "https://instagram.com/audio/1"
+        assert (
+            intent["recommendations"][0]["platform_url"]
+            == "https://instagram.com/audio/1"
+        )
         assert intent["recommendations"][0]["freshness"] == "rising"
         assert source["id"]
     finally:
@@ -1177,52 +1433,71 @@ def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: P
 
 def test_threadsdash_audio_intent_uses_destination_account_fit(tmp_path: Path):
     catalog_path = tmp_path / "account_audio_catalog.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_a",
-                "title": "Account A Sound",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_audio_a",
-                "moodTags": ["fit_check"],
-                "bestContentTypes": ["v01_original"],
-                "accountFit": ["ig_a"],
-                "trendStatus": "rising",
-            },
-            {
-                "id": "aud_b",
-                "title": "Account B Sound",
-                "artistName": "DJ B",
-                "platform": "instagram",
-                "nativeAudioId": "ig_audio_b",
-                "moodTags": ["fit_check"],
-                "bestContentTypes": ["v01_original"],
-                "accountFit": ["ig_b"],
-                "trendStatus": "rising",
-            },
-        ],
-    }), encoding="utf-8")
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_a",
+                        "title": "Account A Sound",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_audio_a",
+                        "moodTags": ["fit_check"],
+                        "bestContentTypes": ["v01_original"],
+                        "accountFit": ["ig_a"],
+                        "trendStatus": "rising",
+                    },
+                    {
+                        "id": "aud_b",
+                        "title": "Account B Sound",
+                        "artistName": "DJ B",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_audio_b",
+                        "moodTags": ["fit_check"],
+                        "bestContentTypes": ["v01_original"],
+                        "accountFit": ["ig_b"],
+                        "trendStatus": "rising",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_catalog(catalog_path)
         add_rendered_asset(cf, tmp_path)
-        cf.conn.execute("UPDATE rendered_assets SET caption_generation_json = '{}' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = '{}' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf)
-        cf.create_distribution_plan("asset_1", surface="regular_reel", instagram_account_id="ig_a")
-        cf.create_distribution_plan("asset_1", surface="regular_reel", instagram_account_id="ig_b")
+        cf.create_distribution_plan(
+            "asset_1", surface="regular_reel", instagram_account_id="ig_a"
+        )
+        cf.create_distribution_plan(
+            "asset_1", surface="regular_reel", instagram_account_id="ig_b"
+        )
 
         payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
         by_account = {
-            draft["instagramAccountId"]: draft["metadata"]["campaign_factory"]["audio_intent"]
+            draft["instagramAccountId"]: draft["metadata"]["campaign_factory"][
+                "audio_intent"
+            ]
             for draft in payload["drafts"]
         }
 
-        assert by_account["ig_a"]["decision"]["primaryAudio"]["audio_title"] == "Account A Sound"
-        assert by_account["ig_b"]["decision"]["primaryAudio"]["audio_title"] == "Account B Sound"
+        assert (
+            by_account["ig_a"]["decision"]["primaryAudio"]["audio_title"]
+            == "Account A Sound"
+        )
+        assert (
+            by_account["ig_b"]["decision"]["primaryAudio"]["audio_title"]
+            == "Account B Sound"
+        )
         assert by_account["ig_a"]["recommendations"][0]["account_fit"] == ["ig_a"]
         assert by_account["ig_b"]["recommendations"][0]["account_fit"] == ["ig_b"]
     finally:
@@ -1233,35 +1508,46 @@ def test_pipeline_audio_smoke_helpers_build_recommended_intent(tmp_path: Path):
     csv_path = write_smoke_audio_csv(tmp_path / "audio.csv")
     snapshot_path = write_smoke_audio_snapshot_csv(tmp_path / "audio_snapshot.csv")
     catalog_path = tmp_path / "audio_catalog.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_smoke",
-                "title": "Runway Pop",
-                "artistName": "DJ A",
-                "platform": "instagram",
-                "nativeAudioId": "ig_runway_pop",
-                "nativeAudioUrl": "https://instagram.com/audio/runway_pop",
-                "moodTags": ["glam", "fit_check"],
-                "bestContentTypes": ["regular_reel", "v01_original"],
-                "accountFit": ["smoke_account"],
-                "trendStatus": "rising",
-                "usageCount": 120000,
-                "safeUsageNotes": "Attach natively only",
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_smoke",
+                        "title": "Runway Pop",
+                        "artistName": "DJ A",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_runway_pop",
+                        "nativeAudioUrl": "https://instagram.com/audio/runway_pop",
+                        "moodTags": ["glam", "fit_check"],
+                        "bestContentTypes": ["regular_reel", "v01_original"],
+                        "accountFit": ["smoke_account"],
+                        "trendStatus": "rising",
+                        "usageCount": 120000,
+                        "safeUsageNotes": "Attach natively only",
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_catalog(catalog_path)
         create_smoke_campaign_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_smoke", decision="approved")
         add_smoke_audit_report(cf)
-        payload = build_draft_payloads(cf, campaign_slug="audio_smoke", user_id="smoke_user")
+        payload = build_draft_payloads(
+            cf, campaign_slug="audio_smoke", user_id="smoke_user"
+        )
         intent = assert_smoke_draft_audio_intent(payload)
-        performance = sync_smoke_performance(cf, draft_payload=payload, user_id="smoke_user")
-        contentforge = assert_contentforge_contract_response(CONTENTFORGE_SMOKE_RESPONSE)
+        performance = sync_smoke_performance(
+            cf, draft_payload=payload, user_id="smoke_user"
+        )
+        contentforge = assert_contentforge_contract_response(
+            CONTENTFORGE_SMOKE_RESPONSE
+        )
 
         assert csv_path.read_text(encoding="utf-8") == SMOKE_CSV
         assert snapshot_path.read_text(encoding="utf-8") == SMOKE_SNAPSHOT_CSV
@@ -1270,17 +1556,29 @@ def test_pipeline_audio_smoke_helpers_build_recommended_intent(tmp_path: Path):
         assert contentforge["readinessSummary"]["uploadReady"] is True
         validate_performance_sync(performance)
         assert performance["inserted"] == 1
-        assert performance["summary"]["leaderboards"]["audioRecommendations"][0]["audio"]["audioTitle"] == "Runway Pop"
+        assert (
+            performance["summary"]["leaderboards"]["audioRecommendations"][0]["audio"][
+                "audioTitle"
+            ]
+            == "Runway Pop"
+        )
     finally:
         cf.close()
 
 
 def test_pipeline_full_smoke_mocked_generation_intake_preserves_lineage(tmp_path: Path):
     projects_root = tmp_path / "Projects"
-    for repo in ["reel_factory", "contentforge", "reference_factory", "ThreadsDashboard"]:
+    for repo in [
+        "reel_factory",
+        "contentforge",
+        "reference_factory",
+        "ThreadsDashboard",
+    ]:
         (projects_root / repo).mkdir(parents=True)
 
-    result = _run_mocked_generation_intake_smoke(projects_root=projects_root, workspace=tmp_path / "workspace")
+    result = _run_mocked_generation_intake_smoke(
+        projects_root=projects_root, workspace=tmp_path / "workspace"
+    )
 
     assert result["ok"] is True
     checks = result["checks"]
@@ -1305,21 +1603,30 @@ def test_contentforge_smoke_contract_rejects_malformed_response():
 
 def test_make_batch_returns_compact_operator_summary(tmp_path: Path, monkeypatch):
     bank_path = tmp_path / "campaign_reference_bank.json"
-    bank_path.write_text(json.dumps({
-        "schema": "reference_factory.campaign_reference_bank.v1",
-        "clusters": [
+    bank_path.write_text(
+        json.dumps(
             {
-                "clusterRank": 1,
-                "clusterKey": "caption_led_visual::direct_response::question_hook",
-                "label": "caption led visual / direct response / question hook",
-                "visualFormat": "caption_led_visual",
-                "hookType": "direct_response",
-                "captionArchetype": "question_hook",
-                "captionFormulas": [{"formula": "{direct question}?", "exampleCaptions": ["red or pink ?"]}],
-                "suggestedVariantRecipes": ["v01_original", "v05_hflip"],
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterRank": 1,
+                        "clusterKey": "caption_led_visual::direct_response::question_hook",
+                        "label": "caption led visual / direct response / question hook",
+                        "visualFormat": "caption_led_visual",
+                        "hookType": "direct_response",
+                        "captionArchetype": "question_hook",
+                        "captionFormulas": [
+                            {
+                                "formula": "{direct question}?",
+                                "exampleCaptions": ["red or pink ?"],
+                            }
+                        ],
+                        "suggestedVariantRecipes": ["v01_original", "v05_hflip"],
+                    }
+                ],
             }
-        ],
-    }))
+        )
+    )
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"video")
@@ -1337,12 +1644,26 @@ def test_make_batch_returns_compact_operator_summary(tmp_path: Path, monkeypatch
             }
 
         monkeypatch.setattr(cf, "run_reel_factory", fake_run_reel)
-        monkeypatch.setattr(cf, "sync_reel_outputs", lambda **kwargs: {
-            "synced": [{"id": "asset_1"}],
-        })
-        monkeypatch.setattr(contentforge_adapter, "audit_campaign", lambda *args, **kwargs: {
-            "reports": [{"overallVerdict": "warn", "warnings": ["review"], "failedChecks": []}],
-        })
+        monkeypatch.setattr(
+            cf,
+            "sync_reel_outputs",
+            lambda **kwargs: {
+                "synced": [{"id": "asset_1"}],
+            },
+        )
+        monkeypatch.setattr(
+            contentforge_adapter,
+            "audit_campaign",
+            lambda *args, **kwargs: {
+                "reports": [
+                    {
+                        "overallVerdict": "warn",
+                        "warnings": ["review"],
+                        "failedChecks": [],
+                    }
+                ],
+            },
+        )
 
         result = cf.make_batch(
             folder=folder,
@@ -1353,7 +1674,10 @@ def test_make_batch_returns_compact_operator_summary(tmp_path: Path, monkeypatch
             recipes=None,
         )
         assert result["import"]["importedCount"] == 1
-        assert result["referenceSelection"]["clusterKey"] == "caption_led_visual::direct_response::question_hook"
+        assert (
+            result["referenceSelection"]["clusterKey"]
+            == "caption_led_visual::direct_response::question_hook"
+        )
         assert result["referenceSelection"]["recipes"] == ["v01_original", "v05_hflip"]
         assert result["prepare"]["preparedCount"] == 1
         assert result["run"]["runCount"] == 1
@@ -1370,21 +1694,35 @@ def test_import_folder_rejects_raw_reel_review_batch_manifest(tmp_path: Path):
     folder = tmp_path / "review_batch"
     folder.mkdir()
     (folder / "clip.mp4").write_bytes(b"video")
-    (folder / "review_manifest.json").write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
+    (folder / "review_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
     cf = make_factory(tmp_path)
     try:
-        with pytest.raises(ValueError, match="guard-passed Reel Factory review package"):
+        with pytest.raises(
+            ValueError, match="guard-passed Reel Factory review package"
+        ):
             cf.import_folder(folder, campaign_slug="batch", model_slug="model")
     finally:
         cf.close()
 
 
-def test_import_folder_rejects_review_package_missing_contentforge_audit(tmp_path: Path):
+def test_import_folder_rejects_review_package_missing_contentforge_audit(
+    tmp_path: Path,
+):
     folder = tmp_path / "review_batch"
     folder.mkdir()
     clip = folder / "clip.mp4"
@@ -1392,23 +1730,47 @@ def test_import_folder_rejects_review_package_missing_contentforge_audit(tmp_pat
     clip.write_bytes(b"video")
     overlay.write_bytes(b"png")
     raw_manifest = folder / "review_manifest.json"
-    raw_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
-    }))
-    (folder / "review_package.json").write_text(json.dumps({
-        "schema": "reel_factory.review_batch_package.v1",
-        "manifestPath": str(raw_manifest),
-        "count": 1,
-        "fileSha256": {
-            str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
-            str(clip.resolve()): hashlib.sha256(clip.read_bytes()).hexdigest(),
-            str(overlay.resolve()): hashlib.sha256(overlay.read_bytes()).hexdigest(),
-        },
-        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
-    }))
+    raw_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
+    (folder / "review_package.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.review_batch_package.v1",
+                "manifestPath": str(raw_manifest),
+                "count": 1,
+                "fileSha256": {
+                    str(raw_manifest.resolve()): hashlib.sha256(
+                        raw_manifest.read_bytes()
+                    ).hexdigest(),
+                    str(clip.resolve()): hashlib.sha256(clip.read_bytes()).hexdigest(),
+                    str(overlay.resolve()): hashlib.sha256(
+                        overlay.read_bytes()
+                    ).hexdigest(),
+                },
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
     cf = make_factory(tmp_path)
     try:
         with pytest.raises(ValueError, match="missing ContentForge audit path"):
@@ -1417,18 +1779,30 @@ def test_import_folder_rejects_review_package_missing_contentforge_audit(tmp_pat
         cf.close()
 
 
-def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_review_batch_contentforge_audit_updates_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     source = tmp_path / "source.mp4"
     variant = tmp_path / "variant.mp4"
     source.write_bytes(b"source")
     variant.write_bytes(b"variant")
     manifest = tmp_path / "review_manifest.json"
-    manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(tmp_path),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(variant), "captionHash": "abc", "overlayPng": str(tmp_path / "overlay.png")}],
-    }))
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(tmp_path),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(variant),
+                        "captionHash": "abc",
+                        "overlayPng": str(tmp_path / "overlay.png"),
+                    }
+                ],
+            }
+        )
+    )
 
     @contextmanager
     def fake_stage(_root, _source, _variants):
@@ -1441,10 +1815,16 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
         return {
             "auditProfile": "campaign_factory_v1",
             "overallVerdict": "warn",
-            "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": ["forensics_audio_missing"]},
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingCodes": [],
+                "warningCodes": ["forensics_audio_missing"],
+            },
         }
 
-    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(
+        contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage
+    )
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
 
     report = contentforge_adapter.audit_review_batch_manifest(
@@ -1465,7 +1845,9 @@ def test_review_batch_contentforge_audit_updates_manifest(tmp_path: Path, monkey
     assert captured["target_file"] == variant.name
 
 
-def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_review_batch_contentforge_audit_writes_per_file_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     source = tmp_path / "source.mp4"
     first = tmp_path / "first.mp4"
     second = tmp_path / "second.mp4"
@@ -1473,15 +1855,27 @@ def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path,
     first.write_bytes(b"first")
     second.write_bytes(b"second")
     manifest = tmp_path / "review_manifest.json"
-    manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(tmp_path),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [
-            {"output": str(first), "captionHash": "abc", "overlayPng": str(tmp_path / "first.png")},
-            {"output": str(second), "captionHash": "def", "overlayPng": str(tmp_path / "second.png")},
-        ],
-    }))
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(tmp_path),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(first),
+                        "captionHash": "abc",
+                        "overlayPng": str(tmp_path / "first.png"),
+                    },
+                    {
+                        "output": str(second),
+                        "captionHash": "def",
+                        "overlayPng": str(tmp_path / "second.png"),
+                    },
+                ],
+            }
+        )
+    )
 
     @contextmanager
     def fake_stage(_root, _source, _variants):
@@ -1495,7 +1889,11 @@ def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path,
             return {
                 "auditProfile": "campaign_factory_v1",
                 "overallVerdict": "warn",
-                "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": ["aggregate_review"]},
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "blockingCodes": [],
+                    "warningCodes": ["aggregate_review"],
+                },
             }
         if kwargs["target_file"] == first.name:
             return {
@@ -1504,7 +1902,13 @@ def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path,
                 "safeZoneScore": 98,
                 "readabilityScore": 91,
                 "hookVisibilityScore": 88,
-                "ocr": {"available": True, "engine": "tesseract", "sampleCount": 3, "avgConfidence": 86, "results": []},
+                "ocr": {
+                    "available": True,
+                    "engine": "tesseract",
+                    "sampleCount": 3,
+                    "avgConfidence": 86,
+                    "results": [],
+                },
                 "timings": {"advisory": {"ocrMs": 12}},
                 "readinessSummary": {
                     "uploadReady": True,
@@ -1520,17 +1924,31 @@ def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path,
             "safeZoneScore": 62,
             "readabilityScore": 44,
             "hookVisibilityScore": 55,
-            "ocr": {"available": True, "engine": "tesseract", "sampleCount": 3, "avgConfidence": 41, "results": []},
+            "ocr": {
+                "available": True,
+                "engine": "tesseract",
+                "sampleCount": 3,
+                "avgConfidence": 41,
+                "results": [],
+            },
             "readinessSummary": {
                 "uploadReady": False,
                 "recommendedAction": "review",
                 "blockingCodes": [],
                 "warningCodes": ["caption_low_contrast", "caption_too_small"],
-                "topWarnings": [{"code": "caption_low_contrast", "severity": "warn", "message": "Review caption contrast."}],
+                "topWarnings": [
+                    {
+                        "code": "caption_low_contrast",
+                        "severity": "warn",
+                        "message": "Review caption contrast.",
+                    }
+                ],
             },
         }
 
-    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(
+        contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage
+    )
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
 
     report = contentforge_adapter.audit_review_batch_manifest(
@@ -1548,27 +1966,45 @@ def test_review_batch_contentforge_audit_writes_per_file_results(tmp_path: Path,
     assert calls[1]["comparison_files"] == []
     assert calls[2]["target_file"] == second.name
     assert calls[2]["comparison_files"] == []
-    assert [row["outputPath"] for row in report["fileResults"]] == [str(first.resolve()), str(second.resolve())]
+    assert [row["outputPath"] for row in report["fileResults"]] == [
+        str(first.resolve()),
+        str(second.resolve()),
+    ]
     assert [row["status"] for row in report["fileResults"]] == ["ready", "review"]
     assert report["fileStatusCounts"] == {"ready": 1, "review": 1}
     assert report["fileOverallVerdictCounts"] == {"pass": 1, "warn": 1}
-    assert report["warningCodeFrequency"] == {"caption_low_contrast": 1, "caption_too_small": 1}
+    assert report["warningCodeFrequency"] == {
+        "caption_low_contrast": 1,
+        "caption_too_small": 1,
+    }
     assert report["blockingCodeFrequency"] == {}
     assert report["fileResults"][1]["topWarnings"][0]["code"] == "caption_low_contrast"
     assert report["fileResults"][1]["safeZoneScore"] == 62
 
 
-def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     source = tmp_path / "source.mp4"
     first = tmp_path / "first.mp4"
     source.write_bytes(b"source")
     first.write_bytes(b"first")
     manifest = tmp_path / "review_manifest.json"
-    manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(tmp_path),
-        "rows": [{"output": str(first), "captionHash": "abc", "overlayPng": str(tmp_path / "first.png")}],
-    }))
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(tmp_path),
+                "rows": [
+                    {
+                        "output": str(first),
+                        "captionHash": "abc",
+                        "overlayPng": str(tmp_path / "first.png"),
+                    }
+                ],
+            }
+        )
+    )
 
     @contextmanager
     def fake_stage(_root, _source, _variants):
@@ -1582,11 +2018,17 @@ def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(t
             return {
                 "auditProfile": "campaign_factory_v1",
                 "overallVerdict": "pass",
-                "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": []},
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "blockingCodes": [],
+                    "warningCodes": [],
+                },
             }
         raise RuntimeError("ContentForge timed out")
 
-    monkeypatch.setattr(contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage)
+    monkeypatch.setattr(
+        contentforge_adapter, "_stage_contentforge_variation_batch", fake_stage
+    )
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
 
     report = contentforge_adapter.audit_review_batch_manifest(
@@ -1602,7 +2044,9 @@ def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(t
     assert report["fileResults"][0]["error"] == "ContentForge timed out"
 
 
-def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_import_folder_accepts_guarded_reel_review_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     folder = tmp_path / "review_batch"
     folder.mkdir()
     clip = folder / "clip.mp4"
@@ -1613,66 +2057,112 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
     contentforge_audit = folder / "contentforge_audit.json"
     clip.write_bytes(b"video")
     overlay.write_bytes(b"png")
-    audio_intent.write_text(json.dumps({
-        "schema": "audio_intent.v1",
-        "mode": "platform_auto_music",
-        "humanReviewRequired": True,
-    }))
-    lineage.write_text(json.dumps({
-        "schema": "campaign_factory.generated_asset_lineage.v1",
-        "workflow": "reel_factory_review_batch",
-        "pipelineTraceId": "trace_review_1",
-        "captionPlacementDecision": {
-            "status": "passed",
-            "selectedLane": "top",
-            "scores": {"top": 0.91, "center": 0.42, "bottom": 0.73},
-            "components": {"top": {}, "center": {}, "bottom": {}},
-            "sampleCount": 3,
-        },
-    }))
-    readiness.write_text(json.dumps({"summary": {"total": 1, "ready": 1, "warn": 0, "notReady": 0}}))
-    contentforge_audit.write_text(json.dumps({
-        "auditProfile": "campaign_factory_v1",
-        "variants": 1,
-        "httpOk": 1,
-        "verdictCounts": {"pass": 1, "fail": 0},
-        "overallVerdict": "pass",
-        "readinessSummary": {"uploadReady": True, "blockingCodes": []},
-        "blockingCodes": [],
-    }))
+    audio_intent.write_text(
+        json.dumps(
+            {
+                "schema": "audio_intent.v1",
+                "mode": "platform_auto_music",
+                "humanReviewRequired": True,
+            }
+        )
+    )
+    lineage.write_text(
+        json.dumps(
+            {
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "workflow": "reel_factory_review_batch",
+                "pipelineTraceId": "trace_review_1",
+                "captionPlacementDecision": {
+                    "status": "passed",
+                    "selectedLane": "top",
+                    "scores": {"top": 0.91, "center": 0.42, "bottom": 0.73},
+                    "components": {"top": {}, "center": {}, "bottom": {}},
+                    "sampleCount": 3,
+                },
+            }
+        )
+    )
+    readiness.write_text(
+        json.dumps({"summary": {"total": 1, "ready": 1, "warn": 0, "notReady": 0}})
+    )
+    contentforge_audit.write_text(
+        json.dumps(
+            {
+                "auditProfile": "campaign_factory_v1",
+                "variants": 1,
+                "httpOk": 1,
+                "verdictCounts": {"pass": 1, "fail": 0},
+                "overallVerdict": "pass",
+                "readinessSummary": {"uploadReady": True, "blockingCodes": []},
+                "blockingCodes": [],
+            }
+        )
+    )
     raw_manifest = folder / "review_manifest.json"
-    raw_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "contentForgeAuditPath": str(contentforge_audit),
-        "font": "Instagram Sans Condensed Bold",
-        "renderer": "reel_factory.caption_render",
-        "style": "ig",
-        "captionSelection": {"source": "caption bank"},
-        "backgroundPlate": False,
-        "rows": [{
-            "output": str(clip),
-            "captionHash": "abc",
-            "captionText": "caption bank hook",
-            "sourceBanks": ["stacey_hooks"],
-            "selectedBand": "top",
-            "captionPlacementPolicy": "focal-safe",
-            "overlayPng": str(overlay),
-        }],
-    }))
-    hashed_paths = [raw_manifest, contentforge_audit, readiness, clip, overlay, audio_intent, lineage]
-    (folder / "review_package.json").write_text(json.dumps({
-        "schema": "reel_factory.review_batch_package.v1",
-        "manifestPath": str(raw_manifest),
-        "count": 1,
-        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
-        "fileSha256": {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest() for path in hashed_paths},
-        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
-    }))
+    raw_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "contentForgeAuditPath": str(contentforge_audit),
+                "font": "Instagram Sans Condensed Bold",
+                "renderer": "reel_factory.caption_render",
+                "style": "ig",
+                "captionSelection": {"source": "caption bank"},
+                "backgroundPlate": False,
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "captionText": "caption bank hook",
+                        "sourceBanks": ["stacey_hooks"],
+                        "selectedBand": "top",
+                        "captionPlacementPolicy": "focal-safe",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
+    hashed_paths = [
+        raw_manifest,
+        contentforge_audit,
+        readiness,
+        clip,
+        overlay,
+        audio_intent,
+        lineage,
+    ]
+    (folder / "review_package.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.review_batch_package.v1",
+                "manifestPath": str(raw_manifest),
+                "count": 1,
+                "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+                "fileSha256": {
+                    str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in hashed_paths
+                },
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
 
     def fake_guard(*_args, **_kwargs):
-        return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps({"status": "ready", "count": 1}), stderr="")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"status": "ready", "count": 1}),
+            stderr="",
+        )
 
     monkeypatch.setattr("campaign_factory.asset_import.subprocess.run", fake_guard)
     cf = make_factory(tmp_path)
@@ -1689,20 +2179,30 @@ def test_import_folder_accepts_guarded_reel_review_package(tmp_path: Path, monke
         generation = json.loads(rendered["caption_generation_json"])
         assert generation["audioIntent"]["mode"] == "platform_auto_music"
         validate_audio_intent(generation["audioIntent"])
-        assert generation["generatedAssetLineage"]["workflow"] == "reel_factory_review_batch"
+        assert (
+            generation["generatedAssetLineage"]["workflow"]
+            == "reel_factory_review_batch"
+        )
         context = json.loads(rendered["caption_outcome_context_json"])
         assert context["captionPlacementDecision"]["status"] == "passed"
-        audit = cf.conn.execute("SELECT * FROM audit_reports WHERE rendered_asset_id = ?", (rendered["id"],)).fetchone()
+        audit = cf.conn.execute(
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = ?", (rendered["id"],)
+        ).fetchone()
         assert audit["overall_verdict"] == "pass"
         assert audit["report_path"] == str(contentforge_audit)
         assert cf.export_manifest(campaign_slug="batch")["assets"] == []
-        cf.review_rendered_asset(rendered["id"], decision="approved", notes="certification smoke")
+        cf.review_rendered_asset(
+            rendered["id"], decision="approved", notes="certification smoke"
+        )
         exported = cf.export_manifest(campaign_slug="batch")
         assert len(exported["assets"]) == 1
         assert exported["assets"][0]["renderedAssetId"] == rendered["id"]
         assert exported["assets"][0]["contentForgeRunId"] == "reel_review_batch"
         assert exported["assets"][0]["auditSummary"]["overallVerdict"] == "pass"
-        assert exported["assets"][0]["generatedAssetLineage"]["pipelineTraceId"] == "trace_review_1"
+        assert (
+            exported["assets"][0]["generatedAssetLineage"]["pipelineTraceId"]
+            == "trace_review_1"
+        )
     finally:
         cf.close()
 
@@ -1713,28 +2213,52 @@ def test_import_folder_rejects_self_attested_reel_review_package(tmp_path: Path)
     (folder / "clip.mp4").write_bytes(b"video")
     (folder / "clip.png").write_bytes(b"png")
     contentforge_audit = folder / "contentforge_audit.json"
-    contentforge_audit.write_text(json.dumps({
-        "auditProfile": "campaign_factory_v1",
-        "variants": 1,
-        "httpOk": 1,
-        "verdictCounts": {"pass": 1, "fail": 0},
-        "overallVerdict": "pass",
-    }))
+    contentforge_audit.write_text(
+        json.dumps(
+            {
+                "auditProfile": "campaign_factory_v1",
+                "variants": 1,
+                "httpOk": 1,
+                "verdictCounts": {"pass": 1, "fail": 0},
+                "overallVerdict": "pass",
+            }
+        )
+    )
     raw_manifest = folder / "review_manifest.json"
-    raw_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "contentForgeAuditPath": str(contentforge_audit),
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
-    (folder / "review_package.json").write_text(json.dumps({
-        "schema": "reel_factory.review_batch_package.v1",
-        "manifestPath": str(raw_manifest),
-        "count": 1,
-        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
+    raw_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "contentForgeAuditPath": str(contentforge_audit),
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
+    (folder / "review_package.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.review_batch_package.v1",
+                "manifestPath": str(raw_manifest),
+                "count": 1,
+                "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
 
     cf = make_factory(tmp_path)
     try:
@@ -1750,27 +2274,61 @@ def test_import_folder_rejects_foreign_reel_review_package(tmp_path: Path):
     (folder / "clip.mp4").write_bytes(b"video")
     (folder / "clip.png").write_bytes(b"png")
     raw_manifest = folder / "review_manifest.json"
-    raw_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
+    raw_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
     foreign_manifest = tmp_path / "foreign_manifest.json"
-    foreign_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
-    (folder / "review_package.json").write_text(json.dumps({
-        "schema": "reel_factory.review_batch_package.v1",
-        "manifestPath": str(foreign_manifest),
-        "count": 1,
-        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
-        "fileSha256": {str(foreign_manifest): hashlib.sha256(foreign_manifest.read_bytes()).hexdigest()},
-        "rows": [{"output": str(folder / "clip.mp4"), "captionHash": "abc", "overlayPng": str(folder / "clip.png")}],
-    }))
+    foreign_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
+    (folder / "review_package.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.review_batch_package.v1",
+                "manifestPath": str(foreign_manifest),
+                "count": 1,
+                "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+                "fileSha256": {
+                    str(foreign_manifest): hashlib.sha256(
+                        foreign_manifest.read_bytes()
+                    ).hexdigest()
+                },
+                "rows": [
+                    {
+                        "output": str(folder / "clip.mp4"),
+                        "captionHash": "abc",
+                        "overlayPng": str(folder / "clip.png"),
+                    }
+                ],
+            }
+        )
+    )
 
     cf = make_factory(tmp_path)
     try:
@@ -1780,7 +2338,9 @@ def test_import_folder_rejects_foreign_reel_review_package(tmp_path: Path):
         cf.close()
 
 
-def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_import_folder_rejects_stale_reel_review_package_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     folder = tmp_path / "review_batch"
     folder.mkdir()
     clip = folder / "clip.mp4"
@@ -1788,40 +2348,80 @@ def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, mo
     contentforge_audit = folder / "contentforge_audit.json"
     clip.write_bytes(b"video")
     overlay.write_bytes(b"png")
-    contentforge_audit.write_text(json.dumps({
-        "auditProfile": "campaign_factory_v1",
-        "variants": 1,
-        "httpOk": 1,
-        "verdictCounts": {"pass": 1, "fail": 0},
-        "overallVerdict": "pass",
-    }))
+    contentforge_audit.write_text(
+        json.dumps(
+            {
+                "auditProfile": "campaign_factory_v1",
+                "variants": 1,
+                "httpOk": 1,
+                "verdictCounts": {"pass": 1, "fail": 0},
+                "overallVerdict": "pass",
+            }
+        )
+    )
     raw_manifest = folder / "review_manifest.json"
-    raw_manifest.write_text(json.dumps({
-        "schema": "creator_os.reel_review_batch.v1",
-        "outputDir": str(folder),
-        "captionPlacementPolicy": "focal-safe",
-        "contentForgeAuditPath": str(contentforge_audit),
-        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
-    }))
+    raw_manifest.write_text(
+        json.dumps(
+            {
+                "schema": "creator_os.reel_review_batch.v1",
+                "outputDir": str(folder),
+                "captionPlacementPolicy": "focal-safe",
+                "contentForgeAuditPath": str(contentforge_audit),
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
     stale_hash = hashlib.sha256(b"old video").hexdigest()
-    (folder / "review_package.json").write_text(json.dumps({
-        "schema": "reel_factory.review_batch_package.v1",
-        "manifestPath": str(raw_manifest),
-        "count": 1,
-        "guard": {"status": "ready", "blockingReasons": [], "count": 1},
-        "fileSha256": {
-            str(raw_manifest.resolve()): hashlib.sha256(raw_manifest.read_bytes()).hexdigest(),
-            str(contentforge_audit.resolve()): hashlib.sha256(contentforge_audit.read_bytes()).hexdigest(),
-            str(clip.resolve()): stale_hash,
-            str(overlay.resolve()): hashlib.sha256(overlay.read_bytes()).hexdigest(),
-        },
-        "rows": [{"output": str(clip), "captionHash": "abc", "overlayPng": str(overlay)}],
-    }))
+    (folder / "review_package.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.review_batch_package.v1",
+                "manifestPath": str(raw_manifest),
+                "count": 1,
+                "guard": {"status": "ready", "blockingReasons": [], "count": 1},
+                "fileSha256": {
+                    str(raw_manifest.resolve()): hashlib.sha256(
+                        raw_manifest.read_bytes()
+                    ).hexdigest(),
+                    str(contentforge_audit.resolve()): hashlib.sha256(
+                        contentforge_audit.read_bytes()
+                    ).hexdigest(),
+                    str(clip.resolve()): stale_hash,
+                    str(overlay.resolve()): hashlib.sha256(
+                        overlay.read_bytes()
+                    ).hexdigest(),
+                },
+                "rows": [
+                    {
+                        "output": str(clip),
+                        "captionHash": "abc",
+                        "overlayPng": str(overlay),
+                    }
+                ],
+            }
+        )
+    )
 
     def fake_guard(*_args, **_kwargs):
-        return subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps({"status": "ready", "count": 1}), stderr="")
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"status": "ready", "count": 1}),
+            stderr="",
+        )
 
-    monkeypatch.setattr(asset_import_module, "subprocess", type("SubprocessStub", (), {"run": staticmethod(fake_guard)}), raising=False)
+    monkeypatch.setattr(
+        asset_import_module,
+        "subprocess",
+        type("SubprocessStub", (), {"run": staticmethod(fake_guard)}),
+        raising=False,
+    )
     cf = make_factory(tmp_path)
     try:
         with pytest.raises(ValueError, match="review package hash mismatch"):
@@ -1830,13 +2430,19 @@ def test_import_folder_rejects_stale_reel_review_package_hash(tmp_path: Path, mo
         cf.close()
 
 
-def test_finished_video_intake_uses_reference_pipeline_metadata(tmp_path: Path, monkeypatch):
+def test_finished_video_intake_uses_reference_pipeline_metadata(
+    tmp_path: Path, monkeypatch
+):
     source = tmp_path / "mirror_selfie_finished.mp4"
     source.write_bytes(b"finished video")
     cf = make_factory(tmp_path)
     try:
         captured: dict[str, object] = {}
-        monkeypatch.setattr(core_module, "probe_video_shape", lambda path: {"effectiveAspectRatio": 1080 / 1920})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_shape",
+            lambda path: {"effectiveAspectRatio": 1080 / 1920},
+        )
 
         def fake_make_batch(**kwargs):
             captured.update(kwargs)
@@ -1868,50 +2474,72 @@ def test_finished_video_intake_uses_reference_pipeline_metadata(tmp_path: Path, 
         assert captured["dry_run_export"] is True
         assert captured["variant_count"] == 3
         assert captured["recipes"] == ["v01_original"]
-        assert source_prompt["strategy"]["distributionPriority"] == "instagram_reels_first"
+        assert (
+            source_prompt["strategy"]["distributionPriority"] == "instagram_reels_first"
+        )
         assert source_prompt["strategy"]["primaryMetric"] == "views_reach"
         assert source_prompt["strategy"]["humanReviewRequired"] is True
         assert source_prompt["strategy"]["nativeAudioRequired"] is True
         assert source_prompt["sourcePreflight"]["warnings"] == []
-        assert source_prompt["generatedAssetLineage"]["schema"] == "campaign_factory.generated_asset_lineage.v1"
-        assert source_prompt["generatedAssetLineage"]["source"]["formatType"] == "mirror_selfie"
+        assert (
+            source_prompt["generatedAssetLineage"]["schema"]
+            == "campaign_factory.generated_asset_lineage.v1"
+        )
+        assert (
+            source_prompt["generatedAssetLineage"]["source"]["formatType"]
+            == "mirror_selfie"
+        )
     finally:
         cf.close()
 
 
-def test_finished_video_intake_accepts_higgsfield_source_lineage(tmp_path: Path, monkeypatch):
+def test_finished_video_intake_accepts_higgsfield_source_lineage(
+    tmp_path: Path, monkeypatch
+):
     source = tmp_path / "generated_finished.mp4"
     source.write_bytes(b"finished video")
     lineage_path = tmp_path / "lineage.json"
-    lineage_path.write_text(json.dumps({
-        "schema": "campaign_factory.generated_asset_lineage.v1",
-        "source": {
-            "referenceId": "ref_001",
-            "patternCardId": "pattern_001",
-            "promptId": "prompt_001",
-            "formatType": "mirror_selfie",
-        },
-        "generation": {
-            "tool": "higgsfield_kling_cli",
-            "modelProfile": "Stacey",
-            "soulId": "5828d958-91dd-4d6d-8909-934503f47644",
-            "imageJobId": "img_job",
-            "videoJobId": "vid_job",
-            "imagePath": str(tmp_path / "image.png"),
-            "assetPath": str(source),
-            "status": "generated",
-        },
-        "review": {"humanReviewRequired": True, "status": "draft"},
-        "quality": {"copyRisk": "medium"},
-    }), encoding="utf-8")
+    lineage_path.write_text(
+        json.dumps(
+            {
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "source": {
+                    "referenceId": "ref_001",
+                    "patternCardId": "pattern_001",
+                    "promptId": "prompt_001",
+                    "formatType": "mirror_selfie",
+                },
+                "generation": {
+                    "tool": "higgsfield_kling_cli",
+                    "modelProfile": "Stacey",
+                    "soulId": "5828d958-91dd-4d6d-8909-934503f47644",
+                    "imageJobId": "img_job",
+                    "videoJobId": "vid_job",
+                    "imagePath": str(tmp_path / "image.png"),
+                    "assetPath": str(source),
+                    "status": "generated",
+                },
+                "review": {"humanReviewRequired": True, "status": "draft"},
+                "quality": {"copyRisk": "medium"},
+            }
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         captured: dict[str, object] = {}
-        monkeypatch.setattr(core_module, "probe_video_shape", lambda path: {"effectiveAspectRatio": 1080 / 1920})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_shape",
+            lambda path: {"effectiveAspectRatio": 1080 / 1920},
+        )
 
         def fake_make_batch(**kwargs):
             captured.update(kwargs)
-            return {"schema": "campaign_factory.make_batch.v1", "campaign": kwargs["campaign_slug"]}
+            return {
+                "schema": "campaign_factory.make_batch.v1",
+                "campaign": kwargs["campaign_slug"],
+            }
 
         monkeypatch.setattr(cf, "make_batch", fake_make_batch)
 
@@ -1947,13 +2575,15 @@ def test_finished_video_preflight_flags_non_reels_canvas(tmp_path: Path):
         cf.close()
 
 
-def test_archive_inventory_report_requires_enough_clean_stacey_candidates(tmp_path: Path, monkeypatch):
+def test_archive_inventory_report_requires_enough_clean_stacey_candidates(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
         archive.mkdir()
         for index in range(3):
-            (archive / f"stacey_{index}.mp4").write_bytes(f"video-{index}".encode("utf-8"))
+            (archive / f"stacey_{index}.mp4").write_bytes(f"video-{index}".encode())
 
         monkeypatch.setattr(
             core_module,
@@ -1987,7 +2617,9 @@ def test_archive_inventory_report_requires_enough_clean_stacey_candidates(tmp_pa
         cf.close()
 
 
-def test_archive_inventory_report_blocks_when_inventory_is_short(tmp_path: Path, monkeypatch):
+def test_archive_inventory_report_blocks_when_inventory_is_short(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
@@ -2022,7 +2654,9 @@ def test_archive_inventory_report_blocks_when_inventory_is_short(tmp_path: Path,
         cf.close()
 
 
-def test_archive_inventory_report_blocks_duplicates_and_corrupt_files(tmp_path: Path, monkeypatch):
+def test_archive_inventory_report_blocks_duplicates_and_corrupt_files(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
@@ -2062,16 +2696,31 @@ def test_archive_inventory_report_blocks_duplicates_and_corrupt_files(tmp_path: 
         assert result["duplicateSourceFingerprint"] == 1
         assert result["corruptedOrInvalid"] == 1
         assert result["cleanStaceyCandidates"] == 2
-        blocked = {item["filename"]: item for item in result["items"] if item["status"] == "blocked"}
-        assert blocked["stacey_dup_b.mp4"]["blockingReasons"] == ["duplicate_source_fingerprint"]
+        blocked = {
+            item["filename"]: item
+            for item in result["items"]
+            if item["status"] == "blocked"
+        }
+        assert blocked["stacey_dup_b.mp4"]["blockingReasons"] == [
+            "duplicate_source_fingerprint"
+        ]
         assert "probe_failed" in blocked["stacey_corrupt.mp4"]["blockingReasons"]
-        clean_items = [item for item in result["items"] if item["status"] == "clean_source_candidate"]
-        assert all(item["audioStatus"] == "missing_needs_campaign_audio" for item in clean_items)
+        clean_items = [
+            item
+            for item in result["items"]
+            if item["status"] == "clean_source_candidate"
+        ]
+        assert all(
+            item["audioStatus"] == "missing_needs_campaign_audio"
+            for item in clean_items
+        )
     finally:
         cf.close()
 
 
-def test_archive_inventory_report_blocks_existing_campaign_duplicates(tmp_path: Path, monkeypatch):
+def test_archive_inventory_report_blocks_existing_campaign_duplicates(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
@@ -2089,9 +2738,9 @@ def test_archive_inventory_report_blocks_existing_campaign_duplicates(tmp_path: 
             VALUES ('src_existing', ?, ?, ?, ?, ?, 'existing.mp4', 'video', 'instagram',
                     '{}', 'existing asset', '[]', 'imported', ?, ?)
             """,
-                (
-                    campaign["id"],
-                    model["id"],
+            (
+                campaign["id"],
+                model["id"],
                 digest,
                 str(existing),
                 str(existing),
@@ -2124,12 +2773,16 @@ def test_archive_inventory_report_blocks_existing_campaign_duplicates(tmp_path: 
 
         assert result["status"] == "blocked"
         assert result["duplicateContentHash"] == 1
-        assert result["items"][0]["blockingReasons"] == ["duplicate_existing_campaign_asset"]
+        assert result["items"][0]["blockingReasons"] == [
+            "duplicate_existing_campaign_asset"
+        ]
     finally:
         cf.close()
 
 
-def test_archive_candidate_quality_report_ranks_clean_candidates_and_excludes_worst_crop(tmp_path: Path, monkeypatch):
+def test_archive_candidate_quality_report_ranks_clean_candidates_and_excludes_worst_crop(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
@@ -2190,7 +2843,9 @@ def test_archive_candidate_quality_report_ranks_clean_candidates_and_excludes_wo
             requested_count=2,
         )
 
-        assert quality["schema"] == "campaign_factory.archive_candidate_quality_report.v1"
+        assert (
+            quality["schema"] == "campaign_factory.archive_candidate_quality_report.v1"
+        )
         assert quality["status"] == "ready_for_source_approval"
         selected_names = {
             item["filename"]
@@ -2198,7 +2853,9 @@ def test_archive_candidate_quality_report_ranks_clean_candidates_and_excludes_wo
             if item["recommendation"] == "selected_for_source_approval"
         }
         assert selected_names == {"good_vertical.mp4", "low_res.mp4"}
-        square = next(item for item in quality["items"] if item["filename"] == "square_crop.mp4")
+        square = next(
+            item for item in quality["items"] if item["filename"] == "square_crop.mp4"
+        )
         assert square["estimatedCropSeverity"] == "severe"
         assert square["recommendation"] == "alternate"
         assert Path(quality["reportPath"]).exists()
@@ -2206,7 +2863,9 @@ def test_archive_candidate_quality_report_ranks_clean_candidates_and_excludes_wo
         cf.close()
 
 
-def test_archive_candidate_quality_report_blocks_when_ranked_inventory_is_short(tmp_path: Path, monkeypatch):
+def test_archive_candidate_quality_report_blocks_when_ranked_inventory_is_short(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         archive = tmp_path / "archive"
@@ -2273,11 +2932,18 @@ def test_finished_video_style_lane_can_override_format(tmp_path: Path, monkeypat
     cf = make_factory(tmp_path)
     try:
         captured: dict[str, object] = {}
-        monkeypatch.setattr(core_module, "probe_video_shape", lambda path: {"effectiveAspectRatio": 1080 / 1920})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_shape",
+            lambda path: {"effectiveAspectRatio": 1080 / 1920},
+        )
 
         def fake_make_batch(**kwargs):
             captured.update(kwargs)
-            return {"schema": "campaign_factory.make_batch.v1", "campaign": kwargs["campaign_slug"]}
+            return {
+                "schema": "campaign_factory.make_batch.v1",
+                "campaign": kwargs["campaign_slug"],
+            }
 
         monkeypatch.setattr(cf, "make_batch", fake_make_batch)
         result = cf.intake_finished_video(
@@ -2306,17 +2972,26 @@ def test_finished_video_caption_band_prefers_auto_for_people_formats(tmp_path: P
         cf.close()
 
 
-def test_finished_video_caption_font_prefers_instagram_condensed_for_reels(tmp_path: Path):
+def test_finished_video_caption_font_prefers_instagram_condensed_for_reels(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        assert cf._finished_video_caption_font("mirror_selfie") == "Instagram Sans Condensed"
+        assert (
+            cf._finished_video_caption_font("mirror_selfie")
+            == "Instagram Sans Condensed"
+        )
         assert cf._finished_video_caption_font("pov") == "Instagram Sans Condensed"
-        assert cf._finished_video_caption_font("slideshow") == "Instagram Sans Condensed"
+        assert (
+            cf._finished_video_caption_font("slideshow") == "Instagram Sans Condensed"
+        )
     finally:
         cf.close()
 
 
-def test_creative_plan_create_status_and_finished_video_linkage(tmp_path: Path, monkeypatch):
+def test_creative_plan_create_status_and_finished_video_linkage(
+    tmp_path: Path, monkeypatch
+):
     source = tmp_path / "selfie_finished.mp4"
     source.write_bytes(b"finished video")
     cf = make_factory(tmp_path)
@@ -2335,14 +3010,19 @@ def test_creative_plan_create_status_and_finished_video_linkage(tmp_path: Path, 
         assert plan["counts"]["generated_videos"] == 0
         assert "Analyze 10 more references" in plan["next_actions"]
 
-        updated = cf.update_creative_plan_status(name="stacey_daily_001", status="prompts_ready")
+        updated = cf.update_creative_plan_status(
+            name="stacey_daily_001", status="prompts_ready"
+        )
         assert updated["status"] == "prompts_ready"
 
         captured: dict[str, object] = {}
 
         def fake_make_batch(**kwargs):
             captured.update(kwargs)
-            return {"schema": "campaign_factory.make_batch.v1", "campaign": kwargs["campaign_slug"]}
+            return {
+                "schema": "campaign_factory.make_batch.v1",
+                "campaign": kwargs["campaign_slug"],
+            }
 
         monkeypatch.setattr(cf, "make_batch", fake_make_batch)
         result = cf.intake_finished_video(
@@ -2373,10 +3053,12 @@ def test_batch_summary_includes_daily_finished_video_counters(tmp_path: Path):
             folder,
             campaign_slug="daily",
             model_slug="model_a",
-            source_prompt=json.dumps({
-                "schema": "campaign_factory.finished_video_intake.v1",
-                "strategy": {"primaryMetric": "views_reach"},
-            }),
+            source_prompt=json.dumps(
+                {
+                    "schema": "campaign_factory.finished_video_intake.v1",
+                    "strategy": {"primaryMetric": "views_reach"},
+                }
+            ),
         )
         summary = cf.batch_summary("daily")
 
@@ -2395,22 +3077,33 @@ def test_batch_summary_includes_linked_creative_plan(tmp_path: Path):
     (folder / "selfie.mp4").write_bytes(b"video")
     cf = make_factory(tmp_path)
     try:
-        plan = cf.create_creative_plan(name="daily_plan", target_account="staceybennetx", linked_campaign="daily")
+        plan = cf.create_creative_plan(
+            name="daily_plan", target_account="staceybennetx", linked_campaign="daily"
+        )
         cf.import_folder(
             folder,
             campaign_slug="daily",
             model_slug="model_a",
-            source_prompt=json.dumps({
-                "schema": "campaign_factory.finished_video_intake.v1",
-                "creativePlanId": plan["id"],
-                "creativePlanName": plan["name"],
-                "generatedAssetLineage": {
-                    "schema": "campaign_factory.generated_asset_lineage.v1",
-                    "source": {"referenceId": "ref_1", "patternCardId": "pattern_1", "promptId": "prompt_1"},
-                    "generation": {"tool": "manual_finished_video", "modelProfile": "model_a"},
-                    "review": {"humanReviewRequired": True, "status": "draft"},
-                },
-            }),
+            source_prompt=json.dumps(
+                {
+                    "schema": "campaign_factory.finished_video_intake.v1",
+                    "creativePlanId": plan["id"],
+                    "creativePlanName": plan["name"],
+                    "generatedAssetLineage": {
+                        "schema": "campaign_factory.generated_asset_lineage.v1",
+                        "source": {
+                            "referenceId": "ref_1",
+                            "patternCardId": "pattern_1",
+                            "promptId": "prompt_1",
+                        },
+                        "generation": {
+                            "tool": "manual_finished_video",
+                            "modelProfile": "model_a",
+                        },
+                        "review": {"humanReviewRequired": True, "status": "draft"},
+                    },
+                }
+            ),
         )
         summary = cf.batch_summary("daily")
 
@@ -2425,43 +3118,52 @@ def test_sync_creative_plan_progress_counts_reference_prompt_exports(tmp_path: P
     prompt_export = tmp_path / "generated_video_prompts.json"
     cf = make_factory(tmp_path)
     try:
-        plan = cf.create_creative_plan(name="daily_plan", target_account="staceybennetx", daily_base_video_target=4)
-        prompt_export.write_text(json.dumps({
-            "schema": "reference_factory.generated_video_prompts.v1",
-            "creativePlanId": plan["id"],
-            "items": [
+        plan = cf.create_creative_plan(
+            name="daily_plan", target_account="staceybennetx", daily_base_video_target=4
+        )
+        prompt_export.write_text(
+            json.dumps(
                 {
-                    "imagePrompt": {
-                        "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
-                        "id": "image_prompt_1",
-                        "creativePlanId": plan["id"],
-                        "referenceId": "ref_1",
-                        "sourcePatternId": "pattern_1",
-                        "targetTool": "higgsfield_soul",
-                    },
-                    "klingPrompt": {
-                        "schema": "reference_factory.kling_3_video_prompt.v1",
-                        "id": "kling_prompt_1",
-                        "creativePlanId": plan["id"],
-                        "referenceId": "ref_1",
-                        "sourcePatternId": "pattern_1",
-                        "targetTool": "kling_3",
-                    },
-                },
-                {
-                    "imagePrompt": {
-                        "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
-                        "id": "image_prompt_2",
-                        "creativePlanId": plan["id"],
-                        "referenceId": "ref_2",
-                        "sourcePatternId": "pattern_2",
-                        "targetTool": "higgsfield_soul",
-                    }
-                },
-            ],
-        }), encoding="utf-8")
+                    "schema": "reference_factory.generated_video_prompts.v1",
+                    "creativePlanId": plan["id"],
+                    "items": [
+                        {
+                            "imagePrompt": {
+                                "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+                                "id": "image_prompt_1",
+                                "creativePlanId": plan["id"],
+                                "referenceId": "ref_1",
+                                "sourcePatternId": "pattern_1",
+                                "targetTool": "higgsfield_soul",
+                            },
+                            "klingPrompt": {
+                                "schema": "reference_factory.kling_3_video_prompt.v1",
+                                "id": "kling_prompt_1",
+                                "creativePlanId": plan["id"],
+                                "referenceId": "ref_1",
+                                "sourcePatternId": "pattern_1",
+                                "targetTool": "kling_3",
+                            },
+                        },
+                        {
+                            "imagePrompt": {
+                                "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+                                "id": "image_prompt_2",
+                                "creativePlanId": plan["id"],
+                                "referenceId": "ref_2",
+                                "sourcePatternId": "pattern_2",
+                                "targetTool": "higgsfield_soul",
+                            }
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
 
-        result = cf.sync_creative_plan_progress(name="daily_plan", prompt_export_path=prompt_export)
+        result = cf.sync_creative_plan_progress(
+            name="daily_plan", prompt_export_path=prompt_export
+        )
 
         assert result["counts"] == {
             "references": 2,
@@ -2477,24 +3179,35 @@ def test_sync_creative_plan_progress_counts_reference_prompt_exports(tmp_path: P
         cf.close()
 
 
-def test_make_batch_slideshow_format_registers_slideshow_asset(tmp_path: Path, monkeypatch):
+def test_make_batch_slideshow_format_registers_slideshow_asset(
+    tmp_path: Path, monkeypatch
+):
     bank_path = tmp_path / "campaign_reference_bank.json"
-    bank_path.write_text(json.dumps({
-        "schema": "reference_factory.campaign_reference_bank.v1",
-        "clusters": [
+    bank_path.write_text(
+        json.dumps(
             {
-                "clusterRank": 1,
-                "clusterKey": "caption_led_visual::direct_response::question_hook",
-                "label": "caption led visual / direct response / question hook",
-                "visualFormat": "caption_led_visual",
-                "hookType": "direct_response",
-                "captionArchetype": "question_hook",
-                "captionFormulas": [{"formula": "{direct question}?", "exampleCaptions": ["red or pink ?"]}],
-                "suggestedVariantRecipes": ["v01_original", "v05_hflip"],
-                "suggestedFormats": ["reel", "slideshow"],
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterRank": 1,
+                        "clusterKey": "caption_led_visual::direct_response::question_hook",
+                        "label": "caption led visual / direct response / question hook",
+                        "visualFormat": "caption_led_visual",
+                        "hookType": "direct_response",
+                        "captionArchetype": "question_hook",
+                        "captionFormulas": [
+                            {
+                                "formula": "{direct question}?",
+                                "exampleCaptions": ["red or pink ?"],
+                            }
+                        ],
+                        "suggestedVariantRecipes": ["v01_original", "v05_hflip"],
+                        "suggestedFormats": ["reel", "slideshow"],
+                    }
+                ],
             }
-        ],
-    }))
+        )
+    )
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"video")
@@ -2511,15 +3224,24 @@ def test_make_batch_slideshow_format_registers_slideshow_asset(tmp_path: Path, m
             out_dir.mkdir(parents=True, exist_ok=True)
             reel = out_dir / "slideshow_reel.mp4"
             reel.write_bytes(b"fake slideshow reel")
-            (out_dir / "slideshow_manifest.json").write_text(json.dumps({
-                "schema": "reel_factory.slideshow.v1",
-                "reel_path": str(reel),
-                "items": [{"source_hash": "src", "hook": "red or pink ?"}],
-            }), encoding="utf-8")
+            (out_dir / "slideshow_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.slideshow.v1",
+                        "reel_path": str(reel),
+                        "items": [{"source_hash": "src", "hook": "red or pink ?"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
             return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
         monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
-        monkeypatch.setattr(contentforge_adapter, "audit_campaign", lambda *args, **kwargs: {"reports": []})
+        monkeypatch.setattr(
+            contentforge_adapter,
+            "audit_campaign",
+            lambda *args, **kwargs: {"reports": []},
+        )
 
         result = cf.make_batch(
             folder=folder,
@@ -2537,29 +3259,42 @@ def test_make_batch_slideshow_format_registers_slideshow_asset(tmp_path: Path, m
         assert rendered[0]["recipe"] == "slideshow_pack"
         assert rendered[0]["captionGeneration"]["format"] == "slideshow_pack"
         assert rendered[0]["captionGeneration"]["generationId"].startswith("slidegen_")
-        assert rendered[0]["captionGeneration"]["referencePattern"]["id"].startswith("refpat_")
+        assert rendered[0]["captionGeneration"]["referencePattern"]["id"].startswith(
+            "refpat_"
+        )
     finally:
         cf.close()
 
 
-def test_make_batch_auto_mixed_folder_runs_reel_and_slideshow_groups(tmp_path: Path, monkeypatch):
+def test_make_batch_auto_mixed_folder_runs_reel_and_slideshow_groups(
+    tmp_path: Path, monkeypatch
+):
     bank_path = tmp_path / "campaign_reference_bank.json"
-    bank_path.write_text(json.dumps({
-        "schema": "reference_factory.campaign_reference_bank.v1",
-        "clusters": [
+    bank_path.write_text(
+        json.dumps(
             {
-                "clusterRank": 1,
-                "clusterKey": "mixed_pattern",
-                "label": "mixed pattern",
-                "visualFormat": "mirror_grid",
-                "hookType": "question",
-                "captionArchetype": "question_hook",
-                "captionFormulas": [{"formula": "{question}?", "exampleCaptions": ["which one wins ?"]}],
-                "suggestedVariantRecipes": ["v01_original"],
-                "suggestedFormats": ["reel", "slideshow"],
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterRank": 1,
+                        "clusterKey": "mixed_pattern",
+                        "label": "mixed pattern",
+                        "visualFormat": "mirror_grid",
+                        "hookType": "question",
+                        "captionArchetype": "question_hook",
+                        "captionFormulas": [
+                            {
+                                "formula": "{question}?",
+                                "exampleCaptions": ["which one wins ?"],
+                            }
+                        ],
+                        "suggestedVariantRecipes": ["v01_original"],
+                        "suggestedFormats": ["reel", "slideshow"],
+                    }
+                ],
             }
-        ],
-    }))
+        )
+    )
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"video")
@@ -2568,33 +3303,53 @@ def test_make_batch_auto_mixed_folder_runs_reel_and_slideshow_groups(tmp_path: P
     try:
         cf.import_reference_bank(bank_path)
 
-        monkeypatch.setattr(cf, "run_reel_factory", lambda **kwargs: {
-            "returncode": 0,
-            "runs": [{"renderJobId": "job_1"}],
-            "elapsed_seconds": 1.23,
-        })
-        monkeypatch.setattr(cf, "sync_reel_outputs", lambda **kwargs: {
-            "synced": [{"id": "asset_1"}],
-        })
+        monkeypatch.setattr(
+            cf,
+            "run_reel_factory",
+            lambda **kwargs: {
+                "returncode": 0,
+                "runs": [{"renderJobId": "job_1"}],
+                "elapsed_seconds": 1.23,
+            },
+        )
+        monkeypatch.setattr(
+            cf,
+            "sync_reel_outputs",
+            lambda **kwargs: {
+                "synced": [{"id": "asset_1"}],
+            },
+        )
 
         def fake_run(cmd, cwd=None, text=None, capture_output=None, check=None):
             assert "--reference-pattern-id" in cmd
             assert "--generation-id" in cmd
             media_dir = Path(cmd[cmd.index("--media-dir") + 1])
-            assert all(path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".heic"} for path in media_dir.iterdir())
+            assert all(
+                path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".heic"}
+                for path in media_dir.iterdir()
+            )
             out_dir = Path(cmd[cmd.index("--out-dir") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
             reel = out_dir / "slideshow_reel.mp4"
             reel.write_bytes(b"fake slideshow reel")
-            (out_dir / "slideshow_manifest.json").write_text(json.dumps({
-                "schema": "reel_factory.slideshow.v1",
-                "reel_path": str(reel),
-                "items": [{"source_hash": "src", "hook": "which one wins ?"}],
-            }), encoding="utf-8")
+            (out_dir / "slideshow_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.slideshow.v1",
+                        "reel_path": str(reel),
+                        "items": [{"source_hash": "src", "hook": "which one wins ?"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
             return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
         monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
-        monkeypatch.setattr(contentforge_adapter, "audit_campaign", lambda *args, **kwargs: {"reports": []})
+        monkeypatch.setattr(
+            contentforge_adapter,
+            "audit_campaign",
+            lambda *args, **kwargs: {"reports": []},
+        )
 
         result = cf.make_batch(
             folder=folder,
@@ -2629,7 +3384,12 @@ def test_run_reel_factory_targets_only_campaign_clips(tmp_path: Path, monkeypatc
     monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook"], recipes=["v01_original"], caption_color="auto")
+        cf.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=["hook"],
+            recipes=["v01_original"],
+            caption_color="auto",
+        )
         result = cf.run_reel_factory(campaign_slug="may", workers=2)
         assert result["returncode"] == 0
         assert len(calls) == 2
@@ -2638,7 +3398,10 @@ def test_run_reel_factory_targets_only_campaign_clips(tmp_path: Path, monkeypatc
         assert all(call[call.index("--band") + 1] == "auto" for call in calls)
         assert all(call[call.index("--color") + 1] == "light" for call in calls)
         assert all(call[call.index("--style") + 1] == "ig" for call in calls)
-        assert all(call[call.index("--font") + 1] == "Instagram Sans Condensed" for call in calls)
+        assert all(
+            call[call.index("--font") + 1] == "Instagram Sans Condensed"
+            for call in calls
+        )
         assert all("--phone-finalize" in call for call in calls)
         assert calls[0][calls[0].index("--only-clip") + 1] == "clip_001"
         assert calls[1][calls[1].index("--only-clip") + 1] == "clip_002"
@@ -2660,8 +3423,12 @@ def test_run_reel_factory_can_cap_outputs_per_clip(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        cf.prepare_reel_inputs(campaign_slug="may", hooks=["h1", "h2"], recipes=None, caption_color="auto")
-        result = cf.run_reel_factory(campaign_slug="may", workers=1, max_outputs_per_clip=4)
+        cf.prepare_reel_inputs(
+            campaign_slug="may", hooks=["h1", "h2"], recipes=None, caption_color="auto"
+        )
+        result = cf.run_reel_factory(
+            campaign_slug="may", workers=1, max_outputs_per_clip=4
+        )
         assert result["returncode"] == 0
         assert "--per-clip" in calls[0]
         assert calls[0][calls[0].index("--per-clip") + 1] == "4"
@@ -2684,9 +3451,18 @@ def test_run_reel_factory_skips_rendered_jobs_by_default(tmp_path: Path, monkeyp
     monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook"], recipes=["v01_original"], caption_color="auto")
-        first = cf.conn.execute("SELECT id FROM render_jobs ORDER BY reel_clip_stem LIMIT 1").fetchone()["id"]
-        cf.conn.execute("UPDATE render_jobs SET status = 'rendered' WHERE id = ?", (first,))
+        cf.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=["hook"],
+            recipes=["v01_original"],
+            caption_color="auto",
+        )
+        first = cf.conn.execute(
+            "SELECT id FROM render_jobs ORDER BY reel_clip_stem LIMIT 1"
+        ).fetchone()["id"]
+        cf.conn.execute(
+            "UPDATE render_jobs SET status = 'rendered' WHERE id = ?", (first,)
+        )
         cf.conn.commit()
         result = cf.run_reel_factory(campaign_slug="may", workers=2)
         assert result["returncode"] == 0
@@ -2711,7 +3487,9 @@ def test_run_reel_factory_dry_run_keeps_prepared_status(tmp_path: Path, monkeypa
         job = cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook"])["prepared"][0]
         result = cf.run_reel_factory(campaign_slug="may", dry_run=True)
         assert result["returncode"] == 0
-        status = cf.conn.execute("SELECT status FROM render_jobs WHERE id = ?", (job["id"],)).fetchone()["status"]
+        status = cf.conn.execute(
+            "SELECT status FROM render_jobs WHERE id = ?", (job["id"],)
+        ).fetchone()["status"]
         assert status == "prepared"
     finally:
         cf.close()
@@ -2724,8 +3502,14 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
     cf = make_factory(tmp_path)
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        job = cf.prepare_reel_inputs(campaign_slug="may", hooks=["caption"], recipes=["v01_original"])["prepared"][0]
-        sidecar = cf.settings.reel_factory_root / "01_captions" / f"{job['reel_clip_stem']}.json"
+        job = cf.prepare_reel_inputs(
+            campaign_slug="may", hooks=["caption"], recipes=["v01_original"]
+        )["prepared"][0]
+        sidecar = (
+            cf.settings.reel_factory_root
+            / "01_captions"
+            / f"{job['reel_clip_stem']}.json"
+        )
         data = json.loads(sidecar.read_text(encoding="utf-8"))
         data["generation"] = {
             "generation_id": "capgen_test",
@@ -2733,12 +3517,17 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
             "backend": "ollama",
             "prompt_hash": "prompt_hash",
             "caption_hashes": ["caption_hash_1"],
-            "quality": [{"captionHash": "caption_hash_1", "qualityScore": 95, "warnings": []}],
+            "quality": [
+                {"captionHash": "caption_hash_1", "qualityScore": 95, "warnings": []}
+            ],
         }
         sidecar.write_text(json.dumps(data), encoding="utf-8")
         out_dir = cf.settings.reel_factory_root / "02_processed" / job["reel_clip_stem"]
         out_dir.mkdir(parents=True)
-        out = out_dir / f"{job['reel_clip_stem']}_h00_v01_original_9x16_light_deadbeef.mp4"
+        out = (
+            out_dir
+            / f"{job['reel_clip_stem']}_h00_v01_original_9x16_light_deadbeef.mp4"
+        )
         out.write_bytes(b"rendered")
         conn = sqlite3.connect(cf.settings.reel_factory_root / "manifest.sqlite")
         conn.execute("""
@@ -2749,7 +3538,17 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
         """)
         conn.execute(
             "INSERT INTO variations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("job", job["reel_clip_stem"], "v01_original", json.dumps({"_target_ratio": "9:16"}), "caption", str(out), "draft", "ok", 1),
+            (
+                "job",
+                job["reel_clip_stem"],
+                "v01_original",
+                json.dumps({"_target_ratio": "9:16"}),
+                "caption",
+                str(out),
+                "draft",
+                "ok",
+                1,
+            ),
         )
         conn.commit()
         conn.close()
@@ -2762,16 +3561,38 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
         dashboard_asset = cf.dashboard("may")["rendered"][0]
         assert dashboard_asset["captionGeneration"]["generationId"] == "capgen_test"
         assert dashboard_asset["captionHash"]
-        assert dashboard_asset["captionOutcomeContext"]["caption_hash"] == dashboard_asset["captionHash"]
-        assert dashboard_asset["captionOutcomeContext"]["captionPlacementPolicy"] == "focal_safe_v1"
-        assert dashboard_asset["captionOutcomeContext"]["captionPlacementDecision"]["status"] == "pending"
-        assert dashboard_asset["captionGeneration"]["instagramPostCaption"]["instagram_post_caption"]
-        assert dashboard_asset["captionGeneration"]["audioIntent"]["status"] in {"attached", "missing"}
+        assert (
+            dashboard_asset["captionOutcomeContext"]["caption_hash"]
+            == dashboard_asset["captionHash"]
+        )
+        assert (
+            dashboard_asset["captionOutcomeContext"]["captionPlacementPolicy"]
+            == "focal_safe_v1"
+        )
+        assert (
+            dashboard_asset["captionOutcomeContext"]["captionPlacementDecision"][
+                "status"
+            ]
+            == "pending"
+        )
+        assert dashboard_asset["captionGeneration"]["instagramPostCaption"][
+            "instagram_post_caption"
+        ]
+        assert dashboard_asset["captionGeneration"]["audioIntent"]["status"] in {
+            "attached",
+            "missing",
+        }
     finally:
         cf.close()
 
 
-def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may", filename: str = "ok.mp4") -> tuple[dict, Path]:
+def add_rendered_asset(
+    cf: CampaignFactory,
+    tmp_path: Path,
+    *,
+    campaign_slug: str = "may",
+    filename: str = "ok.mp4",
+) -> tuple[dict, Path]:
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source")
@@ -2800,7 +3621,11 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
     }
     content_trust_metadata = {
         "visualQc": {"visualQcStatus": "passed", "status": "passed"},
-        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
+        "identityVerification": {
+            "schema": "reel_factory.identity_verification.v1",
+            "status": "passed",
+            "score": 0.9,
+        },
     }
     cf.conn.execute(
         """
@@ -2817,15 +3642,17 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             str(rendered_path),
             filename,
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-            json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
+            json.dumps(
+                {
+                    "instagram_post_caption": "new post",
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": False,
+                        "status": "not_required",
+                    },
                 }
-            }),
+            ),
             json.dumps(content_trust_metadata, ensure_ascii=False, sort_keys=True),
             now,
             now,
@@ -2835,7 +3662,9 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
     return source, rendered_path
 
 
-def add_source_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may") -> dict:
+def add_source_asset(
+    cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may"
+) -> dict:
     folder = tmp_path / "source_inputs"
     folder.mkdir(exist_ok=True)
     (folder / "source.mp4").write_bytes(b"source")
@@ -2843,7 +3672,9 @@ def add_source_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str 
     return cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
 
 
-def fake_motion_edit_render(still_path: Path, output_path: Path, *, caption: str, dry_run: bool = False) -> dict:
+def fake_motion_edit_render(
+    still_path: Path, output_path: Path, *, caption: str, dry_run: bool = False
+) -> dict:
     audio_intent_path = output_path.with_suffix(".audio_intent.json")
     lineage_path = output_path.with_suffix(".generated_asset_lineage.json")
     return {
@@ -2873,22 +3704,26 @@ def write_fake_motion_edit_outputs(output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(b"motion-edit-mp4")
     output_path.with_suffix(".audio_intent.json").write_text(
-        json.dumps({
-            "schema": "pipeline.audio_intent.v1",
-            "mode": "platform_auto_music",
-            "required": False,
-            "status": "external_selection_required",
-        }),
+        json.dumps(
+            {
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "platform_auto_music",
+                "required": False,
+                "status": "external_selection_required",
+            }
+        ),
         encoding="utf-8",
     )
     output_path.with_suffix(".generated_asset_lineage.json").write_text(
-        json.dumps({
-            "schema": "reel_factory.generated_asset_lineage.v1",
-            "workflow": "motion_edit_still_to_reel",
-            "paidGeneration": False,
-            "estimatedCostUsd": 0,
-            "humanReviewRequired": True,
-        }),
+        json.dumps(
+            {
+                "schema": "reel_factory.generated_asset_lineage.v1",
+                "workflow": "motion_edit_still_to_reel",
+                "paidGeneration": False,
+                "estimatedCostUsd": 0,
+                "humanReviewRequired": True,
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -2933,7 +3768,9 @@ def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
     }
 
 
-def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -2946,7 +3783,10 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: 
             assert budget_cap_usd is None
             return fake_front_generation_result(args)
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fake_invoke,
+        )
 
         result = run_front_generation_stage(
             cf,
@@ -2968,13 +3808,20 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(tmp_path: 
         ]
         assert calls[0][0] == "reference-image-dry-run"
         assert calls[1][0] == "video-dry-run"
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_front_generation_prompt_pack_uses_selected_reference_pattern(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_prompt_pack_uses_selected_reference_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -2993,7 +3840,14 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(tmp_path: 
               '[]', '[]', '[]', ?, '{}', '[]', '{}', 'now', 'now'
             )
             """,
-            (json.dumps({"visual": "mirror selfie with phone-camera framing", "captionOverlay": "short question hook"}),),
+            (
+                json.dumps(
+                    {
+                        "visual": "mirror selfie with phone-camera framing",
+                        "captionOverlay": "short question hook",
+                    }
+                ),
+            ),
         )
         cf.conn.execute(
             """
@@ -3007,7 +3861,9 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(tmp_path: 
 
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(args),
+            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(
+                args
+            ),
         )
 
         result = run_front_generation_stage(
@@ -3021,19 +3877,32 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(tmp_path: 
         validate_front_generation_plan(result["plan"])
         prompt_pack = json.loads(Path(result["promptPath"]).read_text(encoding="utf-8"))
         joined = json.dumps(prompt_pack, ensure_ascii=False).lower()
-        assert prompt_pack["learnedPromptGuidance"]["source"] == "campaign_factory.reference_pattern"
-        assert prompt_pack["learnedPromptGuidance"]["referencePatternId"] == "refpat_prompt"
+        assert (
+            prompt_pack["learnedPromptGuidance"]["source"]
+            == "campaign_factory.reference_pattern"
+        )
+        assert (
+            prompt_pack["learnedPromptGuidance"]["referencePatternId"]
+            == "refpat_prompt"
+        )
         assert "mirror_selfie" in joined
         assert "curiosity_gap" in joined
         assert "question_hook" in joined
         assert "structural guidance only" in joined
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_front_generation_apply_fails_closed_without_enable_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_apply_fails_closed_without_enable_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3043,7 +3912,10 @@ def test_front_generation_apply_fails_closed_without_enable_flag(tmp_path: Path,
         def fail_invoke(*_args, **_kwargs):
             raise AssertionError("paid subprocess must not run")
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fail_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fail_invoke,
+        )
 
         with pytest.raises(PermissionError, match="enable-paid-generation"):
             run_front_generation_stage(
@@ -3055,13 +3927,17 @@ def test_front_generation_apply_fails_closed_without_enable_flag(tmp_path: Path,
                 apply=True,
                 budget_cap_usd=0.25,
             )
-        row = cf.conn.execute("SELECT status FROM pipeline_jobs WHERE job_type = 'front_generation'").fetchone()
+        row = cf.conn.execute(
+            "SELECT status FROM pipeline_jobs WHERE job_type = 'front_generation'"
+        ).fetchone()
         assert row["status"] == "failed"
     finally:
         cf.close()
 
 
-def test_front_generation_apply_requires_budget_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_apply_requires_budget_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3069,7 +3945,9 @@ def test_front_generation_apply_requires_budget_cap(tmp_path: Path, monkeypatch:
         reference.write_bytes(b"png")
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("paid subprocess must not run")),
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("paid subprocess must not run")
+            ),
         )
 
         with pytest.raises(ValueError, match="budget-cap-usd"):
@@ -3086,7 +3964,9 @@ def test_front_generation_apply_requires_budget_cap(tmp_path: Path, monkeypatch:
         cf.close()
 
 
-def test_front_generation_apply_submits_still_only_before_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_apply_submits_still_only_before_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3099,7 +3979,10 @@ def test_front_generation_apply_submits_still_only_before_review(tmp_path: Path,
             assert budget_cap_usd == 0.25
             return fake_front_generation_result(args)
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fake_invoke,
+        )
 
         result = run_front_generation_stage(
             cf,
@@ -3134,12 +4017,16 @@ def test_front_generation_apply_submits_still_only_before_review(tmp_path: Path,
         assert plan["stages"][2]["name"] == "kling_video"
         assert plan["stages"][2]["status"] == "planned"
         assert plan["publishingAllowed"] is False
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        )
     finally:
         cf.close()
 
 
-def test_front_generation_accepted_still_dry_run_plans_video_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_accepted_still_dry_run_plans_video_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3153,7 +4040,10 @@ def test_front_generation_accepted_still_dry_run_plans_video_only(tmp_path: Path
             calls.append(args)
             return fake_front_generation_result(args)
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fake_invoke,
+        )
 
         result = run_front_generation_stage(
             cf,
@@ -3176,7 +4066,9 @@ def test_front_generation_accepted_still_dry_run_plans_video_only(tmp_path: Path
         cf.close()
 
 
-def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3193,7 +4085,10 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
             assert budget_cap_usd == 0.15
             return fake_kling_video_result(video)
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage._invoke_generate_assets", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fake_invoke,
+        )
 
         result = run_front_generation_stage(
             cf,
@@ -3226,12 +4121,17 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
         assert caption_generation["humanReviewRequired"] is True
         assert metadata["humanReviewRequired"] is True
         assert result["variation"] is None
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_front_generation_apply_enable_variation_targets_registered_kling_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3250,9 +4150,15 @@ def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
 
         def fake_variation(factory, **kwargs):
             captured.update(kwargs)
-            return {"schema": "campaign_factory.variation_stage_run.v1", "dryRun": kwargs["dry_run"]}
+            return {
+                "schema": "campaign_factory.variation_stage_run.v1",
+                "dryRun": kwargs["dry_run"],
+            }
 
-        monkeypatch.setattr("campaign_factory.front_generation_stage.run_variation_stage", fake_variation)
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage.run_variation_stage",
+            fake_variation,
+        )
 
         result = run_front_generation_stage(
             cf,
@@ -3279,7 +4185,9 @@ def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
         cf.close()
 
 
-def test_front_generation_enable_variation_requires_downloaded_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_front_generation_enable_variation_requires_downloaded_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3290,7 +4198,9 @@ def test_front_generation_enable_variation_requires_downloaded_video(tmp_path: P
 
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(args),
+            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(
+                args
+            ),
         )
 
         with pytest.raises(ValueError, match="downloaded local Kling video"):
@@ -3399,13 +4309,17 @@ def test_proactive_cycle_live_apply_fails_closed_without_required_flags(tmp_path
                 dry_run=False,
                 apply=True,
             )
-        failed = cf.conn.execute("SELECT status FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()
+        failed = cf.conn.execute(
+            "SELECT status FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
+        ).fetchone()
         assert failed["status"] == "failed"
     finally:
         cf.close()
 
 
-def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(tmp_path: Path):
+def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -3419,7 +4333,9 @@ def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(tmp
             idempotency_key="cycle-dry-1",
             dry_run=True,
         )
-        job_count = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()[0]
+        job_count = cf.conn.execute(
+            "SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
+        ).fetchone()[0]
         second = run_proactive_cycle_stage(
             cf,
             campaign_slug="may",
@@ -3430,12 +4346,19 @@ def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(tmp
 
         assert second["idempotentReplay"] is True
         assert second["reportPath"] == first["reportPath"]
-        assert cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'").fetchone()[0] == job_count
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
+            ).fetchone()[0]
+            == job_count
+        )
     finally:
         cf.close()
 
 
-def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     captured = {"variation": None, "export": None}
     try:
@@ -3464,8 +4387,12 @@ def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(tmp_path: P
                 "errors": [],
             }
 
-        monkeypatch.setattr("campaign_factory.proactive_cycle_stage.run_variation_stage", fake_variation)
-        monkeypatch.setattr("campaign_factory.adapters.threadsdash.export_threadsdash", fake_export)
+        monkeypatch.setattr(
+            "campaign_factory.proactive_cycle_stage.run_variation_stage", fake_variation
+        )
+        monkeypatch.setattr(
+            "campaign_factory.adapters.threadsdash.export_threadsdash", fake_export
+        )
 
         result = run_proactive_cycle_stage(
             cf,
@@ -3499,7 +4426,9 @@ def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(tmp_path: P
         cf.close()
 
 
-def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3515,7 +4444,10 @@ def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(tmp
                 dry_run=True,
             )
 
-        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
+            fake_invoke,
+        )
 
         result = run_motion_edit_stage(
             cf,
@@ -3529,13 +4461,21 @@ def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(tmp
         validate_motion_edit_render(result["render"])
         assert result["dryRun"] is True
         assert result["registeredAsset"] is None
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == before
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0]
+            == before
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(tmp_path: Path):
+def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3571,7 +4511,9 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(tmp_pa
             "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
             "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
             "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
-            "REEL_FACTORY_ROOT": str(MONOREPO_ROOT / "python_packages" / "reel_factory"),
+            "REEL_FACTORY_ROOT": str(
+                MONOREPO_ROOT / "python_packages" / "reel_factory"
+            ),
         },
     )
 
@@ -3586,7 +4528,9 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(tmp_pa
         conn.close()
 
 
-def test_motion_edit_stage_apply_registers_review_ready_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_motion_edit_stage_apply_registers_review_ready_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3601,7 +4545,10 @@ def test_motion_edit_stage_apply_registers_review_ready_asset(tmp_path: Path, mo
                 caption=kwargs["caption"],
             )
 
-        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
+        monkeypatch.setattr(
+            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
+            fake_invoke,
+        )
 
         result = run_motion_edit_stage(
             cf,
@@ -3625,12 +4572,17 @@ def test_motion_edit_stage_apply_registers_review_ready_asset(tmp_path: Path, mo
         assert caption_generation["paidGeneration"] is False
         assert caption_generation["estimatedCostUsd"] == 0
         assert metadata["humanReviewRequired"] is True
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_motion_edit_apply_enable_variation_targets_new_asset_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_motion_edit_apply_enable_variation_targets_new_asset_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
@@ -3648,10 +4600,18 @@ def test_motion_edit_apply_enable_variation_targets_new_asset_only(tmp_path: Pat
 
         def fake_variation(factory, **kwargs):
             captured.update(kwargs)
-            return {"schema": "campaign_factory.variation_stage_run.v1", "dryRun": kwargs["dry_run"]}
+            return {
+                "schema": "campaign_factory.variation_stage_run.v1",
+                "dryRun": kwargs["dry_run"],
+            }
 
-        monkeypatch.setattr("campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit", fake_invoke)
-        monkeypatch.setattr("campaign_factory.motion_edit_stage.run_variation_stage", fake_variation)
+        monkeypatch.setattr(
+            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
+            fake_invoke,
+        )
+        monkeypatch.setattr(
+            "campaign_factory.motion_edit_stage.run_variation_stage", fake_variation
+        )
 
         result = run_motion_edit_stage(
             cf,
@@ -3762,7 +4722,11 @@ def test_variation_stage_dry_run_creates_valid_assignment_manifest(tmp_path: Pat
         assignment_path = Path(result["assignments"][0]["assignmentPath"])
         payload = json.loads(assignment_path.read_text(encoding="utf-8"))
         validate_variant_assignment(payload)
-        assert {item["instagram_account_id"] for item in payload["assignments"]} == {"ig_1", "ig_2", "ig_3"}
+        assert {item["instagram_account_id"] for item in payload["assignments"]} == {
+            "ig_1",
+            "ig_2",
+            "ig_3",
+        }
         assert ".preview." in assignment_path.name
         assert load_variant_assignment_index(cf, campaign_slug="may") == {}
     finally:
@@ -3787,27 +4751,32 @@ class FakeVariationPipeline:
         assignments = []
         self.output_dir.mkdir(parents=True, exist_ok=True)
         for account in self.accounts:
-            variant_path = self.output_dir / f"{master_asset_id}_{account['account_id']}_variant.mp4"
+            variant_path = (
+                self.output_dir
+                / f"{master_asset_id}_{account['account_id']}_variant.mp4"
+            )
             variant_path.write_bytes(b"variant")
-            assignments.append({
-                "account_id": account["account_id"],
-                "instagram_account_id": account.get("instagram_account_id"),
-                "persona": account.get("persona"),
-                "variant_asset_id": f"{master_asset_id}_{account['account_id']}",
-                "variant_path": str(variant_path),
-                "parent_master_asset_id": master_asset_id,
-                "preset_name": preset_name,
-                "distinctness_scores": {
-                    "master_ssim": 0.99,
-                    "sibling_max_ssim": 0.99,
-                    "threshold": 0.85,
-                },
-                "lineage": {
-                    "mode": "zero_cost_variation",
-                    "paid_generation": False,
-                    "micro_enabled": False,
-                },
-            })
+            assignments.append(
+                {
+                    "account_id": account["account_id"],
+                    "instagram_account_id": account.get("instagram_account_id"),
+                    "persona": account.get("persona"),
+                    "variant_asset_id": f"{master_asset_id}_{account['account_id']}",
+                    "variant_path": str(variant_path),
+                    "parent_master_asset_id": master_asset_id,
+                    "preset_name": preset_name,
+                    "distinctness_scores": {
+                        "master_ssim": 0.99,
+                        "sibling_max_ssim": 0.99,
+                        "threshold": 0.85,
+                    },
+                    "lineage": {
+                        "mode": "zero_cost_variation",
+                        "paid_generation": False,
+                        "micro_enabled": False,
+                    },
+                }
+            )
         return {
             "schema": "campaign_factory.variant_assignment.v1",
             "campaign_slug": campaign_slug,
@@ -3823,16 +4792,27 @@ class FakeVariationPipeline:
         return self.output_dir / f"{master_asset_id}.variant_assignment.v1.json"
 
 
-def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_path: Path, monkeypatch):
+def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
-        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
+        )
 
-        def fake_audit(*, contentforge_root, source_path, variant_paths, contentforge_base_url, report_path):
+        def fake_audit(
+            *,
+            contentforge_root,
+            source_path,
+            variant_paths,
+            contentforge_base_url,
+            report_path,
+        ):
             assert len(variant_paths) == 2
             assert contentforge_base_url == "http://contentforge.test"
             report_path.write_text("{}", encoding="utf-8")
@@ -3844,7 +4824,9 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_pa
                 "reportPath": str(report_path),
             }
 
-        monkeypatch.setattr("campaign_factory.variation_stage.audit_variation_batch", fake_audit)
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.audit_variation_batch", fake_audit
+        )
 
         result = run_variation_stage(
             cf,
@@ -3856,7 +4838,10 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_pa
         assignment_path = Path(result["assignments"][0]["assignmentPath"])
         payload = json.loads(assignment_path.read_text(encoding="utf-8"))
         assert assignment_path.exists()
-        assert payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"] == "campaign_factory_audit.v1.7"
+        assert (
+            payload["assignments"][0]["lineage"]["perceptual_audit"]["contract_version"]
+            == "campaign_factory_audit.v1.7"
+        )
         assert payload["assignments"][0]["lineage"]["perceptual_audit"]["verdicts"] == {
             "pdq": "pass",
             "sscd": "pass",
@@ -3865,15 +4850,21 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(tmp_pa
         cf.close()
 
 
-def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(tmp_path: Path, monkeypatch):
+def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
-        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
-        assignment_dir = cf.campaign_dirs("model", "may")["exports"] / "variation_assignments"
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
+        )
+        assignment_dir = (
+            cf.campaign_dirs("model", "may")["exports"] / "variation_assignments"
+        )
         monkeypatch.setattr(
             "campaign_factory.variation_stage.audit_variation_batch",
             lambda **kwargs: {
@@ -3956,14 +4947,18 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         cf.close()
 
 
-def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path, monkeypatch):
+def test_threadsdash_export_enabled_variation_maps_account_media(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         _, rendered_path = add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
-        monkeypatch.setattr("campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline)
+        monkeypatch.setattr(
+            "campaign_factory.variation_stage.VariantPipeline", FakeVariationPipeline
+        )
         monkeypatch.setattr(
             "campaign_factory.variation_stage.audit_variation_batch",
             lambda **kwargs: {
@@ -3981,12 +4976,19 @@ def test_threadsdash_export_enabled_variation_maps_account_media(tmp_path: Path,
             contentforge_base_url="http://contentforge.test",
         )
 
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", enable_variation=True)
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", enable_variation=True
+        )
 
-        drafts_by_ig = {draft["instagramAccountId"]: draft for draft in payload["drafts"]}
+        drafts_by_ig = {
+            draft["instagramAccountId"]: draft for draft in payload["drafts"]
+        }
         assert set(drafts_by_ig) == {"ig_1", "ig_2"}
         assert drafts_by_ig["ig_1"]["_localFilePath"] != str(rendered_path)
-        assert drafts_by_ig["ig_1"]["_localFilePath"] != drafts_by_ig["ig_2"]["_localFilePath"]
+        assert (
+            drafts_by_ig["ig_1"]["_localFilePath"]
+            != drafts_by_ig["ig_2"]["_localFilePath"]
+        )
         meta = drafts_by_ig["ig_1"]["metadata"]["campaign_factory"]
         assert meta["parent_master_asset_id"] == "asset_1"
         assert meta["variant_asset_id"].startswith("asset_1_")
@@ -4003,7 +5005,9 @@ def test_threadsdash_export_enabled_variation_blocks_missing_assignment(tmp_path
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
         with pytest.raises(ValueError, match="variation assignment missing"):
-            build_draft_payloads(cf, campaign_slug="may", user_id="user_1", enable_variation=True)
+            build_draft_payloads(
+                cf, campaign_slug="may", user_id="user_1", enable_variation=True
+            )
     finally:
         cf.close()
 
@@ -4012,20 +5016,30 @@ def test_mass_production_readiness_report_flags_blockers(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
 
         report = build_mass_production_readiness_report(cf, campaign_id="may", days=7)
 
-        assert report["schema"] == "campaign_factory.mass_production_readiness_report.v1"
+        assert (
+            report["schema"] == "campaign_factory.mass_production_readiness_report.v1"
+        )
         assert report["counts"]["approvedAssets"] == 1
         assert report["counts"]["missingCanonicalIds"] == 1
         assert report["counts"]["missingLineage"] == 1
         assert report["counts"]["missingAccountAssignment"] == 1
         assert report["schedule"]["scheduleGaps"]["pilot"]["gap"] == 105
         assert report["readinessScore"] == "NOT_READY"
-        assert any(item["code"] == "missing_account_assignment" for item in report["blockerRanking"]["preventsProduction"])
-        assert any(item["code"] == "missing_canonical_ids" for item in report["blockerRanking"]["risksLosingTracking"])
+        assert any(
+            item["code"] == "missing_account_assignment"
+            for item in report["blockerRanking"]["preventsProduction"]
+        )
+        assert any(
+            item["code"] == "missing_canonical_ids"
+            for item in report["blockerRanking"]["risksLosingTracking"]
+        )
         assert "# Mass Production Readiness: may" in report["markdownSummary"]
     finally:
         cf.close()
@@ -4048,23 +5062,29 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
         cf.conn.execute(
             "UPDATE source_assets SET source_prompt = ? WHERE id = ?",
             (
-                json.dumps({
-                    "generatedAssetLineage": {
-                        "schema": "pipeline.generated_asset_lineage.v1",
-                        "source": {"referenceId": "ref_couch"},
-                        "generation": {"system": "reel_factory"},
-                        "quality": {"contentFingerprint": "fingerprint_couch"},
+                json.dumps(
+                    {
+                        "generatedAssetLineage": {
+                            "schema": "pipeline.generated_asset_lineage.v1",
+                            "source": {"referenceId": "ref_couch"},
+                            "generation": {"system": "reel_factory"},
+                            "quality": {"contentFingerprint": "fingerprint_couch"},
+                        }
                     }
-                }),
+                ),
                 source["id"],
             ),
         )
-        start = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(second=0, microsecond=0)
+        start = (datetime.now(UTC) + timedelta(hours=1)).replace(
+            second=0, microsecond=0
+        )
         for day in range(7):
             for account_idx in range(5):
                 account = f"stacey_{account_idx + 1}"
                 base = start + timedelta(days=day)
-                for slot_idx, surface in enumerate(("regular_reel", "trial_reel", "trial_reel")):
+                for slot_idx, surface in enumerate(
+                    ("regular_reel", "trial_reel", "trial_reel")
+                ):
                     slot = base + timedelta(hours=slot_idx * 3)
                     cf.create_distribution_plan(
                         "asset_1",
@@ -4097,7 +5117,9 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
         cf.close()
 
 
-def test_mass_production_readiness_report_detects_duplicate_content_risk(tmp_path: Path):
+def test_mass_production_readiness_report_detects_duplicate_content_risk(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, rendered_path = add_rendered_asset(cf, tmp_path)
@@ -4115,13 +5137,15 @@ def test_mass_production_readiness_report_detects_duplicate_content_risk(tmp_pat
                 source["id"],
                 str(second_path),
                 str(second_path),
-                json.dumps({
-                    "audioIntent": {"status": "not_required"},
-                    "generatedAssetLineage": {
-                        "source": {"referenceId": "same_ref"},
-                        "quality": {"contentFingerprint": "same_fp"},
-                    },
-                }),
+                json.dumps(
+                    {
+                        "audioIntent": {"status": "not_required"},
+                        "generatedAssetLineage": {
+                            "source": {"referenceId": "same_ref"},
+                            "quality": {"contentFingerprint": "same_fp"},
+                        },
+                    }
+                ),
                 now,
                 now,
             ),
@@ -4129,13 +5153,15 @@ def test_mass_production_readiness_report_detects_duplicate_content_risk(tmp_pat
         cf.conn.execute(
             "UPDATE rendered_assets SET review_state = 'approved', caption_generation_json = ? WHERE id = 'asset_1'",
             (
-                json.dumps({
-                    "audioIntent": {"status": "not_required"},
-                    "generatedAssetLineage": {
-                        "source": {"referenceId": "same_ref"},
-                        "quality": {"contentFingerprint": "same_fp"},
-                    },
-                }),
+                json.dumps(
+                    {
+                        "audioIntent": {"status": "not_required"},
+                        "generatedAssetLineage": {
+                            "source": {"referenceId": "same_ref"},
+                            "quality": {"contentFingerprint": "same_fp"},
+                        },
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -4148,12 +5174,17 @@ def test_mass_production_readiness_report_detects_duplicate_content_risk(tmp_pat
         assert report["duplicateRisk"]["bySourceReferenceOrFamily"] == [
             {"key": "same_ref", "count": 2, "renderedAssetIds": ["asset_1", "asset_2"]}
         ]
-        assert any(item["code"] == "content_fingerprint_reuse" for item in report["blockerRanking"]["risksDuplicatePosting"])
+        assert any(
+            item["code"] == "content_fingerprint_reuse"
+            for item in report["blockerRanking"]["risksDuplicatePosting"]
+        )
     finally:
         cf.close()
 
 
-def test_mass_production_readiness_report_blocks_external_posting_ledger_state(tmp_path: Path):
+def test_mass_production_readiness_report_blocks_external_posting_ledger_state(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -4187,7 +5218,10 @@ def test_mass_production_readiness_report_blocks_external_posting_ledger_state(t
         report = build_mass_production_readiness_report(cf, campaign_id="may", days=7)
 
         assert report["externalPostingLedgerAudit"]["matchingSlotCount"] == 1
-        assert report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"] is True
+        assert (
+            report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"]
+            is True
+        )
         assert report["readinessScore"] == "NOT_READY"
         assert any(
             item["code"] == "external_schedule_state_not_canonical"
@@ -4213,7 +5247,10 @@ def test_reel_ledger_promotion_dry_run_writes_nothing(tmp_path: Path):
             campaign_id=campaign["slug"],
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
-            lineage={"schema": "campaign_factory.generated_asset_lineage.v1", "source": {"referenceId": "ref_ready"}},
+            lineage={
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "source": {"referenceId": "ref_ready"},
+            },
             audio_track_id="audio_1",
             post_status="approved",
         )
@@ -4229,13 +5266,23 @@ def test_reel_ledger_promotion_dry_run_writes_nothing(tmp_path: Path):
         assert preview["summary"]["rowsToUpdate"] == 0
         assert preview["blocked"] == []
         assert preview["conflicts"] == []
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"] == 0
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()["c"] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
+            == 0
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()[
+                "c"
+            ]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distribution(tmp_path: Path):
+def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distribution(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         rendered_path = tmp_path / "ready.mp4"
@@ -4249,10 +5296,13 @@ def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distributi
             account_handle="stacey_1",
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
-            lineage={"schema": "campaign_factory.generated_asset_lineage.v1", "source": {"referenceId": "ref_ready"}},
+            lineage={
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "source": {"referenceId": "ref_ready"},
+            },
             audio_track_id="audio_1",
             post_status="approved",
-            date=(datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat(),
+            date=(datetime.now(UTC) + timedelta(days=2)).date().isoformat(),
         )
 
         applied = promote_reel_ledger(
@@ -4272,20 +5322,48 @@ def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distributi
         assert applied["applied"] is True
         assert second["summary"]["rowsToCreate"] == 0
         assert second["summary"]["rowsToUpdate"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM asset_account_assignments").fetchone()["c"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()["c"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM content_graph_nodes WHERE external_system = 'reel_factory.posting_ledger'").fetchone()["c"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM activity_events WHERE event_type = 'reel_ledger_promoted'").fetchone()["c"] >= 1
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
+            == 1
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) AS c FROM asset_account_assignments"
+            ).fetchone()["c"]
+            == 1
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()[
+                "c"
+            ]
+            == 1
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) AS c FROM content_graph_nodes WHERE external_system = 'reel_factory.posting_ledger'"
+            ).fetchone()["c"]
+            == 1
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) AS c FROM activity_events WHERE event_type = 'reel_ledger_promoted'"
+            ).fetchone()["c"]
+            >= 1
+        )
         assert report["schedule"]["scheduledMainTrialSlots"] == 1
         assert report["externalPostingLedgerAudit"]["matchingSlotCount"] == 0
         assert report["externalPostingLedgerAudit"]["promotedSlotCount"] == 1
-        assert report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"] is False
+        assert (
+            report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"]
+            is False
+        )
     finally:
         cf.close()
 
 
-def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and_export(tmp_path: Path):
+def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and_export(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         rendered_path = tmp_path / "caption_outcome.mp4"
@@ -4333,9 +5411,16 @@ def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and
             apply=True,
         )
 
-        asset = cf.conn.execute("SELECT * FROM rendered_assets WHERE content_hash = 'fp_caption_outcome'").fetchone()
-        plan = cf.conn.execute("SELECT * FROM distribution_plans WHERE rendered_asset_id = ?", (asset["id"],)).fetchone()
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", schedule_mode="preview")
+        asset = cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE content_hash = 'fp_caption_outcome'"
+        ).fetchone()
+        plan = cf.conn.execute(
+            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ?",
+            (asset["id"],),
+        ).fetchone()
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", schedule_mode="preview"
+        )
         draft = payload["drafts"][0]
         metadata = draft["metadata"]["campaign_factory"]
 
@@ -4348,10 +5433,15 @@ def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and
         assert asset["format_class"] == "single_line"
         assert asset["caption_fit_version"] == "v1"
         assert asset["source_clip"] == "clip_010"
-        assert json.loads(asset["caption_outcome_context_json"])["suitability_decision"] == "allowed"
+        assert (
+            json.loads(asset["caption_outcome_context_json"])["suitability_decision"]
+            == "allowed"
+        )
         assert plan["caption_hash"] == "caption_hash_rendered"
         assert plan["caption_bank"] == "question_bank"
-        assert json.loads(plan["caption_outcome_context_json"])["rendered_output"] == str(rendered_path.resolve())
+        assert json.loads(plan["caption_outcome_context_json"])[
+            "rendered_output"
+        ] == str(rendered_path.resolve())
         assert draft["captionHash"] == "caption_hash_rendered"
         assert draft["captionOutcomeContext"]["creator_mix"] == "Lola"
         assert metadata["captionOutcomeContext"]["caption_fit_version"] == "v1"
@@ -4360,7 +5450,9 @@ def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and
         cf.close()
 
 
-def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(tmp_path: Path):
+def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         rendered_path = tmp_path / "sidecar_caption_outcome.mp4"
@@ -4393,7 +5485,9 @@ def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(tmp_pat
                 "rendered_output": str(rendered_path.resolve()),
             },
         }
-        rendered_path.with_suffix(rendered_path.suffix + ".caption_lineage.json").write_text(
+        rendered_path.with_suffix(
+            rendered_path.suffix + ".caption_lineage.json"
+        ).write_text(
             json.dumps(caption_sidecar),
             encoding="utf-8",
         )
@@ -4404,7 +5498,10 @@ def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(tmp_pat
             campaign_id=campaign["slug"],
             rendered_output_path=rendered_path,
             content_fingerprint="fp_caption_sidecar",
-            lineage={"schema": "campaign_factory.generated_asset_lineage.v1", "render": {"renderJobKey": "job_1"}},
+            lineage={
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "render": {"renderJobKey": "job_1"},
+            },
             audio_track_id=None,
             post_status="ready_for_review",
             date="2026-06-05",
@@ -4426,7 +5523,9 @@ def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(tmp_pat
         cf.close()
 
 
-def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(tmp_path: Path):
+def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("may", "model")
@@ -4435,7 +5534,10 @@ def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(tmp_pa
         third = tmp_path / "third.mp4"
         for path in (first, second, third):
             path.write_bytes(path.name.encode("utf-8"))
-        lineage = {"schema": "campaign_factory.generated_asset_lineage.v1", "source": {"referenceId": "ref"}}
+        lineage = {
+            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "source": {"referenceId": "ref"},
+        }
         _write_reel_posting_slot(
             cf,
             posting_slot_id="slot_dup_1",
@@ -4499,10 +5601,17 @@ def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(tmp_pa
         assert preview["summary"]["duplicateFingerprintRiskCount"] == 2
         assert preview["summary"]["missingLineageCount"] == 1
         assert preview["summary"]["missingAudioCount"] == 1
-        assert {item["reason"] for item in preview["conflicts"]} == {"duplicate_content_fingerprint"}
-        assert {"missing_lineage", "missing_audio"} <= {item["reason"] for item in preview["blocked"]}
+        assert {item["reason"] for item in preview["conflicts"]} == {
+            "duplicate_content_fingerprint"
+        }
+        assert {"missing_lineage", "missing_audio"} <= {
+            item["reason"] for item in preview["blocked"]
+        }
         assert applied["applyBlocked"] is True
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
+            == 0
+        )
     finally:
         cf.close()
 
@@ -4519,7 +5628,10 @@ def test_reel_ledger_promotion_marks_posted_without_proof_unverified(tmp_path: P
             campaign_id=campaign["slug"],
             rendered_output_path=rendered_path,
             content_fingerprint="fp_posted",
-            lineage={"schema": "campaign_factory.generated_asset_lineage.v1", "source": {"referenceId": "ref_posted"}},
+            lineage={
+                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "source": {"referenceId": "ref_posted"},
+            },
             audio_track_id="audio_1",
             post_status="posted",
         )
@@ -4533,8 +5645,16 @@ def test_reel_ledger_promotion_marks_posted_without_proof_unverified(tmp_path: P
         asset = cf.conn.execute("SELECT * FROM rendered_assets").fetchone()
         caption_generation = json.loads(asset["caption_generation_json"])
 
-        assert caption_generation["reelLedger"]["status"]["promotedPostState"] == "unverified_platform_post"
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM performance_snapshots").fetchone()["c"] == 0
+        assert (
+            caption_generation["reelLedger"]["status"]["promotedPostState"]
+            == "unverified_platform_post"
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) AS c FROM performance_snapshots"
+            ).fetchone()["c"]
+            == 0
+        )
     finally:
         cf.close()
 
@@ -4543,10 +5663,13 @@ def test_reel_ledger_promotion_reports_account_day_quota_issue(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("may", "model")
-        lineage = {"schema": "campaign_factory.generated_asset_lineage.v1", "source": {"referenceId": "ref"}}
+        lineage = {
+            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "source": {"referenceId": "ref"},
+        }
         for idx in range(4):
             rendered_path = tmp_path / f"quota_{idx}.mp4"
-            rendered_path.write_bytes(f"quota {idx}".encode("utf-8"))
+            rendered_path.write_bytes(f"quota {idx}".encode())
             _write_reel_posting_slot(
                 cf,
                 posting_slot_id=f"slot_quota_{idx}",
@@ -4569,7 +5692,9 @@ def test_reel_ledger_promotion_reports_account_day_quota_issue(tmp_path: Path):
         )
 
         assert preview["summary"]["accountDayQuotaIssueCount"] == 4
-        assert {item["reason"] for item in preview["conflicts"]} == {"account_day_quota_exceeded"}
+        assert {item["reason"] for item in preview["conflicts"]} == {
+            "account_day_quota_exceeded"
+        }
     finally:
         cf.close()
 
@@ -4659,7 +5784,9 @@ def add_audit_report(
     warning_codes: list[str] | None = None,
     upload_ready: bool = True,
 ) -> dict:
-    asset = cf.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+    asset = cf.conn.execute(
+        "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+    ).fetchone()
     assert asset is not None
     failed = failed or []
     warnings = warnings or []
@@ -4742,7 +5869,11 @@ def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
                 audit_status = 'approved_candidate'
             WHERE id = 'asset_1'
             """,
-            ("GOING LIVE TONIGHT!!!", "bad_caption_hash", json.dumps(context, ensure_ascii=False, sort_keys=True)),
+            (
+                "GOING LIVE TONIGHT!!!",
+                "bad_caption_hash",
+                json.dumps(context, ensure_ascii=False, sort_keys=True),
+            ),
         )
         cf.conn.commit()
         add_audit_report(cf, rendered_asset_id="asset_1")
@@ -4750,8 +5881,14 @@ def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
         publishability = cf.explain_publishability("asset_1")
 
         assert publishability["burnedCaptionQualityPassed"] is False
-        assert "burned_caption_quality_failed" in publishability["publishability_failure_reasons"]
-        assert "caption_placement_qc_failed" not in publishability["publishability_failure_reasons"]
+        assert (
+            "burned_caption_quality_failed"
+            in publishability["publishability_failure_reasons"]
+        )
+        assert (
+            "caption_placement_qc_failed"
+            not in publishability["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
@@ -4759,7 +5896,9 @@ def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
 def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers):
+    def fake_similarity(
+        base_url, *, source, target_file=None, audit_profile=None, layers
+    ):
         assert base_url == "http://contentforge.test"
         assert source.startswith("campaign_factory_source_")
         assert target_file.startswith("campaign_factory_variant_")
@@ -4788,7 +5927,9 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
     try:
         add_rendered_asset(cf, tmp_path)
-        result = audit_campaign(cf, campaign_slug="may", contentforge_base_url="http://contentforge.test")
+        result = audit_campaign(
+            cf, campaign_slug="may", contentforge_base_url="http://contentforge.test"
+        )
         report = result["reports"][0]
         assert report["status"] == "approved_candidate"
         assert report["overallVerdict"] == "pass"
@@ -4797,14 +5938,18 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
         assert report["verdictCodes"] == {"pdq": "pdq_pass"}
         assert report["readinessSummary"]["uploadReady"] is True
         assert report["filesAnalyzed"] == 1
-        row = cf.conn.execute("SELECT * FROM audit_reports WHERE rendered_asset_id = 'asset_1'").fetchone()
+        row = cf.conn.execute(
+            "SELECT * FROM audit_reports WHERE rendered_asset_id = 'asset_1'"
+        ).fetchone()
         assert row["overall_verdict"] == "pass"
         assert json.loads(row["verdicts_json"]) == {"pdq": "pass"}
     finally:
         cf.close()
 
 
-def test_variation_batch_audit_sends_all_siblings_and_writes_report(tmp_path: Path, monkeypatch):
+def test_variation_batch_audit_sends_all_siblings_and_writes_report(
+    tmp_path: Path, monkeypatch
+):
     contentforge_root = tmp_path / "contentforge"
     source = tmp_path / "master.mp4"
     first = tmp_path / "first.mp4"
@@ -4841,16 +5986,28 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(tmp_path: Pa
     assert seen["target_file"].startswith("campaign_factory_variant_")
     assert len(seen["comparison_files"]) == 1
     assert report["reportPath"] == str(report_path)
-    assert json.loads(report_path.read_text(encoding="utf-8"))["verdicts"]["pdq"] == "pass"
+    assert (
+        json.loads(report_path.read_text(encoding="utf-8"))["verdicts"]["pdq"] == "pass"
+    )
 
 
-def test_contentforge_audit_uses_selected_reference_pattern(tmp_path: Path, monkeypatch):
+def test_contentforge_audit_uses_selected_reference_pattern(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     reference = tmp_path / "reference.mp4"
     reference.write_bytes(b"reference")
     seen = {}
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers, originality_reference_files=None):
+    def fake_similarity(
+        base_url,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        originality_reference_files=None,
+    ):
         seen["layers"] = layers
         seen["references"] = originality_reference_files
         return {
@@ -4860,8 +6017,15 @@ def test_contentforge_audit_uses_selected_reference_pattern(tmp_path: Path, monk
             "verdicts": {"originality": "pass"},
             "verdictCodes": {"originality": "originality_pass"},
             "overallVerdict": "pass",
-            "referenceMatch": {"mode": "reference_match_meter", "referenceMatchLevel": "high"},
-            "readinessSummary": {"uploadReady": True, "blockingCodes": [], "warningCodes": []},
+            "referenceMatch": {
+                "mode": "reference_match_meter",
+                "referenceMatchLevel": "high",
+            },
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingCodes": [],
+                "warningCodes": [],
+            },
             "filesAnalyzed": 1,
         }
 
@@ -4893,17 +6057,23 @@ def test_contentforge_audit_uses_selected_reference_pattern(tmp_path: Path, monk
         report = result["reports"][0]
         assert "originality" in seen["layers"]
         assert "reference" not in seen["layers"]
-        assert seen["references"] and seen["references"][0].startswith("campaign_factory_reference_")
+        assert seen["references"] and seen["references"][0].startswith(
+            "campaign_factory_reference_"
+        )
         assert report["referencePattern"]["clusterKey"] == "cluster"
         assert report["referenceMatch"]["referenceMatchLevel"] == "high"
     finally:
         cf.close()
 
 
-def test_contentforge_http_audit_records_warn_and_fail_results(tmp_path: Path, monkeypatch):
+def test_contentforge_http_audit_records_warn_and_fail_results(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers):
+    def fake_similarity(
+        base_url, *, source, target_file=None, audit_profile=None, layers
+    ):
         return {
             "layers": {"pdq": {}, "sscd": {}},
             "verdicts": {"pdq": "warn", "sscd": "fail"},
@@ -4932,10 +6102,14 @@ def test_contentforge_http_audit_records_warn_and_fail_results(tmp_path: Path, m
         cf.close()
 
 
-def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(tmp_path: Path, monkeypatch):
+def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers):
+    def fake_similarity(
+        base_url, *, source, target_file=None, audit_profile=None, layers
+    ):
         return {
             "layers": {"sscd": {}},
             "verdicts": {"sscd": "fail"},
@@ -4960,15 +6134,22 @@ def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(tm
         assert report["failedChecks"] == []
         assert report["warnings"] == ["sscd_review"]
         readiness = cf.dashboard("may")["rendered"][0]["export_readiness"]
-        assert not any(reason.startswith("audit_failed:sscd") for reason in readiness["blockingReasons"])
+        assert not any(
+            reason.startswith("audit_failed:sscd")
+            for reason in readiness["blockingReasons"]
+        )
     finally:
         cf.close()
 
 
-def test_contentforge_http_audit_handles_server_unavailable(tmp_path: Path, monkeypatch):
+def test_contentforge_http_audit_handles_server_unavailable(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers):
+    def fake_similarity(
+        base_url, *, source, target_file=None, audit_profile=None, layers
+    ):
         raise RuntimeError("ContentForge is unavailable")
 
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
@@ -4985,10 +6166,14 @@ def test_contentforge_http_audit_handles_server_unavailable(tmp_path: Path, monk
         cf.close()
 
 
-def test_contentforge_http_audit_handles_malformed_response(tmp_path: Path, monkeypatch):
+def test_contentforge_http_audit_handles_malformed_response(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
 
-    def fake_similarity(base_url, *, source, target_file=None, audit_profile=None, layers):
+    def fake_similarity(
+        base_url, *, source, target_file=None, audit_profile=None, layers
+    ):
         return {"layers": {}, "verdicts": {}, "filesAnalyzed": 1}
 
     monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
@@ -5009,7 +6194,9 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
     (folder / "a.mp4").write_bytes(b"source")
     cf = make_factory(tmp_path)
     try:
-        cf.import_folder(folder, campaign_slug="may", model_slug="model", account_handles=["ig_a"])
+        cf.import_folder(
+            folder, campaign_slug="may", model_slug="model", account_handles=["ig_a"]
+        )
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
@@ -5025,13 +6212,15 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({
-                    "audioRecommendations": {
-                        "primaryStrategy": "current_native_trending_sound",
-                        "nativeAudioPreferred": True,
-                        "recommendations": [{"audioVibe": "clean_fitcheck"}],
+                json.dumps(
+                    {
+                        "audioRecommendations": {
+                            "primaryStrategy": "current_native_trending_sound",
+                            "nativeAudioPreferred": True,
+                            "recommendations": [{"audioVibe": "clean_fitcheck"}],
+                        }
                     }
-                }),
+                ),
                 now,
                 now,
             ),
@@ -5046,7 +6235,10 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert payload["drafts"][0]["sourceContentHash"] == source["content_hash"]
         assert payload["drafts"][0]["captionHash"]
         assert payload["drafts"][0]["recipe"] == "v01_original"
-        assert payload["drafts"][0]["audioRecommendations"]["primaryStrategy"] == "current_native_trending_sound"
+        assert (
+            payload["drafts"][0]["audioRecommendations"]["primaryStrategy"]
+            == "current_native_trending_sound"
+        )
         metadata = payload["drafts"][0]["metadata"]["campaign_factory"]
         assert metadata["campaign_id"] == "may"
         assert metadata["graph_id"].startswith("cg_rendered_asset_")
@@ -5059,7 +6251,10 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert metadata["source_content_hash"] == source["content_hash"]
         assert metadata["caption_hash"] == payload["drafts"][0]["captionHash"]
         assert metadata["recipe"] == "v01_original"
-        assert metadata["audio_recommendations"]["primaryStrategy"] == "current_native_trending_sound"
+        assert (
+            metadata["audio_recommendations"]["primaryStrategy"]
+            == "current_native_trending_sound"
+        )
         assert metadata["audio_intent"]["schema"] == "pipeline.audio_intent.v1"
         assert metadata["audio_intent"]["required"] is True
         assert metadata["audio_intent"]["status"] == "recommended"
@@ -5096,7 +6291,9 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         cf.close()
 
 
-def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, monkeypatch):
+def test_threadsdash_export_uses_dashboard_ingest_by_default(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     captured: dict[str, Any] = {}
     monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
@@ -5112,7 +6309,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
             return False
 
         def read(self):
-            return json.dumps({"success": True, "postIds": ["post_ingest_1"], "writtenDrafts": 1}).encode("utf-8")
+            return json.dumps(
+                {"success": True, "postIds": ["post_ingest_1"], "writtenDrafts": 1}
+            ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
         captured["url"] = request.full_url
@@ -5128,13 +6327,17 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
 
         def select(self, table, params):
             assert table == "posts"
-            return [{
-                "id": "post_ingest_1",
-                "user_id": "user_1",
-                "status": "draft",
-                "campaign_factory_post_key": params["campaign_factory_post_key"].removeprefix("eq."),
-                "metadata": {"campaign_factory": {}},
-            }]
+            return [
+                {
+                    "id": "post_ingest_1",
+                    "user_id": "user_1",
+                    "status": "draft",
+                    "campaign_factory_post_key": params[
+                        "campaign_factory_post_key"
+                    ].removeprefix("eq."),
+                    "metadata": {"campaign_factory": {}},
+                }
+            ]
 
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
@@ -5152,22 +6355,28 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
                 manifest["mediaItems"] = [{"type": "video", "url": remote_url}]
         return payload
 
-    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media)
+    monkeypatch.setattr(
+        threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media
+    )
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         ensure_exportable_distribution_plan(cf)
@@ -5188,7 +6397,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         assert result["supabase"]["attempted"] is False
         assert result["supabase"]["disabled"] is True
         assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
-        assert captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        assert (
+            captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        )
         assert (
             captured["headers"]["X-idempotency-key"]
             == captured["body"]["drafts"][0]["metadata"]["campaign_factory"]["post_key"]
@@ -5200,7 +6411,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(tmp_path: Path, mon
         cf.close()
 
 
-def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path: Path, monkeypatch):
+def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     calls: list[dict[str, Any]] = []
     monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
@@ -5216,14 +6429,18 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
             return False
 
         def read(self):
-            return json.dumps({"success": True, "postIds": [], "writtenDrafts": 0}).encode("utf-8")
+            return json.dumps(
+                {"success": True, "postIds": [], "writtenDrafts": 0}
+            ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
-        calls.append({
-            "headers": dict(request.header_items()),
-            "timeout": timeout,
-            "body": json.loads(request.data.decode("utf-8")),
-        })
+        calls.append(
+            {
+                "headers": dict(request.header_items()),
+                "timeout": timeout,
+                "body": json.loads(request.data.decode("utf-8")),
+            }
+        )
         return EmptyPostIdsResponse()
 
     class FakeClient:
@@ -5252,27 +6469,35 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
                 manifest["mediaItems"] = [{"type": "video", "url": remote_url}]
         return payload
 
-    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media)
+    monkeypatch.setattr(
+        threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media
+    )
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         ensure_exportable_distribution_plan(cf)
 
-        with pytest.raises(ValueError, match="Dashboard draft ingest reconciliation failed"):
+        with pytest.raises(
+            ValueError, match="Dashboard draft ingest reconciliation failed"
+        ):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -5285,10 +6510,15 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(tmp_path:
             )
 
         assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
         failed_events = [
-            event for event in cf.events_for_campaign("may")
-            if event["eventType"] == "threadsdash_export_created" and event["status"] == "failure"
+            event
+            for event in cf.events_for_campaign("may")
+            if event["eventType"] == "threadsdash_export_created"
+            and event["status"] == "failure"
         ]
         assert failed_events
     finally:
@@ -5326,14 +6556,18 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
         )
 
 
-def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(tmp_path: Path, monkeypatch):
+def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     calls: list[dict[str, Any]] = []
 
     def fake_urlopen(request, timeout):
         calls.append({"url": request.full_url, "timeout": timeout})
         if "/api/campaign-factory/drafts/ingest" in request.full_url:
-            raise AssertionError("dashboard ingest should not be called for unresolved media")
+            raise AssertionError(
+                "dashboard ingest should not be called for unresolved media"
+            )
         raise OSError("supabase unavailable in unresolved-media regression")
 
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
@@ -5343,20 +6577,27 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(tmp_pa
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         ensure_exportable_distribution_plan(cf)
 
-        with pytest.raises(ValueError, match="export blocked by handoff manifest: asset_1:media_item_0_remote_url_missing"):
+        with pytest.raises(
+            ValueError,
+            match="export blocked by handoff manifest: asset_1:media_item_0_remote_url_missing",
+        ):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -5368,13 +6609,20 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(tmp_pa
                 supabase_service_role_key="service-role",
             )
 
-        assert not any("/api/campaign-factory/drafts/ingest" in call["url"] for call in calls)
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert not any(
+            "/api/campaign-factory/drafts/ingest" in call["url"] for call in calls
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
 
-def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: Path, monkeypatch):
+def test_content_graph_tracks_import_render_audit_approval_and_export(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     upserted: list[tuple[str, dict, str]] = []
@@ -5392,7 +6640,10 @@ def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: 
 
         def insert_with_fallback(self, table, row, fallback_remove):
             inserted.append((table, dict(row)))
-            return {"id": f"{table}_{len([item for item in inserted if item[0] == table])}", **row}
+            return {
+                "id": f"{table}_{len([item for item in inserted if item[0] == table])}",
+                **row,
+            }
 
         def upsert(self, table, row, *, on_conflict):
             upserted.append((table, dict(row), on_conflict))
@@ -5417,19 +6668,34 @@ def test_content_graph_tracks_import_render_audit_approval_and_export(tmp_path: 
         assert result["supabase"]["attempted"] is True
         node_types = {
             row["entity_type"]
-            for row in cf.conn.execute("SELECT entity_type FROM content_graph_nodes").fetchall()
+            for row in cf.conn.execute(
+                "SELECT entity_type FROM content_graph_nodes"
+            ).fetchall()
         }
-        assert {"campaign", "source_asset", "rendered_asset", "audit_report", "approval_decision", "threadsdash_post"} <= node_types
+        assert {
+            "campaign",
+            "source_asset",
+            "rendered_asset",
+            "audit_report",
+            "approval_decision",
+            "threadsdash_post",
+        } <= node_types
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "campaign_contains_source_asset" in edge_types
         assert "rendered_asset_to_audit_report" in edge_types
         assert "rendered_asset_to_approval_decision" in edge_types
         assert "rendered_asset_to_threadsdash_post" in edge_types
         mirror_tables = {table for table, _row, _conflict in upserted}
-        assert {"campaign_factory_entities", "campaign_factory_edges", "campaign_factory_post_links"} <= mirror_tables
+        assert {
+            "campaign_factory_entities",
+            "campaign_factory_edges",
+            "campaign_factory_post_links",
+        } <= mirror_tables
     finally:
         cf.close()
 
@@ -5481,7 +6747,14 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
             ('perf_good', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_1', 'instagram',
              'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?)
             """,
-            (campaign["id"], source["id"], source["content_hash"], caption_hash, now, now),
+            (
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+            ),
         )
         cf.conn.commit()
 
@@ -5493,35 +6766,57 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
         assert first["runId"] == second["runId"]
         assert first["items"][0]["status"] == "proposed"
         assert first["items"][0]["dataQuality"]["sampleSize"] > 0
-        assert first["items"][0]["recommendationGraphId"].startswith("cg_recommendation_item_")
+        assert first["items"][0]["recommendationGraphId"].startswith(
+            "cg_recommendation_item_"
+        )
         assert first["items"][0]["campaignGraphId"].startswith("cg_campaign_")
-        assert first["items"][0]["referencePatternGraphId"].startswith("cg_reference_pattern_")
+        assert first["items"][0]["referencePatternGraphId"].startswith(
+            "cg_reference_pattern_"
+        )
         assert first["items"][0]["sourceAssetGraphId"].startswith("cg_source_asset_")
-        assert first["items"][0]["renderedAssetGraphId"].startswith("cg_rendered_asset_")
+        assert first["items"][0]["renderedAssetGraphId"].startswith(
+            "cg_rendered_asset_"
+        )
         assert first["items"][0]["scoreBreakdown"]["performance"] > 50
         learning = first["items"][0]["decisionEvidence"]["learning"]
-        assert learning["performanceScore"] == first["items"][0]["scoreBreakdown"]["performance"]
+        assert (
+            learning["performanceScore"]
+            == first["items"][0]["scoreBreakdown"]["performance"]
+        )
         assert learning["latestPerformanceSnapshotId"] == "perf_good"
         assert learning["dataQuality"]["sampleSize"] > 0
         assert learning["recommendationTrust"]["status"] == "unmeasured"
         assert first["items"][0]["confidence"] in {"medium", "high"}
-        assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_runs").fetchone()[0] == 1
-        assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_items").fetchone()[0] == 1
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM recommendation_runs").fetchone()[0]
+            == 1
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM recommendation_items").fetchone()[0]
+            == 1
+        )
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "performance_snapshot_to_recommendation_input" in edge_types
         assert "recommendation_input_to_recommendation_run" in edge_types
         assert "recommendation_run_to_recommendation_item" in edge_types
         assert "rendered_asset_to_recommendation_item" in edge_types
         stored = cf.recommendation_runs("may")
-        assert stored["runs"][0]["items"][0]["recommendationId"] == first["items"][0]["recommendationId"]
+        assert (
+            stored["runs"][0]["items"][0]["recommendationId"]
+            == first["items"][0]["recommendationId"]
+        )
     finally:
         cf.close()
 
 
-def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_path: Path):
+def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
@@ -5558,9 +6853,29 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_p
         caption_hash = threadsdash_adapter._text_hash("caption")
         snapshots = [
             ("perf_static", "post_static", "static_active", 200, 5, 0, 0, 0, 180),
-            ("perf_winner", "post_winner", "winner_signal", 15000, 1200, 90, 130, 180, 13000),
+            (
+                "perf_winner",
+                "post_winner",
+                "winner_signal",
+                15000,
+                1200,
+                90,
+                130,
+                180,
+                13000,
+            ),
         ]
-        for snapshot_id, post_id, cluster_key, views, likes, comments, shares, saves, reach in snapshots:
+        for (
+            snapshot_id,
+            post_id,
+            cluster_key,
+            views,
+            likes,
+            comments,
+            shares,
+            saves,
+            reach,
+        ) in snapshots:
             raw = {
                 "metadata": {
                     "campaign_factory": {
@@ -5606,15 +6921,27 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(tmp_p
         validate_recommendation_next_batch(rec)
         item = rec["items"][0]
         assert item["referencePatternId"] == "refpat_winner"
-        assert item["referencePatternEvidence"]["selectionSource"] == "performance_snapshots"
+        assert (
+            item["referencePatternEvidence"]["selectionSource"]
+            == "performance_snapshots"
+        )
         rankings = item["referencePatternEvidence"]["rankings"]
-        assert [ranking["patternId"] for ranking in rankings[:2]] == ["refpat_winner", "refpat_static"]
+        assert [ranking["patternId"] for ranking in rankings[:2]] == [
+            "refpat_winner",
+            "refpat_static",
+        ]
         assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
         assert rankings[0]["planningScore"] > rankings[1]["planningScore"]
         assert rankings[0]["bandit"]["algorithm"] == "beta_bernoulli_decayed_v1"
         assert rankings[0]["learning"]["status"] == "measured"
-        assert rankings[0]["learning"]["scoringVersion"] == "account_normalized_decay_shrinkage.v1"
-        assert rankings[0]["learning"]["weightedRelativeReward"] > rankings[1]["learning"]["weightedRelativeReward"]
+        assert (
+            rankings[0]["learning"]["scoringVersion"]
+            == "account_normalized_decay_shrinkage.v1"
+        )
+        assert (
+            rankings[0]["learning"]["weightedRelativeReward"]
+            > rankings[1]["learning"]["weightedRelativeReward"]
+        )
         assert rankings[0]["learning"]["baselineSourceCounts"]["account_median"] >= 1
     finally:
         cf.close()
@@ -5647,43 +6974,56 @@ def test_recommend_next_batch_explains_readiness_for_blocked_asset(tmp_path: Pat
         assert decision_readiness["contentSurface"] == "reel"
         assert decision_readiness["latestAuditVerdict"] is None
         assert item["decisionEvidence"]["whyNow"]["status"] == "blocked"
-        assert item["decisionEvidence"]["whyNow"]["nextAction"] == decision_readiness["nextAction"]
+        assert (
+            item["decisionEvidence"]["whyNow"]["nextAction"]
+            == decision_readiness["nextAction"]
+        )
         assert item["decisionEvidence"]["whyNow"]["reasons"] == item["reasons"]
         assert item["decisionEvidence"]["whyNow"]["risks"] == item["risks"]
         checklist = item["decisionEvidence"]["proofChecklist"]
         assert checklist["readiness"]["status"] == "blocked"
         assert checklist["readiness"]["nextAction"] == decision_readiness["nextAction"]
         assert checklist["readiness"]["blockingCount"] >= 1
-        assert checklist["quality"]["status"] == item["decisionEvidence"]["quality"]["status"]
-        assert checklist["audio"]["status"] == item["decisionEvidence"]["audio"]["status"]
+        assert (
+            checklist["quality"]["status"]
+            == item["decisionEvidence"]["quality"]["status"]
+        )
+        assert (
+            checklist["audio"]["status"] == item["decisionEvidence"]["audio"]["status"]
+        )
     finally:
         cf.close()
 
 
 def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: Path):
     catalog_path = tmp_path / "audio_memory.json"
-    catalog_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    catalog_path.write_text(
+        json.dumps(
             {
-                "id": "aud_decision",
-                "title": "Mirror Decision Trend",
-                "artistName": "DJ Decision",
-                "platform": "instagram",
-                "nativeAudioId": "ig_decision",
-                "moodTags": ["mirror"],
-                "bestContentTypes": ["v01_original"],
-                "accountFit": ["ig_1"],
-                "trendStatus": "rising",
-                "trendScore": 90,
-                "velocityScore": 80,
-                "creatorFitScore": 91,
-                "usageCount": 10000,
-                "resolved": True,
-                "sourceConfidence": 0.9,
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_decision",
+                        "title": "Mirror Decision Trend",
+                        "artistName": "DJ Decision",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_decision",
+                        "moodTags": ["mirror"],
+                        "bestContentTypes": ["v01_original"],
+                        "accountFit": ["ig_1"],
+                        "trendStatus": "rising",
+                        "trendScore": 90,
+                        "velocityScore": 80,
+                        "creatorFitScore": 91,
+                        "usageCount": 10000,
+                        "resolved": True,
+                        "sourceConfidence": 0.9,
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     cf = make_factory(tmp_path)
     try:
         cf.import_audio_memory(catalog_path)
@@ -5698,19 +7038,29 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
 
         decision = item["decisionEvidence"]
         assert decision["targetAccount"] == "ig_1"
-        assert decision["account"]["score"] == item["scoreBreakdown"]["accountFitFatigue"]
+        assert (
+            decision["account"]["score"] == item["scoreBreakdown"]["accountFitFatigue"]
+        )
         assert decision["account"]["reasons"]
         assert decision["audio"]["status"] == "recommended"
-        assert decision["audio"]["primaryAudio"]["audioTitle"] == "Mirror Decision Trend"
+        assert (
+            decision["audio"]["primaryAudio"]["audioTitle"] == "Mirror Decision Trend"
+        )
         assert decision["audio"]["recommendationCount"] == 1
         assert decision["caption"]["guidance"] == item["captionGuidance"]
-        assert decision["caption"]["captionHash"] == item["readinessEvidence"]["captionHash"]
+        assert (
+            decision["caption"]["captionHash"]
+            == item["readinessEvidence"]["captionHash"]
+        )
         assert decision["caption"]["status"] == "ready"
         assert decision["caption"]["blockingReasons"] == []
         assert decision["readiness"]["verdict"] == "ready"
         assert decision["readiness"]["nextAction"] == "ready_for_operator_export_review"
         assert decision["readiness"]["reviewState"] == "approved"
-        assert decision["readiness"]["auditStatus"] == item["readinessEvidence"]["auditStatus"]
+        assert (
+            decision["readiness"]["auditStatus"]
+            == item["readinessEvidence"]["auditStatus"]
+        )
         assert decision["readiness"]["latestAuditVerdict"] == "pass"
         assert decision["whyNow"]["status"] == "ready"
         assert decision["whyNow"]["nextAction"] == decision["readiness"]["nextAction"]
@@ -5718,7 +7068,10 @@ def test_recommend_next_batch_explains_account_audio_caption_decision(tmp_path: 
         assert decision["whyNow"]["risks"] == item["risks"]
         checklist = decision["proofChecklist"]
         assert checklist["accountFit"]["score"] == decision["account"]["score"]
-        assert checklist["learning"]["sampleSize"] == decision["learning"]["dataQuality"]["sampleSize"]
+        assert (
+            checklist["learning"]["sampleSize"]
+            == decision["learning"]["dataQuality"]["sampleSize"]
+        )
         assert checklist["audio"]["hasPrimaryAudio"] is True
         assert checklist["caption"]["status"] == "ready"
         assert checklist["quality"]["status"] == "passed"
@@ -5737,15 +7090,19 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
@@ -5753,10 +7110,19 @@ def test_recommend_next_batch_surfaces_publishability_failures_as_risks(tmp_path
         validate_recommendation_next_batch(rec)
         item = rec["items"][0]
 
-        assert "missing_instagram_post_caption" in item["readinessEvidence"]["publishabilityFailureReasons"]
+        assert (
+            "missing_instagram_post_caption"
+            in item["readinessEvidence"]["publishabilityFailureReasons"]
+        )
         assert "publishability:missing_instagram_post_caption" in item["risks"]
-        assert "publishability:missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["blockingReasons"]
-        assert "missing_instagram_post_caption" in item["decisionEvidence"]["readiness"]["publishabilityFailureReasons"]
+        assert (
+            "publishability:missing_instagram_post_caption"
+            in item["decisionEvidence"]["readiness"]["blockingReasons"]
+        )
+        assert (
+            "missing_instagram_post_caption"
+            in item["decisionEvidence"]["readiness"]["publishabilityFailureReasons"]
+        )
         caption = item["decisionEvidence"]["caption"]
         assert caption["status"] == "blocked"
         assert caption["blockingReasons"] == [
@@ -5782,14 +7148,19 @@ def test_recommend_next_batch_surfaces_variation_safety_blockers(tmp_path: Path)
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        cf.conn.execute("UPDATE rendered_assets SET content_hash = '' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET content_hash = '' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
 
         rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
         validate_recommendation_next_batch(rec)
         item = rec["items"][0]
 
-        assert "missing_content_fingerprint" in item["readinessEvidence"]["publishabilityFailureReasons"]
+        assert (
+            "missing_content_fingerprint"
+            in item["readinessEvidence"]["publishabilityFailureReasons"]
+        )
         variation_safety = item["decisionEvidence"]["variation"]["safety"]
         assert variation_safety["status"] == "blocked"
         assert variation_safety["blockingReasons"] == ["missing_content_fingerprint"]
@@ -5807,23 +7178,27 @@ def test_recommend_next_batch_surfaces_attached_native_audio_selection(tmp_path:
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "attached",
-                    "operator_selection": {
-                        "audio_id": "ig_audio_123",
-                        "audio_title": "Proof track",
-                        "audio_artist": "DJ Proof",
-                        "selection_source": "manual",
-                        "selected_at": "2026-06-06T04:31:02+00:00",
-                        "attached_at": "2026-06-06T04:31:02+00:00",
-                    },
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "attached",
+                            "operator_selection": {
+                                "audio_id": "ig_audio_123",
+                                "audio_title": "Proof track",
+                                "audio_artist": "DJ Proof",
+                                "selection_source": "manual",
+                                "selected_at": "2026-06-06T04:31:02+00:00",
+                                "attached_at": "2026-06-06T04:31:02+00:00",
+                            },
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
@@ -5835,8 +7210,12 @@ def test_recommend_next_batch_surfaces_attached_native_audio_selection(tmp_path:
         assert item["selectedAudio"]["audioId"] == "ig_audio_123"
         assert item["selectedAudio"]["audioTitle"] == "Proof track"
         assert item["selectedAudio"]["audioArtist"] == "DJ Proof"
-        assert item["decisionEvidence"]["audio"]["selectedAudio"] == item["selectedAudio"]
-        assert item["decisionEvidence"]["audio"]["primaryAudio"] == item["selectedAudio"]
+        assert (
+            item["decisionEvidence"]["audio"]["selectedAudio"] == item["selectedAudio"]
+        )
+        assert (
+            item["decisionEvidence"]["audio"]["primaryAudio"] == item["selectedAudio"]
+        )
         assert item["decisionEvidence"]["audio"]["status"] == "attached"
     finally:
         cf.close()
@@ -5844,43 +7223,53 @@ def test_recommend_next_batch_surfaces_attached_native_audio_selection(tmp_path:
 
 def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path):
     bank_path = tmp_path / "reference_bank.json"
-    bank_path.write_text(json.dumps({
-        "schema": "reference_factory.campaign_reference_bank.v1",
-        "clusters": [
+    bank_path.write_text(
+        json.dumps(
             {
-                "clusterKey": "mirror_curiosity",
-                "label": "Mirror Curiosity",
-                "rank": 1,
-                "visualFormat": "mirror",
-                "hookType": "curiosity",
-                "captionArchetype": "short_direct",
-                "captionFormulas": [{"formula": "short direct caption"}],
-                "suggestedVariantRecipes": ["v01_original"],
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterKey": "mirror_curiosity",
+                        "label": "Mirror Curiosity",
+                        "rank": 1,
+                        "visualFormat": "mirror",
+                        "hookType": "curiosity",
+                        "captionArchetype": "short_direct",
+                        "captionFormulas": [{"formula": "short direct caption"}],
+                        "suggestedVariantRecipes": ["v01_original"],
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     audio_path = tmp_path / "audio_memory.json"
-    audio_path.write_text(json.dumps({
-        "schema": "reference_factory.audio_catalog_export.v1",
-        "items": [
+    audio_path.write_text(
+        json.dumps(
             {
-                "id": "aud_reference_only",
-                "title": "Reference Only Trend",
-                "artistName": "DJ Ref",
-                "platform": "instagram",
-                "nativeAudioId": "ig_ref",
-                "moodTags": ["mirror"],
-                "accountFit": ["ig_1"],
-                "trendStatus": "rising",
-                "trendScore": 88,
-                "velocityScore": 80,
-                "creatorFitScore": 90,
-                "usageCount": 9000,
-                "resolved": True,
-                "sourceConfidence": 0.9,
+                "schema": "reference_factory.audio_catalog_export.v1",
+                "items": [
+                    {
+                        "id": "aud_reference_only",
+                        "title": "Reference Only Trend",
+                        "artistName": "DJ Ref",
+                        "platform": "instagram",
+                        "nativeAudioId": "ig_ref",
+                        "moodTags": ["mirror"],
+                        "accountFit": ["ig_1"],
+                        "trendStatus": "rising",
+                        "trendScore": 88,
+                        "velocityScore": 80,
+                        "creatorFitScore": 90,
+                        "usageCount": 9000,
+                        "resolved": True,
+                        "sourceConfidence": 0.9,
+                    }
+                ],
             }
-        ],
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "source.mp4").write_bytes(b"source")
@@ -5896,21 +7285,38 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
 
         assert item["renderedAssetId"] is None
         assert "no_rendered_assets_available" in rec["warnings"]
-        assert item["audioRecommendations"]["recommendations"][0]["audioTitle"] == "Reference Only Trend"
+        assert (
+            item["audioRecommendations"]["recommendations"][0]["audioTitle"]
+            == "Reference Only Trend"
+        )
         assert item["audioSelectionStatus"] == "recommended"
         assert item["decisionEvidence"]["targetAccount"] == "ig_1"
-        assert item["decisionEvidence"]["audio"]["primaryAudio"]["audioTitle"] == "Reference Only Trend"
-        assert item["decisionEvidence"]["caption"]["guidance"] == item["captionGuidance"]
+        assert (
+            item["decisionEvidence"]["audio"]["primaryAudio"]["audioTitle"]
+            == "Reference Only Trend"
+        )
+        assert (
+            item["decisionEvidence"]["caption"]["guidance"] == item["captionGuidance"]
+        )
         assert item["decisionEvidence"]["variation"]["preset"] == "ig_subtle"
         assert item["decisionEvidence"]["learning"]["dataQuality"]["sampleSize"] == 0
-        assert item["decisionEvidence"]["learning"]["latestPerformanceSnapshotId"] is None
-        assert item["decisionEvidence"]["readiness"]["blockingReasons"] == ["missing_rendered_assets"]
+        assert (
+            item["decisionEvidence"]["learning"]["latestPerformanceSnapshotId"] is None
+        )
+        assert item["decisionEvidence"]["readiness"]["blockingReasons"] == [
+            "missing_rendered_assets"
+        ]
         assert item["decisionEvidence"]["readiness"]["verdict"] == "blocked"
-        assert item["decisionEvidence"]["readiness"]["nextAction"] == "make_or_register_rendered_asset"
+        assert (
+            item["decisionEvidence"]["readiness"]["nextAction"]
+            == "make_or_register_rendered_asset"
+        )
         assert item["decisionEvidence"]["whyNow"] == {
             "status": "blocked",
             "nextAction": "make_or_register_rendered_asset",
-            "reasons": ["active reference pattern is available for the next generation batch"],
+            "reasons": [
+                "active reference pattern is available for the next generation batch"
+            ],
             "risks": item["risks"],
         }
         checklist = item["decisionEvidence"]["proofChecklist"]
@@ -5924,7 +7330,9 @@ def test_reference_only_recommendation_explains_what_to_make_next(tmp_path: Path
         cf.close()
 
 
-def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(tmp_path: Path):
+def test_recommend_next_batch_recommends_account_performance_ranked_variation_preset(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
@@ -5935,9 +7343,29 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
         caption_hash = threadsdash_adapter._text_hash("caption")
         snapshots = [
             ("perf_preset_subtle", "post_subtle", "ig_subtle", 250, 8, 0, 0, 1, 220),
-            ("perf_preset_bold", "post_bold", "ig_bold", 18000, 1500, 120, 150, 210, 16000),
+            (
+                "perf_preset_bold",
+                "post_bold",
+                "ig_bold",
+                18000,
+                1500,
+                120,
+                150,
+                210,
+                16000,
+            ),
         ]
-        for snapshot_id, post_id, preset, views, likes, comments, shares, saves, reach in snapshots:
+        for (
+            snapshot_id,
+            post_id,
+            preset,
+            views,
+            likes,
+            comments,
+            shares,
+            saves,
+            reach,
+        ) in snapshots:
             raw = {"metadata": {"campaign_factory": {"variationPreset": preset}}}
             cf.conn.execute(
                 """
@@ -5964,7 +7392,9 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
                     shares,
                     saves,
                     reach,
-                    json.dumps([{"type": "account_bound_variant", "preset_name": preset}]),
+                    json.dumps(
+                        [{"type": "account_bound_variant", "preset_name": preset}]
+                    ),
                     json.dumps(raw),
                     now,
                 ),
@@ -5976,18 +7406,34 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
 
         assert rebuilt["accountCount"] == 1
         memory = cf.account_memory("may", account="ig_memory")["accounts"][0]
-        variation_stats = [item for item in memory["patternStats"] if item["patternType"] == "variationPreset"]
+        variation_stats = [
+            item
+            for item in memory["patternStats"]
+            if item["patternType"] == "variationPreset"
+        ]
         assert len(variation_stats) == 2
-        assert [item["label"] for item in variation_stats[:2]] == ["ig_bold", "ig_subtle"]
+        assert [item["label"] for item in variation_stats[:2]] == [
+            "ig_bold",
+            "ig_subtle",
+        ]
         validate_recommendation_next_batch(rec)
         item = rec["items"][0]
         assert item["recommendedVariationPreset"] == "ig_bold"
-        assert item["variationPresetEvidence"]["selectionSource"] == "performance_snapshots"
+        assert (
+            item["variationPresetEvidence"]["selectionSource"]
+            == "performance_snapshots"
+        )
         rankings = item["variationPresetEvidence"]["rankings"]
-        assert [ranking["presetName"] for ranking in rankings[:2]] == ["ig_bold", "ig_subtle"]
+        assert [ranking["presetName"] for ranking in rankings[:2]] == [
+            "ig_bold",
+            "ig_subtle",
+        ]
         assert rankings[0]["performanceScore"] > rankings[1]["performanceScore"]
         assert rankings[0]["planningScore"] > rankings[1]["planningScore"]
-        assert rankings[0]["bandit"]["rewardEvent"] == "relative_reward_beats_account_baseline"
+        assert (
+            rankings[0]["bandit"]["rewardEvent"]
+            == "relative_reward_beats_account_baseline"
+        )
     finally:
         cf.close()
 
@@ -6026,17 +7472,39 @@ def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
              'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?)
             """,
             (
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
             ),
         )
         cf.conn.commit()
         rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
         item_id = rec["items"][0]["recommendationId"]
 
-        accepted = cf.accept_recommendation_item(item_id, operator="operator_1", notes="use this")
+        accepted = cf.accept_recommendation_item(
+            item_id, operator="operator_1", notes="use this"
+        )
         assert accepted["status"] == "accepted"
         assert accepted["decision"]["action"] == "accepted"
         assert accepted["acceptedAt"]
@@ -6063,7 +7531,9 @@ def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
         assert measured["baseline"]["threshold"] == 5
         assert measured["baseline"]["confidence"] == "usable"
         assert measured["measurementVersion"] == "recommendation_measurement.v1"
-        with pytest.raises(ValueError, match="invalid recommendation status transition"):
+        with pytest.raises(
+            ValueError, match="invalid recommendation status transition"
+        ):
             cf.accept_recommendation_item(item_id)
         overridden = cf.accept_recommendation_item(
             item_id,
@@ -6071,10 +7541,15 @@ def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
             override_reason="manual lifecycle correction",
         )
         assert overridden["status"] == "accepted"
-        assert overridden["decision"]["adminOverrides"][0]["reason"] == "manual lifecycle correction"
+        assert (
+            overridden["decision"]["adminOverrides"][0]["reason"]
+            == "manual lifecycle correction"
+        )
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "recommendation_item_to_source_asset" in edge_types
         assert "recommendation_item_to_render_job" in edge_types
@@ -6111,17 +7586,39 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
              'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?)
             """,
             (
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
-                campaign["id"], source["id"], source["content_hash"], caption_hash, now, now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                now,
             ),
         )
         cf.conn.commit()
         rec = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
         item_id = rec["items"][0]["recommendationId"]
         cf.accept_recommendation_item(item_id)
-        cf.link_recommendation_item(item_id, rendered_asset_id="asset_1", performance_snapshot_id="perf_acc_rec")
+        cf.link_recommendation_item(
+            item_id, rendered_asset_id="asset_1", performance_snapshot_id="perf_acc_rec"
+        )
         cf.measure_recommendation_item(item_id)
         measured_id = "recitem_measured"
         measured_payload = {
@@ -6144,9 +7641,21 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
             (
                 measured_id,
                 rec["runId"],
-                cf.ensure_graph_node("recommendation_item", local_table="recommendation_items", local_id=measured_id, payload=measured_payload),
+                cf.ensure_graph_node(
+                    "recommendation_item",
+                    local_table="recommendation_items",
+                    local_id=measured_id,
+                    payload=measured_payload,
+                ),
                 json.dumps({"level": "low"}),
-                json.dumps({"status": "measured", "outcomeScore": 50, "baselineScore": 50, "measuredAt": now}),
+                json.dumps(
+                    {
+                        "status": "measured",
+                        "outcomeScore": 50,
+                        "baselineScore": 50,
+                        "measuredAt": now,
+                    }
+                ),
                 json.dumps(measured_payload),
                 now,
                 now,
@@ -6155,7 +7664,9 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
         cf.conn.commit()
 
         first = cf.recommendation_accuracy("may", account="ig_1", window_days=365)
-        second = cf.rebuild_recommendation_accuracy("may", account="ig_1", window_days=365)
+        second = cf.rebuild_recommendation_accuracy(
+            "may", account="ig_1", window_days=365
+        )
         validate_recommendation_accuracy_report(first)
         assert second["schema"] == "campaign_factory.recommendation_accuracy_report.v1"
         assert first["overall"]["measuredCount"] == 2
@@ -6165,13 +7676,27 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
         assert first["overall"]["accuracyRate"] == 1.0
         assert first["trustConfidence"] == "insufficient"
         assert first["calibration"][0]["key"] in {"strong", "weak"}
-        assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_accuracy_observations").fetchone()[0] == 2
-        assert cf.conn.execute("SELECT COUNT(*) FROM recommendation_accuracy_reports").fetchone()[0] == 1
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM recommendation_accuracy_observations"
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM recommendation_accuracy_reports"
+            ).fetchone()[0]
+            == 1
+        )
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
-        assert "recommendation_item_to_recommendation_accuracy_observation" in edge_types
+        assert (
+            "recommendation_item_to_recommendation_accuracy_observation" in edge_types
+        )
         assert "recommendation_accuracy_observation_to_report" in edge_types
         summary = cf.trust_summary("may")
         assert summary["recommendations"]["proof"]["measuredCount"] == 2
@@ -6179,13 +7704,15 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
         cf.close()
 
 
-def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(tmp_path: Path):
+def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        campaign = cf.campaign_by_slug("may")
+        cf.campaign_by_slug("may")
         seeded = cf.recommend_next_batch("may", count=1, account="ig_1", persist=True)
         now = "2026-05-31T00:00:00+00:00"
         rows = []
@@ -6198,23 +7725,25 @@ def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(tmp_pa
                 "dataQuality": {"level": "high"},
                 "outcome": {"outcomeScore": 30, "baselineScore": 75, "measuredAt": now},
             }
-            rows.append((
-                item_id,
-                seeded["runId"],
-                idx + 2,
-                source["id"],
-                cf.ensure_graph_node(
-                    "recommendation_item",
-                    local_table="recommendation_items",
-                    local_id=item_id,
-                    payload=payload,
-                ),
-                json.dumps({"level": "high"}),
-                json.dumps(payload["outcome"]),
-                json.dumps(payload),
-                now,
-                now,
-            ))
+            rows.append(
+                (
+                    item_id,
+                    seeded["runId"],
+                    idx + 2,
+                    source["id"],
+                    cf.ensure_graph_node(
+                        "recommendation_item",
+                        local_table="recommendation_items",
+                        local_id=item_id,
+                        payload=payload,
+                    ),
+                    json.dumps({"level": "high"}),
+                    json.dumps(payload["outcome"]),
+                    json.dumps(payload),
+                    now,
+                    now,
+                )
+            )
         cf.conn.executemany(
             """
             INSERT INTO recommendation_items (
@@ -6233,16 +7762,27 @@ def test_recommend_next_batch_downgrades_when_recommendation_trust_is_low(tmp_pa
         report = cf.recommendation_accuracy("may", account="ig_1", window_days=365)
         assert report["recommendationTrustScore"] < 50
 
-        next_batch = cf.recommend_next_batch("may", count=1, account="ig_1", persist=False)
+        next_batch = cf.recommend_next_batch(
+            "may", count=1, account="ig_1", persist=False
+        )
         item = next_batch["items"][0]
 
         assert item["confidence"] == "low"
         assert "low_recommendation_trust" in item["risks"]
-        assert item["evidence"]["recommendationTrust"]["score"] == report["recommendationTrustScore"]
-        assert item["scoreBreakdown"]["recommendationTrust"] == report["recommendationTrustScore"]
+        assert (
+            item["evidence"]["recommendationTrust"]["score"]
+            == report["recommendationTrustScore"]
+        )
+        assert (
+            item["scoreBreakdown"]["recommendationTrust"]
+            == report["recommendationTrustScore"]
+        )
         learning = item["decisionEvidence"]["learning"]
         assert learning["recommendationTrust"]["status"] == "low"
-        assert learning["recommendationTrust"]["score"] == report["recommendationTrustScore"]
+        assert (
+            learning["recommendationTrust"]["score"]
+            == report["recommendationTrustScore"]
+        )
         assert learning["trustRisk"] == "low_recommendation_trust"
         assert learning["dataQuality"]["level"] in {"low", "medium", "high"}
     finally:
@@ -6264,7 +7804,11 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
                     "hook_key": "curiosity_open_loop",
                     "recipe": "v01_original",
                     "audio_intent": {"recommendations": [{"audioTitle": "Runway Pop"}]},
-                    "reference_pattern": {"label": "Mirror Curiosity", "visualFormat": "mirror", "hookType": "curiosity"},
+                    "reference_pattern": {
+                        "label": "Mirror Curiosity",
+                        "visualFormat": "mirror",
+                        "hookType": "curiosity",
+                    },
                     "caption_generation": {"captionFormula": "short direct caption"},
                 }
             }
@@ -6279,7 +7823,15 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
             ('perf_account_1', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_1', 'instagram',
              'published', 'ig_memory', ?, 5000, 400, 20, 30, 50, 4500, 1, ?, ?)
             """,
-            (campaign["id"], source["id"], source["content_hash"], caption_hash, now, json.dumps(raw), now),
+            (
+                campaign["id"],
+                source["id"],
+                source["content_hash"],
+                caption_hash,
+                now,
+                json.dumps(raw),
+                now,
+            ),
         )
         cf.conn.commit()
 
@@ -6301,7 +7853,9 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
         cf.close()
 
 
-def test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidates(tmp_path: Path):
+def test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidates(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
@@ -6310,9 +7864,11 @@ def test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidat
         campaign = cf.campaign_by_slug("may")
         rendered_path = tmp_path / "asset_2.mp4"
         rendered_path.write_bytes(b"rendered-2")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
@@ -6328,23 +7884,29 @@ def test_recommend_next_batch_uses_requested_account_fit_before_slicing_candidat
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({**context, "caption_hash": "caption_hash_2"}, sort_keys=True),
-                json.dumps({
-                    "instagram_post_caption": "new post",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    },
-                }),
+                json.dumps(
+                    {**context, "caption_hash": "caption_hash_2"}, sort_keys=True
+                ),
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
             ),
         )
         add_audit_report(cf, rendered_asset_id="asset_2", audit_id="audit_asset_2")
         cf.assign_asset_account("asset_1", instagram_account_id="ig_other")
         cf.assign_asset_account("asset_2", instagram_account_id="ig_target")
 
-        rec = cf.recommend_next_batch("may", count=1, account="ig_target", persist=False)
+        rec = cf.recommend_next_batch(
+            "may", count=1, account="ig_target", persist=False
+        )
         item = rec["items"][0]
 
         assert item["renderedAssetId"] == "asset_2"
@@ -6387,7 +7949,9 @@ def test_exception_queue_idempotent_resolve_snooze_reopen(tmp_path: Path):
         assert len(open_rows) == 1
         assert open_rows[0]["severity"] == "high"
 
-        snoozed = cf.snooze_exception(first["id"], until="2026-01-03T00:00:00+00:00", reason="wait", operator="op")
+        snoozed = cf.snooze_exception(
+            first["id"], until="2026-01-03T00:00:00+00:00", reason="wait", operator="op"
+        )
         assert snoozed["status"] == "snoozed"
         reopened = cf.reopen_exception(first["id"], reason="ready", operator="op")
         assert reopened["status"] == "open"
@@ -6396,7 +7960,9 @@ def test_exception_queue_idempotent_resolve_snooze_reopen(tmp_path: Path):
 
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "entity_to_trust_exception" in edge_types
         assert "recommendation_item_to_trust_exception" in edge_types
@@ -6404,7 +7970,9 @@ def test_exception_queue_idempotent_resolve_snooze_reopen(tmp_path: Path):
         cf.close()
 
 
-def test_execute_accepted_recommendation_links_existing_asset_without_publishing(tmp_path: Path):
+def test_execute_accepted_recommendation_links_existing_asset_without_publishing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -6420,10 +7988,15 @@ def test_execute_accepted_recommendation_links_existing_asset_without_publishing
         assert executed["recommendation"]["executionStatus"] in {"completed", "blocked"}
         assert executed["recommendation"]["renderedAssetId"] == "asset_1"
         assert cf.pipeline_job(executed["pipelineJobId"])["status"] == "succeeded"
-        assert cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
         edge_types = {
             row["relation_type"]
-            for row in cf.conn.execute("SELECT relation_type FROM content_graph_edges").fetchall()
+            for row in cf.conn.execute(
+                "SELECT relation_type FROM content_graph_edges"
+            ).fetchall()
         }
         assert "recommendation_item_to_rendered_asset" in edge_types
     finally:
@@ -6445,13 +8018,19 @@ def test_autonomy_policy_blocks_level_one_execution(tmp_path: Path):
         with pytest.raises(ValueError, match="auto execute blocked by autonomy level"):
             cf.execute_accepted_recommendation(item_id)
         exceptions = cf.exceptions("may", status="open")["exceptions"]
-        assert any(item["reasonCode"] == "autonomy_level_blocks_execution" for item in exceptions)
+        assert any(
+            item["reasonCode"] == "autonomy_level_blocks_execution"
+            for item in exceptions
+        )
         summary = cf.trust_summary("may")
         assert summary["schema"] == "campaign_factory.trust_summary.v1"
         assert summary["autonomyLevel"] == "level_1"
         assert summary["exceptions"]["openCount"] >= 1
         assert summary["recommendations"]["acceptedWaitingExecution"] == 1
-        assert summary["recommendedAction"] in {"execute_accepted_recommendations", "review_high_severity_exceptions"}
+        assert summary["recommendedAction"] in {
+            "execute_accepted_recommendations",
+            "review_high_severity_exceptions",
+        }
 
         cf.set_autonomy_level("level_2")
         executed = cf.execute_accepted_recommendation(item_id, run_audit=False)
@@ -6461,7 +8040,9 @@ def test_autonomy_policy_blocks_level_one_execution(tmp_path: Path):
         cf.close()
 
 
-def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_recommendations(tmp_path: Path):
+def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_recommendations(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         folder = tmp_path / "inputs"
@@ -6478,7 +8059,14 @@ def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_r
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
             VALUES ('asset_audio', ?, ?, 'hash_audio', ?, ?, 'needs_audio.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
-            (source["campaign_id"], source["id"], str(rendered_path), str(rendered_path), now, now),
+            (
+                source["campaign_id"],
+                source["id"],
+                str(rendered_path),
+                str(rendered_path),
+                now,
+                now,
+            ),
         )
         cf.conn.commit()
         add_audit_report(cf, rendered_asset_id="asset_audio")
@@ -6490,12 +8078,20 @@ def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_r
         assert intent["required"] is True
         assert intent["status"] == "needs_operator_selection"
         assert intent["task"]["status"] == "open"
-        assert "campaign_audio_unresolved: select audio before ThreadsDashboard export" in readiness["assets"][0]["blockingReasons"]
+        assert (
+            "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+            in readiness["assets"][0]["blockingReasons"]
+        )
         assert any(
-            reason.endswith("campaign_audio_unresolved: select audio before ThreadsDashboard export")
+            reason.endswith(
+                "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+            )
             for reason in readiness["blockingReasons"]
         )
-        assert not any("native_audio_unresolved" in reason for reason in readiness["blockingReasons"])
+        assert not any(
+            "native_audio_unresolved" in reason
+            for reason in readiness["blockingReasons"]
+        )
     finally:
         cf.close()
 
@@ -6504,7 +8100,10 @@ def test_dashboard_audio_workflow_summary_counts_audio_tasks(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        rendered = [cf._dashboard_rendered_asset(asset) for asset in cf.rendered_for_campaign(cf.campaign_by_slug("may")["id"])]
+        rendered = [
+            cf._dashboard_rendered_asset(asset)
+            for asset in cf.rendered_for_campaign(cf.campaign_by_slug("may")["id"])
+        ]
         summary = cf.audio_workflow_summary(rendered)
 
         assert summary["taskCounts"]["not_required"] == 1
@@ -6530,7 +8129,9 @@ def test_dashboard_audio_workflow_summary_counts_audio_tasks(tmp_path: Path):
         cf.close()
 
 
-def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, monkeypatch):
+def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
+    tmp_path: Path, monkeypatch
+):
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
             self.url = url
@@ -6548,22 +8149,38 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
             required = status != "not_required"
             cf.conn.execute(
                 "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-                (json.dumps({
-                    "instagram_post_caption": "new post",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": required,
-                        "status": status,
-                        **({
-                            "operator_selection": {
-                                "platform_audio_id": "ig_audio_1",
-                                "selected_at": "2026-05-22T12:00:00+00:00",
-                                **({"attached_at": "2026-05-22T12:05:00+00:00"} if status == "attached" else {"verified_at": "2026-05-22T12:10:00+00:00"}),
-                            }
-                        } if status in {"attached", "verified"} else {}),
-                    },
-                }),),
+                (
+                    json.dumps(
+                        {
+                            "instagram_post_caption": "new post",
+                            "audioIntent": {
+                                "schema": "pipeline.audio_intent.v1",
+                                "mode": "native_platform_audio",
+                                "required": required,
+                                "status": status,
+                                **(
+                                    {
+                                        "operator_selection": {
+                                            "platform_audio_id": "ig_audio_1",
+                                            "selected_at": "2026-05-22T12:00:00+00:00",
+                                            **(
+                                                {
+                                                    "attached_at": "2026-05-22T12:05:00+00:00"
+                                                }
+                                                if status == "attached"
+                                                else {
+                                                    "verified_at": "2026-05-22T12:10:00+00:00"
+                                                }
+                                            ),
+                                        }
+                                    }
+                                    if status in {"attached", "verified"}
+                                    else {}
+                                ),
+                            },
+                        }
+                    ),
+                ),
             )
             cf.conn.commit()
 
@@ -6576,7 +8193,10 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(tmp_path: Path, m
             )
 
             assert readiness["liveExportAllowed"] is True
-            assert not any("campaign_audio_unresolved" in reason for reason in readiness["blockingReasons"])
+            assert not any(
+                "campaign_audio_unresolved" in reason
+                for reason in readiness["blockingReasons"]
+            )
             assert source["id"]
         finally:
             cf.close()
@@ -6615,13 +8235,21 @@ def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypa
         )
 
         assert readiness["liveExportAllowed"] is False
-        assert any("draft_payload_contract_invalid" in reason for reason in readiness["blockingReasons"])
-        assert any("draft_payload_contract_invalid" in reason for reason in readiness["assets"][0]["blockingReasons"])
+        assert any(
+            "draft_payload_contract_invalid" in reason
+            for reason in readiness["blockingReasons"]
+        )
+        assert any(
+            "draft_payload_contract_invalid" in reason
+            for reason in readiness["assets"][0]["blockingReasons"]
+        )
     finally:
         cf.close()
 
 
-def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path, monkeypatch):
+def test_threadsdash_audio_intent_attached_requires_native_proof(
+    tmp_path: Path, monkeypatch
+):
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
             self.url = url
@@ -6637,15 +8265,19 @@ def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path,
         add_audit_report(cf)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "attached",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "attached",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
@@ -6659,14 +8291,17 @@ def test_threadsdash_audio_intent_attached_requires_native_proof(tmp_path: Path,
 
         assert readiness["liveExportAllowed"] is False
         assert any(
-            "campaign_audio_unresolved: select audio before ThreadsDashboard export" in reason
+            "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+            in reason
             for reason in readiness["blockingReasons"]
         )
     finally:
         cf.close()
 
 
-def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exports_metadata(tmp_path: Path, monkeypatch):
+def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exports_metadata(
+    tmp_path: Path, monkeypatch
+):
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
             self.url = url
@@ -6682,15 +8317,19 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         add_audit_report(cf)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "needs_operator_selection",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "needs_operator_selection",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         plan = cf.create_distribution_plan(
@@ -6708,8 +8347,12 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
             selected_reason="operator_selected_for_proof",
             operator="tester",
         )
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", schedule_mode="live")
-        draft_intent = payload["drafts"][0]["metadata"]["campaign_factory"]["audio_intent"]
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", schedule_mode="live"
+        )
+        draft_intent = payload["drafts"][0]["metadata"]["campaign_factory"][
+            "audio_intent"
+        ]
         readiness = evaluate_export_readiness(
             cf,
             campaign_slug="may",
@@ -6721,9 +8364,16 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
 
         assert result["audioIntent"]["status"] == "attached"
         assert result["audioIntent"]["operator_selection"]["audio_id"] == "ig_audio_123"
-        assert result["audioIntent"]["operator_selection"]["audio_title"] == "Proof track"
-        assert result["audioIntent"]["operator_selection"]["selection_source"] == "manual"
-        assert result["audioIntent"]["operator_selection"]["selected_reason"] == "operator_selected_for_proof"
+        assert (
+            result["audioIntent"]["operator_selection"]["audio_title"] == "Proof track"
+        )
+        assert (
+            result["audioIntent"]["operator_selection"]["selection_source"] == "manual"
+        )
+        assert (
+            result["audioIntent"]["operator_selection"]["selected_reason"]
+            == "operator_selected_for_proof"
+        )
         campaign_meta = payload["drafts"][0]["metadata"]["campaign_factory"]
         assert campaign_meta["asset_state"] == "exportable"
         assert campaign_meta["audio_id"] == "ig_audio_123"
@@ -6734,14 +8384,22 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         assert campaign_meta["publishability_failure_reasons"] == []
         assert draft_intent["status"] == "attached"
         assert draft_intent["operator_selection"]["audio_id"] == "ig_audio_123"
-        assert draft_intent["operator_selection"]["selected_reason"] == "operator_selected_for_proof"
+        assert (
+            draft_intent["operator_selection"]["selected_reason"]
+            == "operator_selected_for_proof"
+        )
         assert readiness["liveExportAllowed"] is True
-        assert not any("campaign_audio_unresolved" in reason for reason in readiness["blockingReasons"])
+        assert not any(
+            "campaign_audio_unresolved" in reason
+            for reason in readiness["blockingReasons"]
+        )
     finally:
         cf.close()
 
 
-def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp_path: Path, monkeypatch):
+def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
+    tmp_path: Path, monkeypatch
+):
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
             self.url = url
@@ -6757,15 +8415,19 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
         add_audit_report(cf)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "needs_operator_selection",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "needs_operator_selection",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         cf.attach_cover_frame_to_rendered_asset(
@@ -6776,7 +8438,9 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
             cover_image_hash="cover_hash_1",
             reason="best face and outfit framing",
         )
-        plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_stacey_1")
+        plan = cf.create_distribution_plan(
+            "asset_1", instagram_account_id="ig_stacey_1"
+        )
 
         cf.attach_audio_to_distribution_plan(
             plan["id"],
@@ -6791,7 +8455,9 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
             operator="tester",
         )
 
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", schedule_mode="live")
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", schedule_mode="live"
+        )
         campaign_meta = payload["drafts"][0]["metadata"]["campaign_factory"]
         manifest = campaign_meta["handoff_manifest"]
 
@@ -6810,8 +8476,14 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(tmp
             "reason": "best face and outfit framing",
         }
         assert manifest["cover_frame"] == campaign_meta["cover_frame"]
-        assert payload["drafts"][0]["media"][0]["thumbnailUrl"] == "https://cdn.example.com/stacey-cover.jpg"
-        assert payload["drafts"][0]["metadata"]["coverUrl"] == "https://cdn.example.com/stacey-cover.jpg"
+        assert (
+            payload["drafts"][0]["media"][0]["thumbnailUrl"]
+            == "https://cdn.example.com/stacey-cover.jpg"
+        )
+        assert (
+            payload["drafts"][0]["metadata"]["coverUrl"]
+            == "https://cdn.example.com/stacey-cover.jpg"
+        )
         assert payload["drafts"][0]["metadata"]["thumbOffset"] == 1.4
     finally:
         cf.close()
@@ -6846,21 +8518,61 @@ def test_distribution_plan_exports_trial_and_story_surfaces(tmp_path: Path):
             cta_text="new post is up",
         )
 
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", schedule_mode="preview")
-        by_surface = {draft["distributionSurface"]: draft for draft in payload["drafts"]}
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", schedule_mode="preview"
+        )
+        by_surface = {
+            draft["distributionSurface"]: draft for draft in payload["drafts"]
+        }
         assert set(by_surface) == {"trial_reel", "story_cta"}
         assert by_surface["trial_reel"]["status"] == "draft"
         assert by_surface["trial_reel"]["scheduledFor"] == "2026-01-02T10:00:00+00:00"
-        assert by_surface["trial_reel"]["metadata"]["campaign_factory"]["preview_schedule_only"] is True
+        assert (
+            by_surface["trial_reel"]["metadata"]["campaign_factory"][
+                "preview_schedule_only"
+            ]
+            is True
+        )
         assert "trialReels" not in by_surface["trial_reel"]["metadata"]
-        assert by_surface["trial_reel"]["metadata"]["campaign_factory"]["instagram_trial_reels"] is False
-        assert by_surface["trial_reel"]["metadata"]["campaign_factory"]["trial_reel"] is True
-        assert by_surface["trial_reel"]["metadata"]["campaign_factory"]["distribution_plan_id"] == trial["id"]
+        assert (
+            by_surface["trial_reel"]["metadata"]["campaign_factory"][
+                "instagram_trial_reels"
+            ]
+            is False
+        )
+        assert (
+            by_surface["trial_reel"]["metadata"]["campaign_factory"]["trial_reel"]
+            is True
+        )
+        assert (
+            by_surface["trial_reel"]["metadata"]["campaign_factory"][
+                "distribution_plan_id"
+            ]
+            == trial["id"]
+        )
         assert by_surface["story_cta"]["content"] == "new post is up"
-        assert by_surface["story_cta"]["metadata"]["campaign_factory"]["distribution_plan_id"] == story["id"]
-        assert by_surface["story_cta"]["metadata"]["campaign_factory"]["smart_link"] == "https://example.com/stacey"
-        assert by_surface["story_cta"]["metadata"]["campaign_factory"]["paired_rendered_asset_id"] == "asset_1"
-        assert by_surface["trial_reel"]["metadata"]["campaign_factory"]["account_profile"]["modelSlug"] == "model"
+        assert (
+            by_surface["story_cta"]["metadata"]["campaign_factory"][
+                "distribution_plan_id"
+            ]
+            == story["id"]
+        )
+        assert (
+            by_surface["story_cta"]["metadata"]["campaign_factory"]["smart_link"]
+            == "https://example.com/stacey"
+        )
+        assert (
+            by_surface["story_cta"]["metadata"]["campaign_factory"][
+                "paired_rendered_asset_id"
+            ]
+            == "asset_1"
+        )
+        assert (
+            by_surface["trial_reel"]["metadata"]["campaign_factory"]["account_profile"][
+                "modelSlug"
+            ]
+            == "model"
+        )
         assert by_surface["trial_reel"]["campaignId"] == "may"
     finally:
         cf.close()
@@ -6873,8 +8585,12 @@ def test_regular_reel_manifest_defaults_instagram_trial_reels_false(tmp_path: Pa
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
 
-        plan = cf.create_distribution_plan("asset_1", surface="regular_reel", instagram_account_id="ig_good")
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        plan = cf.create_distribution_plan(
+            "asset_1", surface="regular_reel", instagram_account_id="ig_good"
+        )
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         manifest = explanation["handoff_manifest"]
         assert plan["instagramTrialReels"] is False
@@ -6885,15 +8601,23 @@ def test_regular_reel_manifest_defaults_instagram_trial_reels_false(tmp_path: Pa
         cf.close()
 
 
-def test_internal_trial_or_proof_campaign_does_not_set_instagram_trial_reels(tmp_path: Path):
+def test_internal_trial_or_proof_campaign_does_not_set_instagram_trial_reels(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        add_rendered_asset(cf, tmp_path, campaign_slug="stacey_variant_fanout_proof_trial_20260606")
+        add_rendered_asset(
+            cf, tmp_path, campaign_slug="stacey_variant_fanout_proof_trial_20260606"
+        )
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
 
-        plan = cf.create_distribution_plan("asset_1", surface="trial_reel", instagram_account_id="ig_good")
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        plan = cf.create_distribution_plan(
+            "asset_1", surface="trial_reel", instagram_account_id="ig_good"
+        )
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         manifest = explanation["handoff_manifest"]
         assert plan["surface"] == "trial_reel"
@@ -6918,7 +8642,9 @@ def test_explicit_instagram_trial_reel_manifest_includes_trial_fields(tmp_path: 
             instagram_trial_reels=True,
             trial_graduation_strategy="MANUAL",
         )
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         manifest = explanation["handoff_manifest"]
         assert plan["contentSurface"] == "reel"
@@ -6945,7 +8671,9 @@ def test_non_reel_instagram_trial_intent_is_blocked(tmp_path: Path):
             instagram_post_caption="new post",
         )
 
-        with pytest.raises(ValueError, match="Instagram Trial Reels require reel content"):
+        with pytest.raises(
+            ValueError, match="Instagram Trial Reels require reel content"
+        ):
             cf.create_distribution_plan(
                 "asset_feed_trial_blocked",
                 surface="feed_single",
@@ -6964,7 +8692,9 @@ def test_invalid_trial_graduation_strategy_is_blocked(tmp_path: Path):
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
 
-        with pytest.raises(ValueError, match="trial_graduation_strategy must be one of"):
+        with pytest.raises(
+            ValueError, match="trial_graduation_strategy must be one of"
+        ):
             cf.create_distribution_plan(
                 "asset_1",
                 surface="trial_reel",
@@ -7004,28 +8734,37 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                     f"ok_{i}.mp4",
                     f"caption {i}",
                     f"caption_hash_{i}",
-                    json.dumps({
-                        "schema": "campaign_factory.caption_outcome_context.v1",
-                        "caption_hash": f"caption_hash_{i}",
-                        "caption_text": f"caption {i}",
-                        "instagram_post_caption": f"new post {i}",
-                        "instagram_post_caption_hash": threadsdash_adapter._text_hash(f"new post {i}"),
-                        "caption_bank": "test_bank",
-                        "caption_banks": ["test_bank"],
-                        "creator_mix": "Test",
-                        "render_recipe": "v01_original",
-                        "captionPlacementPolicy": "focal_safe_v1",
-                        "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
-                    }),
-                    json.dumps({
-                        "instagram_post_caption": f"new post {i}",
-                        "audioIntent": {
-                            "schema": "pipeline.audio_intent.v1",
-                            "mode": "native_platform_audio",
-                            "required": False,
-                            "status": "not_required",
+                    json.dumps(
+                        {
+                            "schema": "campaign_factory.caption_outcome_context.v1",
+                            "caption_hash": f"caption_hash_{i}",
+                            "caption_text": f"caption {i}",
+                            "instagram_post_caption": f"new post {i}",
+                            "instagram_post_caption_hash": threadsdash_adapter._text_hash(
+                                f"new post {i}"
+                            ),
+                            "caption_bank": "test_bank",
+                            "caption_banks": ["test_bank"],
+                            "creator_mix": "Test",
+                            "render_recipe": "v01_original",
+                            "captionPlacementPolicy": "focal_safe_v1",
+                            "captionPlacementDecision": {
+                                "status": "passed",
+                                "selectedLane": "top",
+                            },
                         }
-                    }),
+                    ),
+                    json.dumps(
+                        {
+                            "instagram_post_caption": f"new post {i}",
+                            "audioIntent": {
+                                "schema": "pipeline.audio_intent.v1",
+                                "mode": "native_platform_audio",
+                                "required": False,
+                                "status": "not_required",
+                            },
+                        }
+                    ),
                     now,
                     now,
                 ),
@@ -7049,18 +8788,27 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
         assert len(primary) == 4
         assert len(stories) == 4
         assert all(plan["plannedWindowStart"] for plan in primary)
-        assert all(plan["instagramAccountId"] in {"ig_1", "ig_2", "ig_3", "ig_4", "ig_5"} for plan in primary)
+        assert all(
+            plan["instagramAccountId"] in {"ig_1", "ig_2", "ig_3", "ig_4", "ig_5"}
+            for plan in primary
+        )
 
         unplanned_id = result["unplanned"][0]["renderedAssetId"]
         cf.assign_asset_account(unplanned_id, instagram_account_id="ig_5")
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", schedule_mode="preview")
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", schedule_mode="preview"
+        )
         assert len(payload["drafts"]) == len(plans)
-        assert unplanned_id not in {draft["renderedAssetId"] for draft in payload["drafts"]}
+        assert unplanned_id not in {
+            draft["renderedAssetId"] for draft in payload["drafts"]
+        }
     finally:
         cf.close()
 
 
-def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(tmp_path: Path, monkeypatch):
+def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = [
         {
@@ -7122,7 +8870,11 @@ def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(tmp_path:
             post_id = filters["id"].removeprefix("eq.")
             updated = []
             for row in rows:
-                if row["id"] == post_id and row["user_id"] == "user_1" and row["status"] == "scheduled":
+                if (
+                    row["id"] == post_id
+                    and row["user_id"] == "user_1"
+                    and row["status"] == "scheduled"
+                ):
                     row.update(values)
                     updated.append(dict(row))
             return updated
@@ -7169,7 +8921,9 @@ def test_model_account_profile_blocks_wrong_model_account(tmp_path: Path):
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_good"])
+        cf.upsert_model_account_profile(
+            "model", allowed_instagram_account_ids=["ig_good"]
+        )
         cf.assign_asset_account("asset_1", instagram_account_id="ig_wrong")
 
         readiness = evaluate_export_readiness(cf, campaign_slug="may", user_id="user_1")
@@ -7189,7 +8943,9 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
     (folder / "source.mp4").write_bytes(b"source")
     cf = make_factory(tmp_path)
     try:
-        imported = cf.import_folder(folder, campaign_slug="launch", model_slug="model", account_handles=["ig_a"])
+        imported = cf.import_folder(
+            folder, campaign_slug="launch", model_slug="model", account_handles=["ig_a"]
+        )
         source = imported["imported"][0]
         rendered_path = tmp_path / "rendered.mp4"
         rendered_path.write_bytes(b"rendered")
@@ -7200,13 +8956,22 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
             VALUES ('asset_smoke', ?, ?, 'hash_smoke', ?, ?, 'rendered.mp4', 'caption', 'v01_original', 'pending', 'draft', ?, ?)
             """,
-            (source["campaign_id"], source["id"], str(rendered_path), str(rendered_path), now, now),
+            (
+                source["campaign_id"],
+                source["id"],
+                str(rendered_path),
+                str(rendered_path),
+                now,
+                now,
+            ),
         )
         cf.conn.commit()
         audit = audit_campaign(cf, campaign_slug="launch")
         assert audit["reports"][0]["status"] == "needs_review"
         cf.approve_rendered_asset("asset_smoke")
-        exported = export_threadsdash(cf, campaign_slug="launch", user_id="user_1", dry_run=True)
+        exported = export_threadsdash(
+            cf, campaign_slug="launch", user_id="user_1", dry_run=True
+        )
         data = json.loads(Path(exported["path"]).read_text())
         assert data["draftCount"] == 1
         draft = data["payload"]["drafts"][0]
@@ -7227,7 +8992,11 @@ def test_dashboard_returns_latest_audit_and_readiness(tmp_path: Path):
             "semanticEngine": "heuristic_v1",
             "modelBacked": False,
             "score": 72,
-            "hookClarity": {"score": 80, "level": "strong", "text": "just cracked you in my head"},
+            "hookClarity": {
+                "score": 80,
+                "level": "strong",
+                "text": "just cracked you in my head",
+            },
             "visualClarity": {"score": 68, "level": "medium"},
             "openingStrength": {"score": 70, "level": "medium"},
             "subjectVisibility": {"score": 64, "level": "medium"},
@@ -7239,7 +9008,9 @@ def test_dashboard_returns_latest_audit_and_readiness(tmp_path: Path):
         assert asset["latest_audit"]["id"] == "audit_1"
         assert asset["latest_audit"]["overallVerdict"] == "warn"
         assert asset["latest_audit"]["readinessSummary"]["uploadReady"] is True
-        assert asset["latest_audit"]["creativeQuality"]["semanticEngine"] == "heuristic_v1"
+        assert (
+            asset["latest_audit"]["creativeQuality"]["semanticEngine"] == "heuristic_v1"
+        )
         assert asset["latest_audit"]["creativeQuality"]["score"] == 72
         assert asset["latest_audit"]["creativeQuality"]["hookClarity"]["score"] == 80
         assert asset["export_readiness"]["state"] == "blocked"
@@ -7256,13 +9027,15 @@ def test_dashboard_audio_workflow_summary_counts_and_top_audio(tmp_path: Path):
             "captionGeneration": {},
             "referencePattern": {},
             "audioRecommendations": {
-                "recommendations": [{
-                    "audioTitle": "Runway Pop",
-                    "artistName": "DJ A",
-                    "audioId": "ig_1",
-                    "freshness": "rising",
-                    "confidence": 0.91,
-                }],
+                "recommendations": [
+                    {
+                        "audioTitle": "Runway Pop",
+                        "artistName": "DJ A",
+                        "audioId": "ig_1",
+                        "freshness": "rising",
+                        "confidence": 0.91,
+                    }
+                ],
             },
         },
         {
@@ -7272,7 +9045,13 @@ def test_dashboard_audio_workflow_summary_counts_and_top_audio(tmp_path: Path):
                     "schema": "pipeline.audio_intent.v1",
                     "required": True,
                     "status": "selected",
-                    "recommendations": [{"audioTitle": "Runway Pop", "artistName": "DJ A", "audioId": "ig_1"}],
+                    "recommendations": [
+                        {
+                            "audioTitle": "Runway Pop",
+                            "artistName": "DJ A",
+                            "audioId": "ig_1",
+                        }
+                    ],
                 }
             },
             "referencePattern": {},
@@ -7280,13 +9059,17 @@ def test_dashboard_audio_workflow_summary_counts_and_top_audio(tmp_path: Path):
         },
         {
             "id": "asset_blocked",
-            "captionGeneration": {"audioIntent": {"required": True, "status": "blocked"}},
+            "captionGeneration": {
+                "audioIntent": {"required": True, "status": "blocked"}
+            },
             "referencePattern": {},
             "audioRecommendations": {},
         },
         {
             "id": "asset_ready",
-            "captionGeneration": {"audioIntent": {"required": True, "status": "attached"}},
+            "captionGeneration": {
+                "audioIntent": {"required": True, "status": "attached"}
+            },
             "referencePattern": {},
             "audioRecommendations": {},
         },
@@ -7329,7 +9112,9 @@ def test_review_decision_supports_reject_and_approve(tmp_path: Path):
         assert rejected["review_state"] == "rejected"
         approved = cf.review_rendered_asset("asset_1", decision="approved", notes="ok")
         assert approved["review_state"] == "approved"
-        decisions = cf.conn.execute("SELECT decision FROM approval_decisions ORDER BY created_at").fetchall()
+        decisions = cf.conn.execute(
+            "SELECT decision FROM approval_decisions ORDER BY created_at"
+        ).fetchall()
         assert [row["decision"] for row in decisions] == ["rejected", "approved"]
     finally:
         cf.close()
@@ -7340,17 +9125,27 @@ def test_operator_approval_requires_safe_audit_when_guard_enabled(tmp_path: Path
     try:
         add_rendered_asset(cf, tmp_path)
         with pytest.raises(ValueError, match="audit_status:pending"):
-            cf.review_rendered_asset("asset_1", decision="approved", require_safe_audit=True)
+            cf.review_rendered_asset(
+                "asset_1", decision="approved", require_safe_audit=True
+            )
 
-        cf.conn.execute("UPDATE rendered_assets SET audit_status = 'approved_candidate' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET audit_status = 'approved_candidate' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
-        approved = cf.review_rendered_asset("asset_1", decision="approved", require_safe_audit=True)
+        approved = cf.review_rendered_asset(
+            "asset_1", decision="approved", require_safe_audit=True
+        )
 
         assert approved["review_state"] == "approved"
 
-        cf.conn.execute("UPDATE rendered_assets SET audit_status = 'needs_review', review_state = 'review_ready' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET audit_status = 'needs_review', review_state = 'review_ready' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
-        warning_only = cf.review_rendered_asset("asset_1", decision="approved", require_safe_audit=True)
+        warning_only = cf.review_rendered_asset(
+            "asset_1", decision="approved", require_safe_audit=True
+        )
 
         assert warning_only["review_state"] == "approved"
     finally:
@@ -7366,7 +9161,9 @@ def test_media_route_refuses_unknown_asset(tmp_path: Path, monkeypatch):
     assert response.status_code == 404
 
 
-def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(tmp_path: Path, monkeypatch):
+def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
 
@@ -7380,30 +9177,36 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(tmp
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        rows.append({
-            "id": "post_1",
-            "status": "published",
-            "platform": "instagram",
-            "media_type": "reel",
-            "ig_media_type": "REELS",
-            "content_surface": "reel",
-            "account_id": None,
-            "instagram_account_id": None,
-            "created_at": "2026-01-03T00:00:00+00:00",
-            "metadata": {
-                "campaign_factory": {
-                    "campaign_id": "may",
-                    "source_asset_id": source["id"],
+        rows.append(
+            {
+                "id": "post_1",
+                "status": "published",
+                "platform": "instagram",
+                "media_type": "reel",
+                "ig_media_type": "REELS",
+                "content_surface": "reel",
+                "account_id": None,
+                "instagram_account_id": None,
+                "created_at": "2026-01-03T00:00:00+00:00",
+                "metadata": {
+                    "campaign_factory": {
+                        "campaign_id": "may",
+                        "source_asset_id": source["id"],
                         "rendered_asset_id": "asset_1",
                         "content_hash": "hash_1",
                         "source_content_hash": source["content_hash"],
                         "caption_hash": "caption_hash_1",
                     }
                 },
-            })
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+            }
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
-        add_audit_report(cf, failed=["forensics"], overall_verdict="fail", upload_ready=False)
+        add_audit_report(
+            cf, failed=["forensics"], overall_verdict="fail", upload_ready=False
+        )
         readiness = evaluate_export_readiness(
             cf,
             campaign_slug="may",
@@ -7416,7 +9219,10 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(tmp
         assert "upload_readiness:forensics" in row["blockingReasons"]
         assert "contentforge_verdict:fail" in row["blockingReasons"]
         assert "exact_render_published" in row["blockingReasons"]
-        assert any(reason.endswith("exact_render_published") for reason in readiness["blockingReasons"])
+        assert any(
+            reason.endswith("exact_render_published")
+            for reason in readiness["blockingReasons"]
+        )
 
         cf.review_rendered_asset("asset_1", decision="rejected")
         rejected = evaluate_export_readiness(
@@ -7446,26 +9252,30 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        rows.append({
-            "id": "post_1",
-                    "status": "draft",
-                    "platform": "instagram",
-                    "account_id": None,
-                    "instagram_account_id": None,
-                    "created_at": "2026-01-03T00:00:00+00:00",
-                    "content": "caption",
-                    "metadata": {
-                        "campaign_factory": {
-                    "campaign_id": "may",
-                    "source_asset_id": source["id"],
-                    "rendered_asset_id": "asset_1",
-                    "content_hash": "hash_1",
-                    "source_content_hash": source["content_hash"],
-                    "caption_hash": "caption_hash_1",
-                }
-            },
-        })
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        rows.append(
+            {
+                "id": "post_1",
+                "status": "draft",
+                "platform": "instagram",
+                "account_id": None,
+                "instagram_account_id": None,
+                "created_at": "2026-01-03T00:00:00+00:00",
+                "content": "caption",
+                "metadata": {
+                    "campaign_factory": {
+                        "campaign_id": "may",
+                        "source_asset_id": source["id"],
+                        "rendered_asset_id": "asset_1",
+                        "content_hash": "hash_1",
+                        "source_content_hash": source["content_hash"],
+                        "caption_hash": "caption_hash_1",
+                    }
+                },
+            }
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         add_audit_report(cf, overall_verdict="warn", warnings=["compression"])
         readiness = evaluate_export_readiness(
@@ -7514,9 +9324,13 @@ def test_export_readiness_warns_on_batch_calendar_guardrails(tmp_path: Path):
                 ),
             )
             cf.conn.commit()
-            add_audit_report(cf, rendered_asset_id=f"asset_{idx}", audit_id=f"audit_{idx}")
+            add_audit_report(
+                cf, rendered_asset_id=f"asset_{idx}", audit_id=f"audit_{idx}"
+            )
         readiness = evaluate_export_readiness(cf, campaign_slug="may", user_id="user_1")
-        warnings = {warning for row in readiness["assets"] for warning in row["warnings"]}
+        warnings = {
+            warning for row in readiness["assets"] for warning in row["warnings"]
+        }
         assert "account_batch_volume_review" in warnings
         assert "same_caption_in_batch" in warnings
         assert "source_family_batch_volume_review" in warnings
@@ -7525,7 +9339,9 @@ def test_export_readiness_warns_on_batch_calendar_guardrails(tmp_path: Path):
         cf.close()
 
 
-def test_live_export_blocks_same_rendered_asset_to_same_account_batch(tmp_path: Path, monkeypatch):
+def test_live_export_blocks_same_rendered_asset_to_same_account_batch(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
 
@@ -7565,18 +9381,25 @@ def test_live_export_blocks_same_rendered_asset_to_same_account_batch(tmp_path: 
 
         assert readiness["liveExportAllowed"] is False
         assert readiness["expectedDraftCount"] == 2
-        assert "asset_1:same_rendered_asset_in_account_batch" in readiness["blockingReasons"]
+        assert (
+            "asset_1:same_rendered_asset_in_account_batch"
+            in readiness["blockingReasons"]
+        )
     finally:
         cf.close()
 
 
-def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(tmp_path: Path):
+def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
+    tmp_path: Path,
+):
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source")
     cf = make_factory(tmp_path)
     try:
-        cf.import_folder(folder, campaign_slug="may", model_slug="stacey", account_handles=["ig_a"])
+        cf.import_folder(
+            folder, campaign_slug="may", model_slug="stacey", account_handles=["ig_a"]
+        )
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
@@ -7621,9 +9444,13 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(tmp
         )
         cf.conn.commit()
 
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1", rendered_asset_ids=["asset_1"])
+        payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", rendered_asset_ids=["asset_1"]
+        )
         exported_context = payload["drafts"][0]["captionOutcomeContext"]
-        metadata_context = payload["drafts"][0]["metadata"]["campaign_factory"]["captionOutcomeContext"]
+        metadata_context = payload["drafts"][0]["metadata"]["campaign_factory"][
+            "captionOutcomeContext"
+        ]
         assert exported_context == context
         assert metadata_context == context
         assert exported_context["creator_model"] is None
@@ -7631,7 +9458,9 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(tmp
         cf.close()
 
 
-def test_publishability_blocks_passthrough_captioned_media_before_export(tmp_path: Path, monkeypatch):
+def test_publishability_blocks_passthrough_captioned_media_before_export(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
 
@@ -7657,10 +9486,20 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(tmp_pat
 
         assert readiness["liveExportAllowed"] is False
         assert readiness["assets"][0]["publishability"]["publishableCandidate"] is False
-        assert readiness["assets"][0]["publishability"]["publishability_failure_reasons"] == readiness["assets"][0]["publishability"]["failureReasons"]
-        assert "missing_burned_captions" in readiness["assets"][0]["publishability"]["publishability_failure_reasons"]
+        assert (
+            readiness["assets"][0]["publishability"]["publishability_failure_reasons"]
+            == readiness["assets"][0]["publishability"]["failureReasons"]
+        )
+        assert (
+            "missing_burned_captions"
+            in readiness["assets"][0]["publishability"][
+                "publishability_failure_reasons"
+            ]
+        )
 
-        with pytest.raises(ValueError, match="export blocked by (publishability|handoff manifest)"):
+        with pytest.raises(
+            ValueError, match="export blocked by (publishability|handoff manifest)"
+        ):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -7673,16 +9512,19 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(tmp_pat
         cf.close()
 
 
-
-def test_publishability_uses_review_package_generated_lineage_for_caption_placement(tmp_path: Path):
+def test_publishability_uses_review_package_generated_lineage_for_caption_placement(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         context.pop("captionPlacementPolicy", None)
         context.pop("captionPlacementDecision", None)
         caption_generation = {
@@ -7707,7 +9549,10 @@ def test_publishability_uses_review_package_generated_lineage_for_caption_placem
         }
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps(context, sort_keys=True), json.dumps(caption_generation, sort_keys=True)),
+            (
+                json.dumps(context, sort_keys=True),
+                json.dumps(caption_generation, sort_keys=True),
+            ),
         )
         cf.conn.commit()
 
@@ -7716,41 +9561,56 @@ def test_publishability_uses_review_package_generated_lineage_for_caption_placem
         assert explanation["captionPlacementPolicy"] == "focal_safe_v1"
         assert explanation["captionPlacementDecision"]["selectedLane"] == "bottom"
         assert explanation["checks"]["caption_placement_qc_passed"] is True
-        assert "caption_placement_qc_failed" not in explanation["publishability_failure_reasons"]
+        assert (
+            "caption_placement_qc_failed"
+            not in explanation["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
 
-def test_operator_publishability_attestation_supplies_caption_visual_and_identity_evidence(tmp_path: Path):
+def test_operator_publishability_attestation_supplies_caption_visual_and_identity_evidence(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         audit = add_audit_report(cf)
-        Path(audit["path"]).write_text(json.dumps({
-            "readinessSummary": {
-                "uploadReady": True,
-                "blockingReasons": [],
-                "blockingCodes": [],
-            },
-            "overallVerdict": "pass",
-        }), encoding="utf-8")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        Path(audit["path"]).write_text(
+            json.dumps(
+                {
+                    "readinessSummary": {
+                        "uploadReady": True,
+                        "blockingReasons": [],
+                        "blockingCodes": [],
+                    },
+                    "overallVerdict": "pass",
+                }
+            ),
+            encoding="utf-8",
+        )
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         context.pop("instagram_post_caption", None)
         context.pop("instagram_post_caption_hash", None)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ?, metadata_json = ? WHERE id = 'asset_1'",
             (
                 json.dumps(context, sort_keys=True),
-                json.dumps({
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    }
-                }, sort_keys=True),
+                json.dumps(
+                    {
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        }
+                    },
+                    sort_keys=True,
+                ),
                 "{}",
             ),
         )
@@ -7758,9 +9618,14 @@ def test_operator_publishability_attestation_supplies_caption_visual_and_identit
         cf.review_rendered_asset("asset_1", decision="approved")
 
         before = cf.explain_publishability("asset_1")
-        assert "missing_instagram_post_caption" in before["publishability_failure_reasons"]
+        assert (
+            "missing_instagram_post_caption" in before["publishability_failure_reasons"]
+        )
         assert "visual_qc_unavailable" in before["publishability_failure_reasons"]
-        assert "identity_verification_unavailable" in before["publishability_failure_reasons"]
+        assert (
+            "identity_verification_unavailable"
+            in before["publishability_failure_reasons"]
+        )
 
         result = cf.attest_publishability_evidence(
             "asset_1",
@@ -7777,11 +9642,18 @@ def test_operator_publishability_attestation_supplies_caption_visual_and_identit
         assert after["checks"]["instagram_post_caption_quality_passed"] is True
         assert after["visualQcStatus"] == "passed"
         assert after["identityVerificationStatus"] == "passed"
-        assert "missing_instagram_post_caption" not in after["publishability_failure_reasons"]
+        assert (
+            "missing_instagram_post_caption"
+            not in after["publishability_failure_reasons"]
+        )
         assert "visual_qc_unavailable" not in after["publishability_failure_reasons"]
-        assert "identity_verification_unavailable" not in after["publishability_failure_reasons"]
+        assert (
+            "identity_verification_unavailable"
+            not in after["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
+
 
 def test_publishability_blocks_missing_caption_placement_qc(tmp_path: Path):
     cf = make_factory(tmp_path)
@@ -7789,9 +9661,11 @@ def test_publishability_blocks_missing_caption_placement_qc(tmp_path: Path):
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf)
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         context.pop("captionPlacementPolicy", None)
         context.pop("captionPlacementDecision", None)
         cf.conn.execute(
@@ -7803,7 +9677,10 @@ def test_publishability_blocks_missing_caption_placement_qc(tmp_path: Path):
         explanation = cf.explain_publishability("asset_1")
 
         assert explanation["publishableCandidate"] is False
-        assert "caption_placement_qc_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "caption_placement_qc_failed"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["checks"]["caption_placement_qc_passed"] is False
     finally:
         cf.close()
@@ -7815,9 +9692,11 @@ def test_publishability_blocks_failed_caption_placement_qc(tmp_path: Path):
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf)
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         context["captionPlacementDecision"] = {
             "status": "failed",
             "selectedLane": "center",
@@ -7834,7 +9713,10 @@ def test_publishability_blocks_failed_caption_placement_qc(tmp_path: Path):
         assert explanation["publishableCandidate"] is False
         assert explanation["captionPlacementPolicy"] == "focal_safe_v1"
         assert explanation["captionPlacementDecision"]["status"] == "failed"
-        assert "caption_placement_qc_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "caption_placement_qc_failed"
+            in explanation["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
@@ -7846,7 +9728,9 @@ def test_publishability_blocks_caption_safe_zone_audit_warning(tmp_path: Path):
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(
             cf,
-            warnings=["Caption-like text may overlap bottom or right-side Reels UI controls"],
+            warnings=[
+                "Caption-like text may overlap bottom or right-side Reels UI controls"
+            ],
             warning_codes=["caption_overlaps_ui_safe_zone"],
         )
 
@@ -7854,7 +9738,10 @@ def test_publishability_blocks_caption_safe_zone_audit_warning(tmp_path: Path):
 
         assert explanation["publishableCandidate"] is False
         assert explanation["checks"]["caption_placement_qc_passed"] is False
-        assert "caption_placement_qc_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "caption_placement_qc_failed"
+            in explanation["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
@@ -7867,27 +9754,36 @@ def test_publishability_blocks_blank_instagram_post_caption(tmp_path: Path):
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
         explanation = cf.explain_publishability("asset_1")
 
         assert explanation["publishableCandidate"] is False
-        assert "missing_instagram_post_caption" in explanation["publishability_failure_reasons"]
+        assert (
+            "missing_instagram_post_caption"
+            in explanation["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
 
-def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(tmp_path: Path):
+def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -7904,7 +9800,9 @@ def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(tm
         payload["identityVerification"] = {"status": "failed"}
         audit_path.write_text(json.dumps(payload), encoding="utf-8")
 
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         assert explanation["publishableCandidate"] is False
         assert explanation["checks"]["visual_qc_passed"] is False
@@ -7912,13 +9810,18 @@ def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(tm
         assert explanation["visualQcStatus"] == "unavailable"
         assert explanation["identityVerificationStatus"] == "failed"
         assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
-        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "identity_verification_failed"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["handoff_manifest"] is None
     finally:
         cf.close()
 
 
-def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(tmp_path: Path):
+def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -7935,9 +9838,15 @@ def test_publishability_maps_unbounded_trust_statuses_to_contract_blockers(tmp_p
         assert explanation["visualQcStatus"] == "pending"
         assert explanation["identityVerificationStatus"] == "provider_error"
         assert "visual_qc_unavailable" in explanation["publishability_failure_reasons"]
-        assert "identity_verification_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "identity_verification_failed"
+            in explanation["publishability_failure_reasons"]
+        )
         assert "visual_qc_pending" not in explanation["publishability_failure_reasons"]
-        assert "identity_verification_provider_error" not in explanation["publishability_failure_reasons"]
+        assert (
+            "identity_verification_provider_error"
+            not in explanation["publishability_failure_reasons"]
+        )
     finally:
         cf.close()
 
@@ -7950,24 +9859,33 @@ def test_publishability_blocks_reel_captions_with_dm_or_link_references(tmp_path
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "DM me for the link",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "DM me for the link",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
         explanation = cf.explain_publishability("asset_1")
 
         assert explanation["publishableCandidate"] is False
-        assert "unsafe_reel_caption_link_or_dm_reference" in explanation["publishability_failure_reasons"]
+        assert (
+            "unsafe_reel_caption_link_or_dm_reference"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["checks"]["reel_caption_account_safety_passed"] is False
-        assert {item["reason"] for item in explanation["reelCaptionAccountSafetyViolations"]} == {
+        assert {
+            item["reason"] for item in explanation["reelCaptionAccountSafetyViolations"]
+        } == {
             "dm_reference",
             "link_reference",
         }
@@ -7983,24 +9901,33 @@ def test_publishability_blocks_reel_captions_with_text_me_language(tmp_path: Pat
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "too scared to text me",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "too scared to text me",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
         explanation = cf.explain_publishability("asset_1")
 
         assert explanation["publishableCandidate"] is False
-        assert "unsafe_reel_caption_link_or_dm_reference" in explanation["publishability_failure_reasons"]
+        assert (
+            "unsafe_reel_caption_link_or_dm_reference"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["checks"]["reel_caption_account_safety_passed"] is False
-        assert {item["reason"] for item in explanation["reelCaptionAccountSafetyViolations"]} == {"dm_reference"}
+        assert {
+            item["reason"] for item in explanation["reelCaptionAccountSafetyViolations"]
+        } == {"dm_reference"}
     finally:
         cf.close()
 
@@ -8013,55 +9940,72 @@ def test_publishability_blocks_low_quality_instagram_post_caption(tmp_path: Path
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": (
-                    "this is a very long caption that should not be used under a Reel because it reads like generated copy "
-                    "instead of a simple Instagram caption and it keeps rambling way past the limit"
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": (
+                            "this is a very long caption that should not be used under a Reel because it reads like generated copy "
+                            "instead of a simple Instagram caption and it keeps rambling way past the limit"
+                        ),
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
                 ),
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            ),
         )
         cf.conn.commit()
 
         explanation = cf.explain_publishability("asset_1")
 
         assert explanation["publishableCandidate"] is False
-        assert "instagram_post_caption_quality_failed" in explanation["publishability_failure_reasons"]
+        assert (
+            "instagram_post_caption_quality_failed"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["checks"]["instagram_post_caption_quality_passed"] is False
-        assert explanation["instagramPostCaptionQuality"]["reasons"] == ["instagram_post_caption_too_long"]
+        assert explanation["instagramPostCaptionQuality"]["reasons"] == [
+            "instagram_post_caption_too_long"
+        ]
     finally:
         cf.close()
 
 
-def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(tmp_path: Path):
+def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         burned_before = context["caption_text"]
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": (
-                    "this caption is too long and keeps going because it is not the simple native style we want "
-                    "under Instagram posts when the asset should be safe for scheduling"
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": (
+                            "this caption is too long and keeps going because it is not the simple native style we want "
+                            "under Instagram posts when the asset should be safe for scheduling"
+                        ),
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
                 ),
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            ),
         )
         cf.conn.commit()
         before = {
@@ -8073,9 +10017,11 @@ def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(tmp_
 
         plan = cf.caption_quality_repair_plan(creator="Test")
 
-        after_context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        after_context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         assert plan["schema"] == "campaign_factory.caption_quality_repair_plan.v1"
         assert plan["wouldWrite"] is False
         assert plan["blockedByCaptionQuality"] == 1
@@ -8086,7 +10032,10 @@ def test_caption_quality_repair_plan_is_read_only_and_recovers_long_caption(tmp_
         candidate = plan["replacementCandidates"][0]
         assert candidate["assetId"] == "asset_1"
         assert candidate["recoveryClass"] == "recoverableByCaptionRewrite"
-        assert candidate["suggestedInstagramPostCaption"] in core_module.SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+        assert (
+            candidate["suggestedInstagramPostCaption"]
+            in core_module.SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL
+        )
         assert candidate["wouldPassQualityGate"] is True
         assert candidate["burnedCaptionText"] == burned_before
         assert after_context["caption_text"] == burned_before
@@ -8108,9 +10057,11 @@ def test_caption_quality_repair_plan_classifies_hashtag_and_cta_repairs(tmp_path
         cf.review_rendered_asset("asset_1", decision="approved")
         rendered_path = tmp_path / "asset_2.mp4"
         rendered_path.write_bytes(b"rendered-2")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
@@ -8125,7 +10076,9 @@ def test_caption_quality_repair_plan_classifies_hashtag_and_cta_repairs(tmp_path
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({**context, "caption_hash": "caption_hash_2"}, sort_keys=True),
+                json.dumps(
+                    {**context, "caption_hash": "caption_hash_2"}, sort_keys=True
+                ),
             ),
         )
         add_audit_report(cf, rendered_asset_id="asset_2", audit_id="audit_asset_2")
@@ -8138,18 +10091,33 @@ def test_caption_quality_repair_plan_classifies_hashtag_and_cta_repairs(tmp_path
         }
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "pick one\n#one #two #three #four #five #six",
-                "hashtags": ["#one", "#two", "#three", "#four", "#five", "#six"],
-                "audioIntent": common_audio,
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "pick one\n#one #two #three #four #five #six",
+                        "hashtags": [
+                            "#one",
+                            "#two",
+                            "#three",
+                            "#four",
+                            "#five",
+                            "#six",
+                        ],
+                        "audioIntent": common_audio,
+                    }
+                ),
+            ),
         )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_2'",
-            (json.dumps({
-                "instagram_post_caption": "DM me for the link",
-                "audioIntent": common_audio,
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "DM me for the link",
+                        "audioIntent": common_audio,
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
@@ -8167,30 +10135,36 @@ def test_caption_quality_repair_plan_classifies_hashtag_and_cta_repairs(tmp_path
         cf.close()
 
 
-def test_caption_quality_repair_plan_marks_non_caption_blockers_unrecoverable(tmp_path: Path):
+def test_caption_quality_repair_plan_marks_non_caption_blockers_unrecoverable(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         context.pop("captionPlacementPolicy", None)
         context.pop("captionPlacementDecision", None)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ? WHERE id = 'asset_1'",
             (
                 json.dumps(context, sort_keys=True),
-                json.dumps({
-                    "instagram_post_caption": "DM me for the link",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    },
-                }),
+                json.dumps(
+                    {
+                        "instagram_post_caption": "DM me for the link",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -8215,15 +10189,19 @@ def test_caption_quality_repair_plan_cli_outputs_json(tmp_path: Path):
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "DM me for the link",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "DM me for the link",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
     finally:
@@ -8239,7 +10217,11 @@ def test_caption_quality_repair_plan_cli_outputs_json(tmp_path: Path):
             "Test",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8260,24 +10242,30 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": (
-                    "this caption is too long and keeps going because it is not the simple native style we want "
-                    "under Instagram posts when the asset should be safe for scheduling"
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": (
+                            "this caption is too long and keeps going because it is not the simple native style we want "
+                            "under Instagram posts when the asset should be safe for scheduling"
+                        ),
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
                 ),
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            ),
         )
         rendered_path = tmp_path / "asset_operator_audio_preview_test.mp4"
         rendered_path.write_bytes(b"operator-review")
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
@@ -8293,23 +10281,31 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({**context, "caption_hash": "caption_hash_operator"}, sort_keys=True),
-                json.dumps({
-                    "instagram_post_caption": "new fit today",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    },
-                }),
+                json.dumps(
+                    {**context, "caption_hash": "caption_hash_operator"}, sort_keys=True
+                ),
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new fit today",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
             ),
         )
-        add_audit_report(cf, rendered_asset_id="asset_operator", audit_id="audit_operator")
+        add_audit_report(
+            cf, rendered_asset_id="asset_operator", audit_id="audit_operator"
+        )
         cf.conn.commit()
         before_changes = cf.conn.total_changes
 
-        report = cf.inventory_recovery_report(creator="Test", content_surface="reel", required_inventory=3)
+        report = cf.inventory_recovery_report(
+            creator="Test", content_surface="reel", required_inventory=3
+        )
         by_class = {row["repairClass"]: row for row in report["repairClasses"]}
 
         assert report["schema"] == "creator_os.inventory_recovery_report.v1"
@@ -8320,7 +10316,10 @@ def test_inventory_recovery_report_ranks_repair_classes_without_writing(tmp_path
         assert by_class["caption_only"]["blockedAssets"] == 1
         assert by_class["caption_only"]["scheduleSafeAssetsRecoverable"] == 1
         assert by_class["operator_visual_review_required"]["blockedAssets"] == 1
-        assert by_class["operator_visual_review_required"]["scheduleSafeAssetsRecoverable"] == 1
+        assert (
+            by_class["operator_visual_review_required"]["scheduleSafeAssetsRecoverable"]
+            == 1
+        )
         assert report["highestROIRepairClass"] == "caption_only"
         assert report["inventoryGateImpact"]["inventoryAfterTop3Repairs"] == 2
         assert report["inventoryGateImpact"]["wouldPass25AccountGate"] is False
@@ -8337,15 +10336,19 @@ def test_inventory_recovery_report_cli_outputs_json(tmp_path: Path):
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "DM me for the link",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "DM me for the link",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
     finally:
@@ -8365,7 +10368,11 @@ def test_inventory_recovery_report_cli_outputs_json(tmp_path: Path):
             "3",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8393,8 +10400,8 @@ def add_schedule_safe_production_asset(
 ) -> dict:
     campaign = cf.campaign_by_slug("may")
     rendered_path = tmp_path / (filename or f"{asset_id}.mp4")
-    rendered_path.write_bytes(f"rendered-{asset_id}".encode("utf-8"))
-    now = created_at or datetime.now(timezone.utc).isoformat()
+    rendered_path.write_bytes(f"rendered-{asset_id}".encode())
+    now = created_at or datetime.now(UTC).isoformat()
     context = caption_context or {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": f"caption_hash_{asset_id}",
@@ -8448,17 +10455,25 @@ def add_schedule_safe_production_asset(
     )
     cf.conn.commit()
     add_audit_report(cf, rendered_asset_id=asset_id, audit_id=f"audit_{asset_id}")
-    return dict(cf.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)).fetchone())
+    return dict(
+        cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+    )
 
 
-def test_schedule_safe_production_report_measures_fresh_waterfall_without_writing(tmp_path: Path):
+def test_schedule_safe_production_report_measures_fresh_waterfall_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         cf.conn.execute("DELETE FROM rendered_assets")
         cf.conn.commit()
-        parent = add_schedule_safe_production_asset(cf, tmp_path, asset_id="parent_fresh", source=source)
-        now = datetime.now(timezone.utc).isoformat()
+        parent = add_schedule_safe_production_asset(
+            cf, tmp_path, asset_id="parent_fresh", source=source
+        )
+        now = datetime.now(UTC).isoformat()
         cf.conn.execute(
             """
             INSERT INTO concepts
@@ -8488,11 +10503,25 @@ def test_schedule_safe_production_report_measures_fresh_waterfall_without_writin
             ('cver_prod_2', 'cfam_prod', ?, ?, ?, 'parent_fresh', 1, 'caption', 'caption_hash_prod_2', 'mirror check', 'post_hash_2', 'soft_cta', 'active', ?, ?)
             """,
             (
-                parent["campaign_id"], "concept_prod", "parent_reel_prod", now, now,
-                parent["campaign_id"], "concept_prod", "parent_reel_prod", now, now,
+                parent["campaign_id"],
+                "concept_prod",
+                "parent_reel_prod",
+                now,
+                now,
+                parent["campaign_id"],
+                "concept_prod",
+                "parent_reel_prod",
+                now,
+                now,
             ),
         )
-        add_schedule_safe_production_asset(cf, tmp_path, asset_id="variant_pass", source=source, parent_asset_id="parent_fresh")
+        add_schedule_safe_production_asset(
+            cf,
+            tmp_path,
+            asset_id="variant_pass",
+            source=source,
+            parent_asset_id="parent_fresh",
+        )
         ensure_exportable_distribution_plan(cf, "variant_pass")
         add_schedule_safe_production_asset(
             cf,
@@ -8518,7 +10547,7 @@ def test_schedule_safe_production_report_measures_fresh_waterfall_without_writin
                 },
             },
         )
-        old_time = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+        old_time = (datetime.now(UTC) - timedelta(days=5)).isoformat()
         add_schedule_safe_production_asset(
             cf,
             tmp_path,
@@ -8569,10 +10598,15 @@ def test_schedule_safe_production_capacity_zero_production_is_blocked(tmp_path: 
             current_inventory=11,
         )
 
-        assert report["schema"] == "creator_os.schedule_safe_production_capacity_model.v1"
+        assert (
+            report["schema"] == "creator_os.schedule_safe_production_capacity_model.v1"
+        )
         assert report["scheduleSafeAssetsProducedPerDay"] == 0
         assert report["daysToReach25AccountBuffer"] is None
-        assert report["capacityProjections"]["25Accounts"]["blockedReason"] == "no_schedule_safe_production_observed"
+        assert (
+            report["capacityProjections"]["25Accounts"]["blockedReason"]
+            == "no_schedule_safe_production_observed"
+        )
         assert report["wouldWrite"] is False
     finally:
         cf.close()
@@ -8595,7 +10629,11 @@ def test_schedule_safe_production_report_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8608,14 +10646,24 @@ def test_schedule_safe_production_report_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_contentforge_visual_qc_failure_report_classifies_operator_review_without_writing(tmp_path: Path):
+def test_contentforge_visual_qc_failure_report_classifies_operator_review_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         cf.conn.execute("DELETE FROM rendered_assets")
         cf.conn.commit()
-        add_schedule_safe_production_asset(cf, tmp_path, asset_id="parent_fresh", source=source)
-        add_schedule_safe_production_asset(cf, tmp_path, asset_id="variant_pass", source=source, parent_asset_id="parent_fresh")
+        add_schedule_safe_production_asset(
+            cf, tmp_path, asset_id="parent_fresh", source=source
+        )
+        add_schedule_safe_production_asset(
+            cf,
+            tmp_path,
+            asset_id="variant_pass",
+            source=source,
+            parent_asset_id="parent_fresh",
+        )
         ensure_exportable_distribution_plan(cf, "variant_pass")
         add_schedule_safe_production_asset(
             cf,
@@ -8635,7 +10683,9 @@ def test_contentforge_visual_qc_failure_report_classifies_operator_review_withou
             current_inventory=11,
             required_inventory=225,
         )
-        by_category = {row["failureCategory"]: row for row in report["failureCategories"]}
+        by_category = {
+            row["failureCategory"]: row for row in report["failureCategories"]
+        }
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "creator_os.contentforge_visual_qc_failure_report.v1"
@@ -8643,8 +10693,13 @@ def test_contentforge_visual_qc_failure_report_classifies_operator_review_withou
         assert report["visualQcFailed"] == 1
         assert by_category["operator_visual_review_required"]["count"] == 1
         assert by_category["operator_visual_review_required"]["repairable"] is True
-        assert report["largestVisualQCLoss"]["largestFailureCategory"] == "operator_visual_review_required"
-        assert report["recoveryProjection"]["inventoryRecoveredIfTopVisualIssueFixed"] == 1
+        assert (
+            report["largestVisualQCLoss"]["largestFailureCategory"]
+            == "operator_visual_review_required"
+        )
+        assert (
+            report["recoveryProjection"]["inventoryRecoveredIfTopVisualIssueFixed"] == 1
+        )
         assert report["recoveryProjection"]["remainingGap"] == 213
         assert report["wouldWrite"] is False
     finally:
@@ -8687,7 +10742,11 @@ def test_contentforge_visual_qc_cli_outputs_json(tmp_path: Path):
             "225",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8700,24 +10759,32 @@ def test_contentforge_visual_qc_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_multi_blocker_inventory_unlock_report_finds_combined_repairs_without_writing(tmp_path: Path):
+def test_multi_blocker_inventory_unlock_report_finds_combined_repairs_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         cf.conn.execute("DELETE FROM rendered_assets")
         cf.conn.commit()
-        add_schedule_safe_production_asset(cf, tmp_path, asset_id="asset_single_caption", source=source)
+        add_schedule_safe_production_asset(
+            cf, tmp_path, asset_id="asset_single_caption", source=source
+        )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_single_caption'",
-            (json.dumps({
-                "instagram_post_caption": "this caption is too long and keeps going because it is not the simple native style we want under Instagram posts when the asset should be safe for scheduling and it keeps adding more unnecessary words",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "this caption is too long and keeps going because it is not the simple native style we want under Instagram posts when the asset should be safe for scheduling and it keeps adding more unnecessary words",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         add_schedule_safe_production_asset(
             cf,
@@ -8749,7 +10816,10 @@ def test_multi_blocker_inventory_unlock_report_finds_combined_repairs_without_wr
         assert report["schema"] == "creator_os.multi_blocker_inventory_unlock_report.v1"
         assert report["currentScheduleSafeAssets"] == 0
         assert report["shortfall"] == 3
-        assert report["bestSingleRepair"]["repairClass"] == "instagram_post_caption_quality_failed"
+        assert (
+            report["bestSingleRepair"]["repairClass"]
+            == "instagram_post_caption_quality_failed"
+        )
         assert report["bestSingleRepair"]["assetsUnlocked"] == 1
         assert set(report["bestTwoRepairCombo"]["repairClasses"]) == {
             "operator_visual_review_required",
@@ -8782,7 +10852,11 @@ def test_multi_blocker_inventory_unlock_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8795,7 +10869,9 @@ def test_multi_blocker_inventory_unlock_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_operator_inventory_review_batch_plan_prioritizes_safe_repairs_without_writing(tmp_path: Path):
+def test_operator_inventory_review_batch_plan_prioritizes_safe_repairs_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
@@ -8840,7 +10916,9 @@ def test_operator_inventory_review_batch_plan_prioritizes_safe_repairs_without_w
         assert plan["reviewCandidates"] == 1
         assert plan["recommendedReviewBatchSize"] == 1
         assert plan["reviewBatch"][0]["assetId"] == "asset_safe_combo"
-        assert "asset_wrong_visual" not in {row["assetId"] for row in plan["reviewBatch"]}
+        assert "asset_wrong_visual" not in {
+            row["assetId"] for row in plan["reviewBatch"]
+        }
         assert plan["estimatedInventoryGain"] == 1
         assert plan["safeRepairsOnly"] is True
         assert plan["wouldWrite"] is False
@@ -8867,7 +10945,11 @@ def test_operator_inventory_review_batch_cli_outputs_json(tmp_path: Path):
             "10",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -8880,7 +10962,9 @@ def test_operator_inventory_review_batch_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_operator_review_simulator_models_approval_rates_without_writing(tmp_path: Path):
+def test_operator_review_simulator_models_approval_rates_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
@@ -8946,19 +11030,27 @@ def test_operator_review_simulator_cli_outputs_json(tmp_path: Path):
             "11",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
     )
 
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "creator_os.operator_review_minimum_certification_path.v1"
+    assert (
+        payload["schema"] == "creator_os.operator_review_minimum_certification_path.v1"
+    )
     assert "minimumOperatorMinutesToPass25Gate" in payload
     assert payload["wouldWrite"] is False
 
 
-def test_fresh_schedule_safe_production_plan_calculates_reel_only_buffer_without_writing(tmp_path: Path):
+def test_fresh_schedule_safe_production_plan_calculates_reel_only_buffer_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -8990,14 +11082,22 @@ def test_fresh_schedule_safe_production_plan_calculates_reel_only_buffer_without
             "publishability",
             "handoff_manifest",
         ]
-        assert report["largestProductionRisk"] == "variant_to_schedule_safe_yield_not_yet_proven"
-        assert report["downstreamYieldEvidenceStatus"] == "insufficient_schedule_safe_variant_production_evidence"
+        assert (
+            report["largestProductionRisk"]
+            == "variant_to_schedule_safe_yield_not_yet_proven"
+        )
+        assert (
+            report["downstreamYieldEvidenceStatus"]
+            == "insufficient_schedule_safe_variant_production_evidence"
+        )
         assert report["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_fresh_reel_production_capacity_plan_exposes_conservative_scenario(tmp_path: Path):
+def test_fresh_reel_production_capacity_plan_exposes_conservative_scenario(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         report = cf.fresh_reel_production_capacity_plan(
@@ -9034,7 +11134,11 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
             "270",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -9055,35 +11159,48 @@ def test_handoff_manifest_preserves_distinct_instagram_post_caption(tmp_path: Pa
         cf.review_rendered_asset("asset_1", decision="approved")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "caption_cta": "go watch",
-                "hashtags": ["#stacey", "mirror fit", "#reels"],
-                "post_caption_style": "short_natural",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "caption_cta": "go watch",
+                        "hashtags": ["#stacey", "mirror fit", "#reels"],
+                        "post_caption_style": "short_natural",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
         manifest = explanation["handoff_manifest"]
 
         assert explanation["publishableCandidate"] is True
         assert manifest["burned_caption_text"] == "caption"
-        assert manifest["instagram_post_caption"] == "new post is up\ngo watch\n#stacey #mirrorfit #reels"
-        assert manifest["instagram_post_caption_hash"] == threadsdash_adapter._text_hash(manifest["instagram_post_caption"])
+        assert (
+            manifest["instagram_post_caption"]
+            == "new post is up\ngo watch\n#stacey #mirrorfit #reels"
+        )
+        assert manifest[
+            "instagram_post_caption_hash"
+        ] == threadsdash_adapter._text_hash(manifest["instagram_post_caption"])
         assert manifest["post_caption_style"] == "short_natural"
     finally:
         cf.close()
 
 
-def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_caption(tmp_path: Path):
+def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_caption(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9092,70 +11209,86 @@ def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_cap
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ?, caption_outcome_context_json = ? WHERE id = 'asset_1'",
             (
-                json.dumps({
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    },
-                }),
-                json.dumps({
-                    "schema": "campaign_factory.caption_outcome_context.v1",
-                    "caption_hash": "caption_hash_1",
-                    "caption_text": "caption",
-                    "caption_bank": "test_bank",
-                    "caption_banks": ["test_bank"],
-                    "captionPlacementDecision": {"status": "passed"},
-                }),
+                json.dumps(
+                    {
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema": "campaign_factory.caption_outcome_context.v1",
+                        "caption_hash": "caption_hash_1",
+                        "caption_text": "caption",
+                        "caption_bank": "test_bank",
+                        "caption_banks": ["test_bank"],
+                        "captionPlacementDecision": {"status": "passed"},
+                    }
+                ),
             ),
         )
         cf.conn.commit()
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
         manifest = explanation["handoff_manifest"]
 
         assert explanation["burned_caption_text"] == "caption"
         assert explanation["instagram_post_caption"] == ""
         assert manifest is None
-        assert "missing_instagram_post_caption" in explanation["publishability_failure_reasons"]
+        assert (
+            "missing_instagram_post_caption"
+            in explanation["publishability_failure_reasons"]
+        )
         assert explanation["publishableCandidate"] is False
     finally:
         cf.close()
 
 
 def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_caption():
-    metadata = threadsdash_adapter._draft_metadata({
-        "campaignId": "campaign_1",
-        "renderedAssetId": "asset_1",
-        "sourceAssetId": "source_1",
-        "content": "visible overlay text should stay separate",
-        "captionHash": "caption_hash_1",
-        "burnedCaptionText": "visible overlay text should stay separate",
-        "publishability": {
-            "asset_state": "approved_but_not_publishable",
-            "publishability_failure_reasons": ["missing_instagram_post_caption"],
-            "visualQcStatus": "passed",
-            "identityVerificationStatus": "passed",
-        },
-        "audioIntent": {
-            "schema": "pipeline.audio_intent.v1",
-            "mode": "native_platform_audio",
-            "required": False,
-            "status": "not_required",
-            "platform": "instagram",
-            "recommendations": [],
-            "gates": {"allow_draft_export": False, "allow_publish": False},
-        },
-    })
+    metadata = threadsdash_adapter._draft_metadata(
+        {
+            "campaignId": "campaign_1",
+            "renderedAssetId": "asset_1",
+            "sourceAssetId": "source_1",
+            "content": "visible overlay text should stay separate",
+            "captionHash": "caption_hash_1",
+            "burnedCaptionText": "visible overlay text should stay separate",
+            "publishability": {
+                "asset_state": "approved_but_not_publishable",
+                "publishability_failure_reasons": ["missing_instagram_post_caption"],
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
+            },
+            "audioIntent": {
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "native_platform_audio",
+                "required": False,
+                "status": "not_required",
+                "platform": "instagram",
+                "recommendations": [],
+                "gates": {"allow_draft_export": False, "allow_publish": False},
+            },
+        }
+    )
 
     campaign_meta = metadata["campaign_factory"]
     assert campaign_meta["instagram_post_caption"] == ""
-    assert campaign_meta["burned_caption_text"] == "visible overlay text should stay separate"
+    assert (
+        campaign_meta["burned_caption_text"]
+        == "visible overlay text should stay separate"
+    )
 
 
-def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_path: Path, monkeypatch):
+def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9163,26 +11296,34 @@ def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_pa
         add_audit_report(cf)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "attached",
-                    "operator_selection": {
-                        "audio_id": "cml_insomniac_ella_boh",
-                        "track_id": "cml_insomniac_ella_boh",
-                        "track_name": "iNSOMNiAC",
-                        "selected_at": "2026-06-06T04:31:02+00:00",
-                        "attached_at": "2026-06-06T04:31:02+00:00",
-                        "source": "tiktok_cml",
-                        "notes": "Audio is embedded in the registered MP4.",
-                    },
-                }
-            }),),
+            (
+                json.dumps(
+                    {
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "attached",
+                            "operator_selection": {
+                                "audio_id": "cml_insomniac_ella_boh",
+                                "track_id": "cml_insomniac_ella_boh",
+                                "track_name": "iNSOMNiAC",
+                                "selected_at": "2026-06-06T04:31:02+00:00",
+                                "attached_at": "2026-06-06T04:31:02+00:00",
+                                "source": "tiktok_cml",
+                                "notes": "Audio is embedded in the registered MP4.",
+                            },
+                        }
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
-        monkeypatch.setattr(core_module, "probe_video_metadata", lambda path: {"ok": True, "audioPresent": False})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_metadata",
+            lambda path: {"ok": True, "audioPresent": False},
+        )
 
         explanation = cf.explain_publishability("asset_1")
 
@@ -9193,7 +11334,9 @@ def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(tmp_pa
         cf.close()
 
 
-def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(tmp_path: Path, monkeypatch):
+def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9201,49 +11344,67 @@ def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(tmp_path: P
         add_audit_report(cf)
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
-            (json.dumps({
-                "instagram_post_caption": "new post",
-                "audioIntent": {
-                    "schema": "reel_factory.audio_intent.v1",
-                    "mode": "licensed_music",
-                    "required": True,
-                    "status": "planned",
-                    "audio_selection": {
-                        "source": "local_audio",
-                        "path": str(tmp_path / "licensed.m4a"),
-                    },
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "reel_factory.audio_intent.v1",
+                            "mode": "licensed_music",
+                            "required": True,
+                            "status": "planned",
+                            "audio_selection": {
+                                "source": "local_audio",
+                                "path": str(tmp_path / "licensed.m4a"),
+                            },
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
-        monkeypatch.setattr(core_module, "probe_video_metadata", lambda path: {"ok": True, "audioPresent": True})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_metadata",
+            lambda path: {"ok": True, "audioPresent": True},
+        )
 
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
-        explanation = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        explanation = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         assert explanation["publishableCandidate"] is True
         assert explanation["checks"]["audio_assigned"] is True
         assert explanation["checks"]["embedded_audio_verified"] is True
         assert explanation["audioIntent"]["mode"] == "licensed_music"
-        assert explanation["audioIntent"]["operator_selection"]["selection_source"] == "embedded_licensed_audio"
+        assert (
+            explanation["audioIntent"]["operator_selection"]["selection_source"]
+            == "embedded_licensed_audio"
+        )
     finally:
         cf.close()
 
 
 def test_threadsdash_audio_live_gate_accepts_embedded_licensed_audio():
-    assert threadsdash_adapter._audio_intent_allows_live({
-        "schema": "pipeline.audio_intent.v1",
-        "mode": "licensed_music",
-        "required": True,
-        "status": "attached",
-        "operator_selection": {
-            "audio_id": "embedded_audio_1",
-            "source": "local_audio",
-            "selection_source": "embedded_licensed_audio",
-            "selected_at": "2026-06-22T00:00:00+00:00",
-            "attached_at": "2026-06-22T00:00:00+00:00",
-        },
-    }) is True
+    assert (
+        threadsdash_adapter._audio_intent_allows_live(
+            {
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "licensed_music",
+                "required": True,
+                "status": "attached",
+                "operator_selection": {
+                    "audio_id": "embedded_audio_1",
+                    "source": "local_audio",
+                    "selection_source": "embedded_licensed_audio",
+                    "selected_at": "2026-06-22T00:00:00+00:00",
+                    "attached_at": "2026-06-22T00:00:00+00:00",
+                },
+            }
+        )
+        is True
+    )
 
 
 def test_register_finished_video_preserves_caption_placement_qc(tmp_path: Path):
@@ -9286,7 +11447,9 @@ def test_register_finished_video_preserves_caption_placement_qc(tmp_path: Path):
         cf.close()
 
 
-def test_register_finished_video_can_keep_post_caption_separate_from_burned_caption(tmp_path: Path):
+def test_register_finished_video_can_keep_post_caption_separate_from_burned_caption(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         video = tmp_path / "finished_captioned.mp4"
@@ -9322,14 +11485,22 @@ def test_register_finished_video_can_keep_post_caption_separate_from_burned_capt
         cf.close()
 
 
-def test_register_finished_video_blocks_unsafe_caption_before_registration(tmp_path: Path):
+def test_register_finished_video_blocks_unsafe_caption_before_registration(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         video = tmp_path / "finished_unsafe_caption.mp4"
         video.write_bytes(b"fake mp4 bytes")
-        before_rendered = cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
-        before_sources = cf.conn.execute("SELECT COUNT(*) AS c FROM source_assets").fetchone()["c"]
-        before_jobs = cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
+        before_rendered = cf.conn.execute(
+            "SELECT COUNT(*) AS c FROM rendered_assets"
+        ).fetchone()["c"]
+        before_sources = cf.conn.execute(
+            "SELECT COUNT(*) AS c FROM source_assets"
+        ).fetchone()["c"]
+        before_jobs = cf.conn.execute(
+            "SELECT COUNT(*) AS c FROM render_jobs"
+        ).fetchone()["c"]
 
         result = cf.register_finished_video(
             input_path=video,
@@ -9354,9 +11525,18 @@ def test_register_finished_video_blocks_unsafe_caption_before_registration(tmp_p
         assert result["canProceed"] is False
         assert result["blockedAt"] == "discoverability_pre_render_gate"
         assert result["renderedAssetId"] == ""
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"] == before_rendered
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM source_assets").fetchone()["c"] == before_sources
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"] == before_jobs
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
+            == before_rendered
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM source_assets").fetchone()["c"]
+            == before_sources
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
+            == before_jobs
+        )
         rows = [
             dict(row)
             for row in cf.conn.execute(
@@ -9385,7 +11565,9 @@ def test_prepare_reel_inputs_blocks_unsafe_hooks_before_render_jobs(tmp_path: Pa
             model_slug="stacey",
             platform="instagram",
         )
-        before_jobs = cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
+        before_jobs = cf.conn.execute(
+            "SELECT COUNT(*) AS c FROM render_jobs"
+        ).fetchone()["c"]
 
         result = cf.prepare_reel_inputs(
             campaign_slug="stacey_archive_marketing_20260606",
@@ -9397,7 +11579,10 @@ def test_prepare_reel_inputs_blocks_unsafe_hooks_before_render_jobs(tmp_path: Pa
         assert result["blockedAt"] == "discoverability_generation_gate"
         assert result["prepared"] == []
         assert result["rejectionEvidenceCapture"]["capturedCount"] >= 1
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"] == before_jobs
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
+            == before_jobs
+        )
         evidence = [
             dict(row)
             for row in cf.conn.execute(
@@ -9417,7 +11602,9 @@ def test_register_parent_reel_creates_concept_registry_row(tmp_path: Path):
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
 
         parent = cf.register_parent_reel("asset_1", operator="tester")
@@ -9426,14 +11613,18 @@ def test_register_parent_reel_creates_concept_registry_row(tmp_path: Path):
         assert parent["parentReelId"].startswith("parent_")
         assert parent["conceptId"].startswith("concept_")
         assert parent["parentAssetId"] == "asset_1"
-        row = cf.conn.execute("SELECT * FROM concepts WHERE id = ?", (parent["conceptId"],)).fetchone()
+        row = cf.conn.execute(
+            "SELECT * FROM concepts WHERE id = ?", (parent["conceptId"],)
+        ).fetchone()
         assert row["parent_asset_id"] == "asset_1"
         assert row["content_fingerprint"] == "hash_1"
     finally:
         cf.close()
 
 
-def test_register_parent_reel_captures_rejection_evidence_before_blocking(tmp_path: Path):
+def test_register_parent_reel_captures_rejection_evidence_before_blocking(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9448,13 +11639,15 @@ def test_register_parent_reel_captures_rejection_evidence_before_blocking(tmp_pa
             """,
             (
                 "link in bio",
-                json.dumps({
-                    "caption_text": "link in bio",
-                    "burned_caption_text": "link in bio",
-                    "instagram_post_caption": "link in bio",
-                    "caption_hash": "caption_hash_1",
-                    "captionPlacementDecision": {"status": "passed"},
-                }),
+                json.dumps(
+                    {
+                        "caption_text": "link in bio",
+                        "burned_caption_text": "link in bio",
+                        "instagram_post_caption": "link in bio",
+                        "caption_hash": "caption_hash_1",
+                        "captionPlacementDecision": {"status": "passed"},
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -9483,11 +11676,15 @@ def test_variant_plan_is_read_only_and_creates_stable_family_id(tmp_path: Path):
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
 
-        result = cf.variant_plan(parent_asset_id="asset_1", count=3, contentforge_preset="caption_safe")
+        result = cf.variant_plan(
+            parent_asset_id="asset_1", count=3, contentforge_preset="caption_safe"
+        )
 
         assert result["schema"] == "campaign_factory.variant_plan.v1"
         assert result["parentAssetId"] == "asset_1"
@@ -9495,8 +11692,14 @@ def test_variant_plan_is_read_only_and_creates_stable_family_id(tmp_path: Path):
         assert result["canGenerate"] is True
         assert result["wouldWrite"] is False
         assert result["variantFamilyId"].startswith("vfam_")
-        assert [item["variantIndex"] for item in result["plannedOperations"]] == [1, 2, 3]
-        assert cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == 0
+        assert [item["variantIndex"] for item in result["plannedOperations"]] == [
+            1,
+            2,
+            3,
+        ]
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == 0
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 0
     finally:
         cf.close()
@@ -9507,11 +11710,15 @@ def test_variant_plan_accepts_caption_safe_v2(tmp_path: Path):
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
 
-        result = cf.variant_plan(parent_asset_id="asset_1", count=12, contentforge_preset="caption_safe_v2")
+        result = cf.variant_plan(
+            parent_asset_id="asset_1", count=12, contentforge_preset="caption_safe_v2"
+        )
 
         assert result["contentforgePreset"] == "caption_safe_v2"
         assert result["canGenerate"] is True
@@ -9520,12 +11727,16 @@ def test_variant_plan_accepts_caption_safe_v2(tmp_path: Path):
         cf.close()
 
 
-def test_generate_variants_accepts_contentforge_v2_pack(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_accepts_contentforge_v2_pack(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
         output_dir = tmp_path / "contentforge_out"
@@ -9543,7 +11754,10 @@ def test_generate_variants_accepts_contentforge_v2_pack(monkeypatch: pytest.Monk
                     "uploadReady": True,
                     "recommended": True,
                     "familyName": "cover_frame",
-                    "variantFamilyRecipe": {"familyName": "cover_frame", "profile": "early_hook"},
+                    "variantFamilyRecipe": {
+                        "familyName": "cover_frame",
+                        "profile": "early_hook",
+                    },
                     "operationSet": "caption_safe_v2",
                     "operationSignals": {"coverFrameDifferent": True},
                     "qualityScore": 95,
@@ -9568,7 +11782,9 @@ def test_generate_variants_accepts_contentforge_v2_pack(monkeypatch: pytest.Monk
             def read(self):
                 return json.dumps(report).encode("utf-8")
 
-        monkeypatch.setattr(core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+        monkeypatch.setattr(
+            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+        )
 
         result = cf.generate_variants(
             parent_asset_id="asset_1",
@@ -9584,19 +11800,25 @@ def test_generate_variants_accepts_contentforge_v2_pack(monkeypatch: pytest.Monk
         operations = result["registeredVariants"][0]["variantOperations"]
         assert operations[0]["preset"] == "caption_safe_v2"
         assert operations[1]["result"]["familyName"] == "cover_frame"
-        publishability = cf.explain_publishability(result["registeredVariants"][0]["variantAssetId"])
+        publishability = cf.explain_publishability(
+            result["registeredVariants"][0]["variantAssetId"]
+        )
         assert publishability["publishableCandidate"] is True
         assert publishability["checks"]["readiness_checks_pass"] is True
     finally:
         cf.close()
 
 
-def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(tmp_path: Path):
+def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         parent = cf.register_parent_reel("asset_1", operator="tester")
         variant = cf.register_variant_asset(
@@ -9609,7 +11831,9 @@ def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(tmp_pat
         )
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
-        publishability = cf.explain_publishability("asset_1", distribution_plan_id=plan["id"])
+        publishability = cf.explain_publishability(
+            "asset_1", distribution_plan_id=plan["id"]
+        )
 
         assert variant["variantId"].startswith("var_")
         assert publishability["conceptId"] == parent["conceptId"]
@@ -9657,11 +11881,21 @@ def test_threadsdash_insert_preserves_variant_first_class_columns(monkeypatch):
     }
 
     monkeypatch.delenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", raising=False)
-    with pytest.raises(ValueError, match="raw ThreadsDashboard Supabase post writes are disabled"):
-        threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
+    with pytest.raises(
+        ValueError, match="raw ThreadsDashboard Supabase post writes are disabled"
+    ):
+        threadsdash_adapter._insert_draft_post(
+            FakeClient(),
+            draft=draft,
+            media_ref={"publicUrl": "https://cdn.example/video.mp4"},
+        )
 
     monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-    threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/video.mp4"})
+    threadsdash_adapter._insert_draft_post(
+        FakeClient(),
+        draft=draft,
+        media_ref={"publicUrl": "https://cdn.example/video.mp4"},
+    )
 
     post_row = inserted[0][1]
     assert post_row["campaign_factory_content_fingerprint"] == "content_hash_1"
@@ -9701,7 +11935,11 @@ def test_threadsdash_insert_preserves_feed_single_surface(monkeypatch):
     }
 
     monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-    threadsdash_adapter._insert_draft_post(FakeClient(), draft=draft, media_ref={"publicUrl": "https://cdn.example/feed.jpg"})
+    threadsdash_adapter._insert_draft_post(
+        FakeClient(),
+        draft=draft,
+        media_ref={"publicUrl": "https://cdn.example/feed.jpg"},
+    )
 
     post_row = inserted[0][1]
     assert post_row["media_type"] == "image"
@@ -9714,7 +11952,9 @@ def test_variant_metrics_rollup_groups_by_parent_family_and_variant(tmp_path: Pa
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         parent = cf.register_parent_reel("asset_1", operator="tester")
         variant = cf.register_variant_asset(
@@ -9762,7 +12002,9 @@ def test_winner_registry_remembers_why_winners_won_without_writing(tmp_path: Pat
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         parent = cf.register_parent_reel("asset_1", operator="tester")
         cf.conn.execute(
@@ -9811,7 +12053,9 @@ def test_winner_registry_remembers_why_winners_won_without_writing(tmp_path: Pat
         cf.close()
 
 
-def test_winner_patterns_rolls_up_top_concepts_audio_captions_and_windows(tmp_path: Path):
+def test_winner_patterns_rolls_up_top_concepts_audio_captions_and_windows(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9859,12 +12103,62 @@ def test_winner_patterns_rolls_up_top_concepts_audio_captions_and_windows(tmp_pa
                 ),
             )
         snapshots = [
-            ("perf_mirror_1", "post_mirror_1", "concept_mirror", "parent_mirror", "audio_12", "tease", "2026-06-06T18:05:00+00:00", 14000, 13000),
-            ("perf_mirror_2", "post_mirror_2", "concept_mirror", "parent_mirror", "audio_12", "challenge", "2026-06-07T21:20:00+00:00", 9000, 8000),
-            ("perf_gym_1", "post_gym_1", "concept_gym", "parent_gym", "audio_44", "challenge", "2026-06-08T18:40:00+00:00", 7000, 6500),
-            ("perf_low", "post_low", "concept_gym", "parent_gym", "audio_44", "challenge", "2026-06-08T10:00:00+00:00", 100, 90),
+            (
+                "perf_mirror_1",
+                "post_mirror_1",
+                "concept_mirror",
+                "parent_mirror",
+                "audio_12",
+                "tease",
+                "2026-06-06T18:05:00+00:00",
+                14000,
+                13000,
+            ),
+            (
+                "perf_mirror_2",
+                "post_mirror_2",
+                "concept_mirror",
+                "parent_mirror",
+                "audio_12",
+                "challenge",
+                "2026-06-07T21:20:00+00:00",
+                9000,
+                8000,
+            ),
+            (
+                "perf_gym_1",
+                "post_gym_1",
+                "concept_gym",
+                "parent_gym",
+                "audio_44",
+                "challenge",
+                "2026-06-08T18:40:00+00:00",
+                7000,
+                6500,
+            ),
+            (
+                "perf_low",
+                "post_low",
+                "concept_gym",
+                "parent_gym",
+                "audio_44",
+                "challenge",
+                "2026-06-08T10:00:00+00:00",
+                100,
+                90,
+            ),
         ]
-        for snapshot_id, post_id, concept_id, parent_reel_id, audio_id, caption_angle, published_at, views, reach in snapshots:
+        for (
+            snapshot_id,
+            post_id,
+            concept_id,
+            parent_reel_id,
+            audio_id,
+            caption_angle,
+            published_at,
+            views,
+            reach,
+        ) in snapshots:
             cf.conn.execute(
                 """
                 INSERT INTO performance_snapshots
@@ -9900,10 +12194,17 @@ def test_winner_patterns_rolls_up_top_concepts_audio_captions_and_windows(tmp_pa
         assert report["schema"] == "campaign_factory.winner_knowledge_base.v1"
         assert report["wouldWrite"] is False
         assert cf.conn.total_changes == before
-        assert [item["conceptName"] for item in report["winnerPatterns"]["topConcepts"][:2]] == ["mirror selfie", "gym mirror"]
+        assert [
+            item["conceptName"] for item in report["winnerPatterns"]["topConcepts"][:2]
+        ] == ["mirror selfie", "gym mirror"]
         assert report["winnerPatterns"]["topAudioFamilies"][0]["audioId"] == "audio_12"
-        assert report["winnerPatterns"]["topCaptionAngles"][0]["captionAngle"] == "challenge"
-        assert report["winnerPatterns"]["topPostingWindows"][0]["postingWindow"] == "6pm"
+        assert (
+            report["winnerPatterns"]["topCaptionAngles"][0]["captionAngle"]
+            == "challenge"
+        )
+        assert (
+            report["winnerPatterns"]["topPostingWindows"][0]["postingWindow"] == "6pm"
+        )
         assert report["conceptRegistry"][0]["conceptName"] == "mirror selfie"
         assert report["winnerRegistry"]["summary"]["winnerCount"] == 3
     finally:
@@ -9923,7 +12224,7 @@ def add_variant_fixture(
 ) -> dict:
     parent = cf.rendered_asset("asset_1")
     rendered_path = tmp_path / f"{variant_asset_id}.mp4"
-    rendered_path.write_bytes(f"rendered-{variant_asset_id}".encode("utf-8"))
+    rendered_path.write_bytes(f"rendered-{variant_asset_id}".encode())
     now = "2026-01-02T00:00:00+00:00"
     cf.conn.execute(
         """
@@ -9953,31 +12254,46 @@ def add_variant_fixture(
         variant_asset_id=variant_asset_id,
         variant_family_id=variant_family_id,
         variant_index=variant_index,
-        operations=[{"type": "contentforge_result", "result": {
-            "familyName": family_name,
-            "uploadReady": True,
-            "qualityScore": quality_score,
-            "differenceScore": 35,
-            "operationDiversityScore": 35,
-            "captionReadabilityScore": 96,
-            "focalSafetyScore": 96,
-        }}],
+        operations=[
+            {
+                "type": "contentforge_result",
+                "result": {
+                    "familyName": family_name,
+                    "uploadReady": True,
+                    "qualityScore": quality_score,
+                    "differenceScore": 35,
+                    "operationDiversityScore": 35,
+                    "captionReadabilityScore": 96,
+                    "focalSafetyScore": 96,
+                },
+            }
+        ],
         contentforge_preset="caption_safe_v2",
     )
     audit_path = rendered_path.with_suffix(".audit.json")
-    audit_path.write_text(json.dumps({"readinessSummary": {
-        "uploadReady": True,
-        "visualQcStatus": "passed",
-        "identityVerificationStatus": "passed",
-    }, "visualQcStatus": "passed", "identityVerificationStatus": "passed", "variant": {
-        "familyName": family_name,
-        "uploadReady": True,
-        "qualityScore": quality_score,
-        "differenceScore": 35,
-        "operationDiversityScore": 35,
-        "captionReadabilityScore": 96,
-        "focalSafetyScore": 96,
-    }}), encoding="utf-8")
+    audit_path.write_text(
+        json.dumps(
+            {
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "visualQcStatus": "passed",
+                    "identityVerificationStatus": "passed",
+                },
+                "visualQcStatus": "passed",
+                "identityVerificationStatus": "passed",
+                "variant": {
+                    "familyName": family_name,
+                    "uploadReady": True,
+                    "qualityScore": quality_score,
+                    "differenceScore": 35,
+                    "operationDiversityScore": 35,
+                    "captionReadabilityScore": 96,
+                    "focalSafetyScore": 96,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     cf.conn.execute(
         """
         INSERT INTO audit_reports
@@ -9985,7 +12301,14 @@ def add_variant_fixture(
          layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
         VALUES (?, ?, ?, 'run_variant', ?, ?, 'pass', '{}', '{}', 'pass', 1, '[]', '[]', ?)
         """,
-        (f"audit_{variant_asset_id}", parent["campaign_id"], variant_asset_id, str(audit_path), quality_score, now),
+        (
+            f"audit_{variant_asset_id}",
+            parent["campaign_id"],
+            variant_asset_id,
+            str(audit_path),
+            quality_score,
+            now,
+        ),
     )
     cf.conn.commit()
     return variant
@@ -10012,7 +12335,7 @@ def add_inventory_parent_fixture(
         campaign = cf.campaign_by_slug(campaign_slug)
     source = cf.assets_for_campaign(campaign["id"])[0]
     rendered_path = tmp_path / f"{asset_id}.mp4"
-    rendered_path.write_bytes(f"rendered-{asset_id}".encode("utf-8"))
+    rendered_path.write_bytes(f"rendered-{asset_id}".encode())
     now = "2026-01-01T00:00:00+00:00"
     caption_context = {
         "schema": "campaign_factory.caption_outcome_context.v1",
@@ -10100,10 +12423,14 @@ def table_count(cf: CampaignFactory, table: str) -> int:
     return int(cf.conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"])
 
 
-def test_caption_family_plan_is_read_only_and_produces_requested_versions(tmp_path: Path):
+def test_caption_family_plan_is_read_only_and_produces_requested_versions(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        parent = add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
+        parent = add_inventory_parent_fixture(
+            cf, tmp_path, asset_id="asset_caption_parent"
+        )
         before = {
             "caption_families": table_count(cf, "caption_families"),
             "caption_versions": table_count(cf, "caption_versions"),
@@ -10129,7 +12456,9 @@ def test_caption_family_plan_is_read_only_and_produces_requested_versions(tmp_pa
         assert plan["canProceed"] is True
         assert plan["blockingReason"] == ""
         assert plan["wouldWrite"] is False
-        assert {version["captionFamilyIndex"] for version in plan["plannedVersions"]} == {1, 2, 3, 4, 5}
+        assert {
+            version["captionFamilyIndex"] for version in plan["plannedVersions"]
+        } == {1, 2, 3, 4, 5}
         assert {version["captionAngle"] for version in plan["plannedVersions"]} == {
             "question_bait",
             "flirty_tease",
@@ -10146,24 +12475,37 @@ def test_caption_family_plan_is_read_only_and_produces_requested_versions(tmp_pa
         cf.close()
 
 
-def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_and_caps_hashtags(tmp_path: Path):
+def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_and_caps_hashtags(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_caption_parent'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "caption_cta": "tell me if this works",
-                "hashtags": ["#stacey", "mirror fit", "#reels", "outfit", "vote", "extra_tag"],
-                "post_caption_style": "short_natural",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "caption_cta": "tell me if this works",
+                        "hashtags": [
+                            "#stacey",
+                            "mirror fit",
+                            "#reels",
+                            "outfit",
+                            "vote",
+                            "extra_tag",
+                        ],
+                        "post_caption_style": "short_natural",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
 
@@ -10180,7 +12522,9 @@ def test_caption_family_plan_keeps_burned_and_instagram_captions_separate_and_ca
         assert first["instagramPostCaption"]
         assert first["burnedCaptionText"] != first["instagramPostCaption"]
         assert first["burnedCaptionHash"] == cf._text_hash(first["burnedCaptionText"])
-        assert first["instagramPostCaptionHash"] == cf._text_hash(first["instagramPostCaption"])
+        assert first["instagramPostCaptionHash"] == cf._text_hash(
+            first["instagramPostCaption"]
+        )
         assert len(first["hashtags"]) <= 5
         assert first["captionCta"]
         assert first["postCaptionStyle"] == "ig_short"
@@ -10209,10 +12553,14 @@ def test_caption_family_plan_blocks_blank_instagram_post_caption(tmp_path: Path)
         cf.close()
 
 
-def test_caption_family_hashes_are_stable_and_create_only_caption_records(tmp_path: Path):
+def test_caption_family_hashes_are_stable_and_create_only_caption_records(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        parent = add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
+        parent = add_inventory_parent_fixture(
+            cf, tmp_path, asset_id="asset_caption_parent"
+        )
         first = cf.caption_family_plan(
             creator="Stacey",
             parent_asset_id="asset_caption_parent",
@@ -10238,18 +12586,30 @@ def test_caption_family_hashes_are_stable_and_create_only_caption_records(tmp_pa
             dry_run=False,
         )
 
-        assert [v["captionVersionId"] for v in first["plannedVersions"]] == [v["captionVersionId"] for v in second["plannedVersions"]]
-        assert [v["burnedCaptionHash"] for v in first["plannedVersions"]] == [v["burnedCaptionHash"] for v in second["plannedVersions"]]
+        assert [v["captionVersionId"] for v in first["plannedVersions"]] == [
+            v["captionVersionId"] for v in second["plannedVersions"]
+        ]
+        assert [v["burnedCaptionHash"] for v in first["plannedVersions"]] == [
+            v["burnedCaptionHash"] for v in second["plannedVersions"]
+        ]
         assert created["wouldWrite"] is True
         assert created["createdCaptionVersions"] == 3
         assert table_count(cf, "caption_families") == 1
         assert table_count(cf, "caption_versions") == 3
         assert table_count(cf, "rendered_assets") == before_assets
         assert table_count(cf, "distribution_plans") == before_plans
-        row = cf.conn.execute("SELECT * FROM caption_versions WHERE caption_family_index = 1").fetchone()
+        row = cf.conn.execute(
+            "SELECT * FROM caption_versions WHERE caption_family_index = 1"
+        ).fetchone()
         assert row["parent_reel_id"] == parent["parentReelId"]
-        assert row["burned_caption_hash"] == first["plannedVersions"][0]["burnedCaptionHash"]
-        assert row["instagram_post_caption_hash"] == first["plannedVersions"][0]["instagramPostCaptionHash"]
+        assert (
+            row["burned_caption_hash"]
+            == first["plannedVersions"][0]["burnedCaptionHash"]
+        )
+        assert (
+            row["instagram_post_caption_hash"]
+            == first["plannedVersions"][0]["instagramPostCaptionHash"]
+        )
     finally:
         cf.close()
 
@@ -10278,7 +12638,10 @@ def test_caption_version_lineage_is_preserved_into_variant_plan(tmp_path: Path):
         assert plan["captionVersionId"] == caption_version_id
         assert plan["variantFamilyId"].startswith("vfam_")
         assert all(
-            {"captionFamilyId": created["captionFamilyId"], "captionVersionId": caption_version_id}.items()
+            {
+                "captionFamilyId": created["captionFamilyId"],
+                "captionVersionId": caption_version_id,
+            }.items()
             <= item["operations"][1].items()
             for item in plan["plannedOperations"]
         )
@@ -10287,12 +12650,16 @@ def test_caption_version_lineage_is_preserved_into_variant_plan(tmp_path: Path):
         cf.close()
 
 
-def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
 
@@ -10315,18 +12682,27 @@ def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(monkeyp
         assert result["partialCommitPrevented"] is True
         assert result["registeredVariants"] == []
         assert result["contentforgeDiagnostics"]["timeoutSeconds"] == 1
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'").fetchone()[0] == 0
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"
+            ).fetchone()[0]
+            == 0
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 0
     finally:
         cf.close()
 
 
-def test_generate_variants_polls_job_and_registers_terminal_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_polls_job_and_registers_terminal_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
         output_dir = tmp_path / "contentforge_job_out"
@@ -10404,18 +12780,27 @@ def test_generate_variants_polls_job_and_registers_terminal_report(monkeypatch: 
         ]
         assert result["contentforgeReport"]["runId"] == "cf_job_inner_run"
         assert len(result["registeredVariants"]) == 1
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'").fetchone()[0] == 1
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"
+            ).fetchone()[0]
+            == 1
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 1
     finally:
         cf.close()
 
 
-def test_generate_variants_running_job_is_resumable_and_commits_no_variants(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_running_job_is_resumable_and_commits_no_variants(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
         running = {
@@ -10436,7 +12821,9 @@ def test_generate_variants_running_job_is_resumable_and_commits_no_variants(monk
             def read(self):
                 return json.dumps(running).encode("utf-8")
 
-        monkeypatch.setattr(core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+        monkeypatch.setattr(
+            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+        )
         monkeypatch.setattr(core_module.time, "sleep", lambda *_args: None)
 
         result = cf.generate_variants(
@@ -10452,18 +12839,27 @@ def test_generate_variants_running_job_is_resumable_and_commits_no_variants(monk
         assert result["retryOrResumeSafe"] is True
         assert result["partialCommitPrevented"] is True
         assert result["contentforgeJob"]["runId"] == "job_running"
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'").fetchone()[0] == 0
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"
+            ).fetchone()[0]
+            == 0
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 0
     finally:
         cf.close()
 
 
-def test_generate_variants_rolls_back_partial_registration_on_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_rolls_back_partial_registration_on_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
         output_dir = tmp_path / "contentforge_out"
@@ -10497,7 +12893,9 @@ def test_generate_variants_rolls_back_partial_registration_on_error(monkeypatch:
             def read(self):
                 return json.dumps(report).encode("utf-8")
 
-        monkeypatch.setattr(core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+        monkeypatch.setattr(
+            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+        )
 
         def fail_register_variant_asset(**_kwargs):
             raise RuntimeError("simulated registration failure")
@@ -10512,14 +12910,26 @@ def test_generate_variants_rolls_back_partial_registration_on_error(monkeypatch:
                 contentforge_base_url="http://contentforge.local",
             )
 
-        assert cf.conn.execute("SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'").fetchone()[0] == 0
-        assert cf.conn.execute("SELECT COUNT(*) FROM audit_reports WHERE id LIKE 'audit_variant_%'").fetchone()[0] == 0
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM audit_reports WHERE id LIKE 'audit_variant_%'"
+            ).fetchone()[0]
+            == 0
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 0
     finally:
         cf.close()
 
 
-def test_generate_variants_registers_caption_version_lineage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_generate_variants_registers_caption_version_lineage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_caption_parent")
@@ -10567,7 +12977,9 @@ def test_generate_variants_registers_caption_version_lineage(monkeypatch: pytest
             def read(self):
                 return json.dumps(report).encode("utf-8")
 
-        monkeypatch.setattr(core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+        monkeypatch.setattr(
+            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+        )
 
         result = cf.generate_variants(
             parent_asset_id="asset_caption_parent",
@@ -10591,7 +13003,10 @@ def test_generate_variants_registers_caption_version_lineage(monkeypatch: pytest
         publishability = cf.explain_publishability(variant["variantAssetId"])
         assert publishability["captionFamilyId"] == created["captionFamilyId"]
         assert publishability["captionVersionId"] == caption_version["captionVersionId"]
-        assert publishability["instagram_post_caption"] == caption_version["instagramPostCaption"]
+        assert (
+            publishability["instagram_post_caption"]
+            == caption_version["instagramPostCaption"]
+        )
     finally:
         cf.close()
 
@@ -10624,7 +13039,7 @@ def add_surface_asset_fixture(
         write_rgb_png(media_path, 1080, 1920)
         target_ratio = "9:16"
     else:
-        media_path.write_bytes(f"surface-{asset_id}".encode("utf-8"))
+        media_path.write_bytes(f"surface-{asset_id}".encode())
     caption_context = {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": f"caption_hash_{asset_id}",
@@ -10640,11 +13055,13 @@ def add_surface_asset_fixture(
     if instagram_post_caption is not None:
         caption_generation["instagram_post_caption"] = instagram_post_caption
     if content_surface == "story":
-        caption_generation.update({
-            "story_asset_class": "story_selfie",
-            "story_intent": "casual_selfie",
-            "story_style": "selfie",
-        })
+        caption_generation.update(
+            {
+                "story_asset_class": "story_selfie",
+                "story_intent": "casual_selfie",
+                "story_style": "selfie",
+            }
+        )
     now = "2026-06-06T00:00:00+00:00"
     cf.conn.execute(
         """
@@ -10681,7 +13098,11 @@ def add_surface_asset_fixture(
         ),
     )
     cf.conn.commit()
-    return dict(cf.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)).fetchone())
+    return dict(
+        cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+    )
 
 
 def test_content_surface_normalization_keeps_feed_and_story_distinct():
@@ -10693,7 +13114,9 @@ def test_content_surface_normalization_keeps_feed_and_story_distinct():
     assert core_module.normalize_content_surface("image") == "feed_single"
 
 
-def test_discoverability_safe_contract_blocks_dm_link_and_off_platform_language(tmp_path: Path):
+def test_discoverability_safe_contract_blocks_dm_link_and_off_platform_language(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         result = cf.discoverability_safe_content_contract(
@@ -10705,7 +13128,10 @@ def test_discoverability_safe_contract_blocks_dm_link_and_off_platform_language(
         )
 
         assert result["discoverabilitySafe"] is False
-        assert result["blockedReason"] == "discoverability_risk_link_dm_or_off_platform_reference"
+        assert (
+            result["blockedReason"]
+            == "discoverability_risk_link_dm_or_off_platform_reference"
+        )
         assert {item["reason"] for item in result["blockedTerms"]} == {
             "dm_reference",
             "link_reference",
@@ -10731,25 +13157,62 @@ def test_discoverability_safe_contract_does_not_block_common_word_of(tmp_path: P
 def test_multi_surface_inventory_audit_counts_schedule_safe_by_surface(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_reel_safe", campaign_slug="stacey_surface_inventory_20260606")
-        cf.conn.execute("UPDATE rendered_assets SET content_surface = 'reel', media_type = 'video' WHERE id = 'asset_reel_safe'")
-        cf.create_distribution_plan("asset_reel_safe", surface="reel", instagram_account_id="ig_stacey_1")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_feed_safe", content_surface="feed_single", media_type="image")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_feed_blocked", content_surface="feed_single", media_type="image", instagram_post_caption="")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe", content_surface="story", media_type="image", instagram_post_caption="")
+        add_inventory_parent_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_reel_safe",
+            campaign_slug="stacey_surface_inventory_20260606",
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET content_surface = 'reel', media_type = 'video' WHERE id = 'asset_reel_safe'"
+        )
+        cf.create_distribution_plan(
+            "asset_reel_safe", surface="reel", instagram_account_id="ig_stacey_1"
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_feed_safe",
+            content_surface="feed_single",
+            media_type="image",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_feed_blocked",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
 
         report = cf.multi_surface_inventory_audit(creator="Stacey")
 
         assert report["inventoryBySurface"]["reel"] == {"total": 1, "scheduleSafe": 1}
         assert report["inventoryBySurface"]["story"] == {"total": 1, "scheduleSafe": 1}
-        assert report["inventoryBySurface"]["feed_single"] == {"total": 2, "scheduleSafe": 1}
-        assert report["inventoryBySurface"]["feed_carousel"] == {"total": 0, "scheduleSafe": 0}
+        assert report["inventoryBySurface"]["feed_single"] == {
+            "total": 2,
+            "scheduleSafe": 1,
+        }
+        assert report["inventoryBySurface"]["feed_carousel"] == {
+            "total": 0,
+            "scheduleSafe": 0,
+        }
         assert report["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_surface_handoff_readiness_blocks_discoverability_unsafe_feed_caption(tmp_path: Path):
+def test_surface_handoff_readiness_blocks_discoverability_unsafe_feed_caption(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_surface_asset_fixture(
@@ -10774,7 +13237,9 @@ def test_surface_handoff_readiness_blocks_discoverability_unsafe_feed_caption(tm
         cf.close()
 
 
-def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(tmp_path: Path):
+def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         asset = add_surface_asset_fixture(
@@ -10792,11 +13257,16 @@ def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(tmp
         caption_context["identityVerification"] = {"status": "failed"}
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_outcome_context_json = ? WHERE id = ?",
-            (json.dumps(caption_context, ensure_ascii=False, sort_keys=True), asset["id"]),
+            (
+                json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
+                asset["id"],
+            ),
         )
         cf.conn.commit()
 
-        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id=asset["id"])
+        report = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id=asset["id"]
+        )
         readiness = report["assets"][0]
 
         assert readiness["canHandoff"] is False
@@ -10812,7 +13282,13 @@ def test_surface_handoff_readiness_blocks_unavailable_visual_qc_and_identity(tmp
 def test_multi_surface_inventory_audit_cli_outputs_json(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_feed_cli", content_surface="feed_single", media_type="image")
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_feed_cli",
+            content_surface="feed_single",
+            media_type="image",
+        )
     finally:
         cf.close()
 
@@ -10846,12 +13322,19 @@ def test_multi_surface_inventory_audit_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_account_surface_obligations_plan_is_read_only_and_surface_specific(tmp_path: Path):
+def test_account_surface_obligations_plan_is_read_only_and_surface_specific(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
         campaign = cf.upsert_campaign("stacey_surface_inventory_20260606", "stacey")
-        account = cf.upsert_account("stacey_main", platform="instagram", external_id="ig_stacey_1", model_id=model["id"])
+        account = cf.upsert_account(
+            "stacey_main",
+            platform="instagram",
+            external_id="ig_stacey_1",
+            model_id=model["id"],
+        )
         before = table_count(cf, "account_content_requirements")
         cf.conn.execute(
             """
@@ -10921,14 +13404,32 @@ def add_account_requirement_fixture(
     )
 
 
-def test_account_content_needs_counts_required_completed_scheduled_remaining(tmp_path: Path):
+def test_account_content_needs_counts_required_completed_scheduled_remaining(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_account_12", platform="instagram", external_id="ig_stacey_12", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="reel", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", max_per_day=3)
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_scheduled", content_surface="story", media_type="image", instagram_post_caption="")
+        account = cf.upsert_account(
+            "stacey_account_12",
+            platform="instagram",
+            external_id="ig_stacey_12",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account["id"], surface="reel", max_per_day=1
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account["id"], surface="story", max_per_day=3
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_scheduled",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         campaign = cf.campaign_by_slug("stacey_surface_inventory_20260606")
         cf.conn.execute(
             """
@@ -10979,8 +13480,15 @@ def test_account_content_needs_parses_per_day_cadence_without_writing(tmp_path: 
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story_account", platform="instagram", external_id="ig_story", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="3_per_day")
+        account = cf.upsert_account(
+            "stacey_story_account",
+            platform="instagram",
+            external_id="ig_story",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account["id"], surface="story", cadence="3_per_day"
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
@@ -11000,12 +13508,26 @@ def test_account_content_needs_parses_per_day_cadence_without_writing(tmp_path: 
         cf.close()
 
 
-def test_account_surface_status_reports_needed_scheduled_completed_blocked_overdue(tmp_path: Path):
+def test_account_surface_status_reports_needed_scheduled_completed_blocked_overdue(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_status_account", platform="instagram", external_id="ig_status", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="feed_carousel", cadence="weekly", max_per_day=1, allowed_days=[5])
+        account = cf.upsert_account(
+            "stacey_status_account",
+            platform="instagram",
+            external_id="ig_status",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="feed_carousel",
+            cadence="weekly",
+            max_per_day=1,
+            allowed_days=[5],
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
@@ -11032,18 +13554,38 @@ def test_creator_content_needs_rolls_up_accounts_without_writing(tmp_path: Path)
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="story", max_per_day=3)
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="reel", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="feed_carousel", cadence="weekly", max_per_day=1, allowed_days=[5])
+        account_a = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        account_b = cf.upsert_account(
+            "stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"]
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_a["id"], surface="story", max_per_day=3
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_a["id"], surface="reel", max_per_day=1
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account_b["id"],
+            surface="feed_carousel",
+            cadence="weekly",
+            max_per_day=1,
+            allowed_days=[5],
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
         report = cf.creator_content_needs(creator="Stacey", date="2026-06-06")
 
         assert report["accountsAnalyzed"] == 2
-        assert report["surfaceRequirementsTracked"] == ["reel", "story", "feed_single", "feed_carousel"]
+        assert report["surfaceRequirementsTracked"] == [
+            "reel",
+            "story",
+            "feed_single",
+            "feed_carousel",
+        ]
         assert report["totalsBySurface"]["story"]["required"] == 3
         assert report["totalsBySurface"]["reel"]["required"] == 1
         assert report["totalsBySurface"]["feed_carousel"]["required"] == 1
@@ -11057,12 +13599,34 @@ def test_surface_gap_report_compares_remaining_needs_to_inventory(tmp_path: Path
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="story", max_per_day=2)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="story", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="feed_carousel", cadence="weekly", max_per_day=1, allowed_days=[5])
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_gap", content_surface="story", media_type="image", instagram_post_caption="")
+        account_a = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        account_b = cf.upsert_account(
+            "stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"]
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_a["id"], surface="story", max_per_day=2
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_b["id"], surface="story", max_per_day=1
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account_b["id"],
+            surface="feed_carousel",
+            cadence="weekly",
+            max_per_day=1,
+            allowed_days=[5],
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_gap",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
@@ -11083,16 +13647,53 @@ def test_surface_gap_report_compares_remaining_needs_to_inventory(tmp_path: Path
 def test_surface_handoff_readiness_validates_surfaces_differently(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_reel_ready", campaign_slug="stacey_surface_inventory_20260606")
-        cf.conn.execute("UPDATE rendered_assets SET content_surface = 'reel', media_type = 'video' WHERE id = 'asset_reel_ready'")
-        cf.create_distribution_plan("asset_reel_ready", surface="reel", instagram_account_id="ig_stacey_1")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_ready", content_surface="story", media_type="image", instagram_post_caption="")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_single_ready", content_surface="feed_single", media_type="image", instagram_post_caption="tap for more")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_single_blocked", content_surface="feed_single", media_type="image", instagram_post_caption="")
-        carousel = add_surface_asset_fixture(cf, tmp_path, asset_id="asset_carousel_ready", content_surface="feed_carousel", media_type="image", instagram_post_caption="pick one")
+        add_inventory_parent_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_reel_ready",
+            campaign_slug="stacey_surface_inventory_20260606",
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET content_surface = 'reel', media_type = 'video' WHERE id = 'asset_reel_ready'"
+        )
+        cf.create_distribution_plan(
+            "asset_reel_ready", surface="reel", instagram_account_id="ig_stacey_1"
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_ready",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_single_ready",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="tap for more",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_single_blocked",
+            content_surface="feed_single",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        carousel = add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_carousel_ready",
+            content_surface="feed_carousel",
+            media_type="image",
+            instagram_post_caption="pick one",
+        )
         for index in range(2):
             component_path = tmp_path / f"carousel_{index}.jpg"
-            component_path.write_bytes(f"carousel-{index}".encode("utf-8"))
+            component_path.write_bytes(f"carousel-{index}".encode())
             cf.conn.execute(
                 """
                 INSERT INTO asset_components
@@ -11100,7 +13701,14 @@ def test_surface_handoff_readiness_validates_surfaces_differently(tmp_path: Path
                  alt_text, publishability_state, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'image', '1:1', ?, 'passed', '2026-06-06T00:00:00+00:00', '2026-06-06T00:00:00+00:00')
                 """,
-                (f"comp_{index}", carousel["id"], index, str(component_path), f"hash_comp_{index}", f"slide {index}"),
+                (
+                    f"comp_{index}",
+                    carousel["id"],
+                    index,
+                    str(component_path),
+                    f"hash_comp_{index}",
+                    f"slide {index}",
+                ),
             )
         cf.conn.commit()
 
@@ -11112,10 +13720,16 @@ def test_surface_handoff_readiness_validates_surfaces_differently(tmp_path: Path
         assert by_asset["asset_story_ready"]["igMediaType"] == "STORIES"
         assert by_asset["asset_single_ready"]["canHandoff"] is True
         assert by_asset["asset_single_blocked"]["canHandoff"] is False
-        assert "instagram_post_caption_missing" in by_asset["asset_single_blocked"]["blockingReasons"]
+        assert (
+            "instagram_post_caption_missing"
+            in by_asset["asset_single_blocked"]["blockingReasons"]
+        )
         assert by_asset["asset_carousel_ready"]["canHandoff"] is True
         assert by_asset["asset_carousel_ready"]["igMediaType"] == "CAROUSEL"
-        assert len(by_asset["asset_carousel_ready"]["handoffManifestV2"]["mediaItems"]) == 2
+        assert (
+            len(by_asset["asset_carousel_ready"]["handoffManifestV2"]["mediaItems"])
+            == 2
+        )
         assert report["wouldWrite"] is False
     finally:
         cf.close()
@@ -11133,20 +13747,30 @@ def test_surface_handoff_readiness_explains_missing_reel_audio_proof(tmp_path: P
         )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_reel_audio_missing_proof'",
-            (json.dumps({
-                "instagram_post_caption": "new post is up",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "attached",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post is up",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "attached",
+                        },
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
-        cf.create_distribution_plan("asset_reel_audio_missing_proof", surface="regular_reel", instagram_account_id="ig_stacey_1")
+        cf.create_distribution_plan(
+            "asset_reel_audio_missing_proof",
+            surface="regular_reel",
+            instagram_account_id="ig_stacey_1",
+        )
 
-        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_reel_audio_missing_proof")
+        report = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id="asset_reel_audio_missing_proof"
+        )
         readiness = report["assets"][0]
 
         assert readiness["canHandoff"] is False
@@ -11163,7 +13787,9 @@ def test_surface_handoff_readiness_explains_missing_reel_audio_proof(tmp_path: P
         cf.close()
 
 
-def test_surface_handoff_readiness_explains_reel_caption_quality_failure(tmp_path: Path):
+def test_surface_handoff_readiness_explains_reel_caption_quality_failure(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(
@@ -11182,9 +13808,15 @@ def test_surface_handoff_readiness_explains_reel_caption_quality_failure(tmp_pat
             (json.dumps({"instagram_post_caption": long_caption}),),
         )
         cf.conn.commit()
-        cf.create_distribution_plan("asset_reel_caption_quality_failed", surface="regular_reel", instagram_account_id="ig_stacey_1")
+        cf.create_distribution_plan(
+            "asset_reel_caption_quality_failed",
+            surface="regular_reel",
+            instagram_account_id="ig_stacey_1",
+        )
 
-        report = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_reel_caption_quality_failed")
+        report = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id="asset_reel_caption_quality_failed"
+        )
         readiness = report["assets"][0]
 
         assert readiness["canHandoff"] is False
@@ -11200,10 +13832,19 @@ def test_surface_handoff_readiness_explains_reel_caption_quality_failure(tmp_pat
         cf.close()
 
 
-def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(tmp_path: Path):
+def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_carousel_gap", content_surface="feed_carousel", media_type="image", instagram_post_caption="pick one")
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_carousel_gap",
+            content_surface="feed_carousel",
+            media_type="image",
+            instagram_post_caption="pick one",
+        )
         component_path = tmp_path / "carousel_gap_1.jpg"
         component_path.write_bytes(b"carousel-gap")
         cf.conn.execute(
@@ -11219,7 +13860,11 @@ def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(tm
         cf.conn.commit()
 
         report = cf.surface_handoff_readiness_report(creator="Stacey")
-        item = next(asset for asset in report["assets"] if asset["assetId"] == "asset_carousel_gap")
+        item = next(
+            asset
+            for asset in report["assets"]
+            if asset["assetId"] == "asset_carousel_gap"
+        )
 
         assert item["canHandoff"] is False
         assert "carousel_requires_2_to_10_components" in item["blockingReasons"]
@@ -11229,7 +13874,9 @@ def test_surface_handoff_readiness_blocks_carousel_without_ordered_components(tm
         cf.close()
 
 
-def test_surface_draft_proof_feed_single_image_does_not_collapse_to_reel(tmp_path: Path):
+def test_surface_draft_proof_feed_single_image_does_not_collapse_to_reel(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_surface_asset_fixture(
@@ -11262,7 +13909,9 @@ def test_surface_draft_proof_feed_single_image_does_not_collapse_to_reel(tmp_pat
         cf.close()
 
 
-def test_surface_draft_proof_story_does_not_require_post_caption_by_default(tmp_path: Path):
+def test_surface_draft_proof_story_does_not_require_post_caption_by_default(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_surface_asset_fixture(
@@ -11314,7 +13963,7 @@ def test_surface_draft_proof_carousel_manifest_has_ordered_media_items(tmp_path:
         )
         for index in range(3):
             component_path = tmp_path / f"proof_carousel_{index}.jpg"
-            component_path.write_bytes(f"carousel-{index}".encode("utf-8"))
+            component_path.write_bytes(f"carousel-{index}".encode())
             cf.conn.execute(
                 """
                 INSERT INTO asset_components
@@ -11323,7 +13972,14 @@ def test_surface_draft_proof_carousel_manifest_has_ordered_media_items(tmp_path:
                 VALUES (?, ?, ?, ?, ?, 'image', '1:1', ?, 'passed',
                         '2026-06-06T00:00:00+00:00', '2026-06-06T00:00:00+00:00')
                 """,
-                (f"proof_comp_{index}", carousel["id"], index, str(component_path), f"hash_proof_{index}", f"slide {index}"),
+                (
+                    f"proof_comp_{index}",
+                    carousel["id"],
+                    index,
+                    str(component_path),
+                    f"hash_proof_{index}",
+                    f"slide {index}",
+                ),
             )
         cf.conn.commit()
 
@@ -11349,7 +14005,14 @@ def write_surface_image(path: Path) -> Path:
     return write_rgb_png(path, 1080, 1920)
 
 
-def write_rgb_png(path: Path, width: int, height: int, *, color: tuple[int, int, int] = (200, 80, 120), bars: set[str] | None = None) -> Path:
+def write_rgb_png(
+    path: Path,
+    width: int,
+    height: int,
+    *,
+    color: tuple[int, int, int] = (200, 80, 120),
+    bars: set[str] | None = None,
+) -> Path:
     bars = bars or set()
     rows = []
     for y in range(height):
@@ -11366,7 +14029,12 @@ def write_rgb_png(path: Path, width: int, height: int, *, color: tuple[int, int,
     raw = b"".join(rows)
 
     def chunk(kind: bytes, payload: bytes) -> bytes:
-        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        )
 
     path.write_bytes(
         b"\x89PNG\r\n\x1a\n"
@@ -11425,7 +14093,11 @@ def add_story_quality_asset(
         ),
     )
     cf.conn.commit()
-    return dict(cf.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)).fetchone())
+    return dict(
+        cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)
+        ).fetchone()
+    )
 
 
 def test_story_quality_gate_1080x1920_passes(tmp_path: Path):
@@ -11443,14 +14115,21 @@ def test_story_quality_gate_1080x1920_passes(tmp_path: Path):
         cf.close()
 
 
-@pytest.mark.parametrize("asset_id,width,height,reason", [
-    ("asset_story_square", 1080, 1080, "invalid_story_aspect_ratio"),
-    ("asset_story_landscape", 1920, 1080, "invalid_story_aspect_ratio"),
-])
-def test_story_quality_gate_blocks_non_story_geometry(tmp_path: Path, asset_id: str, width: int, height: int, reason: str):
+@pytest.mark.parametrize(
+    "asset_id,width,height,reason",
+    [
+        ("asset_story_square", 1080, 1080, "invalid_story_aspect_ratio"),
+        ("asset_story_landscape", 1920, 1080, "invalid_story_aspect_ratio"),
+    ],
+)
+def test_story_quality_gate_blocks_non_story_geometry(
+    tmp_path: Path, asset_id: str, width: int, height: int, reason: str
+):
     cf = make_factory(tmp_path)
     try:
-        add_story_quality_asset(cf, tmp_path, asset_id=asset_id, width=width, height=height)
+        add_story_quality_asset(
+            cf, tmp_path, asset_id=asset_id, width=width, height=height
+        )
 
         result = cf.story_quality_gate_v1(asset_id)
 
@@ -11463,7 +14142,9 @@ def test_story_quality_gate_blocks_non_story_geometry(tmp_path: Path, asset_id: 
 def test_story_quality_gate_blocks_black_bars(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_story_quality_asset(cf, tmp_path, asset_id="asset_story_bars", bars={"top", "bottom"})
+        add_story_quality_asset(
+            cf, tmp_path, asset_id="asset_story_bars", bars={"top", "bottom"}
+        )
 
         result = cf.story_quality_gate_v1("asset_story_bars")
 
@@ -11473,15 +14154,30 @@ def test_story_quality_gate_blocks_black_bars(tmp_path: Path):
         cf.close()
 
 
-@pytest.mark.parametrize("asset_id,quality_metadata,reason", [
-    ("asset_story_safe_zone", {"story_safe_zone_score": 70}, "safe_zone_violation"),
-    ("asset_story_head_cutoff", {"story_focal_safety_score": 65, "focalFailureReason": "head_cutoff"}, "head_cutoff"),
-    ("asset_story_text_hidden", {"containsRenderedText": True, "story_text_readability_score": 60}, "text_hidden"),
-])
-def test_story_quality_gate_blocks_safe_zone_focal_and_text_failures(tmp_path: Path, asset_id: str, quality_metadata: dict, reason: str):
+@pytest.mark.parametrize(
+    "asset_id,quality_metadata,reason",
+    [
+        ("asset_story_safe_zone", {"story_safe_zone_score": 70}, "safe_zone_violation"),
+        (
+            "asset_story_head_cutoff",
+            {"story_focal_safety_score": 65, "focalFailureReason": "head_cutoff"},
+            "head_cutoff",
+        ),
+        (
+            "asset_story_text_hidden",
+            {"containsRenderedText": True, "story_text_readability_score": 60},
+            "text_hidden",
+        ),
+    ],
+)
+def test_story_quality_gate_blocks_safe_zone_focal_and_text_failures(
+    tmp_path: Path, asset_id: str, quality_metadata: dict, reason: str
+):
     cf = make_factory(tmp_path)
     try:
-        add_story_quality_asset(cf, tmp_path, asset_id=asset_id, quality_metadata=quality_metadata)
+        add_story_quality_asset(
+            cf, tmp_path, asset_id=asset_id, quality_metadata=quality_metadata
+        )
 
         result = cf.story_quality_gate_v1(asset_id)
 
@@ -11495,10 +14191,14 @@ def test_story_quality_report_and_readiness_use_quality_gate(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_story_quality_asset(cf, tmp_path, asset_id="asset_story_quality_pass")
-        add_story_quality_asset(cf, tmp_path, asset_id="asset_story_quality_fail", bars={"left"})
+        add_story_quality_asset(
+            cf, tmp_path, asset_id="asset_story_quality_fail", bars={"left"}
+        )
 
         report = cf.story_quality_report(creator="Stacey")
-        readiness = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_story_quality_fail")
+        readiness = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id="asset_story_quality_fail"
+        )
         inventory = cf.story_inventory_report(creator="Stacey")
 
         assert report["storyAssetsAnalyzed"] == 2
@@ -11579,9 +14279,15 @@ def test_story_inventory_rolls_up_story_intents(tmp_path: Path):
         add_story_quality_asset(cf, tmp_path, asset_id="asset_story_snap")
         add_story_quality_asset(cf, tmp_path, asset_id="asset_story_reel")
         add_story_quality_asset(cf, tmp_path, asset_id="asset_story_casual")
-        cf.conn.execute("UPDATE rendered_assets SET story_intent = 'snapchat_promo', story_style = 'casual' WHERE id = 'asset_story_snap'")
-        cf.conn.execute("UPDATE rendered_assets SET story_intent = 'reel_teaser', story_style = 'raw_phone' WHERE id = 'asset_story_reel'")
-        cf.conn.execute("UPDATE rendered_assets SET story_intent = 'casual_selfie', story_style = 'selfie' WHERE id = 'asset_story_casual'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET story_intent = 'snapchat_promo', story_style = 'casual' WHERE id = 'asset_story_snap'"
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET story_intent = 'reel_teaser', story_style = 'raw_phone' WHERE id = 'asset_story_reel'"
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET story_intent = 'casual_selfie', story_style = 'selfie' WHERE id = 'asset_story_casual'"
+        )
         cf.conn.commit()
 
         inventory = cf.story_inventory_report(creator="Stacey")
@@ -11602,18 +14308,40 @@ def test_creator_os_daily_plan_recommends_story_intent_and_style(tmp_path: Path)
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story", platform="instagram", external_id="ig_story", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_story",
+            platform="instagram",
+            external_id="ig_story",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
         add_story_quality_asset(cf, tmp_path, asset_id="asset_story_snap")
-        cf.conn.execute("UPDATE rendered_assets SET story_intent = 'snapchat_promo', story_style = 'casual' WHERE id = 'asset_story_snap'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET story_intent = 'snapchat_promo', story_style = 'casual' WHERE id = 'asset_story_snap'"
+        )
         cf.conn.commit()
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             date="2026-06-06",
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_story", "username": "stacey_story", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": False}
-            ]),
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_story",
+                        "username": "stacey_story",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": False,
+                    }
+                ]
+            ),
             schedule_plan={"creator": "Stacey", "items": []},
         )
 
@@ -11644,7 +14372,9 @@ def test_register_surface_asset_feed_single_image_is_schedule_safe(tmp_path: Pat
             instagram_post_caption="new fit today",
         )
 
-        asset = cf.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (result["renderedAssetId"],)).fetchone()
+        asset = cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (result["renderedAssetId"],)
+        ).fetchone()
         proof = cf.surface_draft_proof(
             creator="Stacey",
             campaign="stacey_surface_nonreel_20260606",
@@ -11658,15 +14388,22 @@ def test_register_surface_asset_feed_single_image_is_schedule_safe(tmp_path: Pat
         assert proof["canProduceDraftPayload"] is True
         assert draft["contentSurface"] == "feed_single"
         assert draft["igMediaType"] == "IMAGE"
-        assert draft["handoffManifestV2"]["mediaItems"][0]["mediaHash"] == result["contentHash"]
+        assert (
+            draft["handoffManifestV2"]["mediaItems"][0]["mediaHash"]
+            == result["contentHash"]
+        )
         assert table_count(cf, "distribution_plans") == before["distribution_plans"]
         assert table_count(cf, "threadsdash_exports") == before["threadsdash_exports"]
-        assert table_count(cf, "performance_snapshots") == before["performance_snapshots"]
+        assert (
+            table_count(cf, "performance_snapshots") == before["performance_snapshots"]
+        )
     finally:
         cf.close()
 
 
-def test_register_surface_asset_story_image_and_video_keep_story_mapping(tmp_path: Path):
+def test_register_surface_asset_story_image_and_video_keep_story_mapping(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         image = write_surface_image(tmp_path / "story.png")
@@ -11700,11 +14437,19 @@ def test_register_surface_asset_story_image_and_video_keep_story_mapping(tmp_pat
         assert video_result["mediaType"] == "video"
         assert video_result["igMediaType"] == "STORIES"
         assert video_result["publishability"] == "blocked"
-        proof = cf.surface_draft_proof(creator="Stacey", campaign="stacey_surface_nonreel_20260606")
+        proof = cf.surface_draft_proof(
+            creator="Stacey", campaign="stacey_surface_nonreel_20260606"
+        )
         drafts_by_asset = {draft["assetId"]: draft for draft in proof["drafts"]}
         blocked_by_asset = {item["assetId"]: item for item in proof["blockedAssets"]}
-        assert drafts_by_asset[image_result["renderedAssetId"]]["instagramPostCaption"] == ""
-        assert "story_quality_gate_failed" in blocked_by_asset[video_result["renderedAssetId"]]["blockingReasons"]
+        assert (
+            drafts_by_asset[image_result["renderedAssetId"]]["instagramPostCaption"]
+            == ""
+        )
+        assert (
+            "story_quality_gate_failed"
+            in blocked_by_asset[video_result["renderedAssetId"]]["blockingReasons"]
+        )
     finally:
         cf.close()
 
@@ -11712,9 +14457,18 @@ def test_register_surface_asset_story_image_and_video_keep_story_mapping(tmp_pat
 def test_register_surface_asset_story_rejects_rendered_reel_sources(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        rendered_dir = tmp_path / "campaign_factory" / "campaigns" / "stacey" / "old_reel_campaign" / "02_rendered"
+        rendered_dir = (
+            tmp_path
+            / "campaign_factory"
+            / "campaigns"
+            / "stacey"
+            / "old_reel_campaign"
+            / "02_rendered"
+        )
         rendered_dir.mkdir(parents=True)
-        reel_like = write_surface_image(rendered_dir / "parent_repair_captioned_reel.jpg")
+        reel_like = write_surface_image(
+            rendered_dir / "parent_repair_captioned_reel.jpg"
+        )
 
         with pytest.raises(ValueError, match="story source is not story-native"):
             cf.register_surface_asset(
@@ -11727,7 +14481,9 @@ def test_register_surface_asset_story_rejects_rendered_reel_sources(tmp_path: Pa
         cf.close()
 
 
-def test_story_quality_gate_blocks_existing_story_with_reel_render_lineage(tmp_path: Path):
+def test_story_quality_gate_blocks_existing_story_with_reel_render_lineage(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         asset = add_surface_asset_fixture(
@@ -11739,7 +14495,15 @@ def test_story_quality_gate_blocks_existing_story_with_reel_render_lineage(tmp_p
             instagram_post_caption="",
             target_ratio="9:16",
         )
-        reel_rendered = tmp_path / "campaign_factory" / "campaigns" / "stacey" / "variant_fanout" / "02_rendered" / "parent_repair_captioned.mp4"
+        reel_rendered = (
+            tmp_path
+            / "campaign_factory"
+            / "campaigns"
+            / "stacey"
+            / "variant_fanout"
+            / "02_rendered"
+            / "parent_repair_captioned.mp4"
+        )
         reel_rendered.parent.mkdir(parents=True)
         reel_rendered.write_bytes(b"not-used")
         cf.conn.execute(
@@ -11751,9 +14515,17 @@ def test_story_quality_gate_blocks_existing_story_with_reel_render_lineage(tmp_p
         quality = cf.story_quality_gate_v1(asset["id"])
 
         assert quality["story_quality_gate_passed"] is False
-        assert "story_source_must_be_raw_not_rendered_reel_asset" in quality["failureReasons"]
-        assert "story_source_appears_to_have_burned_caption_or_reel_lineage" in quality["failureReasons"]
-        readiness = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id=asset["id"])
+        assert (
+            "story_source_must_be_raw_not_rendered_reel_asset"
+            in quality["failureReasons"]
+        )
+        assert (
+            "story_source_appears_to_have_burned_caption_or_reel_lineage"
+            in quality["failureReasons"]
+        )
+        readiness = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id=asset["id"]
+        )
         assert "story_quality_gate_failed" in readiness["assets"][0]["blockingReasons"]
     finally:
         cf.close()
@@ -11797,7 +14569,9 @@ def test_story_readiness_blocks_missing_story_style_metadata(tmp_path: Path):
         )
         cf.conn.commit()
 
-        readiness = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_story_missing_style")
+        readiness = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id="asset_story_missing_style"
+        )
 
         assert readiness["assets"][0]["canHandoff"] is False
         assert "story_style_not_approved" in readiness["assets"][0]["blockingReasons"]
@@ -11815,7 +14589,9 @@ def test_story_handoff_manifest_v2_includes_story_quality_proof_fields(tmp_path:
             quality_metadata={"storyNoTextRequired": True, "storyNoTextPassed": True},
         )
 
-        readiness = cf.surface_handoff_readiness_report(creator="Stacey", rendered_asset_id="asset_story_manifest_quality")
+        readiness = cf.surface_handoff_readiness_report(
+            creator="Stacey", rendered_asset_id="asset_story_manifest_quality"
+        )
         manifest = readiness["assets"][0]["handoffManifestV2"]
 
         assert readiness["assets"][0]["canHandoff"] is True
@@ -11833,7 +14609,10 @@ def test_story_handoff_manifest_v2_includes_story_quality_proof_fields(tmp_path:
 def test_register_surface_asset_carousel_creates_ordered_components(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        components = [write_surface_image(tmp_path / f"carousel_{index}.png") for index in range(3)]
+        components = [
+            write_surface_image(tmp_path / f"carousel_{index}.png")
+            for index in range(3)
+        ]
 
         result = cf.register_surface_asset(
             input_path=components,
@@ -11864,11 +14643,18 @@ def test_register_surface_asset_carousel_creates_ordered_components(tmp_path: Pa
         cf.close()
 
 
-def test_carousel_integrity_report_preserves_order_hashes_surface_and_caption_lineage(tmp_path: Path):
+def test_carousel_integrity_report_preserves_order_hashes_surface_and_caption_lineage(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         inputs = [
-            write_rgb_png(tmp_path / f"integrity_carousel_{index}.png", 1080, 1080, color=(120 + index, 90, 180))
+            write_rgb_png(
+                tmp_path / f"integrity_carousel_{index}.png",
+                1080,
+                1080,
+                color=(120 + index, 90, 180),
+            )
             for index in range(3)
         ]
         registered = cf.register_surface_asset(
@@ -11900,12 +14686,26 @@ def test_carousel_integrity_report_preserves_order_hashes_surface_and_caption_li
             assert boundary["slideCountPreserved"] is True
             assert boundary["slideOrderPreserved"] is True
             assert boundary["componentHashesMatch"] is True
-        assert item["assetComponents"]["componentHashes"] == item["handoffManifestV2"]["componentHashes"]
-        assert item["handoffManifestV2"]["componentHashes"] == item["surfaceDraftProof"]["componentHashes"]
-        assert item["surfaceDraftProof"]["componentHashes"] == item["threadDashPayload"]["componentHashes"]
-        assert item["threadDashPayload"]["componentHashes"] == item["metaChildPayloadPreview"]["componentHashes"]
+        assert (
+            item["assetComponents"]["componentHashes"]
+            == item["handoffManifestV2"]["componentHashes"]
+        )
+        assert (
+            item["handoffManifestV2"]["componentHashes"]
+            == item["surfaceDraftProof"]["componentHashes"]
+        )
+        assert (
+            item["surfaceDraftProof"]["componentHashes"]
+            == item["threadDashPayload"]["componentHashes"]
+        )
+        assert (
+            item["threadDashPayload"]["componentHashes"]
+            == item["metaChildPayloadPreview"]["componentHashes"]
+        )
         assert item["threadDashPayload"]["contentSurface"] == "feed_carousel"
-        assert item["metaChildPayloadPreview"]["parentPayload"]["media_type"] == "CAROUSEL"
+        assert (
+            item["metaChildPayloadPreview"]["parentPayload"]["media_type"] == "CAROUSEL"
+        )
     finally:
         cf.close()
 
@@ -11914,7 +14714,12 @@ def test_carousel_child_metrics_plan_is_read_only_and_child_addressable(tmp_path
     cf = make_factory(tmp_path)
     try:
         inputs = [
-            write_rgb_png(tmp_path / f"metrics_carousel_{index}.png", 1080, 1080, color=(90, 110 + index, 160))
+            write_rgb_png(
+                tmp_path / f"metrics_carousel_{index}.png",
+                1080,
+                1080,
+                color=(90, 110 + index, 160),
+            )
             for index in range(2)
         ]
         registered = cf.register_surface_asset(
@@ -11967,10 +14772,15 @@ def test_carousel_child_metrics_plan_is_read_only_and_child_addressable(tmp_path
 
 
 @pytest.mark.parametrize("component_count", [1, 11])
-def test_register_surface_asset_carousel_rejects_invalid_component_count(tmp_path: Path, component_count: int):
+def test_register_surface_asset_carousel_rejects_invalid_component_count(
+    tmp_path: Path, component_count: int
+):
     cf = make_factory(tmp_path)
     try:
-        components = [write_surface_image(tmp_path / f"bad_carousel_{index}.png") for index in range(component_count)]
+        components = [
+            write_surface_image(tmp_path / f"bad_carousel_{index}.png")
+            for index in range(component_count)
+        ]
 
         with pytest.raises(ValueError, match="carousel requires 2 to 10 components"):
             cf.register_surface_asset(
@@ -11984,7 +14794,9 @@ def test_register_surface_asset_carousel_rejects_invalid_component_count(tmp_pat
         cf.close()
 
 
-def test_register_surface_asset_feed_single_requires_caption_and_never_collapses_to_reel(tmp_path: Path):
+def test_register_surface_asset_feed_single_requires_caption_and_never_collapses_to_reel(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         image = write_surface_image(tmp_path / "feed_no_caption.png")
@@ -11998,7 +14810,10 @@ def test_register_surface_asset_feed_single_requires_caption_and_never_collapses
                 instagram_post_caption="",
             )
 
-        assert cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
+            == 0
+        )
     finally:
         cf.close()
 
@@ -12015,7 +14830,9 @@ def test_feed_single_caption_family_uses_surface_handoff_readiness(tmp_path: Pat
             instagram_post_caption="soft launch today",
         )
 
-        parent = cf.register_parent_reel(registered["renderedAssetId"], operator="tester")
+        parent = cf.register_parent_reel(
+            registered["renderedAssetId"], operator="tester"
+        )
         created = cf.caption_family_create(
             creator="Stacey",
             parent_asset_id=registered["renderedAssetId"],
@@ -12026,8 +14843,16 @@ def test_feed_single_caption_family_uses_surface_handoff_readiness(tmp_path: Pat
         assert parent["parentAssetId"] == registered["renderedAssetId"]
         assert created["createdCaptionVersions"] == 3
         assert created["canProceed"] is True
-        assert all(version["instagramPostCaption"] for version in created["plannedVersions"])
-        assert cf.conn.execute("SELECT COUNT(*) FROM caption_versions WHERE caption_family_id = ?", (created["captionFamilyId"],)).fetchone()[0] == 3
+        assert all(
+            version["instagramPostCaption"] for version in created["plannedVersions"]
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM caption_versions WHERE caption_family_id = ?",
+                (created["captionFamilyId"],),
+            ).fetchone()[0]
+            == 3
+        )
     finally:
         cf.close()
 
@@ -12068,7 +14893,9 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
             "publishability_failure_reasons": [],
         }
 
-        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(cf, row=row, meta=meta)
+        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+            cf, row=row, meta=meta
+        )
 
         assert eligibility["eligible"] is True
         assert "handoff_manifest_version_invalid" not in eligibility["blockingReasons"]
@@ -12117,15 +14944,22 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
             "publishability_failure_reasons": [],
         }
 
-        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(cf, row=row, meta=meta)
+        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+            cf, row=row, meta=meta
+        )
 
         assert eligibility["eligible"] is True
-        assert "handoff_manifest_caption_hash_mismatch" not in eligibility["blockingReasons"]
+        assert (
+            "handoff_manifest_caption_hash_mismatch"
+            not in eligibility["blockingReasons"]
+        )
     finally:
         cf.close()
 
 
-def test_variant_inventory_plan_can_fill_shortfall_from_eligible_parents(tmp_path: Path):
+def test_variant_inventory_plan_can_fill_shortfall_from_eligible_parents(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         for asset_id in ("asset_parent_1", "asset_parent_2", "asset_parent_3"):
@@ -12149,8 +14983,14 @@ def test_variant_inventory_plan_can_fill_shortfall_from_eligible_parents(tmp_pat
         assert plan["blockingReason"] == ""
         assert plan["nextSafeAction"] == "execute_contentforge_variant_batches"
         assert plan["wouldWrite"] is False
-        assert [batch["requestedVariants"] for batch in plan["executionBatches"]] == [10, 10, 5]
-        assert all(batch["minimumRecommended"] == 3 for batch in plan["executionBatches"])
+        assert [batch["requestedVariants"] for batch in plan["executionBatches"]] == [
+            10,
+            10,
+            5,
+        ]
+        assert all(
+            batch["minimumRecommended"] == 3 for batch in plan["executionBatches"]
+        )
         assert plan["executionBatches"][0]["operationFamilies"][:6] == [
             "cover_frame",
             "timing_trim",
@@ -12159,13 +14999,17 @@ def test_variant_inventory_plan_can_fill_shortfall_from_eligible_parents(tmp_pat
             "color_profile",
             "audio_offset",
         ]
-        assert cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == 0
+        )
         assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == 0
     finally:
         cf.close()
 
 
-def test_variant_inventory_plan_blocks_when_parent_inventory_insufficient(tmp_path: Path):
+def test_variant_inventory_plan_blocks_when_parent_inventory_insufficient(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_parent_1")
@@ -12182,35 +15026,50 @@ def test_variant_inventory_plan_blocks_when_parent_inventory_insufficient(tmp_pa
         assert plan["canFillShortfall"] is False
         assert plan["estimatedRecommendedVariants"] == 10
         assert plan["missingRecommendedVariants"] == 15
-        assert plan["blockingReason"] == "insufficient_eligible_parent_inventory_missing_15_variants"
+        assert (
+            plan["blockingReason"]
+            == "insufficient_eligible_parent_inventory_missing_15_variants"
+        )
         assert plan["nextSafeAction"] == "create_or_import_more_parent_reels"
     finally:
         cf.close()
 
 
-def test_variant_inventory_plan_excludes_blocked_parent_reasons(tmp_path: Path, monkeypatch):
+def test_variant_inventory_plan_excludes_blocked_parent_reasons(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_quarantined")
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_missing_caption")
-        add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_missing_audio", audio_required=True)
+        add_inventory_parent_fixture(
+            cf, tmp_path, asset_id="asset_missing_audio", audio_required=True
+        )
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_missing_placement")
-        cf.quarantine_asset("asset_quarantined", reason="operator_quarantine", root_cause="qc_failure")
+        cf.quarantine_asset(
+            "asset_quarantined", reason="operator_quarantine", root_cause="qc_failure"
+        )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_missing_caption'",
-            (json.dumps({
-                "instagram_post_caption": "",
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": False,
-                    "status": "not_required",
-                },
-            }),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
+            ),
         )
-        context = json.loads(cf.conn.execute(
-            "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_missing_placement'"
-        ).fetchone()[0])
+        context = json.loads(
+            cf.conn.execute(
+                "SELECT caption_outcome_context_json FROM rendered_assets WHERE id = 'asset_missing_placement'"
+            ).fetchone()[0]
+        )
         context.pop("captionPlacementPolicy", None)
         context.pop("captionPlacementDecision", None)
         cf.conn.execute(
@@ -12218,7 +15077,11 @@ def test_variant_inventory_plan_excludes_blocked_parent_reasons(tmp_path: Path, 
             (json.dumps(context, sort_keys=True),),
         )
         cf.conn.commit()
-        monkeypatch.setattr(core_module, "probe_video_metadata", lambda path: {"ok": True, "audioPresent": False})
+        monkeypatch.setattr(
+            core_module,
+            "probe_video_metadata",
+            lambda path: {"ok": True, "audioPresent": False},
+        )
 
         plan = cf.variant_inventory_plan(
             creator="Stacey",
@@ -12227,7 +15090,10 @@ def test_variant_inventory_plan_excludes_blocked_parent_reasons(tmp_path: Path, 
             dry_run=True,
         )
 
-        reasons = {row["parentAssetId"]: row["blockingReason"] for row in plan["blockedParents"]}
+        reasons = {
+            row["parentAssetId"]: row["blockingReason"]
+            for row in plan["blockedParents"]
+        }
         assert plan["eligibleParents"] == []
         assert reasons["asset_quarantined"] == "quarantined_asset"
         assert reasons["asset_missing_caption"] == "missing_instagram_post_caption"
@@ -12238,11 +15104,16 @@ def test_variant_inventory_plan_excludes_blocked_parent_reasons(tmp_path: Path, 
         cf.close()
 
 
-def test_variant_inventory_plan_existing_siblings_reduce_estimated_capacity(tmp_path: Path):
+def test_variant_inventory_plan_existing_siblings_reduce_estimated_capacity(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_1")
-        for index, family_name in enumerate(["cover_frame", "timing_trim", "caption_lane_timing", "crop_zoom_family"], start=1):
+        for index, family_name in enumerate(
+            ["cover_frame", "timing_trim", "caption_lane_timing", "crop_zoom_family"],
+            start=1,
+        ):
             add_variant_fixture(
                 cf,
                 tmp_path,
@@ -12267,7 +15138,10 @@ def test_variant_inventory_plan_existing_siblings_reduce_estimated_capacity(tmp_
         assert parent["existingRecommendedVariantCount"] == 4
         assert parent["estimatedNewRecommendedVariants"] == 6
         assert plan["executionBatches"][0]["requestedVariants"] == 6
-        assert plan["executionBatches"][0]["operationFamilies"][:2] == ["color_profile", "audio_offset"]
+        assert plan["executionBatches"][0]["operationFamilies"][:2] == [
+            "color_profile",
+            "audio_offset",
+        ]
     finally:
         cf.close()
 
@@ -12284,24 +15158,43 @@ def test_ad_hoc_inventory_fill_variant_requires_operator_visual_review(tmp_path:
             variant_index=1,
         )
         operations = [
-            {"type": "inventory_fill_ffmpeg_variant", "operationFamily": "color_profile", "operation": "color_profile_warm_safe"},
+            {
+                "type": "inventory_fill_ffmpeg_variant",
+                "operationFamily": "color_profile",
+                "operation": "color_profile_warm_safe",
+            },
             {"type": "preserve_parent_lineage", "parentAssetId": "asset_1"},
         ]
         cf.conn.execute(
             "UPDATE rendered_assets SET variant_operations_json = ? WHERE id = ?",
-            (json.dumps(operations, ensure_ascii=False, sort_keys=True), "asset_ad_hoc_inventory_variant"),
+            (
+                json.dumps(operations, ensure_ascii=False, sort_keys=True),
+                "asset_ad_hoc_inventory_variant",
+            ),
         )
         cf.conn.execute(
             "UPDATE variant_assets SET operations_json = ? WHERE variant_asset_id = ?",
-            (json.dumps(operations, ensure_ascii=False, sort_keys=True), "asset_ad_hoc_inventory_variant"),
+            (
+                json.dumps(operations, ensure_ascii=False, sort_keys=True),
+                "asset_ad_hoc_inventory_variant",
+            ),
         )
         cf.conn.commit()
 
-        plan = cf.create_distribution_plan("asset_ad_hoc_inventory_variant", surface="regular_reel")
-        publishability = cf.explain_publishability("asset_ad_hoc_inventory_variant", distribution_plan_id=plan["id"])
-        readiness = cf._surface_handoff_readiness_for_asset(cf.rendered_asset("asset_ad_hoc_inventory_variant"))
+        plan = cf.create_distribution_plan(
+            "asset_ad_hoc_inventory_variant", surface="regular_reel"
+        )
+        publishability = cf.explain_publishability(
+            "asset_ad_hoc_inventory_variant", distribution_plan_id=plan["id"]
+        )
+        readiness = cf._surface_handoff_readiness_for_asset(
+            cf.rendered_asset("asset_ad_hoc_inventory_variant")
+        )
 
-        assert "operator_visual_review_required" in publishability["publishability_failure_reasons"]
+        assert (
+            "operator_visual_review_required"
+            in publishability["publishability_failure_reasons"]
+        )
         assert "operator_visual_review_required" in readiness["blockingReasons"]
         assert readiness["canHandoff"] is False
     finally:
@@ -12312,7 +15205,10 @@ def test_audio_preview_reel_requires_operator_visual_review(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_audio_preview")
-        preview_path = tmp_path / "stacey_archive_01_src19_caption_bg_light_audio_preview_asset_audio_preview.mp4"
+        preview_path = (
+            tmp_path
+            / "stacey_archive_01_src19_caption_bg_light_audio_preview_asset_audio_preview.mp4"
+        )
         preview_path.write_bytes(b"preview-render")
         cf.conn.execute(
             """
@@ -12324,11 +15220,20 @@ def test_audio_preview_reel_requires_operator_visual_review(tmp_path: Path):
         )
         cf.conn.commit()
 
-        plan = cf.create_distribution_plan("asset_audio_preview", surface="regular_reel")
-        publishability = cf.explain_publishability("asset_audio_preview", distribution_plan_id=plan["id"])
-        readiness = cf._surface_handoff_readiness_for_asset(cf.rendered_asset("asset_audio_preview"))
+        plan = cf.create_distribution_plan(
+            "asset_audio_preview", surface="regular_reel"
+        )
+        publishability = cf.explain_publishability(
+            "asset_audio_preview", distribution_plan_id=plan["id"]
+        )
+        readiness = cf._surface_handoff_readiness_for_asset(
+            cf.rendered_asset("asset_audio_preview")
+        )
 
-        assert "operator_visual_review_required" in publishability["publishability_failure_reasons"]
+        assert (
+            "operator_visual_review_required"
+            in publishability["publishability_failure_reasons"]
+        )
         assert "operator_visual_review_required" in readiness["blockingReasons"]
         assert readiness["canHandoff"] is False
     finally:
@@ -12354,7 +15259,12 @@ def test_variant_inventory_plan_prefers_winner_parent_over_non_winner(tmp_path: 
              12000, 700, 40, 80, 100, 11000, 1, ?, ?, 'audio_1',
              '2026-01-02T00:00:00+00:00')
             """,
-            (campaign["id"], asset["source_asset_id"], winner["conceptId"], winner["parentReelId"]),
+            (
+                campaign["id"],
+                asset["source_asset_id"],
+                winner["conceptId"],
+                winner["parentReelId"],
+            ),
         )
         cf.conn.commit()
 
@@ -12366,24 +15276,36 @@ def test_variant_inventory_plan_prefers_winner_parent_over_non_winner(tmp_path: 
             dry_run=True,
         )
 
-        assert [row["parentAssetId"] for row in plan["eligibleParents"][:2]] == ["asset_winner", "asset_archive"]
+        assert [row["parentAssetId"] for row in plan["eligibleParents"][:2]] == [
+            "asset_winner",
+            "asset_archive",
+        ]
         assert plan["eligibleParents"][0]["reasonEligible"] == "winner_metrics"
         assert plan["executionBatches"][0]["parentAssetId"] == "asset_winner"
     finally:
         cf.close()
 
 
-def test_winner_expansion_plan_is_read_only_and_covers_named_operation_families(tmp_path: Path):
+def test_winner_expansion_plan_is_read_only_and_covers_named_operation_families(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
         before = cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0]
 
-        plan = cf.winner_expansion_plan(creator="Stacey", parent_asset_id="asset_1", target_variants=10, preset="caption_safe_v2")
+        plan = cf.winner_expansion_plan(
+            creator="Stacey",
+            parent_asset_id="asset_1",
+            target_variants=10,
+            preset="caption_safe_v2",
+        )
 
         assert plan["parentAssetId"] == "asset_1"
         assert plan["existingVariants"] == 0
@@ -12399,24 +15321,54 @@ def test_winner_expansion_plan_is_read_only_and_covers_named_operation_families(
             "color_profile",
             "audio_offset",
         ]
-        assert cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == before
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0]
+            == before
+        )
     finally:
         cf.close()
 
 
-def test_winner_expansion_plan_rejects_low_quality_and_duplicate_siblings(tmp_path: Path):
+def test_winner_expansion_plan_rejects_low_quality_and_duplicate_siblings(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         parent = cf.register_parent_reel("asset_1", operator="tester")
-        add_variant_fixture(cf, tmp_path, variant_asset_id="asset_variant_low", variant_index=1, quality_score=89)
-        add_variant_fixture(cf, tmp_path, variant_asset_id="asset_variant_good", variant_index=2, content_hash="hash_unique_good")
-        add_variant_fixture(cf, tmp_path, variant_asset_id="asset_variant_duplicate_family", variant_index=3, content_hash="hash_unique_duplicate_family")
+        add_variant_fixture(
+            cf,
+            tmp_path,
+            variant_asset_id="asset_variant_low",
+            variant_index=1,
+            quality_score=89,
+        )
+        add_variant_fixture(
+            cf,
+            tmp_path,
+            variant_asset_id="asset_variant_good",
+            variant_index=2,
+            content_hash="hash_unique_good",
+        )
+        add_variant_fixture(
+            cf,
+            tmp_path,
+            variant_asset_id="asset_variant_duplicate_family",
+            variant_index=3,
+            content_hash="hash_unique_duplicate_family",
+        )
 
-        plan = cf.winner_expansion_plan(creator="Stacey", parent_asset_id="asset_1", target_variants=5, preset="caption_safe_v2")
+        plan = cf.winner_expansion_plan(
+            creator="Stacey",
+            parent_asset_id="asset_1",
+            target_variants=5,
+            preset="caption_safe_v2",
+        )
 
         assert plan["variantFamilyId"] == "vfam_winner"
         assert plan["parentReelId"] == parent["parentReelId"]
@@ -12429,12 +15381,16 @@ def test_winner_expansion_plan_rejects_low_quality_and_duplicate_siblings(tmp_pa
         cf.close()
 
 
-def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics(tmp_path: Path):
+def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
-        cf.conn.execute("UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+        )
         cf.conn.commit()
         parent = cf.register_parent_reel("asset_1", operator="tester")
         variant = cf.register_variant_asset(
@@ -12442,7 +15398,9 @@ def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics
             variant_asset_id="asset_1",
             variant_family_id="vfam_report",
             variant_index=1,
-            operations=[{"type": "contentforge_result", "result": {"familyName": "cover_frame"}}],
+            operations=[
+                {"type": "contentforge_result", "result": {"familyName": "cover_frame"}}
+            ],
         )
         before = (
             cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0],
@@ -12482,8 +15440,14 @@ def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics
         assert report["winners"][0]["recommendedAction"] == "create_more_variants"
         assert report["winners"][0]["wouldWrite"] is False
         assert "onlyfansRevenue" not in json.dumps(report).lower()
-        assert cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0] == before[0]
-        assert cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0] == before[1]
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM variant_families").fetchone()[0]
+            == before[0]
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM variant_assets").fetchone()[0]
+            == before[1]
+        )
     finally:
         cf.close()
 
@@ -12498,7 +15462,9 @@ def test_explain_publishability_and_quarantine_bad_asset(tmp_path: Path):
         explanation = cf.explain_publishability("asset_1")
         assert explanation["asset_state"] == "approved_but_not_publishable"
         assert explanation["approved"] is True
-        assert "missing_burned_captions" in explanation["publishability_failure_reasons"]
+        assert (
+            "missing_burned_captions" in explanation["publishability_failure_reasons"]
+        )
         assert explanation["rootCause"] == "wrong_approved_asset"
 
         quarantine = cf.quarantine_asset(
@@ -12512,12 +15478,17 @@ def test_explain_publishability_and_quarantine_bad_asset(tmp_path: Path):
 
         after = cf.explain_publishability("asset_1")
         assert "quarantined_asset" in after["publishability_failure_reasons"]
-        assert after["blockingReason"] in {"missing_burned_captions", "quarantined_asset"}
+        assert after["blockingReason"] in {
+            "missing_burned_captions",
+            "quarantined_asset",
+        }
     finally:
         cf.close()
 
 
-def test_live_export_requires_explicit_confirmation_for_warnings(tmp_path: Path, monkeypatch):
+def test_live_export_requires_explicit_confirmation_for_warnings(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
     inserted: list[tuple[str, dict]] = []
@@ -12561,7 +15532,9 @@ def test_live_export_requires_explicit_confirmation_for_warnings(tmp_path: Path,
         except ValueError as exc:
             assert "warnings" in str(exc)
         else:
-            raise AssertionError("live export should require explicit warning confirmation")
+            raise AssertionError(
+                "live export should require explicit warning confirmation"
+            )
 
         result = export_threadsdash(
             cf,
@@ -12588,7 +15561,9 @@ def test_live_export_requires_explicit_confirmation_for_warnings(tmp_path: Path,
         cf.close()
 
 
-def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monkeypatch):
+def test_threadsdash_live_export_builds_exact_supabase_rows(
+    tmp_path: Path, monkeypatch
+):
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source")
@@ -12632,28 +15607,37 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
                 source["id"],
                 str(rendered_path),
                 str(rendered_path),
-                json.dumps({
-                    "schema": "campaign_factory.caption_outcome_context.v1",
-                    "caption_hash": "caption_hash_1",
-                    "caption_text": "caption",
-                    "instagram_post_caption": "new post",
-                    "instagram_post_caption_hash": threadsdash_adapter._text_hash("new post"),
-                    "caption_bank": "test_bank",
-                    "caption_banks": ["test_bank"],
-                    "creator_mix": "Test",
-                    "render_recipe": "v01_original",
-                    "captionPlacementPolicy": "focal_safe_v1",
-                    "captionPlacementDecision": {"status": "passed", "selectedLane": "top"},
-                }),
-                json.dumps({
-                    "instagram_post_caption": "new post",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
+                json.dumps(
+                    {
+                        "schema": "campaign_factory.caption_outcome_context.v1",
+                        "caption_hash": "caption_hash_1",
+                        "caption_text": "caption",
+                        "instagram_post_caption": "new post",
+                        "instagram_post_caption_hash": threadsdash_adapter._text_hash(
+                            "new post"
+                        ),
+                        "caption_bank": "test_bank",
+                        "caption_banks": ["test_bank"],
+                        "creator_mix": "Test",
+                        "render_recipe": "v01_original",
+                        "captionPlacementPolicy": "focal_safe_v1",
+                        "captionPlacementDecision": {
+                            "status": "passed",
+                            "selectedLane": "top",
+                        },
                     }
-                }),
+                ),
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
                 now,
                 now,
             ),
@@ -12673,7 +15657,17 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
         assert uploads[0][0] == "media"
         media_row = next(row for table, row in inserted if table == "media")
         post_row = next(row for table, row in inserted if table == "posts")
-        assert set(media_row) >= {"user_id", "file_name", "file_url", "file_type", "file_size", "mime_type", "storage_url", "storage_path", "tags"}
+        assert set(media_row) >= {
+            "user_id",
+            "file_name",
+            "file_url",
+            "file_type",
+            "file_size",
+            "mime_type",
+            "storage_url",
+            "storage_path",
+            "tags",
+        }
         assert "workspace_id" not in media_row
         assert post_row["platform"] == "instagram"
         assert post_row["status"] == "draft"
@@ -12688,12 +15682,19 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(tmp_path: Path, monk
         assert post_row["platform_draft_validated"] is True
         assert "published_at" not in post_row
         assert "ig_container_id" not in post_row
-        assert post_row["metadata"]["campaign_factory"]["rendered_asset_id"] == "asset_1"
+        assert (
+            post_row["metadata"]["campaign_factory"]["rendered_asset_id"] == "asset_1"
+        )
         assert post_row["metadata"]["campaign_factory"]["content_hash"] == "hash_1"
-        assert post_row["metadata"]["campaign_factory"]["source_content_hash"] == source["content_hash"]
+        assert (
+            post_row["metadata"]["campaign_factory"]["source_content_hash"]
+            == source["content_hash"]
+        )
         assert post_row["metadata"]["campaign_factory"]["caption_hash"]
         assert post_row["metadata"]["campaign_factory"]["recipe"] == "v01_original"
-        assert post_row["metadata"]["campaign_factory"]["export_id"].startswith("tdexp_")
+        assert post_row["metadata"]["campaign_factory"]["export_id"].startswith(
+            "tdexp_"
+        )
     finally:
         cf.close()
 
@@ -12730,7 +15731,9 @@ def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatc
         cf.close()
 
 
-def test_threadsdash_usage_summarizes_existing_campaign_posts(tmp_path: Path, monkeypatch):
+def test_threadsdash_usage_summarizes_existing_campaign_posts(
+    tmp_path: Path, monkeypatch
+):
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source")
@@ -12788,7 +15791,10 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(tmp_path: Path, mo
     try:
         imported = cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = imported["imported"][0]
-        cf.conn.execute("UPDATE source_assets SET id = 'src_1', content_hash = 'source_hash_1' WHERE id = ?", (source["id"],))
+        cf.conn.execute(
+            "UPDATE source_assets SET id = 'src_1', content_hash = 'source_hash_1' WHERE id = ?",
+            (source["id"],),
+        )
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -12823,7 +15829,9 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(tmp_path: Path, mo
         cf.close()
 
 
-def test_sync_threadsdash_account_assignments_imports_calendar_accounts(tmp_path: Path, monkeypatch):
+def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
+    tmp_path: Path, monkeypatch
+):
     folder = tmp_path / "inputs"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source")
@@ -12859,7 +15867,9 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(tmp_path
     try:
         imported = cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = imported["imported"][0]
-        cf.conn.execute("UPDATE source_assets SET id = 'src_1' WHERE id = ?", (source["id"],))
+        cf.conn.execute(
+            "UPDATE source_assets SET id = 'src_1' WHERE id = ?", (source["id"],)
+        )
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -12899,7 +15909,9 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(tmp_path
         cf.close()
 
 
-def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempotently(tmp_path: Path, monkeypatch):
+def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempotently(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
 
     class FakeClient:
@@ -12964,7 +15976,12 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
             supabase_service_role_key="service-role",
         )
 
-        rows = [dict(row) for row in cf.conn.execute("SELECT handle, external_id FROM accounts ORDER BY handle").fetchall()]
+        rows = [
+            dict(row)
+            for row in cf.conn.execute(
+                "SELECT handle, external_id FROM accounts ORDER BY handle"
+            ).fetchall()
+        ]
         assert first["imported"] == 2
         assert first["created"] == 2
         assert first["skipReasons"]["not_eligible"] == 1
@@ -12997,35 +16014,37 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        rows.append({
-            "id": "post_1",
-            "status": "published",
-            "platform": "instagram",
-            "account_id": None,
-            "instagram_account_id": "ig_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "updated_at": "2026-01-03T00:00:00+00:00",
-            "published_at": "2026-01-02T01:00:00+00:00",
-            "permalink": "https://instagram.test/p/1",
-            "views": 1200,
-            "ig_impressions": 1800,
-            "likes_count": 80,
-            "ig_comment_count": 9,
-            "ig_shares": 14,
-            "metadata": {
-                "campaign_factory": threadsdash_campaign_factory_metadata(source),
-                "metrics": {
-                    "saves": 22,
-                    "reach": 1100,
-                    "watch_time_seconds": 321.5,
-                    "metricContractVersion": "instagram_metrics_contract_v1",
-                    "metricSurface": "reel",
-                    "metricFallbackUsed": False,
-                    "metricNames": ["views", "reach", "likes", "comments"],
+        rows.append(
+            {
+                "id": "post_1",
+                "status": "published",
+                "platform": "instagram",
+                "account_id": None,
+                "instagram_account_id": "ig_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "updated_at": "2026-01-03T00:00:00+00:00",
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "permalink": "https://instagram.test/p/1",
+                "views": 1200,
+                "ig_impressions": 1800,
+                "likes_count": 80,
+                "ig_comment_count": 9,
+                "ig_shares": 14,
+                "metadata": {
+                    "campaign_factory": threadsdash_campaign_factory_metadata(source),
+                    "metrics": {
+                        "saves": 22,
+                        "reach": 1100,
+                        "watch_time_seconds": 321.5,
+                        "metricContractVersion": "instagram_metrics_contract_v1",
+                        "metricSurface": "reel",
+                        "metricFallbackUsed": False,
+                        "metricNames": ["views", "reach", "likes", "comments"],
+                    },
+                    "insights": {"likes": 81},
                 },
-                "insights": {"likes": 81},
-            },
-        })
+            }
+        )
         first = sync_performance_snapshots(
             cf,
             campaign_slug="may",
@@ -13045,12 +16064,16 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         assert second["updated"] == 1
         graph_counts = {
             row["entity_type"]: row["n"]
-            for row in cf.conn.execute("SELECT entity_type, COUNT(*) AS n FROM content_graph_nodes GROUP BY entity_type")
+            for row in cf.conn.execute(
+                "SELECT entity_type, COUNT(*) AS n FROM content_graph_nodes GROUP BY entity_type"
+            )
         }
         assert graph_counts["threadsdash_post"] == 1
         assert graph_counts["performance_snapshot"] == 1
         assert graph_counts["recommendation_input"] == 1
-        sync_state = cf.conn.execute("SELECT * FROM content_graph_sync_state WHERE system = 'threadsdash.performance'").fetchone()
+        sync_state = cf.conn.execute(
+            "SELECT * FROM content_graph_sync_state WHERE system = 'threadsdash.performance'"
+        ).fetchone()
         assert sync_state is not None
         summary = cf.performance_summary("may")
         asset = summary["renderedAssets"]["asset_1"]
@@ -13059,7 +16082,9 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         assert asset["totals"]["likes"] == 80
         assert asset["totals"]["saves"] == 22
         assert asset["totals"]["impressions"] == 1800
-        assert asset["rates"]["engagementRate"] == pytest.approx((80 + 9 + 14 + 22) / 1800)
+        assert asset["rates"]["engagementRate"] == pytest.approx(
+            (80 + 9 + 14 + 22) / 1800
+        )
         assert asset["latest"]["permalink"] == "https://instagram.test/p/1"
         assert asset["latest"]["contentSurface"] == "reel"
         assert asset["latest"]["metricContract"] == {
@@ -13073,7 +16098,9 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         cf.close()
 
 
-def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path: Path, monkeypatch):
+def test_sync_performance_snapshots_imports_threadsdash_metric_history(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     post_rows = []
     history_rows = []
@@ -13096,60 +16123,64 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(tmp_path:
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        post_rows.append({
-            "id": "post_history_1",
-            "status": "published",
-            "platform": "instagram",
-            "account_id": None,
-            "instagram_account_id": "ig_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "updated_at": "2026-01-03T00:00:00+00:00",
-            "published_at": "2026-01-02T01:00:00+00:00",
-            "permalink": "https://instagram.test/p/history",
-            "views": 900,
-            "likes_count": 60,
-            "metadata": {
-                "campaign_factory": threadsdash_campaign_factory_metadata(source),
-            },
-        })
-        history_rows.extend([
+        post_rows.append(
             {
-                "id": "hist_1h",
-                "post_id": "post_history_1",
-                "account_id": "acct_1",
+                "id": "post_history_1",
+                "status": "published",
                 "platform": "instagram",
-                "snapshot_at": "2026-01-02T02:00:00+00:00",
-                "hours_since_publish": 1,
-                "views_count": 100,
-                "likes_count": 8,
-                "replies_count": 1,
-                "reposts_count": 0,
-                "quotes_count": 0,
-                "shares_count": 2,
-                "saves_count": 3,
-                "reach": 90,
-                "engagement_rate": 0.155,
-                "created_at": "2026-01-02T02:00:00+00:00",
-            },
-            {
-                "id": "hist_24h",
-                "post_id": "post_history_1",
-                "account_id": "acct_1",
-                "platform": "instagram",
-                "snapshot_at": "2026-01-03T01:00:00+00:00",
-                "hours_since_publish": 24,
-                "views_count": 1200,
-                "likes_count": 80,
-                "replies_count": 9,
-                "reposts_count": 0,
-                "quotes_count": 0,
-                "shares_count": 14,
-                "saves_count": 22,
-                "reach": 1100,
-                "engagement_rate": 0.113,
-                "created_at": "2026-01-03T01:00:00+00:00",
-            },
-        ])
+                "account_id": None,
+                "instagram_account_id": "ig_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "updated_at": "2026-01-03T00:00:00+00:00",
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "permalink": "https://instagram.test/p/history",
+                "views": 900,
+                "likes_count": 60,
+                "metadata": {
+                    "campaign_factory": threadsdash_campaign_factory_metadata(source),
+                },
+            }
+        )
+        history_rows.extend(
+            [
+                {
+                    "id": "hist_1h",
+                    "post_id": "post_history_1",
+                    "account_id": "acct_1",
+                    "platform": "instagram",
+                    "snapshot_at": "2026-01-02T02:00:00+00:00",
+                    "hours_since_publish": 1,
+                    "views_count": 100,
+                    "likes_count": 8,
+                    "replies_count": 1,
+                    "reposts_count": 0,
+                    "quotes_count": 0,
+                    "shares_count": 2,
+                    "saves_count": 3,
+                    "reach": 90,
+                    "engagement_rate": 0.155,
+                    "created_at": "2026-01-02T02:00:00+00:00",
+                },
+                {
+                    "id": "hist_24h",
+                    "post_id": "post_history_1",
+                    "account_id": "acct_1",
+                    "platform": "instagram",
+                    "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    "hours_since_publish": 24,
+                    "views_count": 1200,
+                    "likes_count": 80,
+                    "replies_count": 9,
+                    "reposts_count": 0,
+                    "quotes_count": 0,
+                    "shares_count": 14,
+                    "saves_count": 22,
+                    "reach": 1100,
+                    "engagement_rate": 0.113,
+                    "created_at": "2026-01-03T01:00:00+00:00",
+                },
+            ]
+        )
 
         result = sync_performance_snapshots(
             cf,
@@ -13201,7 +16232,7 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("may", "stacey")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
@@ -13224,17 +16255,24 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
                 "2026-06-21T12:00:00+00:00",
                 "2026-06-22T12:00:00+00:00",
                 240,
-                json.dumps({
-                    "metadata": {
-                        "campaign_factory": {
-                            "source_asset_id": "source_1",
-                            "rendered_asset_id": "asset_1",
-                            "caption_hash": "caption_1",
-                            "generated_asset_lineage": {"source": {"referenceId": "ref_1"}},
-                            "operator_review": {"decision": "approved", "notes": "hook works"},
+                json.dumps(
+                    {
+                        "metadata": {
+                            "campaign_factory": {
+                                "source_asset_id": "source_1",
+                                "rendered_asset_id": "asset_1",
+                                "caption_hash": "caption_1",
+                                "generated_asset_lineage": {
+                                    "source": {"referenceId": "ref_1"}
+                                },
+                                "operator_review": {
+                                    "decision": "approved",
+                                    "notes": "hook works",
+                                },
+                            }
                         }
                     }
-                }),
+                ),
                 now,
             ),
         )
@@ -13259,16 +16297,20 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
                 "2026-06-22T12:00:00+00:00",
                 "2026-06-22T13:00:00+00:00",
                 20,
-                json.dumps({
-                    "metadata": {
-                        "campaign_factory": {
-                            "source_asset_id": "source_2",
-                            "rendered_asset_id": "asset_2",
-                            "caption_hash": "caption_2",
-                            "generated_asset_lineage": {"source": {"referenceId": "ref_2"}},
+                json.dumps(
+                    {
+                        "metadata": {
+                            "campaign_factory": {
+                                "source_asset_id": "source_2",
+                                "rendered_asset_id": "asset_2",
+                                "caption_hash": "caption_2",
+                                "generated_asset_lineage": {
+                                    "source": {"referenceId": "ref_2"}
+                                },
+                            }
                         }
                     }
-                }),
+                ),
                 now,
             ),
         )
@@ -13294,7 +16336,9 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
         cf.close()
 
 
-def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(tmp_path: Path, monkeypatch):
+def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     post_rows = []
     history_rows = []
@@ -13313,38 +16357,45 @@ def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        post_rows.append({
-            "id": "post_history_drift",
-            "status": "published",
-            "platform": "instagram",
-            "account_id": None,
-            "instagram_account_id": "ig_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "updated_at": "2026-01-03T00:00:00+00:00",
-            "published_at": "2026-01-02T01:00:00+00:00",
-            "metadata": {
-                "campaign_factory": threadsdash_campaign_factory_metadata(source),
-            },
-        })
-        history_rows.append({
-            "id": "hist_drift",
-            "post_id": "post_history_drift",
-            "account_id": "acct_1",
-            "platform": "instagram",
-            "snapshot_at": "2026-01-03T01:00:00+00:00",
-            "hours_since_publish": 24,
-            "likes_count": 80,
-            "replies_count": 9,
-            "reposts_count": 0,
-            "quotes_count": 0,
-            "shares_count": 14,
-            "saves_count": 22,
-            "reach": 1100,
-            "engagement_rate": 0.113,
-            "created_at": "2026-01-03T01:00:00+00:00",
-        })
+        post_rows.append(
+            {
+                "id": "post_history_drift",
+                "status": "published",
+                "platform": "instagram",
+                "account_id": None,
+                "instagram_account_id": "ig_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "updated_at": "2026-01-03T00:00:00+00:00",
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "metadata": {
+                    "campaign_factory": threadsdash_campaign_factory_metadata(source),
+                },
+            }
+        )
+        history_rows.append(
+            {
+                "id": "hist_drift",
+                "post_id": "post_history_drift",
+                "account_id": "acct_1",
+                "platform": "instagram",
+                "snapshot_at": "2026-01-03T01:00:00+00:00",
+                "hours_since_publish": 24,
+                "likes_count": 80,
+                "replies_count": 9,
+                "reposts_count": 0,
+                "quotes_count": 0,
+                "shares_count": 14,
+                "saves_count": 22,
+                "reach": 1100,
+                "engagement_rate": 0.113,
+                "created_at": "2026-01-03T01:00:00+00:00",
+            }
+        )
 
-        with pytest.raises(RuntimeError, match="post_metric_history.read.v1 validation failed.*views_count"):
+        with pytest.raises(
+            RuntimeError,
+            match="post_metric_history.read.v1 validation failed.*views_count",
+        ):
             sync_performance_snapshots(
                 cf,
                 campaign_slug="may",
@@ -13356,23 +16407,27 @@ def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(
         cf.close()
 
 
-def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_path: Path, monkeypatch):
+def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     add_rendered_asset(cf, tmp_path)
-    rows = [{
-        "id": "post_missing_campaign_meta",
-        "status": "published",
-        "platform": "instagram",
-        "account_id": None,
-        "instagram_account_id": "ig_1",
-        "created_at": "2026-01-02T00:00:00+00:00",
-        "updated_at": "2026-01-03T00:00:00+00:00",
-        "published_at": "2026-01-02T01:00:00+00:00",
-        "permalink": "https://instagram.test/p/missing-meta",
-        "views": 1200,
-        "likes_count": 80,
-        "metadata": {"source": "threadsdash"},
-    }]
+    rows = [
+        {
+            "id": "post_missing_campaign_meta",
+            "status": "published",
+            "platform": "instagram",
+            "account_id": None,
+            "instagram_account_id": "ig_1",
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "updated_at": "2026-01-03T00:00:00+00:00",
+            "published_at": "2026-01-02T01:00:00+00:00",
+            "permalink": "https://instagram.test/p/missing-meta",
+            "views": 1200,
+            "likes_count": 80,
+            "metadata": {"source": "threadsdash"},
+        }
+    ]
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -13399,11 +16454,17 @@ def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_p
         assert result["skipReasons"] == {"missing_campaign_factory_metadata": 1}
         assert result["warnings"][0]["reason"] == "missing_campaign_factory_metadata"
         assert result["warnings"][0]["postId"] == "post_missing_campaign_meta"
-        assert cf.conn.execute("SELECT COUNT(*) FROM performance_snapshots").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM performance_snapshots").fetchone()[0]
+            == 0
+        )
         exception = cf.conn.execute(
             "SELECT reason_code, severity, payload_json FROM trust_exceptions"
         ).fetchone()
-        assert exception["reason_code"] == "threadsdash_performance_missing_campaign_metadata"
+        assert (
+            exception["reason_code"]
+            == "threadsdash_performance_missing_campaign_metadata"
+        )
         assert exception["severity"] == "medium"
         payload = json.loads(exception["payload_json"])
         assert payload["postId"] == "post_missing_campaign_meta"
@@ -13412,7 +16473,9 @@ def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(tmp_p
         cf.close()
 
 
-def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_path: Path, monkeypatch):
+def test_sync_performance_snapshots_imports_caption_outcome_context_columns(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
 
@@ -13452,33 +16515,43 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_
         }
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_hash = ?, caption_outcome_context_json = ?, recipe = ? WHERE id = 'asset_1'",
-            ("caption_hash_rendered", json.dumps(context, ensure_ascii=False, sort_keys=True), "v09_caption_bg"),
+            (
+                "caption_hash_rendered",
+                json.dumps(context, ensure_ascii=False, sort_keys=True),
+                "v09_caption_bg",
+            ),
         )
         cf.conn.commit()
-        rows.append({
-            "id": "post_caption_outcome",
-            "status": "published",
-            "platform": "instagram",
-            "account_id": None,
-            "instagram_account_id": "ig_lola_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "updated_at": "2026-01-03T00:00:00+00:00",
-            "published_at": "2026-01-02T01:00:00+00:00",
-            "permalink": "https://instagram.test/p/caption-outcome",
-            "views": 1400,
-            "likes_count": 90,
-            "ig_comment_count": 10,
-            "ig_shares": 15,
-            "metadata": {
-                "campaign_factory": threadsdash_campaign_factory_metadata(
-                    source,
-                    caption_hash="caption_hash_rendered",
-                    recipe="v09_caption_bg",
-                    context=context,
-                ),
-                "metrics": {"saves": 24, "reach": 1200, "watch_time_seconds": 330.0},
-            },
-        })
+        rows.append(
+            {
+                "id": "post_caption_outcome",
+                "status": "published",
+                "platform": "instagram",
+                "account_id": None,
+                "instagram_account_id": "ig_lola_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "updated_at": "2026-01-03T00:00:00+00:00",
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "permalink": "https://instagram.test/p/caption-outcome",
+                "views": 1400,
+                "likes_count": 90,
+                "ig_comment_count": 10,
+                "ig_shares": 15,
+                "metadata": {
+                    "campaign_factory": threadsdash_campaign_factory_metadata(
+                        source,
+                        caption_hash="caption_hash_rendered",
+                        recipe="v09_caption_bg",
+                        context=context,
+                    ),
+                    "metrics": {
+                        "saves": 24,
+                        "reach": 1200,
+                        "watch_time_seconds": 330.0,
+                    },
+                },
+            }
+        )
 
         result = sync_performance_snapshots(
             cf,
@@ -13488,7 +16561,9 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_
             supabase_service_role_key="service-role",
         )
 
-        snapshot = cf.conn.execute("SELECT * FROM performance_snapshots WHERE post_id = 'post_caption_outcome'").fetchone()
+        snapshot = cf.conn.execute(
+            "SELECT * FROM performance_snapshots WHERE post_id = 'post_caption_outcome'"
+        ).fetchone()
         assert result["inserted"] == 1
         assert snapshot["caption_hash"] == "caption_hash_rendered"
         assert snapshot["caption_text"] == "caption"
@@ -13502,12 +16577,17 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(tmp_
         assert snapshot["source_clip"] == "clip_010"
         assert snapshot["caption_family_id"] == "cfam_test"
         assert snapshot["caption_version_id"] == "cver_test"
-        assert json.loads(snapshot["caption_outcome_context_json"])["suitability_decision"] == "allowed"
+        assert (
+            json.loads(snapshot["caption_outcome_context_json"])["suitability_decision"]
+            == "allowed"
+        )
     finally:
         cf.close()
 
 
-def test_sync_performance_preserves_null_transport_fields_in_caption_context(tmp_path: Path, monkeypatch):
+def test_sync_performance_preserves_null_transport_fields_in_caption_context(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     rows = []
 
@@ -13544,7 +16624,10 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(tmp
         }
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_hash = ?, caption_outcome_context_json = ? WHERE id = 'asset_1'",
-            ("caption_hash_rendered", json.dumps(context, ensure_ascii=False, sort_keys=True)),
+            (
+                "caption_hash_rendered",
+                json.dumps(context, ensure_ascii=False, sort_keys=True),
+            ),
         )
         cf.conn.commit()
         remote_context = dict(context)
@@ -13557,16 +16640,18 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(tmp
             context=remote_context,
         )
         metadata["model_slug"] = "stacey"
-        rows.append({
-            "id": "post_transport_recipe",
-            "status": "published",
-            "platform": "instagram",
-            "instagram_account_id": "ig_stacey_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "updated_at": "2026-01-02T00:00:00+00:00",
-            "published_at": "2026-01-02T01:00:00+00:00",
-            "metadata": {"campaign_factory": metadata},
-        })
+        rows.append(
+            {
+                "id": "post_transport_recipe",
+                "status": "published",
+                "platform": "instagram",
+                "instagram_account_id": "ig_stacey_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "updated_at": "2026-01-02T00:00:00+00:00",
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "metadata": {"campaign_factory": metadata},
+            }
+        )
 
         sync_performance_snapshots(
             cf,
@@ -13576,7 +16661,9 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(tmp
             supabase_service_role_key="service-role",
         )
 
-        snapshot = cf.conn.execute("SELECT * FROM performance_snapshots WHERE post_id = 'post_transport_recipe'").fetchone()
+        snapshot = cf.conn.execute(
+            "SELECT * FROM performance_snapshots WHERE post_id = 'post_transport_recipe'"
+        ).fetchone()
         stored_context = json.loads(snapshot["caption_outcome_context_json"])
         assert snapshot["recipe"] == "reel_ledger_promotion"
         assert stored_context["render_recipe"] is None
@@ -13656,7 +16743,13 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
                 source["id"],
                 source["content_hash"],
                 json.dumps(["bad_bank"]),
-                json.dumps({**context, "caption_hash": "caption_hash_bad", "caption_bank": "bad_bank"}),
+                json.dumps(
+                    {
+                        **context,
+                        "caption_hash": "caption_hash_bad",
+                        "caption_bank": "bad_bank",
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -13678,7 +16771,9 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
         assert review["byFormatClass"][0]["formatClass"] == "single_line"
         assert review["byCaptionFitVersion"][0]["captionFitVersion"] == "v1"
         assert review["byCaptionPlacementLane"][0]["captionPlacementLane"] == "bottom"
-        assert review["byCaptionPlacementStatus"][0]["captionPlacementStatus"] == "passed"
+        assert (
+            review["byCaptionPlacementStatus"][0]["captionPlacementStatus"] == "passed"
+        )
         assert "promote" not in json.dumps(review).lower()
         assert "winner" not in json.dumps(review).lower()
     finally:
@@ -13754,7 +16849,9 @@ def _lifecycle_state(report: dict) -> str:
     return report["rows"][0]["currentState"]
 
 
-def test_lifecycle_report_derives_approved_assigned_planned_and_ready_states(tmp_path: Path):
+def test_lifecycle_report_derives_approved_assigned_planned_and_ready_states(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         _approve_asset_for_lifecycle(cf, tmp_path)
@@ -13787,22 +16884,38 @@ def test_lifecycle_report_derives_threadsdash_schedule_states(tmp_path: Path):
         _approve_asset_for_lifecycle(cf, tmp_path)
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
-        draft = cf.lifecycle_report("may", threadsdash_posts=[_threadsdash_lifecycle_post(plan_id=plan["id"])])
+        draft = cf.lifecycle_report(
+            "may", threadsdash_posts=[_threadsdash_lifecycle_post(plan_id=plan["id"])]
+        )
         assert _lifecycle_state(draft) == "platform_draft_validated"
 
         future = cf.lifecycle_report(
             "may",
-            threadsdash_posts=[_threadsdash_lifecycle_post(status="scheduled", scheduled_for="2099-01-01T00:00:00+00:00", plan_id=plan["id"])],
+            threadsdash_posts=[
+                _threadsdash_lifecycle_post(
+                    status="scheduled",
+                    scheduled_for="2099-01-01T00:00:00+00:00",
+                    plan_id=plan["id"],
+                )
+            ],
         )
         assert _lifecycle_state(future) == "scheduled"
         assert future["rows"][0]["blockingReason"] == "awaiting_publish"
 
         past_due = cf.lifecycle_report(
             "may",
-            threadsdash_posts=[_threadsdash_lifecycle_post(status="scheduled", scheduled_for="2026-01-01T00:00:00+00:00", plan_id=plan["id"])],
+            threadsdash_posts=[
+                _threadsdash_lifecycle_post(
+                    status="scheduled",
+                    scheduled_for="2026-01-01T00:00:00+00:00",
+                    plan_id=plan["id"],
+                )
+            ],
         )
         assert _lifecycle_state(past_due) == "past_due_schedule"
-        assert past_due["rows"][0]["nextOperatorAction"] == "reschedule_or_manual_publish"
+        assert (
+            past_due["rows"][0]["nextOperatorAction"] == "reschedule_or_manual_publish"
+        )
     finally:
         cf.close()
 
@@ -13814,7 +16927,13 @@ def test_lifecycle_report_derives_published_and_metrics_imported_states(tmp_path
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         published = cf.lifecycle_report(
             "may",
-            threadsdash_posts=[_threadsdash_lifecycle_post(status="published", published_at="2026-01-02T00:00:00+00:00", plan_id=plan["id"])],
+            threadsdash_posts=[
+                _threadsdash_lifecycle_post(
+                    status="published",
+                    published_at="2026-01-02T00:00:00+00:00",
+                    plan_id=plan["id"],
+                )
+            ],
         )
         assert _lifecycle_state(published) == "published"
         assert published["rows"][0]["blockingReason"] == "awaiting_metrics"
@@ -13828,18 +16947,29 @@ def test_lifecycle_report_derives_published_and_metrics_imported_states(tmp_path
             VALUES ('perf_1', ?, 'asset_1', ?, 'hash_1', ?, 'caption_hash_1', 'v01_original',
                     'post_1', 'instagram', 'published', 'ig_1', '2026-01-02T01:00:00+00:00', 123, '{}', '2026-01-02T01:00:00+00:00')
             """,
-            (campaign["id"], cf.assets_for_campaign(campaign["id"])[0]["id"], cf.assets_for_campaign(campaign["id"])[0]["content_hash"]),
+            (
+                campaign["id"],
+                cf.assets_for_campaign(campaign["id"])[0]["id"],
+                cf.assets_for_campaign(campaign["id"])[0]["content_hash"],
+            ),
         )
         cf.conn.commit()
 
-        measured = cf.lifecycle_report("may", threadsdash_posts=[_threadsdash_lifecycle_post(status="published", plan_id=plan["id"])])
+        measured = cf.lifecycle_report(
+            "may",
+            threadsdash_posts=[
+                _threadsdash_lifecycle_post(status="published", plan_id=plan["id"])
+            ],
+        )
         assert _lifecycle_state(measured) == "metrics_imported"
         assert measured["summary"]["stateCounts"]["metrics_imported"] == 1
     finally:
         cf.close()
 
 
-def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_import(tmp_path: Path):
+def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_import(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         source = _approve_asset_for_lifecycle(cf, tmp_path)
@@ -13849,12 +16979,16 @@ def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_impor
             SET caption_outcome_context_json = ?
             WHERE id = 'asset_1'
             """,
-            (json.dumps({
-                "schema": "campaign_factory.caption_outcome_context.v1",
-                "caption_hash": "caption_hash_1",
-                "caption_text": "caption",
-                "render_recipe": None,
-            }),),
+            (
+                json.dumps(
+                    {
+                        "schema": "campaign_factory.caption_outcome_context.v1",
+                        "caption_hash": "caption_hash_1",
+                        "caption_text": "caption",
+                        "render_recipe": None,
+                    }
+                ),
+            ),
         )
         plan = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         campaign = cf.campaign_by_slug("may")
@@ -13872,36 +17006,43 @@ def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_impor
                 campaign["id"],
                 source["id"],
                 source["content_hash"],
-                json.dumps({
-                    "schema": "campaign_factory.caption_outcome_context.v1",
-                    "caption_hash": "caption_hash_1",
-                    "caption_text": "caption",
-                    "render_recipe": None,
-                    "frame_type": None,
-                    "length_class": None,
-                    "format_class": None,
-                    "caption_fit_version": None,
-                    "suitability_decision": None,
-                    "suitability_reason": None,
-                }),
+                json.dumps(
+                    {
+                        "schema": "campaign_factory.caption_outcome_context.v1",
+                        "caption_hash": "caption_hash_1",
+                        "caption_text": "caption",
+                        "render_recipe": None,
+                        "frame_type": None,
+                        "length_class": None,
+                        "format_class": None,
+                        "caption_fit_version": None,
+                        "suitability_decision": None,
+                        "suitability_reason": None,
+                    }
+                ),
             ),
         )
         cf.conn.commit()
 
-        measured = cf.lifecycle_report("may", threadsdash_posts=[_threadsdash_lifecycle_post(
-            status="published",
-            plan_id=plan["id"],
-            metadata_extra={
-                "caption_hash": "caption_hash_1",
-                "captionOutcomeContext": {
-                    "schema": "campaign_factory.caption_outcome_context.v1",
-                    "caption_hash": "caption_hash_1",
-                    "caption_text": "caption",
-                    "render_recipe": None,
-                    "frame_type": None,
-                },
-            },
-        )])
+        measured = cf.lifecycle_report(
+            "may",
+            threadsdash_posts=[
+                _threadsdash_lifecycle_post(
+                    status="published",
+                    plan_id=plan["id"],
+                    metadata_extra={
+                        "caption_hash": "caption_hash_1",
+                        "captionOutcomeContext": {
+                            "schema": "campaign_factory.caption_outcome_context.v1",
+                            "caption_hash": "caption_hash_1",
+                            "caption_text": "caption",
+                            "render_recipe": None,
+                            "frame_type": None,
+                        },
+                    },
+                )
+            ],
+        )
 
         assert _lifecycle_state(measured) == "metrics_imported"
         assert measured["summary"]["stateCounts"]["metrics_imported"] == 1
@@ -13911,7 +17052,9 @@ def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_impor
         cf.close()
 
 
-def test_lifecycle_report_marks_resolved_past_due_draft_without_rescheduling(tmp_path: Path):
+def test_lifecycle_report_marks_resolved_past_due_draft_without_rescheduling(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         _approve_asset_for_lifecycle(cf, tmp_path)
@@ -13933,7 +17076,10 @@ def test_lifecycle_report_marks_resolved_past_due_draft_without_rescheduling(tmp
         )
         assert _lifecycle_state(report) == "platform_draft_validated"
         assert report["rows"][0]["evidence"]["pastDueScheduleResolved"] is True
-        assert report["rows"][0]["threadsDashboardPostId"] == "8ee460e1-4f4e-4298-9597-462223b3f5cb"
+        assert (
+            report["rows"][0]["threadsDashboardPostId"]
+            == "8ee460e1-4f4e-4298-9597-462223b3f5cb"
+        )
     finally:
         cf.close()
 
@@ -13959,14 +17105,25 @@ def test_lifecycle_report_marks_invalid_export_payload_as_failed(tmp_path: Path)
             ],
         )
         assert _lifecycle_state(report) == "failed"
-        assert report["rows"][0]["blockingReason"] == "threadsdash_draft_media_invalid_missing_burned_captions"
-        assert report["rows"][0]["nextOperatorAction"] == "replace_draft_with_verified_captioned_asset"
-        assert report["rows"][0]["evidence"]["mediaValidation"]["source"] == "threadsdash_metadata"
+        assert (
+            report["rows"][0]["blockingReason"]
+            == "threadsdash_draft_media_invalid_missing_burned_captions"
+        )
+        assert (
+            report["rows"][0]["nextOperatorAction"]
+            == "replace_draft_with_verified_captioned_asset"
+        )
+        assert (
+            report["rows"][0]["evidence"]["mediaValidation"]["source"]
+            == "threadsdash_metadata"
+        )
     finally:
         cf.close()
 
 
-def test_creator_os_lifecycle_dashboard_summarizes_lifecycle_states_read_only(tmp_path: Path):
+def test_creator_os_lifecycle_dashboard_summarizes_lifecycle_states_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         _approve_asset_for_lifecycle(cf, tmp_path)
@@ -14005,10 +17162,14 @@ def test_creator_os_lifecycle_dashboard_counts_quarantined_separately(tmp_path: 
     cf = make_factory(tmp_path)
     try:
         _approve_asset_for_lifecycle(cf, tmp_path)
-        cf.quarantine_asset("asset_1", reason="operator_quarantine", root_cause="qc_failure")
+        cf.quarantine_asset(
+            "asset_1", reason="operator_quarantine", root_cause="qc_failure"
+        )
         before = cf.conn.total_changes
 
-        dashboard = cf.creator_os_lifecycle_dashboard(campaign="may", include_threadsdash="off")
+        dashboard = cf.creator_os_lifecycle_dashboard(
+            campaign="may", include_threadsdash="off"
+        )
 
         assert cf.conn.total_changes == before
         assert dashboard["counts"]["quarantined"] == 1
@@ -14039,7 +17200,11 @@ def test_creator_os_lifecycle_dashboard_cli_outputs_json(tmp_path: Path):
             "off",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -14130,19 +17295,24 @@ def test_performance_summary_builds_hook_recipe_audio_leaderboards(tmp_path: Pat
                             "promptId": "prompt_1",
                             "formatType": "mirror_selfie",
                         },
-                        "generation": {"tool": "higgsfield_kling_manual", "modelProfile": "soul_main"},
+                        "generation": {
+                            "tool": "higgsfield_kling_manual",
+                            "modelProfile": "soul_main",
+                        },
                         "review": {"humanReviewRequired": True, "status": "draft"},
                     },
                 },
                 "audio_intent": {
                     "schema": "pipeline.audio_intent.v1",
                     "status": "recommended",
-                    "recommendations": [{
-                        "audio_title": "Runway Pop",
-                        "artist_name": "DJ A",
-                        "platform_audio_id": "ig_audio_1",
-                        "platform_url": "https://instagram.com/audio/1",
-                    }],
+                    "recommendations": [
+                        {
+                            "audio_title": "Runway Pop",
+                            "artist_name": "DJ A",
+                            "platform_audio_id": "ig_audio_1",
+                            "platform_url": "https://instagram.com/audio/1",
+                        }
+                    ],
                 },
             }
         }
@@ -14171,24 +17341,57 @@ def test_performance_summary_builds_hook_recipe_audio_leaderboards(tmp_path: Pat
         summary = cf.performance_summary("may")
         leaderboards = summary["leaderboards"]
 
-        assert leaderboards["hooks"][0]["hook"]["key"] == "caption_led_visual::direct_response::question_hook"
+        assert (
+            leaderboards["hooks"][0]["hook"]["key"]
+            == "caption_led_visual::direct_response::question_hook"
+        )
         assert leaderboards["hooks"][0]["performance"]["totals"]["saves"] == 18
         assert leaderboards["recipes"][0]["recipe"] == "v01_original"
-        assert leaderboards["audioRecommendations"][0]["audio"]["platformAudioId"] == "ig_audio_1"
-        assert leaderboards["referenceFormats"][0]["referenceFormat"]["key"] == "mirror_selfie"
-        assert leaderboards["promptPatterns"][0]["promptPattern"]["key"] == "caption_led_visual::direct_response::question_hook"
-        assert leaderboards["promptPatterns"][0]["promptPattern"]["primaryMetric"] == "views_reach"
+        assert (
+            leaderboards["audioRecommendations"][0]["audio"]["platformAudioId"]
+            == "ig_audio_1"
+        )
+        assert (
+            leaderboards["referenceFormats"][0]["referenceFormat"]["key"]
+            == "mirror_selfie"
+        )
+        assert (
+            leaderboards["promptPatterns"][0]["promptPattern"]["key"]
+            == "caption_led_visual::direct_response::question_hook"
+        )
+        assert (
+            leaderboards["promptPatterns"][0]["promptPattern"]["primaryMetric"]
+            == "views_reach"
+        )
         assert leaderboards["patternCards"][0]["patternCard"]["key"] == "pattern_1"
-        assert leaderboards["modelAccounts"][0]["modelAccount"]["modelProfile"] == "soul_main"
-        assert leaderboards["captionFormulas"][0]["captionFormula"]["label"] == "question_hook"
+        assert (
+            leaderboards["modelAccounts"][0]["modelAccount"]["modelProfile"]
+            == "soul_main"
+        )
+        assert (
+            leaderboards["captionFormulas"][0]["captionFormula"]["label"]
+            == "question_hook"
+        )
         assert leaderboards["hookRecipeCombos"][0]["recipe"] == "v01_original"
         assert leaderboards["formatRecipeCombos"][0]["recipe"] == "v01_original"
-        assert leaderboards["formatAudioCombos"][0]["audio"]["audioTitle"] == "Runway Pop"
+        assert (
+            leaderboards["formatAudioCombos"][0]["audio"]["audioTitle"] == "Runway Pop"
+        )
         assert leaderboards["hookAudioCombos"][0]["audio"]["audioTitle"] == "Runway Pop"
-        assert leaderboards["hookRecipeAudioCombos"][0]["renderedAssetIds"] == ["asset_1"]
-        assert summary["snapshots"][0]["dimensions"]["audio"]["platformUrl"] == "https://instagram.com/audio/1"
-        assert summary["snapshots"][0]["dimensions"]["referenceFormat"]["label"] == "mirror_selfie"
-        assert summary["snapshots"][0]["dimensions"]["patternCard"]["key"] == "pattern_1"
+        assert leaderboards["hookRecipeAudioCombos"][0]["renderedAssetIds"] == [
+            "asset_1"
+        ]
+        assert (
+            summary["snapshots"][0]["dimensions"]["audio"]["platformUrl"]
+            == "https://instagram.com/audio/1"
+        )
+        assert (
+            summary["snapshots"][0]["dimensions"]["referenceFormat"]["label"]
+            == "mirror_selfie"
+        )
+        assert (
+            summary["snapshots"][0]["dimensions"]["patternCard"]["key"] == "pattern_1"
+        )
     finally:
         cf.close()
 
@@ -14247,30 +17450,35 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
-        rows.append({
-            "id": "post_api_1",
-            "status": "published",
-            "platform": "instagram",
-            "instagram_account_id": "ig_1",
-            "created_at": "2026-01-02T00:00:00+00:00",
-            "views_count": 333,
-            "ig_impressions": 444,
-            "ig_reach": 400,
+        rows.append(
+            {
+                "id": "post_api_1",
+                "status": "published",
+                "platform": "instagram",
+                "instagram_account_id": "ig_1",
+                "created_at": "2026-01-02T00:00:00+00:00",
+                "views_count": 333,
+                "ig_impressions": 444,
+                "ig_reach": 400,
                 "metadata": {
                     "campaign_factory": threadsdash_campaign_factory_metadata(source),
                     "insights": {"likes": 21, "shares": 4, "saves": 6},
                 },
-            })
+            }
+        )
     finally:
         cf.close()
 
     client = TestClient(app_module.app)
-    sync = client.post("/api/sync-performance", json={
-        "campaign": "may",
-        "userId": "user_1",
-        "supabaseUrl": "https://example.supabase.co",
-        "supabaseServiceRoleKey": "service-role",
-    })
+    sync = client.post(
+        "/api/sync-performance",
+        json={
+            "campaign": "may",
+            "userId": "user_1",
+            "supabaseUrl": "https://example.supabase.co",
+            "supabaseServiceRoleKey": "service-role",
+        },
+    )
     assert sync.status_code == 200
     assert sync.json()["inserted"] == 1
     summary = client.get("/api/performance-summary", params={"campaign": "may"})
@@ -14318,23 +17526,29 @@ def test_verify_threadsdash_export_blocks_non_draft_posts(monkeypatch):
 
         def select(self, table, params):
             if table == "media":
-                return [{
-                    "id": "media_1",
-                    "file_type": "video",
-                    "file_url": "https://example/media.mp4",
-                    "storage_url": "https://example/media.mp4",
-                    "storage_path": "user/media.mp4",
-                }]
+                return [
+                    {
+                        "id": "media_1",
+                        "file_type": "video",
+                        "file_url": "https://example/media.mp4",
+                        "storage_url": "https://example/media.mp4",
+                        "storage_path": "user/media.mp4",
+                    }
+                ]
             if table == "posts":
-                return [{
-                    "id": "post_1",
-                    "platform": "instagram",
-                    "status": "scheduled",
-                    "scheduled_for": "2026-01-02T00:00:00+00:00",
-                    "media_type": "reel",
-                    "ig_media_type": "REELS",
-                    "metadata": {"campaign_factory": {"rendered_asset_id": "asset_1"}},
-                }]
+                return [
+                    {
+                        "id": "post_1",
+                        "platform": "instagram",
+                        "status": "scheduled",
+                        "scheduled_for": "2026-01-02T00:00:00+00:00",
+                        "media_type": "reel",
+                        "ig_media_type": "REELS",
+                        "metadata": {
+                            "campaign_factory": {"rendered_asset_id": "asset_1"}
+                        },
+                    }
+                ]
             return []
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
@@ -14350,8 +17564,12 @@ def test_verify_threadsdash_export_blocks_non_draft_posts(monkeypatch):
         supabase_service_role_key="service-role",
     )
     assert result["ok"] is False
-    assert any("post_status:scheduled" in reason for reason in result["blockingReasons"])
-    assert any("scheduled_for_not_null" in reason for reason in result["blockingReasons"])
+    assert any(
+        "post_status:scheduled" in reason for reason in result["blockingReasons"]
+    )
+    assert any(
+        "scheduled_for_not_null" in reason for reason in result["blockingReasons"]
+    )
 
 
 def test_safe_live_smoke_exports_one_draft_and_verifies(tmp_path: Path, monkeypatch):
@@ -14434,7 +17652,14 @@ def test_export_can_target_one_rendered_asset(tmp_path: Path):
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
             VALUES ('asset_2', ?, ?, 'hash_2', ?, ?, 'second.mp4', 'caption two', 'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
-            (source["campaign_id"], source["id"], str(second_path), str(second_path), now, now),
+            (
+                source["campaign_id"],
+                source["id"],
+                str(second_path),
+                str(second_path),
+                now,
+                now,
+            ),
         )
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf, rendered_asset_id="asset_2", audit_id="audit_2")
@@ -14457,13 +17682,17 @@ def test_activity_and_pipeline_job_tables_initialize_and_helpers_work(tmp_path: 
     try:
         tables = {
             row["name"]
-            for row in cf.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+            for row in cf.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
         }
         assert "activity_events" in tables
         assert "pipeline_jobs" in tables
 
         campaign = cf.upsert_campaign("may", "model")
-        job = cf.create_pipeline_job("import_folder", campaign["id"], {"supabaseServiceRoleKey": "secret"})
+        job = cf.create_pipeline_job(
+            "import_folder", campaign["id"], {"supabaseServiceRoleKey": "secret"}
+        )
         assert job["status"] == "queued"
         assert job["input"]["supabaseServiceRoleKey"] == "<redacted>"
         cf.start_pipeline_job(job["id"])
@@ -14498,7 +17727,9 @@ def test_import_prepare_and_review_emit_activity_and_jobs(tmp_path: Path):
         assert second["pipelineJobId"]
         assert len(second["duplicates"]) == 1
 
-        prepared = cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook"], recipes=["v01_original"])
+        prepared = cf.prepare_reel_inputs(
+            campaign_slug="may", hooks=["hook"], recipes=["v01_original"]
+        )
         assert prepared["pipelineJobId"]
 
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
@@ -14510,12 +17741,19 @@ def test_import_prepare_and_review_emit_activity_and_jobs(tmp_path: Path):
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
             VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, 'review.mp4', 'caption', 'v01_original', 'pending', 'draft', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
             """,
-            (source["campaign_id"], source["id"], str(rendered_path), str(rendered_path)),
+            (
+                source["campaign_id"],
+                source["id"],
+                str(rendered_path),
+                str(rendered_path),
+            ),
         )
         cf.conn.commit()
         cf.review_rendered_asset("asset_1", decision="rejected", notes="bad")
 
-        event_types = [event["eventType"] for event in cf.events_for_campaign("may", limit=50)]
+        event_types = [
+            event["eventType"] for event in cf.events_for_campaign("may", limit=50)
+        ]
         assert "source_imported" in event_types
         assert "source_duplicate_ignored" in event_types
         assert "reel_inputs_prepared" in event_types
@@ -14599,7 +17837,9 @@ def test_export_live_job_redacts_secrets_and_records_ids(tmp_path: Path, monkeyp
         assert job["result"]["postIds"] == ["post_1"]
         assert job["result"]["mediaIds"] == ["media_1"]
         events = cf.events_for_campaign("may")
-        assert any(event["eventType"] == "threadsdash_export_created" for event in events)
+        assert any(
+            event["eventType"] == "threadsdash_export_created" for event in events
+        )
     finally:
         cf.close()
 
@@ -14611,8 +17851,18 @@ def test_activity_and_jobs_api_return_newest_first(tmp_path: Path, monkeypatch):
         campaign = cf.upsert_campaign("may", "model")
         older = cf.create_pipeline_job("import_folder", campaign["id"], {})
         newer = cf.create_pipeline_job("prepare_reel", campaign["id"], {})
-        cf.record_event("source_imported", campaign_id=campaign["id"], pipeline_job_id=older["id"], message="older")
-        cf.record_event("reel_inputs_prepared", campaign_id=campaign["id"], pipeline_job_id=newer["id"], message="newer")
+        cf.record_event(
+            "source_imported",
+            campaign_id=campaign["id"],
+            pipeline_job_id=older["id"],
+            message="older",
+        )
+        cf.record_event(
+            "reel_inputs_prepared",
+            campaign_id=campaign["id"],
+            pipeline_job_id=newer["id"],
+            message="newer",
+        )
     finally:
         cf.close()
 
@@ -14668,7 +17918,10 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(app_module, "settings", settings)
     client = TestClient(app_module.app)
-    assert client.get("/api/campaign-health", params={"campaign": "may"}).status_code == 200
+    assert (
+        client.get("/api/campaign-health", params={"campaign": "may"}).status_code
+        == 200
+    )
     assert client.get("/api/asset-detail/asset_1").status_code == 200
     assert client.get("/api/ranking", params={"campaign": "may"}).status_code == 200
     assert client.get("/api/autonomy-policy").json()["level"] == "level_2"
@@ -14677,38 +17930,71 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
     trust_response = client.get("/api/trust-summary", params={"campaign": "may"})
     assert trust_response.status_code == 200
     assert trust_response.json()["schema"] == "campaign_factory.trust_summary.v1"
-    recommend_response = client.post("/api/recommendations/run", json={"campaign": "may", "count": 3, "persist": True})
+    recommend_response = client.post(
+        "/api/recommendations/run",
+        json={"campaign": "may", "count": 3, "persist": True},
+    )
     assert recommend_response.status_code == 200
-    assert recommend_response.json()["schema"] == "campaign_factory.recommendations.next_batch.v1"
+    assert (
+        recommend_response.json()["schema"]
+        == "campaign_factory.recommendations.next_batch.v1"
+    )
     assert recommend_response.json()["items"][0]["renderedAssetId"] == "asset_1"
     recommendation_item_id = recommend_response.json()["items"][0]["recommendationId"]
-    accept_response = client.post(f"/api/recommendations/{recommendation_item_id}/accept", json={"operator": "api_user"})
+    accept_response = client.post(
+        f"/api/recommendations/{recommendation_item_id}/accept",
+        json={"operator": "api_user"},
+    )
     assert accept_response.status_code == 200
     assert accept_response.json()["status"] == "accepted"
-    link_response = client.post(f"/api/recommendations/{recommendation_item_id}/link", json={"renderedAssetId": "asset_1"})
+    link_response = client.post(
+        f"/api/recommendations/{recommendation_item_id}/link",
+        json={"renderedAssetId": "asset_1"},
+    )
     assert link_response.status_code == 200
     assert link_response.json()["status"] == "executed"
-    execute_response = client.post(f"/api/recommendations/{recommendation_item_id}/execute", json={"runAudit": False})
+    execute_response = client.post(
+        f"/api/recommendations/{recommendation_item_id}/execute",
+        json={"runAudit": False},
+    )
     assert execute_response.status_code == 200
     assert execute_response.json()["recommendation"]["status"] == "executed"
-    memory_rebuild_response = client.post("/api/account-memory/rebuild", json={"campaign": "may"})
+    memory_rebuild_response = client.post(
+        "/api/account-memory/rebuild", json={"campaign": "may"}
+    )
     assert memory_rebuild_response.status_code == 200
     memory_response = client.get("/api/account-memory", params={"campaign": "may"})
     assert memory_response.status_code == 200
-    exceptions_response = client.get("/api/exceptions", params={"campaign": "may", "status": "open"})
+    exceptions_response = client.get(
+        "/api/exceptions", params={"campaign": "may", "status": "open"}
+    )
     assert exceptions_response.status_code == 200
-    stored_recommendations = client.get("/api/recommendations", params={"campaign": "may"})
+    stored_recommendations = client.get(
+        "/api/recommendations", params={"campaign": "may"}
+    )
     assert stored_recommendations.status_code == 200
-    assert stored_recommendations.json()["runs"][0]["items"][0]["renderedAssetId"] == "asset_1"
-    accuracy_response = client.get("/api/recommendations/accuracy", params={"campaign": "may", "windowDays": 365})
+    assert (
+        stored_recommendations.json()["runs"][0]["items"][0]["renderedAssetId"]
+        == "asset_1"
+    )
+    accuracy_response = client.get(
+        "/api/recommendations/accuracy", params={"campaign": "may", "windowDays": 365}
+    )
     assert accuracy_response.status_code == 200
-    assert accuracy_response.json()["schema"] == "campaign_factory.recommendation_accuracy_report.v1"
-    ready_response = client.post("/api/campaign-readiness", json={"campaign": "may", "userId": "user_1"})
+    assert (
+        accuracy_response.json()["schema"]
+        == "campaign_factory.recommendation_accuracy_report.v1"
+    )
+    ready_response = client.post(
+        "/api/campaign-readiness", json={"campaign": "may", "userId": "user_1"}
+    )
     assert ready_response.status_code == 200
     assert ready_response.json()["ready"] is True
 
 
-def test_account_assignment_drives_draft_destinations_and_metadata(tmp_path: Path, monkeypatch):
+def test_account_assignment_drives_draft_destinations_and_metadata(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     inserted: list[tuple[str, dict]] = []
     monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
@@ -14778,7 +18064,9 @@ def test_account_assignment_drives_draft_destinations_and_metadata(tmp_path: Pat
         cf.close()
 
 
-def test_account_plan_warns_on_batch_volume_and_api_assigns(tmp_path: Path, monkeypatch):
+def test_account_plan_warns_on_batch_volume_and_api_assigns(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     settings = cf.settings
     try:
@@ -14794,10 +18082,20 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(tmp_path: Path, monk
                 (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'caption', 'v01_original', 'approved_candidate', 'approved', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
                 """,
-                (f"asset_{idx}", source["campaign_id"], source["id"], f"hash_{idx}", str(rendered_path), str(rendered_path), rendered_path.name),
+                (
+                    f"asset_{idx}",
+                    source["campaign_id"],
+                    source["id"],
+                    f"hash_{idx}",
+                    str(rendered_path),
+                    str(rendered_path),
+                    rendered_path.name,
+                ),
             )
             cf.conn.commit()
-            add_audit_report(cf, rendered_asset_id=f"asset_{idx}", audit_id=f"audit_{idx}")
+            add_audit_report(
+                cf, rendered_asset_id=f"asset_{idx}", audit_id=f"audit_{idx}"
+            )
             cf.assign_asset_account(f"asset_{idx}", instagram_account_id="ig_shared")
         cf.assign_asset_account("asset_1", instagram_account_id="ig_shared")
         plan = cf.account_plan("may", user_id="user_1")
@@ -14808,14 +18106,21 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(tmp_path: Path, monk
 
     monkeypatch.setattr(app_module, "settings", settings)
     client = TestClient(app_module.app)
-    response = client.post("/api/asset-account-assignment", json={
-        "renderedAssetId": "asset_1",
-        "instagramAccountId": "ig_extra",
-    })
+    response = client.post(
+        "/api/asset-account-assignment",
+        json={
+            "renderedAssetId": "asset_1",
+            "instagramAccountId": "ig_extra",
+        },
+    )
     assert response.status_code == 200
-    account_plan = client.get("/api/account-plan", params={"campaign": "may", "userId": "user_1"})
+    account_plan = client.get(
+        "/api/account-plan", params={"campaign": "may", "userId": "user_1"}
+    )
     assert account_plan.status_code == 200
-    assert any(row["instagramAccountId"] == "ig_extra" for row in account_plan.json()["rows"])
+    assert any(
+        row["instagramAccountId"] == "ig_extra" for row in account_plan.json()["rows"]
+    )
 
 
 def test_ranking_uses_performance_but_keeps_blocked_assets_low(tmp_path: Path):
@@ -14855,20 +18160,37 @@ def test_ranking_uses_performance_but_keeps_blocked_assets_low(tmp_path: Path):
         assert by_asset["asset_1"]["breakdown"]["sourceHistory"] > 50
         assert by_asset["asset_1"]["score"] > by_asset["asset_blocked"]["score"]
         assert by_asset["asset_blocked"]["score"] <= 35
-        assert "blocked assets stay low regardless of performance" in by_asset["asset_blocked"]["reasons"]
+        assert (
+            "blocked assets stay low regardless of performance"
+            in by_asset["asset_blocked"]["reasons"]
+        )
     finally:
         cf.close()
 
 
-def _manager_report_fixture(*, accounts: list[dict], missed: list[dict] | None = None) -> dict:
+def _manager_report_fixture(
+    *, accounts: list[dict], missed: list[dict] | None = None
+) -> dict:
     buckets = {
-        "safe_to_schedule_today": [a for a in accounts if a.get("bucket") == "safe_to_schedule_today"],
-        "already_scheduled_today": [a for a in accounts if a.get("bucket") == "already_scheduled_today"],
+        "safe_to_schedule_today": [
+            a for a in accounts if a.get("bucket") == "safe_to_schedule_today"
+        ],
+        "already_scheduled_today": [
+            a for a in accounts if a.get("bucket") == "already_scheduled_today"
+        ],
         "blocked_reauth": [a for a in accounts if a.get("bucket") == "blocked_reauth"],
-        "blocked_token_expired": [a for a in accounts if a.get("bucket") == "blocked_token_expired"],
-        "blocked_disabled": [a for a in accounts if a.get("bucket") == "blocked_disabled"],
-        "blocked_recent_failure": [a for a in accounts if a.get("bucket") == "blocked_recent_failure"],
-        "blocked_unknown": [a for a in accounts if a.get("bucket") == "blocked_unknown"],
+        "blocked_token_expired": [
+            a for a in accounts if a.get("bucket") == "blocked_token_expired"
+        ],
+        "blocked_disabled": [
+            a for a in accounts if a.get("bucket") == "blocked_disabled"
+        ],
+        "blocked_recent_failure": [
+            a for a in accounts if a.get("bucket") == "blocked_recent_failure"
+        ],
+        "blocked_unknown": [
+            a for a in accounts if a.get("bucket") == "blocked_unknown"
+        ],
     }
     return {
         "schema": "threadsdashboard.campaign_schedule_manager_report.v1",
@@ -14878,7 +18200,9 @@ def _manager_report_fixture(*, accounts: list[dict], missed: list[dict] | None =
         "summary": {
             "safeToScheduleCount": len(buckets["safe_to_schedule_today"]),
             "needsPostTodayCount": sum(1 for a in accounts if a.get("needsPostToday")),
-            "blockedCount": sum(len(buckets[key]) for key in buckets if key.startswith("blocked_")),
+            "blockedCount": sum(
+                len(buckets[key]) for key in buckets if key.startswith("blocked_")
+            ),
             "missedDispatchCount": len(missed or []),
         },
     }
@@ -14922,20 +18246,40 @@ def _draft_item(
     }
 
 
-def test_creator_os_daily_plan_is_read_only_and_detects_inventory_shortfall(tmp_path: Path):
+def test_creator_os_daily_plan_is_read_only_and_detects_inventory_shortfall(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
         before = cf.conn.total_changes
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_2", "username": "stacey_two", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_2",
+                "username": "stacey_two",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 1, "items": [_draft_item("post_1", "ig_1")]},
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 1,
+                "items": [_draft_item("post_1", "ig_1")],
+            },
         )
 
         assert plan["schema"] == "creator_os.daily_plan.v1"
@@ -14953,19 +18297,48 @@ def test_creator_os_daily_plan_is_read_only_and_detects_inventory_shortfall(tmp_
         cf.close()
 
 
-def test_creator_os_daily_plan_excludes_blocked_and_already_scheduled_accounts(tmp_path: Path):
+def test_creator_os_daily_plan_excludes_blocked_and_already_scheduled_accounts(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_safe", "username": "safe", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_scheduled", "username": "scheduled", "creator": "Stacey", "bucket": "already_scheduled_today", "safeToSchedule": False, "needsPostToday": False, "nextScheduledPost": {"id": "post_s"}},
-            {"accountId": "ig_blocked", "username": "blocked", "creator": "Stacey", "bucket": "blocked_reauth", "safeToSchedule": False, "needsPostToday": False, "blockingReason": "needs_reauth"},
+            {
+                "accountId": "ig_safe",
+                "username": "safe",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_scheduled",
+                "username": "scheduled",
+                "creator": "Stacey",
+                "bucket": "already_scheduled_today",
+                "safeToSchedule": False,
+                "needsPostToday": False,
+                "nextScheduledPost": {"id": "post_s"},
+            },
+            {
+                "accountId": "ig_blocked",
+                "username": "blocked",
+                "creator": "Stacey",
+                "bucket": "blocked_reauth",
+                "safeToSchedule": False,
+                "needsPostToday": False,
+                "blockingReason": "needs_reauth",
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 1, "items": [_draft_item("post_1", "ig_safe")]},
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 1,
+                "items": [_draft_item("post_1", "ig_safe")],
+            },
         )
 
         by_id = {row["accountId"]: row for row in plan["accounts"]}
@@ -14981,23 +18354,53 @@ def test_creator_os_daily_plan_excludes_blocked_and_already_scheduled_accounts(t
         cf.close()
 
 
-def test_creator_os_daily_plan_respects_variant_cooldowns_and_missed_dispatches(tmp_path: Path):
+def test_creator_os_daily_plan_respects_variant_cooldowns_and_missed_dispatches(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_cool", "username": "cool", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_missed", "username": "missed", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_cool",
+                "username": "cool",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_missed",
+                "username": "missed",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        missed = [{"postId": "post_missed", "accountId": "ig_missed", "blockingReason": "overdue_dispatch_no_publish_attempt"}]
+        missed = [
+            {
+                "postId": "post_missed",
+                "accountId": "ig_missed",
+                "blockingReason": "overdue_dispatch_no_publish_attempt",
+            }
+        ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
-            threadsdash_report=_manager_report_fixture(accounts=accounts, missed=missed),
+            threadsdash_report=_manager_report_fixture(
+                accounts=accounts, missed=missed
+            ),
             time_plan={
                 "creator": "Stacey",
                 "validatedDraftsAvailable": 2,
                 "items": [
-                    _draft_item("post_cool", "ig_cool", variant_family_id="vfam_1", variant_id="var_1", cooldown="same_variant_family_within_14_days"),
+                    _draft_item(
+                        "post_cool",
+                        "ig_cool",
+                        variant_family_id="vfam_1",
+                        variant_id="var_1",
+                        cooldown="same_variant_family_within_14_days",
+                    ),
                     _draft_item("post_missed", "ig_missed"),
                 ],
             },
@@ -15006,11 +18409,19 @@ def test_creator_os_daily_plan_respects_variant_cooldowns_and_missed_dispatches(
         by_id = {row["accountId"]: row for row in plan["accounts"]}
         assert by_id["ig_cool"]["eligibleDrafts"] == []
         assert by_id["ig_cool"]["variantCooldowns"][0]["variantFamilyId"] == "vfam_1"
-        assert by_id["ig_cool"]["variantCooldowns"][0]["reason"] == "same_variant_family_within_14_days"
+        assert (
+            by_id["ig_cool"]["variantCooldowns"][0]["reason"]
+            == "same_variant_family_within_14_days"
+        )
         assert by_id["ig_missed"]["state"] == "blocked"
-        assert by_id["ig_missed"]["blockedReason"] == "overdue_dispatch_no_publish_attempt"
+        assert (
+            by_id["ig_missed"]["blockedReason"] == "overdue_dispatch_no_publish_attempt"
+        )
         assert by_id["ig_missed"]["needsPostToday"] is False
-        assert "resolve_missed_dispatches_before_scheduling" in plan["creators"][0]["recommendedActions"]
+        assert (
+            "resolve_missed_dispatches_before_scheduling"
+            in plan["creators"][0]["recommendedActions"]
+        )
     finally:
         cf.close()
 
@@ -15018,14 +18429,33 @@ def test_creator_os_daily_plan_respects_variant_cooldowns_and_missed_dispatches(
 def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):
     report_path = tmp_path / "threadsdash_report.json"
     schedule_path = tmp_path / "schedule_plan.json"
-    report_path.write_text(json.dumps(_manager_report_fixture(accounts=[
-        {"accountId": "ig_cli", "username": "cli", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-    ])), encoding="utf-8")
-    schedule_path.write_text(json.dumps({
-        "creator": "Stacey",
-        "validatedDraftsAvailable": 1,
-        "items": [_draft_item("post_cli", "ig_cli")],
-    }), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(
+            _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_cli",
+                        "username": "cli",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
+    schedule_path.write_text(
+        json.dumps(
+            {
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 1,
+                "items": [_draft_item("post_cli", "ig_cli")],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -15041,7 +18471,11 @@ def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -15059,24 +18493,37 @@ def test_creator_os_daily_plan_consumes_winner_expansion_report(tmp_path: Path):
     try:
         before = cf.conn.total_changes
         accounts = [
-            {"accountId": f"ig_{idx}", "username": f"stacey_{idx}", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
+            {
+                "accountId": f"ig_{idx}",
+                "username": f"stacey_{idx}",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            }
             for idx in range(1, 4)
         ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 1, "items": [_draft_item("post_1", "ig_1")]},
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 1,
+                "items": [_draft_item("post_1", "ig_1")],
+            },
             winner_expansion_report={
                 "schema": "campaign_factory.winner_expansion_report.v1",
-                "recommendations": [{
-                    "creator": "Stacey",
-                    "assetId": "asset_parent",
-                    "variantFamilyId": "vfam_hot",
-                    "reason": "high_views",
-                    "recommendedAction": "create_more_variants",
-                    "wouldWrite": False,
-                }],
+                "recommendations": [
+                    {
+                        "creator": "Stacey",
+                        "assetId": "asset_parent",
+                        "variantFamilyId": "vfam_hot",
+                        "reason": "high_views",
+                        "recommendedAction": "create_more_variants",
+                        "wouldWrite": False,
+                    }
+                ],
             },
         )
 
@@ -15084,16 +18531,21 @@ def test_creator_os_daily_plan_consumes_winner_expansion_report(tmp_path: Path):
         assert cf.conn.total_changes == before
         assert stacey["managerDecision"] == "needs_variants"
         assert stacey["inventoryShortfall"] == 2
-        assert stacey["winnerExpansionRecommendations"] == [{
-            "parentAssetId": "asset_parent",
-            "variantFamilyId": "vfam_hot",
-            "reason": "high_views",
-            "recommendedAction": "generate_more_variants",
-            "recommendedVariantCount": 2,
-            "wouldWrite": False,
-        }]
+        assert stacey["winnerExpansionRecommendations"] == [
+            {
+                "parentAssetId": "asset_parent",
+                "variantFamilyId": "vfam_hot",
+                "reason": "high_views",
+                "recommendedAction": "generate_more_variants",
+                "recommendedVariantCount": 2,
+                "wouldWrite": False,
+            }
+        ]
         assert "run_contentforge_variant_plan" in stacey["nextSafeActions"]
-        assert "run_campaign_schedule_time_plan_then_campaign_schedule" not in stacey["nextSafeActions"]
+        assert (
+            "run_campaign_schedule_time_plan_then_campaign_schedule"
+            not in stacey["nextSafeActions"]
+        )
         assert plan["wouldWrite"] is False
     finally:
         cf.close()
@@ -15143,10 +18595,23 @@ def test_creator_os_daily_plan_includes_creative_recommended_inventory(tmp_path:
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_daily_learning", "username": "stacey", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            ]),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 0, "items": []},
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_daily_learning",
+                        "username": "stacey",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                ]
+            ),
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
             generated_at="2026-06-08T12:00:00+00:00",
         )
 
@@ -15168,7 +18633,9 @@ def test_creator_os_daily_plan_includes_creative_recommended_inventory(tmp_path:
         cf.close()
 
 
-def test_recommended_inventory_request_plan_translates_daily_plan_into_read_only_batches(tmp_path: Path):
+def test_recommended_inventory_request_plan_translates_daily_plan_into_read_only_batches(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -15220,7 +18687,11 @@ def test_recommended_inventory_request_plan_translates_daily_plan_into_read_only
                     "preset": "caption_safe_v2",
                     "requestedVariants": 6,
                     "minimumRecommended": 3,
-                    "operationFamilies": ["cover_frame", "timing_trim", "crop_zoom_family"],
+                    "operationFamilies": [
+                        "cover_frame",
+                        "timing_trim",
+                        "crop_zoom_family",
+                    ],
                 }
             ],
             "estimatedRecommendedVariants": 6,
@@ -15249,10 +18720,15 @@ def test_recommended_inventory_request_plan_translates_daily_plan_into_read_only
         assert first["postingWindow"] == "6pm"
         assert first["targetCount"] == 6
         assert first["existingInventoryAvailable"] == 6
-        assert first["reason"] == "mirror_selfie is 42.0% above creator baseline using Instagram-visible metrics."
+        assert (
+            first["reason"]
+            == "mirror_selfie is 42.0% above creator baseline using Instagram-visible metrics."
+        )
         assert first["sourceSystem"] == "campaign_factory.creative_performance_analysis"
         assert first["wouldWrite"] is False
-        story = [item for item in plan["requestBatches"] if item["surface"] == "story"][0]
+        story = [item for item in plan["requestBatches"] if item["surface"] == "story"][
+            0
+        ]
         assert story["recommendedAction"] == "create_more_snapchat_promo_stories"
         assert story["storyIntent"] == "snapchat_promo"
         assert story["targetCount"] == 4
@@ -15269,13 +18745,20 @@ def test_recommended_inventory_request_plan_reports_no_recommendations(tmp_path:
         plan = cf.recommended_inventory_request_plan(
             creator="Stacey",
             target_count=5,
-            daily_plan={"schema": "creator_os.daily_plan.v1", "creators": [{"creator": "Stacey", "recommendedInventory": []}], "wouldWrite": False},
+            daily_plan={
+                "schema": "creator_os.daily_plan.v1",
+                "creators": [{"creator": "Stacey", "recommendedInventory": []}],
+                "wouldWrite": False,
+            },
         )
 
         assert cf.conn.total_changes == before
         assert plan["requestBatches"] == []
         assert plan["blockingReason"] == "no_recommended_inventory_available"
-        assert plan["nextSafeAction"] == "wait_for_more_metrics_or_create_operator_selected_inventory"
+        assert (
+            plan["nextSafeAction"]
+            == "wait_for_more_metrics_or_create_operator_selected_inventory"
+        )
         assert plan["wouldWrite"] is False
     finally:
         cf.close()
@@ -15284,39 +18767,54 @@ def test_recommended_inventory_request_plan_reports_no_recommendations(tmp_path:
 def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
     daily_path = tmp_path / "daily_plan.json"
     inventory_path = tmp_path / "variant_inventory_plan.json"
-    daily_path.write_text(json.dumps({
-        "schema": "creator_os.daily_plan.v1",
-        "creators": [
+    daily_path.write_text(
+        json.dumps(
             {
-                "creator": "Stacey",
-                "inventoryShortfall": 3,
-                "recommendedInventory": [
+                "schema": "creator_os.daily_plan.v1",
+                "creators": [
                     {
-                        "sourceSystem": "campaign_factory.creative_performance_analysis",
-                        "surface": "reel",
-                        "reason": "mirror_selfie is above creator baseline.",
-                        "confidence": "low",
-                        "conceptId": "mirror_selfie",
-                        "captionAngle": "tease",
-                        "postingWindow": "6pm",
-                        "audioId": "audio_12",
-                        "storyIntent": "",
-                        "parentAssetId": "asset_parent_cli",
-                        "scoreLiftPct": 20,
-                        "wouldWrite": False,
+                        "creator": "Stacey",
+                        "inventoryShortfall": 3,
+                        "recommendedInventory": [
+                            {
+                                "sourceSystem": "campaign_factory.creative_performance_analysis",
+                                "surface": "reel",
+                                "reason": "mirror_selfie is above creator baseline.",
+                                "confidence": "low",
+                                "conceptId": "mirror_selfie",
+                                "captionAngle": "tease",
+                                "postingWindow": "6pm",
+                                "audioId": "audio_12",
+                                "storyIntent": "",
+                                "parentAssetId": "asset_parent_cli",
+                                "scoreLiftPct": 20,
+                                "wouldWrite": False,
+                            }
+                        ],
                     }
                 ],
+                "wouldWrite": False,
             }
-        ],
-        "wouldWrite": False,
-    }), encoding="utf-8")
-    inventory_path.write_text(json.dumps({
-        "schema": "campaign_factory.variant_inventory_plan.v1",
-        "executionBatches": [
-            {"parentAssetId": "asset_parent_cli", "requestedVariants": 3, "preset": "caption_safe_v2", "operationFamilies": ["cover_frame"]}
-        ],
-        "wouldWrite": False,
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "schema": "campaign_factory.variant_inventory_plan.v1",
+                "executionBatches": [
+                    {
+                        "parentAssetId": "asset_parent_cli",
+                        "requestedVariants": 3,
+                        "preset": "caption_safe_v2",
+                        "operationFamilies": ["cover_frame"],
+                    }
+                ],
+                "wouldWrite": False,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -15334,7 +18832,11 @@ def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
             str(inventory_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -15348,11 +18850,20 @@ def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_creator_os_daily_plan_prefers_existing_unused_variants_before_generation(tmp_path: Path):
+def test_creator_os_daily_plan_prefers_existing_unused_variants_before_generation(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": f"ig_{idx}", "username": f"stacey_{idx}", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
+            {
+                "accountId": f"ig_{idx}",
+                "username": f"stacey_{idx}",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            }
             for idx in range(1, 5)
         ]
 
@@ -15363,19 +18874,31 @@ def test_creator_os_daily_plan_prefers_existing_unused_variants_before_generatio
                 "creator": "Stacey",
                 "validatedDraftsAvailable": 2,
                 "items": [
-                    _draft_item("post_var_1", "ig_1", variant_family_id="vfam_existing", variant_id="var_existing_1"),
-                    _draft_item("post_var_2", "ig_2", variant_family_id="vfam_existing", variant_id="var_existing_2"),
+                    _draft_item(
+                        "post_var_1",
+                        "ig_1",
+                        variant_family_id="vfam_existing",
+                        variant_id="var_existing_1",
+                    ),
+                    _draft_item(
+                        "post_var_2",
+                        "ig_2",
+                        variant_family_id="vfam_existing",
+                        variant_id="var_existing_2",
+                    ),
                 ],
             },
             winner_expansion_report={
                 "schema": "campaign_factory.winner_expansion_report.v1",
-                "recommendations": [{
-                    "creator": "Stacey",
-                    "assetId": "asset_winner",
-                    "variantFamilyId": "vfam_winner",
-                    "reason": "high_reach",
-                    "recommendedAction": "create_more_variants",
-                }],
+                "recommendations": [
+                    {
+                        "creator": "Stacey",
+                        "assetId": "asset_winner",
+                        "variantFamilyId": "vfam_winner",
+                        "reason": "high_reach",
+                        "recommendedAction": "create_more_variants",
+                    }
+                ],
             },
         )
 
@@ -15388,34 +18911,66 @@ def test_creator_os_daily_plan_prefers_existing_unused_variants_before_generatio
         cf.close()
 
 
-def test_creator_os_daily_plan_without_winners_falls_back_to_reel_factory_inventory(tmp_path: Path):
+def test_creator_os_daily_plan_without_winners_falls_back_to_reel_factory_inventory(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_2", "username": "stacey_two", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_2",
+                "username": "stacey_two",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 0, "items": []},
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
         )
 
         stacey = plan["creators"][0]
         assert stacey["managerDecision"] == "needs_reel_factory_inventory"
         assert stacey["winnerExpansionRecommendations"] == []
         assert "create_reel_factory_or_source_inventory" in stacey["nextSafeActions"]
-        assert "run_campaign_schedule_time_plan_then_campaign_schedule" not in stacey["nextSafeActions"]
+        assert (
+            "run_campaign_schedule_time_plan_then_campaign_schedule"
+            not in stacey["nextSafeActions"]
+        )
     finally:
         cf.close()
 
 
-def test_creator_os_daily_plan_blocks_draft_missing_instagram_post_caption(tmp_path: Path):
+def test_creator_os_daily_plan_blocks_draft_missing_instagram_post_caption(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
@@ -15424,13 +18979,17 @@ def test_creator_os_daily_plan_blocks_draft_missing_instagram_post_caption(tmp_p
             schedule_plan={
                 "creator": "Stacey",
                 "validatedDraftsAvailable": 1,
-                "items": [_draft_item("post_no_caption", "ig_1", instagram_post_caption="")],
+                "items": [
+                    _draft_item("post_no_caption", "ig_1", instagram_post_caption="")
+                ],
             },
         )
 
         account = plan["accounts"][0]
         assert account["eligibleDrafts"] == []
-        assert account["variantCooldowns"][0]["reason"] == "missing_instagram_post_caption"
+        assert (
+            account["variantCooldowns"][0]["reason"] == "missing_instagram_post_caption"
+        )
         assert account["needsPostToday"] is True
         assert plan["creators"][0]["managerDecision"] == "needs_reel_factory_inventory"
     finally:
@@ -15441,7 +19000,14 @@ def test_creator_os_daily_plan_reports_draft_exclusion_breakdown(tmp_path: Path)
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": f"ig_{idx}", "username": f"stacey_{idx}", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
+            {
+                "accountId": f"ig_{idx}",
+                "username": f"stacey_{idx}",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            }
             for idx in range(1, 7)
         ]
 
@@ -15454,10 +19020,18 @@ def test_creator_os_daily_plan_reports_draft_exclusion_breakdown(tmp_path: Path)
                 "items": [
                     _draft_item("post_no_caption", "ig_1", instagram_post_caption=""),
                     _draft_item("post_no_manifest", "ig_2", handoff_manifest_ok=False),
-                    _draft_item("post_not_validated", "ig_3", platform_draft_validated=False),
+                    _draft_item(
+                        "post_not_validated", "ig_3", platform_draft_validated=False
+                    ),
                     _draft_item("post_quarantined", "ig_4", quarantined=True),
                     _draft_item("post_failed", "ig_5", publishability_state="blocked"),
-                    _draft_item("post_cooldown", "ig_6", variant_family_id="vfam_1", variant_id="var_1", cooldown="same_variant_family_within_14_days"),
+                    _draft_item(
+                        "post_cooldown",
+                        "ig_6",
+                        variant_family_id="vfam_1",
+                        variant_id="var_1",
+                        cooldown="same_variant_family_within_14_days",
+                    ),
                 ],
             },
         )
@@ -15484,12 +19058,59 @@ def test_creator_os_daily_plan_includes_account_tiers(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_warming", "username": "warming", "creator": "Stacey", "accountState": "warming", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_normal", "username": "normal", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_growth", "username": "growth", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True, "performance": {"views7d": 900, "posts7d": 5}},
-            {"accountId": "ig_winner", "username": "winner", "creator": "Stacey", "accountState": "high-performing", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_resting", "username": "resting", "creator": "Stacey", "accountState": "resting", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": False},
-            {"accountId": "ig_blocked", "username": "blocked", "creator": "Stacey", "bucket": "blocked_reauth", "safeToSchedule": False, "needsPostToday": False, "blockingReason": "needs_reauth"},
+            {
+                "accountId": "ig_warming",
+                "username": "warming",
+                "creator": "Stacey",
+                "accountState": "warming",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_normal",
+                "username": "normal",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_growth",
+                "username": "growth",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+                "performance": {"views7d": 900, "posts7d": 5},
+            },
+            {
+                "accountId": "ig_winner",
+                "username": "winner",
+                "creator": "Stacey",
+                "accountState": "high-performing",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_resting",
+                "username": "resting",
+                "creator": "Stacey",
+                "accountState": "resting",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": False,
+            },
+            {
+                "accountId": "ig_blocked",
+                "username": "blocked",
+                "creator": "Stacey",
+                "bucket": "blocked_reauth",
+                "safeToSchedule": False,
+                "needsPostToday": False,
+                "blockingReason": "needs_reauth",
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
@@ -15505,7 +19126,10 @@ def test_creator_os_daily_plan_includes_account_tiers(tmp_path: Path):
         assert by_id["ig_winner"]["accountTier"] == "winner"
         assert by_id["ig_resting"]["accountTier"] == "resting"
         assert by_id["ig_blocked"]["accountTier"] == "blocked"
-        assert by_id["ig_winner"]["tierPostingGuidance"]["priority"] == "prioritize_winning_concepts"
+        assert (
+            by_id["ig_winner"]["tierPostingGuidance"]["priority"]
+            == "prioritize_winning_concepts"
+        )
         assert by_id["ig_resting"]["tierPostingGuidance"]["recommendedPostCount"] == 0
         assert plan["creators"][0]["accountTierSummary"] == {
             "warming": 1,
@@ -15524,8 +19148,20 @@ def test_creator_os_account_tiers_report_is_read_only(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_winner", "username": "winner", "creator": "Stacey", "safeToSchedule": True, "accountTier": "winner"},
-            {"accountId": "ig_blocked", "username": "blocked", "creator": "Stacey", "safeToSchedule": False, "blockingReason": "token_expired"},
+            {
+                "accountId": "ig_winner",
+                "username": "winner",
+                "creator": "Stacey",
+                "safeToSchedule": True,
+                "accountTier": "winner",
+            },
+            {
+                "accountId": "ig_blocked",
+                "username": "blocked",
+                "creator": "Stacey",
+                "safeToSchedule": False,
+                "blockingReason": "token_expired",
+            },
         ]
         before = cf.conn.total_changes
 
@@ -15539,7 +19175,10 @@ def test_creator_os_account_tiers_report_is_read_only(tmp_path: Path):
         assert report["tierSummary"]["winner"] == 1
         assert report["tierSummary"]["blocked"] == 1
         assert report["accounts"][0]["tier"] == "winner"
-        assert report["accounts"][0]["postingGuidance"]["priority"] == "prioritize_winning_concepts"
+        assert (
+            report["accounts"][0]["postingGuidance"]["priority"]
+            == "prioritize_winning_concepts"
+        )
         assert report["accounts"][1]["tier"] == "blocked"
         assert report["accounts"][1]["postingGuidance"]["recommendedPostCount"] == 0
         assert report["wouldWrite"] is False
@@ -15549,9 +19188,22 @@ def test_creator_os_account_tiers_report_is_read_only(tmp_path: Path):
 
 def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
     report_path = tmp_path / "threadsdash_report.json"
-    report_path.write_text(json.dumps(_manager_report_fixture(accounts=[
-        {"accountId": "ig_cli", "username": "cli", "creator": "Stacey", "safeToSchedule": True, "accountTier": "growth"},
-    ])), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(
+            _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_cli",
+                        "username": "cli",
+                        "creator": "Stacey",
+                        "safeToSchedule": True,
+                        "accountTier": "growth",
+                    },
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -15565,7 +19217,11 @@ def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -15579,9 +19235,21 @@ def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
 
 def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
     report_path = tmp_path / "threadsdash_report.json"
-    report_path.write_text(json.dumps(_manager_report_fixture(accounts=[
-        {"accountId": "ig_cli", "username": "cli", "creator": "Stacey", "linkSharingRestricted": True},
-    ])), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(
+            _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_cli",
+                        "username": "cli",
+                        "creator": "Stacey",
+                        "linkSharingRestricted": True,
+                    },
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -15595,7 +19263,11 @@ def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
             str(report_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -15607,7 +19279,9 @@ def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_creator_os_account_health_report_blocks_restricted_and_not_recommended_accounts(tmp_path: Path):
+def test_creator_os_account_health_report_blocks_restricted_and_not_recommended_accounts(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
@@ -15656,24 +19330,31 @@ def test_creator_os_account_health_report_blocks_restricted_and_not_recommended_
         assert by_id["ig_ok"]["safeToSchedule"] is True
         assert report["summary"]["safeToSchedule"] == 1
         assert report["summary"]["restrictedAccounts"] == 1
-        assert report["summary"]["recommendationEligibilitySummary"]["not_recommended"] == 1
+        assert (
+            report["summary"]["recommendationEligibilitySummary"]["not_recommended"]
+            == 1
+        )
         assert report["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_creator_os_account_health_report_uses_conservative_unknown_recommendation_defaults(tmp_path: Path):
+def test_creator_os_account_health_report_uses_conservative_unknown_recommendation_defaults(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
-        accounts = [{
-            "accountId": "ig_unknown",
-            "username": "unknown",
-            "creator": "Stacey",
-            "bucket": "safe_to_schedule_today",
-            "safeToSchedule": True,
-            "needsPostToday": True,
-            "accountAgeDays": 1,
-        }]
+        accounts = [
+            {
+                "accountId": "ig_unknown",
+                "username": "unknown",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+                "accountAgeDays": 1,
+            }
+        ]
 
         report = cf.creator_os_account_health_report(
             creator="Stacey",
@@ -15682,7 +19363,10 @@ def test_creator_os_account_health_report_uses_conservative_unknown_recommendati
 
         account = report["accounts"][0]
         assert account["recommendationEligibilityState"] == "unknown"
-        assert "recommendation_eligibility_unknown_conservative_cadence" in account["warnings"]
+        assert (
+            "recommendation_eligibility_unknown_conservative_cadence"
+            in account["warnings"]
+        )
         assert account["accountTier"] == "warming"
         assert account["postingGuidance"]["maxPostsPerDay"] == 1
         assert account["postingGuidance"]["minimumGapHours"] == 24
@@ -15705,8 +19389,16 @@ def test_creator_os_execution_readiness_blocks_account_health_failures(tmp_path:
             },
         ]
         draft = _draft_item("post_1", "ig_restricted")
-        schedule_plan = {"schema": "threadsdashboard.campaign_schedule_plan.v1", "status": "ready", "items": [draft]}
-        time_plan = {"schema": "threadsdashboard.campaign_schedule_time_plan.v1", "status": "ready", "items": [draft]}
+        schedule_plan = {
+            "schema": "threadsdashboard.campaign_schedule_plan.v1",
+            "status": "ready",
+            "items": [draft],
+        }
+        time_plan = {
+            "schema": "threadsdashboard.campaign_schedule_time_plan.v1",
+            "status": "ready",
+            "items": [draft],
+        }
 
         readiness = cf.creator_os_execution_readiness(
             creator="Stacey",
@@ -15740,8 +19432,16 @@ def test_creator_os_execution_readiness_blocks_warming_over_cadence(tmp_path: Pa
             },
         ]
         draft = _draft_item("post_1", "ig_warm")
-        schedule_plan = {"schema": "threadsdashboard.campaign_schedule_plan.v1", "status": "ready", "items": [draft]}
-        time_plan = {"schema": "threadsdashboard.campaign_schedule_time_plan.v1", "status": "ready", "items": [draft]}
+        schedule_plan = {
+            "schema": "threadsdashboard.campaign_schedule_plan.v1",
+            "status": "ready",
+            "items": [draft],
+        }
+        time_plan = {
+            "schema": "threadsdashboard.campaign_schedule_time_plan.v1",
+            "status": "ready",
+            "items": [draft],
+        }
 
         readiness = cf.creator_os_execution_readiness(
             creator="Stacey",
@@ -15757,7 +19457,9 @@ def test_creator_os_execution_readiness_blocks_warming_over_cadence(tmp_path: Pa
         cf.close()
 
 
-def test_creator_os_execution_readiness_blocks_creative_risk_and_similarity_budget(tmp_path: Path):
+def test_creator_os_execution_readiness_blocks_creative_risk_and_similarity_budget(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
@@ -15774,9 +19476,20 @@ def test_creator_os_execution_readiness_blocks_creative_risk_and_similarity_budg
         ]
         risky = _draft_item("post_risky", "ig_safe")
         risky["creativeRiskScore"] = 80
-        risky["similarityBudget"] = {"blocked": True, "reason": "visual_similarity_cluster_budget_exceeded"}
-        schedule_plan = {"schema": "threadsdashboard.campaign_schedule_plan.v1", "status": "ready", "items": [risky]}
-        time_plan = {"schema": "threadsdashboard.campaign_schedule_time_plan.v1", "status": "ready", "items": [risky]}
+        risky["similarityBudget"] = {
+            "blocked": True,
+            "reason": "visual_similarity_cluster_budget_exceeded",
+        }
+        schedule_plan = {
+            "schema": "threadsdashboard.campaign_schedule_plan.v1",
+            "status": "ready",
+            "items": [risky],
+        }
+        time_plan = {
+            "schema": "threadsdashboard.campaign_schedule_time_plan.v1",
+            "status": "ready",
+            "items": [risky],
+        }
 
         readiness = cf.creator_os_execution_readiness(
             creator="Stacey",
@@ -15797,16 +19510,37 @@ def test_creator_os_account_health_filtered_reports_are_read_only(tmp_path: Path
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_link", "username": "link", "creator": "Stacey", "linkSharingRestricted": True},
-            {"accountId": "ig_manual", "username": "manual", "creator": "Stacey", "accountTrustState": "manual_review_required"},
-            {"accountId": "ig_warm", "username": "warm", "creator": "Stacey", "accountAgeDays": 2},
+            {
+                "accountId": "ig_link",
+                "username": "link",
+                "creator": "Stacey",
+                "linkSharingRestricted": True,
+            },
+            {
+                "accountId": "ig_manual",
+                "username": "manual",
+                "creator": "Stacey",
+                "accountTrustState": "manual_review_required",
+            },
+            {
+                "accountId": "ig_warm",
+                "username": "warm",
+                "creator": "Stacey",
+                "accountAgeDays": 2,
+            },
         ]
         threadsdash_report = _manager_report_fixture(accounts=accounts)
         before = cf.conn.total_changes
 
-        restricted = cf.creator_os_restricted_account_report(creator="Stacey", threadsdash_report=threadsdash_report)
-        manual = cf.creator_os_manual_review_queue(creator="Stacey", threadsdash_report=threadsdash_report)
-        warmup = cf.creator_os_account_warmup_report(creator="Stacey", threadsdash_report=threadsdash_report)
+        restricted = cf.creator_os_restricted_account_report(
+            creator="Stacey", threadsdash_report=threadsdash_report
+        )
+        manual = cf.creator_os_manual_review_queue(
+            creator="Stacey", threadsdash_report=threadsdash_report
+        )
+        warmup = cf.creator_os_account_warmup_report(
+            creator="Stacey", threadsdash_report=threadsdash_report
+        )
 
         assert cf.conn.total_changes == before
         assert restricted["restrictedAccounts"] == 1
@@ -15823,24 +19557,70 @@ def test_creator_os_daily_plan_is_surface_aware_without_writing(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="reel", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="story", max_per_day=2)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="feed_single", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="feed_carousel", cadence="weekly", max_per_day=1, allowed_days=[5])
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe", content_surface="story", media_type="image", instagram_post_caption="")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_single_safe", content_surface="feed_single", media_type="image")
+        account_a = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        account_b = cf.upsert_account(
+            "stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"]
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_a["id"], surface="reel", max_per_day=1
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_a["id"], surface="story", max_per_day=2
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account_b["id"], surface="feed_single", max_per_day=1
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account_b["id"],
+            surface="feed_carousel",
+            cadence="weekly",
+            max_per_day=1,
+            allowed_days=[5],
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_single_safe",
+            content_surface="feed_single",
+            media_type="image",
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             date="2026-06-06",
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_a", "username": "stacey_a", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-                {"accountId": "ig_b", "username": "stacey_b", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            ]),
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_a",
+                        "username": "stacey_a",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                    {
+                        "accountId": "ig_b",
+                        "username": "stacey_b",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                ]
+            ),
             schedule_plan={
                 "creator": "Stacey",
                 "status": "ready",
@@ -15868,22 +19648,26 @@ def test_creator_os_daily_plan_is_surface_aware_without_writing(tmp_path: Path):
         cf.close()
 
 
-def test_creator_os_daily_plan_uses_threadsdash_surface_needs_when_no_requirements(tmp_path: Path):
+def test_creator_os_daily_plan_uses_threadsdash_surface_needs_when_no_requirements(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {
-                    "accountId": "ig_surface",
-                    "username": "stacey_surface",
-                    "creator": "Stacey",
-                    "bucket": "safe_to_schedule_today",
-                    "safeToSchedule": True,
-                    "needsPostToday": False,
-                    "surfaceNeeds": {"story": 1, "feed_single": {"remaining": 1}},
-                }
-            ]),
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_surface",
+                        "username": "stacey_surface",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": False,
+                        "surfaceNeeds": {"story": 1, "feed_single": {"remaining": 1}},
+                    }
+                ]
+            ),
             schedule_plan={"creator": "Stacey", "items": []},
         )
 
@@ -15901,21 +19685,38 @@ def test_creator_os_surface_reports_are_read_only(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", max_per_day=2)
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe", content_surface="story", media_type="image", instagram_post_caption="")
+        account = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account["id"], surface="story", max_per_day=2
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        creator_summary = cf.creator_surface_summary(creator="Stacey", date="2026-06-06")
-        account_summary = cf.account_surface_summary(creator="Stacey", date="2026-06-06")
+        creator_summary = cf.creator_surface_summary(
+            creator="Stacey", date="2026-06-06"
+        )
+        account_summary = cf.account_surface_summary(
+            creator="Stacey", date="2026-06-06"
+        )
         gap = cf.creator_surface_gap_report(creator="Stacey", date="2026-06-06")
 
         assert cf.conn.total_changes == before
         assert creator_summary["schema"] == "creator_os.creator_surface_summary.v1"
         assert creator_summary["surfaceInventory"]["story"]["scheduleSafe"] == 1
         assert account_summary["schema"] == "creator_os.account_surface_summary.v1"
-        assert account_summary["accounts"][0]["surfaceStatus"]["story"]["needed"] is True
+        assert (
+            account_summary["accounts"][0]["surfaceStatus"]["story"]["needed"] is True
+        )
         assert gap["schema"] == "creator_os.creator_surface_gap_report.v1"
         assert gap["surfaceGaps"]["story"]["needed"] == 2
         assert gap["surfaceGaps"]["story"]["available"] == 1
@@ -15928,12 +19729,48 @@ def test_story_reports_handle_daily_and_multi_story_cadence(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_daily", platform="instagram", external_id="ig_daily", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_multi", platform="instagram", external_id="ig_multi", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account_a["id"], surface="story", cadence="daily", max_per_day=1)
-        add_account_requirement_fixture(cf, account_id=account_b["id"], surface="story", cadence="2_per_day", max_per_day=1)
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe_1", content_surface="story", media_type="image", instagram_post_caption="")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe_2", content_surface="story", media_type="image", instagram_post_caption="")
+        account_a = cf.upsert_account(
+            "stacey_daily",
+            platform="instagram",
+            external_id="ig_daily",
+            model_id=model["id"],
+        )
+        account_b = cf.upsert_account(
+            "stacey_multi",
+            platform="instagram",
+            external_id="ig_multi",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account_a["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account_b["id"],
+            surface="story",
+            cadence="2_per_day",
+            max_per_day=1,
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe_1",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe_2",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
@@ -15943,12 +19780,17 @@ def test_story_reports_handle_daily_and_multi_story_cadence(tmp_path: Path):
                     'story', '2026-06-06T09:00:00+00:00', '2026-06-06T10:00:00+00:00',
                     '{}', '2026-06-06T10:00:00+00:00')
             """,
-            (cf.campaign_by_slug("stacey_surface_inventory_20260606")["id"], account_a["id"]),
+            (
+                cf.campaign_by_slug("stacey_surface_inventory_20260606")["id"],
+                account_a["id"],
+            ),
         )
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        status = cf.account_story_status(account_id=account_b["id"], creator="Stacey", date="2026-06-06")
+        status = cf.account_story_status(
+            account_id=account_b["id"], creator="Stacey", date="2026-06-06"
+        )
         gap = cf.story_gap_report(creator="Stacey", date="2026-06-06")
         summary = cf.creator_story_summary(creator="Stacey", date="2026-06-06")
 
@@ -15972,12 +19814,27 @@ def test_story_reports_handle_every_other_day_cadence(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_eod", platform="instagram", external_id="ig_eod", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="every_other_day", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_eod",
+            platform="instagram",
+            external_id="ig_eod",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="every_other_day",
+            max_per_day=1,
+        )
         cf.conn.commit()
 
-        first = cf.account_story_status(account_id=account["id"], creator="Stacey", date="2026-06-06")
-        second = cf.account_story_status(account_id=account["id"], creator="Stacey", date="2026-06-07")
+        first = cf.account_story_status(
+            account_id=account["id"], creator="Stacey", date="2026-06-06"
+        )
+        second = cf.account_story_status(
+            account_id=account["id"], creator="Stacey", date="2026-06-07"
+        )
 
         assert {first["storyNeededToday"], second["storyNeededToday"]} == {True, False}
         assert first["wouldWrite"] is False
@@ -15989,8 +19846,22 @@ def test_story_reports_handle_every_other_day_cadence(tmp_path: Path):
 def test_story_inventory_report_counts_schedule_safe_and_blocked_assets(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe", content_surface="story", media_type="image", instagram_post_caption="")
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_blocked", content_surface="story", media_type="other", instagram_post_caption="")
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_blocked",
+            content_surface="story",
+            media_type="other",
+            instagram_post_caption="",
+        )
         cf.conn.execute(
             """
             UPDATE rendered_assets
@@ -16025,18 +19896,45 @@ def test_creator_os_daily_plan_includes_story_inventory_fields(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story", platform="instagram", external_id="ig_story", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_story_safe", content_surface="story", media_type="image", instagram_post_caption="")
+        account = cf.upsert_account(
+            "stacey_story",
+            platform="instagram",
+            external_id="ig_story",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_story_safe",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             date="2026-06-06",
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_story", "username": "stacey_story", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": False}
-            ]),
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_story",
+                        "username": "stacey_story",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": False,
+                    }
+                ]
+            ),
             schedule_plan={"creator": "Stacey", "items": []},
         )
 
@@ -16055,8 +19953,15 @@ def test_creator_os_surface_report_cli_outputs_json(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_cli", platform="instagram", external_id="ig_cli", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="feed_single", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_cli",
+            platform="instagram",
+            external_id="ig_cli",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf, account_id=account["id"], surface="feed_single", max_per_day=1
+        )
         cf.conn.commit()
     finally:
         cf.close()
@@ -16073,7 +19978,11 @@ def test_creator_os_surface_report_cli_outputs_json(tmp_path: Path):
             "2026-06-06",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -16085,7 +19994,9 @@ def test_creator_os_surface_report_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_creator_os_draft_inventory_gap_reports_local_assets_not_exported(tmp_path: Path):
+def test_creator_os_draft_inventory_gap_reports_local_assets_not_exported(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_inventory_parent_fixture(cf, tmp_path, asset_id="asset_local_safe")
@@ -16094,7 +20005,10 @@ def test_creator_os_draft_inventory_gap_reports_local_assets_not_exported(tmp_pa
 
         gap = cf.creator_os_draft_inventory_gap(
             creator="Stacey",
-            schedule_plan={"schema": "threadsdashboard.campaign_schedule_plan.v1", "items": []},
+            schedule_plan={
+                "schema": "threadsdashboard.campaign_schedule_plan.v1",
+                "items": [],
+            },
         )
 
         assert cf.conn.total_changes == before
@@ -16109,7 +20023,9 @@ def test_creator_os_draft_inventory_gap_reports_local_assets_not_exported(tmp_pa
         cf.close()
 
 
-def test_creator_os_draft_inventory_gap_reports_exported_but_not_validated(tmp_path: Path):
+def test_creator_os_draft_inventory_gap_reports_exported_but_not_validated(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -16119,7 +20035,9 @@ def test_creator_os_draft_inventory_gap_reports_exported_but_not_validated(tmp_p
             schedule_plan={
                 "schema": "threadsdashboard.campaign_schedule_plan.v1",
                 "items": [
-                    _draft_item("post_unvalidated", "ig_1", platform_draft_validated=False),
+                    _draft_item(
+                        "post_unvalidated", "ig_1", platform_draft_validated=False
+                    ),
                 ],
             },
         )
@@ -16127,13 +20045,15 @@ def test_creator_os_draft_inventory_gap_reports_exported_but_not_validated(tmp_p
         assert cf.conn.total_changes == before
         assert gap["localScheduleSafeAssets"] == 0
         assert gap["threadDashValidatedDrafts"] == 0
-        assert gap["exportedButNotValidated"] == [{
-            "draftPostId": "post_unvalidated",
-            "renderedAssetId": "asset_post_unvalidated",
-            "distributionPlanId": "dist_post_unvalidated",
-            "reason": "notPlatformDraftValidated",
-            "wouldWrite": False,
-        }]
+        assert gap["exportedButNotValidated"] == [
+            {
+                "draftPostId": "post_unvalidated",
+                "renderedAssetId": "asset_post_unvalidated",
+                "distributionPlanId": "dist_post_unvalidated",
+                "reason": "notPlatformDraftValidated",
+                "wouldWrite": False,
+            }
+        ]
         assert gap["blockedReasons"] == {"platform_draft_not_validated": 1}
         assert gap["nextSafeAction"] == "fix_validation"
         assert gap["wouldWrite"] is False
@@ -16141,7 +20061,9 @@ def test_creator_os_draft_inventory_gap_reports_exported_but_not_validated(tmp_p
         cf.close()
 
 
-def test_creator_os_draft_inventory_gap_reports_validated_but_not_schedule_safe(tmp_path: Path):
+def test_creator_os_draft_inventory_gap_reports_validated_but_not_schedule_safe(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -16152,7 +20074,13 @@ def test_creator_os_draft_inventory_gap_reports_validated_but_not_schedule_safe(
                 "schema": "threadsdashboard.campaign_schedule_plan.v1",
                 "items": [
                     _draft_item("post_no_caption", "ig_1", instagram_post_caption=""),
-                    _draft_item("post_cooldown", "ig_2", variant_family_id="vfam_1", variant_id="var_1", cooldown="same_variant_family_within_14_days"),
+                    _draft_item(
+                        "post_cooldown",
+                        "ig_2",
+                        variant_family_id="vfam_1",
+                        variant_id="var_1",
+                        cooldown="same_variant_family_within_14_days",
+                    ),
                 ],
             },
         )
@@ -16160,7 +20088,10 @@ def test_creator_os_draft_inventory_gap_reports_validated_but_not_schedule_safe(
         assert cf.conn.total_changes == before
         assert gap["localScheduleSafeAssets"] == 0
         assert gap["threadDashValidatedDrafts"] == 0
-        reasons = {row["draftPostId"]: row["reason"] for row in gap["validatedButNotScheduleSafe"]}
+        reasons = {
+            row["draftPostId"]: row["reason"]
+            for row in gap["validatedButNotScheduleSafe"]
+        }
         assert reasons == {
             "post_no_caption": "missing_instagram_post_caption",
             "post_cooldown": "same_variant_family_within_14_days",
@@ -16183,10 +20114,22 @@ def test_creator_os_daily_plan_includes_draft_inventory_gap(tmp_path: Path):
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_1", "username": "safe", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            ]),
-            schedule_plan={"schema": "threadsdashboard.campaign_schedule_plan.v1", "items": []},
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_1",
+                        "username": "safe",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                ]
+            ),
+            schedule_plan={
+                "schema": "threadsdashboard.campaign_schedule_plan.v1",
+                "items": [],
+            },
         )
 
         gap = plan["creators"][0]["draftInventoryGap"]
@@ -16200,10 +20143,15 @@ def test_creator_os_daily_plan_includes_draft_inventory_gap(tmp_path: Path):
 
 def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
     schedule_path = tmp_path / "schedule_plan.json"
-    schedule_path.write_text(json.dumps({
-        "schema": "threadsdashboard.campaign_schedule_plan.v1",
-        "items": [_draft_item("post_cli", "ig_cli", instagram_post_caption="")],
-    }), encoding="utf-8")
+    schedule_path.write_text(
+        json.dumps(
+            {
+                "schema": "threadsdashboard.campaign_schedule_plan.v1",
+                "items": [_draft_item("post_cli", "ig_cli", instagram_post_caption="")],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -16217,7 +20165,11 @@ def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
             str(schedule_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -16225,7 +20177,10 @@ def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
 
     payload = json.loads(result.stdout)
     assert payload["schema"] == "creator_os.draft_inventory_gap.v1"
-    assert payload["validatedButNotScheduleSafe"][0]["reason"] == "missing_instagram_post_caption"
+    assert (
+        payload["validatedButNotScheduleSafe"][0]["reason"]
+        == "missing_instagram_post_caption"
+    )
     assert payload["wouldWrite"] is False
 
 
@@ -16233,15 +20188,41 @@ def test_creator_os_daily_plan_counts_blocked_account_breakdown(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_safe", "username": "safe", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_recent", "username": "recent", "creator": "Stacey", "bucket": "blocked_recent_failure", "safeToSchedule": False, "needsPostToday": False},
-            {"accountId": "ig_reauth", "username": "reauth", "creator": "Stacey", "bucket": "blocked_reauth", "safeToSchedule": False, "needsPostToday": False, "blockingReason": "needs_reauth"},
+            {
+                "accountId": "ig_safe",
+                "username": "safe",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_recent",
+                "username": "recent",
+                "creator": "Stacey",
+                "bucket": "blocked_recent_failure",
+                "safeToSchedule": False,
+                "needsPostToday": False,
+            },
+            {
+                "accountId": "ig_reauth",
+                "username": "reauth",
+                "creator": "Stacey",
+                "bucket": "blocked_reauth",
+                "safeToSchedule": False,
+                "needsPostToday": False,
+                "blockingReason": "needs_reauth",
+            },
         ]
 
         plan = cf.creator_os_daily_plan(
             creators=["Stacey"],
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 1, "items": [_draft_item("post_1", "ig_safe")]},
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 1,
+                "items": [_draft_item("post_1", "ig_safe")],
+            },
         )
 
         stacey = plan["creators"][0]
@@ -16261,8 +20242,22 @@ def test_creator_os_execution_readiness_blocks_when_inventory_is_zero(tmp_path: 
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_2", "username": "stacey_two", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_2",
+                "username": "stacey_two",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
         before = cf.conn.total_changes
 
@@ -16270,8 +20265,21 @@ def test_creator_os_execution_readiness_blocks_when_inventory_is_zero(tmp_path: 
             creator="Stacey",
             requested_count=2,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 2, "status": "blocked", "blockingReason": "insufficient_validated_drafts", "validatedDraftsAvailable": 0, "items": []},
-            time_plan={"creator": "Stacey", "requestedCount": 2, "status": "blocked", "blockingReason": "insufficient_validated_drafts", "items": []},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 2,
+                "status": "blocked",
+                "blockingReason": "insufficient_validated_drafts",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 2,
+                "status": "blocked",
+                "blockingReason": "insufficient_validated_drafts",
+                "items": [],
+            },
         )
 
         assert cf.conn.total_changes == before
@@ -16286,22 +20294,48 @@ def test_creator_os_execution_readiness_blocks_when_inventory_is_zero(tmp_path: 
         cf.close()
 
 
-def test_decision_ledger_preview_simulates_manager_decisions_without_writing(tmp_path: Path):
+def test_decision_ledger_preview_simulates_manager_decisions_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story_need", platform="instagram", external_id="ig_story_need", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_story_need",
+            platform="instagram",
+            external_id="ig_story_need",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
         cf.conn.commit()
         before = cf.conn.total_changes
 
         preview = cf.decision_ledger_preview(
             creator="Stacey",
             date="2026-06-06",
-            threadsdash_report=_manager_report_fixture(accounts=[
-                {"accountId": "ig_story_need", "username": "stacey_story_need", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
-            ]),
-            schedule_plan={"creator": "Stacey", "validatedDraftsAvailable": 0, "items": []},
+            threadsdash_report=_manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_story_need",
+                        "username": "stacey_story_need",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    }
+                ]
+            ),
+            schedule_plan={
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
             generated_at="2026-06-06T12:00:00+00:00",
         )
 
@@ -16309,46 +20343,96 @@ def test_decision_ledger_preview_simulates_manager_decisions_without_writing(tmp
         assert preview["schema"] == "creator_os.decision_ledger_preview.v1"
         assert preview["wouldWrite"] is False
         by_type = {entry["decisionType"]: entry for entry in preview["decisions"]}
-        assert by_type["inventory_shortfall"]["reason"] == "insufficient_schedule_safe_drafts"
+        assert (
+            by_type["inventory_shortfall"]["reason"]
+            == "insufficient_schedule_safe_drafts"
+        )
         assert by_type["inventory_shortfall"]["inventoryShortfall"] == 1
         assert by_type["account_needs_story"]["accountId"] == account["id"]
-        assert by_type["account_needs_story"]["sourceSystem"] == "account_content_requirements"
-        assert by_type["story_intent_recommended"]["storyIntent"] in {"snapchat_promo", "lifestyle", "reel_teaser", "casual_selfie"}
-        assert all(entry["timestamp"] == "2026-06-06T12:00:00+00:00" for entry in preview["decisions"])
+        assert (
+            by_type["account_needs_story"]["sourceSystem"]
+            == "account_content_requirements"
+        )
+        assert by_type["story_intent_recommended"]["storyIntent"] in {
+            "snapchat_promo",
+            "lifestyle",
+            "reel_teaser",
+            "casual_selfie",
+        }
+        assert all(
+            entry["timestamp"] == "2026-06-06T12:00:00+00:00"
+            for entry in preview["decisions"]
+        )
         assert all(entry["wouldWrite"] is False for entry in preview["decisions"])
         assert table_count(cf, "manager_decisions") == 0
     finally:
         cf.close()
 
 
-def test_decision_ledger_report_filters_by_creator_account_surface_and_type(tmp_path: Path):
+def test_decision_ledger_report_filters_by_creator_account_surface_and_type(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story_need", platform="instagram", external_id="ig_story_need", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_story_need",
+            platform="instagram",
+            external_id="ig_story_need",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
         cf.conn.commit()
         source = {
             "creator": "Stacey",
             "date": "2026-06-06",
-            "threadsdash_report": _manager_report_fixture(accounts=[
-                {"accountId": "ig_story_need", "username": "stacey_story_need", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
-            ]),
-            "schedule_plan": {"creator": "Stacey", "validatedDraftsAvailable": 0, "items": []},
+            "threadsdash_report": _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_story_need",
+                        "username": "stacey_story_need",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    }
+                ]
+            ),
+            "schedule_plan": {
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
             "generated_at": "2026-06-06T12:00:00+00:00",
         }
 
         by_creator = cf.decision_ledger_by_creator(**source)
         by_account = cf.decision_ledger_by_account(account_id=account["id"], **source)
         by_surface = cf.decision_ledger_by_surface(surface="story", **source)
-        by_type = cf.decision_ledger_by_decision_type(decision_type="account_needs_story", **source)
+        by_type = cf.decision_ledger_by_decision_type(
+            decision_type="account_needs_story", **source
+        )
         summary = cf.decision_ledger_summary(**source)
 
         assert by_creator["creator"] == "Stacey"
         assert by_creator["decisionCount"] >= 3
-        assert {entry["accountId"] for entry in by_account["decisions"]} == {account["id"]}
-        assert {entry["surface"] for entry in by_surface["decisions"] if entry.get("surface")} == {"story"}
-        assert {entry["decisionType"] for entry in by_type["decisions"]} == {"account_needs_story"}
+        assert {entry["accountId"] for entry in by_account["decisions"]} == {
+            account["id"]
+        }
+        assert {
+            entry["surface"]
+            for entry in by_surface["decisions"]
+            if entry.get("surface")
+        } == {"story"}
+        assert {entry["decisionType"] for entry in by_type["decisions"]} == {
+            "account_needs_story"
+        }
         assert summary["decisionCountsByType"]["account_needs_story"] == 1
         assert summary["decisionCountsBySurface"]["story"] >= 1
         assert summary["wouldWrite"] is False
@@ -16357,7 +20441,9 @@ def test_decision_ledger_report_filters_by_creator_account_surface_and_type(tmp_
         cf.close()
 
 
-def test_decision_ledger_preview_covers_winners_parent_selection_and_variant_rejections(tmp_path: Path):
+def test_decision_ledger_preview_covers_winners_parent_selection_and_variant_rejections(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -16394,7 +20480,11 @@ def test_decision_ledger_preview_covers_winners_parent_selection_and_variant_rej
             winner_expansion_plan={
                 "schema": "campaign_factory.winner_expansion_plan.v1",
                 "parentAssetId": "asset_parent_1",
-                "rejectedExistingVariants": {"lowQuality": 1, "duplicateSiblings": 2, "notUploadReady": 1},
+                "rejectedExistingVariants": {
+                    "lowQuality": 1,
+                    "duplicateSiblings": 2,
+                    "notUploadReady": 1,
+                },
                 "wouldWrite": False,
             },
             generated_at="2026-06-06T12:00:00+00:00",
@@ -16404,8 +20494,16 @@ def test_decision_ledger_preview_covers_winners_parent_selection_and_variant_rej
         by_type = {entry["decisionType"]: entry for entry in preview["decisions"]}
         assert by_type["winner_selected"]["winnerReason"] == "high_views"
         assert by_type["parent_selected"]["parentAssetId"] == "asset_parent_1"
-        rejection_reasons = {entry["reason"] for entry in preview["decisions"] if entry["decisionType"] == "variant_rejected"}
-        assert {"low_quality", "duplicate_sibling", "not_upload_ready"} <= rejection_reasons
+        rejection_reasons = {
+            entry["reason"]
+            for entry in preview["decisions"]
+            if entry["decisionType"] == "variant_rejected"
+        }
+        assert {
+            "low_quality",
+            "duplicate_sibling",
+            "not_upload_ready",
+        } <= rejection_reasons
         assert preview["wouldWrite"] is False
     finally:
         cf.close()
@@ -16460,7 +20558,16 @@ def _insert_creative_kb_snapshot(
         "metric_contract": {
             "version": "instagram_metrics_contract_v1",
             "surface": content_surface,
-            "metricNames": ["views", "reach", "likes", "comments", "shares", "saves", "followers", "profile_visits"],
+            "metricNames": [
+                "views",
+                "reach",
+                "likes",
+                "comments",
+                "shares",
+                "saves",
+                "followers",
+                "profile_visits",
+            ],
         },
     }
     context = {
@@ -16517,13 +20624,17 @@ def _insert_creative_kb_snapshot(
     )
 
 
-def test_creative_knowledge_base_reports_insufficient_data_without_writing(tmp_path: Path):
+def test_creative_knowledge_base_reports_insufficient_data_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_kb", "stacey")
         before = cf.conn.total_changes
 
-        report = cf.creative_knowledge_base(creator="Stacey", campaign_slug=campaign["slug"])
+        report = cf.creative_knowledge_base(
+            creator="Stacey", campaign_slug=campaign["slug"]
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "campaign_factory.creative_knowledge_base.v1"
@@ -16536,7 +20647,9 @@ def test_creative_knowledge_base_reports_insufficient_data_without_writing(tmp_p
         cf.close()
 
 
-def test_creative_knowledge_base_aggregates_dimensions_and_weighted_scores(tmp_path: Path):
+def test_creative_knowledge_base_aggregates_dimensions_and_weighted_scores(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_kb", "stacey")
@@ -16627,36 +20740,70 @@ def test_creative_knowledge_base_aggregates_dimensions_and_weighted_scores(tmp_p
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        report = cf.creative_knowledge_base(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        report = cf.creative_knowledge_base(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert cf.conn.total_changes == before
         assert report["insufficientData"] is False
         assert report["wouldWrite"] is False
-        assert report["metricsContract"]["visibleMetricFields"] == ["views", "reach", "likes", "comments", "shares", "saves", "followers", "profile_visits"]
+        assert report["metricsContract"]["visibleMetricFields"] == [
+            "views",
+            "reach",
+            "likes",
+            "comments",
+            "shares",
+            "saves",
+            "followers",
+            "profile_visits",
+        ]
         assert report["topCaptionAngles"][0]["key"] == "tease"
         assert report["topCaptionAngles"][0]["sampleSize"] == 2
         assert report["topCaptionAngles"][0]["avgViews"] == 750
         assert report["topCaptionAngles"][0]["score"] == 540.5
         assert report["topAudioIds"][0]["key"] == "audio_12"
         assert report["topSurfaces"][0]["key"] == "reel"
-        assert {item["key"] for item in report["topSurfaces"]} == {"reel", "story", "feed_single"}
+        assert {item["key"] for item in report["topSurfaces"]} == {
+            "reel",
+            "story",
+            "feed_single",
+        }
         assert report["topStoryIntents"][0]["key"] == "snapchat_promo"
         assert report["topAccountTiers"][0]["key"] == "growth"
         assert report["topPostingWindows"][0]["key"] in {"6pm", "9pm"}
         assert report["topCaptionVersions"][0]["key"] == "cver_1"
 
-        caption_report = cf.creative_caption_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        audio_report = cf.creative_audio_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        surface_report = cf.creative_surface_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        tier_report = cf.creative_account_tier_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        window_report = cf.creative_window_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        caption_report = cf.creative_caption_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        audio_report = cf.creative_audio_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        surface_report = cf.creative_surface_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        tier_report = cf.creative_account_tier_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        window_report = cf.creative_window_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert caption_report["captionAngles"][0]["key"] == "tease"
         assert audio_report["audioIds"][0]["key"] == "audio_12"
         assert surface_report["surfaces"]
         assert tier_report["accountTiers"]
         assert window_report["postingWindows"]
-        assert all(item["wouldWrite"] is False for item in [caption_report, audio_report, surface_report, tier_report, window_report])
+        assert all(
+            item["wouldWrite"] is False
+            for item in [
+                caption_report,
+                audio_report,
+                surface_report,
+                tier_report,
+                window_report,
+            ]
+        )
     finally:
         cf.close()
 
@@ -16711,7 +20858,9 @@ def test_creative_knowledge_base_cli_outputs_read_only_report(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_creative_performance_analysis_reports_insufficient_data_without_writing(tmp_path: Path):
+def test_creative_performance_analysis_reports_insufficient_data_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_perf", "stacey")
@@ -16730,7 +20879,9 @@ def test_creative_performance_analysis_reports_insufficient_data_without_writing
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        report = cf.creative_performance_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        report = cf.creative_performance_analysis(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "campaign_factory.creative_performance_analysis.v1"
@@ -16743,7 +20894,9 @@ def test_creative_performance_analysis_reports_insufficient_data_without_writing
         cf.close()
 
 
-def test_creative_performance_analysis_baseline_and_recommendations_are_explainable(tmp_path: Path):
+def test_creative_performance_analysis_baseline_and_recommendations_are_explainable(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_perf", "stacey")
@@ -16786,26 +20939,49 @@ def test_creative_performance_analysis_baseline_and_recommendations_are_explaina
             )
         cf.conn.commit()
 
-        report = cf.creative_performance_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        summary = cf.creator_learning_summary(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        recommendations = cf.next_content_recommendations(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        report = cf.creative_performance_analysis(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        summary = cf.creator_learning_summary(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        recommendations = cf.next_content_recommendations(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert report["insufficientData"] is False
         assert report["confidence"] == "medium"
         assert report["creatorBaseline"]["postCount"] == 10
         assert report["creatorBaseline"]["avgViews"] == 670
         assert report["bestPerformingPatterns"][0]["key"] == "mirror_selfie"
-        assert report["bestPerformingPatterns"][0]["comparison"] == "above_creator_baseline"
+        assert (
+            report["bestPerformingPatterns"][0]["comparison"]
+            == "above_creator_baseline"
+        )
         assert "above creator baseline" in report["bestPerformingPatterns"][0]["reason"]
-        assert any(item["key"] == "generic_feed" for item in report["underperformingPatterns"])
-        assert any(item["recommendation"] == "make_more_variants" for item in report["recommendedMoreOf"])
-        assert any(item["recommendation"] == "avoid_or_rework_pattern" for item in report["recommendedLessOf"])
-        assert all(item["reason"] for item in report["recommendedMoreOf"] + report["recommendedLessOf"])
+        assert any(
+            item["key"] == "generic_feed" for item in report["underperformingPatterns"]
+        )
+        assert any(
+            item["recommendation"] == "make_more_variants"
+            for item in report["recommendedMoreOf"]
+        )
+        assert any(
+            item["recommendation"] == "avoid_or_rework_pattern"
+            for item in report["recommendedLessOf"]
+        )
+        assert all(
+            item["reason"]
+            for item in report["recommendedMoreOf"] + report["recommendedLessOf"]
+        )
         assert summary["confidence"] == "medium"
         assert summary["summary"]
         assert any("mirror_selfie" in line for line in summary["summary"])
         assert recommendations["recommendations"][0]["surface"] == "reel"
-        assert recommendations["recommendations"][0]["parentAssetId"] == "asset_good_parent"
+        assert (
+            recommendations["recommendations"][0]["parentAssetId"]
+            == "asset_good_parent"
+        )
         assert recommendations["recommendations"][0]["captionAngle"] == "tease"
         assert recommendations["recommendations"][0]["audioId"] == "audio_12"
         assert recommendations["recommendations"][0]["confidence"] == "medium"
@@ -16816,7 +20992,9 @@ def test_creative_performance_analysis_baseline_and_recommendations_are_explaina
         cf.close()
 
 
-def test_creative_performance_analysis_confidence_thresholds_and_story_recommendation(tmp_path: Path):
+def test_creative_performance_analysis_confidence_thresholds_and_story_recommendation(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_perf_confidence", "stacey")
@@ -16858,12 +21036,23 @@ def test_creative_performance_analysis_confidence_thresholds_and_story_recommend
             )
         cf.conn.commit()
 
-        report = cf.creative_performance_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        recommendations = cf.next_content_recommendations(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        report = cf.creative_performance_analysis(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        recommendations = cf.next_content_recommendations(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert report["confidence"] == "high"
-        assert any(item["dimension"] == "storyIntent" and item["key"] == "snapchat_promo" for item in report["bestPerformingPatterns"])
-        story_recs = [item for item in recommendations["recommendations"] if item["surface"] == "story"]
+        assert any(
+            item["dimension"] == "storyIntent" and item["key"] == "snapchat_promo"
+            for item in report["bestPerformingPatterns"]
+        )
+        story_recs = [
+            item
+            for item in recommendations["recommendations"]
+            if item["surface"] == "story"
+        ]
         assert story_recs
         assert story_recs[0]["recommendation"] == "make_more_snapchat_promo_stories"
         assert "above creator baseline" in story_recs[0]["reason"]
@@ -16912,14 +21101,29 @@ def test_learning_engine_recommendations_include_explainability_fields(tmp_path:
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        analysis = cf.creative_performance_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        next_content = cf.next_content_recommendations(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        daily = cf.creator_os_daily_plan(creators=["Stacey"], threadsdash_report=_manager_report_fixture(accounts=[]))
-        request = cf.recommended_inventory_request_plan(creator="Stacey", target_count=5, daily_plan=daily)
-        audit = cf.recommendation_quality_audit(creator="Stacey", campaign_slug=campaign["slug"])
+        analysis = cf.creative_performance_analysis(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        next_content = cf.next_content_recommendations(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        daily = cf.creator_os_daily_plan(
+            creators=["Stacey"], threadsdash_report=_manager_report_fixture(accounts=[])
+        )
+        request = cf.recommended_inventory_request_plan(
+            creator="Stacey", target_count=5, daily_plan=daily
+        )
+        audit = cf.recommendation_quality_audit(
+            creator="Stacey", campaign_slug=campaign["slug"]
+        )
 
         assert cf.conn.total_changes == before
-        for item in analysis["recommendedMoreOf"] + analysis["recommendedLessOf"] + next_content["recommendations"] + request["requestBatches"]:
+        for item in (
+            analysis["recommendedMoreOf"]
+            + analysis["recommendedLessOf"]
+            + next_content["recommendations"]
+            + request["requestBatches"]
+        ):
             explainability = item["explainability"]
             assert explainability["reason"]
             assert isinstance(explainability["confidence"], int)
@@ -16935,18 +21139,23 @@ def test_learning_engine_recommendations_include_explainability_fields(tmp_path:
         cf.close()
 
 
-def test_learning_confidence_fatigue_and_surface_comparison_reports_are_read_only(tmp_path: Path):
+def test_learning_confidence_fatigue_and_surface_comparison_reports_are_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_learning_reports", "stacey")
-        for idx, (surface, views, reach) in enumerate([
-            ("reel", 1000, 900),
-            ("story", 850, 760),
-            ("feed_single", 500, 450),
-            ("feed_carousel", 650, 580),
-            ("reel", 600, 520),
-            ("reel", 300, 260),
-        ], start=1):
+        for idx, (surface, views, reach) in enumerate(
+            [
+                ("reel", 1000, 900),
+                ("story", 850, 760),
+                ("feed_single", 500, 450),
+                ("feed_carousel", 650, 580),
+                ("reel", 600, 520),
+                ("reel", 300, 260),
+            ],
+            start=1,
+        ):
             _insert_creative_kb_snapshot(
                 cf,
                 snapshot_id=f"learning_reports_{idx}",
@@ -16966,26 +21175,55 @@ def test_learning_confidence_fatigue_and_surface_comparison_reports_are_read_onl
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        confidence = cf.creative_learning_confidence_model(creator="Stacey", campaign_slug=campaign["slug"])
-        fatigue = cf.creative_fatigue_report(creator="Stacey", campaign_slug=campaign["slug"])
-        comparison = cf.creative_surface_comparison_report(creator="Stacey", campaign_slug=campaign["slug"])
+        confidence = cf.creative_learning_confidence_model(
+            creator="Stacey", campaign_slug=campaign["slug"]
+        )
+        fatigue = cf.creative_fatigue_report(
+            creator="Stacey", campaign_slug=campaign["slug"]
+        )
+        comparison = cf.creative_surface_comparison_report(
+            creator="Stacey", campaign_slug=campaign["slug"]
+        )
 
         assert cf.conn.total_changes == before
-        assert confidence["schema"] == "campaign_factory.creative_learning_confidence_model.v1"
+        assert (
+            confidence["schema"]
+            == "campaign_factory.creative_learning_confidence_model.v1"
+        )
         assert confidence["confidenceModel"]["highConfidenceSignals"]
-        assert confidence["currentConfidence"]["classification"] in {"low_confidence", "medium_confidence", "high_confidence"}
+        assert confidence["currentConfidence"]["classification"] in {
+            "low_confidence",
+            "medium_confidence",
+            "high_confidence",
+        }
         assert fatigue["schema"] == "campaign_factory.creative_fatigue_report.v1"
-        assert any(item["fatigueType"] == "concept_fatigue" for item in fatigue["fatigueSignals"])
-        assert comparison["schema"] == "campaign_factory.creative_surface_comparison_report.v1"
+        assert any(
+            item["fatigueType"] == "concept_fatigue"
+            for item in fatigue["fatigueSignals"]
+        )
+        assert (
+            comparison["schema"]
+            == "campaign_factory.creative_surface_comparison_report.v1"
+        )
         concept = comparison["concepts"][0]
         assert concept["conceptId"] == "mirror_selfie"
-        assert {surface["surface"] for surface in concept["surfaces"]} >= {"reel", "story", "feed_single", "feed_carousel"}
-        assert all(report["wouldWrite"] is False for report in [confidence, fatigue, comparison])
+        assert {surface["surface"] for surface in concept["surfaces"]} >= {
+            "reel",
+            "story",
+            "feed_single",
+            "feed_carousel",
+        }
+        assert all(
+            report["wouldWrite"] is False
+            for report in [confidence, fatigue, comparison]
+        )
     finally:
         cf.close()
 
 
-def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_writing(tmp_path: Path):
+def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_tribev2_analysis", "stacey")
@@ -17003,7 +21241,9 @@ def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_wr
                 post_id=f"post_{asset_id}",
                 campaign_asset_id=asset_id,
                 content_surface="reel",
-                concept_id="mirror_selfie" if asset_id.startswith("high") else "generic_reel",
+                concept_id="mirror_selfie"
+                if asset_id.startswith("high")
+                else "generic_reel",
                 published_at="2026-06-06T18:00:00+00:00",
                 views=views,
                 reach=reach,
@@ -17032,7 +21272,9 @@ def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_wr
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        report = cf.tribev2_reel_analysis(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
+        report = cf.tribev2_reel_analysis(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "campaign_factory.tribev2_reel_analysis.v1"
@@ -17047,12 +21289,21 @@ def test_tribev2_reel_analysis_correlates_offline_scores_with_metrics_without_wr
         assert report["sampleSize"] == 4
         assert report["insufficientData"] is False
         assert report["correlations"]["meanAbsActivation"]["views"] > 0.9
-        assert report["topTribeV2Quartile"]["avgViews"] > report["bottomTribeV2Quartile"]["avgViews"]
+        assert (
+            report["topTribeV2Quartile"]["avgViews"]
+            > report["bottomTribeV2Quartile"]["avgViews"]
+        )
         assert report["strongestPredictiveSignal"]
         assert report["weakestPredictiveSignal"]
-        assert report["recommendedRole"] in {"research_only", "creative_knowledge_feature"}
+        assert report["recommendedRole"] in {
+            "research_only",
+            "creative_knowledge_feature",
+        }
         assert report["shouldRemainAdvisoryOnly"] is True
-        assert report["interpretation"]["recommendedPipelineUse"] == "offline_research_sidecar"
+        assert (
+            report["interpretation"]["recommendedPipelineUse"]
+            == "offline_research_sidecar"
+        )
         assert report["wouldWrite"] is False
     finally:
         cf.close()
@@ -17085,7 +21336,14 @@ def test_tribev2_reel_analysis_cli_outputs_read_only_report(tmp_path: Path):
                 VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
                  ?, ?, ?, 5, '[5, 20484]', '{}', '2026-06-10T17:00:00+00:00')
                 """,
-                (f"tribe_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2),
+                (
+                    f"tribe_cli_{idx}",
+                    asset_id,
+                    campaign["id"],
+                    mean_abs,
+                    mean_abs * 8,
+                    mean_abs / 2,
+                ),
             )
         cf.conn.commit()
     finally:
@@ -17121,7 +21379,9 @@ def test_tribev2_reel_analysis_cli_outputs_read_only_report(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_tribev2_reel_review_ranks_scores_and_resolves_preview_paths_without_writing(tmp_path: Path):
+def test_tribev2_reel_review_ranks_scores_and_resolves_preview_paths_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", "Stacey")
@@ -17209,7 +21469,9 @@ def test_tribev2_reel_review_ranks_scores_and_resolves_preview_paths_without_wri
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        report = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=3)
+        report = cf.tribev2_reel_review(
+            creator="Stacey", campaign_slug=campaign["slug"], limit=3
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "campaign_factory.tribev2_reel_review.v1"
@@ -17229,7 +21491,10 @@ def test_tribev2_reel_review_ranks_scores_and_resolves_preview_paths_without_wri
         assert report["items"][0]["previewPath"].endswith("asset_review_high.mp4")
         assert report["items"][2]["previewPath"] == ""
         assert report["items"][2]["previewAvailable"] is False
-        assert all(item["advisoryOnly"] is True and item["productionGate"] is False for item in report["items"])
+        assert all(
+            item["advisoryOnly"] is True and item["productionGate"] is False
+            for item in report["items"]
+        )
     finally:
         cf.close()
 
@@ -17260,7 +21525,15 @@ def test_tribev2_reel_review_cli_outputs_advisory_only_payload(tmp_path: Path):
                 VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
                  ?, ?, ?, 5, '[5, 20484]', '{}', ?)
                 """,
-                (f"tribe_review_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+                (
+                    f"tribe_review_cli_{idx}",
+                    asset_id,
+                    campaign["id"],
+                    mean_abs,
+                    mean_abs * 8,
+                    mean_abs / 2,
+                    now,
+                ),
             )
         cf.conn.commit()
     finally:
@@ -17303,7 +21576,10 @@ def test_tribev2_reel_review_blind_mode_hides_metrics_but_keeps_ranking(tmp_path
     try:
         campaign = cf.upsert_campaign("stacey_tribev2_blind", "stacey")
         now = "2026-06-10T17:00:00+00:00"
-        for asset_id, mean_abs, views in [("asset_blind_low", 0.04, 100), ("asset_blind_high", 0.09, 900)]:
+        for asset_id, mean_abs, views in [
+            ("asset_blind_low", 0.04, 100),
+            ("asset_blind_high", 0.09, 900),
+        ]:
             _insert_creative_kb_snapshot(
                 cf,
                 snapshot_id=f"perf_{asset_id}",
@@ -17325,17 +21601,35 @@ def test_tribev2_reel_review_blind_mode_hides_metrics_but_keeps_ranking(tmp_path
                 VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
                  ?, ?, ?, 5, '[5, 20484]', '{}', ?)
                 """,
-                (f"tribe_{asset_id}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+                (
+                    f"tribe_{asset_id}",
+                    asset_id,
+                    campaign["id"],
+                    mean_abs,
+                    mean_abs * 8,
+                    mean_abs / 2,
+                    now,
+                ),
             )
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        blind = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=2, blind_mode=True)
-        normal = cf.tribev2_reel_review(creator="Stacey", campaign_slug=campaign["slug"], limit=2)
+        blind = cf.tribev2_reel_review(
+            creator="Stacey", campaign_slug=campaign["slug"], limit=2, blind_mode=True
+        )
+        normal = cf.tribev2_reel_review(
+            creator="Stacey", campaign_slug=campaign["slug"], limit=2
+        )
 
         assert cf.conn.total_changes == before
-        assert [item["renderedAssetId"] for item in blind["items"]] == ["asset_blind_high", "asset_blind_low"]
-        assert [item["renderedAssetId"] for item in normal["items"]] == ["asset_blind_high", "asset_blind_low"]
+        assert [item["renderedAssetId"] for item in blind["items"]] == [
+            "asset_blind_high",
+            "asset_blind_low",
+        ]
+        assert [item["renderedAssetId"] for item in normal["items"]] == [
+            "asset_blind_high",
+            "asset_blind_low",
+        ]
         assert blind["blindMode"] is True
         assert blind["showMetrics"] is False
         assert blind["showTribeScore"] is True
@@ -17348,7 +21642,9 @@ def test_tribev2_reel_review_blind_mode_hides_metrics_but_keeps_ranking(tmp_path
         cf.close()
 
 
-def test_tribev2_holdout_pilot_review_buckets_top_middle_bottom_without_writing(tmp_path: Path):
+def test_tribev2_holdout_pilot_review_buckets_top_middle_bottom_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_tribev2_holdout", "stacey")
@@ -17377,12 +21673,22 @@ def test_tribev2_holdout_pilot_review_buckets_top_middle_bottom_without_writing(
                 VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
                  ?, ?, ?, 5, '[5, 20484]', '{}', ?)
                 """,
-                (f"tribe_holdout_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+                (
+                    f"tribe_holdout_{idx}",
+                    asset_id,
+                    campaign["id"],
+                    mean_abs,
+                    mean_abs * 8,
+                    mean_abs / 2,
+                    now,
+                ),
             )
         cf.conn.commit()
         before = cf.conn.total_changes
 
-        report = cf.tribev2_holdout_pilot_review(creator="Stacey", campaign_slug=campaign["slug"], limit=3)
+        report = cf.tribev2_holdout_pilot_review(
+            creator="Stacey", campaign_slug=campaign["slug"], limit=3
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "campaign_factory.tribev2_holdout_pilot_review.v1"
@@ -17391,9 +21697,15 @@ def test_tribev2_holdout_pilot_review_buckets_top_middle_bottom_without_writing(
         assert report["buckets"]["top20"]["sampleSize"] == 2
         assert report["buckets"]["middle20"]["sampleSize"] == 2
         assert report["buckets"]["bottom20"]["sampleSize"] == 2
-        assert [item["renderedAssetId"] for item in report["buckets"]["top20"]["items"]] == ["asset_holdout_0", "asset_holdout_1"]
-        assert [item["renderedAssetId"] for item in report["buckets"]["middle20"]["items"]] == ["asset_holdout_4", "asset_holdout_5"]
-        assert [item["renderedAssetId"] for item in report["buckets"]["bottom20"]["items"]] == ["asset_holdout_9", "asset_holdout_8"]
+        assert [
+            item["renderedAssetId"] for item in report["buckets"]["top20"]["items"]
+        ] == ["asset_holdout_0", "asset_holdout_1"]
+        assert [
+            item["renderedAssetId"] for item in report["buckets"]["middle20"]["items"]
+        ] == ["asset_holdout_4", "asset_holdout_5"]
+        assert [
+            item["renderedAssetId"] for item in report["buckets"]["bottom20"]["items"]
+        ] == ["asset_holdout_9", "asset_holdout_8"]
         assert report["buckets"]["top20"]["avgTribeScore"]["meanAbsActivation"] == 0.095
         assert report["buckets"]["top20"]["avgMetrics"]["views"] == 975
         assert report["advisoryOnly"] is True
@@ -17429,7 +21741,15 @@ def test_tribev2_holdout_pilot_review_cli_outputs_advisory_payload(tmp_path: Pat
                 VALUES (?, ?, ?, 'facebook/tribev2', 'audio_video_cpu',
                  ?, ?, ?, 5, '[5, 20484]', '{}', ?)
                 """,
-                (f"tribe_holdout_cli_{idx}", asset_id, campaign["id"], mean_abs, mean_abs * 8, mean_abs / 2, now),
+                (
+                    f"tribe_holdout_cli_{idx}",
+                    asset_id,
+                    campaign["id"],
+                    mean_abs,
+                    mean_abs * 8,
+                    mean_abs / 2,
+                    now,
+                ),
             )
         cf.conn.commit()
     finally:
@@ -17464,7 +21784,9 @@ def test_tribev2_holdout_pilot_review_cli_outputs_advisory_payload(tmp_path: Pat
     assert payload["wouldWriteProductionState"] is False
 
 
-def test_phase2_learning_reports_share_creative_knowledge_helper(tmp_path: Path, monkeypatch):
+def test_phase2_learning_reports_share_creative_knowledge_helper(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         campaign = cf.upsert_campaign("stacey_creative_kb_20260606", "stacey")
@@ -17493,9 +21815,15 @@ def test_phase2_learning_reports_share_creative_knowledge_helper(tmp_path: Path,
 
         monkeypatch.setattr(cf, "_build_creative_knowledge_base", tracking_helper)
 
-        kb = cf.creative_knowledge_base(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        caption = cf.creative_caption_report(creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3)
-        winners = cf.winner_registry(creator="Stacey", campaign_slug=campaign["slug"], min_views=1000)
+        kb = cf.creative_knowledge_base(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        caption = cf.creative_caption_report(
+            creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=3
+        )
+        winners = cf.winner_registry(
+            creator="Stacey", campaign_slug=campaign["slug"], min_views=1000
+        )
 
         assert kb["schema"] == "campaign_factory.creative_knowledge_base.v1"
         assert caption["schema"] == "campaign_factory.creative_caption_report.v1"
@@ -17508,10 +21836,19 @@ def test_phase2_learning_reports_share_creative_knowledge_helper(tmp_path: Path,
         cf.close()
 
 
-def test_phase2_surface_and_readiness_reports_share_helpers(tmp_path: Path, monkeypatch):
+def test_phase2_surface_and_readiness_reports_share_helpers(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
-        add_surface_asset_fixture(cf, tmp_path, asset_id="asset_phase2_story", content_surface="story", media_type="image", instagram_post_caption="")
+        add_surface_asset_fixture(
+            cf,
+            tmp_path,
+            asset_id="asset_phase2_story",
+            content_surface="story",
+            media_type="image",
+            instagram_post_caption="",
+        )
         cf.conn.commit()
         inventory_calls = 0
         readiness_calls = 0
@@ -17538,7 +21875,10 @@ def test_phase2_surface_and_readiness_reports_share_helpers(tmp_path: Path, monk
 
         assert inventory["schema"] == "campaign_factory.story_inventory_report.v1"
         assert audit["schema"] == "campaign_factory.multi_surface_inventory_audit.v1"
-        assert readiness["schema"] == "campaign_factory.surface_handoff_readiness_report.v1"
+        assert (
+            readiness["schema"]
+            == "campaign_factory.surface_handoff_readiness_report.v1"
+        )
         assert proof["schema"] == "campaign_factory.surface_draft_proof.v1"
         assert inventory_calls >= 2
         assert readiness_calls >= 2
@@ -17550,12 +21890,25 @@ def test_phase2_surface_and_readiness_reports_share_helpers(tmp_path: Path, monk
         cf.close()
 
 
-def test_phase2_decision_ledger_wrappers_share_query_helper(tmp_path: Path, monkeypatch):
+def test_phase2_decision_ledger_wrappers_share_query_helper(
+    tmp_path: Path, monkeypatch
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_story_need", platform="instagram", external_id="ig_story_need", model_id=model["id"])
-        add_account_requirement_fixture(cf, account_id=account["id"], surface="story", cadence="daily", max_per_day=1)
+        account = cf.upsert_account(
+            "stacey_story_need",
+            platform="instagram",
+            external_id="ig_story_need",
+            model_id=model["id"],
+        )
+        add_account_requirement_fixture(
+            cf,
+            account_id=account["id"],
+            surface="story",
+            cadence="daily",
+            max_per_day=1,
+        )
         cf.conn.commit()
         calls: list[dict[str, Any]] = []
         original = cf.services.decision_ledger.query_decision_ledger
@@ -17564,14 +21917,29 @@ def test_phase2_decision_ledger_wrappers_share_query_helper(tmp_path: Path, monk
             calls.append(dict(kwargs))
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(cf.services.decision_ledger, "query_decision_ledger", tracking_query)
+        monkeypatch.setattr(
+            cf.services.decision_ledger, "query_decision_ledger", tracking_query
+        )
         source = {
             "creator": "Stacey",
             "date": "2026-06-06",
-            "threadsdash_report": _manager_report_fixture(accounts=[
-                {"accountId": "ig_story_need", "username": "stacey_story_need", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
-            ]),
-            "schedule_plan": {"creator": "Stacey", "validatedDraftsAvailable": 0, "items": []},
+            "threadsdash_report": _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_story_need",
+                        "username": "stacey_story_need",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    }
+                ]
+            ),
+            "schedule_plan": {
+                "creator": "Stacey",
+                "validatedDraftsAvailable": 0,
+                "items": [],
+            },
             "generated_at": "2026-06-06T12:00:00+00:00",
         }
 
@@ -17592,12 +21960,28 @@ def test_phase2_decision_ledger_wrappers_share_query_helper(tmp_path: Path, monk
         cf.close()
 
 
-def test_creator_os_execution_readiness_passes_with_safe_accounts_and_drafts(tmp_path: Path):
+def test_creator_os_execution_readiness_passes_with_safe_accounts_and_drafts(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-            {"accountId": "ig_2", "username": "stacey_two", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
+            {
+                "accountId": "ig_2",
+                "username": "stacey_two",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
         items = [
             _draft_item("post_1", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00"),
@@ -17608,8 +21992,19 @@ def test_creator_os_execution_readiness_passes_with_safe_accounts_and_drafts(tmp
             creator="Stacey",
             requested_count=2,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 2, "status": "ready", "validatedDraftsAvailable": 2, "items": items},
-            time_plan={"creator": "Stacey", "requestedCount": 2, "status": "ready", "items": items},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 2,
+                "status": "ready",
+                "validatedDraftsAvailable": 2,
+                "items": items,
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 2,
+                "status": "ready",
+                "items": items,
+            },
         )
 
         assert result["managerDecision"] == "ready_to_schedule"
@@ -17637,7 +22032,14 @@ def test_creator_os_execution_readiness_blocks_unsafe_draft_contracts(tmp_path: 
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": f"ig_{idx}", "username": f"stacey_{idx}", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True}
+            {
+                "accountId": f"ig_{idx}",
+                "username": f"stacey_{idx}",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            }
             for idx in range(1, 6)
         ]
         items = [
@@ -17652,8 +22054,19 @@ def test_creator_os_execution_readiness_blocks_unsafe_draft_contracts(tmp_path: 
             creator="Stacey",
             requested_count=5,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 5, "status": "ready", "validatedDraftsAvailable": 5, "items": items},
-            time_plan={"creator": "Stacey", "requestedCount": 5, "status": "ready", "items": items},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 5,
+                "status": "ready",
+                "validatedDraftsAvailable": 5,
+                "items": items,
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 5,
+                "status": "ready",
+                "items": items,
+            },
         )
 
         assert result["managerDecision"] == "needs_inventory"
@@ -17667,7 +22080,10 @@ def test_creator_os_execution_readiness_blocks_unsafe_draft_contracts(tmp_path: 
         assert "publishability_failed_draft_present" in result["blockers"]
         details = {item["code"]: item for item in result["blockerDetails"]}
         assert details["missing_handoff_manifest"]["category"] == "draft_contract"
-        assert details["missing_handoff_manifest"]["nextAction"] == "create_or_export_schedule_safe_drafts"
+        assert (
+            details["missing_handoff_manifest"]["nextAction"]
+            == "create_or_export_schedule_safe_drafts"
+        )
         assert "handoff" in details["missing_handoff_manifest"]["explanation"]
         assert details["insufficient_schedule_safe_drafts"]["observed"] == 0
         assert details["insufficient_schedule_safe_drafts"]["required"] == 5
@@ -17679,9 +22095,18 @@ def test_creator_os_execution_readiness_blocks_unverified_native_audio(tmp_path:
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        item = _draft_item("post_audio_selected", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item = _draft_item(
+            "post_audio_selected", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00"
+        )
         item["audioStatus"] = "selected"
         item["nativeAudioProofStatus"] = "missing"
 
@@ -17689,8 +22114,19 @@ def test_creator_os_execution_readiness_blocks_unverified_native_audio(tmp_path:
             creator="Stacey",
             requested_count=1,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
-            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "validatedDraftsAvailable": 1,
+                "items": [item],
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [item],
+            },
         )
 
         assert result["executionReady"] is False
@@ -17698,7 +22134,10 @@ def test_creator_os_execution_readiness_blocks_unverified_native_audio(tmp_path:
         assert "native_audio_proof_missing" in result["blockers"]
         details = {item["code"]: item for item in result["blockerDetails"]}
         assert details["native_audio_proof_missing"]["category"] == "audio"
-        assert details["native_audio_proof_missing"]["nextAction"] == "select_or_verify_native_audio"
+        assert (
+            details["native_audio_proof_missing"]["nextAction"]
+            == "select_or_verify_native_audio"
+        )
     finally:
         cf.close()
 
@@ -17707,17 +22146,40 @@ def test_creator_os_execution_readiness_blocks_failed_caption_quality(tmp_path: 
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        item = _draft_item("post_caption_quality", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
-        item["instagramPostCaptionQuality"] = {"passed": False, "reasons": ["instagram_post_caption_too_long"]}
+        item = _draft_item(
+            "post_caption_quality", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00"
+        )
+        item["instagramPostCaptionQuality"] = {
+            "passed": False,
+            "reasons": ["instagram_post_caption_too_long"],
+        }
 
         result = cf.creator_os_execution_readiness(
             creator="Stacey",
             requested_count=1,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
-            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "validatedDraftsAvailable": 1,
+                "items": [item],
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [item],
+            },
         )
 
         assert result["executionReady"] is False
@@ -17725,26 +22187,51 @@ def test_creator_os_execution_readiness_blocks_failed_caption_quality(tmp_path: 
         assert "instagram_post_caption_quality_failed" in result["blockers"]
         details = {item["code"]: item for item in result["blockerDetails"]}
         assert details["instagram_post_caption_quality_failed"]["category"] == "caption"
-        assert details["instagram_post_caption_quality_failed"]["nextAction"] == "repair_caption_contract"
+        assert (
+            details["instagram_post_caption_quality_failed"]["nextAction"]
+            == "repair_caption_contract"
+        )
     finally:
         cf.close()
 
 
-def test_creator_os_execution_readiness_blocks_publishability_failure_reasons(tmp_path: Path):
+def test_creator_os_execution_readiness_blocks_publishability_failure_reasons(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        item = _draft_item("post_visual_qc", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item = _draft_item(
+            "post_visual_qc", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00"
+        )
         item["publishability_failure_reasons"] = ["visual_qc_failed"]
 
         result = cf.creator_os_execution_readiness(
             creator="Stacey",
             requested_count=1,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
-            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "validatedDraftsAvailable": 1,
+                "items": [item],
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [item],
+            },
         )
 
         assert result["executionReady"] is False
@@ -17761,9 +22248,24 @@ def test_creator_os_execution_readiness_blocks_publishability_failure_reasons(tm
     ("failure_reason", "expected_blocker", "checklist_key", "category"),
     [
         ("missing_audio", "native_audio_proof_missing", "audioReadiness", "audio"),
-        ("missing_caption_hash", "missing_caption_hash", "captionContractReadiness", "caption"),
-        ("missing_caption_outcome_context", "missing_caption_outcome_context", "captionContractReadiness", "caption"),
-        ("missing_content_fingerprint", "missing_content_fingerprint", "draftReadiness", "draft_contract"),
+        (
+            "missing_caption_hash",
+            "missing_caption_hash",
+            "captionContractReadiness",
+            "caption",
+        ),
+        (
+            "missing_caption_outcome_context",
+            "missing_caption_outcome_context",
+            "captionContractReadiness",
+            "caption",
+        ),
+        (
+            "missing_content_fingerprint",
+            "missing_content_fingerprint",
+            "draftReadiness",
+            "draft_contract",
+        ),
         ("not_approved", "not_approved", "draftReadiness", "draft_contract"),
         ("readiness_failed", "readiness_failed", "qualityReadiness", "creative_safety"),
         ("wrong_visual", "wrong_visual", "qualityReadiness", "creative_safety"),
@@ -17779,17 +22281,39 @@ def test_creator_os_execution_readiness_covers_all_publishability_failure_reason
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        item = _draft_item("post_publishability_reason", "ig_1", scheduled_for="2026-06-06T16:00:00+00:00")
+        item = _draft_item(
+            "post_publishability_reason",
+            "ig_1",
+            scheduled_for="2026-06-06T16:00:00+00:00",
+        )
         item["publishability_failure_reasons"] = [failure_reason]
 
         result = cf.creator_os_execution_readiness(
             creator="Stacey",
             requested_count=1,
             threadsdash_report=_manager_report_fixture(accounts=accounts),
-            schedule_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]},
-            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]},
+            schedule_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "validatedDraftsAvailable": 1,
+                "items": [item],
+            },
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [item],
+            },
         )
 
         assert result["executionReady"] is False
@@ -17801,12 +22325,16 @@ def test_creator_os_execution_readiness_covers_all_publishability_failure_reason
         cf.close()
 
 
-def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_samples(tmp_path: Path):
+def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_samples(
+    tmp_path: Path,
+):
     from campaign_factory.quality_calibration import track_q_calibration_status
 
     cf = make_factory(tmp_path)
     try:
-        base = track_q_calibration_status(cf.conn, campaign_slug="stacey_archive_marketing_20260606")
+        base = track_q_calibration_status(
+            cf.conn, campaign_slug="stacey_archive_marketing_20260606"
+        )
         assert base["schema"] == "campaign_factory.track_q_calibration_status.v1"
         assert base["targets"] == {
             "reviewedReels": 30,
@@ -17817,10 +22345,14 @@ def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_sa
         assert base["remaining"]["reviewedReels"] == 30
         assert base["remaining"]["lowScoreOrRejectedSamples"] == 10
 
-        for idx, (decision, score) in enumerate([("approved", 92), ("rejected", 88), ("approved", 61)], start=1):
+        for idx, (decision, score) in enumerate(
+            [("approved", 92), ("rejected", 88), ("approved", 61)], start=1
+        ):
             asset_id = f"asset_calibration_{idx}"
             add_inventory_parent_fixture(cf, tmp_path, asset_id=asset_id)
-            cf.review_rendered_asset(asset_id, decision=decision, notes=f"owner {decision}")
+            cf.review_rendered_asset(
+                asset_id, decision=decision, notes=f"owner {decision}"
+            )
             cf.conn.execute(
                 "UPDATE audit_reports SET score = ?, created_at = ? WHERE rendered_asset_id = ?",
                 (score, f"2026-01-0{idx}T00:00:00+00:00", asset_id),
@@ -17841,13 +22373,18 @@ def test_track_q_calibration_status_counts_owner_reviewed_reels_and_low_score_sa
         assert ready["counts"]["rejectedReels"] == 1
         assert ready["counts"]["lowScoreReviewedReels"] == 1
         assert ready["counts"]["lowScoreOrRejectedSamples"] == 2
-        assert ready["remaining"] == {"reviewedReels": 0, "lowScoreOrRejectedSamples": 0}
+        assert ready["remaining"] == {
+            "reviewedReels": 0,
+            "lowScoreOrRejectedSamples": 0,
+        }
         assert ready["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(tmp_path: Path):
+def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(
+    tmp_path: Path,
+):
     from campaign_factory.learning_readiness import closed_loop_learning_status
 
     cf = make_factory(tmp_path)
@@ -17873,7 +22410,15 @@ def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(tmp_pa
                     post_id,
                     snapshot_at,
                     views,
-                    json.dumps({"metadata": {"threadsdash_metric_history": {"hoursSincePublish": hours_since_publish}}}),
+                    json.dumps(
+                        {
+                            "metadata": {
+                                "threadsdash_metric_history": {
+                                    "hoursSincePublish": hours_since_publish
+                                }
+                            }
+                        }
+                    ),
                     now,
                 ),
             )
@@ -17889,7 +22434,9 @@ def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(tmp_pa
         assert base["counts"]["postsWith1hAnd24hHistory"] == 1
         assert base["remaining"]["postsWith1hAnd24hHistory"] == 49
 
-        ready = closed_loop_learning_status(cf.conn, campaign_slug=campaign["slug"], min_posts_with_1h_and_24h=1)
+        ready = closed_loop_learning_status(
+            cf.conn, campaign_slug=campaign["slug"], min_posts_with_1h_and_24h=1
+        )
         assert ready["learningAuditReady"] is True
         assert ready["status"] == "ready_for_learning_audit"
         assert ready["remaining"] == {"postsWith1hAnd24hHistory": 0}
@@ -17898,26 +22445,56 @@ def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(tmp_pa
         cf.close()
 
 
-def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(tmp_path: Path):
+def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_and_time_slots(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         accounts = [
-            {"accountId": "ig_1", "username": "stacey_one", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
+            {
+                "accountId": "ig_1",
+                "username": "stacey_one",
+                "creator": "Stacey",
+                "bucket": "safe_to_schedule_today",
+                "safeToSchedule": True,
+                "needsPostToday": True,
+            },
         ]
-        missed = [{"postId": "post_missed", "accountId": "ig_1", "blockingReason": "overdue_dispatch_no_publish_attempt"}]
+        missed = [
+            {
+                "postId": "post_missed",
+                "accountId": "ig_1",
+                "blockingReason": "overdue_dispatch_no_publish_attempt",
+            }
+        ]
 
         result = cf.creator_os_execution_readiness(
             creator="Stacey",
             requested_count=1,
-            threadsdash_report=_manager_report_fixture(accounts=accounts, missed=missed),
+            threadsdash_report=_manager_report_fixture(
+                accounts=accounts, missed=missed
+            ),
             schedule_plan={
                 "creator": "Stacey",
                 "requestedCount": 1,
                 "status": "ready",
                 "validatedDraftsAvailable": 1,
-                "items": [_draft_item("post_1", "ig_1", variant_family_id="vfam_1", variant_id="var_1", cooldown="same_variant_family_within_14_days")],
+                "items": [
+                    _draft_item(
+                        "post_1",
+                        "ig_1",
+                        variant_family_id="vfam_1",
+                        variant_id="var_1",
+                        cooldown="same_variant_family_within_14_days",
+                    )
+                ],
             },
-            time_plan={"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": []},
+            time_plan={
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [],
+            },
         )
 
         assert result["managerDecision"] == "blocked"
@@ -17926,7 +22503,9 @@ def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_
         assert "missed_dispatches_unresolved" in result["blockers"]
         assert "variant_cooldown_violation" in result["blockers"]
         assert "insufficient_time_plan_items" in result["blockers"]
-        assert "resolve_missed_dispatches_before_scheduling" in result["nextSafeActions"]
+        assert (
+            "resolve_missed_dispatches_before_scheduling" in result["nextSafeActions"]
+        )
     finally:
         cf.close()
 
@@ -17935,12 +22514,47 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
     report_path = tmp_path / "threadsdash_report.json"
     schedule_path = tmp_path / "schedule_plan.json"
     time_path = tmp_path / "time_plan.json"
-    report_path.write_text(json.dumps(_manager_report_fixture(accounts=[
-        {"accountId": "ig_cli", "username": "cli", "creator": "Stacey", "bucket": "safe_to_schedule_today", "safeToSchedule": True, "needsPostToday": True},
-    ])), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(
+            _manager_report_fixture(
+                accounts=[
+                    {
+                        "accountId": "ig_cli",
+                        "username": "cli",
+                        "creator": "Stacey",
+                        "bucket": "safe_to_schedule_today",
+                        "safeToSchedule": True,
+                        "needsPostToday": True,
+                    },
+                ]
+            )
+        ),
+        encoding="utf-8",
+    )
     item = _draft_item("post_cli", "ig_cli", scheduled_for="2026-06-06T16:00:00+00:00")
-    schedule_path.write_text(json.dumps({"creator": "Stacey", "requestedCount": 1, "status": "ready", "validatedDraftsAvailable": 1, "items": [item]}), encoding="utf-8")
-    time_path.write_text(json.dumps({"creator": "Stacey", "requestedCount": 1, "status": "ready", "items": [item]}), encoding="utf-8")
+    schedule_path.write_text(
+        json.dumps(
+            {
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "validatedDraftsAvailable": 1,
+                "items": [item],
+            }
+        ),
+        encoding="utf-8",
+    )
+    time_path.write_text(
+        json.dumps(
+            {
+                "creator": "Stacey",
+                "requestedCount": 1,
+                "status": "ready",
+                "items": [item],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = subprocess.run(
         [
@@ -17960,7 +22574,11 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
             str(time_path),
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -17972,7 +22590,9 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_creator_os_200_account_acceptance_suite_is_read_only_and_exercises_core_paths(tmp_path: Path):
+def test_creator_os_200_account_acceptance_suite_is_read_only_and_exercises_core_paths(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -18023,19 +22643,33 @@ def test_inventory_slo_and_buffer_reports_are_read_only(tmp_path: Path):
     try:
         before = cf.conn.total_changes
 
-        slo = cf.inventory_slo_report(accounts=200, posts_per_account_per_day=3, creators=3, minimum_inventory_days=3)
+        slo = cf.inventory_slo_report(
+            accounts=200,
+            posts_per_account_per_day=3,
+            creators=3,
+            minimum_inventory_days=3,
+        )
         buffer_report = cf.inventory_buffer_report(
             accounts=200,
             posts_per_account_per_day=3,
             creators=3,
             current_validated_drafts=1800,
-            current_drafts_by_surface={"reel": 900, "story": 600, "feed_single": 300, "feed_carousel": 0},
+            current_drafts_by_surface={
+                "reel": 900,
+                "story": 600,
+                "feed_single": 300,
+                "feed_carousel": 0,
+            },
         )
 
         assert cf.conn.total_changes == before
         assert slo["minimumInventoryDays"] == 3
         assert slo["minimumValidatedDraftBuffer"] == 1800
-        assert slo["minimumDraftsPerCreator"] == {"Creator 1": 600, "Creator 2": 600, "Creator 3": 600}
+        assert slo["minimumDraftsPerCreator"] == {
+            "Creator 1": 600,
+            "Creator 2": 600,
+            "Creator 3": 600,
+        }
         assert slo["minimumDraftsPerSurface"]["reel"] > 0
         assert slo["inventoryHealth"] == "critical"
         assert slo["wouldWrite"] is False
@@ -18053,16 +22687,33 @@ def test_exception_queue_report_unifies_blockers_without_writing(tmp_path: Path)
         before = cf.conn.total_changes
         daily_plan = {
             "schema": "creator_os.daily_plan.v1",
-            "creators": [{"creator": "Stacey", "inventoryShortfall": 4, "surfaceShortfalls": {"story": {"shortfall": 2}}}],
-            "accounts": [{"accountId": "ig_blocked", "username": "blocked", "state": "blocked", "blockedReason": "needs_reauth"}],
+            "creators": [
+                {
+                    "creator": "Stacey",
+                    "inventoryShortfall": 4,
+                    "surfaceShortfalls": {"story": {"shortfall": 2}},
+                }
+            ],
+            "accounts": [
+                {
+                    "accountId": "ig_blocked",
+                    "username": "blocked",
+                    "state": "blocked",
+                    "blockedReason": "needs_reauth",
+                }
+            ],
         }
         readiness = {
             "schema": "creator_os.execution_readiness.v1",
             "blockers": ["missing_instagram_post_caption", "embedded_audio_invalid"],
         }
 
-        report = cf.exception_queue_report(daily_plan=daily_plan, execution_readiness=readiness)
-        summary = cf.exception_queue_summary(daily_plan=daily_plan, execution_readiness=readiness)
+        report = cf.exception_queue_report(
+            daily_plan=daily_plan, execution_readiness=readiness
+        )
+        summary = cf.exception_queue_summary(
+            daily_plan=daily_plan, execution_readiness=readiness
+        )
 
         assert cf.conn.total_changes == before
         assert report["schema"] == "creator_os.exception_queue_report.v1"
@@ -18073,18 +22724,22 @@ def test_exception_queue_report_unifies_blockers_without_writing(tmp_path: Path)
             "missing_instagram_post_caption",
             "embedded_audio_invalid",
         }
-        assert all({
-            "exceptionId",
-            "severity",
-            "owner",
-            "system",
-            "category",
-            "nextAction",
-            "repairable",
-            "estimatedResolutionMinutes",
-            "blockingAccounts",
-            "blockingInventory",
-        } <= set(item) for item in report["exceptions"])
+        assert all(
+            {
+                "exceptionId",
+                "severity",
+                "owner",
+                "system",
+                "category",
+                "nextAction",
+                "repairable",
+                "estimatedResolutionMinutes",
+                "blockingAccounts",
+                "blockingInventory",
+            }
+            <= set(item)
+            for item in report["exceptions"]
+        )
         assert report["wouldWrite"] is False
         assert summary["schema"] == "creator_os.exception_queue_summary.v1"
         assert summary["exceptionCount"] == report["exceptionCount"]
@@ -18099,7 +22754,13 @@ def test_exception_queue_priority_and_owner_reports_are_read_only(tmp_path: Path
         daily_plan = {
             "schema": "creator_os.daily_plan.v1",
             "creators": [{"creator": "Stacey", "inventoryShortfall": 8}],
-            "accounts": [{"accountId": "ig_blocked", "state": "blocked", "blockedReason": "restriction_event"}],
+            "accounts": [
+                {
+                    "accountId": "ig_blocked",
+                    "state": "blocked",
+                    "blockedReason": "restriction_event",
+                }
+            ],
         }
         before = cf.conn.total_changes
 
@@ -18113,7 +22774,9 @@ def test_exception_queue_priority_and_owner_reports_are_read_only(tmp_path: Path
         assert priority["wouldWrite"] is False
         assert owner["schema"] == "creator_os.exception_queue_owner_report.v1"
         assert owner["owners"]
-        assert all("owner" in row and "exceptionCount" in row for row in owner["owners"])
+        assert all(
+            "owner" in row and "exceptionCount" in row for row in owner["owners"]
+        )
         assert owner["wouldWrite"] is False
     finally:
         cf.close()
@@ -18124,12 +22787,24 @@ def test_parent_and_inventory_autopilot_plans_are_read_only(tmp_path: Path):
     try:
         before = cf.conn.total_changes
 
-        parent = cf.parent_factory_autopilot_plan(accounts=200, posts_per_account_per_day=3)
-        shortfall = cf.parent_factory_shortfall_report(accounts=200, posts_per_account_per_day=3)
-        targets = cf.parent_factory_production_targets(accounts=200, posts_per_account_per_day=3)
-        inventory = cf.inventory_autopilot_plan(accounts=100, posts_per_account_per_day=3, available_inventory=0)
-        repair = cf.inventory_shortage_repair_plan(accounts=100, posts_per_account_per_day=3, available_inventory=0)
-        buffer = cf.inventory_buffer_protection_report(accounts=100, posts_per_account_per_day=3, available_inventory=0)
+        parent = cf.parent_factory_autopilot_plan(
+            accounts=200, posts_per_account_per_day=3
+        )
+        shortfall = cf.parent_factory_shortfall_report(
+            accounts=200, posts_per_account_per_day=3
+        )
+        targets = cf.parent_factory_production_targets(
+            accounts=200, posts_per_account_per_day=3
+        )
+        inventory = cf.inventory_autopilot_plan(
+            accounts=100, posts_per_account_per_day=3, available_inventory=0
+        )
+        repair = cf.inventory_shortage_repair_plan(
+            accounts=100, posts_per_account_per_day=3, available_inventory=0
+        )
+        buffer = cf.inventory_buffer_protection_report(
+            accounts=100, posts_per_account_per_day=3, available_inventory=0
+        )
 
         assert cf.conn.total_changes == before
         assert parent["schema"] == "creator_os.parent_factory_autopilot_plan.v1"
@@ -18146,7 +22821,10 @@ def test_parent_and_inventory_autopilot_plans_are_read_only(tmp_path: Path):
         assert repair["repairActions"] == inventory["repairActions"]
         assert buffer["schema"] == "creator_os.inventory_buffer_protection_report.v1"
         assert buffer["health"] == "critical"
-        assert all(item["wouldWrite"] is False for item in [parent, shortfall, targets, inventory, repair, buffer])
+        assert all(
+            item["wouldWrite"] is False
+            for item in [parent, shortfall, targets, inventory, repair, buffer]
+        )
     finally:
         cf.close()
 
@@ -18172,20 +22850,30 @@ def test_creator_os_100_volume_surface_and_10_readiness_are_read_only(tmp_path: 
         assert volume["tiers"]["200"]["accounts"] == 200
         assert volume["wouldWrite"] is False
         assert scorecard["schema"] == "creator_os.surface_readiness_scorecard.v1"
-        assert set(scorecard["surfaces"]) >= {"reel", "story", "feed_single", "feed_carousel"}
+        assert set(scorecard["surfaces"]) >= {
+            "reel",
+            "story",
+            "feed_single",
+            "feed_carousel",
+        }
         assert all("rating" in row for row in scorecard["surfaces"].values())
         assert readiness["schema"] == "creator_os.10_0_readiness_report.v1"
         assert readiness["scores"]["overall"] >= 9.0
         assert readiness["successCriteria"]["exceptionQueueReady"] is True
         assert readiness["successCriteria"]["inventoryAutopilotReady"] is True
         assert readiness["successCriteria"]["requiredParentsPerDayKnown"] is True
-        assert readiness["finalOutput"]["projectedRatingAfterSprint"] >= readiness["finalOutput"]["currentRating"]
+        assert (
+            readiness["finalOutput"]["projectedRatingAfterSprint"]
+            >= readiness["finalOutput"]["currentRating"]
+        )
         assert readiness["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_creator_os_final_certification_proofs_are_read_only_and_evidence_based(tmp_path: Path):
+def test_creator_os_final_certification_proofs_are_read_only_and_evidence_based(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -18208,23 +22896,59 @@ def test_creator_os_final_certification_proofs_are_read_only_and_evidence_based(
 
         assert cf.conn.total_changes == before
         assert live["schema"] == "creator_os.live_100_account_readiness.v1"
-        assert {"canRun100AccountsToday", "blockingReason", "requiredInventory", "requiredParentsPerDay", "expectedOperatorLoad", "expectedExceptionRate"} <= set(live)
-        assert {"eligibleAccounts", "restrictedAccounts", "warmingAccounts", "validatedDraftBuffer", "safeToRun100Accounts"} <= set(live)
+        assert {
+            "canRun100AccountsToday",
+            "blockingReason",
+            "requiredInventory",
+            "requiredParentsPerDay",
+            "expectedOperatorLoad",
+            "expectedExceptionRate",
+        } <= set(live)
+        assert {
+            "eligibleAccounts",
+            "restrictedAccounts",
+            "warmingAccounts",
+            "validatedDraftBuffer",
+            "safeToRun100Accounts",
+        } <= set(live)
         assert live["dataSource"] == "actual_current_state"
         assert runbook["schema"] == "creator_os.live_scale_runbook.v1"
         assert runbook["steps"]
         assert live_scorecard["schema"] == "creator_os.live_scale_scorecard.v1"
-        assert production_trial["schema"] == "creator_os.parent_factory_production_trial.v1"
-        assert {"rawCandidates", "qualityPassed", "discoverabilityPassed", "publishabilityPassed", "acceptedParents", "yieldPct", "operatorMinutes"} <= set(production_trial)
-        assert production_scorecard["schema"] == "creator_os.parent_factory_production_scorecard.v1"
+        assert (
+            production_trial["schema"]
+            == "creator_os.parent_factory_production_trial.v1"
+        )
+        assert {
+            "rawCandidates",
+            "qualityPassed",
+            "discoverabilityPassed",
+            "publishabilityPassed",
+            "acceptedParents",
+            "yieldPct",
+            "operatorMinutes",
+        } <= set(production_trial)
+        assert (
+            production_scorecard["schema"]
+            == "creator_os.parent_factory_production_scorecard.v1"
+        )
         assert real_yield["schema"] == "creator_os.parent_factory_real_yield_report.v1"
         assert prevention["schema"] == "creator_os.discoverability_prevention_audit.v1"
-        assert {"violationsCaughtBeforeRender", "violationsCaughtAfterRender", "violationsCaughtAtPublishability"} <= set(prevention)
-        assert prevention_scorecard["schema"] == "creator_os.discoverability_prevention_scorecard.v1"
+        assert {
+            "violationsCaughtBeforeRender",
+            "violationsCaughtAfterRender",
+            "violationsCaughtAtPublishability",
+        } <= set(prevention)
+        assert (
+            prevention_scorecard["schema"]
+            == "creator_os.discoverability_prevention_scorecard.v1"
+        )
         assert story["schema"] == "creator_os.story_production_readiness.v1"
         assert story["publishProofMissing"] is True
         assert story_gap["schema"] == "creator_os.story_proof_gap_analysis.v1"
-        assert story_certification["schema"] == "creator_os.story_certification_proof.v1"
+        assert (
+            story_certification["schema"] == "creator_os.story_certification_proof.v1"
+        )
         assert story_certification["storyCreated"] is False
         assert story_certification["storyPublished"] is False
         assert story_certification["status"] == "blocked"
@@ -18232,7 +22956,10 @@ def test_creator_os_final_certification_proofs_are_read_only_and_evidence_based(
         assert carousel["schema"] == "creator_os.carousel_production_readiness.v1"
         assert carousel["publishProofMissing"] is True
         assert carousel_gap["schema"] == "creator_os.carousel_proof_gap_analysis.v1"
-        assert carousel_certification["schema"] == "creator_os.carousel_certification_proof.v1"
+        assert (
+            carousel_certification["schema"]
+            == "creator_os.carousel_certification_proof.v1"
+        )
         assert carousel_certification["carouselCreated"] is False
         assert carousel_certification["carouselPublished"] is False
         assert carousel_certification["status"] == "blocked"
@@ -18245,16 +22972,33 @@ def test_creator_os_final_certification_proofs_are_read_only_and_evidence_based(
         assert "maximumAchievableRating" not in certification
         assert "singleHighestROITask" not in certification
         assert "projectedRating" not in certification
-        assert all(item["wouldWrite"] is False for item in [
-            live, runbook, live_scorecard, production_trial, production_scorecard, real_yield,
-            prevention, prevention_scorecard, story, story_gap, story_certification,
-            carousel, carousel_gap, carousel_certification, certification,
-        ])
+        assert all(
+            item["wouldWrite"] is False
+            for item in [
+                live,
+                runbook,
+                live_scorecard,
+                production_trial,
+                production_scorecard,
+                real_yield,
+                prevention,
+                prevention_scorecard,
+                story,
+                story_gap,
+                story_certification,
+                carousel,
+                carousel_gap,
+                carousel_certification,
+                certification,
+            ]
+        )
     finally:
         cf.close()
 
 
-def test_creator_os_staged_operational_acceptance_uses_actual_evidence_and_is_read_only(tmp_path: Path):
+def test_creator_os_staged_operational_acceptance_uses_actual_evidence_and_is_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -18274,7 +23018,15 @@ def test_creator_os_staged_operational_acceptance_uses_actual_evidence_and_is_re
             "metricsImported": True,
             "exceptionQueueWithinThreshold": True,
         }
-        assert {"missedDispatches", "duplicatePublishes", "restrictedAccountsScheduled", "surfaceContractViolations", "inventoryBufferMaintained", "metricsImported", "exceptionQueueWithinThreshold"} <= set(stage_10["actuals"])
+        assert {
+            "missedDispatches",
+            "duplicatePublishes",
+            "restrictedAccountsScheduled",
+            "surfaceContractViolations",
+            "inventoryBufferMaintained",
+            "metricsImported",
+            "exceptionQueueWithinThreshold",
+        } <= set(stage_10["actuals"])
         assert stage_10["dataSource"] == "actual_current_state"
         assert stage_10["wouldWrite"] is False
         assert staged["schema"] == "creator_os.staged_live_acceptance.v1"
@@ -18286,12 +23038,19 @@ def test_creator_os_staged_operational_acceptance_uses_actual_evidence_and_is_re
         cf.close()
 
 
-def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_state(tmp_path: Path):
+def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_state(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
         for index in range(10):
-            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+            cf.upsert_account(
+                f"stacey_{index}",
+                platform="instagram",
+                external_id=f"ig_{index}",
+                model_id=model["id"],
+            )
         for index in range(90):
             add_surface_asset_fixture(
                 cf,
@@ -18316,7 +23075,9 @@ def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_sta
         cf.conn.commit()
 
         result = cf.creator_os_live_account_acceptance(account_target=10)
-        reel_result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="reel")
+        reel_result = cf.creator_os_live_account_acceptance(
+            account_target=10, content_surface="reel"
+        )
 
         assert result["actuals"]["missedDispatches"] == 0
         assert result["actuals"]["duplicatePublishes"] == 0
@@ -18336,12 +23097,19 @@ def test_creator_os_staged_operational_acceptance_can_pass_with_clean_actual_sta
         cf.close()
 
 
-def test_live_account_acceptance_counts_net_inventory_after_reservations_and_assignments(tmp_path: Path):
+def test_live_account_acceptance_counts_net_inventory_after_reservations_and_assignments(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
         for index in range(10):
-            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+            cf.upsert_account(
+                f"stacey_{index}",
+                platform="instagram",
+                external_id=f"ig_{index}",
+                model_id=model["id"],
+            )
         for index in range(90):
             add_surface_asset_fixture(
                 cf,
@@ -18366,7 +23134,9 @@ def test_live_account_acceptance_counts_net_inventory_after_reservations_and_ass
         )
         cf.assign_asset_account("asset_net_inventory_1", instagram_account_id="ig_1")
 
-        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        result = cf.creator_os_live_account_acceptance(
+            account_target=10, content_surface="feed_single"
+        )
 
         assert reservation["id"] == same_reservation["id"]
         assert result["grossInventory"] == 90
@@ -18378,19 +23148,27 @@ def test_live_account_acceptance_counts_net_inventory_after_reservations_and_ass
         assert "inventory_buffer_not_maintained" in result["blockingReasons"]
         released = cf.release_inventory_reservation(reservation["reservation_id"])
         assert released["status"] == "released"
-        after_release = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        after_release = cf.creator_os_live_account_acceptance(
+            account_target=10, content_surface="feed_single"
+        )
         assert after_release["reservedInventory"] == 0
         assert after_release["netInventory"] == 89
     finally:
         cf.close()
 
 
-def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse(tmp_path: Path):
+def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
+        account_a = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        account_b = cf.upsert_account(
+            "stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"]
+        )
         for index in range(3):
             add_surface_asset_fixture(
                 cf,
@@ -18406,22 +23184,33 @@ def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse
             account_id=account_a["id"],
             surface="reel",
             reserved_by="test",
-            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            metadata={
+                "sourceFamilyId": "family_same",
+                "perceptualClusterId": "cluster_same",
+            },
         )
-        with pytest.raises(ValueError, match="cross-account source/perceptual reuse cooldown conflict"):
+        with pytest.raises(
+            ValueError, match="cross-account source/perceptual reuse cooldown conflict"
+        ):
             cf.reserve_inventory_asset(
                 "asset_uniqueness_1",
                 account_id=account_b["id"],
                 surface="reel",
                 reserved_by="test",
-                metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+                metadata={
+                    "sourceFamilyId": "family_same",
+                    "perceptualClusterId": "cluster_same",
+                },
             )
         override = cf.reserve_inventory_asset(
             "asset_uniqueness_1",
             account_id=account_b["id"],
             surface="reel",
             reserved_by="test",
-            metadata={"sourceFamilyId": "family_same", "perceptualClusterId": "cluster_same"},
+            metadata={
+                "sourceFamilyId": "family_same",
+                "perceptualClusterId": "cluster_same",
+            },
             override_reason="manual operator approved source reuse",
         )
         assert first["source_family_id"] == "family_same"
@@ -18430,12 +23219,18 @@ def test_inventory_reservation_blocks_explicit_cross_account_source_family_reuse
         cf.close()
 
 
-def test_inventory_reservation_blocks_computed_pdq_cluster_reuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_inventory_reservation_blocks_computed_pdq_cluster_reuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account_a = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
-        account_b = cf.upsert_account("stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"])
+        account_a = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
+        account_b = cf.upsert_account(
+            "stacey_b", platform="instagram", external_id="ig_b", model_id=model["id"]
+        )
         for index in range(2):
             add_surface_asset_fixture(
                 cf,
@@ -18448,7 +23243,9 @@ def test_inventory_reservation_blocks_computed_pdq_cluster_reuse(tmp_path: Path,
 
         def fake_pdq(path: Path, **_: Any) -> dict[str, Any]:
             name = Path(path).name
-            fingerprint = ("0" * 64) if "asset_pdq_cluster_0" in name else ("0" * 63 + "1")
+            fingerprint = (
+                ("0" * 64) if "asset_pdq_cluster_0" in name else ("0" * 63 + "1")
+            )
             return {
                 "status": "available",
                 "algorithm": "pdq_v1",
@@ -18466,7 +23263,9 @@ def test_inventory_reservation_blocks_computed_pdq_cluster_reuse(tmp_path: Path,
             reserved_by="test",
         )
 
-        with pytest.raises(ValueError, match="cross-account source/perceptual reuse cooldown conflict"):
+        with pytest.raises(
+            ValueError, match="cross-account source/perceptual reuse cooldown conflict"
+        ):
             cf.reserve_inventory_asset(
                 "asset_pdq_cluster_1",
                 account_id=account_b["id"],
@@ -18487,7 +23286,9 @@ def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Pa
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        account = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
         for index in range(90):
             add_surface_asset_fixture(
                 cf,
@@ -18499,7 +23300,14 @@ def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Pa
             )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = ? WHERE id IN ('asset_cooldown_inventory_0', 'asset_cooldown_inventory_1')",
-            (json.dumps({"instagram_post_caption": "lmk", "sourceFamilyId": "family_cooldown"}),),
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "lmk",
+                        "sourceFamilyId": "family_cooldown",
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         cf.reserve_inventory_asset(
@@ -18510,7 +23318,9 @@ def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Pa
             metadata={"sourceFamilyId": "family_cooldown"},
         )
 
-        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
+        result = cf.creator_os_live_account_acceptance(
+            account_target=10, content_surface="feed_single"
+        )
 
         assert result["grossInventory"] == 90
         assert result["reservedInventory"] == 1
@@ -18520,11 +23330,15 @@ def test_live_account_acceptance_reports_cooldown_blocked_inventory(tmp_path: Pa
         cf.close()
 
 
-def test_live_account_acceptance_counts_computed_pdq_cooldown_blocked_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_live_account_acceptance_counts_computed_pdq_cooldown_blocked_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
-        account = cf.upsert_account("stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"])
+        account = cf.upsert_account(
+            "stacey_a", platform="instagram", external_id="ig_a", model_id=model["id"]
+        )
         for index in range(3):
             add_surface_asset_fixture(
                 cf,
@@ -18558,7 +23372,9 @@ def test_live_account_acceptance_counts_computed_pdq_cooldown_blocked_inventory(
             reserved_by="test",
         )
 
-        result = cf.creator_os_live_account_acceptance(account_target=1, content_surface="feed_single")
+        result = cf.creator_os_live_account_acceptance(
+            account_target=1, content_surface="feed_single"
+        )
 
         assert result["grossInventory"] == 3
         assert result["reservedInventory"] == 1
@@ -18568,12 +23384,19 @@ def test_live_account_acceptance_counts_computed_pdq_cooldown_blocked_inventory(
         cf.close()
 
 
-def test_inventory_reservation_expired_ttl_is_released_from_net_inventory(tmp_path: Path):
+def test_inventory_reservation_expired_ttl_is_released_from_net_inventory(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
         for index in range(10):
-            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+            cf.upsert_account(
+                f"stacey_{index}",
+                platform="instagram",
+                external_id=f"ig_{index}",
+                model_id=model["id"],
+            )
         for index in range(90):
             add_surface_asset_fixture(
                 cf,
@@ -18590,8 +23413,13 @@ def test_inventory_reservation_expired_ttl_is_released_from_net_inventory(tmp_pa
             expires_at="2026-01-01T00:00:00+00:00",
         )
 
-        result = cf.creator_os_live_account_acceptance(account_target=10, content_surface="feed_single")
-        row = cf.conn.execute("SELECT status FROM asset_inventory_reservations WHERE id = ?", (expired["id"],)).fetchone()
+        result = cf.creator_os_live_account_acceptance(
+            account_target=10, content_surface="feed_single"
+        )
+        row = cf.conn.execute(
+            "SELECT status FROM asset_inventory_reservations WHERE id = ?",
+            (expired["id"],),
+        ).fetchone()
 
         assert row["status"] == "expired"
         assert result["reservedInventory"] == 0
@@ -18632,21 +23460,32 @@ def test_inventory_reservation_concurrent_claim_cannot_double_claim(tmp_path: Pa
             worker.close()
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        outcomes = [future.result() for future in [executor.submit(claim, "first"), executor.submit(claim, "second")]]
+        outcomes = [
+            future.result()
+            for future in [
+                executor.submit(claim, "first"),
+                executor.submit(claim, "second"),
+            ]
+        ]
 
     first = make_factory(tmp_path)
     try:
         assert [status for status, _ in outcomes].count("reserved") == 1
         assert [status for status, _ in outcomes].count("blocked") == 1
-        assert first.conn.execute(
-            "SELECT COUNT(*) AS c FROM asset_inventory_reservations WHERE asset_id = ? AND status IN ('pending', 'committed')",
-            ("asset_concurrent_claim",),
-        ).fetchone()["c"] == 1
+        assert (
+            first.conn.execute(
+                "SELECT COUNT(*) AS c FROM asset_inventory_reservations WHERE asset_id = ? AND status IN ('pending', 'committed')",
+                ("asset_concurrent_claim",),
+            ).fetchone()["c"]
+            == 1
+        )
     finally:
         first.close()
 
 
-def test_story_certification_requires_actual_publish_and_metrics_evidence(tmp_path: Path):
+def test_story_certification_requires_actual_publish_and_metrics_evidence(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         asset = add_surface_asset_fixture(
@@ -18679,11 +23518,16 @@ def test_story_certification_requires_actual_publish_and_metrics_evidence(tmp_pa
         cf.close()
 
 
-def test_carousel_certification_passes_with_ordering_publish_and_metrics_evidence(tmp_path: Path):
+def test_carousel_certification_passes_with_ordering_publish_and_metrics_evidence(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         result = cf.register_surface_asset(
-            input_path=[write_surface_image(tmp_path / f"cert_carousel_{index}.png") for index in range(3)],
+            input_path=[
+                write_surface_image(tmp_path / f"cert_carousel_{index}.png")
+                for index in range(3)
+            ],
             surface="feed_carousel",
             creator="Stacey",
             campaign_slug="stacey_carousel_cert_20260609",
@@ -18713,7 +23557,13 @@ def test_carousel_certification_passes_with_ordering_publish_and_metrics_evidenc
                     '2026-06-09T13:00:00+00:00', 100, 10, 1, 2, 3, 90, '{}',
                     '2026-06-09T13:00:00+00:00', 1, 'feed_carousel')
             """,
-            (asset["campaign_id"], asset_id, asset["source_asset_id"], asset["content_hash"], asset["caption_hash"]),
+            (
+                asset["campaign_id"],
+                asset_id,
+                asset["source_asset_id"],
+                asset["content_hash"],
+                asset["caption_hash"],
+            ),
         )
         cf.conn.commit()
         before = cf.conn.total_changes
@@ -18760,18 +23610,28 @@ def test_failure_injection_and_idempotency_proofs_are_simulation_only(tmp_path: 
             "invalid_handoff_manifest",
             "stale_account_restriction",
         }
-        assert all(item["detected"] and item["contained"] and item["recovered"] for item in failures["scenarios"])
+        assert all(
+            item["detected"] and item["contained"] and item["recovered"]
+            for item in failures["scenarios"]
+        )
         assert failures["wouldWrite"] is False
         assert idempotency["schema"] == "creator_os.idempotency_proof.v1"
         assert idempotency["idempotent"] is True
         assert idempotency["unsafePaths"] == []
-        assert all(item["sameRequestOnce"] == item["sameRequestTwice"] == item["sameRequestTenTimes"] for item in idempotency["paths"])
+        assert all(
+            item["sameRequestOnce"]
+            == item["sameRequestTwice"]
+            == item["sameRequestTenTimes"]
+            for item in idempotency["paths"]
+        )
         assert idempotency["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_read_only(tmp_path: Path):
+def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -18784,7 +23644,13 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
 
         assert cf.conn.total_changes == before
         assert surface["schema"] == "creator_os.surface_maturity_audit.v1"
-        assert set(surface["surfaces"]) == {"reel", "story", "feed_single", "feed_carousel", "trial_reel"}
+        assert set(surface["surfaces"]) == {
+            "reel",
+            "story",
+            "feed_single",
+            "feed_carousel",
+            "trial_reel",
+        }
         assert surface["surfaces"]["reel"]["publishProof"] is True
         assert surface["surfaces"]["story"]["publishProof"] is False
         assert surface["surfaces"]["feed_carousel"]["metricsProof"] is False
@@ -18794,10 +23660,16 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
         assert operator["scaleTiers"]["200"]["largestBottleneck"]
         assert operator["wouldWrite"] is False
         assert ownership["schema"] == "creator_os.single_source_of_truth_audit.v1"
-        assert ownership["recommendedOwners"]["performance metrics"] == "performance_snapshots"
+        assert (
+            ownership["recommendedOwners"]["performance metrics"]
+            == "performance_snapshots"
+        )
         assert ownership["wouldWrite"] is False
         assert complexity["schema"] == "creator_os.core_complexity_reduction_plan.v1"
-        assert any(row["file"].endswith("campaign_factory/core.py") for row in complexity["largestFiles"])
+        assert any(
+            row["file"].endswith("campaign_factory/core.py")
+            for row in complexity["largestFiles"]
+        )
         assert complexity["expectedComplexityReductionPct"] >= 20
         assert complexity["wouldWrite"] is False
         assert final["schema"] == "creator_os.9_5_readiness_report.v1"
@@ -18820,7 +23692,11 @@ def test_creator_os_9_5_readiness_report_cli_outputs_json(tmp_path: Path):
             "creator-os-9.5-readiness-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -18877,7 +23753,12 @@ def test_inventory_buffer_policy_and_slo_enforcement_are_read_only(tmp_path: Pat
             posts_per_account_per_day=3,
             minimum_inventory_days=3,
             available_by_creator_surface={
-                "Stacey": {"reel": 900, "story": 500, "feed_single": 100, "feed_carousel": 0},
+                "Stacey": {
+                    "reel": 900,
+                    "story": 500,
+                    "feed_single": 100,
+                    "feed_carousel": 0,
+                },
                 "Lola": {"reel": 100, "story": 0, "feed_single": 0, "feed_carousel": 0},
             },
         )
@@ -18905,18 +23786,24 @@ def test_inventory_buffer_policy_and_slo_enforcement_are_read_only(tmp_path: Pat
         cf.close()
 
 
-def test_inventory_consumption_and_production_requirements_use_real_calculations(tmp_path: Path):
+def test_inventory_consumption_and_production_requirements_use_real_calculations(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
 
         simulation = cf.inventory_consumption_simulation(available_inventory=1800)
-        production = cf.inventory_production_requirements(accounts=200, posts_per_account_per_day=3)
+        production = cf.inventory_production_requirements(
+            accounts=200, posts_per_account_per_day=3
+        )
         road = cf.road_to_200_accounts()
 
         assert cf.conn.total_changes == before
         assert simulation["schema"] == "creator_os.inventory_consumption_simulation.v1"
-        row_200 = next(row for row in simulation["simulations"] if row["accounts"] == 200)
+        row_200 = next(
+            row for row in simulation["simulations"] if row["accounts"] == 200
+        )
         assert row_200["dailyDemand"] == 600
         assert row_200["inventoryConsumed"] == 600
         assert row_200["daysUntilEmpty"] == 3
@@ -18971,14 +23858,26 @@ def test_inventory_exception_and_readiness_reports_are_read_only(tmp_path: Path)
         assert exceptions["topLossReason"] == "missing_instagram_post_caption"
         assert exceptions["avoidableLossPct"] > 0
         assert exceptions["wouldWrite"] is False
-        assert readiness_report["schema"] == "creator_os.inventory_factory_readiness_report.v1"
+        assert (
+            readiness_report["schema"]
+            == "creator_os.inventory_factory_readiness_report.v1"
+        )
         assert 0 <= readiness_report["overallInventoryReadiness"] <= 10
         assert readiness_report["inventoryBufferScore"] == 10
         assert readiness_report["wouldWrite"] is False
         assert master["schema"] == "creator_os.inventory_factory_master_report.v1"
-        assert master["currentInventoryReadiness"]["overallInventoryReadiness"] == readiness_report["overallInventoryReadiness"]
-        assert master["requirementsFor200Accounts"]["requiredInventoryBuffer"] == "1800 schedule-safe drafts"
-        assert master["requirementsFor500Accounts"]["requiredInventoryBuffer"] == "4500 schedule-safe drafts"
+        assert (
+            master["currentInventoryReadiness"]["overallInventoryReadiness"]
+            == readiness_report["overallInventoryReadiness"]
+        )
+        assert (
+            master["requirementsFor200Accounts"]["requiredInventoryBuffer"]
+            == "1800 schedule-safe drafts"
+        )
+        assert (
+            master["requirementsFor500Accounts"]["requiredInventoryBuffer"]
+            == "4500 schedule-safe drafts"
+        )
         assert master["wouldWrite"] is False
     finally:
         cf.close()
@@ -18995,7 +23894,11 @@ def test_inventory_factory_master_report_cli_outputs_json(tmp_path: Path):
             "1800",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -19004,10 +23907,15 @@ def test_inventory_factory_master_report_cli_outputs_json(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert payload["schema"] == "creator_os.inventory_factory_master_report.v1"
     assert payload["wouldWrite"] is False
-    assert payload["requirementsFor200Accounts"]["requiredInventoryBuffer"] == "1800 schedule-safe drafts"
+    assert (
+        payload["requirementsFor200Accounts"]["requiredInventoryBuffer"]
+        == "1800 schedule-safe drafts"
+    )
 
 
-def test_reel_factory_parent_throughput_proof_is_read_only_and_pessimistic(tmp_path: Path):
+def test_reel_factory_parent_throughput_proof_is_read_only_and_pessimistic(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19064,7 +23972,9 @@ def test_reel_factory_yield_failure_and_capacity_reports_are_read_only(tmp_path:
         cf.close()
 
 
-def test_reel_factory_200_account_readiness_and_master_report_are_read_only(tmp_path: Path):
+def test_reel_factory_200_account_readiness_and_master_report_are_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19075,9 +23985,17 @@ def test_reel_factory_200_account_readiness_and_master_report_are_read_only(tmp_
         assert cf.conn.total_changes == before
         assert readiness["schema"] == "creator_os.reel_factory_200_account_readiness.v1"
         assert readiness["requiredParentsPerDay"] == 53
-        assert readiness["scalingAnalysis"]["200Accounts"]["requiredParentsPerDay"] == 53
-        assert readiness["scalingAnalysis"]["200Accounts"]["requiredValidatedDraftsPerDay"] == 600
-        assert readiness["scalingAnalysis"]["500Accounts"]["requiredInventoryBuffer"] == 4500
+        assert (
+            readiness["scalingAnalysis"]["200Accounts"]["requiredParentsPerDay"] == 53
+        )
+        assert (
+            readiness["scalingAnalysis"]["200Accounts"]["requiredValidatedDraftsPerDay"]
+            == 600
+        )
+        assert (
+            readiness["scalingAnalysis"]["500Accounts"]["requiredInventoryBuffer"]
+            == 4500
+        )
         assert readiness["wouldWrite"] is False
         assert master["schema"] == "creator_os.reel_factory_master_report.v1"
         verdict = master["finalVerdict"]
@@ -19103,7 +24021,11 @@ def test_reel_factory_master_report_cli_outputs_json(tmp_path: Path):
             "reel-factory-master-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -19115,7 +24037,9 @@ def test_reel_factory_master_report_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_parent_factory_yield_waterfall_and_loss_analysis_explain_current_yield(tmp_path: Path):
+def test_parent_factory_yield_waterfall_and_loss_analysis_explain_current_yield(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19139,7 +24063,10 @@ def test_parent_factory_yield_waterfall_and_loss_analysis_explain_current_yield(
             "schedule_safe",
             "parent_accepted",
         ]
-        assert all({"stage", "inputCount", "outputCount", "yieldPct", "lossCount"} <= set(row) for row in waterfall["stages"])
+        assert all(
+            {"stage", "inputCount", "outputCount", "yieldPct", "lossCount"} <= set(row)
+            for row in waterfall["stages"]
+        )
         assert waterfall["wouldWrite"] is False
         assert loss["schema"] == "creator_os.parent_factory_loss_analysis.v1"
         assert loss["largestLossStage"]
@@ -19150,7 +24077,9 @@ def test_parent_factory_yield_waterfall_and_loss_analysis_explain_current_yield(
         cf.close()
 
 
-def test_parent_factory_rejection_quality_and_optimization_reports_are_read_only(tmp_path: Path):
+def test_parent_factory_rejection_quality_and_optimization_reports_are_read_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19162,25 +24091,50 @@ def test_parent_factory_rejection_quality_and_optimization_reports_are_read_only
         assert cf.conn.total_changes == before
         assert rejections["schema"] == "creator_os.parent_factory_rejection_report.v1"
         assert rejections["rejectionReasons"]
-        assert all({"reason", "frequency", "percentOfFailures", "repairable", "estimatedFixDifficulty"} <= set(row) for row in rejections["rejectionReasons"])
+        assert all(
+            {
+                "reason",
+                "frequency",
+                "percentOfFailures",
+                "repairable",
+                "estimatedFixDifficulty",
+            }
+            <= set(row)
+            for row in rejections["rejectionReasons"]
+        )
         assert rejections["wouldWrite"] is False
         assert quality["schema"] == "creator_os.parent_factory_quality_gate_analysis.v1"
         assert quality["qualityGates"]
         assert "publishability_pass" in {row["gate"] for row in quality["qualityGates"]}
         assert quality["wouldWrite"] is False
-        assert optimization["schema"] == "creator_os.parent_factory_optimization_plan.v1"
+        assert (
+            optimization["schema"] == "creator_os.parent_factory_optimization_plan.v1"
+        )
         assert optimization["currentYieldPct"] >= 0
-        assert optimization["yieldScenarios"]["20%"]["rawCandidatesNeededFor53Parents"] == 265
-        assert optimization["yieldScenarios"]["40%"]["rawCandidatesNeededFor53Parents"] == 133
-        assert optimization["yieldScenarios"]["50%"]["rawCandidatesNeededFor53Parents"] == 106
-        assert optimization["humanBottleneckAnalysis"]["accountsSupportedPerOperator"] >= 0
+        assert (
+            optimization["yieldScenarios"]["20%"]["rawCandidatesNeededFor53Parents"]
+            == 265
+        )
+        assert (
+            optimization["yieldScenarios"]["40%"]["rawCandidatesNeededFor53Parents"]
+            == 133
+        )
+        assert (
+            optimization["yieldScenarios"]["50%"]["rawCandidatesNeededFor53Parents"]
+            == 106
+        )
+        assert (
+            optimization["humanBottleneckAnalysis"]["accountsSupportedPerOperator"] >= 0
+        )
         assert optimization["whatThreeFixesIncreaseYieldFastest"]
         assert optimization["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_parent_factory_discoverability_loss_analysis_categorizes_preventable_rejections(tmp_path: Path):
+def test_parent_factory_discoverability_loss_analysis_categorizes_preventable_rejections(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -19193,10 +24147,12 @@ def test_parent_factory_discoverability_loss_analysis_categorizes_preventable_re
             """,
             (
                 "DM me, link in bio, add me on Snapchat, OnlyFans",
-                json.dumps({
-                    "caption_text": "DM me, link in bio, add me on Snapchat, OnlyFans",
-                    "instagram_post_caption": "DM me, link in bio",
-                }),
+                json.dumps(
+                    {
+                        "caption_text": "DM me, link in bio, add me on Snapchat, OnlyFans",
+                        "instagram_post_caption": "DM me, link in bio",
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -19205,8 +24161,14 @@ def test_parent_factory_discoverability_loss_analysis_categorizes_preventable_re
         analysis = cf.parent_factory_discoverability_loss_analysis()
 
         assert cf.conn.total_changes == before
-        assert analysis["schema"] == "creator_os.parent_factory_discoverability_loss_analysis.v1"
-        categories = {row["category"]: row["frequency"] for row in analysis["discoverabilityRejectionCategories"]}
+        assert (
+            analysis["schema"]
+            == "creator_os.parent_factory_discoverability_loss_analysis.v1"
+        )
+        categories = {
+            row["category"]: row["frequency"]
+            for row in analysis["discoverabilityRejectionCategories"]
+        }
         assert categories["dm_language"] >= 1
         assert categories["bio_reference"] >= 1
         assert categories["snapchat_reference"] >= 1
@@ -19219,7 +24181,9 @@ def test_parent_factory_discoverability_loss_analysis_categorizes_preventable_re
         cf.close()
 
 
-def test_capture_publishability_rejection_evidence_stores_exact_discoverability_terms(tmp_path: Path):
+def test_capture_publishability_rejection_evidence_stores_exact_discoverability_terms(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -19234,21 +24198,25 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
             """,
             (
                 "DM me",
-                json.dumps({
-                    "caption_text": "DM me",
-                    "burned_caption_text": "DM me",
-                    "instagram_post_caption": "link in bio",
-                    "captionPlacementDecision": {"status": "passed"},
-                }),
-                json.dumps({
-                    "instagram_post_caption": "link in bio",
-                    "audioIntent": {
-                        "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
-                        "required": False,
-                        "status": "not_required",
-                    },
-                }),
+                json.dumps(
+                    {
+                        "caption_text": "DM me",
+                        "burned_caption_text": "DM me",
+                        "instagram_post_caption": "link in bio",
+                        "captionPlacementDecision": {"status": "passed"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "instagram_post_caption": "link in bio",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": False,
+                            "status": "not_required",
+                        },
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -19267,7 +24235,9 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
         assert result["capturedCount"] >= 2
         assert second["capturedCount"] == result["capturedCount"]
         assert {row["failed_stage"] for row in rows} == {"discoverability_safety_pass"}
-        assert {"dm_language", "bio_reference"} <= {row["failure_category"] for row in rows}
+        assert {"dm_language", "bio_reference"} <= {
+            row["failure_category"] for row in rows
+        }
         assert "burned_caption_text" in {row["source_field"] for row in rows}
         assert "instagram_post_caption" in {row["source_field"] for row in rows}
         assert all(row["policy_version"] == "discoverability_safe_v1" for row in rows)
@@ -19276,7 +24246,9 @@ def test_capture_publishability_rejection_evidence_stores_exact_discoverability_
         cf.close()
 
 
-def test_parent_factory_discoverability_loss_analysis_prefers_captured_evidence(tmp_path: Path):
+def test_parent_factory_discoverability_loss_analysis_prefers_captured_evidence(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -19290,12 +24262,14 @@ def test_parent_factory_discoverability_loss_analysis_prefers_captured_evidence(
             """,
             (
                 "DM me on Telegram",
-                json.dumps({
-                    "caption_text": "DM me on Telegram",
-                    "burned_caption_text": "DM me on Telegram",
-                    "instagram_post_caption": "DM me on Telegram",
-                    "captionPlacementDecision": {"status": "passed"},
-                }),
+                json.dumps(
+                    {
+                        "caption_text": "DM me on Telegram",
+                        "burned_caption_text": "DM me on Telegram",
+                        "instagram_post_caption": "DM me on Telegram",
+                        "captionPlacementDecision": {"status": "passed"},
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -19305,7 +24279,10 @@ def test_parent_factory_discoverability_loss_analysis_prefers_captured_evidence(
         analysis = cf.parent_factory_discoverability_loss_analysis()
 
         assert cf.conn.total_changes == before
-        categories = {row["category"]: row["frequency"] for row in analysis["discoverabilityRejectionCategories"]}
+        categories = {
+            row["category"]: row["frequency"]
+            for row in analysis["discoverabilityRejectionCategories"]
+        }
         assert categories["dm_language"] >= 1
         assert categories["telegram_reference"] >= 1
         assert analysis["capturedEvidenceCount"] >= 2
@@ -19314,17 +24291,26 @@ def test_parent_factory_discoverability_loss_analysis_prefers_captured_evidence(
         cf.close()
 
 
-def test_parent_factory_master_optimization_report_exposes_discoverability_breakdown(tmp_path: Path):
+def test_parent_factory_master_optimization_report_exposes_discoverability_breakdown(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
 
-        report = cf.parent_factory_master_optimization_report(required_parents_per_day=53)
+        report = cf.parent_factory_master_optimization_report(
+            required_parents_per_day=53
+        )
 
         assert cf.conn.total_changes == before
         breakdown = report["discoverabilityLossAnalysis"]
-        assert breakdown["schema"] == "creator_os.parent_factory_discoverability_loss_analysis.v1"
-        assert {row["category"] for row in breakdown["discoverabilityRejectionCategories"]} >= {
+        assert (
+            breakdown["schema"]
+            == "creator_os.parent_factory_discoverability_loss_analysis.v1"
+        )
+        assert {
+            row["category"] for row in breakdown["discoverabilityRejectionCategories"]
+        } >= {
             "dm_language",
             "link_language",
             "off_platform_reference",
@@ -19341,28 +24327,43 @@ def test_parent_factory_master_optimization_report_exposes_discoverability_break
         cf.close()
 
 
-def test_parent_factory_master_optimization_report_answers_acceptance_questions(tmp_path: Path):
+def test_parent_factory_master_optimization_report_answers_acceptance_questions(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
 
-        report = cf.parent_factory_master_optimization_report(required_parents_per_day=53)
+        report = cf.parent_factory_master_optimization_report(
+            required_parents_per_day=53
+        )
 
         assert cf.conn.total_changes == before
-        assert report["schema"] == "creator_os.parent_factory_master_optimization_report.v1"
+        assert (
+            report["schema"]
+            == "creator_os.parent_factory_master_optimization_report.v1"
+        )
         acceptance = report["acceptanceCriteria"]
         assert acceptance["whyYieldIs8_2Pct"]
         assert acceptance["whatSingleFixImprovesYieldMost"]
         assert len(acceptance["whatThreeFixesIncreaseYieldFastest"]) == 3
-        assert acceptance["expectedYieldAfterFixes"] >= report["optimizationPlan"]["currentYieldPct"]
-        assert acceptance["newRawCandidatesNeededFor53Parents"] <= report["optimizationPlan"]["currentRawCandidatesNeededFor53Parents"]
+        assert (
+            acceptance["expectedYieldAfterFixes"]
+            >= report["optimizationPlan"]["currentYieldPct"]
+        )
+        assert (
+            acceptance["newRawCandidatesNeededFor53Parents"]
+            <= report["optimizationPlan"]["currentRawCandidatesNeededFor53Parents"]
+        )
         assert isinstance(acceptance["canSupport200AccountsAfterFixes"], bool)
         assert report["wouldWrite"] is False
     finally:
         cf.close()
 
 
-def test_discoverability_upstream_gates_block_unsafe_text_without_writing(tmp_path: Path):
+def test_discoverability_upstream_gates_block_unsafe_text_without_writing(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19379,14 +24380,28 @@ def test_discoverability_upstream_gates_block_unsafe_text_without_writing(tmp_pa
 
         assert cf.conn.total_changes == before
         assert intake["schema"] == "campaign_factory.discoverability_intake_gate.v1"
-        assert generation["schema"] == "campaign_factory.discoverability_generation_gate.v1"
-        assert pre_render["schema"] == "campaign_factory.discoverability_pre_render_gate.v1"
+        assert (
+            generation["schema"]
+            == "campaign_factory.discoverability_generation_gate.v1"
+        )
+        assert (
+            pre_render["schema"]
+            == "campaign_factory.discoverability_pre_render_gate.v1"
+        )
         assert intake["canProceed"] is True
         assert generation["canProceed"] is False
         assert pre_render["canProceed"] is False
-        assert {item["sourceField"] for item in pre_render["violations"]} >= {"generated_caption", "burned_caption_text"}
-        assert {item["failureCategory"] for item in pre_render["violations"]} >= {"dm_language", "bio_reference"}
-        assert all(item["wouldWrite"] is False for item in [intake, generation, pre_render])
+        assert {item["sourceField"] for item in pre_render["violations"]} >= {
+            "generated_caption",
+            "burned_caption_text",
+        }
+        assert {item["failureCategory"] for item in pre_render["violations"]} >= {
+            "dm_language",
+            "bio_reference",
+        }
+        assert all(
+            item["wouldWrite"] is False for item in [intake, generation, pre_render]
+        )
     finally:
         cf.close()
 
@@ -19404,7 +24419,15 @@ def test_parent_factory_yield_recovery_math_uses_measured_waterfall(tmp_path: Pa
         assert cf.conn.total_changes == before
         assert origin["schema"] == "creator_os.discoverability_violation_origin_map.v1"
         assert origin["whereViolationsFirstAppear"]
-        assert origin["earliestPreventableStage"] in {"source_content_perception", "prompt_generation", "caption_generation", "burned_caption_generation", "caption_family_generation", "parent_registration", "publishability_validation"}
+        assert origin["earliestPreventableStage"] in {
+            "source_content_perception",
+            "prompt_generation",
+            "caption_generation",
+            "burned_caption_generation",
+            "caption_family_generation",
+            "parent_registration",
+            "publishability_validation",
+        }
         assert 0 <= origin["percentPreventableBeforeRender"] <= 100
         assert 0 <= origin["percentPreventableBeforeRegistration"] <= 100
         assert recovery["schema"] == "creator_os.parent_factory_recoverable_yield.v1"
@@ -19412,23 +24435,34 @@ def test_parent_factory_yield_recovery_math_uses_measured_waterfall(tmp_path: Pa
         assert recovery["yieldIfDiscoverabilityFixed"] > recovery["currentYieldPct"]
         assert recovery["yieldIfBothFixed"] >= recovery["yieldIfDiscoverabilityFixed"]
         assert recovery["requiredRawCandidatesFor53Parents"] <= 647
-        assert throughput["schema"] == "creator_os.parent_factory_throughput_recovery_plan.v1"
+        assert (
+            throughput["schema"]
+            == "creator_os.parent_factory_throughput_recovery_plan.v1"
+        )
         assert throughput["requiredParentsPerDay"] == 53
         assert throughput["currentParentsPerDay"] == 20
         assert throughput["gap"] == 33
         assert throughput["largestLossStage"] == "discoverability_safety_pass"
         assert throughput["expectedGainFromRepair"] > 0
-        assert feasibility["schema"] == "creator_os.parent_factory_53_parent_feasibility.v1"
+        assert (
+            feasibility["schema"]
+            == "creator_os.parent_factory_53_parent_feasibility.v1"
+        )
         assert feasibility["minimumYieldRequired"] == 21.6
         assert feasibility["minimumCandidatesRequired"] == 245
         assert feasibility["highestROIChange"]
         assert feasibility["recommendedNextImplementation"]
-        assert all(item["wouldWrite"] is False for item in [origin, recovery, throughput, feasibility])
+        assert all(
+            item["wouldWrite"] is False
+            for item in [origin, recovery, throughput, feasibility]
+        )
     finally:
         cf.close()
 
 
-def test_parent_factory_secondary_loss_model_does_not_assume_perfect_recovery(tmp_path: Path):
+def test_parent_factory_secondary_loss_model_does_not_assume_perfect_recovery(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19439,31 +24473,54 @@ def test_parent_factory_secondary_loss_model_does_not_assume_perfect_recovery(tm
         realistic = cf.parent_factory_realistic_53_parent_plan()
 
         assert cf.conn.total_changes == before
-        assert secondary["schema"] == "creator_os.parent_factory_secondary_loss_analysis.v1"
+        assert (
+            secondary["schema"]
+            == "creator_os.parent_factory_secondary_loss_analysis.v1"
+        )
         assert secondary["discoverabilityRemoved"] is True
         assert secondary["newLargestLossStage"] == "none_measured_after_discoverability"
         assert secondary["rankedLossStages"]
         assert secondary["nextBottleneck"] == "downstream_sample_size_uncertainty"
-        assert repaired_waterfall["schema"] == "creator_os.parent_factory_waterfall_after_discoverability.v1"
+        assert (
+            repaired_waterfall["schema"]
+            == "creator_os.parent_factory_waterfall_after_discoverability.v1"
+        )
         assert repaired_waterfall["discoverabilityRemoved"] is True
         assert repaired_waterfall["stages"][0]["stage"] == "raw_candidate"
-        assert all(row["stage"] != "discoverability_safety_pass" for row in repaired_waterfall["stages"])
+        assert all(
+            row["stage"] != "discoverability_safety_pass"
+            for row in repaired_waterfall["stages"]
+        )
         assert true_yield["schema"] == "creator_os.parent_factory_true_yield_model.v1"
         assert true_yield["currentYieldPct"] == 8.2
         assert true_yield["theoreticalUpperBoundYieldPct"] == 100.0
-        assert true_yield["realisticYieldAfterDiscoverabilityRepair"] < true_yield["theoreticalUpperBoundYieldPct"]
+        assert (
+            true_yield["realisticYieldAfterDiscoverabilityRepair"]
+            < true_yield["theoreticalUpperBoundYieldPct"]
+        )
         assert true_yield["acceptedParentsPer245Candidates"] < 245
-        assert realistic["schema"] == "creator_os.parent_factory_realistic_53_parent_plan.v1"
+        assert (
+            realistic["schema"]
+            == "creator_os.parent_factory_realistic_53_parent_plan.v1"
+        )
         assert realistic["discoverabilityRemoved"] is True
-        assert realistic["expectedRealYieldPct"] == true_yield["realisticYieldAfterDiscoverabilityRepair"]
+        assert (
+            realistic["expectedRealYieldPct"]
+            == true_yield["realisticYieldAfterDiscoverabilityRepair"]
+        )
         assert realistic["requiredCandidatesFor53Parents"] >= 53
         assert realistic["highestROIAfterDiscoverability"]
-        assert all(item["wouldWrite"] is False for item in [secondary, repaired_waterfall, true_yield, realistic])
+        assert all(
+            item["wouldWrite"] is False
+            for item in [secondary, repaired_waterfall, true_yield, realistic]
+        )
     finally:
         cf.close()
 
 
-def test_parent_factory_53_parent_trial_reports_measured_throughput_only(tmp_path: Path):
+def test_parent_factory_53_parent_trial_reports_measured_throughput_only(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19491,7 +24548,10 @@ def test_parent_factory_53_parent_trial_reports_measured_throughput_only(tmp_pat
         assert results["largestLossStage"] == "discoverability_safety_pass"
         assert results["repairable"] is True
         assert results["estimatedRecoveredParents"] == 225
-        assert results["rankedLosses"][0] == {"stage": "discoverability_safety_pass", "count": 225}
+        assert results["rankedLosses"][0] == {
+            "stage": "discoverability_safety_pass",
+            "count": 225,
+        }
         assert analysis["schema"] == "creator_os.parent_factory_trial_analysis.v1"
         assert analysis["statement"] == (
             "The factory produced 20 accepted parents from 245 candidates. "
@@ -19512,7 +24572,11 @@ def test_parent_factory_53_parent_trial_cli_outputs_json(tmp_path: Path):
             "parent-factory-53-parent-trial",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
@@ -19526,7 +24590,9 @@ def test_parent_factory_53_parent_trial_cli_outputs_json(tmp_path: Path):
     assert payload["wouldWrite"] is False
 
 
-def test_parent_factory_post_gate_fresh_batch_proof_uses_sandbox_and_real_gates(tmp_path: Path):
+def test_parent_factory_post_gate_fresh_batch_proof_uses_sandbox_and_real_gates(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         before = cf.conn.total_changes
@@ -19534,13 +24600,19 @@ def test_parent_factory_post_gate_fresh_batch_proof_uses_sandbox_and_real_gates(
         proof = cf.parent_factory_post_gate_fresh_batch_proof()
 
         assert cf.conn.total_changes == before
-        assert proof["schema"] == "creator_os.parent_factory_post_gate_fresh_batch_proof.v1"
+        assert (
+            proof["schema"]
+            == "creator_os.parent_factory_post_gate_fresh_batch_proof.v1"
+        )
         assert proof["freshBatch"] is True
         assert proof["fixtureBatch"] is True
         assert proof["targetAcceptedParents"] == 53
         assert proof["rawCandidates"] >= 64
         assert proof["blockedBeforeRender"] > 0
-        assert proof["blockedBeforeRender"] + proof["registeredParents"] == proof["rawCandidates"]
+        assert (
+            proof["blockedBeforeRender"] + proof["registeredParents"]
+            == proof["rawCandidates"]
+        )
         assert proof["renderJobsAvoided"] == proof["blockedBeforeRender"]
         assert proof["renderJobsCreated"] == proof["registeredParents"]
         assert proof["registeredParents"] == proof["acceptedParents"]
@@ -19556,14 +24628,25 @@ def test_parent_factory_post_gate_fresh_batch_proof_uses_sandbox_and_real_gates(
         assert proof["successCriteria"]["strongPass"] is True
         assert proof["comparison"]["baseline"]["acceptedParents"] == 20
         assert proof["comparison"]["baseline"]["lateDiscoverabilityFailures"] == 225
-        assert proof["comparison"]["improvement"]["lateDiscoverabilityFailuresReduced"] is True
+        assert (
+            proof["comparison"]["improvement"]["lateDiscoverabilityFailuresReduced"]
+            is True
+        )
         assert proof["comparison"]["improvement"]["yieldImproved"] is True
         assert proof["comparison"]["improvement"]["acceptedParentLift"] >= 33
         assert proof["blockedCandidates"]
-        assert all(item["renderJobCreated"] is False for item in proof["blockedCandidates"])
-        assert all(item["sourceAssetCreated"] is False for item in proof["blockedCandidates"])
-        assert all(item["renderedAssetCreated"] is False for item in proof["blockedCandidates"])
-        assert {item["blockedAt"] for item in proof["blockedCandidates"]} == {"discoverability_pre_render_gate"}
+        assert all(
+            item["renderJobCreated"] is False for item in proof["blockedCandidates"]
+        )
+        assert all(
+            item["sourceAssetCreated"] is False for item in proof["blockedCandidates"]
+        )
+        assert all(
+            item["renderedAssetCreated"] is False for item in proof["blockedCandidates"]
+        )
+        assert {item["blockedAt"] for item in proof["blockedCandidates"]} == {
+            "discoverability_pre_render_gate"
+        }
         assert proof["wouldWrite"] is False
     finally:
         cf.close()
@@ -19585,7 +24668,9 @@ def test_parent_factory_post_gate_fresh_batch_proof_cli_outputs_json(tmp_path: P
     )
     payload = json.loads(result.stdout)
 
-    assert payload["schema"] == "creator_os.parent_factory_post_gate_fresh_batch_proof.v1"
+    assert (
+        payload["schema"] == "creator_os.parent_factory_post_gate_fresh_batch_proof.v1"
+    )
     assert payload["freshBatch"] is True
     assert payload["lateDiscoverabilityFailures"] == 0
     assert payload["blockedBeforeRender"] > 0
@@ -19603,14 +24688,20 @@ def test_parent_factory_master_optimization_report_cli_outputs_json(tmp_path: Pa
             "parent-factory-master-optimization-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
     )
 
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "creator_os.parent_factory_master_optimization_report.v1"
+    assert (
+        payload["schema"] == "creator_os.parent_factory_master_optimization_report.v1"
+    )
     assert payload["acceptanceCriteria"]["whatSingleFixImprovesYieldMost"]
     assert payload["wouldWrite"] is False
 
@@ -19624,14 +24715,21 @@ def test_parent_factory_discoverability_loss_analysis_cli_outputs_json(tmp_path:
             "parent-factory-discoverability-loss-analysis",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,
     )
 
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "creator_os.parent_factory_discoverability_loss_analysis.v1"
+    assert (
+        payload["schema"]
+        == "creator_os.parent_factory_discoverability_loss_analysis.v1"
+    )
     assert payload["discoverabilityRejectionCategories"]
     assert payload["wouldWrite"] is False
 
@@ -19649,12 +24747,14 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
             """,
             (
                 "DM me",
-                json.dumps({
-                    "caption_text": "DM me",
-                    "burned_caption_text": "DM me",
-                    "instagram_post_caption": "DM me",
-                    "captionPlacementDecision": {"status": "passed"},
-                }),
+                json.dumps(
+                    {
+                        "caption_text": "DM me",
+                        "burned_caption_text": "DM me",
+                        "instagram_post_caption": "DM me",
+                        "captionPlacementDecision": {"status": "passed"},
+                    }
+                ),
             ),
         )
         cf.conn.commit()
@@ -19671,7 +24771,11 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
             "asset_1",
         ],
         cwd=Path(__file__).resolve().parents[1],
-        env={**os.environ, "PYTHONPATH": CLI_PYTHONPATH, "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite")},
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+        },
         capture_output=True,
         text=True,
         check=True,

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Simple audio selection metadata provider for social posting workflows."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,7 +11,6 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
 
 SCHEMA = "reel_factory.audio_provider.v1"
 AUDIO_PROVIDER_MODES = {"AUTO_TRENDING", "SAFE_LIBRARY", "CUSTOM"}
@@ -41,15 +41,24 @@ class AudioTrack:
 
 
 def trending_cml_path(root: Path) -> Path:
-    return Path(root).resolve() / "project_data" / "audio_sources" / "tiktok_cml_trending.json"
+    return (
+        Path(root).resolve()
+        / "project_data"
+        / "audio_sources"
+        / "tiktok_cml_trending.json"
+    )
 
 
 def curated_winners_path(root: Path) -> Path:
-    return Path(root).resolve() / "project_data" / "audio_sources" / "curated_winners.json"
+    return (
+        Path(root).resolve() / "project_data" / "audio_sources" / "curated_winners.json"
+    )
 
 
 def local_winners_path(root: Path) -> Path:
-    return Path(root).resolve() / "project_data" / "audio_sources" / "local_winners.json"
+    return (
+        Path(root).resolve() / "project_data" / "audio_sources" / "local_winners.json"
+    )
 
 
 def watch_list_path(root: Path) -> Path:
@@ -71,7 +80,9 @@ def _load_json(path: Path) -> Any:
 
 
 def _track_from_record(record: dict[str, Any], *, default_source: str) -> AudioTrack:
-    name = str(record.get("track_name") or record.get("name") or record.get("title") or "").strip()
+    name = str(
+        record.get("track_name") or record.get("name") or record.get("title") or ""
+    ).strip()
     if not name:
         raise ValueError("audio track is missing track_name/name/title")
     source = str(record.get("source") or default_source).strip() or default_source
@@ -86,22 +97,29 @@ def _track_from_record(record: dict[str, Any], *, default_source: str) -> AudioT
         trend_rank = None
     track_id = str(record.get("track_id") or record.get("id") or "").strip()
     if not track_id:
-        digest = hashlib.sha256(f"{source}|{name}|{record.get('artist') or ''}".encode("utf-8")).hexdigest()[:10]
+        digest = hashlib.sha256(
+            f"{source}|{name}|{record.get('artist') or ''}".encode()
+        ).hexdigest()[:10]
         track_id = f"{_slug(source)}_{_slug(name)}_{digest}"
-    metadata = {k: v for k, v in record.items() if k not in {
-        "track_id",
-        "id",
-        "track_name",
-        "name",
-        "title",
-        "source",
-        "trend_rank",
-        "rank",
-        "tags",
-        "moods",
-        "genres",
-        "artist",
-    }}
+    metadata = {
+        k: v
+        for k, v in record.items()
+        if k
+        not in {
+            "track_id",
+            "id",
+            "track_name",
+            "name",
+            "title",
+            "source",
+            "trend_rank",
+            "rank",
+            "tags",
+            "moods",
+            "genres",
+            "artist",
+        }
+    }
     return AudioTrack(
         track_id=track_id,
         track_name=name,
@@ -128,24 +146,39 @@ def _matches_allowed_tags(track: AudioTrack, allowed_tags: set[str]) -> bool:
     if tags & allowed_tags:
         return True
     meta = track.metadata or {}
-    searchable = " ".join(str(meta.get(key) or "") for key in ("genre", "mood", "category", "description"))
+    searchable = " ".join(
+        str(meta.get(key) or "") for key in ("genre", "mood", "category", "description")
+    )
     return bool({_slug(part) for part in searchable.split()} & allowed_tags)
 
 
-def eligible_trending_tracks(root: Path, *, allowed_tags: set[str] | None = None,
-                             limit: int = 100) -> list[AudioTrack]:
+def eligible_trending_tracks(
+    root: Path, *, allowed_tags: set[str] | None = None, limit: int = 100
+) -> list[AudioTrack]:
     allowed = {_slug(tag) for tag in (allowed_tags or DEFAULT_ALLOWED_TAGS)}
     tracks = [
-        track for track in load_track_list(trending_cml_path(root), default_source="tiktok_cml")
+        track
+        for track in load_track_list(
+            trending_cml_path(root), default_source="tiktok_cml"
+        )
         if _matches_allowed_tags(track, allowed)
     ]
-    tracks.sort(key=lambda track: (track.trend_rank if track.trend_rank is not None else 999999, track.track_name))
+    tracks.sort(
+        key=lambda track: (
+            track.trend_rank if track.trend_rank is not None else 999999,
+            track.track_name,
+        )
+    )
     return tracks[:limit]
 
 
 def curated_winner_tracks(root: Path) -> list[AudioTrack]:
     tracks = load_track_list(curated_winners_path(root), default_source="safe_library")
-    tracks.extend(load_track_list(local_winners_path(root), default_source="local_archive_audio_id"))
+    tracks.extend(
+        load_track_list(
+            local_winners_path(root), default_source="local_archive_audio_id"
+        )
+    )
     return _dedupe_tracks(tracks)
 
 
@@ -164,17 +197,21 @@ def _dedupe_tracks(tracks: list[AudioTrack]) -> list[AudioTrack]:
     return unique
 
 
-def _choice(rng: random.Random, tracks: list[AudioTrack], *, reason: str) -> dict[str, Any]:
+def _choice(
+    rng: random.Random, tracks: list[AudioTrack], *, reason: str
+) -> dict[str, Any]:
     if not tracks:
         raise ValueError("cannot choose from an empty track list")
     track = rng.choice(tracks)
     payload = asdict(track)
     payload["tags"] = list(track.tags)
-    payload.update({
-        "schema": SCHEMA + ".selection",
-        "selected_reason": reason,
-        "selected_at": int(time.time()),
-    })
+    payload.update(
+        {
+            "schema": SCHEMA + ".selection",
+            "selected_reason": reason,
+            "selected_at": int(time.time()),
+        }
+    )
     return payload
 
 
@@ -198,7 +235,11 @@ def select_audio(
     if mode == "CUSTOM":
         if not custom_track:
             raise ValueError("CUSTOM audio mode requires custom_track")
-        return _choice(rng, [_track_from_record(custom_track, default_source="custom")], reason="custom_manual_override")
+        return _choice(
+            rng,
+            [_track_from_record(custom_track, default_source="custom")],
+            reason="custom_manual_override",
+        )
 
     cml_primary = eligible_trending_tracks(root, allowed_tags=allowed_tags)
     winners = curated_winner_tracks(root)
@@ -223,19 +264,25 @@ def select_audio(
     return _choice(rng, winners, reason="auto_fallback_local_winner")
 
 
-def write_selection(root: Path, selection: dict[str, Any], *, stem: str | None = None) -> Path:
+def write_selection(
+    root: Path, selection: dict[str, Any], *, stem: str | None = None
+) -> Path:
     out_dir = Path(root).resolve() / "project_data" / "audio_selections"
     out_dir.mkdir(parents=True, exist_ok=True)
     name = stem or f"{selection.get('track_id', 'track')}_{int(time.time())}"
     path = out_dir / f"{_slug(name)}.json"
-    path.write_text(json.dumps(selection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(selection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return path
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, default=Path("."))
-    ap.add_argument("--mode", choices=sorted(AUDIO_PROVIDER_MODES), default="AUTO_TRENDING")
+    ap.add_argument(
+        "--mode", choices=sorted(AUDIO_PROVIDER_MODES), default="AUTO_TRENDING"
+    )
     ap.add_argument("--seed", default=None)
     ap.add_argument("--custom-track-json", type=Path)
     ap.add_argument("--write", action="store_true")
@@ -244,9 +291,13 @@ def main() -> int:
     custom_track = None
     if args.custom_track_json:
         custom_track = json.loads(args.custom_track_json.read_text(encoding="utf-8"))
-    selection = select_audio(args.root, mode=args.mode, seed=args.seed, custom_track=custom_track)
+    selection = select_audio(
+        args.root, mode=args.mode, seed=args.seed, custom_track=custom_track
+    )
     if args.write:
-        selection["selection_path"] = str(write_selection(args.root, selection, stem=args.stem))
+        selection["selection_path"] = str(
+            write_selection(args.root, selection, stem=args.stem)
+        )
     print(json.dumps(selection, indent=2, ensure_ascii=False))
     return 0
 

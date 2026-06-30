@@ -26,7 +26,10 @@ def _batch(
     root = tmp_path
     clip_dir = root / "02_processed" / "clip_001"
     clip_dir.mkdir(parents=True)
-    _write_json(root / "00_source_videos" / "clip_001.generated_asset_lineage.json", {"schema": "lineage"})
+    _write_json(
+        root / "00_source_videos" / "clip_001.generated_asset_lineage.json",
+        {"schema": "lineage"},
+    )
     rows = []
     for index in range(row_count):
         output = clip_dir / f"clip_001_v{index + 1:03d}.mp4"
@@ -41,7 +44,13 @@ def _batch(
             output.with_suffix(output.suffix + ".generated_asset_lineage.json"),
             {
                 "schema": "campaign_factory.generated_asset_lineage.v1",
-                "source": {"sourceLineagePath": str(root / "00_source_videos" / "clip_001.generated_asset_lineage.json")},
+                "source": {
+                    "sourceLineagePath": str(
+                        root
+                        / "00_source_videos"
+                        / "clip_001.generated_asset_lineage.json"
+                    )
+                },
                 "captionPlacementPolicy": placement,
                 "captionPlacementDecision": placement_decision
                 if placement_decision is not None
@@ -52,9 +61,30 @@ def _batch(
                     "reason": "top lane lowest (top=1.0, center=9.0, bottom=12.0)",
                     "scores": {"top": 1.0, "center": 9.0, "bottom": 12.0},
                     "components": {
-                        "top": {"busyness": 1.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 0.0},
-                        "center": {"busyness": 1.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 8.0},
-                        "bottom": {"busyness": 12.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 0.0},
+                        "top": {
+                            "busyness": 1.0,
+                            "face": 0.0,
+                            "focal": 0.0,
+                            "motion": 0.0,
+                            "pose": 0.0,
+                            "safe_area": 0.0,
+                        },
+                        "center": {
+                            "busyness": 1.0,
+                            "face": 0.0,
+                            "focal": 0.0,
+                            "motion": 0.0,
+                            "pose": 0.0,
+                            "safe_area": 8.0,
+                        },
+                        "bottom": {
+                            "busyness": 12.0,
+                            "face": 0.0,
+                            "focal": 0.0,
+                            "motion": 0.0,
+                            "pose": 0.0,
+                            "safe_area": 0.0,
+                        },
                     },
                     "sampleCount": 3,
                 },
@@ -75,9 +105,20 @@ def _batch(
         clip_dir / "_readiness.json",
         {
             "schema": "reel_factory.readiness.v1",
-            "summary": {"total": row_count, "ready": row_count, "warn": 0, "not_ready": 0},
-            "records": readiness_records if readiness_records is not None else [
-                {"filename": Path(row["output"]).name, "status": "ready", "warnings": []}
+            "summary": {
+                "total": row_count,
+                "ready": row_count,
+                "warn": 0,
+                "not_ready": 0,
+            },
+            "records": readiness_records
+            if readiness_records is not None
+            else [
+                {
+                    "filename": Path(row["output"]).name,
+                    "status": "ready",
+                    "warnings": [],
+                }
                 for row in rows
             ],
         },
@@ -141,13 +182,17 @@ def test_review_batch_guard_blocks_default_contentforge_profile(tmp_path: Path) 
 
 
 def test_review_batch_guard_blocks_stale_contentforge_count(tmp_path: Path) -> None:
-    result = validate_review_batch(_batch(tmp_path, row_count=2, contentforge_variants=1))
+    result = validate_review_batch(
+        _batch(tmp_path, row_count=2, contentforge_variants=1)
+    )
 
     assert result["status"] == "blocked"
     assert "contentforge_audit_count_mismatch" in result["blockingReasons"]
 
 
-def test_review_batch_guard_blocks_same_count_contentforge_for_other_files(tmp_path: Path) -> None:
+def test_review_batch_guard_blocks_same_count_contentforge_for_other_files(
+    tmp_path: Path,
+) -> None:
     result = validate_review_batch(
         _batch(
             tmp_path,
@@ -163,7 +208,9 @@ def test_review_batch_guard_blocks_same_count_contentforge_for_other_files(tmp_p
     assert "contentforge_audit_file_mismatch" in result["blockingReasons"]
 
 
-def test_review_batch_guard_blocks_same_count_readiness_for_other_files(tmp_path: Path) -> None:
+def test_review_batch_guard_blocks_same_count_readiness_for_other_files(
+    tmp_path: Path,
+) -> None:
     result = validate_review_batch(
         _batch(
             tmp_path,
@@ -187,11 +234,15 @@ def test_review_batch_guard_blocks_manual_font_and_placement(tmp_path: Path) -> 
     assert "caption_placement_not_focal_safe" in result["blockingReasons"]
 
 
-def test_review_batch_guard_blocks_missing_real_placement_decision(tmp_path: Path) -> None:
+def test_review_batch_guard_blocks_missing_real_placement_decision(
+    tmp_path: Path,
+) -> None:
     result = validate_review_batch(_batch(tmp_path, placement_decision={}))
 
     assert result["status"] == "blocked"
-    assert "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
+    assert (
+        "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
+    )
 
 
 def test_review_batch_guard_blocks_selected_band_mismatch(tmp_path: Path) -> None:
@@ -210,10 +261,14 @@ def test_review_batch_guard_blocks_selected_band_mismatch(tmp_path: Path) -> Non
     )
 
     assert result["status"] == "blocked"
-    assert "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
+    assert (
+        "caption_placement_decision_missing_or_mismatched" in result["blockingReasons"]
+    )
 
 
-def test_promote_review_batch_writes_package_only_after_guard_passes(tmp_path: Path) -> None:
+def test_promote_review_batch_writes_package_only_after_guard_passes(
+    tmp_path: Path,
+) -> None:
     manifest = _batch(tmp_path / "ready")
     package_path = tmp_path / "ready" / "review_package.json"
 

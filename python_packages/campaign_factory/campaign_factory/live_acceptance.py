@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class LiveAcceptanceRepository:
@@ -38,7 +39,11 @@ class LiveAcceptanceRepository:
         posts_per_day = target * max(0, int(posts_per_account_per_day or 0))
         required_inventory = posts_per_day * max(1, int(buffer_days or 1))
         accounts = self._actual_account_operational_counts()
-        surface = self._normalize_content_surface(content_surface) if content_surface else None
+        surface = (
+            self._normalize_content_surface(content_surface)
+            if content_surface
+            else None
+        )
         if surface:
             assets = self._surface_report_assets()
             inventory_accounting = self._reservation_adjusted_inventory(
@@ -84,7 +89,9 @@ class LiveAcceptanceRepository:
             "grossInventory": inventory_accounting["grossInventory"],
             "reservedInventory": inventory_accounting["reservedInventory"],
             "usedInventory": inventory_accounting["usedInventory"],
-            "cooldownBlockedInventory": inventory_accounting.get("cooldownBlockedInventory", 0),
+            "cooldownBlockedInventory": inventory_accounting.get(
+                "cooldownBlockedInventory", 0
+            ),
             "netInventory": inventory_accounting["netInventory"],
             "actualAccounts": accounts["totalAccounts"],
             "eligibleAccounts": accounts["safeAccounts"],
@@ -114,9 +121,18 @@ class LiveAcceptanceRepository:
             )
             for target in targets
         ]
-        passed = [row["accountTarget"] for row in stage_rows if row.get("acceptancePassed")]
+        passed = [
+            row["accountTarget"] for row in stage_rows if row.get("acceptancePassed")
+        ]
         current = max(passed) if passed else 0
-        next_target = next((row["accountTarget"] for row in stage_rows if not row.get("acceptancePassed")), None)
+        next_target = next(
+            (
+                row["accountTarget"]
+                for row in stage_rows
+                if not row.get("acceptancePassed")
+            ),
+            None,
+        )
         return {
             "schema": "creator_os.staged_live_acceptance.v1",
             "stages": stage_rows,
@@ -136,13 +152,22 @@ class LiveAcceptanceRepository:
         exception_count: int,
     ) -> dict[str, Any]:
         return {
-            "missedDispatches": self.live_acceptance_missed_dispatches(threadsdash_report),
-            "duplicatePublishes": self.live_acceptance_duplicate_publishes(threadsdash_report),
-            "restrictedAccountsScheduled": self.live_acceptance_restricted_scheduled(threadsdash_report),
-            "surfaceContractViolations": self.live_acceptance_surface_contract_violations(threadsdash_report),
+            "missedDispatches": self.live_acceptance_missed_dispatches(
+                threadsdash_report
+            ),
+            "duplicatePublishes": self.live_acceptance_duplicate_publishes(
+                threadsdash_report
+            ),
+            "restrictedAccountsScheduled": self.live_acceptance_restricted_scheduled(
+                threadsdash_report
+            ),
+            "surfaceContractViolations": self.live_acceptance_surface_contract_violations(
+                threadsdash_report
+            ),
             "inventoryBufferMaintained": available_inventory >= required_inventory,
             "metricsImported": self.live_acceptance_metrics_imported(),
-            "exceptionQueueWithinThreshold": exception_count <= max(5, math.ceil(account_target * 0.05)),
+            "exceptionQueueWithinThreshold": exception_count
+            <= max(5, math.ceil(account_target * 0.05)),
         }
 
     def live_acceptance_missed_dispatches(self, report: dict[str, Any]) -> int:
@@ -177,14 +202,26 @@ class LiveAcceptanceRepository:
         for account in report.get("accounts") or []:
             if not isinstance(account, dict):
                 continue
-            scheduled = bool(account.get("nextScheduledPost") or account.get("scheduled") or account.get("scheduledFor"))
-            status = " ".join(str(account.get(key) or "").lower() for key in ("state", "status", "blockedReason", "restrictionStatus"))
-            restricted = any(token in status for token in ("blocked", "restricted", "reauth", "disabled"))
+            scheduled = bool(
+                account.get("nextScheduledPost")
+                or account.get("scheduled")
+                or account.get("scheduledFor")
+            )
+            status = " ".join(
+                str(account.get(key) or "").lower()
+                for key in ("state", "status", "blockedReason", "restrictionStatus")
+            )
+            restricted = any(
+                token in status
+                for token in ("blocked", "restricted", "reauth", "disabled")
+            )
             if scheduled and restricted:
                 count += 1
         return count
 
-    def live_acceptance_surface_contract_violations(self, report: dict[str, Any]) -> int:
+    def live_acceptance_surface_contract_violations(
+        self, report: dict[str, Any]
+    ) -> int:
         explicit = report.get("surfaceContractViolations")
         if isinstance(explicit, list):
             return len(explicit)
@@ -193,9 +230,11 @@ class LiveAcceptanceRepository:
         return int(report.get("surfaceContractViolationCount") or 0)
 
     def live_acceptance_metrics_imported(self) -> bool:
-        return bool(self.conn.execute(
-            "SELECT 1 FROM performance_snapshots WHERE metrics_eligible = 1 LIMIT 1"
-        ).fetchone())
+        return bool(
+            self.conn.execute(
+                "SELECT 1 FROM performance_snapshots WHERE metrics_eligible = 1 LIMIT 1"
+            ).fetchone()
+        )
 
     def live_acceptance_blocker_for(self, key: str) -> str:
         return {

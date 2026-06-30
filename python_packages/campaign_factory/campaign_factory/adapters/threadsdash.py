@@ -14,17 +14,33 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
-from ..caption_outcome import build_caption_outcome_context, column_values, load_context_json
+from ..caption_outcome import (
+    build_caption_outcome_context,
+    column_values,
+    load_context_json,
+)
 from ..contracts import (
     ContractValidationError,
     validate_performance_sync,
     validate_post_metric_history_read,
     validate_threadsdash_draft_payload_strict,
 )
-from ..core import CampaignFactory, new_id, normalize_content_surface, utc_now, _normalize_distribution_surface, _normalize_schedule_mode
+from ..core import (
+    CampaignFactory,
+    _normalize_distribution_surface,
+    _normalize_schedule_mode,
+    new_id,
+    normalize_content_surface,
+    utc_now,
+)
 
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
-UNRESOLVED_NATIVE_AUDIO_STATUSES = {"recommended", "needs_operator_selection", "selected", "blocked"}
+UNRESOLVED_NATIVE_AUDIO_STATUSES = {
+    "recommended",
+    "needs_operator_selection",
+    "selected",
+    "blocked",
+}
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
 DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
@@ -51,14 +67,18 @@ def build_draft_payloads(
     if enable_variation:
         from ..variation_stage import load_variant_assignment_index
 
-        variation_index = load_variant_assignment_index(factory, campaign_slug=campaign_slug)
+        variation_index = load_variant_assignment_index(
+            factory, campaign_slug=campaign_slug
+        )
     distribution_plans_by_asset: dict[str, list[dict[str, Any]]] = {}
     require_distribution_plan = False
     if normalized_schedule_mode in {"preview", "live"}:
         distribution_plans = factory.distribution_plans_for_campaign(campaign_slug)
         require_distribution_plan = bool(distribution_plans)
         for plan in distribution_plans:
-            distribution_plans_by_asset.setdefault(plan["renderedAssetId"], []).append(plan)
+            distribution_plans_by_asset.setdefault(plan["renderedAssetId"], []).append(
+                plan
+            )
     selected_ids = set(rendered_asset_ids or [])
     drafts = []
     for asset in manifest["assets"]:
@@ -66,7 +86,9 @@ def build_draft_payloads(
             continue
         file_path = Path(asset["filePath"])
         caption = asset.get("caption") or ""
-        caption_context = _caption_context_for_export(asset, caption=caption, file_path=file_path)
+        caption_context = _caption_context_for_export(
+            asset, caption=caption, file_path=file_path
+        )
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)
         destinations = _draft_destinations_for_asset(
             factory,
@@ -84,7 +106,11 @@ def build_draft_payloads(
                 instagram_account_id=instagram_account_id,
                 required=enable_variation,
             )
-            destination_file_path = Path(variation_assignment["variant_path"]) if variation_assignment else file_path
+            destination_file_path = (
+                Path(variation_assignment["variant_path"])
+                if variation_assignment
+                else file_path
+            )
             media_id = f"media_{uuid.uuid4().hex[:12]}"
             media_item = {
                 "id": media_id,
@@ -92,22 +118,31 @@ def build_draft_payloads(
                 "url": None,
                 "thumbnailUrl": None,
                 "fileName": destination_file_path.name,
-                "size": destination_file_path.stat().st_size if destination_file_path.exists() else 0,
+                "size": destination_file_path.stat().st_size
+                if destination_file_path.exists()
+                else 0,
                 "uploadedAt": utc_now(),
             }
-            distribution_surface = _normalize_distribution_surface(destination.get("distributionSurface"))
+            distribution_surface = _normalize_distribution_surface(
+                destination.get("distributionSurface")
+            )
             post_caption = _instagram_post_caption_for_export(
                 asset,
                 caption=caption,
                 caption_context=caption_context,
                 destination=destination,
             )
-            audio_recommendations = _audio_recommendations_for_destination(factory, asset, destination)
+            audio_recommendations = _audio_recommendations_for_destination(
+                factory, asset, destination
+            )
             publishability = factory.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
             )
-            if not (publishability.get("publishableCandidate") and publishability.get("handoff_manifest")):
+            if not (
+                publishability.get("publishableCandidate")
+                and publishability.get("handoff_manifest")
+            ):
                 publishability = dict(publishability)
             else:
                 publishability = {
@@ -120,10 +155,19 @@ def build_draft_payloads(
                 or publishability.get("contentSurface")
                 or distribution_surface
             )
-            cover_frame = publishability.get("cover_frame") if isinstance(publishability.get("cover_frame"), dict) else {}
+            cover_frame = (
+                publishability.get("cover_frame")
+                if isinstance(publishability.get("cover_frame"), dict)
+                else {}
+            )
             destination_media_item = dict(media_item)
-            if isinstance(cover_frame.get("image_url"), str) and cover_frame.get("image_url").strip():
-                destination_media_item["thumbnailUrl"] = cover_frame.get("image_url").strip()
+            if (
+                isinstance(cover_frame.get("image_url"), str)
+                and cover_frame.get("image_url").strip()
+            ):
+                destination_media_item["thumbnailUrl"] = cover_frame.get(
+                    "image_url"
+                ).strip()
             draft_content = post_caption["instagram_post_caption"]
             draft_key = _stable_export_key(
                 "draft",
@@ -137,8 +181,13 @@ def build_draft_payloads(
             media_key = _stable_export_key(
                 "media",
                 campaign_slug,
-                (variation_assignment or {}).get("variant_asset_id") or asset.get("renderedAssetGraphId") or asset.get("graphId") or asset["renderedAssetId"],
-                (variation_assignment or {}).get("variant_path") or asset.get("contentHash") or "",
+                (variation_assignment or {}).get("variant_asset_id")
+                or asset.get("renderedAssetGraphId")
+                or asset.get("graphId")
+                or asset["renderedAssetId"],
+                (variation_assignment or {}).get("variant_path")
+                or asset.get("contentHash")
+                or "",
             )
             post_key = _stable_export_key("post", draft_key)
             draft = {
@@ -149,7 +198,9 @@ def build_draft_payloads(
                 "platform": "instagram",
                 "content": draft_content,
                 "media": [destination_media_item],
-                "status": _draft_status_for_schedule_mode(normalized_schedule_mode, destination.get("plannedWindowStart")),
+                "status": _draft_status_for_schedule_mode(
+                    normalized_schedule_mode, destination.get("plannedWindowStart")
+                ),
                 "topics": post_caption["hashtags"],
                 "hashtags": post_caption["hashtags"],
                 "settings": {
@@ -159,9 +210,11 @@ def build_draft_payloads(
                 },
                 "campaignId": manifest["campaignId"],
                 "graphId": asset.get("graphId") or asset.get("renderedAssetGraphId"),
-                "campaignGraphId": asset.get("campaignGraphId") or manifest.get("campaignGraphId"),
+                "campaignGraphId": asset.get("campaignGraphId")
+                or manifest.get("campaignGraphId"),
                 "sourceAssetGraphId": asset.get("sourceAssetGraphId"),
-                "renderedAssetGraphId": asset.get("renderedAssetGraphId") or asset.get("graphId"),
+                "renderedAssetGraphId": asset.get("renderedAssetGraphId")
+                or asset.get("graphId"),
                 "auditGraphId": asset.get("auditGraphId"),
                 "sourceAssetId": asset["sourceAssetId"],
                 "renderedAssetId": asset["renderedAssetId"],
@@ -188,7 +241,9 @@ def build_draft_payloads(
                 "distributionReasonCode": destination.get("reasonCode"),
                 "smartLink": destination.get("smartLink"),
                 "ctaText": destination.get("ctaText"),
-                "accountProfile": factory.model_account_profile(asset.get("modelId") or ""),
+                "accountProfile": factory.model_account_profile(
+                    asset.get("modelId") or ""
+                ),
                 "recipe": asset.get("recipe"),
                 "referencePattern": asset.get("referencePattern") or {},
                 "sourcePrompt": asset.get("sourcePrompt") or {},
@@ -205,8 +260,11 @@ def build_draft_payloads(
                 "auditSummary": asset.get("auditSummary") or {},
                 "plannedWindowStart": destination.get("plannedWindowStart"),
                 "plannedWindowEnd": destination.get("plannedWindowEnd"),
-                "scheduledFor": destination.get("plannedWindowStart") if normalized_schedule_mode in {"preview", "live"} else None,
-                "previewScheduleOnly": normalized_schedule_mode == "preview" and bool(destination.get("plannedWindowStart")),
+                "scheduledFor": destination.get("plannedWindowStart")
+                if normalized_schedule_mode in {"preview", "live"}
+                else None,
+                "previewScheduleOnly": normalized_schedule_mode == "preview"
+                and bool(destination.get("plannedWindowStart")),
                 "scheduleMode": normalized_schedule_mode,
                 "assignmentNotes": destination.get("notes"),
                 "campaignFactoryExportId": export_id,
@@ -235,7 +293,9 @@ def build_draft_payloads(
     }
 
 
-def _draft_status_for_schedule_mode(schedule_mode: str, planned_window_start: str | None) -> str:
+def _draft_status_for_schedule_mode(
+    schedule_mode: str, planned_window_start: str | None
+) -> str:
     # Campaign Factory may export scheduling intent, but ThreadsDashboard owns
     # schedule row transitions and QStash dispatch. Never create scheduled rows
     # directly from Campaign Factory.
@@ -276,14 +336,26 @@ def _campaign_factory_manifest_blockers(
 ) -> list[str]:
     blockers: list[str] = []
     for idx, draft in enumerate(payload.get("drafts") or []):
-        meta = ((draft.get("metadata") or {}).get("campaign_factory") or {}) if isinstance(draft.get("metadata"), dict) else {}
-        rendered_asset_id = meta.get("rendered_asset_id") or draft.get("renderedAssetId") or f"draft_{idx}"
+        meta = (
+            ((draft.get("metadata") or {}).get("campaign_factory") or {})
+            if isinstance(draft.get("metadata"), dict)
+            else {}
+        )
+        rendered_asset_id = (
+            meta.get("rendered_asset_id")
+            or draft.get("renderedAssetId")
+            or f"draft_{idx}"
+        )
         asset_state = str(meta.get("asset_state") or "").strip().lower()
         if asset_state not in {"publishable_candidate", "exportable"}:
-            blockers.append(f"{rendered_asset_id}:asset_state:{asset_state or 'missing'}")
+            blockers.append(
+                f"{rendered_asset_id}:asset_state:{asset_state or 'missing'}"
+            )
         failures = meta.get("publishability_failure_reasons") or []
         if failures:
-            blockers.extend(f"{rendered_asset_id}:publishability:{reason}" for reason in failures)
+            blockers.extend(
+                f"{rendered_asset_id}:publishability:{reason}" for reason in failures
+            )
         manifest = meta.get("handoff_manifest")
         if not isinstance(manifest, dict):
             blockers.append(f"{rendered_asset_id}:handoff_manifest_missing")
@@ -332,36 +404,77 @@ def _campaign_factory_manifest_blockers(
         if manifest_version == 2:
             ig_media_type = manifest.get("igMediaType") or manifest.get("ig_media_type")
             if not content_surface:
-                blockers.append(f"{rendered_asset_id}:handoff_manifest.contentSurface_missing")
+                blockers.append(
+                    f"{rendered_asset_id}:handoff_manifest.contentSurface_missing"
+                )
             if not ig_media_type:
-                blockers.append(f"{rendered_asset_id}:handoff_manifest.igMediaType_missing")
+                blockers.append(
+                    f"{rendered_asset_id}:handoff_manifest.igMediaType_missing"
+                )
             if content_surface == "feed_single" and ig_media_type != "IMAGE":
-                blockers.append(f"{rendered_asset_id}:handoff_manifest.feed_single_ig_media_type_invalid")
+                blockers.append(
+                    f"{rendered_asset_id}:handoff_manifest.feed_single_ig_media_type_invalid"
+                )
             media_items = manifest.get("mediaItems")
-            if content_surface == "feed_single" and (not isinstance(media_items, list) or len(media_items) != 1):
-                blockers.append(f"{rendered_asset_id}:handoff_manifest.mediaItems_invalid")
-            if content_surface == "story" and (not isinstance(media_items, list) or len(media_items) != 1):
-                blockers.append(f"{rendered_asset_id}:handoff_manifest.mediaItems_invalid")
+            if content_surface == "feed_single" and (
+                not isinstance(media_items, list) or len(media_items) != 1
+            ):
+                blockers.append(
+                    f"{rendered_asset_id}:handoff_manifest.mediaItems_invalid"
+                )
+            if content_surface == "story" and (
+                not isinstance(media_items, list) or len(media_items) != 1
+            ):
+                blockers.append(
+                    f"{rendered_asset_id}:handoff_manifest.mediaItems_invalid"
+                )
         if manifest.get("exported_by_system") != "campaign_factory":
-            blockers.append(f"{rendered_asset_id}:handoff_manifest.exported_by_system_invalid")
+            blockers.append(
+                f"{rendered_asset_id}:handoff_manifest.exported_by_system_invalid"
+            )
         if manifest.get("asset_id") != rendered_asset_id:
             blockers.append(f"{rendered_asset_id}:handoff_manifest.asset_id_mismatch")
-        content_hash = meta.get("content_fingerprint") or meta.get("content_hash") or draft.get("contentHash")
+        content_hash = (
+            meta.get("content_fingerprint")
+            or meta.get("content_hash")
+            or draft.get("contentHash")
+        )
         if content_hash and manifest.get("content_fingerprint") != content_hash:
-            blockers.append(f"{rendered_asset_id}:handoff_manifest.content_fingerprint_mismatch")
+            blockers.append(
+                f"{rendered_asset_id}:handoff_manifest.content_fingerprint_mismatch"
+            )
         caption_hash = meta.get("caption_hash") or draft.get("captionHash")
-        if content_surface != "story" and caption_hash and manifest.get("caption_hash") != caption_hash:
-            blockers.append(f"{rendered_asset_id}:handoff_manifest.caption_hash_mismatch")
-        post_caption = meta.get("instagram_post_caption") or draft.get("instagramPostCaption")
-        post_caption_hash = meta.get("instagram_post_caption_hash") or draft.get("instagramPostCaptionHash")
-        if content_surface != "story" and (not isinstance(post_caption, str) or not post_caption.strip()):
+        if (
+            content_surface != "story"
+            and caption_hash
+            and manifest.get("caption_hash") != caption_hash
+        ):
+            blockers.append(
+                f"{rendered_asset_id}:handoff_manifest.caption_hash_mismatch"
+            )
+        post_caption = meta.get("instagram_post_caption") or draft.get(
+            "instagramPostCaption"
+        )
+        post_caption_hash = meta.get("instagram_post_caption_hash") or draft.get(
+            "instagramPostCaptionHash"
+        )
+        if content_surface != "story" and (
+            not isinstance(post_caption, str) or not post_caption.strip()
+        ):
             blockers.append(f"{rendered_asset_id}:instagram_post_caption_missing")
-        if post_caption_hash and manifest.get("instagram_post_caption_hash") != post_caption_hash:
-            blockers.append(f"{rendered_asset_id}:handoff_manifest.instagram_post_caption_hash_mismatch")
+        if (
+            post_caption_hash
+            and manifest.get("instagram_post_caption_hash") != post_caption_hash
+        ):
+            blockers.append(
+                f"{rendered_asset_id}:handoff_manifest.instagram_post_caption_hash_mismatch"
+            )
         if meta.get("quarantined"):
             blockers.append(f"{rendered_asset_id}:quarantined_asset")
         if require_remote_media_urls:
-            blockers.extend(_remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id))
+            blockers.extend(
+                _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)
+            )
     return sorted(set(blockers))
 
 
@@ -393,15 +506,37 @@ def _media_item_url(item: Any) -> str | None:
     return None
 
 
-def _remote_media_url_blockers(draft: dict[str, Any], *, rendered_asset_id: str) -> list[str]:
+def _remote_media_url_blockers(
+    draft: dict[str, Any], *, rendered_asset_id: str
+) -> list[str]:
     metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
-    meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
-    manifest = meta.get("handoff_manifest") if isinstance(meta.get("handoff_manifest"), dict) else {}
+    meta = (
+        metadata.get("campaign_factory")
+        if isinstance(metadata.get("campaign_factory"), dict)
+        else {}
+    )
+    manifest = (
+        meta.get("handoff_manifest")
+        if isinstance(meta.get("handoff_manifest"), dict)
+        else {}
+    )
     draft_media = draft.get("media") if isinstance(draft.get("media"), list) else []
-    draft_media_items = draft.get("mediaItems") if isinstance(draft.get("mediaItems"), list) else []
-    draft_media_urls = draft.get("media_urls") if isinstance(draft.get("media_urls"), list) else []
-    manifest_media_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
-    manifest_media_items = manifest_media_items or (manifest.get("media_items") if isinstance(manifest.get("media_items"), list) else [])
+    draft_media_items = (
+        draft.get("mediaItems") if isinstance(draft.get("mediaItems"), list) else []
+    )
+    draft_media_urls = (
+        draft.get("media_urls") if isinstance(draft.get("media_urls"), list) else []
+    )
+    manifest_media_items = (
+        manifest.get("mediaItems")
+        if isinstance(manifest.get("mediaItems"), list)
+        else []
+    )
+    manifest_media_items = manifest_media_items or (
+        manifest.get("media_items")
+        if isinstance(manifest.get("media_items"), list)
+        else []
+    )
     groups = [draft_media, draft_media_items, draft_media_urls, manifest_media_items]
     expected_count = max((len(group) for group in groups), default=0)
     if expected_count == 0:
@@ -410,15 +545,17 @@ def _remote_media_url_blockers(draft: dict[str, Any], *, rendered_asset_id: str)
     blockers: list[str] = []
     for index in range(expected_count):
         candidates = [
-            _media_item_url(group[index])
-            for group in groups
-            if index < len(group)
+            _media_item_url(group[index]) for group in groups if index < len(group)
         ]
         if not any(_is_remote_media_url(url) for url in candidates if url):
-            blockers.append(f"{rendered_asset_id}:media_item_{index}_remote_url_missing")
+            blockers.append(
+                f"{rendered_asset_id}:media_item_{index}_remote_url_missing"
+            )
         for url in candidates:
             if url and not _is_remote_media_url(url):
-                blockers.append(f"{rendered_asset_id}:media_item_{index}_url_not_remote")
+                blockers.append(
+                    f"{rendered_asset_id}:media_item_{index}_url_not_remote"
+                )
     return blockers
 
 
@@ -429,9 +566,17 @@ def _draft_destinations_for_asset(
     plans: list[dict[str, Any]] | None = None,
     require_distribution_plan: bool = False,
 ) -> list[dict[str, Any]]:
-    plans = plans if plans is not None else factory.distribution_plans_for_asset(asset["renderedAssetId"])
-    asset_content_surface = normalize_content_surface(asset.get("contentSurface") or asset.get("content_surface"))
-    default_distribution_surface = "regular_reel" if asset_content_surface == "reel" else asset_content_surface
+    plans = (
+        plans
+        if plans is not None
+        else factory.distribution_plans_for_asset(asset["renderedAssetId"])
+    )
+    asset_content_surface = normalize_content_surface(
+        asset.get("contentSurface") or asset.get("content_surface")
+    )
+    default_distribution_surface = (
+        "regular_reel" if asset_content_surface == "reel" else asset_content_surface
+    )
     if plans:
         return [
             {
@@ -442,7 +587,8 @@ def _draft_destinations_for_asset(
                 "notes": plan.get("reasonCode"),
                 "distributionPlanId": plan.get("id"),
                 "distributionSurface": plan.get("surface"),
-                "contentSurface": plan.get("contentSurface") or plan.get("content_surface"),
+                "contentSurface": plan.get("contentSurface")
+                or plan.get("content_surface"),
                 "instagramTrialReels": plan.get("instagramTrialReels"),
                 "trialGraduationStrategy": plan.get("trialGraduationStrategy"),
                 "pairedRenderedAssetId": plan.get("pairedRenderedAssetId"),
@@ -470,15 +616,19 @@ def _draft_destinations_for_asset(
         ]
     destinations = []
     for account_id in asset.get("accountIds") or ["unassigned"]:
-        destinations.append({
-            "accountId": account_id,
-            "instagramAccountId": _resolve_instagram_account_id(factory, account_id),
-            "plannedWindowStart": None,
-            "plannedWindowEnd": None,
-            "notes": None,
-            "distributionSurface": default_distribution_surface,
-            "contentSurface": asset_content_surface,
-        })
+        destinations.append(
+            {
+                "accountId": account_id,
+                "instagramAccountId": _resolve_instagram_account_id(
+                    factory, account_id
+                ),
+                "plannedWindowStart": None,
+                "plannedWindowEnd": None,
+                "notes": None,
+                "distributionSurface": default_distribution_surface,
+                "contentSurface": asset_content_surface,
+            }
+        )
     return destinations
 
 
@@ -487,11 +637,19 @@ def _audio_recommendations_for_destination(
     asset: dict[str, Any],
     destination: dict[str, Any],
 ) -> dict[str, Any]:
-    fallback = asset.get("audioRecommendations") if isinstance(asset.get("audioRecommendations"), dict) else {}
+    fallback = (
+        asset.get("audioRecommendations")
+        if isinstance(asset.get("audioRecommendations"), dict)
+        else {}
+    )
     account = destination.get("instagramAccountId") or destination.get("accountId")
     if not account:
         return fallback
-    reference_pattern = asset.get("referencePattern") if isinstance(asset.get("referencePattern"), dict) else {}
+    reference_pattern = (
+        asset.get("referencePattern")
+        if isinstance(asset.get("referencePattern"), dict)
+        else {}
+    )
     content_tags = [
         reference_pattern.get("visualFormat"),
         reference_pattern.get("hookType"),
@@ -550,7 +708,11 @@ def export_threadsdash(
             "maxDrafts": max_drafts,
             "renderedAssetIds": rendered_asset_ids or [],
             "scheduleMode": normalized_schedule_mode,
-            "hasThreadsdashIngestUrl": bool(threadsdash_ingest_url or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL") or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")),
+            "hasThreadsdashIngestUrl": bool(
+                threadsdash_ingest_url
+                or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+                or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
+            ),
             "enableVariation": enable_variation,
             "variationPreset": variation_preset,
         },
@@ -584,7 +746,7 @@ def export_threadsdash(
             enable_variation=enable_variation,
         )
         if max_drafts is not None:
-            payload["drafts"] = payload["drafts"][:max(0, max_drafts)]
+            payload["drafts"] = payload["drafts"][: max(0, max_drafts)]
         readiness = evaluate_export_readiness(
             factory,
             campaign_slug=campaign_slug,
@@ -599,12 +761,15 @@ def export_threadsdash(
         )
         writes_non_draft_rows = normalized_schedule_mode in {"preview", "live"}
         publishability_blockers = [
-            reason for reason in readiness.get("blockingReasons") or []
+            reason
+            for reason in readiness.get("blockingReasons") or []
             if str(reason).startswith("publishability:")
             or "threadsdash_draft_media_invalid_missing_burned_captions" in str(reason)
         ]
         if not dry_run and publishability_blockers:
-            raise ValueError(f"export blocked by publishability: {', '.join(publishability_blockers)}")
+            raise ValueError(
+                f"export blocked by publishability: {', '.join(publishability_blockers)}"
+            )
         uses_dashboard_ingest = (
             not dry_run
             and not _legacy_supabase_writes_enabled()
@@ -625,13 +790,26 @@ def export_threadsdash(
             require_remote_media_urls=uses_dashboard_ingest,
         )
         if not dry_run and manifest_blockers:
-            raise ValueError(f"export blocked by handoff manifest: {', '.join(manifest_blockers)}")
+            raise ValueError(
+                f"export blocked by handoff manifest: {', '.join(manifest_blockers)}"
+            )
         if not dry_run and writes_non_draft_rows and not readiness["liveExportAllowed"]:
-            raise ValueError(f"live export blocked: {', '.join(readiness['blockingReasons'])}")
-        if not dry_run and writes_non_draft_rows and readiness["warnings"] and not allow_warnings:
-            raise ValueError(f"live export has warnings; pass explicit confirmation to continue: {', '.join(readiness['warnings'])}")
+            raise ValueError(
+                f"live export blocked: {', '.join(readiness['blockingReasons'])}"
+            )
+        if (
+            not dry_run
+            and writes_non_draft_rows
+            and readiness["warnings"]
+            and not allow_warnings
+        ):
+            raise ValueError(
+                f"live export has warnings; pass explicit confirmation to continue: {', '.join(readiness['warnings'])}"
+            )
         validate_threadsdash_draft_payload_strict(payload)
-        out_path = dirs["exports"] / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
+        out_path = (
+            dirs["exports"] / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
+        )
         result: dict[str, Any] = {
             "schema": "campaign_factory.supabase_export.v1",
             "campaign": campaign["slug"],
@@ -646,14 +824,21 @@ def export_threadsdash(
             "payload": payload,
             "readiness": readiness,
             "supabase": {"attempted": False, "media": [], "posts": []},
-            "dashboardIngest": {"attempted": False, "dryRun": dry_run, "postIds": [], "media": dashboard_ingest_media},
+            "dashboardIngest": {
+                "attempted": False,
+                "dryRun": dry_run,
+                "postIds": [],
+                "media": dashboard_ingest_media,
+            },
             "path": str(out_path),
             "pipelineJobId": pipeline_job["id"],
         }
         if not dry_run:
             if _legacy_supabase_writes_enabled():
                 if normalized_schedule_mode == "preview":
-                    preview_cleanup_client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
+                    preview_cleanup_client = SupabaseRestClient(
+                        supabase_url.rstrip("/"), supabase_service_role_key
+                    )
                     result["previewCleanup"] = _delete_existing_preview_schedule_rows(
                         preview_cleanup_client,
                         user_id=user_id,
@@ -699,15 +884,43 @@ def export_threadsdash(
                     "media": [],
                     "posts": [],
                 }
-        out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        out_path.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         factory.conn.execute(
             "INSERT INTO threadsdash_exports (id, campaign_id, manifest_path, user_id, dry_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (export_id, campaign["id"], str(out_path), user_id, 1 if dry_run else 0, "dry_run" if dry_run else "exported", utc_now()),
+            (
+                export_id,
+                campaign["id"],
+                str(out_path),
+                user_id,
+                1 if dry_run else 0,
+                "dry_run" if dry_run else "exported",
+                utc_now(),
+            ),
         )
-        export_label = "Dry-run" if dry_run else ("Draft" if normalized_schedule_mode == "draft" else ("Preview schedule" if normalized_schedule_mode == "preview" else "Live"))
-        media_ids = [item.get("id") for item in (result.get("supabase") or {}).get("media", [])]
-        supabase_post_ids = [item.get("id") for item in (result.get("supabase") or {}).get("posts", [])]
-        dashboard_post_ids = list((result.get("dashboardIngest") or {}).get("postIds") or [])
+        export_label = (
+            "Dry-run"
+            if dry_run
+            else (
+                "Draft"
+                if normalized_schedule_mode == "draft"
+                else (
+                    "Preview schedule"
+                    if normalized_schedule_mode == "preview"
+                    else "Live"
+                )
+            )
+        )
+        media_ids = [
+            item.get("id") for item in (result.get("supabase") or {}).get("media", [])
+        ]
+        supabase_post_ids = [
+            item.get("id") for item in (result.get("supabase") or {}).get("posts", [])
+        ]
+        dashboard_post_ids = list(
+            (result.get("dashboardIngest") or {}).get("postIds") or []
+        )
         post_ids = supabase_post_ids or dashboard_post_ids
         factory.record_event(
             "threadsdash_export_created",
@@ -721,7 +934,8 @@ def export_threadsdash(
                 "draftCount": len(payload["drafts"]),
                 "dryRun": dry_run,
                 "schedulingOwner": "threadsdashboard_campaign_schedule_api",
-                "scheduleHandoffRequired": normalized_schedule_mode in {"preview", "live"},
+                "scheduleHandoffRequired": normalized_schedule_mode
+                in {"preview", "live"},
                 "mediaIds": media_ids,
                 "postIds": post_ids,
                 "blockingReasons": readiness.get("blockingReasons") or [],
@@ -732,15 +946,18 @@ def export_threadsdash(
             commit=False,
         )
         factory.conn.commit()
-        factory.finish_pipeline_job(pipeline_job["id"], {
-            "manifestPath": str(out_path),
-            "draftCount": len(payload["drafts"]),
-            "dryRun": dry_run,
-            "mediaIds": media_ids,
-            "postIds": post_ids,
-            "scheduleMode": normalized_schedule_mode,
-            "previewCleanup": result.get("previewCleanup") or {},
-        })
+        factory.finish_pipeline_job(
+            pipeline_job["id"],
+            {
+                "manifestPath": str(out_path),
+                "draftCount": len(payload["drafts"]),
+                "dryRun": dry_run,
+                "mediaIds": media_ids,
+                "postIds": post_ids,
+                "scheduleMode": normalized_schedule_mode,
+                "previewCleanup": result.get("previewCleanup") or {},
+            },
+        )
         return result
     except Exception as exc:
         factory.record_event(
@@ -762,37 +979,47 @@ def preflight_supabase(
     supabase_storage_bucket: str = "media",
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for Supabase preflight")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for Supabase preflight"
+        )
     client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
     checks = []
-    checks.append(_preflight_check(
-        "auth_posts_read",
-        lambda: client.select("posts", {"select": "id", "limit": "1"}),
-    ))
-    checks.append(_preflight_check(
-        "media_bucket_exists",
-        lambda: client.get_storage_bucket(supabase_storage_bucket),
-    ))
-    checks.append(_preflight_check(
-        "media_schema",
-        lambda: client.select(
-            "media",
-            {
-                "select": "id,user_id,file_name,file_url,file_type,file_size,mime_type,storage_url,storage_path,tags",
-                "limit": "1",
-            },
-        ),
-    ))
-    checks.append(_preflight_check(
-        "posts_schema",
-        lambda: client.select(
-            "posts",
-            {
-                "select": "id,user_id,platform,status,media_type,ig_media_type,instagram_account_id,media_urls,metadata,scheduled_for",
-                "limit": "1",
-            },
-        ),
-    ))
+    checks.append(
+        _preflight_check(
+            "auth_posts_read",
+            lambda: client.select("posts", {"select": "id", "limit": "1"}),
+        )
+    )
+    checks.append(
+        _preflight_check(
+            "media_bucket_exists",
+            lambda: client.get_storage_bucket(supabase_storage_bucket),
+        )
+    )
+    checks.append(
+        _preflight_check(
+            "media_schema",
+            lambda: client.select(
+                "media",
+                {
+                    "select": "id,user_id,file_name,file_url,file_type,file_size,mime_type,storage_url,storage_path,tags",
+                    "limit": "1",
+                },
+            ),
+        )
+    )
+    checks.append(
+        _preflight_check(
+            "posts_schema",
+            lambda: client.select(
+                "posts",
+                {
+                    "select": "id,user_id,platform,status,media_type,ig_media_type,instagram_account_id,media_urls,metadata,scheduled_for",
+                    "limit": "1",
+                },
+            ),
+        )
+    )
     passed = all(check["ok"] for check in checks)
     return {
         "schema": "campaign_factory.supabase_preflight.v1",
@@ -811,18 +1038,28 @@ def verify_threadsdash_export(
     supabase_service_role_key: str | None,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for export verification")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for export verification"
+        )
     payload = _load_export_result(export_result_or_path)
     client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
-    media_checks = [_verify_media_row(client, media) for media in (payload.get("supabase") or {}).get("media", [])]
-    post_checks = [_verify_post_row(client, post) for post in (payload.get("supabase") or {}).get("posts", [])]
+    media_checks = [
+        _verify_media_row(client, media)
+        for media in (payload.get("supabase") or {}).get("media", [])
+    ]
+    post_checks = [
+        _verify_post_row(client, post)
+        for post in (payload.get("supabase") or {}).get("posts", [])
+    ]
     checks = media_checks + post_checks
     ok = bool(checks) and all(check["ok"] for check in checks)
     return {
         "schema": "campaign_factory.threadsdash_export_verification.v1",
         "checkedAt": utc_now(),
         "campaign": payload.get("campaign"),
-        "exportPath": str(export_result_or_path) if isinstance(export_result_or_path, (str, Path)) else payload.get("path"),
+        "exportPath": str(export_result_or_path)
+        if isinstance(export_result_or_path, (str, Path))
+        else payload.get("path"),
         "ok": ok,
         "media": media_checks,
         "posts": post_checks,
@@ -871,7 +1108,10 @@ def safe_live_smoke_export(
             pipeline_job_id=pipeline_job["id"],
             status="success" if preflight["ok"] else "failure",
             message=f"Supabase preflight {'passed' if preflight['ok'] else 'failed'}",
-            metadata={"ok": preflight["ok"], "blockingReasons": preflight.get("blockingReasons") or []},
+            metadata={
+                "ok": preflight["ok"],
+                "blockingReasons": preflight.get("blockingReasons") or [],
+            },
             commit=False,
         )
         if not preflight["ok"]:
@@ -884,7 +1124,9 @@ def safe_live_smoke_export(
                 "pipelineJobId": pipeline_job["id"],
             }
             factory.conn.commit()
-            factory.fail_pipeline_job(pipeline_job["id"], "Supabase preflight failed", result)
+            factory.fail_pipeline_job(
+                pipeline_job["id"], "Supabase preflight failed", result
+            )
             return result
         candidate = _best_live_smoke_candidate(factory, campaign_slug=campaign_slug)
         if not candidate:
@@ -896,7 +1138,9 @@ def safe_live_smoke_export(
                 "blockingReasons": ["no_locally_eligible_approved_asset"],
                 "pipelineJobId": pipeline_job["id"],
             }
-            factory.fail_pipeline_job(pipeline_job["id"], "No locally eligible approved asset", result)
+            factory.fail_pipeline_job(
+                pipeline_job["id"], "No locally eligible approved asset", result
+            )
             return result
         export = export_threadsdash(
             factory,
@@ -922,7 +1166,11 @@ def safe_live_smoke_export(
             pipeline_job_id=pipeline_job["id"],
             status="success" if verification["ok"] else "failure",
             message=f"Safe live smoke {'verified' if verification['ok'] else 'verification failed'}",
-            metadata={"ok": verification["ok"], "blockingReasons": verification.get("blockingReasons") or [], "exportPath": export.get("path")},
+            metadata={
+                "ok": verification["ok"],
+                "blockingReasons": verification.get("blockingReasons") or [],
+                "exportPath": export.get("path"),
+            },
         )
         result = {
             "schema": "campaign_factory.safe_live_smoke.v1",
@@ -943,7 +1191,9 @@ def safe_live_smoke_export(
         if verification["ok"]:
             factory.finish_pipeline_job(pipeline_job["id"], result)
         else:
-            factory.fail_pipeline_job(pipeline_job["id"], "Safe live smoke verification failed", result)
+            factory.fail_pipeline_job(
+                pipeline_job["id"], "Safe live smoke verification failed", result
+            )
         return result
     except Exception as exc:
         factory.record_event(
@@ -958,7 +1208,9 @@ def safe_live_smoke_export(
         raise
 
 
-def _best_live_smoke_candidate(factory: CampaignFactory, *, campaign_slug: str) -> dict[str, Any] | None:
+def _best_live_smoke_candidate(
+    factory: CampaignFactory, *, campaign_slug: str
+) -> dict[str, Any] | None:
     dashboard = factory.dashboard(campaign_slug)
     candidates = []
     for asset in dashboard.get("rendered") or []:
@@ -970,7 +1222,13 @@ def _best_live_smoke_candidate(factory: CampaignFactory, *, campaign_slug: str) 
         candidates.append(asset)
     if not candidates:
         return None
-    return sorted(candidates, key=lambda asset: (asset.get("export_readiness") or {}).get("operatorScore") or 0, reverse=True)[0]
+    return sorted(
+        candidates,
+        key=lambda asset: (
+            (asset.get("export_readiness") or {}).get("operatorScore") or 0
+        ),
+        reverse=True,
+    )[0]
 
 
 def evaluate_export_readiness(
@@ -1041,7 +1299,9 @@ def evaluate_export_readiness(
         else:
             usage_error = "supabase_url and supabase_service_role_key are required for live usage checks"
 
-        usage_by_asset = {item["renderedAssetId"]: item for item in (usage or {}).get("assets", [])}
+        usage_by_asset = {
+            item["renderedAssetId"]: item for item in (usage or {}).get("assets", [])
+        }
         source_usage = (usage or {}).get("sourceUsage") or {}
         caption_hash_usage = (usage or {}).get("captionHashUsage") or {}
         rows = []
@@ -1049,11 +1309,17 @@ def evaluate_export_readiness(
             local = asset.get("export_readiness") or {}
             blocking = list(local.get("blockingReasons") or [])
             warnings = list(local.get("warnings") or [])
-            asset_usage = usage_by_asset.get(asset["id"], {}).get("usage") or _empty_usage()
+            asset_usage = (
+                usage_by_asset.get(asset["id"], {}).get("usage") or _empty_usage()
+            )
             source_id = asset["source_asset_id"]
             source_counts = source_usage.get(source_id) or _empty_usage()
             asset_drafts = drafts_by_asset.get(asset["id"], [])
-            caption_hashes = {draft.get("captionHash") for draft in asset_drafts if draft.get("captionHash")}
+            caption_hashes = {
+                draft.get("captionHash")
+                for draft in asset_drafts
+                if draft.get("captionHash")
+            }
             if asset_usage.get("published", 0) > 0:
                 blocking.append("exact_render_published")
             if asset_usage.get("draft", 0) > 0 or asset_usage.get("scheduled", 0) > 0:
@@ -1064,19 +1330,36 @@ def evaluate_export_readiness(
                 caption_usage = caption_hash_usage.get(caption_hash) or _empty_usage()
                 if caption_usage.get("total", 0) > 0:
                     warnings.append("caption_reuse")
-                if len({post.get("instagramAccountId") or post.get("accountId") for post in caption_usage.get("posts", [])}) >= 3:
+                if (
+                    len(
+                        {
+                            post.get("instagramAccountId") or post.get("accountId")
+                            for post in caption_usage.get("posts", [])
+                        }
+                    )
+                    >= 3
+                ):
                     warnings.append("caption_reuse_multi_account")
             for draft in asset_drafts:
                 blocking.extend(contract_blockers)
                 findings = batch_findings.get(_draft_key(draft), {})
                 warnings.extend(findings.get("warnings") or [])
                 blocking.extend(findings.get("blocking") or [])
-                audio_intent = draft.get("audioIntent") or ((draft.get("metadata") or {}).get("campaign_factory") or {}).get("audio_intent")
+                audio_intent = draft.get("audioIntent") or (
+                    (draft.get("metadata") or {}).get("campaign_factory") or {}
+                ).get("audio_intent")
                 if not _audio_intent_allows_live(audio_intent):
-                    blocking.append("campaign_audio_unresolved: select audio before ThreadsDashboard export")
-                compatible, mismatch_reason, _profile = factory.account_compatible_with_model(
-                    asset.get("model_slug") or asset.get("modelId") or draft.get("modelId") or "",
-                    instagram_account_id=draft.get("instagramAccountId"),
+                    blocking.append(
+                        "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+                    )
+                compatible, mismatch_reason, _profile = (
+                    factory.account_compatible_with_model(
+                        asset.get("model_slug")
+                        or asset.get("modelId")
+                        or draft.get("modelId")
+                        or "",
+                        instagram_account_id=draft.get("instagramAccountId"),
+                    )
                 )
                 if not compatible and mismatch_reason:
                     blocking.append(mismatch_reason)
@@ -1087,45 +1370,55 @@ def evaluate_export_readiness(
                 state=state,
                 warnings=warnings,
                 blocking=blocking,
-                upload_ready=((asset.get("latest_audit") or {}).get("readinessSummary") or {}).get("uploadReady"),
+                upload_ready=(
+                    (asset.get("latest_audit") or {}).get("readinessSummary") or {}
+                ).get("uploadReady"),
                 asset_usage=asset_usage,
                 performance_score=asset.get("performanceScore"),
             )
-            rows.append({
-                "renderedAssetId": asset["id"],
-                "sourceAssetId": asset["source_asset_id"],
-                "filename": asset["filename"],
-                "reviewState": asset["review_state"],
-                "auditStatus": asset["audit_status"],
-                "overallVerdict": (asset.get("latest_audit") or {}).get("overallVerdict"),
-                "uploadReady": ((asset.get("latest_audit") or {}).get("readinessSummary") or {}).get("uploadReady"),
-                "publishability": local.get("publishability") or {},
-                "usage": asset_usage,
-                "performanceScore": asset.get("performanceScore"),
-                "latestPerformance": asset.get("latestPerformance"),
-                "sourcePerformance": asset.get("sourcePerformance"),
-                "captionPerformance": asset.get("captionPerformance"),
-                "recipePerformance": asset.get("recipePerformance"),
-                "draftDestinations": [
-                    {
-                        "accountId": draft.get("accountId"),
-                        "instagramAccountId": draft.get("instagramAccountId"),
-                        "captionHash": draft.get("captionHash"),
-                        "contentPillar": draft.get("contentPillar"),
-                        "ctaType": draft.get("ctaType"),
-                        "language": draft.get("language"),
-                        "distributionSurface": draft.get("distributionSurface"),
-                        "smartLink": draft.get("smartLink"),
-                        "audioIntentStatus": (draft.get("audioIntent") or {}).get("status"),
-                    }
-                    for draft in asset_drafts
-                ],
-                "operatorScore": operator_score,
-                "state": state,
-                "willExport": asset["id"] in draft_asset_ids,
-                "blockingReasons": sorted(set(blocking)),
-                "warnings": sorted(set(warnings)),
-            })
+            rows.append(
+                {
+                    "renderedAssetId": asset["id"],
+                    "sourceAssetId": asset["source_asset_id"],
+                    "filename": asset["filename"],
+                    "reviewState": asset["review_state"],
+                    "auditStatus": asset["audit_status"],
+                    "overallVerdict": (asset.get("latest_audit") or {}).get(
+                        "overallVerdict"
+                    ),
+                    "uploadReady": (
+                        (asset.get("latest_audit") or {}).get("readinessSummary") or {}
+                    ).get("uploadReady"),
+                    "publishability": local.get("publishability") or {},
+                    "usage": asset_usage,
+                    "performanceScore": asset.get("performanceScore"),
+                    "latestPerformance": asset.get("latestPerformance"),
+                    "sourcePerformance": asset.get("sourcePerformance"),
+                    "captionPerformance": asset.get("captionPerformance"),
+                    "recipePerformance": asset.get("recipePerformance"),
+                    "draftDestinations": [
+                        {
+                            "accountId": draft.get("accountId"),
+                            "instagramAccountId": draft.get("instagramAccountId"),
+                            "captionHash": draft.get("captionHash"),
+                            "contentPillar": draft.get("contentPillar"),
+                            "ctaType": draft.get("ctaType"),
+                            "language": draft.get("language"),
+                            "distributionSurface": draft.get("distributionSurface"),
+                            "smartLink": draft.get("smartLink"),
+                            "audioIntentStatus": (draft.get("audioIntent") or {}).get(
+                                "status"
+                            ),
+                        }
+                        for draft in asset_drafts
+                    ],
+                    "operatorScore": operator_score,
+                    "state": state,
+                    "willExport": asset["id"] in draft_asset_ids,
+                    "blockingReasons": sorted(set(blocking)),
+                    "warnings": sorted(set(warnings)),
+                }
+            )
 
         export_rows = [row for row in rows if row["willExport"]]
         global_blocking = []
@@ -1134,7 +1427,12 @@ def evaluate_export_readiness(
         if usage_error:
             global_blocking.append(usage_error)
         for row in export_rows:
-            global_blocking.extend([f"{row['renderedAssetId']}:{reason}" for reason in row["blockingReasons"]])
+            global_blocking.extend(
+                [
+                    f"{row['renderedAssetId']}:{reason}"
+                    for reason in row["blockingReasons"]
+                ]
+            )
         live_allowed = not global_blocking
         result = {
             "schema": "campaign_factory.export_readiness.v1",
@@ -1147,11 +1445,13 @@ def evaluate_export_readiness(
             "scheduleHandoffRequired": normalized_schedule_mode in {"preview", "live"},
             "liveExportAllowed": live_allowed,
             "blockingReasons": sorted(set(global_blocking)),
-            "warnings": sorted(set(
-                f"{row['renderedAssetId']}:{warning}"
-                for row in export_rows
-                for warning in row["warnings"]
-            )),
+            "warnings": sorted(
+                set(
+                    f"{row['renderedAssetId']}:{warning}"
+                    for row in export_rows
+                    for warning in row["warnings"]
+                )
+            ),
             "usageChecked": usage is not None,
             "usageError": usage_error,
             "assets": sorted(rows, key=lambda row: row["operatorScore"], reverse=True),
@@ -1171,13 +1471,16 @@ def evaluate_export_readiness(
                 "usageChecked": result["usageChecked"],
             },
         )
-        factory.finish_pipeline_job(pipeline_job["id"], {
-            "expectedDraftCount": result["expectedDraftCount"],
-            "liveExportAllowed": result["liveExportAllowed"],
-            "blockingReasonCount": len(result["blockingReasons"]),
-            "warningCount": len(result["warnings"]),
-            "usageChecked": result["usageChecked"],
-        })
+        factory.finish_pipeline_job(
+            pipeline_job["id"],
+            {
+                "expectedDraftCount": result["expectedDraftCount"],
+                "liveExportAllowed": result["liveExportAllowed"],
+                "blockingReasonCount": len(result["blockingReasons"]),
+                "warningCount": len(result["warnings"]),
+                "usageChecked": result["usageChecked"],
+            },
+        )
         return result
     except Exception as exc:
         factory.record_event(
@@ -1202,7 +1505,9 @@ def _upload_media_for_dashboard_ingest(
     bucket: str,
 ) -> list[dict[str, Any]]:
     if not supabase_url or not service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for dashboard ingest media upload")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for dashboard ingest media upload"
+        )
     client = SupabaseRestClient(supabase_url.rstrip("/"), service_role_key)
     uploaded_by_path: dict[str, dict[str, Any]] = {}
     media_results: list[dict[str, Any]] = []
@@ -1228,7 +1533,9 @@ def _upload_media_for_dashboard_ingest(
                     media_key=draft.get("campaignFactoryMediaKey"),
                 )
             except Exception as exc:
-                blockers = _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)
+                blockers = _remote_media_url_blockers(
+                    draft, rendered_asset_id=rendered_asset_id
+                )
                 raise ValueError(
                     f"export blocked by handoff manifest: {', '.join(blockers)}; media upload failed: {exc}"
                 ) from exc
@@ -1257,7 +1564,9 @@ def _write_supabase(
 ) -> dict[str, Any]:
     _require_legacy_supabase_writes()
     if not supabase_url or not service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required when dry_run is false")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required when dry_run is false"
+        )
     client = SupabaseRestClient(supabase_url.rstrip("/"), service_role_key)
     media_results = []
     post_results = []
@@ -1268,19 +1577,33 @@ def _write_supabase(
         tags = draft.pop("_tags", [])
         campaign_ref = draft.get("campaignId")
         try:
-            campaign_internal_id = factory.campaign_by_slug(str(campaign_ref))["id"] if campaign_ref else None
+            campaign_internal_id = (
+                factory.campaign_by_slug(str(campaign_ref))["id"]
+                if campaign_ref
+                else None
+            )
         except ValueError:
             campaign_internal_id = campaign_ref
-        existing_post = _select_existing_campaign_factory_post(client, user_id=user_id, post_key=draft.get("campaignFactoryPostKey"))
+        existing_post = _select_existing_campaign_factory_post(
+            client, user_id=user_id, post_key=draft.get("campaignFactoryPostKey")
+        )
         if existing_post:
             media_ref = _media_ref_from_existing_post(existing_post)
             _hydrate_surface_media_items_for_uploaded_media(draft, media_ref)
-            refreshed = _update_existing_draft_post(client, draft=draft, media_ref=media_ref, post_id=str(existing_post.get("id")))
+            refreshed = _update_existing_draft_post(
+                client,
+                draft=draft,
+                media_ref=media_ref,
+                post_id=str(existing_post.get("id")),
+            )
             post_row = {
                 "id": existing_post.get("id"),
-                "status": refreshed.get("status") or existing_post.get("status", draft.get("status") or "draft"),
+                "status": refreshed.get("status")
+                or existing_post.get("status", draft.get("status") or "draft"),
                 "platform": existing_post.get("platform", "instagram"),
-                "metadata": refreshed.get("metadata") or draft.get("metadata") or _draft_metadata(draft),
+                "metadata": refreshed.get("metadata")
+                or draft.get("metadata")
+                or _draft_metadata(draft),
                 "reused": True,
             }
         else:
@@ -1309,18 +1632,28 @@ def _write_supabase(
                 "postId": post_row.get("id"),
                 "status": post_row.get("status"),
                 "renderedAssetId": draft.get("renderedAssetId"),
-                "renderedAssetGraphId": draft.get("renderedAssetGraphId") or draft.get("graphId"),
+                "renderedAssetGraphId": draft.get("renderedAssetGraphId")
+                or draft.get("graphId"),
             },
         )
         factory.ensure_graph_edge_strict(
             draft.get("renderedAssetGraphId") or draft.get("graphId"),
             post_graph_id,
             "rendered_asset_to_threadsdash_post",
-            evidence={"exportId": draft.get("campaignFactoryExportId"), "status": post_row.get("status")},
+            evidence={
+                "exportId": draft.get("campaignFactoryExportId"),
+                "status": post_row.get("status"),
+            },
             campaign_id=campaign_internal_id,
             source_operation="threadsdash_export",
         )
-        mirror = _upsert_threadsdash_graph_mirror(client, draft=draft, post_row=post_row, media_ref=media_ref, post_graph_id=post_graph_id)
+        mirror = _upsert_threadsdash_graph_mirror(
+            client,
+            draft=draft,
+            post_row=post_row,
+            media_ref=media_ref,
+            post_graph_id=post_graph_id,
+        )
         mirror_results.append(mirror)
         if mirror.get("errors"):
             factory.create_exception(
@@ -1346,7 +1679,9 @@ def _write_supabase(
         "media": media_results,
         "posts": post_results,
         "mirror": mirror_results,
-        "mirrorErrors": [error for item in mirror_results for error in item.get("errors", [])],
+        "mirrorErrors": [
+            error for item in mirror_results for error in item.get("errors", [])
+        ],
     }
 
 
@@ -1364,7 +1699,11 @@ def _require_legacy_supabase_writes() -> None:
 
 def _threadsdash_draft_post_key(draft: dict[str, Any]) -> str | None:
     metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
-    campaign_factory = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
+    campaign_factory = (
+        metadata.get("campaign_factory")
+        if isinstance(metadata.get("campaign_factory"), dict)
+        else {}
+    )
     manifest = (
         campaign_factory.get("handoff_manifest")
         if isinstance(campaign_factory.get("handoff_manifest"), dict)
@@ -1389,13 +1728,21 @@ def _threadsdash_ingest_idempotency_key(payload: dict[str, Any]) -> str:
     drafts = payload.get("drafts") if isinstance(payload.get("drafts"), list) else []
     post_keys = [
         key
-        for key in (_threadsdash_draft_post_key(draft) for draft in drafts if isinstance(draft, dict))
+        for key in (
+            _threadsdash_draft_post_key(draft)
+            for draft in drafts
+            if isinstance(draft, dict)
+        )
         if key
     ]
     if len(post_keys) == 1:
         return post_keys[0]
-    fingerprint_source = post_keys or [json.dumps(payload, sort_keys=True, ensure_ascii=False)]
-    digest = hashlib.sha256(json.dumps(fingerprint_source, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+    fingerprint_source = post_keys or [
+        json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    ]
+    digest = hashlib.sha256(
+        json.dumps(fingerprint_source, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:32]
     return f"campaign-factory-draft-ingest:{digest}"
 
 
@@ -1444,31 +1791,53 @@ def _is_blocked_dashboard_ingest_ip(host: str) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    return (
+        ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 
 def _validate_threadsdash_ingest_url(url: str) -> str:
     parsed = urlparse(url.strip())
     host = (parsed.hostname or "").lower().rstrip(".")
     if not parsed.scheme or not host:
-        raise ValueError("ThreadsDashboard ingest URL must include an https scheme and hostname")
-    allow_local = os.environ.get("CAMPAIGN_FACTORY_ALLOW_LOCAL_THREADSDASH_INGEST") == "1"
+        raise ValueError(
+            "ThreadsDashboard ingest URL must include an https scheme and hostname"
+        )
+    allow_local = (
+        os.environ.get("CAMPAIGN_FACTORY_ALLOW_LOCAL_THREADSDASH_INGEST") == "1"
+    )
     if parsed.username or parsed.password:
         raise ValueError("ThreadsDashboard ingest URL must not include credentials")
     if parsed.fragment:
         raise ValueError("ThreadsDashboard ingest URL must not include a fragment")
     if parsed.query:
-        raise ValueError("ThreadsDashboard ingest URL must not include query parameters")
+        raise ValueError(
+            "ThreadsDashboard ingest URL must not include query parameters"
+        )
     if parsed.path.rstrip("/") != THREADSDASH_INGEST_PATH:
-        raise ValueError(f"ThreadsDashboard ingest URL path must be {THREADSDASH_INGEST_PATH}")
+        raise ValueError(
+            f"ThreadsDashboard ingest URL path must be {THREADSDASH_INGEST_PATH}"
+        )
     if parsed.scheme != "https":
-        if not (allow_local and parsed.scheme == "http" and _is_local_dashboard_ingest_host(host)):
+        if not (
+            allow_local
+            and parsed.scheme == "http"
+            and _is_local_dashboard_ingest_host(host)
+        ):
             raise ValueError("ThreadsDashboard ingest URL must use https")
     if _is_local_dashboard_ingest_host(host):
         if not allow_local:
-            raise ValueError("ThreadsDashboard ingest URL cannot target localhost unless local ingest is explicitly enabled")
+            raise ValueError(
+                "ThreadsDashboard ingest URL cannot target localhost unless local ingest is explicitly enabled"
+            )
     elif _is_blocked_dashboard_ingest_ip(host):
-        raise ValueError("ThreadsDashboard ingest URL cannot target private or reserved IP addresses")
+        raise ValueError(
+            "ThreadsDashboard ingest URL cannot target private or reserved IP addresses"
+        )
     elif host not in _threadsdash_allowed_ingest_hosts():
         raise ValueError("ThreadsDashboard ingest URL host is not allowed")
     netloc = host
@@ -1490,9 +1859,13 @@ def _post_threadsdash_draft_ingest(
     )
     secret = ingest_secret or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET")
     if not url:
-        raise ValueError("threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL is required when dry_run is false")
+        raise ValueError(
+            "threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL is required when dry_run is false"
+        )
     if not secret:
-        raise ValueError("threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false")
+        raise ValueError(
+            "threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is required when dry_run is false"
+        )
     safe_url = _validate_threadsdash_ingest_url(url)
     body = dict(payload)
     body["dryRun"] = False
@@ -1534,7 +1907,9 @@ def _post_threadsdash_draft_ingest(
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             if not _is_retryable_dashboard_ingest_http_status(exc.code):
-                raise ValueError(f"Dashboard draft ingest rejected export ({exc.code}): {detail}") from exc
+                raise ValueError(
+                    f"Dashboard draft ingest rejected export ({exc.code}): {detail}"
+                ) from exc
             last_error = f"Dashboard draft ingest retryable HTTP {exc.code}: {detail}"
         except (TimeoutError, URLError) as exc:
             last_error = f"Dashboard draft ingest transport error: {exc}"
@@ -1542,11 +1917,13 @@ def _post_threadsdash_draft_ingest(
             time.sleep(_dashboard_ingest_backoff_seconds(attempt))
     if last_empty_response is not None:
         return last_empty_response
-    raise ValueError(f"Dashboard draft ingest failed after {DASHBOARD_INGEST_MAX_ATTEMPTS} attempts: {last_error}")
+    raise ValueError(
+        f"Dashboard draft ingest failed after {DASHBOARD_INGEST_MAX_ATTEMPTS} attempts: {last_error}"
+    )
 
 
 def _select_threadsdash_posts_by_post_keys(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     user_id: str,
     post_keys: list[str],
@@ -1579,36 +1956,67 @@ def _reconcile_dashboard_ingest_post_ids(
     supabase_url: str | None,
     supabase_service_role_key: str | None,
 ) -> list[str]:
-    post_ids = [str(post_id) for post_id in ingest_result.get("postIds") or [] if str(post_id)]
+    post_ids = [
+        str(post_id) for post_id in ingest_result.get("postIds") or [] if str(post_id)
+    ]
     post_keys = _threadsdash_ingest_post_keys(payload)
     if not post_keys:
         if post_ids:
             return post_ids
-        raise ValueError("Dashboard draft ingest did not return postIds and no Campaign Factory post keys were available")
+        raise ValueError(
+            "Dashboard draft ingest did not return postIds and no Campaign Factory post keys were available"
+        )
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required to reconcile Dashboard draft ingest")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required to reconcile Dashboard draft ingest"
+        )
     client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
-    rows = _select_threadsdash_posts_by_post_keys(client, user_id=user_id, post_keys=post_keys)
+    rows = _select_threadsdash_posts_by_post_keys(
+        client, user_id=user_id, post_keys=post_keys
+    )
     found_by_key = {str(row.get("campaign_factory_post_key")): row for row in rows}
     missing = [post_key for post_key in post_keys if post_key not in found_by_key]
     if missing:
-        raise ValueError(f"Dashboard draft ingest reconciliation failed; missing post keys: {', '.join(missing)}")
-    reconciled = [str(found_by_key[post_key].get("id")) for post_key in post_keys if found_by_key[post_key].get("id")]
+        raise ValueError(
+            f"Dashboard draft ingest reconciliation failed; missing post keys: {', '.join(missing)}"
+        )
+    reconciled = [
+        str(found_by_key[post_key].get("id"))
+        for post_key in post_keys
+        if found_by_key[post_key].get("id")
+    ]
     if not reconciled:
         raise ValueError("Dashboard draft ingest reconciliation found no post ids")
     return reconciled
 
 
-def _hydrate_surface_media_items_for_uploaded_media(draft: dict[str, Any], media_ref: dict[str, Any]) -> None:
-    content_surface = normalize_content_surface(draft.get("contentSurface") or draft.get("content_surface"))
+def _hydrate_surface_media_items_for_uploaded_media(
+    draft: dict[str, Any], media_ref: dict[str, Any]
+) -> None:
+    content_surface = normalize_content_surface(
+        draft.get("contentSurface") or draft.get("content_surface")
+    )
     if content_surface == "reel":
         return
     media_url = media_ref.get("publicUrl")
     if not isinstance(media_url, str) or not media_url.strip():
         return
-    media_kind = "image" if content_surface in {"feed_single", "feed_carousel", "story"} and _draft_media_types(draft)[0] == "image" else _draft_media_types(draft)[0]
-    publishability = draft.get("publishability") if isinstance(draft.get("publishability"), dict) else {}
-    manifest = draft.get("handoffManifest") if isinstance(draft.get("handoffManifest"), dict) else publishability.get("handoff_manifest")
+    media_kind = (
+        "image"
+        if content_surface in {"feed_single", "feed_carousel", "story"}
+        and _draft_media_types(draft)[0] == "image"
+        else _draft_media_types(draft)[0]
+    )
+    publishability = (
+        draft.get("publishability")
+        if isinstance(draft.get("publishability"), dict)
+        else {}
+    )
+    manifest = (
+        draft.get("handoffManifest")
+        if isinstance(draft.get("handoffManifest"), dict)
+        else publishability.get("handoff_manifest")
+    )
     if not isinstance(manifest, dict):
         return
     items = manifest.get("mediaItems")
@@ -1630,7 +2038,7 @@ def _hydrate_surface_media_items_for_uploaded_media(draft: dict[str, Any], media
 
 
 def _upload_media(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     bucket: str,
     user_id: str,
@@ -1642,16 +2050,32 @@ def _upload_media(
         raise FileNotFoundError(local_path)
     content_type = mimetypes.guess_type(local_path.name)[0] or "video/mp4"
     file_type = "image" if content_type.startswith("image/") else "video"
-    safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in local_path.name)[:120]
-    stable_key = media_key or _stable_export_key("media", user_id, local_path.name, local_path.stat().st_size)
+    safe_name = "".join(
+        ch if ch.isalnum() or ch in "._-" else "-" for ch in local_path.name
+    )[:120]
+    stable_key = media_key or _stable_export_key(
+        "media", user_id, local_path.name, local_path.stat().st_size
+    )
     storage_path = f"campaign_factory/{user_id}/{stable_key}-{safe_name}"
     try:
-        existing_rows = client.select("media", {"select": "id,file_name,file_url,storage_url,storage_path,url,tags", "storage_path": f"eq.{storage_path}", "limit": "1"})
+        existing_rows = client.select(
+            "media",
+            {
+                "select": "id,file_name,file_url,storage_url,storage_path,url,tags",
+                "storage_path": f"eq.{storage_path}",
+                "limit": "1",
+            },
+        )
     except RuntimeError:
         existing_rows = []
     if existing_rows:
         row = existing_rows[0]
-        public_url = row.get("storage_url") or row.get("file_url") or row.get("url") or f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
+        public_url = (
+            row.get("storage_url")
+            or row.get("file_url")
+            or row.get("url")
+            or f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
+        )
         return {
             "id": row.get("id"),
             "publicUrl": public_url,
@@ -1660,10 +2084,14 @@ def _upload_media(
             "reused": True,
         }
     try:
-        client.upload_storage_object(bucket, storage_path, local_path, content_type, upsert=True)
+        client.upload_storage_object(
+            bucket, storage_path, local_path, content_type, upsert=True
+        )
     except TypeError:
         client.upload_storage_object(bucket, storage_path, local_path, content_type)
-    public_url = f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
+    public_url = (
+        f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
+    )
     base_row = {
         "user_id": user_id,
         "file_name": local_path.name,
@@ -1687,10 +2115,16 @@ def _upload_media(
     }
 
 
-def _insert_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], media_ref: dict[str, Any]) -> dict[str, Any]:
+def _insert_draft_post(
+    client: SupabaseRestClient, *, draft: dict[str, Any], media_ref: dict[str, Any]
+) -> dict[str, Any]:
     _require_legacy_supabase_writes()
     metadata = draft.get("metadata") or _draft_metadata(draft)
-    campaign_meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
+    campaign_meta = (
+        metadata.get("campaign_factory")
+        if isinstance(metadata.get("campaign_factory"), dict)
+        else {}
+    )
     media_type, ig_media_type = _draft_media_types(draft)
     row = {
         "user_id": draft["userId"],
@@ -1701,16 +2135,22 @@ def _insert_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], m
         "media_urls": [media_ref["publicUrl"]],
         "media_type": media_type,
         "ig_media_type": ig_media_type,
-        "content_surface": draft.get("contentSurface") or campaign_meta.get("content_surface") or campaign_meta.get("contentSurface") or "reel",
+        "content_surface": draft.get("contentSurface")
+        or campaign_meta.get("content_surface")
+        or campaign_meta.get("contentSurface")
+        or "reel",
         "status": draft.get("status") or "draft",
         "hashtags": draft.get("topics") or [],
         "source": "manual",
         "metadata": metadata,
-        "scheduled_for": draft.get("scheduledFor") if draft.get("status") == "scheduled" else None,
+        "scheduled_for": draft.get("scheduledFor")
+        if draft.get("status") == "scheduled"
+        else None,
         "campaign_factory_asset_id": draft.get("renderedAssetId"),
         "campaign_factory_distribution_plan_id": draft.get("distributionPlanId"),
         "campaign_factory_post_key": draft.get("campaignFactoryPostKey"),
-        "campaign_factory_content_fingerprint": campaign_meta.get("content_fingerprint") or draft.get("contentHash"),
+        "campaign_factory_content_fingerprint": campaign_meta.get("content_fingerprint")
+        or draft.get("contentHash"),
         "campaign_factory_caption_hash": draft.get("captionHash"),
         "campaign_factory_concept_id": campaign_meta.get("concept_id"),
         "campaign_factory_parent_asset_id": campaign_meta.get("parent_asset_id"),
@@ -1723,26 +2163,45 @@ def _insert_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], m
         row,
         fallback_remove=[],
     )
-    return {"id": inserted.get("id"), "status": inserted.get("status", "draft"), "platform": "instagram", "metadata": metadata}
+    return {
+        "id": inserted.get("id"),
+        "status": inserted.get("status", "draft"),
+        "platform": "instagram",
+        "metadata": metadata,
+    }
 
 
-def _update_existing_draft_post(client: "SupabaseRestClient", *, draft: dict[str, Any], media_ref: dict[str, Any], post_id: str) -> dict[str, Any]:
+def _update_existing_draft_post(
+    client: SupabaseRestClient,
+    *,
+    draft: dict[str, Any],
+    media_ref: dict[str, Any],
+    post_id: str,
+) -> dict[str, Any]:
     _require_legacy_supabase_writes()
     metadata = draft.get("metadata") or _draft_metadata(draft)
-    campaign_meta = metadata.get("campaign_factory") if isinstance(metadata.get("campaign_factory"), dict) else {}
+    campaign_meta = (
+        metadata.get("campaign_factory")
+        if isinstance(metadata.get("campaign_factory"), dict)
+        else {}
+    )
     media_type, ig_media_type = _draft_media_types(draft)
     values = {
         "content": draft["content"],
         "media_urls": [media_ref["publicUrl"]] if media_ref.get("publicUrl") else [],
         "media_type": media_type,
         "ig_media_type": ig_media_type,
-        "content_surface": draft.get("contentSurface") or campaign_meta.get("content_surface") or campaign_meta.get("contentSurface") or "reel",
+        "content_surface": draft.get("contentSurface")
+        or campaign_meta.get("content_surface")
+        or campaign_meta.get("contentSurface")
+        or "reel",
         "hashtags": draft.get("topics") or [],
         "metadata": metadata,
         "campaign_factory_asset_id": draft.get("renderedAssetId"),
         "campaign_factory_distribution_plan_id": draft.get("distributionPlanId"),
         "campaign_factory_post_key": draft.get("campaignFactoryPostKey"),
-        "campaign_factory_content_fingerprint": campaign_meta.get("content_fingerprint") or draft.get("contentHash"),
+        "campaign_factory_content_fingerprint": campaign_meta.get("content_fingerprint")
+        or draft.get("contentHash"),
         "campaign_factory_caption_hash": draft.get("captionHash"),
         "campaign_factory_concept_id": campaign_meta.get("concept_id"),
         "campaign_factory_parent_asset_id": campaign_meta.get("parent_asset_id"),
@@ -1752,11 +2211,16 @@ def _update_existing_draft_post(client: "SupabaseRestClient", *, draft: dict[str
     }
     updated = client.update("posts", values, {"id": f"eq.{post_id}"})
     row = updated[0] if isinstance(updated, list) and updated else {}
-    return {"id": row.get("id", post_id), "status": row.get("status", draft.get("status") or "draft"), "platform": row.get("platform", "instagram"), "metadata": row.get("metadata") or metadata}
+    return {
+        "id": row.get("id", post_id),
+        "status": row.get("status", draft.get("status") or "draft"),
+        "platform": row.get("platform", "instagram"),
+        "metadata": row.get("metadata") or metadata,
+    }
 
 
 def _select_existing_campaign_factory_post(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     user_id: str,
     post_key: str | None,
@@ -1781,7 +2245,11 @@ def _select_existing_campaign_factory_post(
         if post:
             post["_campaign_factory_link"] = links[0]
             return post
-        return {"id": post_id, "status": links[0].get("status"), "metadata": {"campaign_factory": links[0].get("metadata") or {}}}
+        return {
+            "id": post_id,
+            "status": links[0].get("status"),
+            "metadata": {"campaign_factory": links[0].get("metadata") or {}},
+        }
     try:
         posts = client.select(
             "posts",
@@ -1797,13 +2265,19 @@ def _select_existing_campaign_factory_post(
     return posts[0] if posts else None
 
 
-def _select_post_by_id(client: "SupabaseRestClient", post_id: Any) -> dict[str, Any] | None:
+def _select_post_by_id(
+    client: SupabaseRestClient, post_id: Any
+) -> dict[str, Any] | None:
     if not post_id:
         return None
     try:
         rows = client.select(
             "posts",
-            {"select": "id,status,platform,media_urls,metadata", "id": f"eq.{post_id}", "limit": "1"},
+            {
+                "select": "id,status,platform,media_urls,metadata",
+                "id": f"eq.{post_id}",
+                "limit": "1",
+            },
         )
     except RuntimeError:
         rows = []
@@ -1811,10 +2285,14 @@ def _select_post_by_id(client: "SupabaseRestClient", post_id: Any) -> dict[str, 
 
 
 def _media_ref_from_existing_post(post: dict[str, Any]) -> dict[str, Any]:
-    media_urls = post.get("media_urls") if isinstance(post.get("media_urls"), list) else []
+    media_urls = (
+        post.get("media_urls") if isinstance(post.get("media_urls"), list) else []
+    )
     public_url = media_urls[0] if media_urls else ""
     return {
-        "id": (post.get("_campaign_factory_link") or {}).get("media_id") if isinstance(post.get("_campaign_factory_link"), dict) else None,
+        "id": (post.get("_campaign_factory_link") or {}).get("media_id")
+        if isinstance(post.get("_campaign_factory_link"), dict)
+        else None,
         "publicUrl": public_url,
         "storagePath": None,
         "fileName": None,
@@ -1823,7 +2301,7 @@ def _media_ref_from_existing_post(post: dict[str, Any]) -> dict[str, Any]:
 
 
 def _upsert_threadsdash_graph_mirror(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     draft: dict[str, Any],
     post_row: dict[str, Any],
@@ -1834,15 +2312,37 @@ def _upsert_threadsdash_graph_mirror(
     if not hasattr(client, "upsert"):
         return result
     metadata = draft.get("metadata") or {}
-    campaign_factory = metadata.get("campaign_factory") if isinstance(metadata, dict) else {}
+    campaign_factory = (
+        metadata.get("campaign_factory") if isinstance(metadata, dict) else {}
+    )
     if not isinstance(campaign_factory, dict):
         campaign_factory = {}
     now = utc_now()
     entities = [
-        ("campaign", draft.get("campaignGraphId"), "campaigns", draft.get("campaignId")),
-        ("source_asset", draft.get("sourceAssetGraphId"), "source_assets", draft.get("sourceAssetId")),
-        ("rendered_asset", draft.get("renderedAssetGraphId") or draft.get("graphId"), "rendered_assets", draft.get("renderedAssetId")),
-        ("audit_report", draft.get("auditGraphId"), "audit_reports", campaign_factory.get("contentforge_report_id")),
+        (
+            "campaign",
+            draft.get("campaignGraphId"),
+            "campaigns",
+            draft.get("campaignId"),
+        ),
+        (
+            "source_asset",
+            draft.get("sourceAssetGraphId"),
+            "source_assets",
+            draft.get("sourceAssetId"),
+        ),
+        (
+            "rendered_asset",
+            draft.get("renderedAssetGraphId") or draft.get("graphId"),
+            "rendered_assets",
+            draft.get("renderedAssetId"),
+        ),
+        (
+            "audit_report",
+            draft.get("auditGraphId"),
+            "audit_reports",
+            campaign_factory.get("contentforge_report_id"),
+        ),
         ("threadsdash_post", post_graph_id, "posts", post_row.get("id")),
     ]
     for entity_type, graph_id, local_table, local_id in entities:
@@ -1857,14 +2357,22 @@ def _upsert_threadsdash_graph_mirror(
                     "campaign_id": draft.get("campaignId"),
                     "local_table": local_table,
                     "local_id": local_id,
-                    "payload": campaign_factory if entity_type == "threadsdash_post" else {},
+                    "payload": campaign_factory
+                    if entity_type == "threadsdash_post"
+                    else {},
                     "updated_at": now,
                 },
                 on_conflict="global_id",
             )
         except Exception as exc:
             result["ok"] = False
-            result["errors"].append({"table": "campaign_factory_entities", "globalId": graph_id, "error": str(exc)})
+            result["errors"].append(
+                {
+                    "table": "campaign_factory_entities",
+                    "globalId": graph_id,
+                    "error": str(exc),
+                }
+            )
     rendered_graph_id = draft.get("renderedAssetGraphId") or draft.get("graphId")
     if rendered_graph_id:
         try:
@@ -1899,36 +2407,49 @@ def _upsert_threadsdash_graph_mirror(
                     "to_global_id": post_graph_id,
                     "relation_type": "rendered_asset_to_threadsdash_post",
                     "campaign_id": draft.get("campaignId"),
-                    "evidence": {"postId": post_row.get("id"), "mediaId": media_ref.get("id")},
+                    "evidence": {
+                        "postId": post_row.get("id"),
+                        "mediaId": media_ref.get("id"),
+                    },
                     "created_at": now,
                 },
                 on_conflict="from_global_id,to_global_id,relation_type",
             )
         except Exception as exc:
             result["ok"] = False
-            result["errors"].append({"table": "campaign_factory_edges_or_post_links", "postId": post_row.get("id"), "error": str(exc)})
+            result["errors"].append(
+                {
+                    "table": "campaign_factory_edges_or_post_links",
+                    "postId": post_row.get("id"),
+                    "error": str(exc),
+                }
+            )
     return result
 
 
 def _delete_existing_preview_schedule_rows(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     user_id: str,
     campaign_slug: str,
     limit: int = 1000,
 ) -> dict[str, Any]:
-    rows = client.select("posts", {
-        "select": "id,metadata,status",
-        "user_id": f"eq.{user_id}",
-        "status": "eq.scheduled",
-        "limit": str(limit),
-    })
+    rows = client.select(
+        "posts",
+        {
+            "select": "id,metadata,status",
+            "user_id": f"eq.{user_id}",
+            "status": "eq.scheduled",
+            "limit": str(limit),
+        },
+    )
     deleted_ids = []
     for row in rows:
         metadata = row.get("metadata") if isinstance(row, dict) else {}
         campaign_factory = (
             metadata.get("campaign_factory")
-            if isinstance(metadata, dict) and isinstance(metadata.get("campaign_factory"), dict)
+            if isinstance(metadata, dict)
+            and isinstance(metadata.get("campaign_factory"), dict)
             else {}
         )
         if (
@@ -1941,7 +2462,9 @@ def _delete_existing_preview_schedule_rows(
 
 
 def _draft_media_types(draft: dict[str, Any]) -> tuple[str, str]:
-    content_surface = normalize_content_surface(draft.get("contentSurface") or draft.get("content_surface"))
+    content_surface = normalize_content_surface(
+        draft.get("contentSurface") or draft.get("content_surface")
+    )
     if content_surface == "feed_single":
         return "image", "IMAGE"
     if content_surface == "feed_carousel":
@@ -2000,7 +2523,11 @@ def _instagram_post_caption_for_export(
     caption_context: dict[str, Any],
     destination: dict[str, Any],
 ) -> dict[str, Any]:
-    caption_generation = asset.get("captionGeneration") if isinstance(asset.get("captionGeneration"), dict) else {}
+    caption_generation = (
+        asset.get("captionGeneration")
+        if isinstance(asset.get("captionGeneration"), dict)
+        else {}
+    )
     nested_generation = [
         caption_generation.get("instagramPostCaption"),
         caption_generation.get("instagram_post_caption"),
@@ -2021,7 +2548,8 @@ def _instagram_post_caption_for_export(
         "postCaption",
     )
     if (
-        _normalize_distribution_surface(destination.get("distributionSurface")) == "story_cta"
+        _normalize_distribution_surface(destination.get("distributionSurface"))
+        == "story_cta"
         and isinstance(destination.get("ctaText"), str)
         and destination.get("ctaText").strip()
     ):
@@ -2035,13 +2563,20 @@ def _instagram_post_caption_for_export(
             continue
         hashtags.extend(
             tag
-            for tag in _clean_hashtags(record.get("hashtags") or record.get("instagram_hashtags") or record.get("instagramHashtags"))
+            for tag in _clean_hashtags(
+                record.get("hashtags")
+                or record.get("instagram_hashtags")
+                or record.get("instagramHashtags")
+            )
             if tag.lower() not in {existing.lower() for existing in hashtags}
         )
         if len(hashtags) >= 5:
             hashtags = hashtags[:5]
             break
-    post_caption_style = _first_string_from_records(records, "post_caption_style", "postCaptionStyle") or "short_natural"
+    post_caption_style = (
+        _first_string_from_records(records, "post_caption_style", "postCaptionStyle")
+        or "short_natural"
+    )
     final_caption = platform_caption
     if caption_cta and caption_cta.lower() not in final_caption.lower():
         final_caption = f"{final_caption}\n{caption_cta}".strip()
@@ -2050,7 +2585,9 @@ def _instagram_post_caption_for_export(
         final_caption = f"{final_caption}\n{' '.join(missing_tags)}".strip()
     return {
         "instagram_post_caption": final_caption,
-        "instagram_post_caption_hash": _text_hash(final_caption) if final_caption else None,
+        "instagram_post_caption_hash": _text_hash(final_caption)
+        if final_caption
+        else None,
         "caption_cta": caption_cta or None,
         "hashtags": hashtags,
         "post_caption_style": post_caption_style,
@@ -2059,7 +2596,9 @@ def _instagram_post_caption_for_export(
     }
 
 
-def _caption_context_for_export(asset: dict[str, Any], *, caption: str, file_path: Path) -> dict[str, Any]:
+def _caption_context_for_export(
+    asset: dict[str, Any], *, caption: str, file_path: Path
+) -> dict[str, Any]:
     existing = asset.get("captionOutcomeContext")
     if isinstance(existing, dict) and existing.get("caption_hash"):
         return dict(existing)
@@ -2069,7 +2608,10 @@ def _caption_context_for_export(asset: dict[str, Any], *, caption: str, file_pat
         source_clip=existing.get("source_clip") if isinstance(existing, dict) else None,
         rendered_output=str(file_path),
         creator_model=asset.get("modelId"),
-        lineage=existing or asset.get("generatedAssetLineage") or asset.get("captionGeneration") or {},
+        lineage=existing
+        or asset.get("generatedAssetLineage")
+        or asset.get("captionGeneration")
+        or {},
     )
 
 
@@ -2080,11 +2622,21 @@ def _build_audio_intent(
     platform: str,
     distribution_surface: str,
 ) -> dict[str, Any]:
-    if isinstance(existing, dict) and existing.get("schema") == "pipeline.audio_intent.v1":
+    if (
+        isinstance(existing, dict)
+        and existing.get("schema") == "pipeline.audio_intent.v1"
+    ):
         intent = dict(existing)
-        intent.setdefault("recommendations", _audio_intent_recommendations(audio_recommendations))
-        if isinstance(audio_recommendations, dict) and audio_recommendations.get("decision"):
-            intent.setdefault("decision", _audio_intent_decision(audio_recommendations.get("decision")))
+        intent.setdefault(
+            "recommendations", _audio_intent_recommendations(audio_recommendations)
+        )
+        if isinstance(audio_recommendations, dict) and audio_recommendations.get(
+            "decision"
+        ):
+            intent.setdefault(
+                "decision",
+                _audio_intent_decision(audio_recommendations.get("decision")),
+            )
     else:
         intent = {
             "schema": "pipeline.audio_intent.v1",
@@ -2094,7 +2646,9 @@ def _build_audio_intent(
             "platform": platform,
             "surface": distribution_surface,
             "recommendations": _audio_intent_recommendations(audio_recommendations),
-            "decision": _audio_intent_decision(audio_recommendations.get("decision")) if isinstance(audio_recommendations, dict) else None,
+            "decision": _audio_intent_decision(audio_recommendations.get("decision"))
+            if isinstance(audio_recommendations, dict)
+            else None,
             "operator_selection": {
                 "audio_title": None,
                 "artist_name": None,
@@ -2106,11 +2660,18 @@ def _build_audio_intent(
             },
             "gates": {},
         }
-    intent["required"] = bool(intent.get("required", _native_audio_required(distribution_surface)))
+    intent["required"] = bool(
+        intent.get("required", _native_audio_required(distribution_surface))
+    )
     recommendations = intent.get("recommendations")
     has_recommendations = (
-        (isinstance(recommendations, list) and bool(recommendations))
-        or (isinstance(audio_recommendations, dict) and bool(audio_recommendations.get("primaryStrategy") or audio_recommendations.get("fallbackInstruction")))
+        isinstance(recommendations, list) and bool(recommendations)
+    ) or (
+        isinstance(audio_recommendations, dict)
+        and bool(
+            audio_recommendations.get("primaryStrategy")
+            or audio_recommendations.get("fallbackInstruction")
+        )
     )
     status = str(intent.get("status") or "").strip().lower()
     if not intent["required"]:
@@ -2142,8 +2703,12 @@ def _audio_task_for_intent(intent: dict[str, Any]) -> dict[str, Any]:
         "recommended": "open",
         "needs_operator_selection": "open",
         "selected": "selected",
-        "attached": "completed" if _audio_intent_allows_live(intent) else "proof_missing",
-        "verified": "completed" if _audio_intent_allows_live(intent) else "proof_missing",
+        "attached": "completed"
+        if _audio_intent_allows_live(intent)
+        else "proof_missing",
+        "verified": "completed"
+        if _audio_intent_allows_live(intent)
+        else "proof_missing",
         "skipped": "completed",
         "blocked": "blocked",
         "needs_review": "needs_review",
@@ -2151,13 +2716,23 @@ def _audio_task_for_intent(intent: dict[str, Any]) -> dict[str, Any]:
     }.get(status, "open")
     completed_at = existing.get("completed_at")
     if task_status == "completed" and not completed_at:
-        selection = intent.get("operator_selection") if isinstance(intent.get("operator_selection"), dict) else {}
-        completed_at = selection.get("verified_at") or selection.get("attached_at") or selection.get("skipped_at")
+        selection = (
+            intent.get("operator_selection")
+            if isinstance(intent.get("operator_selection"), dict)
+            else {}
+        )
+        completed_at = (
+            selection.get("verified_at")
+            or selection.get("attached_at")
+            or selection.get("skipped_at")
+        )
     return {
         **existing,
         "schema": existing.get("schema") or "pipeline.audio_task.v1",
         "status": task_status,
-        "proof_required": bool(intent.get("required", False) and status in {"attached", "verified"}),
+        "proof_required": bool(
+            intent.get("required", False) and status in {"attached", "verified"}
+        ),
         "assignee": existing.get("assignee"),
         "due_at": existing.get("due_at"),
         "created_at": existing.get("created_at"),
@@ -2167,7 +2742,11 @@ def _audio_task_for_intent(intent: dict[str, Any]) -> dict[str, Any]:
 
 
 def _native_audio_required(distribution_surface: str) -> bool:
-    return _normalize_distribution_surface(distribution_surface) in {"regular_reel", "trial_reel", "reel"}
+    return _normalize_distribution_surface(distribution_surface) in {
+        "regular_reel",
+        "trial_reel",
+        "reel",
+    }
 
 
 def _audio_intent_recommendations(audio_recommendations: Any) -> list[dict[str, Any]]:
@@ -2180,35 +2759,49 @@ def _audio_intent_recommendations(audio_recommendations: Any) -> list[dict[str, 
     for item in recommendations:
         if not isinstance(item, dict):
             continue
-        normalized.append({
-            "source": item.get("source") or audio_recommendations.get("source") or "reference_factory",
-            "strategy": item.get("audioVibe") or item.get("usageType") or item.get("audioType") or audio_recommendations.get("primaryStrategy"),
-            "audio_title": item.get("audioTitle") or item.get("title"),
-            "artist_name": item.get("artistName") or item.get("artist"),
-            "platform_audio_id": item.get("audioId") or item.get("platformAudioId"),
-            "platform_url": item.get("platformUrl") or item.get("url"),
-            "freshness": item.get("freshness") or "unknown",
-            "trend_status": item.get("trendStatus") or item.get("freshness") or "unknown",
-            "confidence": item.get("confidence"),
-            "vibe_tags": item.get("vibeTags") or item.get("tags") or ([item.get("audioVibe")] if item.get("audioVibe") else []),
-            "best_content_types": item.get("bestContentTypes") or [],
-            "account_fit": item.get("accountFit") or [],
-            "usage_count": item.get("usageCount"),
-            "bpm": item.get("bpm"),
-            "energy": item.get("energy"),
-            "vocality": item.get("vocality"),
-            "safe_usage_notes": item.get("safeUsageNotes") or item.get("safe_usage_notes"),
-            "audioMemoryGraphId": item.get("audioMemoryGraphId"),
-            "trendScore": item.get("trendScore"),
-            "fatigueScore": item.get("fatigueScore"),
-            "accountFitScore": item.get("accountFitScore"),
-            "performanceLift": item.get("performanceLift"),
-            "exampleReels": item.get("exampleReels") or [],
-            "selectionRank": item.get("selectionRank"),
-            "catalogAudioId": item.get("catalogAudioId") or item.get("catalog_audio_id"),
-            "rationale": item.get("rationale"),
-            "instruction": item.get("instruction") or audio_recommendations.get("fallbackInstruction"),
-        })
+        normalized.append(
+            {
+                "source": item.get("source")
+                or audio_recommendations.get("source")
+                or "reference_factory",
+                "strategy": item.get("audioVibe")
+                or item.get("usageType")
+                or item.get("audioType")
+                or audio_recommendations.get("primaryStrategy"),
+                "audio_title": item.get("audioTitle") or item.get("title"),
+                "artist_name": item.get("artistName") or item.get("artist"),
+                "platform_audio_id": item.get("audioId") or item.get("platformAudioId"),
+                "platform_url": item.get("platformUrl") or item.get("url"),
+                "freshness": item.get("freshness") or "unknown",
+                "trend_status": item.get("trendStatus")
+                or item.get("freshness")
+                or "unknown",
+                "confidence": item.get("confidence"),
+                "vibe_tags": item.get("vibeTags")
+                or item.get("tags")
+                or ([item.get("audioVibe")] if item.get("audioVibe") else []),
+                "best_content_types": item.get("bestContentTypes") or [],
+                "account_fit": item.get("accountFit") or [],
+                "usage_count": item.get("usageCount"),
+                "bpm": item.get("bpm"),
+                "energy": item.get("energy"),
+                "vocality": item.get("vocality"),
+                "safe_usage_notes": item.get("safeUsageNotes")
+                or item.get("safe_usage_notes"),
+                "audioMemoryGraphId": item.get("audioMemoryGraphId"),
+                "trendScore": item.get("trendScore"),
+                "fatigueScore": item.get("fatigueScore"),
+                "accountFitScore": item.get("accountFitScore"),
+                "performanceLift": item.get("performanceLift"),
+                "exampleReels": item.get("exampleReels") or [],
+                "selectionRank": item.get("selectionRank"),
+                "catalogAudioId": item.get("catalogAudioId")
+                or item.get("catalog_audio_id"),
+                "rationale": item.get("rationale"),
+                "instruction": item.get("instruction")
+                or audio_recommendations.get("fallbackInstruction"),
+            }
+        )
     return normalized
 
 
@@ -2221,12 +2814,21 @@ def _audio_intent_decision(decision: Any) -> dict[str, Any] | None:
             return None
         return {
             "source": item.get("source"),
-            "audio_title": item.get("audio_title") or item.get("audioTitle") or item.get("title"),
-            "artist_name": item.get("artist_name") or item.get("artistName") or item.get("artist"),
+            "audio_title": item.get("audio_title")
+            or item.get("audioTitle")
+            or item.get("title"),
+            "artist_name": item.get("artist_name")
+            or item.get("artistName")
+            or item.get("artist"),
             "platform": item.get("platform"),
-            "platform_audio_id": item.get("platform_audio_id") or item.get("platformAudioId") or item.get("audioId"),
-            "platform_url": item.get("platform_url") or item.get("platformUrl") or item.get("url"),
-            "catalog_audio_id": item.get("catalog_audio_id") or item.get("catalogAudioId"),
+            "platform_audio_id": item.get("platform_audio_id")
+            or item.get("platformAudioId")
+            or item.get("audioId"),
+            "platform_url": item.get("platform_url")
+            or item.get("platformUrl")
+            or item.get("url"),
+            "catalog_audio_id": item.get("catalog_audio_id")
+            or item.get("catalogAudioId"),
             "audioMemoryGraphId": item.get("audioMemoryGraphId"),
             "selectionRank": item.get("selectionRank"),
             "decisionScore": item.get("decisionScore"),
@@ -2238,8 +2840,20 @@ def _audio_intent_decision(decision: Any) -> dict[str, Any] | None:
         }
 
     primary = normalize_audio(decision.get("primaryAudio"))
-    backups = [item for item in (normalize_audio(row) for row in (decision.get("backupAudios") or [])) if item]
-    do_not_use = [item for item in (normalize_audio(row) for row in (decision.get("doNotUseAudios") or [])) if item]
+    backups = [
+        item
+        for item in (
+            normalize_audio(row) for row in (decision.get("backupAudios") or [])
+        )
+        if item
+    ]
+    do_not_use = [
+        item
+        for item in (
+            normalize_audio(row) for row in (decision.get("doNotUseAudios") or [])
+        )
+        if item
+    ]
     return {
         "schema": decision.get("schema") or "campaign_factory.audio_decision.v1",
         "primaryAudio": primary,
@@ -2269,22 +2883,56 @@ def _audio_intent_allows_live(intent: Any) -> bool:
         return False
     has_native_locator = any(
         isinstance(selection.get(key), str) and selection.get(key).strip()
-        for key in ("platform_audio_id", "platform_url", "native_audio_id", "native_audio_url", "audio_id")
+        for key in (
+            "platform_audio_id",
+            "platform_url",
+            "native_audio_id",
+            "native_audio_url",
+            "audio_id",
+        )
     )
-    has_selected_at = isinstance(selection.get("selected_at"), str) and bool(selection.get("selected_at").strip())
+    has_selected_at = isinstance(selection.get("selected_at"), str) and bool(
+        selection.get("selected_at").strip()
+    )
     final_key = "verified_at" if status == "verified" else "attached_at"
-    has_final_timestamp = isinstance(selection.get(final_key), str) and bool(selection.get(final_key).strip())
+    has_final_timestamp = isinstance(selection.get(final_key), str) and bool(
+        selection.get(final_key).strip()
+    )
     return bool(has_native_locator and has_selected_at and has_final_timestamp)
 
 
 def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
     audit_summary = draft.get("auditSummary") or {}
     audio_recommendations = draft.get("audioRecommendations") or {}
-    publishability = draft.get("publishability") if isinstance(draft.get("publishability"), dict) else {}
-    handoff_manifest = draft.get("handoffManifest") if isinstance(draft.get("handoffManifest"), dict) else publishability.get("handoff_manifest")
-    caption_context = draft.get("captionOutcomeContext") if isinstance(draft.get("captionOutcomeContext"), dict) else {}
-    failure_reasons = list(publishability.get("publishability_failure_reasons") or publishability.get("failureReasons") or [])
-    asset_state = str(publishability.get("asset_state") or publishability.get("assetState") or ("exportable" if handoff_manifest and not failure_reasons else "approved_but_not_publishable"))
+    publishability = (
+        draft.get("publishability")
+        if isinstance(draft.get("publishability"), dict)
+        else {}
+    )
+    handoff_manifest = (
+        draft.get("handoffManifest")
+        if isinstance(draft.get("handoffManifest"), dict)
+        else publishability.get("handoff_manifest")
+    )
+    caption_context = (
+        draft.get("captionOutcomeContext")
+        if isinstance(draft.get("captionOutcomeContext"), dict)
+        else {}
+    )
+    failure_reasons = list(
+        publishability.get("publishability_failure_reasons")
+        or publishability.get("failureReasons")
+        or []
+    )
+    asset_state = str(
+        publishability.get("asset_state")
+        or publishability.get("assetState")
+        or (
+            "exportable"
+            if handoff_manifest and not failure_reasons
+            else "approved_but_not_publishable"
+        )
+    )
     instagram_trial_reels = bool(
         draft.get("instagramTrialReels")
         or draft.get("isInstagramTrialReel")
@@ -2297,10 +2945,24 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
         platform="instagram",
         distribution_surface=draft.get("distributionSurface") or "regular_reel",
     )
-    audio_selection = audio_intent.get("operator_selection") if isinstance(audio_intent.get("operator_selection"), dict) else {}
-    handoff_audio_id = handoff_manifest.get("audio_id") if isinstance(handoff_manifest, dict) else None
-    audio_segment = publishability.get("audio_segment") or (handoff_manifest.get("audio_segment") if isinstance(handoff_manifest, dict) else None)
-    cover_frame = publishability.get("cover_frame") or (handoff_manifest.get("cover_frame") if isinstance(handoff_manifest, dict) else None)
+    audio_selection = (
+        audio_intent.get("operator_selection")
+        if isinstance(audio_intent.get("operator_selection"), dict)
+        else {}
+    )
+    handoff_audio_id = (
+        handoff_manifest.get("audio_id") if isinstance(handoff_manifest, dict) else None
+    )
+    audio_segment = publishability.get("audio_segment") or (
+        handoff_manifest.get("audio_segment")
+        if isinstance(handoff_manifest, dict)
+        else None
+    )
+    cover_frame = publishability.get("cover_frame") or (
+        handoff_manifest.get("cover_frame")
+        if isinstance(handoff_manifest, dict)
+        else None
+    )
     audio_id = next(
         (
             value
@@ -2318,31 +2980,65 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
     visual_qc = (
         publishability.get("visualQc")
         or publishability.get("visual_qc")
-        or (handoff_manifest.get("visualQc") if isinstance(handoff_manifest, dict) else None)
+        or (
+            handoff_manifest.get("visualQc")
+            if isinstance(handoff_manifest, dict)
+            else None
+        )
         or {}
     )
     identity_verification = (
         publishability.get("identityVerification")
         or publishability.get("identity_verification")
-        or (handoff_manifest.get("identityVerification") if isinstance(handoff_manifest, dict) else None)
+        or (
+            handoff_manifest.get("identityVerification")
+            if isinstance(handoff_manifest, dict)
+            else None
+        )
         or {}
     )
-    visual_qc_status = str(
-        publishability.get("visualQcStatus")
-        or publishability.get("visual_qc_status")
-        or (handoff_manifest.get("visualQcStatus") if isinstance(handoff_manifest, dict) else None)
-        or (visual_qc.get("visualQcStatus") if isinstance(visual_qc, dict) else None)
-        or (visual_qc.get("status") if isinstance(visual_qc, dict) else None)
-        or "unavailable"
-    ).strip().lower()
-    identity_verification_status = str(
-        publishability.get("identityVerificationStatus")
-        or publishability.get("identity_verification_status")
-        or (handoff_manifest.get("identityVerificationStatus") if isinstance(handoff_manifest, dict) else None)
-        or (identity_verification.get("identityVerificationStatus") if isinstance(identity_verification, dict) else None)
-        or (identity_verification.get("status") if isinstance(identity_verification, dict) else None)
-        or "unavailable"
-    ).strip().lower()
+    visual_qc_status = (
+        str(
+            publishability.get("visualQcStatus")
+            or publishability.get("visual_qc_status")
+            or (
+                handoff_manifest.get("visualQcStatus")
+                if isinstance(handoff_manifest, dict)
+                else None
+            )
+            or (
+                visual_qc.get("visualQcStatus") if isinstance(visual_qc, dict) else None
+            )
+            or (visual_qc.get("status") if isinstance(visual_qc, dict) else None)
+            or "unavailable"
+        )
+        .strip()
+        .lower()
+    )
+    identity_verification_status = (
+        str(
+            publishability.get("identityVerificationStatus")
+            or publishability.get("identity_verification_status")
+            or (
+                handoff_manifest.get("identityVerificationStatus")
+                if isinstance(handoff_manifest, dict)
+                else None
+            )
+            or (
+                identity_verification.get("identityVerificationStatus")
+                if isinstance(identity_verification, dict)
+                else None
+            )
+            or (
+                identity_verification.get("status")
+                if isinstance(identity_verification, dict)
+                else None
+            )
+            or "unavailable"
+        )
+        .strip()
+        .lower()
+    )
     if visual_qc_status not in {"passed", "failed", "unavailable"}:
         visual_qc_status = "unavailable"
     if identity_verification_status not in {"passed", "failed", "unavailable"}:
@@ -2352,37 +3048,60 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "graph_id": draft.get("graphId") or draft.get("renderedAssetGraphId"),
             "campaign_graph_id": draft.get("campaignGraphId"),
             "source_asset_graph_id": draft.get("sourceAssetGraphId"),
-            "rendered_asset_graph_id": draft.get("renderedAssetGraphId") or draft.get("graphId"),
+            "rendered_asset_graph_id": draft.get("renderedAssetGraphId")
+            or draft.get("graphId"),
             "audit_graph_id": draft.get("auditGraphId"),
             "campaign_id": draft["campaignId"],
             "asset_id": draft["renderedAssetId"],
             "source_asset_id": draft["sourceAssetId"],
             "rendered_asset_id": draft["renderedAssetId"],
             "content_hash": draft.get("contentHash"),
-            "content_fingerprint": publishability.get("content_fingerprint") or publishability.get("contentFingerprint") or draft.get("contentHash"),
+            "content_fingerprint": publishability.get("content_fingerprint")
+            or publishability.get("contentFingerprint")
+            or draft.get("contentHash"),
             "source_content_hash": draft.get("sourceContentHash"),
-            "concept_id": publishability.get("concept_id") or publishability.get("conceptId"),
-            "parent_reel_id": publishability.get("parent_reel_id") or publishability.get("parentReelId"),
-            "parent_asset_id": publishability.get("parent_asset_id") or publishability.get("parentAssetId"),
-            "variant_family_id": publishability.get("variant_family_id") or publishability.get("variantFamilyId"),
-            "variant_id": publishability.get("variant_id") or publishability.get("variantId"),
-            "variant_index": publishability.get("variant_index") or publishability.get("variantIndex"),
-            "variant_operations": publishability.get("variant_operations") or publishability.get("variantOperations") or [],
+            "concept_id": publishability.get("concept_id")
+            or publishability.get("conceptId"),
+            "parent_reel_id": publishability.get("parent_reel_id")
+            or publishability.get("parentReelId"),
+            "parent_asset_id": publishability.get("parent_asset_id")
+            or publishability.get("parentAssetId"),
+            "variant_family_id": publishability.get("variant_family_id")
+            or publishability.get("variantFamilyId"),
+            "variant_id": publishability.get("variant_id")
+            or publishability.get("variantId"),
+            "variant_index": publishability.get("variant_index")
+            or publishability.get("variantIndex"),
+            "variant_operations": publishability.get("variant_operations")
+            or publishability.get("variantOperations")
+            or [],
             "variant_assignment": draft.get("variantAssignment"),
-            "variant_asset_id": (draft.get("variantAssignment") or {}).get("variant_asset_id")
+            "variant_asset_id": (draft.get("variantAssignment") or {}).get(
+                "variant_asset_id"
+            )
             if isinstance(draft.get("variantAssignment"), dict)
             else None,
             "variant_path": (draft.get("variantAssignment") or {}).get("variant_path")
             if isinstance(draft.get("variantAssignment"), dict)
             else None,
-            "parent_master_asset_id": (draft.get("variantAssignment") or {}).get("parent_master_asset_id")
+            "parent_master_asset_id": (draft.get("variantAssignment") or {}).get(
+                "parent_master_asset_id"
+            )
             if isinstance(draft.get("variantAssignment"), dict)
             else None,
-            "variant_distinctness_scores": (draft.get("variantAssignment") or {}).get("distinctness_scores")
+            "variant_distinctness_scores": (draft.get("variantAssignment") or {}).get(
+                "distinctness_scores"
+            )
             if isinstance(draft.get("variantAssignment"), dict)
             else None,
-            "caption_family_id": publishability.get("caption_family_id") or publishability.get("captionFamilyId") or caption_context.get("caption_family_id") or caption_context.get("captionFamilyId"),
-            "caption_version_id": publishability.get("caption_version_id") or publishability.get("captionVersionId") or caption_context.get("caption_version_id") or caption_context.get("captionVersionId"),
+            "caption_family_id": publishability.get("caption_family_id")
+            or publishability.get("captionFamilyId")
+            or caption_context.get("caption_family_id")
+            or caption_context.get("captionFamilyId"),
+            "caption_version_id": publishability.get("caption_version_id")
+            or publishability.get("captionVersionId")
+            or caption_context.get("caption_version_id")
+            or caption_context.get("captionVersionId"),
             "caption_hash": draft.get("captionHash"),
             "instagram_post_caption": draft.get("instagramPostCaption") or "",
             "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
@@ -2390,7 +3109,8 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "hashtags": draft.get("hashtags") or draft.get("topics") or [],
             "post_caption_style": draft.get("postCaptionStyle") or "short_natural",
             "burned_caption_text": draft.get("burnedCaptionText"),
-            "burned_caption_hash": draft.get("burnedCaptionHash") or draft.get("captionHash"),
+            "burned_caption_hash": draft.get("burnedCaptionHash")
+            or draft.get("captionHash"),
             "captionOutcomeContext": caption_context,
             "caption_outcome_context": caption_context,
             "caption_generation": draft.get("captionGeneration") or {},
@@ -2404,7 +3124,9 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "audio_id": audio_id,
             "audio_segment": audio_segment if isinstance(audio_segment, dict) else None,
             "audio_strategy": _primary_audio_strategy(audio_recommendations),
-            "native_audio_preferred": bool(audio_recommendations.get("nativeAudioPreferred", True))
+            "native_audio_preferred": bool(
+                audio_recommendations.get("nativeAudioPreferred", True)
+            )
             if isinstance(audio_recommendations, dict)
             else True,
             "cover_frame": cover_frame if isinstance(cover_frame, dict) else None,
@@ -2417,16 +3139,33 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "post_key": draft.get("campaignFactoryPostKey"),
             "audit_status": draft.get("auditStatus"),
             "asset_state": asset_state,
-            "lifecycle_state": publishability.get("lifecycle_state") or ("publishable_candidate" if asset_state in {"publishable_candidate", "exportable"} else "creative_approved"),
+            "lifecycle_state": publishability.get("lifecycle_state")
+            or (
+                "publishable_candidate"
+                if asset_state in {"publishable_candidate", "exportable"}
+                else "creative_approved"
+            ),
             "approved": bool(publishability.get("approved")),
-            "captioned_render_present": bool(publishability.get("captioned_render_present") or publishability.get("captionedRenderPresent")),
-            "visible_caption_verification": "pass" if publishability.get("visible_caption_verification") else "fail",
-            "expected_visual_verification": "pass" if publishability.get("expected_visual_verification") else "fail",
+            "captioned_render_present": bool(
+                publishability.get("captioned_render_present")
+                or publishability.get("captionedRenderPresent")
+            ),
+            "visible_caption_verification": "pass"
+            if publishability.get("visible_caption_verification")
+            else "fail",
+            "expected_visual_verification": "pass"
+            if publishability.get("expected_visual_verification")
+            else "fail",
             "visualQcStatus": visual_qc_status,
             "identityVerificationStatus": identity_verification_status,
             "visualQc": visual_qc if isinstance(visual_qc, dict) else {},
-            "identityVerification": identity_verification if isinstance(identity_verification, dict) else {},
-            "readiness_checks_pass": bool(publishability.get("readiness_checks_pass") or publishability.get("readinessChecksPass")),
+            "identityVerification": identity_verification
+            if isinstance(identity_verification, dict)
+            else {},
+            "readiness_checks_pass": bool(
+                publishability.get("readiness_checks_pass")
+                or publishability.get("readinessChecksPass")
+            ),
             "publishability_failure_reasons": failure_reasons,
             "blockingReason": publishability.get("blockingReason"),
             "rootCause": publishability.get("rootCause"),
@@ -2448,7 +3187,9 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "smart_link": draft.get("smartLink"),
             "cta_text": draft.get("ctaText"),
             "instagram_trial_reels": instagram_trial_reels,
-            "trial_graduation_strategy": draft.get("trialGraduationStrategy") if instagram_trial_reels else None,
+            "trial_graduation_strategy": draft.get("trialGraduationStrategy")
+            if instagram_trial_reels
+            else None,
             "trial_reel": draft.get("distributionSurface") == "trial_reel",
             "planned_window_start": draft.get("plannedWindowStart"),
             "planned_window_end": draft.get("plannedWindowEnd"),
@@ -2462,9 +3203,14 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
         metadata["previewScheduleOnly"] = True
     if instagram_trial_reels:
         metadata["trialReels"] = True
-        metadata["trialGraduationStrategy"] = draft.get("trialGraduationStrategy") or "MANUAL"
+        metadata["trialGraduationStrategy"] = (
+            draft.get("trialGraduationStrategy") or "MANUAL"
+        )
     if isinstance(cover_frame, dict):
-        if isinstance(cover_frame.get("image_url"), str) and cover_frame.get("image_url").strip():
+        if (
+            isinstance(cover_frame.get("image_url"), str)
+            and cover_frame.get("image_url").strip()
+        ):
             metadata["coverUrl"] = cover_frame.get("image_url").strip()
         if isinstance(cover_frame.get("seconds"), (int, float)):
             metadata["thumbOffset"] = cover_frame.get("seconds")
@@ -2497,7 +3243,11 @@ def _preflight_check(name: str, fn) -> dict[str, Any]:
         if isinstance(result, list):
             detail = {"rowCount": len(result)}
         elif isinstance(result, dict):
-            detail = {key: result.get(key) for key in ("id", "name", "public") if key in result}
+            detail = {
+                key: result.get(key)
+                for key in ("id", "name", "public")
+                if key in result
+            }
         return {"name": name, "ok": True, "detail": detail}
     except Exception as exc:
         return {"name": name, "ok": False, "error": str(exc)}
@@ -2510,7 +3260,9 @@ def _load_export_result(value: dict[str, Any] | str | Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _verify_media_row(client: "SupabaseRestClient", media_ref: dict[str, Any]) -> dict[str, Any]:
+def _verify_media_row(
+    client: SupabaseRestClient, media_ref: dict[str, Any]
+) -> dict[str, Any]:
     media_id = media_ref.get("id")
     blocking: list[str] = []
     row = None
@@ -2544,7 +3296,9 @@ def _verify_media_row(client: "SupabaseRestClient", media_ref: dict[str, Any]) -
     }
 
 
-def _verify_post_row(client: "SupabaseRestClient", post_ref: dict[str, Any]) -> dict[str, Any]:
+def _verify_post_row(
+    client: SupabaseRestClient, post_ref: dict[str, Any]
+) -> dict[str, Any]:
     post_id = post_ref.get("id")
     blocking: list[str] = []
     row = None
@@ -2556,9 +3310,16 @@ def _verify_post_row(client: "SupabaseRestClient", post_ref: dict[str, Any]) -> 
             blocking.append("post_row_missing")
     if row:
         metadata = row.get("metadata") or {}
-        campaign_meta = metadata.get("campaign_factory") if isinstance(metadata, dict) else None
-        preview_schedule_only = isinstance(campaign_meta, dict) and campaign_meta.get("preview_schedule_only") is True
-        if row.get("status") != "draft" and not (row.get("status") == "scheduled" and preview_schedule_only):
+        campaign_meta = (
+            metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+        )
+        preview_schedule_only = (
+            isinstance(campaign_meta, dict)
+            and campaign_meta.get("preview_schedule_only") is True
+        )
+        if row.get("status") != "draft" and not (
+            row.get("status") == "scheduled" and preview_schedule_only
+        ):
             blocking.append(f"post_status:{row.get('status')}")
         if row.get("platform") != "instagram":
             blocking.append(f"post_platform:{row.get('platform')}")
@@ -2583,7 +3344,9 @@ def _verify_post_row(client: "SupabaseRestClient", post_ref: dict[str, Any]) -> 
     }
 
 
-def _select_post_for_verification(client: "SupabaseRestClient", post_id: str) -> dict[str, Any] | None:
+def _select_post_for_verification(
+    client: SupabaseRestClient, post_id: str
+) -> dict[str, Any] | None:
     try:
         rows = client.select(
             "posts",
@@ -2618,7 +3381,9 @@ def promote_preview_schedule(
     limit: int = 1000,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for preview promotion")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for preview promotion"
+        )
     campaign = factory.campaign_by_slug(campaign_slug)
     pipeline_job = factory.create_pipeline_job(
         "promote_preview_schedule",
@@ -2639,7 +3404,9 @@ def promote_preview_schedule(
         skipped = []
         for row in rows:
             metadata = row.get("metadata") or {}
-            meta = metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+            meta = (
+                metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+            )
             if not isinstance(meta, dict) or meta.get("campaign_id") != campaign_slug:
                 continue
             if meta.get("preview_schedule_only") is not True:
@@ -2648,12 +3415,19 @@ def promote_preview_schedule(
             if row.get("status") != "scheduled" or not row.get("scheduled_for"):
                 skipped.append({"id": row.get("id"), "reason": "not_scheduled"})
                 continue
-            compatible, mismatch_reason, _profile = factory.account_compatible_with_model(
-                meta.get("model_slug") or meta.get("model_id") or "",
-                instagram_account_id=row.get("instagram_account_id"),
+            compatible, mismatch_reason, _profile = (
+                factory.account_compatible_with_model(
+                    meta.get("model_slug") or meta.get("model_id") or "",
+                    instagram_account_id=row.get("instagram_account_id"),
+                )
             )
             if not compatible:
-                skipped.append({"id": row.get("id"), "reason": mismatch_reason or "model_account_mismatch"})
+                skipped.append(
+                    {
+                        "id": row.get("id"),
+                        "reason": mismatch_reason or "model_account_mismatch",
+                    }
+                )
                 continue
             next_metadata = dict(metadata)
             next_meta = dict(meta)
@@ -2666,7 +3440,13 @@ def promote_preview_schedule(
                 {"metadata": next_metadata},
                 {"id": f"eq.{row['id']}", "user_id": f"eq.{user_id}"},
             )
-            promoted.append({"id": row.get("id"), "scheduledFor": row.get("scheduled_for"), "updated": bool(updated)})
+            promoted.append(
+                {
+                    "id": row.get("id"),
+                    "scheduledFor": row.get("scheduled_for"),
+                    "updated": bool(updated),
+                }
+            )
         result = {
             "schema": "campaign_factory.preview_schedule_promotion.v1",
             "campaign": campaign_slug,
@@ -2711,7 +3491,9 @@ def clear_preview_schedule(
     reason: str = "audio_workflow_not_ready",
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for schedule clearing")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for schedule clearing"
+        )
     campaign = factory.campaign_by_slug(campaign_slug)
     pipeline_job = factory.create_pipeline_job(
         "clear_preview_schedule",
@@ -2734,11 +3516,18 @@ def clear_preview_schedule(
         now = utc_now()
         for row in rows:
             metadata = row.get("metadata") or {}
-            meta = metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+            meta = (
+                metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+            )
             if not isinstance(meta, dict) or meta.get("campaign_id") != campaign_slug:
                 continue
             if row.get("status") != "scheduled":
-                skipped.append({"id": row.get("id"), "reason": f"not_scheduled:{row.get('status')}"})
+                skipped.append(
+                    {
+                        "id": row.get("id"),
+                        "reason": f"not_scheduled:{row.get('status')}",
+                    }
+                )
                 continue
             previous_scheduled_for = row.get("scheduled_for")
             next_metadata = dict(metadata)
@@ -2749,7 +3538,10 @@ def clear_preview_schedule(
             next_meta["unscheduled_reason"] = reason
             next_meta["scheduled_for"] = None
             next_meta["schedule_mode"] = "draft"
-            if meta.get("preview_schedule_only") is True or metadata.get("previewScheduleOnly") is True:
+            if (
+                meta.get("preview_schedule_only") is True
+                or metadata.get("previewScheduleOnly") is True
+            ):
                 next_meta["preview_schedule_only"] = True
                 next_metadata["previewScheduleOnly"] = True
             next_metadata["campaign_factory"] = next_meta
@@ -2767,19 +3559,27 @@ def clear_preview_schedule(
                 },
             )
             if updated:
-                cleared.append({
-                    "id": row.get("id"),
-                    "previousScheduledFor": previous_scheduled_for,
-                    "mediaUrlCount": len(row.get("media_urls") or []),
-                })
+                cleared.append(
+                    {
+                        "id": row.get("id"),
+                        "previousScheduledFor": previous_scheduled_for,
+                        "mediaUrlCount": len(row.get("media_urls") or []),
+                    }
+                )
             else:
-                skipped.append({"id": row.get("id"), "reason": "update_returned_no_rows"})
+                skipped.append(
+                    {"id": row.get("id"), "reason": "update_returned_no_rows"}
+                )
         remaining_rows = _select_threadsdash_posts(client, user_id=user_id, limit=limit)
         remaining_scheduled = [
-            row for row in remaining_rows
+            row
+            for row in remaining_rows
             if row.get("status") == "scheduled"
             and isinstance((row.get("metadata") or {}).get("campaign_factory"), dict)
-            and (row.get("metadata") or {}).get("campaign_factory", {}).get("campaign_id") == campaign_slug
+            and (row.get("metadata") or {})
+            .get("campaign_factory", {})
+            .get("campaign_id")
+            == campaign_slug
         ]
         result = {
             "schema": "campaign_factory.preview_schedule_clear.v1",
@@ -2830,25 +3630,49 @@ def summarize_threadsdash_usage(
     limit: int = 1000,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for usage tracking")
-    payload = build_draft_payloads(factory, campaign_slug=campaign_slug, user_id=user_id)
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for usage tracking"
+        )
+    payload = build_draft_payloads(
+        factory, campaign_slug=campaign_slug, user_id=user_id
+    )
     client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
     rows = _select_threadsdash_posts(client, user_id=user_id, limit=limit)
-    tracked_rows = [row for row in rows if isinstance((row.get("metadata") or {}).get("campaign_factory"), dict)]
+    tracked_rows = [
+        row
+        for row in rows
+        if isinstance((row.get("metadata") or {}).get("campaign_factory"), dict)
+    ]
 
     draft_by_rendered = {draft["renderedAssetId"]: draft for draft in payload["drafts"]}
     source_ids = {draft["sourceAssetId"] for draft in payload["drafts"]}
     campaign_ids = {draft["campaignId"] for draft in payload["drafts"]}
-    content_hashes = {draft.get("contentHash") for draft in payload["drafts"] if draft.get("contentHash")}
-    source_hashes = {draft.get("sourceContentHash") for draft in payload["drafts"] if draft.get("sourceContentHash")}
-    caption_hashes = {draft.get("captionHash") for draft in payload["drafts"] if draft.get("captionHash")}
+    content_hashes = {
+        draft.get("contentHash")
+        for draft in payload["drafts"]
+        if draft.get("contentHash")
+    }
+    source_hashes = {
+        draft.get("sourceContentHash")
+        for draft in payload["drafts"]
+        if draft.get("sourceContentHash")
+    }
+    caption_hashes = {
+        draft.get("captionHash")
+        for draft in payload["drafts"]
+        if draft.get("captionHash")
+    }
 
     asset_usage = {asset_id: _empty_usage() for asset_id in draft_by_rendered}
     source_usage = {source_id: _empty_usage() for source_id in source_ids}
     campaign_usage = {campaign_id: _empty_usage() for campaign_id in campaign_ids}
-    content_hash_usage = {content_hash: _empty_usage() for content_hash in content_hashes}
+    content_hash_usage = {
+        content_hash: _empty_usage() for content_hash in content_hashes
+    }
     source_hash_usage = {source_hash: _empty_usage() for source_hash in source_hashes}
-    caption_hash_usage = {caption_hash: _empty_usage() for caption_hash in caption_hashes}
+    caption_hash_usage = {
+        caption_hash: _empty_usage() for caption_hash in caption_hashes
+    }
     account_usage: dict[str, dict[str, Any]] = {}
     surface_usage: dict[str, dict[str, Any]] = {}
 
@@ -2876,10 +3700,20 @@ def summarize_threadsdash_usage(
             source_hashes=source_hashes,
             caption_hashes=caption_hashes,
         ):
-            account_key = row.get("instagram_account_id") or row.get("account_id") or "unassigned"
-            _add_usage(account_usage.setdefault(account_key, _empty_usage()), row=row, status=status)
+            account_key = (
+                row.get("instagram_account_id") or row.get("account_id") or "unassigned"
+            )
+            _add_usage(
+                account_usage.setdefault(account_key, _empty_usage()),
+                row=row,
+                status=status,
+            )
             surface = _post_surface(row, meta)
-            _add_usage(surface_usage.setdefault(surface, _empty_usage()), row=row, status=status)
+            _add_usage(
+                surface_usage.setdefault(surface, _empty_usage()),
+                row=row,
+                status=status,
+            )
         for bucket, key in (
             (asset_usage, rendered_id),
             (source_usage, source_id),
@@ -2894,22 +3728,67 @@ def summarize_threadsdash_usage(
     warnings = []
     for asset_id, usage in asset_usage.items():
         if usage["published"] > 0:
-            warnings.append({"level": "block", "type": "exact_render_published", "renderedAssetId": asset_id, "count": usage["published"]})
+            warnings.append(
+                {
+                    "level": "block",
+                    "type": "exact_render_published",
+                    "renderedAssetId": asset_id,
+                    "count": usage["published"],
+                }
+            )
         elif usage["scheduled"] > 0 or usage["draft"] > 0:
-            warnings.append({"level": "warn", "type": "exact_render_already_queued", "renderedAssetId": asset_id, "count": usage["scheduled"] + usage["draft"]})
+            warnings.append(
+                {
+                    "level": "warn",
+                    "type": "exact_render_already_queued",
+                    "renderedAssetId": asset_id,
+                    "count": usage["scheduled"] + usage["draft"],
+                }
+            )
     for source_id, usage in source_usage.items():
         if usage["published"] + usage["scheduled"] + usage["draft"] > 1:
-            warnings.append({"level": "warn", "type": "source_family_reuse", "sourceAssetId": source_id, "count": usage["total"]})
+            warnings.append(
+                {
+                    "level": "warn",
+                    "type": "source_family_reuse",
+                    "sourceAssetId": source_id,
+                    "count": usage["total"],
+                }
+            )
     for caption_hash, usage in caption_hash_usage.items():
         if usage["published"] + usage["scheduled"] + usage["draft"] > 0:
-            warnings.append({"level": "warn", "type": "caption_reuse", "captionHash": caption_hash, "count": usage["total"]})
-        accounts = {post.get("instagramAccountId") or post.get("accountId") for post in usage["posts"]}
+            warnings.append(
+                {
+                    "level": "warn",
+                    "type": "caption_reuse",
+                    "captionHash": caption_hash,
+                    "count": usage["total"],
+                }
+            )
+        accounts = {
+            post.get("instagramAccountId") or post.get("accountId")
+            for post in usage["posts"]
+        }
         if len(accounts) >= 3:
-            warnings.append({"level": "warn", "type": "caption_reuse_multi_account", "captionHash": caption_hash, "accountCount": len(accounts)})
+            warnings.append(
+                {
+                    "level": "warn",
+                    "type": "caption_reuse_multi_account",
+                    "captionHash": caption_hash,
+                    "accountCount": len(accounts),
+                }
+            )
     for account, usage in account_usage.items():
         queued = usage["draft"] + usage["scheduled"]
         if account != "unassigned" and queued > 3:
-            warnings.append({"level": "warn", "type": "account_has_multiple_queued_posts", "account": account, "count": queued})
+            warnings.append(
+                {
+                    "level": "warn",
+                    "type": "account_has_multiple_queued_posts",
+                    "account": account,
+                    "count": queued,
+                }
+            )
 
     return {
         "schema": "campaign_factory.threadsdash_usage.v1",
@@ -2929,7 +3808,8 @@ def summarize_threadsdash_usage(
                 "accountId": draft.get("accountId"),
                 "instagramAccountId": draft.get("instagramAccountId"),
                 "usage": asset_usage[asset_id],
-                "captionUsage": caption_hash_usage.get(draft.get("captionHash")) or _empty_usage(),
+                "captionUsage": caption_hash_usage.get(draft.get("captionHash"))
+                or _empty_usage(),
             }
             for asset_id, draft in draft_by_rendered.items()
         ],
@@ -2954,12 +3834,20 @@ def sync_threadsdash_account_assignments(
     limit: int = 1000,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for assignment sync")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for assignment sync"
+        )
     campaign = factory.campaign_by_slug(campaign_slug)
     pipeline_job = factory.create_pipeline_job(
         "sync_threadsdash_assignments",
         campaign["id"],
-        {"campaign": campaign_slug, "userId": user_id, "hasSupabaseUrl": bool(supabase_url), "hasSupabaseServiceRoleKey": True, "limit": limit},
+        {
+            "campaign": campaign_slug,
+            "userId": user_id,
+            "hasSupabaseUrl": bool(supabase_url),
+            "hasSupabaseServiceRoleKey": True,
+            "limit": limit,
+        },
     )
     factory.start_pipeline_job(pipeline_job["id"])
     try:
@@ -2989,20 +3877,27 @@ def sync_threadsdash_account_assignments(
                 skipped += 1
                 continue
             account_id = row.get("account_id") or meta.get("account_id")
-            instagram_account_id = row.get("instagram_account_id") or meta.get("instagram_account_id")
+            instagram_account_id = row.get("instagram_account_id") or meta.get(
+                "instagram_account_id"
+            )
             if not account_id and not instagram_account_id:
                 skipped += 1
                 continue
             matched += 1
-            local_account_id = account_id if _local_account_exists(factory, account_id) else None
-            if _assignment_exists(factory, rendered_asset_id, local_account_id, instagram_account_id):
+            local_account_id = (
+                account_id if _local_account_exists(factory, account_id) else None
+            )
+            if _assignment_exists(
+                factory, rendered_asset_id, local_account_id, instagram_account_id
+            ):
                 skipped += 1
                 continue
             factory.assign_asset_account(
                 rendered_asset_id,
                 account_id=local_account_id,
                 instagram_account_id=instagram_account_id,
-                planned_window_start=row.get("scheduled_for") or meta.get("planned_window_start"),
+                planned_window_start=row.get("scheduled_for")
+                or meta.get("planned_window_start"),
                 planned_window_end=meta.get("planned_window_end"),
                 notes=f"Synced from ThreadsDash post {row.get('id')}",
             )
@@ -3024,7 +3919,12 @@ def sync_threadsdash_account_assignments(
             pipeline_job_id=pipeline_job["id"],
             status="success",
             message=f"ThreadsDash assignments synced: {inserted} inserted, {skipped} skipped",
-            metadata={"postsScanned": len(rows), "matched": matched, "inserted": inserted, "skipped": skipped},
+            metadata={
+                "postsScanned": len(rows),
+                "matched": matched,
+                "inserted": inserted,
+                "skipped": skipped,
+            },
         )
         factory.finish_pipeline_job(pipeline_job["id"], result)
         return result
@@ -3052,7 +3952,9 @@ def sync_threadsdash_instagram_accounts(
     limit: int = 500,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for account sync")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for account sync"
+        )
     creator_slug = _sync_slug(creator)
     model = factory.upsert_model(creator_slug, creator)
     matcher = (match or creator or "").strip().lower()
@@ -3072,19 +3974,36 @@ def sync_threadsdash_instagram_accounts(
         display_name = str(row.get("display_name") or "").strip()
         haystack = f"{username} {display_name}".lower()
         if matcher and matcher not in haystack:
-            skipped.append({"id": row.get("id"), "username": username, "reason": "creator_match_failed"})
+            skipped.append(
+                {
+                    "id": row.get("id"),
+                    "username": username,
+                    "reason": "creator_match_failed",
+                }
+            )
             continue
         matched_rows.append(row)
         if not username:
-            skipped.append({"id": row.get("id"), "username": username, "reason": "missing_username"})
+            skipped.append(
+                {
+                    "id": row.get("id"),
+                    "username": username,
+                    "reason": "missing_username",
+                }
+            )
             continue
         status = str(row.get("status") or "").lower()
         if (
             row.get("is_active") is False
             or row.get("needs_reauth") is True
-            or any(token in status for token in ("blocked", "restricted", "disabled", "reauth"))
+            or any(
+                token in status
+                for token in ("blocked", "restricted", "disabled", "reauth")
+            )
         ):
-            skipped.append({"id": row.get("id"), "username": username, "reason": "not_eligible"})
+            skipped.append(
+                {"id": row.get("id"), "username": username, "reason": "not_eligible"}
+            )
             continue
         before = factory.conn.execute(
             "SELECT id FROM accounts WHERE handle = ? AND platform = 'instagram'",
@@ -3096,14 +4015,16 @@ def sync_threadsdash_instagram_accounts(
             external_id=str(row.get("id") or ""),
             model_id=model["id"],
         )
-        imported.append({
-            "accountId": account["id"],
-            "instagramAccountId": row.get("id"),
-            "username": username,
-            "displayName": display_name,
-            "syncCohort": row.get("sync_cohort"),
-            "created": before is None,
-        })
+        imported.append(
+            {
+                "accountId": account["id"],
+                "instagramAccountId": row.get("id"),
+                "username": username,
+                "displayName": display_name,
+                "syncCohort": row.get("sync_cohort"),
+                "created": before is None,
+            }
+        )
     return {
         "schema": "campaign_factory.threadsdash_instagram_account_sync.v1",
         "creator": creator,
@@ -3130,12 +4051,20 @@ def sync_performance_snapshots(
     limit: int = 1000,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
-        raise ValueError("supabase_url and supabase_service_role_key are required for performance sync")
+        raise ValueError(
+            "supabase_url and supabase_service_role_key are required for performance sync"
+        )
     campaign = factory.campaign_by_slug(campaign_slug)
     pipeline_job = factory.create_pipeline_job(
         "sync_performance",
         campaign["id"],
-        {"campaign": campaign_slug, "userId": user_id, "hasSupabaseUrl": bool(supabase_url), "hasSupabaseServiceRoleKey": True, "limit": limit},
+        {
+            "campaign": campaign_slug,
+            "userId": user_id,
+            "hasSupabaseUrl": bool(supabase_url),
+            "hasSupabaseServiceRoleKey": True,
+            "limit": limit,
+        },
     )
     factory.start_pipeline_job(pipeline_job["id"])
     try:
@@ -3157,18 +4086,28 @@ def sync_performance_snapshots(
             )
         except RuntimeError as exc:
             metric_history_rows = []
-            warnings.append({
-                "reason": "metric_history_unavailable",
-                "message": str(exc),
-            })
+            warnings.append(
+                {
+                    "reason": "metric_history_unavailable",
+                    "message": str(exc),
+                }
+            )
         _validate_threadsdash_post_metric_history_read(metric_history_rows)
         metric_history_by_post = _group_metric_history_by_post(metric_history_rows)
         for row in rows:
-            row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            meta = (row_metadata.get("campaign_factory") if isinstance(row_metadata, dict) else None) or {}
+            row_metadata = (
+                row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            )
+            meta = (
+                row_metadata.get("campaign_factory")
+                if isinstance(row_metadata, dict)
+                else None
+            ) or {}
             if not isinstance(meta, dict) or not meta:
                 skipped += 1
-                warning = _performance_sync_skip_warning(row, reason="missing_campaign_factory_metadata")
+                warning = _performance_sync_skip_warning(
+                    row, reason="missing_campaign_factory_metadata"
+                )
                 skipped_rows.append(warning)
                 warnings.append(warning)
                 _dead_letter_performance_sync_row(
@@ -3182,10 +4121,18 @@ def sync_performance_snapshots(
                 continue
             if meta.get("campaign_id") and meta.get("campaign_id") != campaign_slug:
                 skipped += 1
-                skipped_rows.append(_performance_sync_skip_warning(row, reason="campaign_mismatch", campaignId=meta.get("campaign_id")))
+                skipped_rows.append(
+                    _performance_sync_skip_warning(
+                        row,
+                        reason="campaign_mismatch",
+                        campaignId=meta.get("campaign_id"),
+                    )
+                )
                 continue
             meta = _with_local_caption_outcome_context(factory, meta)
-            eligibility = _metrics_eligibility_for_threadsdash_row(factory, row=row, meta=meta)
+            eligibility = _metrics_eligibility_for_threadsdash_row(
+                factory, row=row, meta=meta
+            )
             if not eligibility["eligible"]:
                 skipped += 1
                 warning = {
@@ -3198,7 +4145,9 @@ def sync_performance_snapshots(
                 warnings.append(warning)
                 continue
             tracked_rows.append(row)
-            for sync_row in _threadsdash_performance_rows(row, metric_history_by_post.get(str(row.get("id")) or "", [])):
+            for sync_row in _threadsdash_performance_rows(
+                row, metric_history_by_post.get(str(row.get("id")) or "", [])
+            ):
                 tracked_snapshot_count += 1
                 snapshot = _performance_snapshot_from_row(
                     campaign_id=campaign["id"],
@@ -3339,13 +4288,24 @@ def sync_performance_snapshots(
                         "renderedAssetId": snapshot["rendered_asset_id"],
                     },
                 )
-                rendered_graph_id = meta.get("rendered_asset_graph_id") or meta.get("graph_id")
+                rendered_graph_id = meta.get("rendered_asset_graph_id") or meta.get(
+                    "graph_id"
+                )
                 required_missing = [
-                    key for key in ("graph_id", "campaign_graph_id", "source_asset_graph_id", "rendered_asset_graph_id")
+                    key
+                    for key in (
+                        "graph_id",
+                        "campaign_graph_id",
+                        "source_asset_graph_id",
+                        "rendered_asset_graph_id",
+                    )
                     if not meta.get(key)
                 ]
                 if required_missing:
-                    warning = {"postId": snapshot["post_id"], "missingGraphIds": required_missing}
+                    warning = {
+                        "postId": snapshot["post_id"],
+                        "missingGraphIds": required_missing,
+                    }
                     warnings.append(warning)
                     factory.create_exception(
                         reason_code="performance_sync_missing_graph_ids",
@@ -3356,7 +4316,11 @@ def sync_performance_snapshots(
                         commit=False,
                     )
                 if not rendered_graph_id and snapshot["rendered_asset_id"]:
-                    rendered_graph_id = factory.graph_id_for("rendered_assets", snapshot["rendered_asset_id"], entity_type="rendered_asset")
+                    rendered_graph_id = factory.graph_id_for(
+                        "rendered_assets",
+                        snapshot["rendered_asset_id"],
+                        entity_type="rendered_asset",
+                    )
                 before_edges = factory.conn.total_changes
                 factory.ensure_graph_edge_strict(
                     rendered_graph_id,
@@ -3392,7 +4356,10 @@ def sync_performance_snapshots(
                     "recommendation_input",
                     external_system="campaign_factory.recommendation_input",
                     external_id=snapshot["id"],
-                    payload={"performanceSnapshotId": snapshot["id"], "campaignId": campaign["id"]},
+                    payload={
+                        "performanceSnapshotId": snapshot["id"],
+                        "campaignId": campaign["id"],
+                    },
                 )
                 factory.ensure_graph_edge_strict(
                     performance_graph_id,
@@ -3402,11 +4369,35 @@ def sync_performance_snapshots(
                     campaign_id=campaign["id"],
                     source_operation="threadsdash_performance_sync",
                 )
-                audio_rollup = factory.record_audio_performance_snapshot(snapshot, commit=False)
+                audio_rollup = factory.record_audio_performance_snapshot(
+                    snapshot, commit=False
+                )
                 if audio_rollup:
-                    performance_payload = json.loads(snapshot["raw_json"]) if isinstance(snapshot.get("raw_json"), str) else {}
-                    campaign_meta = ((performance_payload.get("metadata") or {}).get("campaign_factory") or {}) if isinstance(performance_payload, dict) else {}
-                    selection = (((campaign_meta.get("audio_intent") or {}).get("operator_selection") or {}) if isinstance(campaign_meta.get("audio_intent"), dict) else {})
+                    performance_payload = (
+                        json.loads(snapshot["raw_json"])
+                        if isinstance(snapshot.get("raw_json"), str)
+                        else {}
+                    )
+                    campaign_meta = (
+                        (
+                            (performance_payload.get("metadata") or {}).get(
+                                "campaign_factory"
+                            )
+                            or {}
+                        )
+                        if isinstance(performance_payload, dict)
+                        else {}
+                    )
+                    selection = (
+                        (
+                            (campaign_meta.get("audio_intent") or {}).get(
+                                "operator_selection"
+                            )
+                            or {}
+                        )
+                        if isinstance(campaign_meta.get("audio_intent"), dict)
+                        else {}
+                    )
                     if isinstance(selection, dict) and selection:
                         audio_selection_graph_id = factory.ensure_graph_node(
                             "audio_selection",
@@ -3414,8 +4405,16 @@ def sync_performance_snapshots(
                             external_id=f"{snapshot['post_id']}:{audio_rollup['audioKey']}",
                             payload={"postId": snapshot["post_id"], "audio": selection},
                         )
-                        factory.ensure_graph_edge(audio_selection_graph_id, post_graph_id, "audio_selection_to_threadsdash_post")
-                        factory.ensure_graph_edge(audio_selection_graph_id, performance_graph_id, "audio_selection_to_performance_snapshot")
+                        factory.ensure_graph_edge(
+                            audio_selection_graph_id,
+                            post_graph_id,
+                            "audio_selection_to_threadsdash_post",
+                        )
+                        factory.ensure_graph_edge(
+                            audio_selection_graph_id,
+                            performance_graph_id,
+                            "audio_selection_to_performance_snapshot",
+                        )
                 if existing and factory.conn.total_changes > before_edges:
                     backfilled_edges += 1
         factory.set_graph_sync_state(
@@ -3503,7 +4502,9 @@ def sync_performance_snapshots(
         raise
 
 
-def _select_threadsdash_posts(client: "SupabaseRestClient", *, user_id: str, limit: int) -> list[dict[str, Any]]:
+def _select_threadsdash_posts(
+    client: SupabaseRestClient, *, user_id: str, limit: int
+) -> list[dict[str, Any]]:
     base_params = {
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
@@ -3530,7 +4531,7 @@ def _select_threadsdash_posts(client: "SupabaseRestClient", *, user_id: str, lim
 
 
 def _select_threadsdash_post_metric_history(
-    client: "SupabaseRestClient",
+    client: SupabaseRestClient,
     *,
     post_ids: list[str],
     limit: int,
@@ -3556,15 +4557,21 @@ def _select_threadsdash_post_metric_history(
 
 def _validate_threadsdash_post_metric_history_read(rows: list[dict[str, Any]]) -> None:
     try:
-        validate_post_metric_history_read({
-            "schema": "threadsdashboard.post_metric_history.read.v1",
-            "rows": rows,
-        })
+        validate_post_metric_history_read(
+            {
+                "schema": "threadsdashboard.post_metric_history.read.v1",
+                "rows": rows,
+            }
+        )
     except ContractValidationError as exc:
-        raise RuntimeError(f"post_metric_history.read.v1 validation failed: {exc}") from exc
+        raise RuntimeError(
+            f"post_metric_history.read.v1 validation failed: {exc}"
+        ) from exc
 
 
-def _group_metric_history_by_post(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def _group_metric_history_by_post(
+    rows: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         post_id = str(row.get("post_id") or "")
@@ -3572,19 +4579,32 @@ def _group_metric_history_by_post(rows: list[dict[str, Any]]) -> dict[str, list[
             continue
         grouped.setdefault(post_id, []).append(row)
     for post_rows in grouped.values():
-        post_rows.sort(key=lambda item: str(item.get("snapshot_at") or item.get("created_at") or ""))
+        post_rows.sort(
+            key=lambda item: str(
+                item.get("snapshot_at") or item.get("created_at") or ""
+            )
+        )
     return grouped
 
 
-def _threadsdash_performance_rows(post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _threadsdash_performance_rows(
+    post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     if not metric_history_rows:
         return [post_row]
-    return [_threadsdash_post_with_metric_history(post_row, history_row) for history_row in metric_history_rows]
+    return [
+        _threadsdash_post_with_metric_history(post_row, history_row)
+        for history_row in metric_history_rows
+    ]
 
 
-def _threadsdash_post_with_metric_history(post_row: dict[str, Any], history_row: dict[str, Any]) -> dict[str, Any]:
+def _threadsdash_post_with_metric_history(
+    post_row: dict[str, Any], history_row: dict[str, Any]
+) -> dict[str, Any]:
     merged = dict(post_row)
-    merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get("created_at")
+    merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get(
+        "created_at"
+    )
     merged["views"] = history_row.get("views_count")
     merged["views_count"] = history_row.get("views_count")
     merged["likes"] = history_row.get("likes_count")
@@ -3601,7 +4621,9 @@ def _threadsdash_post_with_metric_history(post_row: dict[str, Any], history_row:
     merged["engagement_rate"] = history_row.get("engagement_rate")
     merged["account_id"] = post_row.get("account_id") or history_row.get("account_id")
     merged["platform"] = post_row.get("platform") or history_row.get("platform")
-    metadata = dict(post_row.get("metadata") if isinstance(post_row.get("metadata"), dict) else {})
+    metadata = dict(
+        post_row.get("metadata") if isinstance(post_row.get("metadata"), dict) else {}
+    )
     metadata["threadsdash_metric_history"] = {
         "id": history_row.get("id"),
         "postId": history_row.get("post_id"),
@@ -3612,7 +4634,9 @@ def _threadsdash_post_with_metric_history(post_row: dict[str, Any], history_row:
     return merged
 
 
-def _performance_sync_skip_warning(row: dict[str, Any], *, reason: str, **extra: Any) -> dict[str, Any]:
+def _performance_sync_skip_warning(
+    row: dict[str, Any], *, reason: str, **extra: Any
+) -> dict[str, Any]:
     warning = {
         "postId": row.get("id"),
         "platform": row.get("platform"),
@@ -3641,7 +4665,8 @@ def _dead_letter_performance_sync_row(
             "postId": post_id,
             "platform": row.get("platform"),
             "status": row.get("status"),
-            "missingCampaignFactoryMetadata": reason == "missing_campaign_factory_metadata",
+            "missingCampaignFactoryMetadata": reason
+            == "missing_campaign_factory_metadata",
         },
     )
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
@@ -3661,7 +4686,9 @@ def _dead_letter_performance_sync_row(
     )
 
 
-def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+def _performance_snapshot_from_row(
+    *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
+) -> dict[str, Any]:
     metrics_meta = _merged_metric_metadata(row.get("metadata"))
     snapshot_at = (
         row.get("metrics_updated_at")
@@ -3677,10 +4704,18 @@ def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], met
     caption_lineage = (
         meta.get("captionOutcomeContext")
         if isinstance(meta.get("captionOutcomeContext"), dict)
-        else (meta.get("caption_outcome_context") if isinstance(meta.get("caption_outcome_context"), dict) else meta)
+        else (
+            meta.get("caption_outcome_context")
+            if isinstance(meta.get("caption_outcome_context"), dict)
+            else meta
+        )
     )
     creator_model_fallback = None
-    if not (isinstance(caption_lineage, dict) and caption_lineage.get("schema") == "campaign_factory.caption_outcome_context.v1"):
+    if not (
+        isinstance(caption_lineage, dict)
+        and caption_lineage.get("schema")
+        == "campaign_factory.caption_outcome_context.v1"
+    ):
         creator_model_fallback = meta.get("model_slug") or meta.get("model_id")
     caption_context = build_caption_outcome_context(
         caption_text=row.get("content"),
@@ -3690,8 +4725,14 @@ def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], met
     )
     caption_columns = column_values(caption_context)
     caption_hash = caption_context.get("caption_hash") or caption_hash
-    content_surface = normalize_content_surface(meta.get("content_surface") or meta.get("contentSurface") or _post_surface(row, meta))
-    metric_contract = _metric_contract_metadata(row=row, meta=meta, metrics_meta=metrics_meta, content_surface=content_surface)
+    content_surface = normalize_content_surface(
+        meta.get("content_surface")
+        or meta.get("contentSurface")
+        or _post_surface(row, meta)
+    )
+    metric_contract = _metric_contract_metadata(
+        row=row, meta=meta, metrics_meta=metrics_meta, content_surface=content_surface
+    )
     raw_row = dict(row)
     raw_row["metric_contract"] = metric_contract
     return {
@@ -3703,24 +4744,43 @@ def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], met
         "source_content_hash": meta.get("source_content_hash"),
         "concept_id": meta.get("concept_id") or meta.get("conceptId"),
         "parent_reel_id": meta.get("parent_reel_id") or meta.get("parentReelId"),
-        "variant_family_id": meta.get("variant_family_id") or meta.get("variantFamilyId"),
+        "variant_family_id": meta.get("variant_family_id")
+        or meta.get("variantFamilyId"),
         "variant_id": meta.get("variant_id") or meta.get("variantId"),
         "variant_index": meta.get("variant_index") or meta.get("variantIndex"),
-        "variant_operations_json": json.dumps(meta.get("variant_operations") or meta.get("variantOperations") or [], ensure_ascii=False, sort_keys=True),
-        "audio_id": meta.get("audio_id") or meta.get("audioId") or ((meta.get("handoff_manifest") or {}).get("audio_id") if isinstance(meta.get("handoff_manifest"), dict) else None),
+        "variant_operations_json": json.dumps(
+            meta.get("variant_operations") or meta.get("variantOperations") or [],
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        "audio_id": meta.get("audio_id")
+        or meta.get("audioId")
+        or (
+            (meta.get("handoff_manifest") or {}).get("audio_id")
+            if isinstance(meta.get("handoff_manifest"), dict)
+            else None
+        ),
         "caption_family_id": (
             meta.get("caption_family_id")
             or meta.get("captionFamilyId")
             or caption_context.get("caption_family_id")
             or caption_context.get("captionFamilyId")
-            or ((meta.get("handoff_manifest") or {}).get("caption_family_id") if isinstance(meta.get("handoff_manifest"), dict) else None)
+            or (
+                (meta.get("handoff_manifest") or {}).get("caption_family_id")
+                if isinstance(meta.get("handoff_manifest"), dict)
+                else None
+            )
         ),
         "caption_version_id": (
             meta.get("caption_version_id")
             or meta.get("captionVersionId")
             or caption_context.get("caption_version_id")
             or caption_context.get("captionVersionId")
-            or ((meta.get("handoff_manifest") or {}).get("caption_version_id") if isinstance(meta.get("handoff_manifest"), dict) else None)
+            or (
+                (meta.get("handoff_manifest") or {}).get("caption_version_id")
+                if isinstance(meta.get("handoff_manifest"), dict)
+                else None
+            )
         ),
         "caption_hash": caption_hash,
         "caption_text": caption_columns["caption_text"],
@@ -3744,14 +4804,37 @@ def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], met
         "account_id": row.get("account_id"),
         "instagram_account_id": row.get("instagram_account_id"),
         "permalink": row.get("permalink") or row.get("url") or meta.get("permalink"),
-        "published_at": row.get("published_at") or row.get("publishedAt") or meta.get("published_at"),
+        "published_at": row.get("published_at")
+        or row.get("publishedAt")
+        or meta.get("published_at"),
         "snapshot_at": str(snapshot_at),
-        "views": _int_metric(row, metrics_meta, "views", "view_count", "views_count", "ig_views"),
+        "views": _int_metric(
+            row, metrics_meta, "views", "view_count", "views_count", "ig_views"
+        ),
         "likes": _int_metric(row, metrics_meta, "likes", "like_count", "likes_count"),
-        "comments": _int_metric(row, metrics_meta, "comments", "comment_count", "comments_count", "replies_count", "ig_comment_count"),
-        "shares": _int_metric(row, metrics_meta, "shares", "share_count", "shares_count", "ig_shares"),
-        "saves": _int_metric(row, metrics_meta, "saves", "save_count", "saves_count", "ig_saved"),
-        "impressions": _int_metric(row, metrics_meta, "impressions", "impression_count", "impressions_count", "ig_impressions"),
+        "comments": _int_metric(
+            row,
+            metrics_meta,
+            "comments",
+            "comment_count",
+            "comments_count",
+            "replies_count",
+            "ig_comment_count",
+        ),
+        "shares": _int_metric(
+            row, metrics_meta, "shares", "share_count", "shares_count", "ig_shares"
+        ),
+        "saves": _int_metric(
+            row, metrics_meta, "saves", "save_count", "saves_count", "ig_saved"
+        ),
+        "impressions": _int_metric(
+            row,
+            metrics_meta,
+            "impressions",
+            "impression_count",
+            "impressions_count",
+            "ig_impressions",
+        ),
         "reach": _int_metric(row, metrics_meta, "reach", "ig_reach"),
         "watch_time_seconds": _float_metric(
             row,
@@ -3768,7 +4851,9 @@ def _performance_snapshot_from_row(*, campaign_id: str, row: dict[str, Any], met
     }
 
 
-def _metrics_eligibility_for_threadsdash_row(factory: CampaignFactory, *, row: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+def _metrics_eligibility_for_threadsdash_row(
+    factory: CampaignFactory, *, row: dict[str, Any], meta: dict[str, Any]
+) -> dict[str, Any]:
     blockers: list[str] = []
     post_id = row.get("id")
     status = str(row.get("status") or "").strip().lower()
@@ -3787,10 +4872,22 @@ def _metrics_eligibility_for_threadsdash_row(factory: CampaignFactory, *, row: d
             blockers.append("quarantined_asset")
         if asset:
             local_content_hash = asset.get("content_hash")
-            if local_content_hash and meta.get("content_hash") and local_content_hash != meta.get("content_hash"):
+            if (
+                local_content_hash
+                and meta.get("content_hash")
+                and local_content_hash != meta.get("content_hash")
+            ):
                 blockers.append("content_fingerprint_mismatch")
-            local_caption_hash = asset.get("caption_hash") or (load_context_json(asset.get("caption_outcome_context_json")).get("caption_hash"))
-            if local_caption_hash and meta.get("caption_hash") and local_caption_hash != meta.get("caption_hash"):
+            local_caption_hash = asset.get("caption_hash") or (
+                load_context_json(asset.get("caption_outcome_context_json")).get(
+                    "caption_hash"
+                )
+            )
+            if (
+                local_caption_hash
+                and meta.get("caption_hash")
+                and local_caption_hash != meta.get("caption_hash")
+            ):
                 blockers.append("caption_hash_mismatch")
     manifest = meta.get("handoff_manifest")
     if not isinstance(manifest, dict):
@@ -3802,13 +4899,24 @@ def _metrics_eligibility_for_threadsdash_row(factory: CampaignFactory, *, row: d
             blockers.append("handoff_manifest_exported_by_system_invalid")
         if rendered_asset_id and manifest.get("asset_id") != rendered_asset_id:
             blockers.append("handoff_manifest_asset_id_mismatch")
-        if meta.get("content_hash") and manifest.get("content_fingerprint") != meta.get("content_hash"):
+        if meta.get("content_hash") and manifest.get("content_fingerprint") != meta.get(
+            "content_hash"
+        ):
             blockers.append("handoff_manifest_content_fingerprint_mismatch")
-        if meta.get("caption_hash") and manifest.get("caption_hash") != meta.get("caption_hash") and not _story_blank_caption_hash_equivalent(row=row, meta=meta, manifest=manifest):
+        if (
+            meta.get("caption_hash")
+            and manifest.get("caption_hash") != meta.get("caption_hash")
+            and not _story_blank_caption_hash_equivalent(
+                row=row, meta=meta, manifest=manifest
+            )
+        ):
             blockers.append("handoff_manifest_caption_hash_mismatch")
     state = str(meta.get("asset_state") or "").strip().lower()
     platform_state = str(meta.get("platform_state") or "").strip().lower()
-    if state not in {"publishable_candidate", "exportable"} and platform_state != "platform_draft_validated":
+    if (
+        state not in {"publishable_candidate", "exportable"}
+        and platform_state != "platform_draft_validated"
+    ):
         blockers.append("asset_not_publishable_or_exportable")
     if meta.get("quarantined"):
         blockers.append("metadata_quarantined")
@@ -3819,7 +4927,9 @@ def _metrics_eligibility_for_threadsdash_row(factory: CampaignFactory, *, row: d
     return {"eligible": not blockers, "blockingReasons": sorted(set(blockers))}
 
 
-def _story_blank_caption_hash_equivalent(*, row: dict[str, Any], meta: dict[str, Any], manifest: dict[str, Any]) -> bool:
+def _story_blank_caption_hash_equivalent(
+    *, row: dict[str, Any], meta: dict[str, Any], manifest: dict[str, Any]
+) -> bool:
     empty_sha256 = hashlib.sha256(b"").hexdigest()
     surface = normalize_content_surface(
         str(
@@ -3830,14 +4940,18 @@ def _story_blank_caption_hash_equivalent(*, row: dict[str, Any], meta: dict[str,
             or ""
         )
     )
-    ig_media_type = str(
-        meta.get("ig_media_type")
-        or meta.get("igMediaType")
-        or manifest.get("igMediaType")
-        or manifest.get("ig_media_type")
-        or row.get("ig_media_type")
-        or ""
-    ).strip().upper()
+    ig_media_type = (
+        str(
+            meta.get("ig_media_type")
+            or meta.get("igMediaType")
+            or manifest.get("igMediaType")
+            or manifest.get("ig_media_type")
+            or row.get("ig_media_type")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
     return (
         surface == "story"
         and ig_media_type in {"STORY", "STORIES"}
@@ -3846,7 +4960,9 @@ def _story_blank_caption_hash_equivalent(*, row: dict[str, Any], meta: dict[str,
     )
 
 
-def _with_local_caption_outcome_context(factory: CampaignFactory, meta: dict[str, Any]) -> dict[str, Any]:
+def _with_local_caption_outcome_context(
+    factory: CampaignFactory, meta: dict[str, Any]
+) -> dict[str, Any]:
     rendered_asset_id = meta.get("rendered_asset_id")
     if not rendered_asset_id:
         return meta
@@ -3875,8 +4991,18 @@ def _merged_metric_metadata(metadata: Any) -> dict[str, Any]:
     return merged
 
 
-def _metric_contract_metadata(*, row: dict[str, Any], meta: dict[str, Any], metrics_meta: dict[str, Any], content_surface: str) -> dict[str, Any]:
-    contract = metrics_meta.get("metricContract") if isinstance(metrics_meta.get("metricContract"), dict) else {}
+def _metric_contract_metadata(
+    *,
+    row: dict[str, Any],
+    meta: dict[str, Any],
+    metrics_meta: dict[str, Any],
+    content_surface: str,
+) -> dict[str, Any]:
+    contract = (
+        metrics_meta.get("metricContract")
+        if isinstance(metrics_meta.get("metricContract"), dict)
+        else {}
+    )
     surface = (
         contract.get("surface")
         or metrics_meta.get("metricSurface")
@@ -3896,18 +5022,45 @@ def _metric_contract_metadata(*, row: dict[str, Any], meta: dict[str, Any], metr
         metric_names = [str(metric_names)]
     normalized_names = [str(item) for item in metric_names if str(item or "").strip()]
     return {
-        "version": contract.get("version") or metrics_meta.get("metricContractVersion") or metrics_meta.get("metric_contract_version") or METRIC_CONTRACT_VERSION,
+        "version": contract.get("version")
+        or metrics_meta.get("metricContractVersion")
+        or metrics_meta.get("metric_contract_version")
+        or METRIC_CONTRACT_VERSION,
         "surface": normalized_surface,
-        "fallbackUsed": bool(contract.get("fallbackUsed") or contract.get("fallback_used") or metrics_meta.get("metricFallbackUsed") or metrics_meta.get("metric_fallback_used")),
-        "metricNames": normalized_names or _default_metric_names_for_surface(normalized_surface),
+        "fallbackUsed": bool(
+            contract.get("fallbackUsed")
+            or contract.get("fallback_used")
+            or metrics_meta.get("metricFallbackUsed")
+            or metrics_meta.get("metric_fallback_used")
+        ),
+        "metricNames": normalized_names
+        or _default_metric_names_for_surface(normalized_surface),
     }
 
 
 def _default_metric_names_for_surface(surface: str) -> list[str]:
     if surface == "story":
-        return ["views", "reach", "replies", "navigation", "follows", "shares", "total_interactions"]
+        return [
+            "views",
+            "reach",
+            "replies",
+            "navigation",
+            "follows",
+            "shares",
+            "total_interactions",
+        ]
     if surface == "reel":
-        return ["views", "reach", "likes", "comments", "shares", "saved", "ig_reels_avg_watch_time", "reels_skip_rate", "ig_reels_video_view_total_time"]
+        return [
+            "views",
+            "reach",
+            "likes",
+            "comments",
+            "shares",
+            "saved",
+            "ig_reels_avg_watch_time",
+            "reels_skip_rate",
+            "ig_reels_video_view_total_time",
+        ]
     return ["views", "reach", "likes", "comments", "shares", "saved"]
 
 
@@ -3927,7 +5080,9 @@ def _int_metric(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> int | 
         return None
 
 
-def _float_metric(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> float | None:
+def _float_metric(
+    row: dict[str, Any], meta: dict[str, Any], *keys: str
+) -> float | None:
     value = _metric_value(row, meta, *keys)
     if value is None or value == "":
         return None
@@ -3958,21 +5113,28 @@ def _stable_export_key(prefix: str, *parts: Any) -> str:
 
 
 def _draft_key(draft: dict[str, Any]) -> tuple[str, str]:
-    return (draft.get("renderedAssetId") or "", draft.get("accountId") or draft.get("instagramAccountId") or "unassigned")
+    return (
+        draft.get("renderedAssetId") or "",
+        draft.get("accountId") or draft.get("instagramAccountId") or "unassigned",
+    )
 
 
 def _account_key(draft: dict[str, Any]) -> str:
     return draft.get("instagramAccountId") or draft.get("accountId") or "unassigned"
 
 
-def _batch_guardrail_warnings(drafts: list[dict[str, Any]]) -> dict[tuple[str, str], list[str]]:
+def _batch_guardrail_warnings(
+    drafts: list[dict[str, Any]],
+) -> dict[tuple[str, str], list[str]]:
     return {
         key: list(findings.get("warnings") or [])
         for key, findings in _batch_guardrail_findings(drafts).items()
     }
 
 
-def _batch_guardrail_findings(drafts: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, list[str]]]:
+def _batch_guardrail_findings(
+    drafts: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, list[str]]]:
     account_counts: dict[str, int] = {}
     account_render_counts: dict[tuple[str, str], int] = {}
     account_caption_counts: dict[tuple[str, str], int] = {}
@@ -3991,14 +5153,22 @@ def _batch_guardrail_findings(drafts: list[dict[str, Any]]) -> dict[tuple[str, s
     findings: dict[tuple[str, str], dict[str, list[str]]] = {}
     for draft in drafts:
         account = _account_key(draft)
-        draft_findings = findings.setdefault(_draft_key(draft), {"warnings": [], "blocking": []})
+        draft_findings = findings.setdefault(
+            _draft_key(draft), {"warnings": [], "blocking": []}
+        )
         draft_warnings = draft_findings["warnings"]
         draft_blocking = draft_findings["blocking"]
         if account_counts.get(account, 0) > 2:
             draft_warnings.append("account_batch_volume_review")
-        if account_render_counts.get((account, draft.get("renderedAssetId") or ""), 0) > 1:
+        if (
+            account_render_counts.get((account, draft.get("renderedAssetId") or ""), 0)
+            > 1
+        ):
             draft_blocking.append("same_rendered_asset_in_account_batch")
-        if draft.get("captionHash") and account_caption_counts.get((account, draft["captionHash"]), 0) > 1:
+        if (
+            draft.get("captionHash")
+            and account_caption_counts.get((account, draft["captionHash"]), 0) > 1
+        ):
             draft_warnings.append("same_caption_in_batch")
         if account_source_counts.get((account, draft["sourceAssetId"]), 0) > 2:
             draft_warnings.append("source_family_batch_volume_review")
@@ -4033,7 +5203,15 @@ def _operator_score(
 
 
 def _empty_usage() -> dict[str, Any]:
-    return {"total": 0, "draft": 0, "scheduled": 0, "published": 0, "other": 0, "surfaces": {}, "posts": []}
+    return {
+        "total": 0,
+        "draft": 0,
+        "scheduled": 0,
+        "published": 0,
+        "other": 0,
+        "surfaces": {},
+        "posts": [],
+    }
 
 
 def _add_usage(usage: dict[str, Any], *, row: dict[str, Any], status: str) -> None:
@@ -4044,25 +5222,31 @@ def _add_usage(usage: dict[str, Any], *, row: dict[str, Any], status: str) -> No
         usage["other"] += 1
     meta = (row.get("metadata") or {}).get("campaign_factory") or {}
     surface = _post_surface(row, meta if isinstance(meta, dict) else {})
-    surface_counts = usage.setdefault("surfaces", {}).setdefault(surface, {"total": 0, "draft": 0, "scheduled": 0, "published": 0, "other": 0})
+    surface_counts = usage.setdefault("surfaces", {}).setdefault(
+        surface, {"total": 0, "draft": 0, "scheduled": 0, "published": 0, "other": 0}
+    )
     surface_counts["total"] += 1
     if status in {"draft", "scheduled", "published"}:
         surface_counts[status] += 1
     else:
         surface_counts["other"] += 1
-    usage["posts"].append({
-        "id": row.get("id"),
-        "status": status,
-        "platform": row.get("platform"),
-        "surface": surface,
-        "mediaType": row.get("media_type"),
-        "igMediaType": row.get("ig_media_type"),
-        "accountId": row.get("account_id"),
-        "instagramAccountId": row.get("instagram_account_id"),
-        "createdAt": row.get("created_at"),
-        "scheduledFor": row.get("scheduled_for"),
-        "previewScheduleOnly": bool(meta.get("preview_schedule_only")) if isinstance(meta, dict) else False,
-    })
+    usage["posts"].append(
+        {
+            "id": row.get("id"),
+            "status": status,
+            "platform": row.get("platform"),
+            "surface": surface,
+            "mediaType": row.get("media_type"),
+            "igMediaType": row.get("ig_media_type"),
+            "accountId": row.get("account_id"),
+            "instagramAccountId": row.get("instagram_account_id"),
+            "createdAt": row.get("created_at"),
+            "scheduledFor": row.get("scheduled_for"),
+            "previewScheduleOnly": bool(meta.get("preview_schedule_only"))
+            if isinstance(meta, dict)
+            else False,
+        }
+    )
 
 
 def _usage_row_matches_campaign(
@@ -4113,7 +5297,11 @@ def _post_surface(row: dict[str, Any], meta: dict[str, Any]) -> str:
 def _local_account_exists(factory: CampaignFactory, account_id: str | None) -> bool:
     if not account_id:
         return False
-    return bool(factory.conn.execute("SELECT 1 FROM accounts WHERE id = ? LIMIT 1", (account_id,)).fetchone())
+    return bool(
+        factory.conn.execute(
+            "SELECT 1 FROM accounts WHERE id = ? LIMIT 1", (account_id,)
+        ).fetchone()
+    )
 
 
 def _assignment_exists(
@@ -4136,13 +5324,20 @@ def _assignment_exists(
     return bool(row)
 
 
-UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE)
+UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
-def _resolve_instagram_account_id(factory: CampaignFactory, account_id: str) -> str | None:
+def _resolve_instagram_account_id(
+    factory: CampaignFactory, account_id: str
+) -> str | None:
     if not account_id or account_id == "unassigned":
         return None
-    row = factory.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    row = factory.conn.execute(
+        "SELECT * FROM accounts WHERE id = ?", (account_id,)
+    ).fetchone()
     if row and row["external_id"]:
         return row["external_id"]
     if UUID_RE.match(account_id):
@@ -4177,17 +5372,27 @@ class SupabaseRestClient:
             headers.update(extra)
         return headers
 
-    def upload_storage_object(self, bucket: str, storage_path: str, file_path: Path, content_type: str, *, upsert: bool = False) -> None:
+    def upload_storage_object(
+        self,
+        bucket: str,
+        storage_path: str,
+        file_path: Path,
+        content_type: str,
+        *,
+        upsert: bool = False,
+    ) -> None:
         endpoint = f"{self.url}/storage/v1/object/{quote(bucket)}/{quote(storage_path)}"
         data = file_path.read_bytes()
         request = Request(
             endpoint,
             data=data,
             method="POST",
-            headers=self.headers({
-                "Content-Type": content_type,
-                "x-upsert": "true" if upsert else "false",
-            }),
+            headers=self.headers(
+                {
+                    "Content-Type": content_type,
+                    "x-upsert": "true" if upsert else "false",
+                }
+            ),
         )
         self._open_json_or_empty(request)
 
@@ -4197,17 +5402,25 @@ class SupabaseRestClient:
         result = self._open_json_or_empty(request)
         return result if isinstance(result, dict) else {}
 
-    def insert_with_fallback(self, table: str, row: dict[str, Any], fallback_remove: list[str]) -> dict[str, Any]:
+    def insert_with_fallback(
+        self, table: str, row: dict[str, Any], fallback_remove: list[str]
+    ) -> dict[str, Any]:
         current = dict(row)
         while True:
             try:
                 inserted = self.insert(table, current)
-                return inserted[0] if isinstance(inserted, list) and inserted else inserted
+                return (
+                    inserted[0] if isinstance(inserted, list) and inserted else inserted
+                )
             except RuntimeError as exc:
                 message = str(exc)
                 removed = False
                 for key in list(fallback_remove):
-                    if key in current and (key in message or "Could not find" in message or "schema cache" in message):
+                    if key in current and (
+                        key in message
+                        or "Could not find" in message
+                        or "schema cache" in message
+                    ):
                         current.pop(key, None)
                         fallback_remove.remove(key)
                         removed = True
@@ -4231,10 +5444,12 @@ class SupabaseRestClient:
             endpoint,
             data=json.dumps(row).encode("utf-8"),
             method="POST",
-            headers=self.headers({
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            }),
+            headers=self.headers(
+                {
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                }
+            ),
         )
         return self._open_json_or_empty(request)
 
@@ -4244,14 +5459,18 @@ class SupabaseRestClient:
             endpoint,
             data=json.dumps(row).encode("utf-8"),
             method="POST",
-            headers=self.headers({
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=representation",
-            }),
+            headers=self.headers(
+                {
+                    "Content-Type": "application/json",
+                    "Prefer": "resolution=merge-duplicates,return=representation",
+                }
+            ),
         )
         return self._open_json_or_empty(request)
 
-    def update(self, table: str, values: dict[str, Any], filters: dict[str, str]) -> Any:
+    def update(
+        self, table: str, values: dict[str, Any], filters: dict[str, str]
+    ) -> Any:
         query = "&".join(
             f"{quote(str(key), safe='')}={quote(str(value), safe='(),.*:>')}"
             for key, value in filters.items()
@@ -4261,10 +5480,12 @@ class SupabaseRestClient:
             endpoint,
             data=json.dumps(values).encode("utf-8"),
             method="PATCH",
-            headers=self.headers({
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            }),
+            headers=self.headers(
+                {
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                }
+            ),
         )
         return self._open_json_or_empty(request)
 

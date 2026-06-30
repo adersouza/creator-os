@@ -1,6 +1,5 @@
 import json
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -62,9 +61,16 @@ class PostingLedgerTests(unittest.TestCase):
             video_b.parent.mkdir()
             video_a.write_bytes(b"same rendered reel bytes")
             video_b.write_bytes(b"same rendered reel bytes")
-            lineage_a = video_a.with_suffix(video_a.suffix + ".generated_asset_lineage.json")
-            lineage_b = video_b.with_suffix(video_b.suffix + ".generated_asset_lineage.json")
-            lineage = {"source": {"sourceReferenceId": "ref_a"}, "generation": {"klingJobId": "kling_1"}}
+            lineage_a = video_a.with_suffix(
+                video_a.suffix + ".generated_asset_lineage.json"
+            )
+            lineage_b = video_b.with_suffix(
+                video_b.suffix + ".generated_asset_lineage.json"
+            )
+            lineage = {
+                "source": {"sourceReferenceId": "ref_a"},
+                "generation": {"klingJobId": "kling_1"},
+            }
             lineage_a.write_text(json.dumps(lineage), encoding="utf-8")
             lineage_b.write_text(json.dumps(lineage), encoding="utf-8")
 
@@ -74,13 +80,19 @@ class PostingLedgerTests(unittest.TestCase):
                     {
                         "output_path": str(video_a),
                         "hook_text": "caption a",
-                        "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_a"},
+                        "campaign": {
+                            "campaign_id": "camp_stacey",
+                            "asset_generation_id": "asset_a",
+                        },
                         "generated_asset_lineage": lineage,
                     },
                     {
                         "output_path": str(video_b),
                         "hook_text": "caption b",
-                        "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_b"},
+                        "campaign": {
+                            "campaign_id": "camp_stacey",
+                            "asset_generation_id": "asset_b",
+                        },
                         "generated_asset_lineage": lineage,
                     },
                 ],
@@ -88,11 +100,19 @@ class PostingLedgerTests(unittest.TestCase):
             approved_path = root / "approved.json"
             approved_path.write_text(json.dumps(approved), encoding="utf-8")
 
-            assigned = assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
             self.assertEqual(assigned["assigned"], 1)
             self.assertEqual(len(assigned["conflicts"]), 1)
-            self.assertIn("duplicate_content_fingerprint_for_account", assigned["conflicts"][0]["reasons"])
-            self.assertIn("duplicate_content_fingerprint_for_campaign", assigned["conflicts"][0]["reasons"])
+            self.assertIn(
+                "duplicate_content_fingerprint_for_account",
+                assigned["conflicts"][0]["reasons"],
+            )
+            self.assertIn(
+                "duplicate_content_fingerprint_for_campaign",
+                assigned["conflicts"][0]["reasons"],
+            )
 
     def test_assignment_blocks_cross_account_source_family_reuse(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -111,29 +131,53 @@ class PostingLedgerTests(unittest.TestCase):
             video_a.write_bytes(b"rendered reel a")
             video_b.write_bytes(b"rendered reel b")
             lineage_a = {
-                "source": {"sourceReferenceId": "ref_same", "sourceFamilyId": "family_same"},
+                "source": {
+                    "sourceReferenceId": "ref_same",
+                    "sourceFamilyId": "family_same",
+                },
                 "generation": {"klingJobId": "kling_1"},
             }
             lineage_b = {
-                "source": {"sourceReferenceId": "ref_same", "sourceFamilyId": "family_same"},
+                "source": {
+                    "sourceReferenceId": "ref_same",
+                    "sourceFamilyId": "family_same",
+                },
                 "generation": {"klingJobId": "kling_2"},
             }
-            video_a.with_suffix(video_a.suffix + ".generated_asset_lineage.json").write_text(json.dumps(lineage_a), encoding="utf-8")
-            video_b.with_suffix(video_b.suffix + ".generated_asset_lineage.json").write_text(json.dumps(lineage_b), encoding="utf-8")
+            video_a.with_suffix(
+                video_a.suffix + ".generated_asset_lineage.json"
+            ).write_text(json.dumps(lineage_a), encoding="utf-8")
+            video_b.with_suffix(
+                video_b.suffix + ".generated_asset_lineage.json"
+            ).write_text(json.dumps(lineage_b), encoding="utf-8")
             approved = {
                 "schema": "reel_factory.approved_export.v1",
                 "items": [
-                    {"output_path": str(video_a), "hook_text": "caption a", "generated_asset_lineage": lineage_a},
-                    {"output_path": str(video_b), "hook_text": "caption b", "generated_asset_lineage": lineage_b},
+                    {
+                        "output_path": str(video_a),
+                        "hook_text": "caption a",
+                        "generated_asset_lineage": lineage_a,
+                    },
+                    {
+                        "output_path": str(video_b),
+                        "hook_text": "caption b",
+                        "generated_asset_lineage": lineage_b,
+                    },
                 ],
             }
             approved_path = root / "approved.json"
             approved_path.write_text(json.dumps(approved), encoding="utf-8")
 
-            assigned = assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
 
             self.assertEqual(assigned["assigned"], 1)
-            reasons = [reason for conflict in assigned["conflicts"] for reason in conflict["reasons"]]
+            reasons = [
+                reason
+                for conflict in assigned["conflicts"]
+                for reason in conflict["reasons"]
+            ]
             self.assertIn("cross_account_source_or_perceptual_reuse", reasons)
 
     def test_state_transitions_lineage_audio_gate_and_schedule_export(self):
@@ -155,19 +199,32 @@ class PostingLedgerTests(unittest.TestCase):
 
             video = root / "out.mp4"
             video.write_bytes(b"ready reel")
-            lineage_path = video.with_suffix(video.suffix + ".generated_asset_lineage.json")
-            lineage_path.write_text(json.dumps({"source": {"sourceReferenceId": "ref_a"}}), encoding="utf-8")
+            lineage_path = video.with_suffix(
+                video.suffix + ".generated_asset_lineage.json"
+            )
+            lineage_path.write_text(
+                json.dumps({"source": {"sourceReferenceId": "ref_a"}}), encoding="utf-8"
+            )
             approved = {
-                "items": [{
-                    "output_path": str(video),
-                    "hook_text": "caption",
-                    "campaign": {"campaign_id": "camp_stacey", "asset_generation_id": "asset_a"},
-                    "generated_asset_lineage": {"source": {"sourceReferenceId": "ref_a"}},
-                }]
+                "items": [
+                    {
+                        "output_path": str(video),
+                        "hook_text": "caption",
+                        "campaign": {
+                            "campaign_id": "camp_stacey",
+                            "asset_generation_id": "asset_a",
+                        },
+                        "generated_asset_lineage": {
+                            "source": {"sourceReferenceId": "ref_a"}
+                        },
+                    }
+                ]
             }
             approved_path = root / "approved.json"
             approved_path.write_text(json.dumps(approved), encoding="utf-8")
-            assign_approved_reels(root, campaign_id="camp_stacey", approved_export=approved_path)
+            assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
             transition_slot(root, slot_id, "approved", actor="tester")
 
             blocked = export_schedule_package(
@@ -192,7 +249,10 @@ class PostingLedgerTests(unittest.TestCase):
             audio_path = video.with_suffix(video.suffix + ".audio_intent.json")
             audio_payload = json.loads(audio_path.read_text(encoding="utf-8"))
             audio_payload["status"] = "selected"
-            audio_payload["audio_selection"] = {"track_id": "native_track_1", "title": "manual trend"}
+            audio_payload["audio_selection"] = {
+                "track_id": "native_track_1",
+                "title": "manual trend",
+            }
             audio_path.write_text(json.dumps(audio_payload), encoding="utf-8")
             ready = export_schedule_package(
                 root,
@@ -210,19 +270,31 @@ class PostingLedgerTests(unittest.TestCase):
             self.assertEqual(conflicts["count"], 0)
 
             transition_slot(root, slot_id, "scheduled", actor="tester")
-            transition_slot(root, slot_id, "posted", actor="tester", posted_at="2026-06-03T10:00:00")
-            transition_slot(root, slot_id, "metrics_imported", actor="tester", metrics={
-                "views": 1000,
-                "likes": 100,
-                "comments": 10,
-                "shares": 5,
-                "saves": 6,
-                "retention": 0.42,
-            })
-            events = Manifest(root / "manifest.json").conn.execute(
-                "SELECT COUNT(*) AS c FROM posting_slot_events WHERE posting_slot_id=?",
-                (slot_id,),
-            ).fetchone()["c"]
+            transition_slot(
+                root, slot_id, "posted", actor="tester", posted_at="2026-06-03T10:00:00"
+            )
+            transition_slot(
+                root,
+                slot_id,
+                "metrics_imported",
+                actor="tester",
+                metrics={
+                    "views": 1000,
+                    "likes": 100,
+                    "comments": 10,
+                    "shares": 5,
+                    "saves": 6,
+                    "retention": 0.42,
+                },
+            )
+            events = (
+                Manifest(root / "manifest.json")
+                .conn.execute(
+                    "SELECT COUNT(*) AS c FROM posting_slot_events WHERE posting_slot_id=?",
+                    (slot_id,),
+                )
+                .fetchone()["c"]
+            )
             self.assertGreaterEqual(events, 4)
 
 

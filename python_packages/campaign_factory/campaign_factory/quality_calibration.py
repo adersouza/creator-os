@@ -49,12 +49,14 @@ def track_q_calibration_status(
     rejected_ids = {
         str(row["rendered_asset_id"])
         for row in rows
-        if str(row["latest_decision"] or row["review_state"] or "").lower() == "rejected"
+        if str(row["latest_decision"] or row["review_state"] or "").lower()
+        == "rejected"
     }
     low_score_ids = {
         str(row["rendered_asset_id"])
         for row in rows
-        if row["latest_score"] is not None and int(row["latest_score"]) < low_score_threshold
+        if row["latest_score"] is not None
+        and int(row["latest_score"]) < low_score_threshold
     }
     low_or_rejected = rejected_ids | low_score_ids
     reviewed_remaining = max(0, min_reviewed_reels - reviewed)

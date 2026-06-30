@@ -1,10 +1,10 @@
-import tempfile
-import unittest
 import copy
 import json
+import sys
+import tempfile
+import unittest
 from argparse import Namespace
 from pathlib import Path
-import sys
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,27 +17,28 @@ from caption_scene_fit import (
     infer_caption_topic_for_reel,
 )
 from graph_builder import build_ffmpeg_cmd, build_video_filter, caption_overlay_enable
+from placement_scorer import PlacementSummary, score_lanes
 from recipe_loader import load_recipes
 from reel_pipeline import (
-    CaptionSet,
     DEFAULT_CAPTION_FONT,
+    CaptionSet,
     Manifest,
     Recipe,
+    apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
     build_avconvert_finalize_cmd,
+    build_caption_outcome_context,
     build_caption_placement_qc_row,
     build_phone_finalize_cmd,
     build_single_job_enqueue_cmd,
-    build_caption_outcome_context,
-    apply_caption_fit_to_caption_set,
     caption_set_from_bank_selection,
     centered_static_caption_band,
     compute_job_key,
     effective_placement_mode_for_caption,
+    enforce_production_identity_provider,
     ensure_source_asset_lineage,
     limit_render_pool,
     load_asset_prompt_set,
-    enforce_production_identity_provider,
     normalize_rendered_mp4_metadata,
     phone_creation_time,
     reconcile_interrupted_temp_outputs,
@@ -47,7 +48,6 @@ from reel_pipeline import (
     write_generated_asset_lineage_sidecar,
 )
 from render_plan import RenderPlan
-from placement_scorer import PlacementSummary, score_lanes
 
 
 class ReelPipelineTests(unittest.TestCase):
@@ -58,17 +58,31 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(DEFAULT_CAPTION_FONT, "Instagram Sans Condensed")
 
     def test_caption_font_policy_allows_only_instagram_regular_or_bold(self):
-        from reel_pipeline import INSTAGRAM_BOLD_CAPTION_FONT, resolve_caption_font_policy
+        from reel_pipeline import (
+            INSTAGRAM_BOLD_CAPTION_FONT,
+            resolve_caption_font_policy,
+        )
 
-        regular, regular_decision = resolve_caption_font_policy("Sofia Sans Condensed Medium", "ig")
+        regular, regular_decision = resolve_caption_font_policy(
+            "Sofia Sans Condensed Medium", "ig"
+        )
         self.assertEqual(regular, DEFAULT_CAPTION_FONT)
-        self.assertEqual(regular_decision["reason"], "non_instagram_font_coerced_to_regular")
+        self.assertEqual(
+            regular_decision["reason"], "non_instagram_font_coerced_to_regular"
+        )
 
-        downgraded, downgraded_decision = resolve_caption_font_policy(INSTAGRAM_BOLD_CAPTION_FONT, "ig")
+        downgraded, downgraded_decision = resolve_caption_font_policy(
+            INSTAGRAM_BOLD_CAPTION_FONT, "ig"
+        )
         self.assertEqual(downgraded, DEFAULT_CAPTION_FONT)
-        self.assertEqual(downgraded_decision["reason"], "bold_downgraded_to_regular_for_non_meme_style")
+        self.assertEqual(
+            downgraded_decision["reason"],
+            "bold_downgraded_to_regular_for_non_meme_style",
+        )
 
-        bold, bold_decision = resolve_caption_font_policy(INSTAGRAM_BOLD_CAPTION_FONT, "meme")
+        bold, bold_decision = resolve_caption_font_policy(
+            INSTAGRAM_BOLD_CAPTION_FONT, "meme"
+        )
         self.assertEqual(bold, INSTAGRAM_BOLD_CAPTION_FONT)
         self.assertEqual(bold_decision["reason"], "bold_allowed_for_meme_style")
 
@@ -214,7 +228,9 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertGreater(lower_center_y, center_y)
         self.assertGreater(lower_center_alt_y, lower_center_y)
 
-    def test_stacey_timed_caption_bands_stay_lower_center_even_when_center_available(self):
+    def test_stacey_timed_caption_bands_stay_lower_center_even_when_center_available(
+        self,
+    ):
         summary = PlacementSummary(
             "bottom",
             {"top": 140.0, "center": 10.0, "bottom": 42.0},
@@ -224,7 +240,9 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(timed_caption_band("lower_center", 0, summary), "lower_center")
-        self.assertEqual(timed_caption_band("lower_center", 1, summary), "lower_center_alt")
+        self.assertEqual(
+            timed_caption_band("lower_center", 1, summary), "lower_center_alt"
+        )
 
     def test_caption_set_reads_timed_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -249,14 +267,16 @@ class ReelPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "clip_001.json"
             path.write_text(
-                json.dumps({
-                    "hooks": ["therapy is cute\nbut have you tried"],
-                    "hookLineage": {
-                        "0": {
-                            "rawSourceCaptionText": "therapy is cute\nbut have you tried\nbad decisions?"
-                        }
-                    },
-                }),
+                json.dumps(
+                    {
+                        "hooks": ["therapy is cute\nbut have you tried"],
+                        "hookLineage": {
+                            "0": {
+                                "rawSourceCaptionText": "therapy is cute\nbut have you tried\nbad decisions?"
+                            }
+                        },
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -269,12 +289,14 @@ class ReelPipelineTests(unittest.TestCase):
             cap_dir = root / "01_captions"
             cap_dir.mkdir()
             (cap_dir / "clip_001.json").write_text(
-                json.dumps({
-                    "hooks": [
-                        "mirror selfie after the light hit different",
-                        "gym mirror selfie after the coach said front or back",
-                    ]
-                }),
+                json.dumps(
+                    {
+                        "hooks": [
+                            "mirror selfie after the light hit different",
+                            "gym mirror selfie after the coach said front or back",
+                        ]
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -299,7 +321,9 @@ class ReelPipelineTests(unittest.TestCase):
             cap_dir = root / "01_captions"
             cap_dir.mkdir()
             (cap_dir / "clip_001.json").write_text(
-                json.dumps({"hooks": ["I respond to DMs. I just don't respond to basic ones"]}),
+                json.dumps(
+                    {"hooks": ["I respond to DMs. I just don't respond to basic ones"]}
+                ),
                 encoding="utf-8",
             )
 
@@ -316,7 +340,9 @@ class ReelPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "clip_001.json"
             path.write_text(
-                json.dumps({"hooks": [{"segments": [{"text": "link in bio", "end": 1.0}]}]}),
+                json.dumps(
+                    {"hooks": [{"segments": [{"text": "link in bio", "end": 1.0}]}]}
+                ),
                 encoding="utf-8",
             )
 
@@ -360,7 +386,9 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(fitted.hooks, ["wife or girlfriend"])
         self.assertEqual(fitted.hook_lineage[0]["captionFitVersion"], "v1")
         self.assertEqual(fitted.hook_lineage[0]["suitabilityDecision"], "allowed")
-        self.assertTrue(any(row["suitabilityDecision"] == "skipped" for row in diagnostics))
+        self.assertTrue(
+            any(row["suitabilityDecision"] == "skipped" for row in diagnostics)
+        )
 
     def test_caption_fit_off_preserves_old_selection(self):
         cap_set = CaptionSet(
@@ -380,15 +408,29 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(len(fitted.hooks), 2)
-        self.assertTrue(all(row["suitabilityDecision"] == "fit_disabled" for row in diagnostics))
+        self.assertTrue(
+            all(row["suitabilityDecision"] == "fit_disabled" for row in diagnostics)
+        )
 
     def test_caption_fit_marks_readable_unselected_candidates_as_downweighted(self):
         cap_set = CaptionSet(
             hooks=["one", "two", "three"],
             hook_lineage={
-                0: {"lengthClass": "very_short", "formatClass": "single_line", "selectedBankWeight": 1},
-                1: {"lengthClass": "very_short", "formatClass": "single_line", "selectedBankWeight": 1},
-                2: {"lengthClass": "very_short", "formatClass": "single_line", "selectedBankWeight": 1},
+                0: {
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                    "selectedBankWeight": 1,
+                },
+                1: {
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                    "selectedBankWeight": 1,
+                },
+                2: {
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                    "selectedBankWeight": 1,
+                },
             },
         )
 
@@ -408,10 +450,21 @@ class ReelPipelineTests(unittest.TestCase):
 
     def test_caption_scene_fit_blocks_pool_caption_for_indoor_selfie(self):
         cap_set = CaptionSet(
-            hooks=["I have a pool too,\nwanna come over?", "leave a heart if i'm your type"],
+            hooks=[
+                "I have a pool too,\nwanna come over?",
+                "leave a heart if i'm your type",
+            ],
             hook_lineage={
-                0: {"selectedBanks": ["shared_girl_next_door"], "lengthClass": "short", "formatClass": "multiline"},
-                1: {"selectedBanks": ["comment_bait"], "lengthClass": "short", "formatClass": "multiline"},
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
+                1: {
+                    "selectedBanks": ["comment_bait"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
             },
         )
 
@@ -428,15 +481,27 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(fitted.hooks, ["leave a heart if i'm your type"])
         self.assertEqual(diagnostics[0]["sceneCompatibilityDecision"], "blocked")
         self.assertIn("pool", diagnostics[0]["captionSceneTags"])
-        self.assertEqual(fitted.hook_lineage[0]["captionSceneFitVersion"], CAPTION_SCENE_FIT_VERSION)
-        self.assertEqual(fitted.hook_lineage[0]["sceneCompatibilityDecision"], "allowed")
+        self.assertEqual(
+            fitted.hook_lineage[0]["captionSceneFitVersion"], CAPTION_SCENE_FIT_VERSION
+        )
+        self.assertEqual(
+            fitted.hook_lineage[0]["sceneCompatibilityDecision"], "allowed"
+        )
 
     def test_caption_scene_fit_allows_gym_caption_for_gym_reel(self):
         cap_set = CaptionSet(
             hooks=["before gym:", "2 mins in a room with me.\nwyd??"],
             hook_lineage={
-                0: {"selectedBanks": ["gym_body"], "lengthClass": "very_short", "formatClass": "single_line"},
-                1: {"selectedBanks": ["bedroom_mirror"], "lengthClass": "short", "formatClass": "multiline"},
+                0: {
+                    "selectedBanks": ["gym_body"],
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                },
+                1: {
+                    "selectedBanks": ["bedroom_mirror"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
             },
         )
 
@@ -458,8 +523,16 @@ class ReelPipelineTests(unittest.TestCase):
         cap_set = CaptionSet(
             hooks=["beach day, pick me up?", "before gym:"],
             hook_lineage={
-                0: {"selectedBanks": ["shared_girl_next_door"], "lengthClass": "short", "formatClass": "single_line"},
-                1: {"selectedBanks": ["gym_body"], "lengthClass": "very_short", "formatClass": "single_line"},
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                },
+                1: {
+                    "selectedBanks": ["gym_body"],
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                },
             },
         )
 
@@ -479,10 +552,21 @@ class ReelPipelineTests(unittest.TestCase):
 
     def test_caption_scene_fit_off_preserves_old_scene_mismatch_selection(self):
         cap_set = CaptionSet(
-            hooks=["I have a pool too,\nwanna come over?", "leave a heart if i'm your type"],
+            hooks=[
+                "I have a pool too,\nwanna come over?",
+                "leave a heart if i'm your type",
+            ],
             hook_lineage={
-                0: {"selectedBanks": ["shared_girl_next_door"], "lengthClass": "short", "formatClass": "multiline"},
-                1: {"selectedBanks": ["comment_bait"], "lengthClass": "short", "formatClass": "multiline"},
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
+                1: {
+                    "selectedBanks": ["comment_bait"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
             },
         )
 
@@ -497,12 +581,23 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(fitted.hooks, cap_set.hooks)
-        self.assertTrue(all(row["sceneCompatibilityDecision"] == "fit_disabled" for row in diagnostics))
+        self.assertTrue(
+            all(
+                row["sceneCompatibilityDecision"] == "fit_disabled"
+                for row in diagnostics
+            )
+        )
 
     def test_caption_scene_fit_does_not_mutate_caption_bank_rows(self):
         cap_set = CaptionSet(
             hooks=["I have a pool too,\nwanna come over?"],
-            hook_lineage={0: {"selectedBanks": ["shared_girl_next_door"], "lengthClass": "short", "formatClass": "multiline"}},
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                }
+            },
         )
         original_hooks = list(cap_set.hooks)
         original_lineage = copy.deepcopy(cap_set.hook_lineage)
@@ -556,7 +651,9 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(diagnostics[0]["captionTopicDecision"], "blocked")
         self.assertEqual(diagnostics[0]["captionTopic"], "gaming")
         self.assertEqual(fitted.hook_lineage[0]["captionTopic"], "gaming")
-        self.assertEqual(fitted.hook_lineage[0]["captionTopicFitVersion"], CAPTION_TOPIC_FIT_VERSION)
+        self.assertEqual(
+            fitted.hook_lineage[0]["captionTopicFitVersion"], CAPTION_TOPIC_FIT_VERSION
+        )
 
     def test_caption_topic_fit_returns_no_hooks_when_topic_has_no_match(self):
         cap_set = CaptionSet(
@@ -636,10 +733,18 @@ class ReelPipelineTests(unittest.TestCase):
             ),
         )
 
-    def test_beach_pool_reel_allows_beach_caption_even_with_generic_room_prompt_wording(self):
+    def test_beach_pool_reel_allows_beach_caption_even_with_generic_room_prompt_wording(
+        self,
+    ):
         cap_set = CaptionSet(
             hooks=["beach day, pick me up?"],
-            hook_lineage={0: {"selectedBanks": ["shared_girl_next_door"], "lengthClass": "short", "formatClass": "single_line"}},
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                }
+            },
         )
         reel_scene_tags = classify_reel_scene_tags(
             frame_type="closeup",
@@ -673,7 +778,9 @@ class ReelPipelineTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["captionHash"], "abc")
 
-    def test_caption_outcome_context_standardizes_render_lineage_without_selection_changes(self):
+    def test_caption_outcome_context_standardizes_render_lineage_without_selection_changes(
+        self,
+    ):
         lineage = {
             "schema": "reel_factory.caption_lineage.v1",
             "captionHash": "caption_hash_rendered",
@@ -699,7 +806,9 @@ class ReelPipelineTests(unittest.TestCase):
             creator_model="lola",
         )
 
-        self.assertEqual(context["schema"], "campaign_factory.caption_outcome_context.v1")
+        self.assertEqual(
+            context["schema"], "campaign_factory.caption_outcome_context.v1"
+        )
         self.assertEqual(context["caption_hash"], "caption_hash_rendered")
         self.assertEqual(context["caption_bank"], "question_bank")
         self.assertEqual(context["caption_banks"], ["question_bank"])
@@ -737,8 +846,13 @@ class ReelPipelineTests(unittest.TestCase):
 
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["captionHash"], "caption_hash_rendered")
-            self.assertEqual(payload["captionOutcomeContext"]["caption_hash"], "caption_hash_rendered")
-            self.assertEqual(payload["captionOutcomeContext"]["caption_bank"], "question_bank")
+            self.assertEqual(
+                payload["captionOutcomeContext"]["caption_hash"],
+                "caption_hash_rendered",
+            )
+            self.assertEqual(
+                payload["captionOutcomeContext"]["caption_bank"], "question_bank"
+            )
             self.assertEqual(payload["captionOutcomeContext"]["creator_model"], "lola")
 
     def test_caption_lineage_sidecar_uses_final_rendered_caption_hash(self):
@@ -765,12 +879,20 @@ class ReelPipelineTests(unittest.TestCase):
 
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["captionHash"], "final_rendered_hash")
-            self.assertEqual(payload["captionOutcomeContext"]["caption_hash"], "final_rendered_hash")
+            self.assertEqual(
+                payload["captionOutcomeContext"]["caption_hash"], "final_rendered_hash"
+            )
 
     def test_static_caption_side_band_falls_back_to_centered_lane(self):
         summary = PlacementSummary(
             "right",
-            {"side_right": 1.0, "side_left": 5.0, "top": 20.0, "center": 8.0, "bottom": 12.0},
+            {
+                "side_right": 1.0,
+                "side_left": 5.0,
+                "top": 20.0,
+                "center": 8.0,
+                "bottom": 12.0,
+            },
             3,
             "right side clearest",
         )
@@ -782,13 +904,21 @@ class ReelPipelineTests(unittest.TestCase):
     def test_static_caption_side_band_can_cycle_centered_safe_lanes(self):
         summary = PlacementSummary(
             "right",
-            {"side_right": 1.0, "side_left": 5.0, "top": 20.0, "center": 8.0, "bottom": 12.0},
+            {
+                "side_right": 1.0,
+                "side_left": 5.0,
+                "top": 20.0,
+                "center": 8.0,
+                "bottom": 12.0,
+            },
             3,
             "right side clearest",
         )
 
         bands = {
-            centered_static_caption_band("right", summary, diversity_key=f"archive-{idx}")
+            centered_static_caption_band(
+                "right", summary, diversity_key=f"archive-{idx}"
+            )
             for idx in range(24)
         }
 
@@ -810,11 +940,19 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertNotEqual(static_key, timed_key)
 
     def test_timed_captions_auto_use_segment_placement(self):
-        timed_caption = {"segments": [{"text": "first", "end": 1.0}, {"text": "second", "end": 2.0}]}
+        timed_caption = {
+            "segments": [{"text": "first", "end": 1.0}, {"text": "second", "end": 2.0}]
+        }
 
-        self.assertEqual(effective_placement_mode_for_caption(timed_caption, "source"), "segment")
-        self.assertEqual(effective_placement_mode_for_caption(timed_caption, "segment"), "segment")
-        self.assertEqual(effective_placement_mode_for_caption("static caption", "source"), "source")
+        self.assertEqual(
+            effective_placement_mode_for_caption(timed_caption, "source"), "segment"
+        )
+        self.assertEqual(
+            effective_placement_mode_for_caption(timed_caption, "segment"), "segment"
+        )
+        self.assertEqual(
+            effective_placement_mode_for_caption("static caption", "source"), "source"
+        )
 
     def test_focal_safe_scoring_rejects_face_heavy_top_lane(self):
         summary = score_lanes(
@@ -827,8 +965,12 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertNotEqual(summary.lane, "top")
         self.assertEqual(summary.metadata["captionPlacementPolicy"], "focal_safe_v1")
-        self.assertEqual(summary.metadata["captionPlacementDecision"]["status"], "passed")
-        self.assertIn("top", summary.metadata["captionPlacementDecision"]["rejectedLanes"])
+        self.assertEqual(
+            summary.metadata["captionPlacementDecision"]["status"], "passed"
+        )
+        self.assertIn(
+            "top", summary.metadata["captionPlacementDecision"]["rejectedLanes"]
+        )
 
     def test_focal_safe_scoring_rejects_upper_body_center_lane(self):
         summary = score_lanes(
@@ -840,7 +982,9 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertNotEqual(summary.lane, "center")
-        self.assertIn("center", summary.metadata["captionPlacementDecision"]["rejectedLanes"])
+        self.assertIn(
+            "center", summary.metadata["captionPlacementDecision"]["rejectedLanes"]
+        )
 
     def test_focal_safe_prefers_lower_hook_zone_without_face_or_pose_collision(self):
         summary = score_lanes(
@@ -851,7 +995,9 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(summary.lane, "bottom")
-        self.assertNotIn("bottom", summary.metadata["captionPlacementDecision"]["rejectedLanes"])
+        self.assertNotIn(
+            "bottom", summary.metadata["captionPlacementDecision"]["rejectedLanes"]
+        )
 
     def test_legacy_scoring_preserves_old_lowest_penalty_path(self):
         summary = score_lanes(
@@ -866,7 +1012,9 @@ class ReelPipelineTests(unittest.TestCase):
 
     def test_timed_caption_default_job_key_matches_segment_placement(self):
         recipe = Recipe("v01_original")
-        timed_caption = {"segments": [{"text": "first", "end": 1.0}, {"text": "second", "end": 2.0}]}
+        timed_caption = {
+            "segments": [{"text": "first", "end": 1.0}, {"text": "second", "end": 2.0}]
+        }
 
         self.assertEqual(
             compute_job_key("video", timed_caption, recipe),
@@ -874,7 +1022,9 @@ class ReelPipelineTests(unittest.TestCase):
         )
         self.assertNotEqual(
             compute_job_key("video", "static caption", recipe),
-            compute_job_key("video", "static caption", recipe, placement_mode="segment"),
+            compute_job_key(
+                "video", "static caption", recipe, placement_mode="segment"
+            ),
         )
 
     def test_timed_caption_overlay_timing_is_half_open(self):
@@ -882,7 +1032,10 @@ class ReelPipelineTests(unittest.TestCase):
         cmd = build_ffmpeg_cmd(
             RenderPlan(
                 src=Path("in.mp4"),
-                caption_pngs=[(Path("first.png"), 0.0, 1.0), (Path("second.png"), 1.0, 2.0)],
+                caption_pngs=[
+                    (Path("first.png"), 0.0, 1.0),
+                    (Path("second.png"), 1.0, 2.0),
+                ],
                 recipe=recipe,
                 out=Path("out.mp4"),
                 duration=2.0,
@@ -913,7 +1066,9 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertEqual(len(limited_hooks) * len(limited_recipes), 4)
         self.assertEqual(len(limited_hooks), 1)
-        self.assertEqual([recipe.name for recipe in limited_recipes], ["v00", "v01", "v02", "v03"])
+        self.assertEqual(
+            [recipe.name for recipe in limited_recipes], ["v00", "v01", "v02", "v03"]
+        )
 
     def test_manifest_sqlite_exports_json_and_detects_existing_job(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -952,7 +1107,9 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertTrue((root / "manifest.json").exists())
             self.assertTrue(manifest.has_job(key))
             row = manifest.to_json_data()["videos"]["clip_001"]["variations"][0]
-            self.assertEqual(row["recipe_params"]["_lineage"]["generationId"], "capgen_1")
+            self.assertEqual(
+                row["recipe_params"]["_lineage"]["generationId"], "capgen_1"
+            )
             self.assertEqual(row["recipe_params"]["_lineage"]["format"], "reel_pack")
             self.assertEqual(row["recipe_params"]["_target_ratio"], "9:16")
             self.assertEqual(row["encoder"], "h264_videotoolbox")
@@ -1017,8 +1174,12 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["output_path"], str(output))
             self.assertNotEqual(rows[0]["job_key"], key)
-            self.assertEqual(rows[0]["recipe_params"]["_lineage"]["cachedFromVideoId"], "clip_001")
-            self.assertEqual(rows[0]["recipe_params"]["_lineage"]["cachedFromJobKey"], key)
+            self.assertEqual(
+                rows[0]["recipe_params"]["_lineage"]["cachedFromVideoId"], "clip_001"
+            )
+            self.assertEqual(
+                rows[0]["recipe_params"]["_lineage"]["cachedFromJobKey"], key
+            )
 
     def test_manifest_tracks_failed_jobs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1087,7 +1248,9 @@ class ReelPipelineTests(unittest.TestCase):
         plan = RenderPlan(
             src=Path("in.mp4"),
             caption_pngs=[(Path("cap.png"), 0.0, None)],
-            recipe=Recipe("v00_passthrough", burn_caption=False, camera_variation=False),
+            recipe=Recipe(
+                "v00_passthrough", burn_caption=False, camera_variation=False
+            ),
             out=Path("tmp/out.mp4"),
             duration=3.0,
             fonts_dir=Path("fonts"),
@@ -1137,7 +1300,9 @@ class ReelPipelineTests(unittest.TestCase):
             "src_dims": (1080, 1920),
         }
         account_a = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
-        account_a_again = build_video_filter(RenderPlan(**base, account_scope="stacey_a"))
+        account_a_again = build_video_filter(
+            RenderPlan(**base, account_scope="stacey_a")
+        )
         account_b = build_video_filter(RenderPlan(**base, account_scope="stacey_b"))
 
         self.assertEqual(account_a, account_a_again)
@@ -1147,18 +1312,30 @@ class ReelPipelineTests(unittest.TestCase):
         from render_plan import validate_account_scope
 
         self.assertEqual(validate_account_scope(None), "local_review")
-        self.assertEqual(validate_account_scope("stacey_a", production_render=True), "stacey_a")
-        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+        self.assertEqual(
+            validate_account_scope("stacey_a", production_render=True), "stacey_a"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "production render requires explicit account"
+        ):
             validate_account_scope(None, production_render=True)
-        with self.assertRaisesRegex(ValueError, "production render requires explicit account"):
+        with self.assertRaisesRegex(
+            ValueError, "production render requires explicit account"
+        ):
             validate_account_scope("local_review", production_render=True)
 
     def test_job_key_includes_account_scope_for_production_accounts(self):
         recipe = Recipe("v_seeded", camera_variation=True)
-        account_a = compute_job_key("video", "caption", recipe, account_scope="stacey_a")
-        account_b = compute_job_key("video", "caption", recipe, account_scope="stacey_b")
+        account_a = compute_job_key(
+            "video", "caption", recipe, account_scope="stacey_a"
+        )
+        account_b = compute_job_key(
+            "video", "caption", recipe, account_scope="stacey_b"
+        )
         local_a = compute_job_key("video", "caption", recipe)
-        local_b = compute_job_key("video", "caption", recipe, account_scope="local_review")
+        local_b = compute_job_key(
+            "video", "caption", recipe, account_scope="local_review"
+        )
 
         self.assertNotEqual(account_a, account_b)
         self.assertEqual(local_a, local_b)
@@ -1211,7 +1388,9 @@ class ReelPipelineTests(unittest.TestCase):
                 target_ratio="9:16",
             )
             joined = " ".join(build_ffmpeg_cmd(plan, "ffmpeg"))
-            self.assertIn("scale=1080:1920:force_original_aspect_ratio=increase", joined)
+            self.assertIn(
+                "scale=1080:1920:force_original_aspect_ratio=increase", joined
+            )
             self.assertIn("crop=1080:1920", joined)
 
     def test_caption_png_can_render_to_4x5_target_canvas(self):
@@ -1230,6 +1409,7 @@ class ReelPipelineTests(unittest.TestCase):
             )
 
             from PIL import Image
+
             with Image.open(out) as img:
                 self.assertEqual(img.size, (1080, 1350))
 
@@ -1277,8 +1457,21 @@ class ReelPipelineTests(unittest.TestCase):
             text_variation_pack=after("--variation-pack"),
         )
         self.assertEqual(
-            compute_job_key("src", "caption", recreated, placement_mode=after("--placement-mode"), target_ratio=after("--target-ratios")),
-            compute_job_key("src", "caption", recipe, placement_mode="segment", target_ratio="4:5", caption_placement_policy="focal-safe"),
+            compute_job_key(
+                "src",
+                "caption",
+                recreated,
+                placement_mode=after("--placement-mode"),
+                target_ratio=after("--target-ratios"),
+            ),
+            compute_job_key(
+                "src",
+                "caption",
+                recipe,
+                placement_mode="segment",
+                target_ratio="4:5",
+                caption_placement_policy="focal-safe",
+            ),
         )
         self.assertIn("--no-phone-finalize", cmd)
         self.assertIn("--mezzanine", cmd)
@@ -1336,7 +1529,9 @@ class ReelPipelineTests(unittest.TestCase):
             source_data = json.loads(source_lineage.read_text(encoding="utf-8"))
             data = json.loads(sidecar.read_text(encoding="utf-8"))
             self.assertEqual(source_lineage, source_lineage_path_for(src))
-            self.assertEqual(source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid")
+            self.assertEqual(
+                source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid"
+            )
             self.assertEqual(data["source"]["sourceLineagePath"], str(source_lineage))
             self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
             self.assertEqual(data["render"]["renderJobKey"], "job")
@@ -1361,7 +1556,9 @@ class ReelPipelineTests(unittest.TestCase):
 
     def test_phone_finalize_command_normalizes_social_mp4_metadata(self):
         created_at = "2026-05-14T06:30:00Z"
-        cmd = build_phone_finalize_cmd(Path("tmp/in.mp4"), Path("tmp/out.mp4"), created_at, ffmpeg="ffmpeg")
+        cmd = build_phone_finalize_cmd(
+            Path("tmp/in.mp4"), Path("tmp/out.mp4"), created_at, ffmpeg="ffmpeg"
+        )
         joined = " ".join(cmd)
 
         self.assertEqual(cmd[-1], "tmp/out.mp4")
@@ -1374,7 +1571,9 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertIn("-brand mp42", joined)
 
     def test_avconvert_finalize_command_uses_passthrough(self):
-        cmd = build_avconvert_finalize_cmd(Path("tmp/in.mp4"), Path("tmp/out.mp4"), avconvert="avconvert")
+        cmd = build_avconvert_finalize_cmd(
+            Path("tmp/in.mp4"), Path("tmp/out.mp4"), avconvert="avconvert"
+        )
         joined = " ".join(cmd)
         self.assertEqual(cmd[0], "avconvert")
         self.assertIn("--preset PresetPassthrough", joined)
@@ -1383,20 +1582,28 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertIn("--replace", cmd)
 
     def test_rendered_mp4_metadata_normalization_is_required(self):
-        with patch("reel_pipeline.normalize_media_metadata", return_value={
-            "metadataNormalized": True,
-            "metadataWarnings": [],
-        }) as normalize:
+        with patch(
+            "reel_pipeline.normalize_media_metadata",
+            return_value={
+                "metadataNormalized": True,
+                "metadataWarnings": [],
+            },
+        ) as normalize:
             result = normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
 
         normalize.assert_called_once_with(Path("tmp/out.mp4"), dry_run=False)
         self.assertTrue(result["metadataNormalized"])
 
-        with patch("reel_pipeline.normalize_media_metadata", return_value={
-            "metadataNormalized": False,
-            "metadataWarnings": ["exiftool_unavailable"],
-        }):
-            with self.assertRaisesRegex(RuntimeError, "metadata_normalization_failed:exiftool_unavailable"):
+        with patch(
+            "reel_pipeline.normalize_media_metadata",
+            return_value={
+                "metadataNormalized": False,
+                "metadataWarnings": ["exiftool_unavailable"],
+            },
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "metadata_normalization_failed:exiftool_unavailable"
+            ):
                 normalize_rendered_mp4_metadata(Path("tmp/out.mp4"))
 
     def test_production_render_requires_venv_and_insightface_provider(self):
@@ -1413,16 +1620,30 @@ class ReelPipelineTests(unittest.TestCase):
                 return False, "missing"
 
         with patch("reel_pipeline.sys.executable", "/usr/bin/python3"):
-            with self.assertRaisesRegex(RuntimeError, "production_render_requires_venv_python"):
+            with self.assertRaisesRegex(
+                RuntimeError, "production_render_requires_venv_python"
+            ):
                 enforce_production_identity_provider(True)
 
-        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
-             patch("reel_pipeline.get_identity_provider", return_value=FakeUnavailableProvider()):
-            with self.assertRaisesRegex(RuntimeError, "production_render_identity_provider_unavailable"):
+        with (
+            patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"),
+            patch(
+                "reel_pipeline.get_identity_provider",
+                return_value=FakeUnavailableProvider(),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "production_render_identity_provider_unavailable"
+            ):
                 enforce_production_identity_provider(True)
 
-        with patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"), \
-             patch("reel_pipeline.get_identity_provider", return_value=FakeInsightFaceProvider()):
+        with (
+            patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"),
+            patch(
+                "reel_pipeline.get_identity_provider",
+                return_value=FakeInsightFaceProvider(),
+            ),
+        ):
             result = enforce_production_identity_provider(True)
 
         self.assertEqual(result["provider"], "insightface_arcface")

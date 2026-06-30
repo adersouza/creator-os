@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class ParentFactoryPlanningRepository:
@@ -30,21 +31,29 @@ class ParentFactoryPlanningRepository:
         required_parents = int(production.get("requiredParentsPerDay") or 0)
         metrics = self._reel_factory_parent_metrics()
         available = int(metrics.get("scheduleSafe") or 0)
-        waterfall = self._parent_factory_yield_waterfall(required_parents_per_day=max(1, required_parents or 1))
+        waterfall = self._parent_factory_yield_waterfall(
+            required_parents_per_day=max(1, required_parents or 1)
+        )
         shortfall = max(0, required_parents - available)
         return {
             "schema": "creator_os.parent_factory_autopilot_plan.v1",
             "requiredParentsToday": required_parents,
             "availableParents": available,
             "shortfall": shortfall,
-            "requiredRawCandidates": int(waterfall.get("requiredRawCandidatesPerDay") or required_parents),
+            "requiredRawCandidates": int(
+                waterfall.get("requiredRawCandidatesPerDay") or required_parents
+            ),
             "requiredCaptionFamilies": required_parents,
             "requiredVariants": int(production.get("requiredVariantsPerDay") or 0),
-            "requiredValidatedDrafts": int(production.get("requiredValidatedDraftsPerDay") or 0),
+            "requiredValidatedDrafts": int(
+                production.get("requiredValidatedDraftsPerDay") or 0
+            ),
             "largestBottleneck": self._parent_factory_loss_analysis(
                 required_parents_per_day=max(1, required_parents or 1),
             ).get("largestLossStage"),
-            "nextAction": "produce_or_import_parent_reels" if shortfall else "hold_parent_factory",
+            "nextAction": "produce_or_import_parent_reels"
+            if shortfall
+            else "hold_parent_factory",
             "wouldWrite": False,
         }
 

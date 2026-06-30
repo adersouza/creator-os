@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class CarouselIntegrityRepository:
@@ -70,48 +71,52 @@ class CarouselIntegrityRepository:
             integrity = self.carousel_integrity_for_asset(asset)
             children = []
             for component in integrity["assetComponents"]["components"]:
-                children.append({
-                    "renderedAssetId": asset["id"],
-                    "componentIndex": component["componentIndex"],
-                    "componentHash": component["mediaHash"],
-                    "mediaType": component["mediaType"],
+                children.append(
+                    {
+                        "renderedAssetId": asset["id"],
+                        "componentIndex": component["componentIndex"],
+                        "componentHash": component["mediaHash"],
+                        "mediaType": component["mediaType"],
+                        "contentSurface": "feed_carousel",
+                        "futureMetricKeys": {
+                            "rendered_asset_id": asset["id"],
+                            "carousel_child_index": component["componentIndex"],
+                            "carousel_child_hash": component["mediaHash"],
+                            "content_surface": "feed_carousel",
+                        },
+                        "wouldWrite": False,
+                    }
+                )
+            rows.append(
+                {
+                    "assetId": asset["id"],
                     "contentSurface": "feed_carousel",
-                    "futureMetricKeys": {
-                        "rendered_asset_id": asset["id"],
-                        "carousel_child_index": component["componentIndex"],
-                        "carousel_child_hash": component["mediaHash"],
-                        "content_surface": "feed_carousel",
-                    },
+                    "igMediaType": "CAROUSEL",
+                    "childCount": len(children),
+                    "parentMetricsCanonical": True,
+                    "parentMetricKeys": [
+                        "post_id",
+                        "rendered_asset_id",
+                        "content_surface",
+                        "views",
+                        "reach",
+                        "likes",
+                        "comments",
+                        "shares",
+                        "saves",
+                    ],
+                    "childMetricsSupplemental": True,
+                    "childMetricsPlan": children,
+                    "metricsRollupKeys": [
+                        "rendered_asset_id",
+                        "carousel_child_index",
+                        "carousel_child_hash",
+                        "content_surface",
+                    ],
+                    "integrityPassed": bool(integrity.get("overallIntegrityPassed")),
                     "wouldWrite": False,
-                })
-            rows.append({
-                "assetId": asset["id"],
-                "contentSurface": "feed_carousel",
-                "igMediaType": "CAROUSEL",
-                "childCount": len(children),
-                "parentMetricsCanonical": True,
-                "parentMetricKeys": [
-                    "post_id",
-                    "rendered_asset_id",
-                    "content_surface",
-                    "views",
-                    "reach",
-                    "likes",
-                    "comments",
-                    "shares",
-                    "saves",
-                ],
-                "childMetricsSupplemental": True,
-                "childMetricsPlan": children,
-                "metricsRollupKeys": [
-                    "rendered_asset_id",
-                    "carousel_child_index",
-                    "carousel_child_hash",
-                    "content_surface",
-                ],
-                "integrityPassed": bool(integrity.get("overallIntegrityPassed")),
-                "wouldWrite": False,
-            })
+                }
+            )
         return {
             "schema": "campaign_factory.carousel_child_metrics_plan.v1",
             "creator": self._creator_label(creator) if creator else None,
@@ -129,39 +134,64 @@ class CarouselIntegrityRepository:
         campaign_slug: str | None,
         rendered_asset_id: str | None,
     ) -> list[dict[str, Any]]:
-        assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+        assets = self._surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
         rows = [
-            asset for asset in assets
-            if self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "feed_carousel"
+            asset
+            for asset in assets
+            if self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == "feed_carousel"
         ]
         if rendered_asset_id:
             rows = [asset for asset in rows if asset["id"] == rendered_asset_id]
         return rows
 
     def carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
-        components = self.carousel_component_signature(self._asset_components(asset["id"]))
+        components = self.carousel_component_signature(
+            self._asset_components(asset["id"])
+        )
         readiness = self._surface_handoff_readiness_for_asset(asset)
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        manifest_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
+        manifest = (
+            readiness.get("handoffManifestV2")
+            if isinstance(readiness.get("handoffManifestV2"), dict)
+            else {}
+        )
+        manifest_items = (
+            manifest.get("mediaItems")
+            if isinstance(manifest.get("mediaItems"), list)
+            else []
+        )
         manifest_signature = self.carousel_media_item_signature(manifest_items)
         draft_proof = self._surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
+            creator=asset.get("creator_mix")
+            or asset.get("creator_model")
+            or asset.get("model_name"),
             campaign=asset.get("campaign_slug"),
             rendered_asset_id=asset["id"],
         )
         draft = draft_proof["drafts"][0] if draft_proof.get("drafts") else {}
-        draft_signature = self.carousel_media_item_signature(draft.get("mediaItems") if isinstance(draft, dict) else [])
+        draft_signature = self.carousel_media_item_signature(
+            draft.get("mediaItems") if isinstance(draft, dict) else []
+        )
         threadsdash_signature = self.carousel_media_item_signature(
             (draft.get("handoffManifestV2") or {}).get("mediaItems")
             if isinstance(draft.get("handoffManifestV2"), dict)
             else []
         )
-        meta_preview = self.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
-        meta_signature = self.carousel_media_item_signature(meta_preview.get("children") or [])
+        meta_preview = self.carousel_meta_child_payload_preview(
+            asset=asset, draft=draft, components=components
+        )
+        meta_signature = self.carousel_media_item_signature(
+            meta_preview.get("children") or []
+        )
         caption_lineage_preserved = bool(
             manifest.get("instagramPostCaption")
             and manifest.get("caption_hash")
-            and (draft.get("handoffManifestV2") or {}).get("caption_hash") == manifest.get("caption_hash")
+            and (draft.get("handoffManifestV2") or {}).get("caption_hash")
+            == manifest.get("caption_hash")
         )
         content_surface_preserved = (
             readiness.get("contentSurface") == "feed_carousel"
@@ -171,35 +201,68 @@ class CarouselIntegrityRepository:
             and meta_preview.get("parentPayload", {}).get("media_type") == "CAROUSEL"
         )
         boundaries = [
-            self.carousel_boundary_result("asset_components_to_handoff_manifest_v2", components, manifest_signature),
-            self.carousel_boundary_result("handoff_manifest_v2_to_surface_draft_proof", manifest_signature, draft_signature),
-            self.carousel_boundary_result("surface_draft_proof_to_threadsdash_payload", draft_signature, threadsdash_signature),
-            self.carousel_boundary_result("threadsdash_payload_to_meta_child_payload_preview", threadsdash_signature, meta_signature),
+            self.carousel_boundary_result(
+                "asset_components_to_handoff_manifest_v2",
+                components,
+                manifest_signature,
+            ),
+            self.carousel_boundary_result(
+                "handoff_manifest_v2_to_surface_draft_proof",
+                manifest_signature,
+                draft_signature,
+            ),
+            self.carousel_boundary_result(
+                "surface_draft_proof_to_threadsdash_payload",
+                draft_signature,
+                threadsdash_signature,
+            ),
+            self.carousel_boundary_result(
+                "threadsdash_payload_to_meta_child_payload_preview",
+                threadsdash_signature,
+                meta_signature,
+            ),
         ]
         return {
             "assetId": asset["id"],
-            "contentSurface": self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")),
+            "contentSurface": self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            ),
             "igMediaType": readiness.get("igMediaType"),
             "canHandoff": bool(readiness.get("canHandoff")),
             "contentSurfacePreserved": bool(content_surface_preserved),
             "captionLineagePreserved": bool(caption_lineage_preserved),
             "assetComponents": self.carousel_signature_payload(components),
-            "handoffManifestV2": self.carousel_signature_payload(manifest_signature, extra={
-                "contentSurface": manifest.get("contentSurface"),
-                "igMediaType": manifest.get("igMediaType"),
-                "captionHash": manifest.get("caption_hash"),
-                "instagramPostCaptionHash": manifest.get("instagram_post_caption_hash"),
-            }),
-            "surfaceDraftProof": self.carousel_signature_payload(draft_signature, extra={
-                "canProduceDraftPayload": bool(draft_proof.get("canProduceDraftPayload")),
-                "draftCount": int(draft_proof.get("draftCount") or 0),
-            }),
-            "threadDashPayload": self.carousel_signature_payload(threadsdash_signature, extra={
-                "schema": draft.get("schema"),
-                "contentSurface": draft.get("contentSurface"),
-                "igMediaType": draft.get("igMediaType"),
-            }),
-            "metaChildPayloadPreview": self.carousel_signature_payload(meta_signature, extra=meta_preview),
+            "handoffManifestV2": self.carousel_signature_payload(
+                manifest_signature,
+                extra={
+                    "contentSurface": manifest.get("contentSurface"),
+                    "igMediaType": manifest.get("igMediaType"),
+                    "captionHash": manifest.get("caption_hash"),
+                    "instagramPostCaptionHash": manifest.get(
+                        "instagram_post_caption_hash"
+                    ),
+                },
+            ),
+            "surfaceDraftProof": self.carousel_signature_payload(
+                draft_signature,
+                extra={
+                    "canProduceDraftPayload": bool(
+                        draft_proof.get("canProduceDraftPayload")
+                    ),
+                    "draftCount": int(draft_proof.get("draftCount") or 0),
+                },
+            ),
+            "threadDashPayload": self.carousel_signature_payload(
+                threadsdash_signature,
+                extra={
+                    "schema": draft.get("schema"),
+                    "contentSurface": draft.get("contentSurface"),
+                    "igMediaType": draft.get("igMediaType"),
+                },
+            ),
+            "metaChildPayloadPreview": self.carousel_signature_payload(
+                meta_signature, extra=meta_preview
+            ),
             "boundaries": boundaries,
             "overallIntegrityPassed": bool(
                 readiness.get("canHandoff")
@@ -216,7 +279,9 @@ class CarouselIntegrityRepository:
             "wouldWrite": False,
         }
 
-    def carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def carousel_component_signature(
+        self, components: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "componentIndex": int(component.get("component_index") or 0),
@@ -234,15 +299,25 @@ class CarouselIntegrityRepository:
         for item in media_items:
             if not isinstance(item, dict):
                 continue
-            rows.append({
-                "componentIndex": int(item.get("componentIndex") if item.get("componentIndex") is not None else item.get("component_index") or 0),
-                "mediaPath": item.get("mediaPath") or item.get("media_path"),
-                "mediaHash": item.get("mediaHash") or item.get("media_hash") or item.get("componentHash"),
-                "mediaType": item.get("mediaType") or item.get("media_type"),
-            })
+            rows.append(
+                {
+                    "componentIndex": int(
+                        item.get("componentIndex")
+                        if item.get("componentIndex") is not None
+                        else item.get("component_index") or 0
+                    ),
+                    "mediaPath": item.get("mediaPath") or item.get("media_path"),
+                    "mediaHash": item.get("mediaHash")
+                    or item.get("media_hash")
+                    or item.get("componentHash"),
+                    "mediaType": item.get("mediaType") or item.get("media_type"),
+                }
+            )
         return rows
 
-    def carousel_signature_payload(self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    def carousel_signature_payload(
+        self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         payload = {
             "slideCount": len(signature),
             "componentIndexes": [item["componentIndex"] for item in signature],
@@ -253,7 +328,9 @@ class CarouselIntegrityRepository:
             payload.update(extra)
         return payload
 
-    def carousel_boundary_result(self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
+    def carousel_boundary_result(
+        self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         before_indexes = [item["componentIndex"] for item in before]
         after_indexes = [item["componentIndex"] for item in after]
         before_hashes = [item["mediaHash"] for item in before]
@@ -270,20 +347,32 @@ class CarouselIntegrityRepository:
             "wouldWrite": False,
         }
 
-    def carousel_meta_child_payload_preview(self, *, asset: dict[str, Any], draft: dict[str, Any], components: list[dict[str, Any]]) -> dict[str, Any]:
+    def carousel_meta_child_payload_preview(
+        self,
+        *,
+        asset: dict[str, Any],
+        draft: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         children = []
         for component in components:
-            media_type = "VIDEO" if str(component.get("mediaType") or "").lower() == "video" else "IMAGE"
-            children.append({
-                "componentIndex": component["componentIndex"],
-                "mediaPath": component["mediaPath"],
-                "mediaHash": component["mediaHash"],
-                "mediaType": component["mediaType"],
-                "media_type": media_type,
-                "is_carousel_item": True,
-                "previewContainerId": f"carousel_child_preview_{asset['id']}_{component['componentIndex']}",
-                "wouldWrite": False,
-            })
+            media_type = (
+                "VIDEO"
+                if str(component.get("mediaType") or "").lower() == "video"
+                else "IMAGE"
+            )
+            children.append(
+                {
+                    "componentIndex": component["componentIndex"],
+                    "mediaPath": component["mediaPath"],
+                    "mediaHash": component["mediaHash"],
+                    "mediaType": component["mediaType"],
+                    "media_type": media_type,
+                    "is_carousel_item": True,
+                    "previewContainerId": f"carousel_child_preview_{asset['id']}_{component['componentIndex']}",
+                    "wouldWrite": False,
+                }
+            )
         return {
             "parentPayload": {
                 "media_type": "CAROUSEL",
@@ -294,8 +383,12 @@ class CarouselIntegrityRepository:
             "wouldWrite": False,
         }
 
-    def carousel_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
-        asset = self.certification_asset_for_surface("feed_carousel", rendered_asset_id=rendered_asset_id)
+    def carousel_certification_proof(
+        self, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any]:
+        asset = self.certification_asset_for_surface(
+            "feed_carousel", rendered_asset_id=rendered_asset_id
+        )
         blockers: list[str] = []
         if not asset:
             blockers.append("carousel_asset_missing")
@@ -315,7 +408,9 @@ class CarouselIntegrityRepository:
             }
         readiness = self._surface_handoff_readiness_for_asset(asset)
         draft = self._surface_draft_proof(
-            creator=asset.get("creator_mix") or asset.get("creator_model") or asset.get("model_name"),
+            creator=asset.get("creator_mix")
+            or asset.get("creator_model")
+            or asset.get("model_name"),
             campaign=asset.get("campaign_slug"),
             rendered_asset_id=asset["id"],
         )
@@ -323,8 +418,17 @@ class CarouselIntegrityRepository:
         integrity = self.carousel_integrity_for_asset(asset)
         proof_run = self.latest_proof_run_for_asset(asset["id"])
         metrics = self.latest_surface_metric_for_asset(asset["id"], "feed_carousel")
-        created = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == "feed_carousel"
-        validated = bool(readiness.get("canHandoff") and draft.get("canProduceDraftPayload") and integrity.get("overallIntegrityPassed"))
+        created = (
+            self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == "feed_carousel"
+        )
+        validated = bool(
+            readiness.get("canHandoff")
+            and draft.get("canProduceDraftPayload")
+            and integrity.get("overallIntegrityPassed")
+        )
         published = bool(
             metrics
             or (
@@ -334,13 +438,25 @@ class CarouselIntegrityRepository:
                 in {"published", "metrics_imported", "complete", "completed"}
             )
         )
-        boundaries = integrity.get("boundaries") if isinstance(integrity.get("boundaries"), list) else []
-        slide_order = bool(boundaries and all(boundary.get("slideOrderPreserved") for boundary in boundaries))
-        slide_hashes = bool(boundaries and all(boundary.get("componentHashesMatch") for boundary in boundaries))
+        boundaries = (
+            integrity.get("boundaries")
+            if isinstance(integrity.get("boundaries"), list)
+            else []
+        )
+        slide_order = bool(
+            boundaries
+            and all(boundary.get("slideOrderPreserved") for boundary in boundaries)
+        )
+        slide_hashes = bool(
+            boundaries
+            and all(boundary.get("componentHashesMatch") for boundary in boundaries)
+        )
         metrics_imported = bool(metrics)
         if not validated:
             blockers.append("carousel_validation_failed")
-            blockers.extend(str(reason) for reason in readiness.get("blockingReasons") or [])
+            blockers.extend(
+                str(reason) for reason in readiness.get("blockingReasons") or []
+            )
         if not published:
             blockers.append("carousel_publish_evidence_missing")
         if not slide_order:
@@ -349,7 +465,14 @@ class CarouselIntegrityRepository:
             blockers.append("carousel_slide_hashes_not_certified")
         if not metrics_imported:
             blockers.append("carousel_parent_metrics_evidence_missing")
-        lifecycle = bool(created and validated and published and slide_order and slide_hashes and metrics_imported)
+        lifecycle = bool(
+            created
+            and validated
+            and published
+            and slide_order
+            and slide_hashes
+            and metrics_imported
+        )
         return {
             "schema": "creator_os.carousel_certification_proof.v1",
             "carouselCreated": bool(created),
@@ -372,21 +495,26 @@ class CarouselIntegrityRepository:
             "wouldWrite": False,
         }
 
-    def certification_asset_for_surface(self, surface: str, *, rendered_asset_id: str | None = None) -> dict[str, Any] | None:
+    def certification_asset_for_surface(
+        self, surface: str, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any] | None:
         params: list[Any] = []
         where = ["COALESCE(r.content_surface, s.content_surface) = ?"]
         params.append(self._normalize_content_surface(surface))
         if rendered_asset_id:
             where.append("r.id = ?")
             params.append(rendered_asset_id)
-        query = """
+        query = (
+            """
             SELECT r.*, c.slug AS campaign_slug, s.media_type AS source_media_type,
                    s.content_surface AS source_content_surface, m.slug AS model_slug, m.name AS model_name
             FROM rendered_assets r
             JOIN campaigns c ON c.id = r.campaign_id
             JOIN source_assets s ON s.id = r.source_asset_id
             JOIN models m ON m.id = s.model_id
-            WHERE """ + " AND ".join(where) + """
+            WHERE """
+            + " AND ".join(where)
+            + """
             ORDER BY
               EXISTS(SELECT 1 FROM performance_snapshots p WHERE p.rendered_asset_id = r.id AND p.content_surface = COALESCE(r.content_surface, s.content_surface)) DESC,
               EXISTS(SELECT 1 FROM proof_runs pr WHERE pr.rendered_asset_id = r.id AND pr.threadsdash_post_id IS NOT NULL) DESC,
@@ -394,10 +522,13 @@ class CarouselIntegrityRepository:
               r.id DESC
             LIMIT 1
         """
+        )
         row = self.conn.execute(query, params).fetchone()
         return dict(row) if row else None
 
-    def latest_proof_run_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def latest_proof_run_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
             SELECT * FROM proof_runs
@@ -409,7 +540,9 @@ class CarouselIntegrityRepository:
         ).fetchone()
         return dict(row) if row else None
 
-    def latest_surface_metric_for_asset(self, rendered_asset_id: str, surface: str) -> dict[str, Any] | None:
+    def latest_surface_metric_for_asset(
+        self, rendered_asset_id: str, surface: str
+    ) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
             SELECT * FROM performance_snapshots
@@ -442,14 +575,22 @@ class CarouselIntegrityRepository:
         metrics: dict[str, Any] | None,
         carousel_integrity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        metrics_payload = {
-            "postId": metrics.get("post_id"),
-            "contentSurface": metrics.get("content_surface"),
-            "snapshotAt": metrics.get("snapshot_at"),
-            "views": metrics.get("views"),
-            "reach": metrics.get("reach"),
-        } if metrics else {}
+        manifest = (
+            readiness.get("handoffManifestV2")
+            if isinstance(readiness.get("handoffManifestV2"), dict)
+            else {}
+        )
+        metrics_payload = (
+            {
+                "postId": metrics.get("post_id"),
+                "contentSurface": metrics.get("content_surface"),
+                "snapshotAt": metrics.get("snapshot_at"),
+                "views": metrics.get("views"),
+                "reach": metrics.get("reach"),
+            }
+            if metrics
+            else {}
+        )
         return {
             "contentSurface": readiness.get("contentSurface"),
             "igMediaType": readiness.get("igMediaType"),
@@ -469,15 +610,22 @@ class CarouselIntegrityRepository:
                 "contentSurface": draft_payload.get("contentSurface"),
                 "igMediaType": draft_payload.get("igMediaType"),
                 "mediaItems": draft_payload.get("mediaItems") or [],
-                "threadDashCompatible": bool(draft_payload.get("schema") == "threadsdash.surface_draft.preview.v1"),
+                "threadDashCompatible": bool(
+                    draft_payload.get("schema")
+                    == "threadsdash.surface_draft.preview.v1"
+                ),
             },
             "metricsPayload": metrics_payload,
             "lifecycle": {
                 "proofRunId": proof_run.get("id") if proof_run else None,
                 "currentState": proof_run.get("current_state") if proof_run else None,
                 "status": proof_run.get("status") if proof_run else None,
-                "threadsdashDraftId": proof_run.get("threadsdash_draft_id") if proof_run else None,
-                "threadsdashPostId": proof_run.get("threadsdash_post_id") if proof_run else None,
+                "threadsdashDraftId": proof_run.get("threadsdash_draft_id")
+                if proof_run
+                else None,
+                "threadsdashPostId": proof_run.get("threadsdash_post_id")
+                if proof_run
+                else None,
                 "metricsEligible": bool((proof_run or {}).get("metrics_eligible")),
             },
             "carouselIntegrity": carousel_integrity or {},

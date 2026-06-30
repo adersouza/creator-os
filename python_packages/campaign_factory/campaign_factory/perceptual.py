@@ -18,13 +18,17 @@ def pdq_hamming_distance(left: str, right: str) -> int | None:
     return (int(left_value, 16) ^ int(right_value, 16)).bit_count()
 
 
-def compute_pdq_fingerprint(path: str | Path, *, ffmpeg_binary: str = "ffmpeg") -> dict[str, Any]:
+def compute_pdq_fingerprint(
+    path: str | Path, *, ffmpeg_binary: str = "ffmpeg"
+) -> dict[str, Any]:
     media_path = Path(path)
     if not media_path.exists() or not media_path.is_file():
         return _unavailable("file_missing", f"media file not found: {media_path}")
     suffix = media_path.suffix.lower()
     if suffix not in IMAGE_EXTS | VIDEO_EXTS:
-        return _unavailable("unsupported_media_type", f"unsupported media type: {suffix or 'none'}")
+        return _unavailable(
+            "unsupported_media_type", f"unsupported media type: {suffix or 'none'}"
+        )
     try:
         import numpy as np
         import pdqhash
@@ -43,7 +47,20 @@ def compute_pdq_fingerprint(path: str | Path, *, ffmpeg_binary: str = "ffmpeg") 
             frame_path = Path(tmp_dir.name) / "frame.jpg"
             try:
                 subprocess.run(
-                    [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(media_path), "-vframes", "1", "-q:v", "2", "-y", str(frame_path)],
+                    [
+                        ffmpeg,
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        str(media_path),
+                        "-vframes",
+                        "1",
+                        "-q:v",
+                        "2",
+                        "-y",
+                        str(frame_path),
+                    ],
                     check=True,
                     capture_output=True,
                     timeout=15,
@@ -52,7 +69,9 @@ def compute_pdq_fingerprint(path: str | Path, *, ffmpeg_binary: str = "ffmpeg") 
                 detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
                 return _unavailable("frame_extract_failed", detail or str(exc))
             except subprocess.TimeoutExpired:
-                return _unavailable("frame_extract_timeout", "ffmpeg frame extraction timed out")
+                return _unavailable(
+                    "frame_extract_timeout", "ffmpeg frame extraction timed out"
+                )
         try:
             image = Image.open(frame_path).convert("RGB")
         except (OSError, UnidentifiedImageError) as exc:
@@ -74,7 +93,9 @@ def compute_pdq_fingerprint(path: str | Path, *, ffmpeg_binary: str = "ffmpeg") 
 
 
 def _pdq_vector_to_hex(hash_vector: Any) -> str:
-    bits = "".join("1" if bool(item) else "0" for item in hash_vector.flatten().tolist())
+    bits = "".join(
+        "1" if bool(item) else "0" for item in hash_vector.flatten().tolist()
+    )
     if not bits:
         return ""
     return f"{int(bits, 2):0{len(bits) // 4}x}"

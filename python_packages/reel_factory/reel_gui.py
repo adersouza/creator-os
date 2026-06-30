@@ -10,23 +10,47 @@ Runs a FastAPI server on http://localhost:8765 with:
 Usage:
     python3 reel_gui.py
 """
+
 from __future__ import annotations
-import asyncio, hashlib, json, re, shutil, subprocess, sys, threading, time, urllib.request, webbrowser
-from datetime import datetime, timezone
+
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+import webbrowser
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from fastapi import Body, Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+
 import uvicorn
+from fastapi import Body, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).parent))
 from hook_ai import OllamaHookProvider, generate_hooks  # noqa
 from caption_generation_log import caption_library, rank_clip_sidecar  # noqa
-from hook_tools import embedding_status, find_near_duplicates, find_semantic_duplicates, read_hook_library, save_hook_to_library  # noqa
+from hook_tools import (
+    embedding_status,
+    find_near_duplicates,
+    find_semantic_duplicates,
+    read_hook_library,
+    save_hook_to_library,
+)  # noqa
 from hook_spinner import spin_hooks  # noqa
 from export_approved import export_approved  # noqa
-from metrics_store import import_metrics_csv, import_outcomes_csv, metrics_leaderboard, metrics_summary, outcomes_summary  # noqa
+from metrics_store import (
+    import_metrics_csv,
+    import_outcomes_csv,
+    metrics_leaderboard,
+    metrics_summary,
+    outcomes_summary,
+)  # noqa
 from manifest import Manifest  # noqa
 from project_config import load_config, save_config  # noqa
 from preflight import check_clip_readiness  # noqa
@@ -100,13 +124,13 @@ from posting_ledger import (
     transition_slot as ledger_transition_slot,
 )  # noqa
 
-ROOT      = Path(__file__).parent.resolve()
-RAW_DIR   = ROOT / "00_source_videos"
-CAP_DIR   = ROOT / "01_captions"
-PROC_DIR  = ROOT / "02_processed"
-ACCT_DIR  = ROOT / "accounts"
-DATA_DIR  = ROOT / "project_data"
-AUD_DIR   = ROOT / "03_audio_library"
+ROOT = Path(__file__).parent.resolve()
+RAW_DIR = ROOT / "00_source_videos"
+CAP_DIR = ROOT / "01_captions"
+PROC_DIR = ROOT / "02_processed"
+ACCT_DIR = ROOT / "accounts"
+DATA_DIR = ROOT / "project_data"
+AUD_DIR = ROOT / "03_audio_library"
 HOOK_LIBRARY = DATA_DIR / "hook_library.json"
 SAFE_ZONE_DEFAULTS = {
     "top_pct": 14.6,
@@ -116,7 +140,7 @@ SAFE_ZONE_DEFAULTS = {
     "source": "renderer_default_safe_margins",
 }
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
-STEM_RE   = re.compile(r"^clip_\d{3,}$")
+STEM_RE = re.compile(r"^clip_\d{3,}$")
 
 for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -134,12 +158,12 @@ def guard_deprecated_generator_api(feature: str) -> None:
 
 
 _run_state: dict[str, Any] = {
-    "running":  False,
-    "log":      [],
-    "started":  0.0,
+    "running": False,
+    "log": [],
+    "started": 0.0,
     "finished": 0.0,
-    "summary":  None,
-    "account":  None,
+    "summary": None,
+    "account": None,
     "completed": 0,
     "total": 0,
     "failed": 0,
@@ -202,7 +226,9 @@ def _normalize_hook(hook: Any) -> str | dict:
         except json.JSONDecodeError as e:
             raise HTTPException(400, f"invalid hook JSON: {e}") from e
         if not isinstance(parsed, dict) or not isinstance(parsed.get("segments"), list):
-            raise HTTPException(400, "timed hook JSON must be an object with a segments list")
+            raise HTTPException(
+                400, "timed hook JSON must be an object with a segments list"
+            )
         return parsed
     return text
 
@@ -227,13 +253,15 @@ AUTO_HOOKS = [
     "not me pretending this was accidental",
     "the part where everyone suddenly pays attention",
     "this is why drafts are dangerous",
-    "one quick video turned into this"
+    "one quick video turned into this",
 ]
 
 
 def _auto_hooks_for_clip(stem: str, count: int = 8) -> list[str]:
     count = max(1, min(int(count or 8), len(AUTO_HOOKS)))
-    offset = int(hashlib.sha256(stem.encode("utf-8")).hexdigest()[:2], 16) % len(AUTO_HOOKS)
+    offset = int(hashlib.sha256(stem.encode("utf-8")).hexdigest()[:2], 16) % len(
+        AUTO_HOOKS
+    )
     ordered = AUTO_HOOKS[offset:] + AUTO_HOOKS[:offset]
     return ordered[:count]
 
@@ -253,7 +281,9 @@ def _review_states_by_filename() -> dict[str, str]:
     out: dict[str, str] = {}
     for vid in manifest_data.get("videos", {}).values():
         for var in vid.get("variations", []):
-            out[Path(var.get("output_path", "")).name] = var.get("review_state", "draft")
+            out[Path(var.get("output_path", "")).name] = var.get(
+                "review_state", "draft"
+            )
     return out
 
 
@@ -263,7 +293,10 @@ def _outcome_filenames() -> set[str]:
         return set()
     try:
         conn = campaign_connect(ROOT)
-        return {row["filename"] for row in conn.execute("SELECT filename FROM reel_outcomes").fetchall()}
+        return {
+            row["filename"]
+            for row in conn.execute("SELECT filename FROM reel_outcomes").fetchall()
+        }
     except Exception:
         return set()
 
@@ -290,9 +323,17 @@ def _asset_state_by_stem() -> dict[str, dict[str, Any]]:
         if stem in states:
             continue
         states[stem] = {
-            "has_image": bool(row["image_job_id"] or row["image_result_url"] or row["local_image_path"]),
+            "has_image": bool(
+                row["image_job_id"]
+                or row["image_result_url"]
+                or row["local_image_path"]
+            ),
             "has_start_image": bool(row["selected_panel"] or row["start_image"]),
-            "has_video": bool(row["video_job_id"] or row["video_result_url"] or row["local_video_path"]),
+            "has_video": bool(
+                row["video_job_id"]
+                or row["video_result_url"]
+                or row["local_video_path"]
+            ),
         }
     return states
 
@@ -300,15 +341,28 @@ def _asset_state_by_stem() -> dict[str, dict[str, Any]]:
 def _prompt_stems() -> set[str]:
     # Legacy prompt files still count for older clips, but new operator flows
     # should use direct reference-image generation rather than prompt-json prep.
-    stems = {p.name.removesuffix("_legacy_prompt.json") for p in (ROOT / "prompts").glob("*_legacy_prompt.json")}
-    stems |= {p.name.removesuffix("_grok.json") for p in (ROOT / "prompts").glob("*_grok.json")}
+    stems = {
+        p.name.removesuffix("_legacy_prompt.json")
+        for p in (ROOT / "prompts").glob("*_legacy_prompt.json")
+    }
+    stems |= {
+        p.name.removesuffix("_grok.json")
+        for p in (ROOT / "prompts").glob("*_grok.json")
+    }
     stems |= {p.stem for p in (ROOT / "prompts").glob("clip_*.json")}
     return stems
 
 
-def clip_status_from_evidence(*, stem: str, output_count: int, review_states: list[str],
-                              outcome_count: int, has_prompt: bool, hook_count: int = 0,
-                              asset_state: dict[str, Any] | None = None) -> dict[str, Any]:
+def clip_status_from_evidence(
+    *,
+    stem: str,
+    output_count: int,
+    review_states: list[str],
+    outcome_count: int,
+    has_prompt: bool,
+    hook_count: int = 0,
+    asset_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     asset_state = asset_state or {}
     approved = sum(1 for state in review_states if state == "approved")
     draft = sum(1 for state in review_states if state == "draft")
@@ -354,15 +408,54 @@ def clip_status_from_evidence(*, stem: str, output_count: int, review_states: li
 
 def next_action_for_status(status: str) -> dict[str, str]:
     return {
-        "Needs Captions": {"label": "Auto-caption + render", "action": "autoCaptionAndRender()", "mode": "Render"},
-        "Needs Soul": {"label": "Create reference still", "action": "createReferenceStill()", "mode": "Create"},
-        "Needs Kling": {"label": "Create Kling video", "action": "createKlingVideo()", "mode": "Create"},
-        "Ready to Render": {"label": "Run pipeline", "action": "startRun()", "mode": "Render"},
-        "Needs Review": {"label": "Review outputs", "action": "setCockpitMode('Review')", "mode": "Review"},
-        "Approved": {"label": "Export approved", "action": "exportApproved()", "mode": "Review"},
-        "Needs Metrics": {"label": "Import metrics", "action": "focusOutcomeImport()", "mode": "Learn"},
-        "Learning Complete": {"label": "Refresh Winner DNA", "action": "refreshWinnerDnaUi()", "mode": "Learn"},
-    }.get(status, {"label": "Open create mode", "action": "setCockpitMode('Create')", "mode": "Create"})
+        "Needs Captions": {
+            "label": "Auto-caption + render",
+            "action": "autoCaptionAndRender()",
+            "mode": "Render",
+        },
+        "Needs Soul": {
+            "label": "Create reference still",
+            "action": "createReferenceStill()",
+            "mode": "Create",
+        },
+        "Needs Kling": {
+            "label": "Create Kling video",
+            "action": "createKlingVideo()",
+            "mode": "Create",
+        },
+        "Ready to Render": {
+            "label": "Run pipeline",
+            "action": "startRun()",
+            "mode": "Render",
+        },
+        "Needs Review": {
+            "label": "Review outputs",
+            "action": "setCockpitMode('Review')",
+            "mode": "Review",
+        },
+        "Approved": {
+            "label": "Export approved",
+            "action": "exportApproved()",
+            "mode": "Review",
+        },
+        "Needs Metrics": {
+            "label": "Import metrics",
+            "action": "focusOutcomeImport()",
+            "mode": "Learn",
+        },
+        "Learning Complete": {
+            "label": "Refresh Winner DNA",
+            "action": "refreshWinnerDnaUi()",
+            "mode": "Learn",
+        },
+    }.get(
+        status,
+        {
+            "label": "Open create mode",
+            "action": "setCockpitMode('Create')",
+            "mode": "Create",
+        },
+    )
 
 
 def _clip_cards_data() -> list[dict[str, Any]]:
@@ -385,7 +478,11 @@ def _clip_cards_data() -> list[dict[str, Any]]:
                 hooks, cap_count, cap_preview = [], 0, "(json parse error)"
         elif txt_side.exists():
             t = txt_side.read_text().strip()
-            hooks, cap_count, cap_preview = ([t] if t else []), (1 if t else 0), (t.splitlines()[0] if t else "")
+            hooks, cap_count, cap_preview = (
+                ([t] if t else []),
+                (1 if t else 0),
+                (t.splitlines()[0] if t else ""),
+            )
         else:
             hooks, cap_count, cap_preview = [], 0, ""
         outputs = list(proc_dir.glob("*.mp4")) if proc_dir.exists() else []
@@ -401,20 +498,24 @@ def _clip_cards_data() -> list[dict[str, Any]]:
             asset_state=asset_states.get(stem),
         )
         thumb = proc_dir / "_thumb.png"
-        out.append({
-            "stem": stem,
-            "path": str(mp4),
-            "size_mb": round(mp4.stat().st_size / 1024 / 1024, 1),
-            "hook_count": cap_count,
-            "hook_preview": cap_preview,
-            "output_count": len(outputs),
-            "thumb_url": f"/file/02_processed/{stem}/_thumb.png" if thumb.exists() else None,
-            "video_url": f"/file/00_source_videos/{stem}.mp4",
-            "has_contact_sheet": (proc_dir / "_contact_sheet.png").exists(),
-            "preflight": [],
-            "status": status,
-            "next_action": next_action_for_status(status["status"]),
-        })
+        out.append(
+            {
+                "stem": stem,
+                "path": str(mp4),
+                "size_mb": round(mp4.stat().st_size / 1024 / 1024, 1),
+                "hook_count": cap_count,
+                "hook_preview": cap_preview,
+                "output_count": len(outputs),
+                "thumb_url": f"/file/02_processed/{stem}/_thumb.png"
+                if thumb.exists()
+                else None,
+                "video_url": f"/file/00_source_videos/{stem}.mp4",
+                "has_contact_sheet": (proc_dir / "_contact_sheet.png").exists(),
+                "preflight": [],
+                "status": status,
+                "next_action": next_action_for_status(status["status"]),
+            }
+        )
     return out
 
 
@@ -429,27 +530,39 @@ def _rating_row_to_dict(row) -> dict:
         "face": row["face_score"] if "face_score" in row.keys() else None,
         "eyes": row["eyes_score"] if "eyes_score" in row.keys() else None,
         "hands": row["hands_score"] if "hands_score" in row.keys() else None,
-        "pose_accuracy": row["pose_accuracy_score"] if "pose_accuracy_score" in row.keys() else None,
-        "body_taste": row["body_taste_score"] if "body_taste_score" in row.keys() else None,
-        "background": row["background_score"] if "background_score" in row.keys() else None,
+        "pose_accuracy": row["pose_accuracy_score"]
+        if "pose_accuracy_score" in row.keys()
+        else None,
+        "body_taste": row["body_taste_score"]
+        if "body_taste_score" in row.keys()
+        else None,
+        "background": row["background_score"]
+        if "background_score" in row.keys()
+        else None,
         "crop": row["crop_score"] if "crop_score" in row.keys() else None,
         "labels": json.loads(row["labels_json"] or "[]"),
         "retry_helper": row["retry_helper"],
         "reason": row["approve_reject_reason"],
         "decision": row["decision"] if "decision" in row.keys() else "unreviewed",
-        "primary_reason": row["primary_reason"] if "primary_reason" in row.keys() else None,
-        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]") if "secondary_reasons_json" in row.keys() else [],
+        "primary_reason": row["primary_reason"]
+        if "primary_reason" in row.keys()
+        else None,
+        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]")
+        if "secondary_reasons_json" in row.keys()
+        else [],
         "notes": row["notes"],
     }
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _recent_saved_hooks(limit: int = 200) -> list[str]:
     hooks: list[str] = []
-    for path in sorted(CAP_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for path in sorted(
+        CAP_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    ):
         try:
             data = json.loads(path.read_text())
         except Exception:
@@ -479,7 +592,12 @@ def _update_run_progress_from_line(line: str) -> None:
         m = re.search(r"queued\s+(\d+)\s+render tasks", text)
         if m:
             _run_state["total"] = int(m.group(1))
-    if text.startswith("done ") or text.startswith("skip ") or text.startswith("DRY ") or text.startswith("preview "):
+    if (
+        text.startswith("done ")
+        or text.startswith("skip ")
+        or text.startswith("DRY ")
+        or text.startswith("preview ")
+    ):
         _run_state["completed"] = int(_run_state.get("completed", 0)) + 1
     if text.startswith("FAIL ") or "task exception" in text:
         _run_state["failed"] = int(_run_state.get("failed", 0)) + 1
@@ -489,19 +607,35 @@ def _ensure_thumb(clip: Path, thumb: Path) -> None:
     if thumb.exists():
         return
     thumb.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([
-        FFMPEG, "-hide_banner", "-nostdin", "-loglevel", "error",
-        "-ss", "1.0", "-i", str(clip), "-frames:v", "1",
-        "-vf", "scale=240:-1",
-        "-y", str(thumb),
-    ], check=False)
+    subprocess.run(
+        [
+            FFMPEG,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-ss",
+            "1.0",
+            "-i",
+            str(clip),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=240:-1",
+            "-y",
+            str(thumb),
+        ],
+        check=False,
+    )
 
 
 def _latest_preview_url(stem: str) -> str | None:
     preview_dir = PROC_DIR / stem / "_previews"
     if not preview_dir.exists():
         return None
-    previews = sorted(preview_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+    previews = sorted(
+        preview_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     if not previews:
         return None
     return f"/file/02_processed/{stem}/_previews/{previews[0].name}"
@@ -534,7 +668,7 @@ def _find_output_file(filename: str) -> Path:
 def _copy_unique(src: Path, out_dir: Path, prefix: str | None = None) -> Path:
     src = src.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     stem = f"{prefix}_{stamp}" if prefix else f"{src.stem}_{stamp}"
     dest = out_dir / f"{stem}{src.suffix.lower() or '.bin'}"
     n = 1
@@ -545,8 +679,14 @@ def _copy_unique(src: Path, out_dir: Path, prefix: str | None = None) -> Path:
     return dest
 
 
-def save_photo_post_asset(root: Path, *, source_image: str, account: str = "default",
-                          caption: str = "", notes: str = "") -> dict[str, Any]:
+def save_photo_post_asset(
+    root: Path,
+    *,
+    source_image: str,
+    account: str = "default",
+    caption: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
     src = Path(_resolve_project_path(source_image) or "")
     _safe_in_root(src)
     if not src.exists() or not src.is_file():
@@ -565,21 +705,39 @@ def save_photo_post_asset(root: Path, *, source_image: str, account: str = "defa
         "status": "saved",
     }
     sidecar = dest.with_suffix(dest.suffix + ".photo_post.json")
-    sidecar.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    return {"ok": True, "photo": record, "path": str(dest), "sidecar": str(sidecar), "url": _file_url(dest)}
+    sidecar.write_text(
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return {
+        "ok": True,
+        "photo": record,
+        "path": str(dest),
+        "sidecar": str(sidecar),
+        "url": _file_url(dest),
+    }
 
 
-def queue_threadsdashboard_post(root: Path, *, output_path: str, account: str = "default",
-                                caption: str = "", scheduled_at: str | None = None,
-                                notes: str = "") -> dict[str, Any]:
-    src = _find_output_file(Path(output_path).name) if not Path(output_path).is_absolute() else Path(output_path)
+def queue_threadsdashboard_post(
+    root: Path,
+    *,
+    output_path: str,
+    account: str = "default",
+    caption: str = "",
+    scheduled_at: str | None = None,
+    notes: str = "",
+) -> dict[str, Any]:
+    src = (
+        _find_output_file(Path(output_path).name)
+        if not Path(output_path).is_absolute()
+        else Path(output_path)
+    )
     _safe_in_root(src)
     if not src.exists() or not src.is_file():
         raise HTTPException(404, "output not found")
     out_dir = root / "04_exports" / "threadsdashboard"
     asset_dir = out_dir / "media"
     dest = _copy_unique(src, asset_dir, prefix=src.stem)
-    post_id = hashlib.sha256(f"{dest}:{time.time()}".encode("utf-8")).hexdigest()[:16]
+    post_id = hashlib.sha256(f"{dest}:{time.time()}".encode()).hexdigest()[:16]
     record = {
         "schema": "reel_factory.threadsdashboard_queue.v1",
         "post_id": post_id,
@@ -596,10 +754,17 @@ def queue_threadsdashboard_post(root: Path, *, output_path: str, account: str = 
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     item_path = out_dir / f"{post_id}.json"
-    item_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    item_path.write_text(
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     with (out_dir / "queue.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return {"ok": True, "queued": record, "path": str(item_path), "queue_path": str(out_dir / "queue.jsonl")}
+    return {
+        "ok": True,
+        "queued": record,
+        "path": str(item_path),
+        "queue_path": str(out_dir / "queue.jsonl"),
+    }
 
 
 def _next_clip_id() -> str:
@@ -652,20 +817,28 @@ def _direct_reference_plan_from_body(body: dict[str, Any]) -> DirectReferenceIma
         out_dir=DATA_DIR / "generated_assets",
         source_dir=RAW_DIR,
         creator=body.get("creator") or "Stacey",
-        image_aspect_ratio=str(body.get("image_aspect_ratio") or body.get("imageAspectRatio") or "3:4"),
-        image_quality=str(body.get("image_quality") or body.get("imageQuality") or "2k"),
-        image_model=str(body.get("image_model") or body.get("imageModel") or "text2image_soul_v2"),
+        image_aspect_ratio=str(
+            body.get("image_aspect_ratio") or body.get("imageAspectRatio") or "3:4"
+        ),
+        image_quality=str(
+            body.get("image_quality") or body.get("imageQuality") or "2k"
+        ),
+        image_model=str(
+            body.get("image_model") or body.get("imageModel") or "text2image_soul_v2"
+        ),
     )
 
 
-def _crop_grid_panel(image_path: Path, panel: str, out_path: Path,
-                     columns: int = 3, rows: int = 2) -> dict[str, Any]:
+def _crop_grid_panel(
+    image_path: Path, panel: str, out_path: Path, columns: int = 3, rows: int = 2
+) -> dict[str, Any]:
     image_path = _safe_in_root(image_path)
     out_path = _safe_in_root(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if panel == "full_image":
         shutil.copyfile(image_path, out_path)
         from PIL import Image
+
         with Image.open(image_path) as im:
             width, height = im.size
         return {
@@ -678,6 +851,7 @@ def _crop_grid_panel(image_path: Path, panel: str, out_path: Path,
     if panel_no < 1 or panel_no > columns * rows:
         raise HTTPException(400, f"panel must be 1-{columns * rows} or full_image")
     from PIL import Image
+
     with Image.open(image_path) as im:
         width, height = im.size
         cell_w = width // columns
@@ -685,13 +859,24 @@ def _crop_grid_panel(image_path: Path, panel: str, out_path: Path,
         idx = panel_no - 1
         col = idx % columns
         row = idx // columns
-        box = [col * cell_w, row * cell_h, (col + 1) * cell_w if col < columns - 1 else width, (row + 1) * cell_h if row < rows - 1 else height]
+        box = [
+            col * cell_w,
+            row * cell_h,
+            (col + 1) * cell_w if col < columns - 1 else width,
+            (row + 1) * cell_h if row < rows - 1 else height,
+        ]
         im.crop(tuple(box)).save(out_path)
-    return {"selected_panel": panel, "crop_box": box, "path": str(out_path), "start_image_path": str(out_path)}
+    return {
+        "selected_panel": panel,
+        "crop_box": box,
+        "path": str(out_path),
+        "start_image_path": str(out_path),
+    }
 
 
-def _update_source_lineage_with_fanout(lineage_path: Path | None, manifest: dict[str, Any],
-                                       panels: list[dict[str, Any]]) -> str | None:
+def _update_source_lineage_with_fanout(
+    lineage_path: Path | None, manifest: dict[str, Any], panels: list[dict[str, Any]]
+) -> str | None:
     if not lineage_path:
         return None
     lineage_path = Path(lineage_path).expanduser().resolve()
@@ -718,10 +903,13 @@ def _update_source_lineage_with_fanout(lineage_path: Path | None, manifest: dict
         "panels": panels,
     }
     assets["panelStartImages"] = {
-        f"panel_{int(panel['panel']):02d}": panel.get("startImagePath") or panel.get("path")
+        f"panel_{int(panel['panel']):02d}": panel.get("startImagePath")
+        or panel.get("path")
         for panel in manifest.get("panelCrops") or []
     }
-    lineage_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    lineage_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return str(lineage_path)
 
 
@@ -753,8 +941,13 @@ def _aspect_ratio_for_crop(crop_box: list[int]) -> str:
     return "9:16"
 
 
-def _attach_panel_lineage(lineage_path_value: str | None, *, parent_image_job_id: str | None,
-                          parent_asset_generation_id: str | None, panel: dict[str, Any]) -> None:
+def _attach_panel_lineage(
+    lineage_path_value: str | None,
+    *,
+    parent_image_job_id: str | None,
+    parent_asset_generation_id: str | None,
+    panel: dict[str, Any],
+) -> None:
     if not lineage_path_value:
         return
     path = Path(lineage_path_value).expanduser().resolve()
@@ -776,7 +969,11 @@ def _attach_panel_lineage(lineage_path_value: str | None, *, parent_image_job_id
 
 def _higgsfield_cli_error(exc: Exception) -> dict[str, Any]:
     message = str(exc)
-    action = "Run: hf auth login" if "auth" in message.lower() or "login" in message.lower() else None
+    action = (
+        "Run: hf auth login"
+        if "auth" in message.lower() or "login" in message.lower()
+        else None
+    )
     return {
         "ok": False,
         "error": message,
@@ -810,7 +1007,9 @@ def list_clips(probe_preflight: bool = False, ensure_thumbs: bool = False):
         thumb = proc_dir / "_thumb.png"
         if ensure_thumbs:
             _ensure_thumb(mp4, thumb)
-            row["thumb_url"] = f"/file/02_processed/{stem}/_thumb.png" if thumb.exists() else None
+            row["thumb_url"] = (
+                f"/file/02_processed/{stem}/_thumb.png" if thumb.exists() else None
+            )
         if probe_preflight:
             json_side = CAP_DIR / f"{stem}.json"
             txt_side = CAP_DIR / f"{stem}.txt"
@@ -825,7 +1024,9 @@ def list_clips(probe_preflight: bool = False, ensure_thumbs: bool = False):
             else:
                 hooks = []
             cap_set = type("_CapSet", (), {"hooks": hooks})()
-            row["preflight"] = [w.__dict__ for w in check_clip_readiness(mp4, cap_set, ffprobe=FFPROBE)]
+            row["preflight"] = [
+                w.__dict__ for w in check_clip_readiness(mp4, cap_set, ffprobe=FFPROBE)
+            ]
     return out
 
 
@@ -835,7 +1036,11 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
     needs_review = sum(int(row["status"].get("draft", 0)) for row in clips_data)
     ready_to_post = sum(int(row["status"].get("approved", 0)) for row in clips_data)
     needs_metrics = sum(
-        max(0, int(row["status"].get("approved", 0)) - int(row["status"].get("outcome_count", 0)))
+        max(
+            0,
+            int(row["status"].get("approved", 0))
+            - int(row["status"].get("outcome_count", 0)),
+        )
         for row in clips_data
     )
     rec = None
@@ -875,13 +1080,17 @@ def next_clip_id_api():
 def get_clip(stem: str, probe_audio: bool = False):
     stem = _safe_stem(stem)
     json_side = CAP_DIR / f"{stem}.json"
-    txt_side  = CAP_DIR / f"{stem}.txt"
-    proc_dir  = PROC_DIR / stem
+    txt_side = CAP_DIR / f"{stem}.txt"
+    proc_dir = PROC_DIR / stem
 
     if json_side.exists():
         side = json.loads(json_side.read_text())
     elif txt_side.exists():
-        side = {"hooks": [txt_side.read_text().strip()], "recipes": None, "caption_color": "auto"}
+        side = {
+            "hooks": [txt_side.read_text().strip()],
+            "recipes": None,
+            "caption_color": "auto",
+        }
     else:
         side = {"hooks": [], "recipes": None, "caption_color": "auto"}
 
@@ -894,7 +1103,9 @@ def get_clip(stem: str, probe_audio: bool = False):
             manifest_data = json.loads(manifest_path.read_text())
             for vid in manifest_data.get("videos", {}).values():
                 for var in vid.get("variations", []):
-                    review_by_name[Path(var.get("output_path", "")).name] = var.get("review_state", "draft")
+                    review_by_name[Path(var.get("output_path", "")).name] = var.get(
+                        "review_state", "draft"
+                    )
         except Exception:
             review_by_name = {}
     similarity_by_name: dict[str, dict] = {}
@@ -932,35 +1143,48 @@ def get_clip(stem: str, probe_audio: bool = False):
         for mp4 in mp4s:
             parts = mp4.stem.split("_")
             try:
-                h_pos = next(i for i, p in enumerate(parts) if p.startswith("h") and p[1:].isdigit())
-                color_pos = next(i for i, p in enumerate(parts) if p in ("light", "dark"))
+                h_pos = next(
+                    i
+                    for i, p in enumerate(parts)
+                    if p.startswith("h") and p[1:].isdigit()
+                )
+                color_pos = next(
+                    i for i, p in enumerate(parts) if p in ("light", "dark")
+                )
                 hook_idx = int(parts[h_pos][1:])
-                recipe   = "_".join(parts[h_pos+1:color_pos])
-                color    = parts[color_pos]
+                recipe = "_".join(parts[h_pos + 1 : color_pos])
+                color = parts[color_pos]
             except (StopIteration, ValueError):
                 hook_idx, recipe, color = -1, "", ""
-            preview = proc_dir / "_previews" / f"{mp4.stem}.png"
-            outputs.append({
-                "name": mp4.name,
-                "size_mb": round(mp4.stat().st_size / 1024 / 1024, 2),
-                "url": f"/file/02_processed/{stem}/{mp4.name}",
-                "thumbnail_url": (
-                    f"/file/02_processed/{stem}/{thumbnail_path_for(mp4).name}"
-                    if thumbnail_path_for(mp4).exists() else None
-                ),
-                "hook_idx": hook_idx,
-                "recipe": recipe,
-                "color": color,
-                "review_state": review_by_name.get(mp4.name, "draft"),
-                "audio_present": audio_stream_count(mp4) > 0 if probe_audio else "_audio_" in mp4.stem,
-                "target_ratio": "4:5" if "_4x5_" in mp4.name else "9:16",
-                "similarity": similarity_by_name.get(mp4.name),
-                "ai_qc": ai_qc_by_name.get(mp4.name),
-                "audio_intent": read_audio_intent(mp4),
-                "readiness": readiness_by_name.get(mp4.name),
-                "safe_zone": (readiness_by_name.get(mp4.name) or {}).get("safeZone"),
-                "operator_rating": rating_by_path.get(str(mp4.resolve())),
-            })
+            proc_dir / "_previews" / f"{mp4.stem}.png"
+            outputs.append(
+                {
+                    "name": mp4.name,
+                    "size_mb": round(mp4.stat().st_size / 1024 / 1024, 2),
+                    "url": f"/file/02_processed/{stem}/{mp4.name}",
+                    "thumbnail_url": (
+                        f"/file/02_processed/{stem}/{thumbnail_path_for(mp4).name}"
+                        if thumbnail_path_for(mp4).exists()
+                        else None
+                    ),
+                    "hook_idx": hook_idx,
+                    "recipe": recipe,
+                    "color": color,
+                    "review_state": review_by_name.get(mp4.name, "draft"),
+                    "audio_present": audio_stream_count(mp4) > 0
+                    if probe_audio
+                    else "_audio_" in mp4.stem,
+                    "target_ratio": "4:5" if "_4x5_" in mp4.name else "9:16",
+                    "similarity": similarity_by_name.get(mp4.name),
+                    "ai_qc": ai_qc_by_name.get(mp4.name),
+                    "audio_intent": read_audio_intent(mp4),
+                    "readiness": readiness_by_name.get(mp4.name),
+                    "safe_zone": (readiness_by_name.get(mp4.name) or {}).get(
+                        "safeZone"
+                    ),
+                    "operator_rating": rating_by_path.get(str(mp4.resolve())),
+                }
+            )
 
     return {
         "stem": stem,
@@ -968,13 +1192,19 @@ def get_clip(stem: str, probe_audio: bool = False):
         "outputs": outputs,
         "video_url": f"/file/00_source_videos/{stem}.mp4",
         "grid_crop": {
-            "plan_path": str(crop_plan_path(ROOT, stem)) if crop_plan_path(ROOT, stem).exists() else None,
+            "plan_path": str(crop_plan_path(ROOT, stem))
+            if crop_plan_path(ROOT, stem).exists()
+            else None,
             "plan": load_crop_plan(ROOT, stem),
         },
         "latest_preview": _latest_preview_url(stem),
         "safe_zones": SAFE_ZONE_DEFAULTS,
-        "contact_sheet": f"/file/02_processed/{stem}/_contact_sheet.png" if (proc_dir / "_contact_sheet.png").exists() else None,
-        "csv": f"/file/02_processed/{stem}/_index.csv" if (proc_dir / "_index.csv").exists() else None,
+        "contact_sheet": f"/file/02_processed/{stem}/_contact_sheet.png"
+        if (proc_dir / "_contact_sheet.png").exists()
+        else None,
+        "csv": f"/file/02_processed/{stem}/_index.csv"
+        if (proc_dir / "_index.csv").exists()
+        else None,
     }
 
 
@@ -1016,7 +1246,13 @@ def auto_hooks_api(stem: str, body: dict = Body(default={})):
     side = json.loads(json_side.read_text()) if json_side.exists() else {}
     existing = side.get("hooks") or []
     if existing and not body.get("force"):
-        return {"ok": True, "stem": stem, "hook_count": len(existing), "hooks": existing, "generated": False}
+        return {
+            "ok": True,
+            "stem": stem,
+            "hook_count": len(existing),
+            "hooks": existing,
+            "generated": False,
+        }
     hooks = _auto_hooks_for_clip(stem, count=int(body.get("count") or 8))
     side["hooks"] = hooks
     side.setdefault("recipes", None)
@@ -1028,13 +1264,19 @@ def auto_hooks_api(stem: str, body: dict = Body(default={})):
     }
     CAP_DIR.mkdir(parents=True, exist_ok=True)
     json_side.write_text(json.dumps(side, indent=2, ensure_ascii=False))
-    return {"ok": True, "stem": stem, "hook_count": len(hooks), "hooks": hooks, "generated": True}
+    return {
+        "ok": True,
+        "stem": stem,
+        "hook_count": len(hooks),
+        "hooks": hooks,
+        "generated": True,
+    }
 
 
 @app.get("/api/hook-library")
-def hook_library(tag: str | None = None,
-                 semantic_group: str | None = None,
-                 min_use_count: int = 0):
+def hook_library(
+    tag: str | None = None, semantic_group: str | None = None, min_use_count: int = 0
+):
     hooks = read_hook_library(HOOK_LIBRARY)
     if tag:
         hooks = [h for h in hooks if tag in (h.get("tags") or [])]
@@ -1069,7 +1311,9 @@ def ai_hooks(body: dict = Body(...)):
         strict=bool(body.get("strict", True)),
         required_terms=body.get("required_terms") or [],
         reject_identical=bool(body.get("reject_identical", True)),
-        min_similarity=float(body["min_similarity"]) if body.get("min_similarity") is not None else None,
+        min_similarity=float(body["min_similarity"])
+        if body.get("min_similarity") is not None
+        else None,
         embedding_model=body.get("embedding_model", "hash-v1"),
         log_path=DATA_DIR / "caption_generations.jsonl",
         recent_hooks=_recent_saved_hooks(),
@@ -1153,6 +1397,7 @@ def run_readiness_api(body: dict = Body(...)):
         clip_dir = PROC_DIR / clip
         if not (clip_dir / "_ai_qc.json").exists():
             from ai_visual_qc import run_ai_qc
+
             run_ai_qc(ROOT, clip=clip)
     platform = str(body.get("platform") or "instagram_reels")
     return {"ok": True, **run_readiness(ROOT, clip=clip, platform=platform)}
@@ -1172,11 +1417,13 @@ def update_output_review(filename: str, body: dict = Body(...)):
             reason=str(body.get("reason") or ""),
             deck_id=body.get("deckId") or body.get("deck_id"),
             reference_hash=body.get("referenceHash") or body.get("reference_hash"),
-            generated_asset_hash=body.get("generatedAssetHash") or body.get("generated_asset_hash"),
+            generated_asset_hash=body.get("generatedAssetHash")
+            or body.get("generated_asset_hash"),
             soul_id=body.get("soulId") or body.get("soul_id"),
             aspect_ratio=body.get("aspectRatio") or body.get("aspect_ratio"),
             visual_qc_status=body.get("visualQcStatus") or body.get("visual_qc_status"),
-            identity_verification_status=body.get("identityVerificationStatus") or body.get("identity_verification_status"),
+            identity_verification_status=body.get("identityVerificationStatus")
+            or body.get("identity_verification_status"),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -1184,7 +1431,9 @@ def update_output_review(filename: str, body: dict = Body(...)):
         raise HTTPException(404, "output not found in manifest")
     try:
         output = _find_output_file(filename)
-        link_campaign_output(ROOT, output_path=output, campaign=body.get("campaign"), review_state=state)
+        link_campaign_output(
+            ROOT, output_path=output, campaign=body.get("campaign"), review_state=state
+        )
     except Exception:
         pass
     manifest.save()
@@ -1211,7 +1460,11 @@ def create_campaign_api(body: dict = Body(...)):
 
 @app.post("/api/campaigns/{campaign}/references")
 def add_campaign_reference_api(campaign: str, body: dict = Body(...)):
-    source = body.get("reference_reel") or body.get("reference_image") or body.get("source_path")
+    source = (
+        body.get("reference_reel")
+        or body.get("reference_image")
+        or body.get("source_path")
+    )
     if not source:
         raise HTTPException(400, "reference_reel or reference_image is required")
     return add_reference(
@@ -1241,20 +1494,30 @@ def import_reel_url_api(body: dict = Body(...)):
         raise HTTPException(400, str(exc)) from exc
 
     cap = CAP_DIR / f"{stem}.json"
-    cap.write_text(json.dumps({
-        "_downloaded_from_url": url,
-        "hooks": [],
-        "recipes": None,
-        "caption_color": "auto",
-    }, indent=2, ensure_ascii=False), encoding="utf-8")
+    cap.write_text(
+        json.dumps(
+            {
+                "_downloaded_from_url": url,
+                "hooks": [],
+                "recipes": None,
+                "caption_color": "auto",
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     url_meta_path = RAW_DIR / f"{stem}.reel_url_import.json"
-    write_url_sidecar(url_meta_path, {
-        "schema": "reel_factory.reel_url_import.v1",
-        "url": url,
-        "stem": stem,
-        "sourceVideoPath": download["path"],
-        "campaign": campaign,
-    })
+    write_url_sidecar(
+        url_meta_path,
+        {
+            "schema": "reel_factory.reel_url_import.v1",
+            "url": url,
+            "stem": stem,
+            "sourceVideoPath": download["path"],
+            "campaign": campaign,
+        },
+    )
 
     reference_record = None
     if campaign:
@@ -1269,7 +1532,9 @@ def import_reel_url_api(body: dict = Body(...)):
 
     prompt_result = None
     if body.get("generate_prompt", False):
-        prompt_path = Path(body.get("prompt_out") or ROOT / "prompts" / f"{stem}_legacy_prompt.json")
+        prompt_path = Path(
+            body.get("prompt_out") or ROOT / "prompts" / f"{stem}_legacy_prompt.json"
+        )
         try:
             prompt_result = generate_prompt(
                 out_path=prompt_path.expanduser().resolve(),
@@ -1279,16 +1544,26 @@ def import_reel_url_api(body: dict = Body(...)):
                 campaign=campaign,
                 creator=creator,
                 retry_helper=body.get("retry_helper"),
-                reference_frame_mode=str(body.get("reference_frame_mode") or "first-visible"),
+                reference_frame_mode=str(
+                    body.get("reference_frame_mode") or "first-visible"
+                ),
                 creative_direction=str(body.get("creative_direction") or ""),
                 reference_context=str(body.get("reference_context") or ""),
-                operator_notes=str(body.get("operator_notes") or f"Imported from URL: {url}"),
+                operator_notes=str(
+                    body.get("operator_notes") or f"Imported from URL: {url}"
+                ),
                 dry_run=True,
-                grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "single"),
+                grid_layout=str(
+                    body.get("grid_layout") or body.get("gridLayout") or "single"
+                ),
             )
             prompt_result["legacy"] = True
         except Exception as exc:
-            prompt_result = {"ok": False, "error": str(exc), "prompt_json_path": str(prompt_path)}
+            prompt_result = {
+                "ok": False,
+                "error": str(exc),
+                "prompt_json_path": str(prompt_path),
+            }
 
     return {
         "ok": True,
@@ -1348,10 +1623,21 @@ def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
 def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output([
-        FFPROBE, "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,duration", "-of", "json", str(source),
-    ], text=True)
+    info_raw = subprocess.check_output(
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration",
+            "-of",
+            "json",
+            str(source),
+        ],
+        text=True,
+    )
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     frame = frame_path(ROOT, stem, time_sec)
     extract_frame(source, frame, time_sec=time_sec)
@@ -1376,10 +1662,21 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
 def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output([
-        FFPROBE, "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,duration", "-of", "json", str(source),
-    ], text=True)
+    info_raw = subprocess.check_output(
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration",
+            "-of",
+            "json",
+            str(source),
+        ],
+        text=True,
+    )
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     width = int(stream.get("width") or 0)
     height = int(stream.get("height") or 0)
@@ -1391,13 +1688,23 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
         rows = rows or layout_rows
     if not columns or not rows:
         columns, rows = infer_grid_preset(width, height)
-    boxes = preset_boxes(width, height, columns=int(columns), rows=int(rows), inset=int(body.get("inset") or 0))
+    boxes = preset_boxes(
+        width,
+        height,
+        columns=int(columns),
+        rows=int(rows),
+        inset=int(body.get("inset") or 0),
+    )
     return {
         "ok": True,
         "stem": stem,
         "grid_preset": {"columns": int(columns), "rows": int(rows)},
         "boxes": boxes,
-        "source_dimensions": {"width": width, "height": height, "duration": float(stream.get("duration") or 0.0)},
+        "source_dimensions": {
+            "width": width,
+            "height": height,
+            "duration": float(stream.get("duration") or 0.0),
+        },
     }
 
 
@@ -1416,12 +1723,21 @@ def grid_crop_save_plan_api(stem: str, body: dict = Body(...)):
         columns=int(columns) if columns else None,
         rows=int(rows) if rows else None,
         boxes=body.get("boxes") or None,
-        render_mode=str(body.get("render_mode") or body.get("renderMode") or "fit_nocrop"),
+        render_mode=str(
+            body.get("render_mode") or body.get("renderMode") or "fit_nocrop"
+        ),
     )
     dims = plan["sourceDimensions"]
-    plan["boxes"] = validate_boxes(plan["boxes"], width=int(dims["width"]), height=int(dims["height"]))
+    plan["boxes"] = validate_boxes(
+        plan["boxes"], width=int(dims["width"]), height=int(dims["height"])
+    )
     path = save_crop_plan(ROOT, plan)
-    return {"ok": True, "plan": plan, "plan_path": str(path), "plan_url": _file_url(path)}
+    return {
+        "ok": True,
+        "plan": plan,
+        "plan_path": str(path),
+        "plan_url": _file_url(path),
+    }
 
 
 @app.post("/api/grid-crop/{stem}/preview")
@@ -1435,7 +1751,12 @@ def grid_crop_preview_api(stem: str, body: dict = Body(...)):
         raise HTTPException(404, str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(400, f"panel {panel_id} not found") from exc
-    return {"ok": True, "panel_id": panel_id, "preview_path": str(preview), "preview_url": _file_url(preview)}
+    return {
+        "ok": True,
+        "panel_id": panel_id,
+        "preview_path": str(preview),
+        "preview_url": _file_url(preview),
+    }
 
 
 @app.post("/api/grid-crop/{stem}/render")
@@ -1485,14 +1806,16 @@ def asset_reference_image_create_api(body: dict = Body(...)):
     generation = lineage.get("generation") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
     image_path = assets.get("image")
-    result.update({
-        "workflow": "higgsfield_direct_reference_image",
-        "image_job_id": generation.get("imageJobId"),
-        "image_result_url": generation.get("imageResultUrl"),
-        "captured_higgsfield_prompt": generation.get("capturedHiggsfieldPrompt"),
-        "local_image_path": image_path,
-        "lineage_path": result.get("path"),
-    })
+    result.update(
+        {
+            "workflow": "higgsfield_direct_reference_image",
+            "image_job_id": generation.get("imageJobId"),
+            "image_result_url": generation.get("imageResultUrl"),
+            "captured_higgsfield_prompt": generation.get("capturedHiggsfieldPrompt"),
+            "local_image_path": image_path,
+            "lineage_path": result.get("path"),
+        }
+    )
     if image_path:
         result["image_url"] = _file_url(Path(image_path))
         result["local_image_url"] = result["image_url"]
@@ -1520,12 +1843,20 @@ def asset_dry_run_api(body: dict = Body(...)):
         creator=creator,
         selected_panel=body.get("selected_panel"),
         image_mode=body.get("image_mode") or "single",
-        image_aspect_ratio=body.get("image_aspect_ratio") or body.get("imageAspectRatio") or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
+        image_aspect_ratio=body.get("image_aspect_ratio")
+        or body.get("imageAspectRatio")
+        or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=body.get("image_quality") or body.get("imageQuality") or "2k",
-        video_aspect_ratio=body.get("video_aspect_ratio") or body.get("videoAspectRatio") or "9:16",
-        video_duration=int(body.get("video_duration") or body.get("videoDuration") or 5),
+        video_aspect_ratio=body.get("video_aspect_ratio")
+        or body.get("videoAspectRatio")
+        or "9:16",
+        video_duration=int(
+            body.get("video_duration") or body.get("videoDuration") or 5
+        ),
         video_sound=body.get("video_sound") or body.get("videoSound") or "off",
-        image_model=body.get("image_model") or body.get("imageModel") or "text2image_soul_v2",
+        image_model=body.get("image_model")
+        or body.get("imageModel")
+        or "text2image_soul_v2",
         video_model=body.get("video_model") or body.get("videoModel") or "kling3_0",
     )
     return asset_dry_run(plan, wait=bool(body.get("wait")))
@@ -1542,8 +1873,12 @@ def prompt_generate_api(body: dict = Body(...)):
     result = generate_prompt(
         out_path=out_path.expanduser().resolve(),
         root=ROOT,
-        reference_reel=Path(_resolve_project_path(reference_reel)) if reference_reel else None,
-        reference_images=[Path(_resolve_project_path(reference_image))] if reference_image else [],
+        reference_reel=Path(_resolve_project_path(reference_reel))
+        if reference_reel
+        else None,
+        reference_images=[Path(_resolve_project_path(reference_image))]
+        if reference_image
+        else [],
         campaign=body.get("campaign"),
         creator=body.get("creator") or "Stacey",
         retry_helper=body.get("retry_helper"),
@@ -1552,7 +1887,11 @@ def prompt_generate_api(body: dict = Body(...)):
         operator_notes=str(body.get("operator_notes") or ""),
         dry_run=True,
         grid_layout=str(body.get("grid_layout") or body.get("gridLayout") or "single"),
-        image_aspect_ratio=str(body.get("image_aspect_ratio") or body.get("imageAspectRatio") or DEFAULT_GRID_IMAGE_ASPECT_RATIO),
+        image_aspect_ratio=str(
+            body.get("image_aspect_ratio")
+            or body.get("imageAspectRatio")
+            or DEFAULT_GRID_IMAGE_ASPECT_RATIO
+        ),
     )
     result["legacy"] = True
     return result
@@ -1576,11 +1915,17 @@ def asset_create_image_api(body: dict = Body(...)):
         campaign=body.get("campaign"),
         creator=body.get("creator") or "Stacey",
         image_mode=body.get("image_mode") or "single",
-        image_aspect_ratio=body.get("image_aspect_ratio") or body.get("imageAspectRatio") or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
+        image_aspect_ratio=body.get("image_aspect_ratio")
+        or body.get("imageAspectRatio")
+        or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=body.get("image_quality") or body.get("imageQuality") or "2k",
     )
     try:
-        result = create_image_asset(plan, wait=bool(body.get("wait", True)), download=bool(body.get("download", True)))
+        result = create_image_asset(
+            plan,
+            wait=bool(body.get("wait", True)),
+            download=bool(body.get("download", True)),
+        )
     except HiggsfieldCommandError as exc:
         return _higgsfield_cli_error(exc)
     lineage = result.get("lineage") or {}
@@ -1588,19 +1933,33 @@ def asset_create_image_api(body: dict = Body(...)):
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
     campaign_record = result.get("campaign_record") or {}
     image_path = assets.get("image")
-    result.update({
-        "image_job_id": generation.get("imageJobId"),
-        "image_job_ids": generation.get("imageJobIds") or ([generation.get("imageJobId")] if generation.get("imageJobId") else []),
-        "image_result_url": generation.get("imageResultUrl"),
-        "image_result_urls": generation.get("imageResultUrls") or ([generation.get("imageResultUrl")] if generation.get("imageResultUrl") else []),
-        "local_image_path": image_path,
-        "six_pack_paths": {k: v for k, v in assets.items() if str(k).startswith("variation_")},
-        "six_pack_urls": {k: _file_url(Path(v)) for k, v in assets.items() if str(k).startswith("variation_")},
-        "grid": generation.get("grid"),
-        "grid_status": (generation.get("grid") or {}).get("status"),
-        "asset_generation_id": campaign_record.get("asset_generation_id"),
-        "lineage_path": result.get("path"),
-    })
+    result.update(
+        {
+            "image_job_id": generation.get("imageJobId"),
+            "image_job_ids": generation.get("imageJobIds")
+            or ([generation.get("imageJobId")] if generation.get("imageJobId") else []),
+            "image_result_url": generation.get("imageResultUrl"),
+            "image_result_urls": generation.get("imageResultUrls")
+            or (
+                [generation.get("imageResultUrl")]
+                if generation.get("imageResultUrl")
+                else []
+            ),
+            "local_image_path": image_path,
+            "six_pack_paths": {
+                k: v for k, v in assets.items() if str(k).startswith("variation_")
+            },
+            "six_pack_urls": {
+                k: _file_url(Path(v))
+                for k, v in assets.items()
+                if str(k).startswith("variation_")
+            },
+            "grid": generation.get("grid"),
+            "grid_status": (generation.get("grid") or {}).get("status"),
+            "asset_generation_id": campaign_record.get("asset_generation_id"),
+            "lineage_path": result.get("path"),
+        }
+    )
     if image_path:
         result["image_url"] = _file_url(Path(image_path))
         result["local_image_url"] = result["image_url"]
@@ -1657,15 +2016,25 @@ def asset_create_video_api(body: dict = Body(...)):
         source_dir=RAW_DIR,
         video_reference=_resolve_project_path(body.get("video_reference")),
         campaign=None if body.get("asset_generation_id") else body.get("campaign"),
-        creator=None if body.get("asset_generation_id") else (body.get("creator") or "Stacey"),
+        creator=None
+        if body.get("asset_generation_id")
+        else (body.get("creator") or "Stacey"),
         selected_panel=body.get("selected_panel"),
-        video_aspect_ratio=body.get("video_aspect_ratio") or body.get("videoAspectRatio") or "9:16",
-        video_duration=int(body.get("video_duration") or body.get("videoDuration") or 5),
+        video_aspect_ratio=body.get("video_aspect_ratio")
+        or body.get("videoAspectRatio")
+        or "9:16",
+        video_duration=int(
+            body.get("video_duration") or body.get("videoDuration") or 5
+        ),
         video_sound=body.get("video_sound") or body.get("videoSound") or "off",
         video_model=body.get("video_model") or body.get("videoModel") or "kling3_0",
     )
     try:
-        result = create_video_asset(plan, wait=bool(body.get("wait", True)), download=bool(body.get("download", False)))
+        result = create_video_asset(
+            plan,
+            wait=bool(body.get("wait", True)),
+            download=bool(body.get("download", False)),
+        )
     except HiggsfieldCommandError as exc:
         return _higgsfield_cli_error(exc)
     lineage = result.get("lineage") or {}
@@ -1686,12 +2055,14 @@ def asset_create_video_api(body: dict = Body(...)):
             status="video_created",
         )
         campaign_record["asset_generation_id"] = body["asset_generation_id"]
-    result.update({
-        "video_job_id": generation.get("videoJobId"),
-        "video_result_url": video_url,
-        "asset_generation_id": campaign_record.get("asset_generation_id"),
-        "lineage_path": result.get("path"),
-    })
+    result.update(
+        {
+            "video_job_id": generation.get("videoJobId"),
+            "video_result_url": video_url,
+            "asset_generation_id": campaign_record.get("asset_generation_id"),
+            "lineage_path": result.get("path"),
+        }
+    )
     return result
 
 
@@ -1740,7 +2111,9 @@ def asset_fanout_panels_api(body: dict = Body(...)):
     parent_image_job_id = body.get("image_job_id")
     parent_asset_generation_id = body.get("asset_generation_id")
     panels: list[dict[str, Any]] = []
-    shared_prompt_path = _write_shared_motion_prompt(prompt_json, stem) if selected_panels else None
+    shared_prompt_path = (
+        _write_shared_motion_prompt(prompt_json, stem) if selected_panels else None
+    )
 
     for panel in selected_panels:
         panel_no = int(panel["panel"])
@@ -1771,9 +2144,15 @@ def asset_fanout_panels_api(body: dict = Body(...)):
                 campaign=None,
                 creator=None,
                 selected_panel=str(panel_no),
-                video_aspect_ratio=_aspect_ratio_for_crop(panel.get("cropBox") or [0, 0, 9, 16]),
+                video_aspect_ratio=_aspect_ratio_for_crop(
+                    panel.get("cropBox") or [0, 0, 9, 16]
+                ),
             )
-            result = create_video_asset(plan, wait=bool(body.get("wait", True)), download=bool(body.get("download", False)))
+            result = create_video_asset(
+                plan,
+                wait=bool(body.get("wait", True)),
+                download=bool(body.get("download", False)),
+            )
             generation = (result.get("lineage") or {}).get("generation") or {}
             status = "created" if result.get("ok") else "failed"
             created = {
@@ -1868,11 +2247,18 @@ def asset_download_video_api(body: dict = Body(...)):
     if not url and asset_generation:
         url = asset_generation.get("video_result_url")
     if not url:
-        raise HTTPException(400, "video_url or asset_generation_id with stored video_result_url is required")
+        raise HTTPException(
+            400,
+            "video_url or asset_generation_id with stored video_result_url is required",
+        )
     stem = str(body.get("stem") or _next_clip_id())
     out = RAW_DIR / f"{stem}.mp4"
     urllib.request.urlretrieve(str(url), out)
-    prompt_json = Path(body.get("prompt_json")).expanduser().resolve() if body.get("prompt_json") else None
+    prompt_json = (
+        Path(body.get("prompt_json")).expanduser().resolve()
+        if body.get("prompt_json")
+        else None
+    )
     lineage = {
         "schema": "campaign_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
@@ -1881,34 +2267,53 @@ def asset_download_video_api(body: dict = Body(...)):
             "promptSourcePath": str(prompt_json) if prompt_json else None,
             "sourceVideoPath": str(out.resolve()),
             "soulName": body.get("creator") or "Stacey",
-            "selectedPanel": body.get("selected_panel") or (asset_generation or {}).get("selected_panel"),
-            "startImage": body.get("start_image") or (asset_generation or {}).get("start_image"),
+            "selectedPanel": body.get("selected_panel")
+            or (asset_generation or {}).get("selected_panel"),
+            "startImage": body.get("start_image")
+            or (asset_generation or {}).get("start_image"),
         },
         "generation": {
             "tool": "higgsfield_cli",
             "workflow": "operator_cockpit_kling_download",
             "models": {"video": "kling3_0"},
-            "videoJobId": body.get("video_job_id") or (asset_generation or {}).get("video_job_id"),
+            "videoJobId": body.get("video_job_id")
+            or (asset_generation or {}).get("video_job_id"),
             "videoResultUrl": url,
             "assetGenerationId": body.get("asset_generation_id"),
-            "steps": [{
-                "name": "download_video",
-                "url": url,
-                "localPath": str(out.resolve()),
-            }],
+            "steps": [
+                {
+                    "name": "download_video",
+                    "url": url,
+                    "localPath": str(out.resolve()),
+                }
+            ],
         },
         "assets": {"localPaths": {"video": str(out.resolve())}},
         "review": {"humanReviewRequired": True},
     }
     lineage_path = RAW_DIR / f"{stem}.generated_asset_lineage.json"
-    lineage_path.write_text(json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8")
+    lineage_path.write_text(
+        json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     cap = CAP_DIR / f"{stem}.json"
     if not cap.exists():
-        cap.write_text(json.dumps({
-            "hooks": body.get("hooks") or ["when the room gets quiet", "he noticed before i said anything", "just a little too casual"],
-            "recipes": None,
-            "caption_color": "auto",
-        }, indent=2, ensure_ascii=False), encoding="utf-8")
+        cap.write_text(
+            json.dumps(
+                {
+                    "hooks": body.get("hooks")
+                    or [
+                        "when the room gets quiet",
+                        "he noticed before i said anything",
+                        "just a little too casual",
+                    ],
+                    "recipes": None,
+                    "caption_color": "auto",
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
     if body.get("asset_generation_id"):
         raw_meta = (asset_generation or {}).get("raw") or {}
         raw_meta["download"] = {
@@ -1941,17 +2346,24 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
     if not stem:
         raise HTTPException(400, "stem is required")
     cmd = [
-        sys.executable, "reel_pipeline.py",
-        "--root", str(ROOT),
-        "--only-clip", _safe_stem(str(stem)),
-        "--campaign", campaign,
+        sys.executable,
+        "reel_pipeline.py",
+        "--root",
+        str(ROOT),
+        "--only-clip",
+        _safe_stem(str(stem)),
+        "--campaign",
+        campaign,
         "--ai-qc",
         "--readiness",
     ]
     if body.get("asset_generation_id"):
         cmd += ["--asset-generation-id", str(body["asset_generation_id"])]
     if body.get("asset_prompt_json"):
-        cmd += ["--asset-prompt-json", str(Path(body["asset_prompt_json"]).expanduser().resolve())]
+        cmd += [
+            "--asset-prompt-json",
+            str(Path(body["asset_prompt_json"]).expanduser().resolve()),
+        ]
     if body.get("recipes"):
         recipes = body["recipes"]
         if isinstance(recipes, str):
@@ -1966,7 +2378,9 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         cmd += ["--target-ratios", *[str(r) for r in ratios]]
     if body.get("workers"):
         cmd += ["--workers", str(int(body["workers"]))]
-    proc = subprocess.run(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.run(
+        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-2000:])
     return {"ok": True, "log": proc.stdout[-4000:]}
@@ -1980,7 +2394,9 @@ def batch_output_review(body: dict = Body(...)):
     recipe = body.get("recipe")
     stem = body.get("stem")
     if state not in {"draft", "maybe", "approved", "rejected"}:
-        raise HTTPException(400, "review_state must be draft, maybe, approved, or rejected")
+        raise HTTPException(
+            400, "review_state must be draft, maybe, approved, or rejected"
+        )
     if not filenames:
         clip = get_clip(_safe_stem(stem)) if stem else None
         if clip:
@@ -2025,9 +2441,15 @@ def import_metrics(body: dict = Body(...)):
 
 
 @app.post("/api/outcomes/import")
-async def import_outcomes(body: dict | None = Body(default=None), file: UploadFile | None = File(default=None)):
+async def import_outcomes(
+    body: dict | None = Body(default=None), file: UploadFile | None = File(default=None)
+):
     if file is not None:
-        tmp = DATA_DIR / "imports" / f"{int(time.time())}_{Path(file.filename or 'outcomes.csv').name}"
+        tmp = (
+            DATA_DIR
+            / "imports"
+            / f"{int(time.time())}_{Path(file.filename or 'outcomes.csv').name}"
+        )
         tmp.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_bytes(await file.read())
         csv_path = tmp
@@ -2071,11 +2493,15 @@ def similar_api(path: str, limit: int = 10):
 
 
 @app.get("/api/reports/duplicate-risk")
-def duplicate_risk_api(path: str, account: str, platform: str | None = None, limit: int = 20):
+def duplicate_risk_api(
+    path: str, account: str, platform: str | None = None, limit: int = 20
+):
     resolved = Path(_resolve_project_path(path))
     if not resolved.exists():
         resolved = _find_output_file(Path(path).name)
-    return duplicate_risk(ROOT, resolved, account=account, platform=platform, limit=limit)
+    return duplicate_risk(
+        ROOT, resolved, account=account, platform=platform, limit=limit
+    )
 
 
 @app.post("/api/winner-dna/refresh")
@@ -2115,7 +2541,13 @@ def record_cost_api(body: dict = Body(...)):
     output_path = body.get("output_path")
     if output_path:
         try:
-            output_path = str(_find_output_file(Path(output_path).name if not Path(output_path).is_absolute() else output_path))
+            output_path = str(
+                _find_output_file(
+                    Path(output_path).name
+                    if not Path(output_path).is_absolute()
+                    else output_path
+                )
+            )
         except HTTPException:
             output_path = str(_resolve_project_path(output_path))
     return record_cost(
@@ -2143,7 +2575,13 @@ def assign_experiment_api(body: dict = Body(...)):
     output_path = body.get("output_path")
     if output_path:
         try:
-            output_path = str(_find_output_file(Path(output_path).name if not Path(output_path).is_absolute() else output_path))
+            output_path = str(
+                _find_output_file(
+                    Path(output_path).name
+                    if not Path(output_path).is_absolute()
+                    else output_path
+                )
+            )
         except HTTPException:
             output_path = str(_resolve_project_path(output_path))
     return assign_experiment(
@@ -2162,7 +2600,9 @@ def export_approved_api(body: dict = Body(...)):
     account = str(body.get("account") or "default")
     platform = str(body.get("platform") or "ig")
     date = str(body.get("date") or time.strftime("%Y-%m-%d"))
-    return export_approved(ROOT, account=account, platform=platform, date=date, notes=body.get("notes"))
+    return export_approved(
+        ROOT, account=account, platform=platform, date=date, notes=body.get("notes")
+    )
 
 
 @app.post("/api/posting-ledger/plan")
@@ -2270,22 +2710,36 @@ def threadsdashboard_queue_api(body: dict = Body(...)):
 def preview_clip(stem: str, body: dict = Body(default={})):
     stem = _safe_stem(stem)
     cmd = [
-        sys.executable, "reel_pipeline.py",
-        "--root", str(ROOT),
-        "--only-clip", stem,
+        sys.executable,
+        "reel_pipeline.py",
+        "--root",
+        str(ROOT),
+        "--only-clip",
+        stem,
         "--preview",
-        "--max-hooks", "1",
-        "--max-recipes", "1",
-        "--hook-select", "first",
-        "--caption-renderer", body.get("caption_renderer") or "pillow",
-        "--placement-mode", body.get("placement_mode") or "source",
+        "--max-hooks",
+        "1",
+        "--max-recipes",
+        "1",
+        "--hook-select",
+        "first",
+        "--caption-renderer",
+        body.get("caption_renderer") or "pillow",
+        "--placement-mode",
+        body.get("placement_mode") or "source",
     ]
     if body.get("target_ratio"):
         cmd += ["--target-ratios", body["target_ratio"]]
-    proc = subprocess.run(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.run(
+        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-1500:])
-    return {"ok": True, "preview_url": _latest_preview_url(stem), "log": proc.stdout[-2000:]}
+    return {
+        "ok": True,
+        "preview_url": _latest_preview_url(stem),
+        "log": proc.stdout[-2000:],
+    }
 
 
 @app.post("/api/clips/{stem}/whisper-sync")
@@ -2349,12 +2803,18 @@ async def upload_clip(file: UploadFile = File(...)):
     # Stub caption sidecar so the clip appears with an editable hook list
     sidecar = CAP_DIR / f"{stem}.json"
     if not sidecar.exists():
-        sidecar.write_text(json.dumps({
-            "_uploaded_from": file.filename,
-            "hooks": [],
-            "recipes": None,
-            "caption_color": "auto",
-        }, indent=2, ensure_ascii=False))
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "_uploaded_from": file.filename,
+                    "hooks": [],
+                    "recipes": None,
+                    "caption_color": "auto",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
 
     return {"ok": True, "stem": stem, "filename": file.filename}
 
@@ -2362,7 +2822,7 @@ async def upload_clip(file: UploadFile = File(...)):
 @app.post("/api/spin")
 def spin(body: dict = Body(...)):
     base = body.get("base", "")
-    n    = int(body.get("n", 8))
+    n = int(body.get("n", 8))
     return {"variations": spin_hooks(base, n=n)}
 
 
@@ -2376,13 +2836,15 @@ def list_accounts():
             continue
         try:
             data = json.loads(j.read_text())
-            out.append({
-                "id": j.stem,
-                "handle": data.get("handle", ""),
-                "voice":  data.get("voice", ""),
-                "fonts":  data.get("preferred_fonts", []),
-                "styles": data.get("preferred_styles", []),
-            })
+            out.append(
+                {
+                    "id": j.stem,
+                    "handle": data.get("handle", ""),
+                    "voice": data.get("voice", ""),
+                    "fonts": data.get("preferred_fonts", []),
+                    "styles": data.get("preferred_styles", []),
+                }
+            )
         except Exception:
             continue
     return out
@@ -2393,12 +2855,12 @@ def trigger_run(body: dict = Body(...)):
     with _run_lock:
         if _run_state["running"]:
             return {"ok": False, "error": "already running"}
-        _run_state["running"]  = True
-        _run_state["log"]      = []
-        _run_state["started"]  = time.time()
+        _run_state["running"] = True
+        _run_state["log"] = []
+        _run_state["started"] = time.time()
         _run_state["finished"] = 0.0
-        _run_state["summary"]  = None
-        _run_state["account"]  = body.get("account")
+        _run_state["summary"] = None
+        _run_state["account"] = body.get("account")
         _run_state["completed"] = 0
         _run_state["total"] = 0
         _run_state["failed"] = 0
@@ -2450,9 +2912,12 @@ def trigger_run(body: dict = Body(...)):
     def runner():
         try:
             p = subprocess.Popen(
-                cmd, cwd=str(ROOT),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
+                cmd,
+                cwd=str(ROOT),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
             )
             for line in p.stdout:
                 _run_state["log"].append(line.rstrip())
@@ -2463,15 +2928,17 @@ def trigger_run(body: dict = Body(...)):
             for line in reversed(_run_state["log"]):
                 if "summary:" in line:
                     try:
-                        j = line[line.index("{"):]
-                        _run_state["summary"] = json.loads(j.replace("\\\\", "\\").replace('\\"', '"'))
+                        j = line[line.index("{") :]
+                        _run_state["summary"] = json.loads(
+                            j.replace("\\\\", "\\").replace('\\"', '"')
+                        )
                     except Exception:
                         pass
                     break
         except Exception as e:
             _run_state["log"].append(f"ERROR: {e}")
         finally:
-            _run_state["running"]  = False
+            _run_state["running"] = False
             _run_state["finished"] = time.time()
 
     threading.Thread(target=runner, daemon=True).start()
@@ -2481,12 +2948,14 @@ def trigger_run(body: dict = Body(...)):
 @app.get("/api/run/status")
 def run_status():
     return {
-        "running":  _run_state["running"],
-        "started":  _run_state["started"],
+        "running": _run_state["running"],
+        "started": _run_state["started"],
         "finished": _run_state["finished"],
-        "elapsed":  (_run_state["finished"] or time.time()) - _run_state["started"] if _run_state["started"] else 0,
+        "elapsed": (_run_state["finished"] or time.time()) - _run_state["started"]
+        if _run_state["started"]
+        else 0,
         "log_tail": _run_state["log"][-60:],
-        "summary":  _run_state["summary"],
+        "summary": _run_state["summary"],
         "completed": _run_state.get("completed", 0),
         "total": _run_state.get("total", 0),
         "failed": _run_state.get("failed", 0),
@@ -2516,6 +2985,7 @@ def request_shutdown():
 def _terminate_process() -> None:
     import os
     import signal
+
     os.kill(os.getpid(), signal.SIGTERM)
 
 
@@ -2542,7 +3012,6 @@ def _heartbeat_watchdog():
     """Background thread: if the browser tab stops sending heartbeats for
     longer than HEARTBEAT_TIMEOUT, exit the server. Lets the user just
     close the tab to shut everything down."""
-    import os
     # Initial grace period — give the tab time to load and send its first beat
     time.sleep(HEARTBEAT_TIMEOUT * 1.5)
     while True:
@@ -2551,7 +3020,9 @@ def _heartbeat_watchdog():
             print("\n  reel_factory GUI → tab closed, shutting down")
             _terminate_process()
         if time.time() - _last_heartbeat > HEARTBEAT_TIMEOUT:
-            print(f"\n  reel_factory GUI → no heartbeat for {HEARTBEAT_TIMEOUT}s, shutting down")
+            print(
+                f"\n  reel_factory GUI → no heartbeat for {HEARTBEAT_TIMEOUT}s, shutting down"
+            )
             _terminate_process()
 
 
@@ -2561,7 +3032,7 @@ def main() -> None:
     port = 8765
     url = f"http://localhost:{port}"
     print(f"\n  reel_factory GUI → {url}")
-    print(f"  (auto-shuts down when you close the browser tab)\n")
+    print("  (auto-shuts down when you close the browser tab)\n")
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

@@ -1,7 +1,7 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 from PIL import Image
 

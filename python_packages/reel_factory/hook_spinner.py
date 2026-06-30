@@ -17,29 +17,35 @@ Or from another module:
     from hook_spinner import spin_hooks
     variations = spin_hooks("POV you wear oversized clothes and he still notices", n=10)
 """
+
 from __future__ import annotations
-import hashlib, json, random, re, sys
+
+import hashlib
+import json
+import random
+import re
+import sys
 
 # Opener patterns from the OFM research doc. Two slot styles:
 #   {subj}  — fill with the core that retains the subject ("you wear X")
 #   {verb}  — fill with the core stripped of leading subject ("wear X")
 # Pick the slot that produces grammatical output for that pattern.
 PATTERNS = {
-    "pov":              "POV {subj}",
-    "pov_colon":        "POV: {subj}",
-    "when_you":         "When you {verb}",
-    "me_when":          "Me when i {verb}",
-    "the_way":          "The way {subj}",
-    "tell_me_why":      "Tell me why {subj}",
-    "imagine":          "Imagine {subj}",
-    "no_because":       "no because {subj}",
-    "the_fact_that":    "the fact that {subj}",
-    "nothing_like":     "Nothing like {subj}",
+    "pov": "POV {subj}",
+    "pov_colon": "POV: {subj}",
+    "when_you": "When you {verb}",
+    "me_when": "Me when i {verb}",
+    "the_way": "The way {subj}",
+    "tell_me_why": "Tell me why {subj}",
+    "imagine": "Imagine {subj}",
+    "no_because": "no because {subj}",
+    "the_fact_that": "the fact that {subj}",
+    "nothing_like": "Nothing like {subj}",
     "that_thing_where": "That thing where {subj}",
-    "direct":           "DIRECT_MARKER",
-    "question":         "{subj}?",
-    "ngl_suffix":       "{subj} ngl",
-    "fr_suffix":        "{subj} fr",
+    "direct": "DIRECT_MARKER",
+    "question": "{subj}?",
+    "ngl_suffix": "{subj} ngl",
+    "fr_suffix": "{subj} fr",
 }
 
 # Subject pronouns that we strip to produce {verb} from {subj}.
@@ -51,15 +57,15 @@ _SUBJECT_RE = re.compile(r"^(?:you|i|im|i'm|i\s+am)\s+", re.I)
 # Patterns that DO subsume the subject (like "Me when X") only kick in when
 # the core already lacks a subject (handled per-template below).
 OPENER_RE = [
-    (re.compile(r"^pov:?\s+",                re.I), "pov"),
-    (re.compile(r"^when\s+you\s+",           re.I), "when_you"),
-    (re.compile(r"^me\s+when\s+(?:i\s+)?",   re.I), "me_when"),
-    (re.compile(r"^the\s+way\s+",            re.I), "the_way"),
-    (re.compile(r"^tell\s+me\s+why\s+",      re.I), "tell_me_why"),
-    (re.compile(r"^imagine\s+",              re.I), "imagine"),
-    (re.compile(r"^no\s+because\s+",         re.I), "no_because"),
-    (re.compile(r"^the\s+fact\s+that\s+",    re.I), "the_fact_that"),
-    (re.compile(r"^nothing\s+like\s+",       re.I), "nothing_like"),
+    (re.compile(r"^pov:?\s+", re.I), "pov"),
+    (re.compile(r"^when\s+you\s+", re.I), "when_you"),
+    (re.compile(r"^me\s+when\s+(?:i\s+)?", re.I), "me_when"),
+    (re.compile(r"^the\s+way\s+", re.I), "the_way"),
+    (re.compile(r"^tell\s+me\s+why\s+", re.I), "tell_me_why"),
+    (re.compile(r"^imagine\s+", re.I), "imagine"),
+    (re.compile(r"^no\s+because\s+", re.I), "no_because"),
+    (re.compile(r"^the\s+fact\s+that\s+", re.I), "the_fact_that"),
+    (re.compile(r"^nothing\s+like\s+", re.I), "nothing_like"),
     (re.compile(r"^that\s+thing\s+where\s+", re.I), "that_thing_where"),
 ]
 
@@ -71,7 +77,7 @@ def _extract_core(hook: str) -> tuple[str, str | None]:
     for pat, name in OPENER_RE:
         m = pat.match(h)
         if m:
-            return h[m.end():].strip(), name
+            return h[m.end() :].strip(), name
     return h, None
 
 

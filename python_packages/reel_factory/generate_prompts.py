@@ -4,6 +4,7 @@
 This module may still prepare sampled frames and request previews for operator
 review, but V1 does not allow an LLM to write the final prompt contract.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,22 +16,26 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-from PIL import Image, ImageStat
 
-from asset_prompt_contract import AssetPromptSet, build_grok_simple_prompt, parse_asset_prompt_response
-from campaign_store import record_prompt_run, retry_helper_direction, taste_memory
+from asset_prompt_contract import (
+    AssetPromptSet,
+    build_grok_simple_prompt,
+    parse_asset_prompt_response,
+)
+from campaign_store import retry_helper_direction, taste_memory
+from PIL import Image, ImageStat
 from project_config import config_path
 
-
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
-GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_GENERATE_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
 DEFAULT_MODEL = "grok-4.3"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
@@ -83,7 +88,9 @@ def normalize_grid_layout(value: str | None = None) -> dict[str, Any]:
     else:
         match = re.fullmatch(r"([1-6])x([1-6])", raw)
         if not match:
-            raise ValueError(f"unsupported grid_layout {value!r}; use single, 3x2, 2x3, 4x2, 2x4, 3x3, etc.")
+            raise ValueError(
+                f"unsupported grid_layout {value!r}; use single, 3x2, 2x3, 4x2, 2x4, 3x3, etc."
+            )
         columns, rows = int(match.group(1)), int(match.group(2))
     panel_count = columns * rows
     return {
@@ -127,7 +134,16 @@ def video_mime_type(path: Path) -> str:
 
 def video_duration(path: Path) -> float | None:
     result = subprocess.run(
-        [FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
         capture_output=True,
         text=True,
         timeout=30,
@@ -143,7 +159,9 @@ def reference_positions(count: int = 4) -> list[float]:
     return [0.08, 0.33, 0.66, 0.92][:count]
 
 
-def frame_is_visible(path: Path, *, min_mean: float = 12.0, min_stddev: float = 4.0) -> bool:
+def frame_is_visible(
+    path: Path, *, min_mean: float = 12.0, min_stddev: float = 4.0
+) -> bool:
     try:
         with Image.open(path) as im:
             stat = ImageStat.Stat(im.convert("L"))
@@ -152,9 +170,13 @@ def frame_is_visible(path: Path, *, min_mean: float = 12.0, min_stddev: float = 
         return False
 
 
-def extract_first_visible_frame(reference_reel: Path, out_dir: Path, *,
-                                max_scan_seconds: float = 3.0,
-                                step_seconds: float = 0.25) -> Path | None:
+def extract_first_visible_frame(
+    reference_reel: Path,
+    out_dir: Path,
+    *,
+    max_scan_seconds: float = 3.0,
+    step_seconds: float = 0.25,
+) -> Path | None:
     out_dir.mkdir(parents=True, exist_ok=True)
     duration = video_duration(reference_reel) or 0.0
     scan_limit = min(max_scan_seconds, duration) if duration else max_scan_seconds
@@ -163,38 +185,81 @@ def extract_first_visible_frame(reference_reel: Path, out_dir: Path, *,
         seek = idx * step_seconds
         out = out_dir / "reference_00_first_visible.jpg"
         cmd = [
-            FFMPEG, "-hide_banner", "-nostdin", "-loglevel", "error",
-            "-ss", f"{seek:.3f}", "-i", str(reference_reel),
-            "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2",
-            "-q:v", "3", "-y", str(out),
+            FFMPEG,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{seek:.3f}",
+            "-i",
+            str(reference_reel),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale='min(1280,iw)':-2",
+            "-q:v",
+            "3",
+            "-y",
+            str(out),
         ]
-        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+        )
         if out.exists() and out.stat().st_size and frame_is_visible(out):
             return out
     return out if out.exists() and out.stat().st_size else None
 
 
-def extract_reference_frames(reference_reel: Path, out_dir: Path, *, count: int = 4) -> list[Path]:
+def extract_reference_frames(
+    reference_reel: Path, out_dir: Path, *, count: int = 4
+) -> list[Path]:
     duration = video_duration(reference_reel) or 0.0
     frames: list[Path] = []
     for idx, pos in enumerate(reference_positions(count), start=1):
         out = out_dir / f"reference_{idx:02d}.jpg"
         seek = max(0.0, duration * pos) if duration else float(idx - 1)
         cmd = [
-            FFMPEG, "-hide_banner", "-nostdin", "-loglevel", "error",
-            "-ss", f"{seek:.3f}", "-i", str(reference_reel),
-            "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2",
-            "-q:v", "3", "-y", str(out),
+            FFMPEG,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{seek:.3f}",
+            "-i",
+            str(reference_reel),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale='min(1280,iw)':-2",
+            "-q:v",
+            "3",
+            "-y",
+            str(out),
         ]
-        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+        )
         if out.exists() and out.stat().st_size:
             frames.append(out)
     return frames
 
 
-def build_user_instruction(reference_context: str = "", creative_direction: str = "") -> str:
+def build_user_instruction(
+    reference_context: str = "", creative_direction: str = ""
+) -> str:
     return build_grok_simple_prompt(
-        reference_context or "The attached frames are sampled from the reference reel in chronological order.",
+        reference_context
+        or "The attached frames are sampled from the reference reel in chronological order.",
         creative_direction,
     )
 
@@ -274,24 +339,60 @@ def _safe_motion_fragment(value: Any) -> str:
     if not raw or raw.lower() in {"unknown", "unknown motion"}:
         return ""
     replacements = [
-        (r"\bhair\s+blows?\s+in\s+(?:the\s+)?wind\b", "subtle wind movement around subject"),
-        (r"\bhair\s+(?:is\s+)?blowing\s+in\s+(?:the\s+)?wind\b", "subtle wind movement around subject"),
-        (r"\b(hands?|fingers|both hands)\s+move\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 move near head"),
-        (r"\b(hands?|fingers|both hands)\s+moving\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 moving near head"),
-        (r"\b(hands?|fingers|both hands)\s+run\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 move near head"),
-        (r"\braises\s+both\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b", "raises both hands near head"),
-        (r"\braise\s+both\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b", "raise both hands near head"),
-        (r"\braises\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b", "raises hands near head"),
-        (r"\braise\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b", "raise hands near head"),
+        (
+            r"\bhair\s+blows?\s+in\s+(?:the\s+)?wind\b",
+            "subtle wind movement around subject",
+        ),
+        (
+            r"\bhair\s+(?:is\s+)?blowing\s+in\s+(?:the\s+)?wind\b",
+            "subtle wind movement around subject",
+        ),
+        (
+            r"\b(hands?|fingers|both hands)\s+move\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 move near head",
+        ),
+        (
+            r"\b(hands?|fingers|both hands)\s+moving\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 moving near head",
+        ),
+        (
+            r"\b(hands?|fingers|both hands)\s+run\s+through\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 move near head",
+        ),
+        (
+            r"\braises\s+both\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            "raises both hands near head",
+        ),
+        (
+            r"\braise\s+both\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            "raise both hands near head",
+        ),
+        (
+            r"\braises\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            "raises hands near head",
+        ),
+        (
+            r"\braise\s+hands\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            "raise hands near head",
+        ),
         (r"\bsubject\s+is\s+completely\s+still\b", "subject holds a still pose"),
         (r"\bno\s+camera\s+movement\b", "locked camera framing"),
         (r"\bno\s+body\s+movement\b", "still body hold"),
         (r"\bno\s+movement\b", "locked framing"),
         (r"\bno\s+motion\b", "static hold"),
         (r"\bhair\s+movement\b", "subtle head-area movement"),
-        (r"\b(hands?|fingers|both hands)\s+(?:raise|raises|move|moves|go|goes)\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 raise near head"),
-        (r"\b(hands?|fingers|both hands)\s+to\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 near head"),
-        (r"\b(hands?|fingers|both hands)\s+(?:in|through|over|near)\s+(?:her\s+|his\s+|their\s+)?hair\b", r"\1 near head"),
+        (
+            r"\b(hands?|fingers|both hands)\s+(?:raise|raises|move|moves|go|goes)\s+to\s+touch\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 raise near head",
+        ),
+        (
+            r"\b(hands?|fingers|both hands)\s+to\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 near head",
+        ),
+        (
+            r"\b(hands?|fingers|both hands)\s+(?:in|through|over|near)\s+(?:her\s+|his\s+|their\s+)?hair\b",
+            r"\1 near head",
+        ),
         (r"\btouch(?:es|ing)?\s+(?:her\s+|his\s+|their\s+)?hair\b", "raise near head"),
         (r"\bbrush(?:es|ing)?\s+(?:her\s+|his\s+|their\s+)?hair\b", "move near head"),
         (r"\bhand-in-hair\b", "hand near head"),
@@ -338,10 +439,19 @@ def _safe_scene_fragment(value: Any) -> str:
     if not raw:
         return ""
     raw = re.sub(r"\bhand-in-hair\b", "hand-near-head", raw, flags=re.IGNORECASE)
-    raw = re.sub(r"\bfingers\s+in\s+hair\b", "fingers near head", raw, flags=re.IGNORECASE)
-    raw = re.sub(r"\bhand\s+resting\s+in\s+hair\b", "hand raised near head", raw, flags=re.IGNORECASE)
+    raw = re.sub(
+        r"\bfingers\s+in\s+hair\b", "fingers near head", raw, flags=re.IGNORECASE
+    )
+    raw = re.sub(
+        r"\bhand\s+resting\s+in\s+hair\b",
+        "hand raised near head",
+        raw,
+        flags=re.IGNORECASE,
+    )
     raw = re.sub(r"\bhand\s+in\s+hair\b", "hand near head", raw, flags=re.IGNORECASE)
-    raw = re.sub(r"\bresting\s+in\s+hair\b", "raised near head", raw, flags=re.IGNORECASE)
+    raw = re.sub(
+        r"\bresting\s+in\s+hair\b", "raised near head", raw, flags=re.IGNORECASE
+    )
     raw = re.sub(r"\bin\s+hair\b", "near head", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\bhair\b", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s+", " ", raw).strip(" .,")
@@ -383,7 +493,10 @@ def scene_json_to_higgsfield_prompt(data: dict[str, Any]) -> str:
         ("body", data.get("body")),
         ("clothing", data.get("clothing")),
         ("environment", data.get("environment")),
-        ("lighting_and_camera", data.get("lighting_and_camera") or data.get("camera_technical")),
+        (
+            "lighting_and_camera",
+            data.get("lighting_and_camera") or data.get("camera_technical"),
+        ),
         ("framing", data.get("framing")),
         ("scene_details", data.get("scene_details")),
     ]
@@ -398,8 +511,7 @@ def scene_json_to_higgsfield_prompt(data: dict[str, Any]) -> str:
     body.append(f"Consistency: {consistency}.")
     prompt = " ".join(part for part in body if part)
     return (
-        "Create one high-quality native 2x3 grid featuring six variations. "
-        f"{prompt}"
+        f"Create one high-quality native 2x3 grid featuring six variations. {prompt}"
     ).strip()
 
 
@@ -442,11 +554,21 @@ def _garment_fit_phrase(value: Any) -> str:
     if fit:
         parts.append(f"{fit} fit" if "fit" not in fit.lower().split() else fit)
     if cling:
-        parts.append(f"{cling} fabric cling" if "cling" not in cling.lower().split() else cling)
+        parts.append(
+            f"{cling} fabric cling" if "cling" not in cling.lower().split() else cling
+        )
     if stretch:
-        parts.append(f"{stretch} stretch" if "stretch" not in stretch.lower().split() else stretch)
+        parts.append(
+            f"{stretch} stretch"
+            if "stretch" not in stretch.lower().split()
+            else stretch
+        )
     if compression:
-        parts.append(f"{compression} compression" if "compression" not in compression.lower().split() else compression)
+        parts.append(
+            f"{compression} compression"
+            if "compression" not in compression.lower().split()
+            else compression
+        )
     for key, raw_value in value.items():
         if key in {"fit", "cling", "stretch", "compression"}:
             continue
@@ -477,8 +599,9 @@ def _topics_in_text(text: str) -> set[str]:
     return topics
 
 
-def _compressed_enhancement_phrase(value: Any, *, covered_topics: set[str],
-                                   extra_direction: str = "") -> str:
+def _compressed_enhancement_phrase(
+    value: Any, *, covered_topics: set[str], extra_direction: str = ""
+) -> str:
     fragments: list[str] = []
     if isinstance(value, list):
         fragments.extend(_safe_fragment(item) for item in value)
@@ -526,15 +649,16 @@ def _example_outfit_variations(panel_count: int) -> list[str]:
         "Navy metallic strapless bodycon dress",
         "Blush pink sheer-mesh strapless bodycon dress",
     ]
-    return base[:max(1, min(panel_count, len(base)))]
+    return base[: max(1, min(panel_count, len(base)))]
 
 
 def _numbered_variation_text(variations: list[str]) -> str:
     return " ".join(f"{idx}. {value}." for idx, value in enumerate(variations, start=1))
 
 
-def build_direct_higgsfield_prompt_instruction(creative_direction: str = "", *,
-                                              grid_layout: str = "3x2") -> str:
+def build_direct_higgsfield_prompt_instruction(
+    creative_direction: str = "", *, grid_layout: str = "3x2"
+) -> str:
     direction = creative_direction.strip() or (
         "make the visual formula sexier with stronger curves, larger cleavage, "
         "rounder ass emphasis, tighter garment cling, confident pose geometry, "
@@ -631,7 +755,9 @@ def build_json_structured_recreation_instruction(
         output_goal = "one standalone image"
         variation_goal = "one faithful variation"
     else:
-        output_goal = f"one native {layout['panel_count']}-panel grid, {layout['layout_phrase']}"
+        output_goal = (
+            f"one native {layout['panel_count']}-panel grid, {layout['layout_phrase']}"
+        )
         variation_goal = (
             f"{layout['panel_count']} practical outfit/color/fabric variations with the same garment family, "
             "same scene, same camera angle, and same pose geometry"
@@ -771,52 +897,76 @@ def _structured_parts(spec: dict[str, Any], dotted_path: str) -> Any:
     return current
 
 
-def structured_recreation_spec_to_prompt(spec: dict[str, Any], *, grid_layout: str = "3x2") -> str:
+def structured_recreation_spec_to_prompt(
+    spec: dict[str, Any], *, grid_layout: str = "3x2"
+) -> str:
     layout = normalize_grid_layout(grid_layout)
-    scene_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "scene.captureStyle")),
-        _safe_fragment(_structured_parts(spec, "scene.environment")),
-        _safe_fragment(_structured_parts(spec, "scene.background")),
-        _safe_fragment(_structured_parts(spec, "scene.props")),
-    ], limit=8)
-    pose_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "subject.bodyPose")),
-        _safe_fragment(_structured_parts(spec, "subject.cameraFacing")),
-        _safe_fragment(_structured_parts(spec, "subject.gaze")),
-        _safe_fragment(_structured_parts(spec, "subject.crop")),
-    ], limit=8)
-    wardrobe_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "wardrobe.garmentFamily")),
-        _safe_fragment(_structured_parts(spec, "wardrobe.upperGarment")),
-        _safe_fragment(_structured_parts(spec, "wardrobe.lowerGarment")),
-        _safe_fragment(_structured_parts(spec, "wardrobe.fabric")),
-        _safe_fragment(_structured_parts(spec, "wardrobe.fit")),
-        _safe_fragment(_structured_parts(spec, "wardrobe.colorPalette")),
-    ], limit=12)
-    lighting_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "lighting.quality")),
-        _safe_fragment(_structured_parts(spec, "lighting.direction")),
-        _safe_fragment(_structured_parts(spec, "lighting.colorTemperature")),
-    ], limit=6)
-    camera_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "camera.shotType")),
-        _safe_fragment(_structured_parts(spec, "camera.perspective")),
-        _safe_fragment(_structured_parts(spec, "camera.lensFeel")),
-    ], limit=6)
-    glamour_bits = _join_parts([
-        _safe_fragment(_structured_parts(spec, "glamourDirection.bodyForwardCues")),
-        _safe_fragment(_structured_parts(spec, "glamourDirection.garmentCues")),
-        _safe_fragment(_structured_parts(spec, "glamourDirection.poseCues")),
-        _safe_fragment(_structured_parts(spec, "subject.silhouetteEmphasis")),
-    ], limit=10)
+    scene_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "scene.captureStyle")),
+            _safe_fragment(_structured_parts(spec, "scene.environment")),
+            _safe_fragment(_structured_parts(spec, "scene.background")),
+            _safe_fragment(_structured_parts(spec, "scene.props")),
+        ],
+        limit=8,
+    )
+    pose_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "subject.bodyPose")),
+            _safe_fragment(_structured_parts(spec, "subject.cameraFacing")),
+            _safe_fragment(_structured_parts(spec, "subject.gaze")),
+            _safe_fragment(_structured_parts(spec, "subject.crop")),
+        ],
+        limit=8,
+    )
+    wardrobe_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "wardrobe.garmentFamily")),
+            _safe_fragment(_structured_parts(spec, "wardrobe.upperGarment")),
+            _safe_fragment(_structured_parts(spec, "wardrobe.lowerGarment")),
+            _safe_fragment(_structured_parts(spec, "wardrobe.fabric")),
+            _safe_fragment(_structured_parts(spec, "wardrobe.fit")),
+            _safe_fragment(_structured_parts(spec, "wardrobe.colorPalette")),
+        ],
+        limit=12,
+    )
+    lighting_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "lighting.quality")),
+            _safe_fragment(_structured_parts(spec, "lighting.direction")),
+            _safe_fragment(_structured_parts(spec, "lighting.colorTemperature")),
+        ],
+        limit=6,
+    )
+    camera_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "camera.shotType")),
+            _safe_fragment(_structured_parts(spec, "camera.perspective")),
+            _safe_fragment(_structured_parts(spec, "camera.lensFeel")),
+        ],
+        limit=6,
+    )
+    glamour_bits = _join_parts(
+        [
+            _safe_fragment(_structured_parts(spec, "glamourDirection.bodyForwardCues")),
+            _safe_fragment(_structured_parts(spec, "glamourDirection.garmentCues")),
+            _safe_fragment(_structured_parts(spec, "glamourDirection.poseCues")),
+            _safe_fragment(_structured_parts(spec, "subject.silhouetteEmphasis")),
+        ],
+        limit=10,
+    )
     variation_plan = _structured_parts(spec, "wardrobe.variationPlan")
     variation_bits = _join_parts([_safe_fragment(variation_plan)], limit=12)
     if not variation_bits and layout["kind"] != "single":
-        variation_bits = _numbered_variation_text(_example_outfit_variations(int(layout["panel_count"])))
+        variation_bits = _numbered_variation_text(
+            _example_outfit_variations(int(layout["panel_count"]))
+        )
 
     opening = layout["prompt_opening"]
     scene_props_text = str(_structured_parts(spec, "scene.props") or "").lower()
-    has_multi_subject_scene = "two people" in scene_props_text or "second person" in scene_props_text
+    has_multi_subject_scene = (
+        "two people" in scene_props_text or "second person" in scene_props_text
+    )
     subject_opening = (
         f"{opening} featuring the main adult woman age 20+ in a two-person casual snapshot."
         if layout["kind"] == "single" and has_multi_subject_scene
@@ -829,9 +979,15 @@ def structured_recreation_spec_to_prompt(spec: dict[str, Any], *, grid_layout: s
         _sentence(f"Camera: {camera_bits}") if camera_bits else "",
         _sentence(f"Body mechanics: {pose_bits}") if pose_bits else "",
         _sentence(f"Wardrobe: {wardrobe_bits}") if wardrobe_bits else "",
-        _sentence(f"Lighting and environment: {lighting_bits}; {scene_bits}") if lighting_bits and scene_bits else "",
-        _sentence(f"Lighting: {lighting_bits}") if lighting_bits and not scene_bits else "",
-        _sentence(f"Environment: {scene_bits}") if scene_bits and not lighting_bits else "",
+        _sentence(f"Lighting and environment: {lighting_bits}; {scene_bits}")
+        if lighting_bits and scene_bits
+        else "",
+        _sentence(f"Lighting: {lighting_bits}")
+        if lighting_bits and not scene_bits
+        else "",
+        _sentence(f"Environment: {scene_bits}")
+        if scene_bits and not lighting_bits
+        else "",
         _sentence(f"Tasteful glamour cues: {glamour_bits}") if glamour_bits else "",
         "Frame the subject with the complete head visible inside the image and natural full upper-body composition.",
     ]
@@ -904,20 +1060,45 @@ _DIRECT_PROMPT_REMOVALS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     ("hair_word", re.compile(r"(?i)\b(?:hair|hairstyle|hair\s+color)\b")),
-    ("tattoo", re.compile(r"(?i)\b(?:visible\s+|small\s+|wrist\s+|arm\s+|shoulder\s+|back\s+)?tattoos?\b")),
-    ("eye_color", re.compile(r"(?i)\b(?:(?:bright|piercing|striking|soft|almond-shaped|round)\s+)*(?:blue|green|brown|hazel|gray|grey)\s+eyes?\b|\beye\s+color\b")),
-    ("freckles", re.compile(r"(?i)\b(?:scattered\s+|light\s+|visible\s+)?freckles?(?:\s+across\s+(?:nose|face|cheeks))?\b|\bfreckled\b")),
-    ("skin_polish", re.compile(r"(?i)\b(?:photorealistic\s+)?skin\s+texture(?:\s+with\s+natural\s+sheen)?\b|\bskin\s+sheen\b|\bnatural\s+sheen\b")),
+    (
+        "tattoo",
+        re.compile(
+            r"(?i)\b(?:visible\s+|small\s+|wrist\s+|arm\s+|shoulder\s+|back\s+)?tattoos?\b"
+        ),
+    ),
+    (
+        "eye_color",
+        re.compile(
+            r"(?i)\b(?:(?:bright|piercing|striking|soft|almond-shaped|round)\s+)*(?:blue|green|brown|hazel|gray|grey)\s+eyes?\b|\beye\s+color\b"
+        ),
+    ),
+    (
+        "freckles",
+        re.compile(
+            r"(?i)\b(?:scattered\s+|light\s+|visible\s+)?freckles?(?:\s+across\s+(?:nose|face|cheeks))?\b|\bfreckled\b"
+        ),
+    ),
+    (
+        "skin_polish",
+        re.compile(
+            r"(?i)\b(?:photorealistic\s+)?skin\s+texture(?:\s+with\s+natural\s+sheen)?\b|\bskin\s+sheen\b|\bnatural\s+sheen\b"
+        ),
+    ),
     ("perfect_face", re.compile(r"(?i)\bperfect\s+face\b")),
     ("quality_polish", re.compile(r"(?i)\bhigh\s+detail\b|\bsharp\s+focus\b")),
     ("ethnicity_word", re.compile(r"(?i)\bethnicity\b")),
     (
         "ethnicity_descriptor",
-        re.compile(r"(?i)\b(?:latina|latino|hispanic|caucasian|asian|african|middle eastern|indian|white|black)\s+(?=woman|person|model|girl)\b"),
+        re.compile(
+            r"(?i)\b(?:latina|latino|hispanic|caucasian|asian|african|middle eastern|indian|white|black)\s+(?=woman|person|model|girl)\b"
+        ),
     ),
     ("face_consistency_prefix", re.compile(r"(?i)\bface\s+and\s+")),
     ("face_consistency_list_item", re.compile(r"(?i)(,\s*)face\s*,?\s*(and\s+)?")),
-    ("face_consistency_tail", re.compile(r"(?i)\s+and\s+face(?=\s+across|\s*,|\s+and|\.)")),
+    (
+        "face_consistency_tail",
+        re.compile(r"(?i)\s+and\s+face(?=\s+across|\s*,|\s+and|\.)"),
+    ),
 )
 
 
@@ -939,16 +1120,21 @@ def clean_direct_higgsfield_prompt(prompt: str) -> dict[str, Any]:
     cleaned = raw
     diff: list[dict[str, str]] = []
 
-    def replace_matches(label: str, pattern: re.Pattern[str], replacement: str, value: str) -> str:
+    def replace_matches(
+        label: str, pattern: re.Pattern[str], replacement: str, value: str
+    ) -> str:
         def repl(match: re.Match[str]) -> str:
             original = match.group(0)
-            diff.append({
-                "action": "replace" if replacement.strip() else "remove",
-                "label": label,
-                "text": original.strip(" ,;"),
-                "replacement": replacement,
-            })
+            diff.append(
+                {
+                    "action": "replace" if replacement.strip() else "remove",
+                    "label": label,
+                    "text": original.strip(" ,;"),
+                    "replacement": replacement,
+                }
+            )
             return replacement
+
         return pattern.sub(repl, value)
 
     for label, pattern, replacement in _DIRECT_PROMPT_REPLACEMENTS:
@@ -957,13 +1143,17 @@ def clean_direct_higgsfield_prompt(prompt: str) -> dict[str, Any]:
         cleaned = replace_matches(label, pattern, " ", cleaned)
     repaired = _repair_cleanup_punctuation(cleaned)
     if repaired != cleaned:
-        diff.append({
-            "action": "repair_punctuation",
-            "label": "spacing_punctuation",
-            "text": cleaned.strip(),
-            "replacement": repaired,
-        })
-    residual = sorted(set(m.group(0) for m in _DIRECT_FORBIDDEN_RESIDUAL_RE.finditer(repaired)))
+        diff.append(
+            {
+                "action": "repair_punctuation",
+                "label": "spacing_punctuation",
+                "text": cleaned.strip(),
+                "replacement": repaired,
+            }
+        )
+    residual = sorted(
+        set(m.group(0) for m in _DIRECT_FORBIDDEN_RESIDUAL_RE.finditer(repaired))
+    )
     return {
         "raw": raw,
         "cleaned": repaired,
@@ -981,14 +1171,23 @@ def clean_direct_higgsfield_prompt_text(prompt: str) -> str:
     return clean_direct_higgsfield_prompt(prompt)["cleaned"]
 
 
-def parse_direct_higgsfield_prompt_response(raw_text: str, *, shared_motion_prompt: str,
-                                            notes: str = "") -> AssetPromptSet:
-    prompt = clean_direct_higgsfield_prompt(_direct_prompt_from_response_text(raw_text))["cleaned"]
-    return parse_asset_prompt_response(json.dumps({
-        "higgsfieldGridPrompt": prompt,
-        "klingMotionPrompt": shared_motion_prompt,
-        "notes": notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
-    }, ensure_ascii=False))
+def parse_direct_higgsfield_prompt_response(
+    raw_text: str, *, shared_motion_prompt: str, notes: str = ""
+) -> AssetPromptSet:
+    prompt = clean_direct_higgsfield_prompt(
+        _direct_prompt_from_response_text(raw_text)
+    )["cleaned"]
+    return parse_asset_prompt_response(
+        json.dumps(
+            {
+                "higgsfieldGridPrompt": prompt,
+                "klingMotionPrompt": shared_motion_prompt,
+                "notes": notes
+                or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 _DRIFT_CONCEPT_PHRASES = (
@@ -1043,17 +1242,22 @@ def prompt_drift_report(raw_prompt: str, final_prompt: str) -> dict[str, Any]:
     added = [concept for concept in final_concepts if concept not in raw_set]
     visual_loss = any(not _forbidden_drift_concept(concept) for concept in removed)
     return {
-        "preservedConcepts": [concept for concept in raw_concepts if concept in final_set],
+        "preservedConcepts": [
+            concept for concept in raw_concepts if concept in final_set
+        ],
         "removedConcepts": removed,
         "addedConcepts": added,
         "visualMechanicsLoss": visual_loss,
     }
 
 
-def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
-                            reference_context: str = "",
-                            creative_direction: str = "",
-                            operator_notes: str = "") -> AssetPromptSet:
+def compile_prompt_contract(
+    *,
+    reference_analysis: dict[str, Any] | None = None,
+    reference_context: str = "",
+    creative_direction: str = "",
+    operator_notes: str = "",
+) -> AssetPromptSet:
     """Compile a deterministic v1 prompt contract from existing extracted fields."""
     analysis = reference_analysis or {}
     outfit = _safe_fragment(analysis.get("outfit") or analysis.get("outfit_type"))
@@ -1063,7 +1267,9 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
     framing = _safe_fragment(analysis.get("framing") or analysis.get("shot_type"))
     camera_angle = _safe_fragment(analysis.get("cameraAngle"))
     lighting = _safe_fragment(analysis.get("lighting"))
-    environment = _safe_fragment(analysis.get("environment") or analysis.get("scene_type"))
+    environment = _safe_fragment(
+        analysis.get("environment") or analysis.get("scene_type")
+    )
     emphasis = _visual_emphasis_phrase(analysis.get("visualEmphasisSignals"))
     enhanced_direction = _safe_fragment(analysis.get("sexierVisualDirection"))
     extra_direction = _safe_fragment(creative_direction)
@@ -1081,7 +1287,9 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
             covered_topics=covered_topics,
             extra_direction=extra_direction,
         )
-    if not enhancement_context and (enhanced_direction or analysis.get("enhancementSuggestions") or extra_direction):
+    if not enhancement_context and (
+        enhanced_direction or analysis.get("enhancementSuggestions") or extra_direction
+    ):
         enhancement_context = "stronger visual impact and confident glamour"
 
     camera_motion = _safe_fragment(analysis.get("camera_motion"))
@@ -1092,7 +1300,11 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
         current_motion = " ".join(motion_bits).lower()
         hint_probe = motion_hint[:80].lower()
         if not current_motion or hint_probe not in current_motion:
-            if not subject_motion or "sway" not in subject_motion.lower() or "sway" not in motion_hint.lower():
+            if (
+                not subject_motion
+                or "sway" not in subject_motion.lower()
+                or "sway" not in motion_hint.lower()
+            ):
                 motion_bits.append(motion_hint)
     motion_bits = [bit for bit in motion_bits if bit]
     if motion_bits:
@@ -1106,12 +1318,18 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
     style_parts = _join_parts([wardrobe_context, visual_context])
     grid_sentences = [
         "Create one standalone 9:16 vertical portrait image.",
-        _sentence(f"Style the subject in {style_parts}") if style_parts else (
+        _sentence(f"Style the subject in {style_parts}")
+        if style_parts
+        else (
             "Style the subject with fitted wardrobe, clean vertical framing, and soft natural lighting."
         ),
         _sentence(f"Pose and frame the image around {pose}") if pose else "",
-        _sentence(f"Emphasize {emphasis}") if emphasis else (
-            _sentence(f"Shape the image toward {enhancement_context}") if enhancement_context else ""
+        _sentence(f"Emphasize {emphasis}")
+        if emphasis
+        else (
+            _sentence(f"Shape the image toward {enhancement_context}")
+            if enhancement_context
+            else ""
         ),
         (
             "Keep the full head and face visible with stable phone-photo composition, clear wardrobe, "
@@ -1124,12 +1342,21 @@ def compile_prompt_contract(*, reference_analysis: dict[str, Any] | None = None,
         "Keep the accepted still framing, room, outfit feel, camera angle, lighting, and start-image composition stable. "
         f"Apply this motion pattern: {motion_formula}."
     )
-    notes = operator_notes or reference_context or "Deterministic v1 prompt contract compiled from reference context."
-    parsed = parse_asset_prompt_response(json.dumps({
-        "higgsfieldGridPrompt": grid_prompt,
-        "klingMotionPrompt": motion_prompt,
-        "notes": notes,
-    }, ensure_ascii=False))
+    notes = (
+        operator_notes
+        or reference_context
+        or "Deterministic v1 prompt contract compiled from reference context."
+    )
+    parsed = parse_asset_prompt_response(
+        json.dumps(
+            {
+                "higgsfieldGridPrompt": grid_prompt,
+                "klingMotionPrompt": motion_prompt,
+                "notes": notes,
+            },
+            ensure_ascii=False,
+        )
+    )
     return parsed
 
 
@@ -1169,28 +1396,38 @@ def normalize_motion_analysis(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def call_gemini_motion(reference_reel: Path, *, api_key: str,
-                       model: str = DEFAULT_GEMINI_MODEL,
-                       timeout: int = 120) -> dict[str, Any]:
+def call_gemini_motion(
+    reference_reel: Path,
+    *,
+    api_key: str,
+    model: str = DEFAULT_GEMINI_MODEL,
+    timeout: int = 120,
+) -> dict[str, Any]:
     payload = {
-        "contents": [{
-            "role": "user",
-            "parts": [
-                {"text": build_gemini_motion_instruction()},
-                {
-                    "inline_data": {
-                        "mime_type": video_mime_type(reference_reel),
-                        "data": base64.b64encode(reference_reel.read_bytes()).decode("ascii"),
-                    }
-                },
-            ],
-        }],
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": build_gemini_motion_instruction()},
+                    {
+                        "inline_data": {
+                            "mime_type": video_mime_type(reference_reel),
+                            "data": base64.b64encode(
+                                reference_reel.read_bytes()
+                            ).decode("ascii"),
+                        }
+                    },
+                ],
+            }
+        ],
         "generationConfig": {
             "temperature": 0,
             "response_mime_type": "application/json",
         },
     }
-    url = GEMINI_GENERATE_URL.format(model=model) + "?key=" + urllib.parse.quote(api_key)
+    url = (
+        GEMINI_GENERATE_URL.format(model=model) + "?key=" + urllib.parse.quote(api_key)
+    )
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -1210,7 +1447,9 @@ def call_gemini_motion(reference_reel: Path, *, api_key: str,
     }
 
 
-def build_xai_payload(*, model: str, frames: list[Path], instruction: str) -> dict[str, Any]:
+def build_xai_payload(
+    *, model: str, frames: list[Path], instruction: str
+) -> dict[str, Any]:
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
@@ -1218,11 +1457,13 @@ def build_xai_payload(*, model: str, frames: list[Path], instruction: str) -> di
         }
     ]
     for frame in frames:
-        content.append({
-            "type": "input_image",
-            "image_url": data_uri(frame),
-            "detail": "high",
-        })
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": data_uri(frame),
+                "detail": "high",
+            }
+        )
     return {
         "model": model,
         "store": False,
@@ -1273,7 +1514,9 @@ def parse_prompt_text(text: str) -> AssetPromptSet:
         return parse_asset_prompt_response(json.dumps(data, ensure_ascii=False))
 
 
-def call_grok(payload: dict[str, Any], *, api_key: str, timeout: int = 3600) -> dict[str, Any]:
+def call_grok(
+    payload: dict[str, Any], *, api_key: str, timeout: int = 3600
+) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         XAI_RESPONSES_URL,
@@ -1288,12 +1531,17 @@ def call_grok(payload: dict[str, Any], *, api_key: str, timeout: int = 3600) -> 
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _load_secret_value(root: Path, names: tuple[str, ...], env_names: tuple[str, ...]) -> str | None:
+def _load_secret_value(
+    root: Path, names: tuple[str, ...], env_names: tuple[str, ...]
+) -> str | None:
     for env_name in env_names:
         env_key = os.getenv(env_name)
         if env_key:
             return env_key
-    for path in (root / "project_data" / "secrets.toml", config_path(root).with_suffix(".secrets.toml")):
+    for path in (
+        root / "project_data" / "secrets.toml",
+        config_path(root).with_suffix(".secrets.toml"),
+    ):
         if not path.exists():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -1399,7 +1647,9 @@ def generate_prompt(
             frames.extend(extract_reference_frames(reference_reel, frame_dir))
         frames.extend(reference_images or [])
         if not frames:
-            raise ValueError("at least one reference reel or reference image is required")
+            raise ValueError(
+                "at least one reference reel or reference image is required"
+            )
         memory = taste_memory(root, campaign=campaign) if campaign else ""
         retry_direction = retry_helper_direction(retry_helper)
         analysis_context = ""
@@ -1408,12 +1658,16 @@ def generate_prompt(
         analysis_target = reference_reel or (reference_images or [None])[0]
         if analysis_target:
             from reference_analyzer import latest_analysis_record
+
             reference_analysis_record = latest_analysis_record(root, analysis_target)
             if reference_analysis_record:
-                analysis_context = "Reference analysis:\n" + json.dumps(reference_analysis_record["analysis"], indent=2, ensure_ascii=False)
+                analysis_context = "Reference analysis:\n" + json.dumps(
+                    reference_analysis_record["analysis"], indent=2, ensure_ascii=False
+                )
             else:
                 try:
                     from reference_analyzer import heuristic_analysis
+
                     reference_analysis_record = {
                         "analysis_id": None,
                         "reference_path": str(analysis_target),
@@ -1425,23 +1679,33 @@ def generate_prompt(
             gemini_key = load_gemini_api_key(root)
             if gemini_key:
                 try:
-                    motion_analysis_record = call_gemini_motion(reference_reel, api_key=gemini_key)
+                    motion_analysis_record = call_gemini_motion(
+                        reference_reel, api_key=gemini_key
+                    )
                     if not reference_analysis_record:
                         reference_analysis_record = {
                             "analysis_id": None,
                             "reference_path": str(reference_reel),
                             "analysis": {},
                         }
-                    merged_analysis = dict(reference_analysis_record.get("analysis") or {})
+                    merged_analysis = dict(
+                        reference_analysis_record.get("analysis") or {}
+                    )
                     merged_analysis.update(motion_analysis_record["analysis"])
                     reference_analysis_record["analysis"] = merged_analysis
-                    analysis_context = "Reference analysis:\n" + json.dumps(merged_analysis, indent=2, ensure_ascii=False)
+                    analysis_context = "Reference analysis:\n" + json.dumps(
+                        merged_analysis, indent=2, ensure_ascii=False
+                    )
                 except Exception as exc:
                     motion_analysis_record = {
                         "model": DEFAULT_GEMINI_MODEL,
                         "error": str(exc),
                     }
-        merged_direction = "\n".join(filter(None, [creative_direction, analysis_context, retry_direction, memory]))
+        merged_direction = "\n".join(
+            filter(
+                None, [creative_direction, analysis_context, retry_direction, memory]
+            )
+        )
         direct_prompt_mode = prompt_mode == GROK_DIRECT_COMPAT_MODE
         higgsfield_reference_mode = prompt_mode == HIGGSFIELD_REFERENCE_PROMPT_MODE
         structured_prompt_mode = prompt_mode == JSON_STRUCTURED_RECREATION_MODE
@@ -1451,9 +1715,13 @@ def generate_prompt(
         effective_grid_layout = "single" if higgsfield_reference_mode else grid_layout
         normalized_layout = normalize_grid_layout(effective_grid_layout)
         if higgsfield_reference_mode:
-            instruction = build_higgsfield_reference_prompt_instruction(merged_direction)
+            instruction = build_higgsfield_reference_prompt_instruction(
+                merged_direction
+            )
         elif direct_prompt_mode:
-            instruction = build_direct_higgsfield_prompt_instruction(merged_direction, grid_layout=effective_grid_layout)
+            instruction = build_direct_higgsfield_prompt_instruction(
+                merged_direction, grid_layout=effective_grid_layout
+            )
         elif structured_prompt_mode:
             instruction = build_json_structured_recreation_instruction(
                 merged_direction,
@@ -1465,9 +1733,13 @@ def generate_prompt(
         payload = build_xai_payload(model=model, frames=frames, instruction=instruction)
         if dry_run:
             motion_seed = compile_prompt_contract(
-                reference_analysis=(reference_analysis_record or {}).get("analysis") if reference_analysis_record else None,
+                reference_analysis=(reference_analysis_record or {}).get("analysis")
+                if reference_analysis_record
+                else None,
                 reference_context=reference_context,
-                creative_direction="\n".join(filter(None, [creative_direction, retry_direction])),
+                creative_direction="\n".join(
+                    filter(None, [creative_direction, retry_direction])
+                ),
                 operator_notes=operator_notes,
             )
             cleanup = {
@@ -1481,7 +1753,11 @@ def generate_prompt(
                 "policy": f"{reported_prompt_mode}_no_cleanup_needed",
             }
             structured_spec = None
-            if direct_prompt_mode or higgsfield_reference_mode or structured_prompt_mode:
+            if (
+                direct_prompt_mode
+                or higgsfield_reference_mode
+                or structured_prompt_mode
+            ):
                 api_key = load_xai_api_key(root)
                 if not api_key:
                     raise RuntimeError(
@@ -1498,31 +1774,47 @@ def generate_prompt(
                             "\nPrevious prompt was rejected by the v1 validator: "
                             f"{last_error}. Rewrite with the same visual intent while satisfying the hard rules.\n"
                         )
-                    attempt_payload = build_xai_payload(model=model, frames=frames, instruction=attempt_instruction)
+                    attempt_payload = build_xai_payload(
+                        model=model, frames=frames, instruction=attempt_instruction
+                    )
                     response = call_grok(attempt_payload, api_key=api_key)
                     raw_text = response_text(response)
                     try:
                         if structured_prompt_mode:
-                            structured_spec = normalize_structured_recreation_spec(raw_text)
-                            raw_higgsfield_prompt = structured_recreation_spec_to_prompt(
-                                structured_spec,
-                                grid_layout=effective_grid_layout,
+                            structured_spec = normalize_structured_recreation_spec(
+                                raw_text
+                            )
+                            raw_higgsfield_prompt = (
+                                structured_recreation_spec_to_prompt(
+                                    structured_spec,
+                                    grid_layout=effective_grid_layout,
+                                )
                             )
                         else:
-                            raw_higgsfield_prompt = _direct_prompt_from_response_text(raw_text)
+                            raw_higgsfield_prompt = _direct_prompt_from_response_text(
+                                raw_text
+                            )
                         cleanup = clean_direct_higgsfield_prompt(raw_higgsfield_prompt)
-                        compiled = parse_asset_prompt_response(json.dumps({
-                            "higgsfieldGridPrompt": cleanup["cleaned"],
-                            "klingMotionPrompt": motion_seed.klingMotionPrompt,
-                            "notes": operator_notes or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
-                        }, ensure_ascii=False))
+                        compiled = parse_asset_prompt_response(
+                            json.dumps(
+                                {
+                                    "higgsfieldGridPrompt": cleanup["cleaned"],
+                                    "klingMotionPrompt": motion_seed.klingMotionPrompt,
+                                    "notes": operator_notes
+                                    or "Live Grok direct Higgsfield prompt; image compiler bypassed.",
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
                         payload = attempt_payload
                         instruction = attempt_instruction
                         break
                     except ValueError as exc:
                         last_error = str(exc)
                 if compiled is None:
-                    raise ValueError(f"direct Grok prompt rejected after retry: {last_error}")
+                    raise ValueError(
+                        f"direct Grok prompt rejected after retry: {last_error}"
+                    )
             else:
                 response = None
                 compiled = motion_seed
@@ -1538,11 +1830,16 @@ def generate_prompt(
                     "policy": "deterministic_compiler_no_cleanup_needed",
                 }
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(json.dumps(asdict(compiled), indent=2, ensure_ascii=False), encoding="utf-8")
+            out_path.write_text(
+                json.dumps(asdict(compiled), indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
             raw_path = None
             if response is not None:
                 raw_path = out_path.with_suffix(out_path.suffix + ".grok_raw.json")
-                raw_path.write_text(json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8")
+                raw_path.write_text(
+                    json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
             lineage = {
                 "prompt_mode": reported_prompt_mode,
                 "raw_grok_prompt": raw_higgsfield_prompt,
@@ -1594,7 +1891,9 @@ def generate_prompt(
                 "lineage": lineage,
                 "cleanup": cleanup,
                 "prompt": asdict(compiled),
-                "prompt_drift": prompt_drift_report(raw_higgsfield_prompt, compiled.higgsfieldGridPrompt),
+                "prompt_drift": prompt_drift_report(
+                    raw_higgsfield_prompt, compiled.higgsfieldGridPrompt
+                ),
                 "structured_prompt_spec": structured_spec,
                 "instruction_preview": instruction,
                 "grid_layout": normalized_layout,
@@ -1626,8 +1925,22 @@ def main() -> int:
     ap.add_argument("--reference-context", default="")
     ap.add_argument("--campaign")
     ap.add_argument("--creator")
-    ap.add_argument("--retry-helper", choices=["fix_pose", "fix_hands", "less_smile", "more_reference_fidelity", "more_body_emphasis", "more_cleavage"])
-    ap.add_argument("--reference-frame-mode", choices=["first-visible", "sampled"], default="first-visible")
+    ap.add_argument(
+        "--retry-helper",
+        choices=[
+            "fix_pose",
+            "fix_hands",
+            "less_smile",
+            "more_reference_fidelity",
+            "more_body_emphasis",
+            "more_cleavage",
+        ],
+    )
+    ap.add_argument(
+        "--reference-frame-mode",
+        choices=["first-visible", "sampled"],
+        default="first-visible",
+    )
     ap.add_argument(
         "--prompt-mode",
         choices=[
@@ -1638,7 +1951,11 @@ def main() -> int:
         ],
         default=GROK_DIRECT_COMPAT_MODE,
     )
-    ap.add_argument("--grid-layout", default="3x2", help="Prompt layout goal: single, 3x2, 2x3, 4x2, 2x4, 3x3, etc.")
+    ap.add_argument(
+        "--grid-layout",
+        default="3x2",
+        help="Prompt layout goal: single, 3x2, 2x3, 4x2, 2x4, 3x3, etc.",
+    )
     ap.add_argument("--image-aspect-ratio", default=DEFAULT_PROMPT_IMAGE_ASPECT_RATIO)
     ap.add_argument("--operator-notes", default="")
     ap.add_argument("--dry-run", action="store_true")
@@ -1646,7 +1963,9 @@ def main() -> int:
     result = generate_prompt(
         out_path=args.out.expanduser().resolve(),
         root=args.root.expanduser().resolve(),
-        reference_reel=args.reference_reel.expanduser().resolve() if args.reference_reel else None,
+        reference_reel=args.reference_reel.expanduser().resolve()
+        if args.reference_reel
+        else None,
         reference_images=[p.expanduser().resolve() for p in args.reference_image],
         model=args.model,
         creative_direction=args.creative_direction,

@@ -53,12 +53,17 @@ def ffprobe_video(path: Path, timeout: int = 20) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - persisted as probe failure.
         return {"valid": False, "error": str(exc)}
     if result.returncode != 0:
-        return {"valid": False, "error": (result.stderr or result.stdout).strip()[:1000]}
+        return {
+            "valid": False,
+            "error": (result.stderr or result.stdout).strip()[:1000],
+        }
     try:
         raw = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         return {"valid": False, "error": f"ffprobe JSON parse failed: {exc}"}
-    video = next((s for s in raw.get("streams", []) if s.get("codec_type") == "video"), None)
+    video = next(
+        (s for s in raw.get("streams", []) if s.get("codec_type") == "video"), None
+    )
     if not video:
         return {"valid": False, "error": "no video stream", "probe_json": raw}
     duration = video.get("duration") or raw.get("format", {}).get("duration")
@@ -211,8 +216,14 @@ def extract_frame(video_path: Path, output_path: Path, time_sec: float) -> bool:
         "scale='min(540,iw)':-2",
         str(output_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
-    return result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, check=False, timeout=30
+    )
+    return (
+        result.returncode == 0
+        and output_path.exists()
+        and output_path.stat().st_size > 0
+    )
 
 
 def sample_frames(
@@ -259,7 +270,14 @@ def sample_frames(
                       time_sec = excluded.time_sec,
                       frame_path = excluded.frame_path
                     """,
-                    (frame_id, row["reference_id"], time_sec, role, str(frame_path), timestamp),
+                    (
+                        frame_id,
+                        row["reference_id"],
+                        time_sec,
+                        role,
+                        str(frame_path),
+                        timestamp,
+                    ),
                 )
             else:
                 failed += 1

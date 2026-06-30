@@ -5,18 +5,17 @@ import math
 import re
 import urllib.error
 import urllib.request
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .db import json_dump, json_load
 from .audio import extract_audio_signal
 from .caption_archetypes import caption_archetype as classify_caption_archetype
+from .db import json_dump, json_load
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
 from .timeutil import now_iso
-
 
 ANALYZER_VERSION = "reference_factory.patterns.v1"
 
@@ -27,8 +26,23 @@ TAG_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("walking", ("walking", "walk", "street", "sidewalk")),
     ("pose", ("pose", "posing", "look at", "camera caught")),
     ("slideshow", ("slideshow", "carousel", "photo dump", "swipe", "tiktok_slideshow")),
-    ("caption_style", ("pov", "when ", "how it feels", "pick one", "congrats", "if u got", "99.9")),
-    ("hook_good", ("pov", "when ", "how it feels", "pick one", "can’t", "can't", "rare", "if u got")),
+    (
+        "caption_style",
+        ("pov", "when ", "how it feels", "pick one", "congrats", "if u got", "99.9"),
+    ),
+    (
+        "hook_good",
+        (
+            "pov",
+            "when ",
+            "how it feels",
+            "pick one",
+            "can’t",
+            "can't",
+            "rare",
+            "if u got",
+        ),
+    ),
     ("no_caption", ()),
 ]
 
@@ -107,7 +121,9 @@ def analyze_patterns(
     summary = pattern_summary(conn, limit=limit)
     paths: dict[str, str] = {}
     if output_dir:
-        paths = export_patterns(conn, limit=limit, output_dir=output_dir, include_items=False)
+        paths = export_patterns(
+            conn, limit=limit, output_dir=output_dir, include_items=False
+        )
     return {
         "schema": "reference_factory.analyze_patterns.v1",
         "limit": limit,
@@ -152,7 +168,9 @@ def export_patterns(
         )
         + "\n"
     )
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    )
     payload: dict[str, object] = {
         "schema": "reference_factory.export_patterns.v1",
         "limit": limit,
@@ -199,7 +217,9 @@ def apply_pattern_labels(
             skipped += 1
             continue
         if overwrite:
-            conn.execute("DELETE FROM review_labels WHERE reference_id = ?", (reference_id,))
+            conn.execute(
+                "DELETE FROM review_labels WHERE reference_id = ?", (reference_id,)
+            )
         tags = sorted(set(pattern.get("reviewTags") or []))
         label_id = stable_id("label", reference_id, suggested, "pattern")
         conn.execute(
@@ -327,7 +347,9 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
     caption_archetype = classify_caption_archetype(caption_text)
     hook_type = _hook_type(caption_text, caption_archetype)
     visual_format = _visual_format(text_blob, caption_archetype, item)
-    review_tags = _review_tags(text_blob, caption_archetype, visual_format, caption_text)
+    review_tags = _review_tags(
+        text_blob, caption_archetype, visual_format, caption_text
+    )
     quality_score = _quality_score(item, caption_archetype, visual_format, review_tags)
     performance_tier = _performance_tier(int(item.get("rank") or 999999))
     performance_class = _performance_class(item, quality_score)
@@ -362,11 +384,19 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             "performanceTier": performance_tier,
         },
         "caption": {
-            "source": "public_caption" if public_caption else "ocr_caption" if ocr_caption else "none",
+            "source": "public_caption"
+            if public_caption
+            else "ocr_caption"
+            if ocr_caption
+            else "none",
             "text": caption_text,
             "firstLine": first_line,
             "captionHash": text_hash(caption_text) if caption_text else None,
-            "lineCount": len([line for line in re.split(r"\n+", caption_text) if line.strip()]) if caption_text else 0,
+            "lineCount": len(
+                [line for line in re.split(r"\n+", caption_text) if line.strip()]
+            )
+            if caption_text
+            else 0,
             "charCount": len(caption_text),
             "usesQuestion": "?" in caption_text,
             "usesEmoji": bool(re.search(r"[^\w\s#.,!?'\"]", caption_text)),
@@ -393,7 +423,9 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
         },
         "qualityScore": quality_score,
         "suggestedLabel": suggested_label,
-        "reasons": _pattern_reasons(item, quality_score, caption_archetype, visual_format, review_tags),
+        "reasons": _pattern_reasons(
+            item, quality_score, caption_archetype, visual_format, review_tags
+        ),
     }
 
 
@@ -409,14 +441,18 @@ def _resolve_provider(provider: str) -> str:
 
 def _ollama_has_models() -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:11434/api/tags", timeout=2
+        ) as response:
             data = json.loads(response.read().decode("utf-8"))
             return bool(data.get("models"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError):
         return False
 
 
-def _ollama_pattern(item: dict[str, Any], heuristic: dict[str, Any], model: str | None) -> dict[str, Any] | None:
+def _ollama_pattern(
+    item: dict[str, Any], heuristic: dict[str, Any], model: str | None
+) -> dict[str, Any] | None:
     model_name = model or _default_ollama_model()
     if not model_name:
         return None
@@ -456,7 +492,9 @@ def _ollama_pattern(item: dict[str, Any], heuristic: dict[str, Any], model: str 
 
 def _default_ollama_model() -> str | None:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2) as response:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:11434/api/tags", timeout=2
+        ) as response:
             data = json.loads(response.read().decode("utf-8"))
         models = data.get("models") or []
         if not models:
@@ -466,7 +504,9 @@ def _default_ollama_model() -> str | None:
         return None
 
 
-def _merge_llm_pattern(heuristic: dict[str, Any], llm: dict[str, Any]) -> dict[str, Any]:
+def _merge_llm_pattern(
+    heuristic: dict[str, Any], llm: dict[str, Any]
+) -> dict[str, Any]:
     merged = {**heuristic}
     for key in [
         "visualFormat",
@@ -483,10 +523,14 @@ def _merge_llm_pattern(heuristic: dict[str, Any], llm: dict[str, Any]) -> dict[s
             merged[key] = llm[key]
     merged["provider"] = "ollama"
     merged["model"] = llm.get("model")
-    merged["qualityScore"] = float(_clamp_number(merged.get("qualityScore"), 0, 100, heuristic["qualityScore"]))
+    merged["qualityScore"] = float(
+        _clamp_number(merged.get("qualityScore"), 0, 100, heuristic["qualityScore"])
+    )
     if merged.get("suggestedLabel") not in {"gold", "maybe", "ignore"}:
         merged["suggestedLabel"] = heuristic["suggestedLabel"]
-    merged["reviewTags"] = sorted(set(str(tag) for tag in merged.get("reviewTags") or []))
+    merged["reviewTags"] = sorted(
+        set(str(tag) for tag in merged.get("reviewTags") or [])
+    )
     return merged
 
 
@@ -537,7 +581,9 @@ def _visual_format(text_blob: str, caption_archetype: str, item: dict[str, Any])
     return "visual_reference"
 
 
-def _review_tags(text_blob: str, caption_archetype: str, visual_format: str, caption: str) -> list[str]:
+def _review_tags(
+    text_blob: str, caption_archetype: str, visual_format: str, caption: str
+) -> list[str]:
     tags = set()
     for tag, needles in TAG_RULES:
         if tag == "no_caption":
@@ -554,7 +600,12 @@ def _review_tags(text_blob: str, caption_archetype: str, visual_format: str, cap
         tags.update({"slideshow", "caption_style", "visual_style"})
         if caption:
             tags.add("hook_good")
-    if caption_archetype in {"pov_scenario", "challenge_or_puzzle", "question_hook", "choice_bait"}:
+    if caption_archetype in {
+        "pov_scenario",
+        "challenge_or_puzzle",
+        "question_hook",
+        "choice_bait",
+    }:
         tags.add("hook_good")
     if "mirror" in visual_format:
         tags.add("mirror")
@@ -567,7 +618,9 @@ def _review_tags(text_blob: str, caption_archetype: str, visual_format: str, cap
     return sorted(tags)
 
 
-def _quality_score(item: dict[str, Any], caption_archetype: str, visual_format: str, tags: list[str]) -> float:
+def _quality_score(
+    item: dict[str, Any], caption_archetype: str, visual_format: str, tags: list[str]
+) -> float:
     rank = int(item.get("rank") or 999999)
     plays = int(item.get("videoPlayCount") or item.get("videoViewCount") or 0)
     likes = int(item.get("likesCount") or 0)
@@ -591,7 +644,10 @@ def _quality_score(item: dict[str, Any], caption_archetype: str, visual_format: 
         score += max(-10.0, min(14.0, (float(measured_score) - 1.0) * 18.0))
     public_rate_score = item.get("publicRateScore")
     if isinstance(public_rate_score, (int, float)) and public_rate_score > 0:
-        score += min(6.0, math.log10(max(float(public_rate_score), 0.000001) * 1000.0 + 1.0) * 2.0)
+        score += min(
+            6.0,
+            math.log10(max(float(public_rate_score), 0.000001) * 1000.0 + 1.0) * 2.0,
+        )
     if match_type == "exact_media_id":
         score += 6
     if height > width and width >= 540:
@@ -602,7 +658,12 @@ def _quality_score(item: dict[str, Any], caption_archetype: str, visual_format: 
         score += 3
     if "hook_good" in tags:
         score += 3
-    if visual_format in {"mirror_selfie", "fit_check", "bedroom_static", "short_vertical_visual_hook"}:
+    if visual_format in {
+        "mirror_selfie",
+        "fit_check",
+        "bedroom_static",
+        "short_vertical_visual_hook",
+    }:
         score += 2
     if visual_format == "tiktok_slideshow":
         score += 5
@@ -621,7 +682,9 @@ def _suggested_label(item: dict[str, Any], quality_score: float) -> str:
     return "ignore"
 
 
-def _prompt_pattern(visual_format: str, hook_type: str, caption_archetype: str) -> dict[str, str]:
+def _prompt_pattern(
+    visual_format: str, hook_type: str, caption_archetype: str
+) -> dict[str, str]:
     return {
         "visualBrief": {
             "mirror_selfie": "vertical mirror-shot reel, phone visible or implied, immediate body/outfit framing",
@@ -664,7 +727,9 @@ def _recommended_use(quality_score: float, match_type: object) -> str:
     return "low_priority_reference"
 
 
-def _what_to_learn(visual_format: str, hook_type: str, caption_archetype: str) -> list[str]:
+def _what_to_learn(
+    visual_format: str, hook_type: str, caption_archetype: str
+) -> list[str]:
     learn = [
         f"visual_format:{visual_format}",
         f"hook_type:{hook_type}",
@@ -673,12 +738,18 @@ def _what_to_learn(visual_format: str, hook_type: str, caption_archetype: str) -
         "line_break_structure",
     ]
     if visual_format == "tiktok_slideshow":
-        learn.extend(["slide_order", "first_slide_headline", "carousel_caption_formula"])
+        learn.extend(
+            ["slide_order", "first_slide_headline", "carousel_caption_formula"]
+        )
     return learn
 
 
 def _performance_class(item: dict[str, Any], quality_score: float) -> str:
-    measured = item.get("measuredOutcome") if isinstance(item.get("measuredOutcome"), dict) else {}
+    measured = (
+        item.get("measuredOutcome")
+        if isinstance(item.get("measuredOutcome"), dict)
+        else {}
+    )
     reward = measured.get("rewardScore") if isinstance(measured, dict) else None
     if isinstance(reward, (int, float)):
         if float(reward) >= 1.05:
@@ -699,16 +770,26 @@ def _winner_dna(
     performance_class: str,
     audio_signal: dict[str, Any] | None,
 ) -> dict[str, object]:
-    measured = item.get("measuredOutcome") if isinstance(item.get("measuredOutcome"), dict) else {}
+    measured = (
+        item.get("measuredOutcome")
+        if isinstance(item.get("measuredOutcome"), dict)
+        else {}
+    )
     return {
         "performanceClass": performance_class,
-        "performanceSource": "measured_outcome" if measured else "public_or_review_signal",
+        "performanceSource": "measured_outcome"
+        if measured
+        else "public_or_review_signal",
         "visualStructure": visual_format,
         "hookType": hook_type,
         "captionArchetype": caption_archetype,
         "audioRole": (audio_signal or {}).get("audioVibe") or "unknown_audio",
-        "rewardScore": measured.get("rewardScore") if isinstance(measured, dict) else None,
-        "sampleCount": measured.get("sampleCount") if isinstance(measured, dict) else None,
+        "rewardScore": measured.get("rewardScore")
+        if isinstance(measured, dict)
+        else None,
+        "sampleCount": measured.get("sampleCount")
+        if isinstance(measured, dict)
+        else None,
     }
 
 
@@ -811,7 +892,7 @@ def _summary_from_cards(cards: list[dict[str, Any]]) -> dict[str, object]:
     accounts = Counter(card.get("account") for card in cards)
     tags: Counter[str] = Counter()
     for card in cards:
-        for tag in ((card.get("pattern") or {}).get("reviewTags") or []):
+        for tag in (card.get("pattern") or {}).get("reviewTags") or []:
             tags[tag] += 1
     return {
         "schema": "reference_factory.pattern_summary.v1",
@@ -823,7 +904,11 @@ def _summary_from_cards(cards: list[dict[str, Any]]) -> dict[str, object]:
             "captionArchetypes": dict(captions.most_common(20)),
             "topAccounts": dict(accounts.most_common(20)),
             "tags": dict(tags.most_common(30)),
-            "avgQualityScore": round(sum(float(card.get("qualityScore") or 0) for card in cards) / max(1, len(cards)), 2),
+            "avgQualityScore": round(
+                sum(float(card.get("qualityScore") or 0) for card in cards)
+                / max(1, len(cards)),
+                2,
+            ),
         },
     }
 

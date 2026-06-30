@@ -8,7 +8,6 @@ from typing import Any
 from .config import DEFAULT_DATA_ROOT
 from .identity import text_hash
 
-
 DEFAULT_PROFILE: dict[str, object] = {
     "schema": "reference_factory.caption_adaptation_profile.v1",
     "name": "default_our_models",
@@ -49,22 +48,43 @@ DESCRIPTOR_TRAITS = "skinny|petite|thick|curvy|tall|short|fit|cute|shy|older|you
 
 
 SELF_PATTERNS = [
-    (re.compile(rf"\b(we(?:'re| are))\s+({SELF_TRAITS})\s+girls\b", re.I), "self_plural"),
-    (re.compile(rf"\b(i(?:'m| am))\s+(?:a|an)?\s*({SELF_TRAITS})\s+girl\b", re.I), "self_singular"),
+    (
+        re.compile(rf"\b(we(?:'re| are))\s+({SELF_TRAITS})\s+girls\b", re.I),
+        "self_plural",
+    ),
+    (
+        re.compile(rf"\b(i(?:'m| am))\s+(?:a|an)?\s*({SELF_TRAITS})\s+girl\b", re.I),
+        "self_singular",
+    ),
 ]
 
 
 DESCRIPTOR_PATTERNS = [
-    (re.compile(rf"\b({DESCRIPTOR_TRAITS})\s+({SELF_TRAITS})\s+girls\b", re.I), "descriptor_plural"),
-    (re.compile(rf"\b({DESCRIPTOR_TRAITS})\s+({SELF_TRAITS})\s+girl\b", re.I), "descriptor_singular"),
-    (re.compile(rf"\b(\d\s*['’\"]?\s*\d|\d\s*ft\s*\d|5[\"']4)\s+({SELF_TRAITS})\s+girl\b", re.I), "descriptor_singular"),
+    (
+        re.compile(rf"\b({DESCRIPTOR_TRAITS})\s+({SELF_TRAITS})\s+girls\b", re.I),
+        "descriptor_plural",
+    ),
+    (
+        re.compile(rf"\b({DESCRIPTOR_TRAITS})\s+({SELF_TRAITS})\s+girl\b", re.I),
+        "descriptor_singular",
+    ),
+    (
+        re.compile(
+            rf"\b(\d\s*['’\"]?\s*\d|\d\s*ft\s*\d|5[\"']4)\s+({SELF_TRAITS})\s+girl\b",
+            re.I,
+        ),
+        "descriptor_singular",
+    ),
 ]
 
 
 TRAIT_PATTERNS = [
     (re.compile(rf"\b({SELF_TRAITS})\s+girls\b", re.I), "plural_trait"),
     (re.compile(rf"\b({SELF_TRAITS})\s+girl\b", re.I), "singular_trait"),
-    (re.compile(r"\ba\s+(ginger|redhead|blonde|brunette|latina)\b", re.I), "a_trait_person"),
+    (
+        re.compile(r"\ba\s+(ginger|redhead|blonde|brunette|latina)\b", re.I),
+        "a_trait_person",
+    ),
 ]
 
 
@@ -72,7 +92,10 @@ def ensure_default_profile(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
     profile_path = data_root / "captions" / "caption_adaptation_profile.json"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     if not profile_path.exists():
-        profile_path.write_text(json.dumps(DEFAULT_PROFILE, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        profile_path.write_text(
+            json.dumps(DEFAULT_PROFILE, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
     return profile_path
 
 
@@ -127,7 +150,9 @@ def adapt_caption_library(
     }
 
 
-def adapt_caption_text(text: str, profile: dict[str, Any] | None = None) -> tuple[str, list[str]]:
+def adapt_caption_text(
+    text: str, profile: dict[str, Any] | None = None
+) -> tuple[str, list[str]]:
     profile = profile or DEFAULT_PROFILE
     singular = str(profile.get("singular") or "our girl")
     plural = str(profile.get("plural") or "our girls")
@@ -158,7 +183,9 @@ def adapt_caption_text(text: str, profile: dict[str, Any] | None = None) -> tupl
         return _preserve_case(match.group(0), plural)
 
     def descriptor_singular_repl(match: re.Match[str]) -> str:
-        rules.append(f"descriptor_singular:{match.group(1)} {match.group(2)}->{singular}")
+        rules.append(
+            f"descriptor_singular:{match.group(1)} {match.group(2)}->{singular}"
+        )
         return _preserve_case(match.group(0), singular)
 
     descriptor_replacements = {
@@ -176,7 +203,9 @@ def adapt_caption_text(text: str, profile: dict[str, Any] | None = None) -> tupl
         if key == "a_trait_person":
             adapted = pattern.sub(article_trait_repl, adapted)
 
-    for source, target in sorted(replace_terms.items(), key=lambda item: len(item[0]), reverse=True):
+    for source, target in sorted(
+        replace_terms.items(), key=lambda item: len(item[0]), reverse=True
+    ):
         pattern = re.compile(rf"\b{re.escape(source)}\b", re.I)
         adapted, count = pattern.subn(str(target), adapted)
         if count:
@@ -199,7 +228,9 @@ def adapt_caption_text(text: str, profile: dict[str, Any] | None = None) -> tupl
             continue
         adapted = pattern.sub(replacements[key], adapted)
 
-    adapted = re.sub(rf"\b(an?|one)\s+{re.escape(singular)}\b", self_singular, adapted, flags=re.I)
+    adapted = re.sub(
+        rf"\b(an?|one)\s+{re.escape(singular)}\b", self_singular, adapted, flags=re.I
+    )
     adapted = _restore_protected(adapted, protected)
     return _clean_spacing(adapted), _dedupe_rules(rules)
 
@@ -222,7 +253,9 @@ def _restore_protected(text: str, protected: dict[str, str]) -> str:
     return restored
 
 
-def _write_outputs(captions_dir: Path, adapted: list[dict[str, object]], profile: dict[str, Any]) -> dict[str, str]:
+def _write_outputs(
+    captions_dir: Path, adapted: list[dict[str, object]], profile: dict[str, Any]
+) -> dict[str, str]:
     out_dir = captions_dir / "adapted"
     out_dir.mkdir(parents=True, exist_ok=True)
     all_jsonl = out_dir / "adapted_captions.jsonl"
@@ -238,8 +271,22 @@ def _write_outputs(captions_dir: Path, adapted: list[dict[str, object]], profile
     _write_jsonl(changed_jsonl, changed)
     _write_text_lines(all_txt, [str(row["adaptedText"]) for row in adapted])
     _write_text_lines(changed_txt, [str(row["adaptedText"]) for row in changed])
-    _write_text_lines(gold_txt, [str(row["adaptedText"]) for row in adapted if row.get("reviewLabel") == "gold"])
-    _write_text_lines(maybe_txt, [str(row["adaptedText"]) for row in adapted if row.get("reviewLabel") == "maybe"])
+    _write_text_lines(
+        gold_txt,
+        [
+            str(row["adaptedText"])
+            for row in adapted
+            if row.get("reviewLabel") == "gold"
+        ],
+    )
+    _write_text_lines(
+        maybe_txt,
+        [
+            str(row["adaptedText"])
+            for row in adapted
+            if row.get("reviewLabel") == "maybe"
+        ],
+    )
 
     rule_counts: dict[str, int] = {}
     for row in changed:
@@ -257,7 +304,9 @@ def _write_outputs(captions_dir: Path, adapted: list[dict[str, object]], profile
         "unchanged": len(adapted) - len(changed),
         "byLabel": _count_by(adapted, "reviewLabel"),
         "changedByLabel": _count_by(changed, "reviewLabel"),
-        "ruleCounts": dict(sorted(rule_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "ruleCounts": dict(
+            sorted(rule_counts.items(), key=lambda item: (-item[1], item[0]))
+        ),
         "outputs": {
             "allJsonl": str(all_jsonl),
             "changedJsonl": str(changed_jsonl),
@@ -267,7 +316,9 @@ def _write_outputs(captions_dir: Path, adapted: list[dict[str, object]], profile
             "maybeTxt": str(maybe_txt),
         },
     }
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return {**summary["outputs"], "summary": str(summary_path)}
 
 

@@ -19,7 +19,10 @@ class OperationalProofRepository:
             ("expired_publish_token", "account_health_blocks_account"),
             ("partial_metrics_sync", "metrics_contract_marks_snapshot_incomplete"),
             ("missing_performance_snapshot", "lifecycle_marks_awaiting_metrics"),
-            ("duplicate_performance_snapshot", "unique_snapshot_keys_preserve_final_state"),
+            (
+                "duplicate_performance_snapshot",
+                "unique_snapshot_keys_preserve_final_state",
+            ),
             ("invalid_handoff_manifest", "publishability_and_readiness_block_export"),
             ("stale_account_restriction", "restriction_end_time_prevents_stale_block"),
         ]
@@ -36,7 +39,10 @@ class OperationalProofRepository:
         ]
         return {
             "schema": "creator_os.failure_injection_suite.v1",
-            "failureInjectionPassed": all(row["detected"] and row["contained"] and row["recovered"] for row in rows),
+            "failureInjectionPassed": all(
+                row["detected"] and row["contained"] and row["recovered"]
+                for row in rows
+            ),
             "scenarios": rows,
             "wouldWrite": False,
         }
@@ -53,7 +59,9 @@ class OperationalProofRepository:
         rows = []
         unsafe = []
         for name in path_names:
-            final_state = hashlib.sha256(f"creator_os:{name}:idempotent".encode("utf-8")).hexdigest()[:16]
+            final_state = hashlib.sha256(
+                f"creator_os:{name}:idempotent".encode()
+            ).hexdigest()[:16]
             row = {
                 "path": name,
                 "sameRequestOnce": final_state,
@@ -76,17 +84,53 @@ class OperationalProofRepository:
 
     def surface_maturity_audit(self) -> dict[str, Any]:
         surfaces = {
-            "reel": {"draftProof": True, "scheduleProof": True, "publishProof": True, "metricsProof": True, "learningProof": True},
-            "story": {"draftProof": True, "scheduleProof": False, "publishProof": False, "metricsProof": False, "learningProof": True},
-            "feed_single": {"draftProof": True, "scheduleProof": True, "publishProof": True, "metricsProof": True, "learningProof": True},
-            "feed_carousel": {"draftProof": True, "scheduleProof": False, "publishProof": False, "metricsProof": False, "learningProof": True},
-            "trial_reel": {"draftProof": True, "scheduleProof": False, "publishProof": False, "metricsProof": False, "learningProof": False},
+            "reel": {
+                "draftProof": True,
+                "scheduleProof": True,
+                "publishProof": True,
+                "metricsProof": True,
+                "learningProof": True,
+            },
+            "story": {
+                "draftProof": True,
+                "scheduleProof": False,
+                "publishProof": False,
+                "metricsProof": False,
+                "learningProof": True,
+            },
+            "feed_single": {
+                "draftProof": True,
+                "scheduleProof": True,
+                "publishProof": True,
+                "metricsProof": True,
+                "learningProof": True,
+            },
+            "feed_carousel": {
+                "draftProof": True,
+                "scheduleProof": False,
+                "publishProof": False,
+                "metricsProof": False,
+                "learningProof": True,
+            },
+            "trial_reel": {
+                "draftProof": True,
+                "scheduleProof": False,
+                "publishProof": False,
+                "metricsProof": False,
+                "learningProof": False,
+            },
         }
         blockers = {
             "reel": [],
-            "story": ["story_publish_proof_not_live_enabled", "story_metrics_proof_missing"],
+            "story": [
+                "story_publish_proof_not_live_enabled",
+                "story_metrics_proof_missing",
+            ],
             "feed_single": [],
-            "feed_carousel": ["carousel_publish_proof_missing", "carousel_metrics_proof_missing"],
+            "feed_carousel": [
+                "carousel_publish_proof_missing",
+                "carousel_metrics_proof_missing",
+            ],
             "trial_reel": ["trial_reel_requires_explicit_manual_graduation_policy"],
         }
         scored = {}
@@ -113,7 +157,16 @@ class OperationalProofRepository:
             manual_reviews = math.ceil(accounts * 0.04)
             inventory_repairs = math.ceil(posts * 0.03)
             operator_items = restriction_cases + manual_reviews + inventory_repairs
-            largest = "manual_review" if manual_reviews >= restriction_cases and manual_reviews >= inventory_repairs else ("inventory_repair" if inventory_repairs >= restriction_cases else "account_restrictions")
+            largest = (
+                "manual_review"
+                if manual_reviews >= restriction_cases
+                and manual_reviews >= inventory_repairs
+                else (
+                    "inventory_repair"
+                    if inventory_repairs >= restriction_cases
+                    else "account_restrictions"
+                )
+            )
             if not first_breaking_point and operator_items > 25:
                 first_breaking_point = f"{accounts}_accounts"
             tiers[str(accounts)] = {

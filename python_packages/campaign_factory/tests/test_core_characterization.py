@@ -13,19 +13,25 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
     reel_root = tmp_path / "reel_factory"
     (reel_root / "00_source_videos").mkdir(parents=True, exist_ok=True)
     (reel_root / "01_captions").mkdir(parents=True, exist_ok=True)
-    return CampaignFactory(Settings(
-        root=tmp_path,
-        db_path=tmp_path / "campaign_factory.sqlite",
-        reel_factory_root=reel_root,
-        contentforge_root=tmp_path / "contentforge",
-        threadsdash_root=tmp_path / "ThreadsDashboard",
-        campaigns_dir=tmp_path / "campaigns",
-    ))
+    return CampaignFactory(
+        Settings(
+            root=tmp_path,
+            db_path=tmp_path / "campaign_factory.sqlite",
+            reel_factory_root=reel_root,
+            contentforge_root=tmp_path / "contentforge",
+            threadsdash_root=tmp_path / "ThreadsDashboard",
+            campaigns_dir=tmp_path / "campaigns",
+        )
+    )
 
 
 def normalize(value: Any, *, key: str | None = None) -> Any:
     if isinstance(value, dict):
-        return {child_key: normalize(item, key=child_key) for child_key, item in value.items() if not _dynamic_key(child_key)}
+        return {
+            child_key: normalize(item, key=child_key)
+            for child_key, item in value.items()
+            if not _dynamic_key(child_key)
+        }
     if isinstance(value, list):
         return [normalize(item, key=key) for item in value]
     if isinstance(value, str):
@@ -36,18 +42,39 @@ def normalize(value: Any, *, key: str | None = None) -> Any:
         if value.startswith("cver_") and len(value) > 12:
             return "<caption_version_id>"
         for prefix in (
-            "acct_", "camp_", "cpevt_", "cplan_", "dist_", "edge_", "evt_", "ex_",
-            "job_", "model_", "node_", "profile_",
+            "acct_",
+            "camp_",
+            "cpevt_",
+            "cplan_",
+            "dist_",
+            "edge_",
+            "evt_",
+            "ex_",
+            "job_",
+            "model_",
+            "node_",
+            "profile_",
         ):
             if value.startswith(prefix) and len(value) > len(prefix) + 6:
                 return f"<{prefix[:-1]}_id>"
-        if key in {"startedAt", "finishedAt", "timestamp"} and value.startswith("202") and "T" in value:
+        if (
+            key in {"startedAt", "finishedAt", "timestamp"}
+            and value.startswith("202")
+            and "T" in value
+        ):
             return "<timestamp>"
     return value
 
 
 def _dynamic_key(key: str) -> bool:
-    return key in {"id", "created_at", "updated_at", "createdAt", "updatedAt", "generatedAt"}
+    return key in {
+        "id",
+        "created_at",
+        "updated_at",
+        "createdAt",
+        "updatedAt",
+        "generatedAt",
+    }
 
 
 def table_counts(cf: CampaignFactory, *tables: str) -> dict[str, int]:
@@ -57,7 +84,9 @@ def table_counts(cf: CampaignFactory, *tables: str) -> dict[str, int]:
     }
 
 
-def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may") -> dict[str, Any]:
+def add_rendered_asset(
+    cf: CampaignFactory, tmp_path: Path, *, campaign_slug: str = "may"
+) -> dict[str, Any]:
     folder = tmp_path / f"{campaign_slug}_inputs"
     folder.mkdir()
     (folder / "source.mp4").write_bytes(b"source")
@@ -99,11 +128,19 @@ def add_rendered_asset(cf: CampaignFactory, tmp_path: Path, *, campaign_slug: st
             str(rendered_path),
             str(rendered_path),
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-            json.dumps({"instagram_post_caption": "new post"}, ensure_ascii=False, sort_keys=True),
-            json.dumps({
-                "visualQc": {"visualQcStatus": "passed", "status": "passed"},
-                "identityVerification": {"status": "passed", "score": 0.9},
-            }, ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                {"instagram_post_caption": "new post"},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            json.dumps(
+                {
+                    "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+                    "identityVerification": {"status": "passed", "score": 0.9},
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
             now,
             now,
         ),
@@ -132,7 +169,7 @@ def add_schedule_safe_asset(
     source = cf.assets_for_campaign(campaign["id"])[0]
     suffix = ".mp4" if media_type == "video" else ".png"
     media_path = tmp_path / f"{asset_id}{suffix}"
-    media_path.write_bytes(f"surface-{asset_id}".encode("utf-8"))
+    media_path.write_bytes(f"surface-{asset_id}".encode())
     caption_context = {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": f"caption_hash_{asset_id}",
@@ -170,7 +207,11 @@ def add_schedule_safe_asset(
             media_path.name,
             f"caption_hash_{asset_id}",
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-            json.dumps({"instagram_post_caption": "new post"}, ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                {"instagram_post_caption": "new post"},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
             content_surface,
             media_type,
             json.dumps(metadata, ensure_ascii=False, sort_keys=True),
@@ -182,12 +223,18 @@ def add_schedule_safe_asset(
     return cf.rendered_asset(asset_id)
 
 
-def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: Path) -> None:
+def test_tier1_graph_events_models_and_asset_import_characterization(
+    tmp_path: Path,
+) -> None:
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("Model A", name="Model A", notes="first")
-        campaign = cf.upsert_campaign("Launch Campaign", model["slug"], platform="threads")
-        account = cf.upsert_account("@creator_a", platform="instagram", external_id="ig_1", model_id=model["id"])
+        campaign = cf.upsert_campaign(
+            "Launch Campaign", model["slug"], platform="threads"
+        )
+        account = cf.upsert_account(
+            "@creator_a", platform="instagram", external_id="ig_1", model_id=model["id"]
+        )
         profile = cf.upsert_model_account_profile(
             model["slug"],
             label="Model A Profile",
@@ -197,16 +244,34 @@ def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: P
             default_smart_link="https://example.test",
             story_cta_text="new post",
         )
-        campaign_graph = cf.graph_id_for("campaigns", campaign["id"], entity_type="campaign", payload={"slug": campaign["slug"]})
-        account_graph = cf.graph_id_for("accounts", account["id"], entity_type="account", payload={"handle": account["handle"]})
-        edge_id = cf.ensure_graph_edge(campaign_graph, account_graph, "assigned_account", evidence={"source": "characterization"}, commit=True)
+        campaign_graph = cf.graph_id_for(
+            "campaigns",
+            campaign["id"],
+            entity_type="campaign",
+            payload={"slug": campaign["slug"]},
+        )
+        account_graph = cf.graph_id_for(
+            "accounts",
+            account["id"],
+            entity_type="account",
+            payload={"handle": account["handle"]},
+        )
+        edge_id = cf.ensure_graph_edge(
+            campaign_graph,
+            account_graph,
+            "assigned_account",
+            evidence={"source": "characterization"},
+            commit=True,
+        )
         event = cf.record_event(
             "characterization_event",
             campaign_id=campaign["id"],
             status="success",
             metadata={"account": account["handle"], "nested": {"ok": True}},
         )
-        job = cf.create_pipeline_job("characterization_job", campaign["id"], {"step": "queued"})
+        job = cf.create_pipeline_job(
+            "characterization_job", campaign["id"], {"step": "queued"}
+        )
         running = cf.start_pipeline_job(job["id"])
         finished = cf.finish_pipeline_job(job["id"], {"ok": True})
         inputs = tmp_path / "import_inputs"
@@ -223,35 +288,39 @@ def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: P
             notes="notes",
         )
 
-        assert normalize({
-            "model": model,
-            "campaign": campaign,
-            "account": account,
-            "profile": profile,
-            "event": event,
-            "job": job,
-            "running": running,
-            "finished": finished,
-            "importedSummary": {
-                "imported": len(imported["imported"]),
-                "duplicates": imported["duplicates"],
-                "ignoredSuffixes": [Path(path).suffix for path in imported["ignored"]],
-                "pipelineJobId": imported["pipelineJobId"],
-            },
-            "edgeId": edge_id,
-            "counts": table_counts(
-                cf,
-                "models",
-                "campaigns",
-                "accounts",
-                "model_account_profiles",
-                "content_graph_nodes",
-                "content_graph_edges",
-                "activity_events",
-                "pipeline_jobs",
-                "source_assets",
-            ),
-        }) == {
+        assert normalize(
+            {
+                "model": model,
+                "campaign": campaign,
+                "account": account,
+                "profile": profile,
+                "event": event,
+                "job": job,
+                "running": running,
+                "finished": finished,
+                "importedSummary": {
+                    "imported": len(imported["imported"]),
+                    "duplicates": imported["duplicates"],
+                    "ignoredSuffixes": [
+                        Path(path).suffix for path in imported["ignored"]
+                    ],
+                    "pipelineJobId": imported["pipelineJobId"],
+                },
+                "edgeId": edge_id,
+                "counts": table_counts(
+                    cf,
+                    "models",
+                    "campaigns",
+                    "accounts",
+                    "model_account_profiles",
+                    "content_graph_nodes",
+                    "content_graph_edges",
+                    "activity_events",
+                    "pipeline_jobs",
+                    "source_assets",
+                ),
+            }
+        ) == {
             "model": {
                 "slug": "model_a",
                 "name": "Model A",
@@ -261,7 +330,9 @@ def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: P
                 "slug": "launch_campaign",
                 "name": "Launch Campaign",
                 "platform": "threads",
-                "root_path": str(tmp_path / "campaigns" / "model_a" / "launch_campaign"),
+                "root_path": str(
+                    tmp_path / "campaigns" / "model_a" / "launch_campaign"
+                ),
             },
             "account": {
                 "handle": "creator_a",
@@ -290,7 +361,7 @@ def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: P
                 "pipeline_job_id": None,
                 "status": "success",
                 "message": "characterization event",
-                "metadata_json": "{\"account\": \"creator_a\", \"nested\": {\"ok\": true}}",
+                "metadata_json": '{"account": "creator_a", "nested": {"ok": true}}',
             },
             "job": {
                 "jobType": "characterization_job",
@@ -348,7 +419,9 @@ def test_tier1_graph_events_models_and_asset_import_characterization(tmp_path: P
         cf.close()
 
 
-def test_tier2_planning_distribution_exceptions_discoverability_and_decision_characterization(tmp_path: Path) -> None:
+def test_tier2_planning_distribution_exceptions_discoverability_and_decision_characterization(
+    tmp_path: Path,
+) -> None:
     cf = make_factory(tmp_path)
     try:
         rendered = add_rendered_asset(cf, tmp_path, campaign_slug="tier2")
@@ -363,19 +436,28 @@ def test_tier2_planning_distribution_exceptions_discoverability_and_decision_cha
             linked_campaign="tier2",
         )
         prompt_export = tmp_path / "prompt_export.json"
-        prompt_export.write_text(json.dumps({
-            "items": [
+        prompt_export.write_text(
+            json.dumps(
                 {
-                    "creativePlanId": plan["id"],
-                    "referenceId": "ref_1",
-                    "sourcePatternId": "pattern_1",
-                    "imagePrompt": {"id": "img_1", "targetTool": "higgsfield"},
-                    "klingPrompt": {"id": "vid_1", "targetTool": "kling"},
+                    "items": [
+                        {
+                            "creativePlanId": plan["id"],
+                            "referenceId": "ref_1",
+                            "sourcePatternId": "pattern_1",
+                            "imagePrompt": {"id": "img_1", "targetTool": "higgsfield"},
+                            "klingPrompt": {"id": "vid_1", "targetTool": "kling"},
+                        }
+                    ]
                 }
-            ]
-        }), encoding="utf-8")
-        progress = cf.sync_creative_plan_progress(name="Daily Plan", prompt_export_path=prompt_export)
-        status = cf.update_creative_plan_status(name="Daily Plan", status="prompts_ready")
+            ),
+            encoding="utf-8",
+        )
+        progress = cf.sync_creative_plan_progress(
+            name="Daily Plan", prompt_export_path=prompt_export
+        )
+        status = cf.update_creative_plan_status(
+            name="Daily Plan", status="prompts_ready"
+        )
         distribution = cf.create_distribution_plan(
             rendered["id"],
             surface="trial_reel",
@@ -389,18 +471,34 @@ def test_tier2_planning_distribution_exceptions_discoverability_and_decision_cha
             reason_code="caption_needs_review",
             severity="high",
             campaign_id=campaign["id"],
-            entity_graph_id=cf.graph_id_for("campaigns", campaign["id"], entity_type="campaign"),
+            entity_graph_id=cf.graph_id_for(
+                "campaigns", campaign["id"], entity_type="campaign"
+            ),
             payload={"field": "caption"},
         )
         exception_report = cf.exception_queue_report(
-            daily_plan={"accounts": [{"accountId": "ig_1", "state": "blocked", "blockedReason": "account_reauth"}]},
+            daily_plan={
+                "accounts": [
+                    {
+                        "accountId": "ig_1",
+                        "state": "blocked",
+                        "blockedReason": "account_reauth",
+                    }
+                ]
+            },
             execution_readiness={"blockers": ["caption_contract_invalid"]},
-            publishability_report={"assets": [{"assetId": "asset_1", "blockingReasons": ["metadata_missing"]}]},
+            publishability_report={
+                "assets": [
+                    {"assetId": "asset_1", "blockingReasons": ["metadata_missing"]}
+                ]
+            },
         )
-        discoverability = cf.discoverability_generation_gate({
-            "prompt": "clean morning outfit check",
-            "caption_text": "DM me for more",
-        })
+        discoverability = cf.discoverability_generation_gate(
+            {
+                "prompt": "clean morning outfit check",
+                "caption_text": "DM me for more",
+            }
+        )
         decision = cf.decision_ledger_by_creator(
             creator="Stacey",
             generated_at="2026-01-01T00:00:00+00:00",
@@ -412,26 +510,28 @@ def test_tier2_planning_distribution_exceptions_discoverability_and_decision_cha
             dry_run=True,
         )
 
-        assert normalize({
-            "plan": plan,
-            "progress": progress,
-            "status": status,
-            "distribution": distribution,
-            "exception": exception,
-            "exceptionReport": exception_report,
-            "discoverability": discoverability,
-            "decision": decision,
-            "captionPlan": caption_plan,
-            "counts": table_counts(
-                cf,
-                "creative_plans",
-                "creative_plan_events",
-                "distribution_plans",
-                "trust_exceptions",
-                "caption_families",
-                "caption_versions",
-            ),
-        }) == {
+        assert normalize(
+            {
+                "plan": plan,
+                "progress": progress,
+                "status": status,
+                "distribution": distribution,
+                "exception": exception,
+                "exceptionReport": exception_report,
+                "discoverability": discoverability,
+                "decision": decision,
+                "captionPlan": caption_plan,
+                "counts": table_counts(
+                    cf,
+                    "creative_plans",
+                    "creative_plan_events",
+                    "distribution_plans",
+                    "trust_exceptions",
+                    "caption_families",
+                    "caption_versions",
+                ),
+            }
+        ) == {
             "plan": {
                 "schema": "campaign_factory.creative_plan.v1",
                 "name": "daily_plan",
@@ -863,105 +963,138 @@ def test_inventory_planning_reports_characterization(tmp_path: Path) -> None:
             available_inventory=8,
             execution_readiness=readiness,
         )
-        autopilot = cf.inventory_autopilot_plan(accounts=2, posts_per_account_per_day=2, available_inventory=1)
-        repair = cf.inventory_shortage_repair_plan(accounts=2, posts_per_account_per_day=2, available_inventory=1)
-        protection = cf.inventory_buffer_protection_report(accounts=2, posts_per_account_per_day=2, available_inventory=1)
+        autopilot = cf.inventory_autopilot_plan(
+            accounts=2, posts_per_account_per_day=2, available_inventory=1
+        )
+        repair = cf.inventory_shortage_repair_plan(
+            accounts=2, posts_per_account_per_day=2, available_inventory=1
+        )
+        protection = cf.inventory_buffer_protection_report(
+            accounts=2, posts_per_account_per_day=2, available_inventory=1
+        )
 
         assert cf.conn.total_changes == before
-        assert normalize({
-            "slo": {
-                "schema": slo["schema"],
-                "minimumValidatedDraftBuffer": slo["minimumValidatedDraftBuffer"],
-                "minimumDraftsPerCreator": slo["minimumDraftsPerCreator"],
-                "minimumDraftsPerSurface": slo["minimumDraftsPerSurface"],
-                "currentDraftsPerSurface": slo["currentDraftsPerSurface"],
-                "draftShortfall": slo["draftShortfall"],
-                "inventoryHealth": slo["inventoryHealth"],
-                "wouldWrite": slo["wouldWrite"],
-            },
-            "buffer": {
-                "schema": buffer["schema"],
-                "draftSurplus": buffer["draftSurplus"],
-                "bufferDaysAvailable": buffer["bufferDaysAvailable"],
-                "inventoryHealth": buffer["inventoryHealth"],
-                "wouldWrite": buffer["wouldWrite"],
-            },
-            "audit": {
-                "schema": audit["schema"],
-                "dailyDemand": audit["dailyDemand"],
-                "limitingStage": audit["limitingStage"],
-                "scheduleSafeInventoryCapacity": audit["scheduleSafeInventoryCapacity"],
-                "wouldWrite": audit["wouldWrite"],
-            },
-            "yield": {
-                "schema": yield_report["schema"],
-                "stageCounts": yield_report["stageCounts"],
-                "largestDropoff": yield_report["largestDropoff"],
-                "wouldWrite": yield_report["wouldWrite"],
-            },
-            "bufferPlan": buffer_plan,
-            "enforcement": {
-                "schema": enforcement["schema"],
-                "minimumPerCreator": enforcement["minimumPerCreator"],
-                "minimumPerSurface": enforcement["minimumPerSurface"],
-                "highestRiskCreator": enforcement["highestRiskCreator"],
-                "highestRiskSurface": enforcement["highestRiskSurface"],
-                "violationCount": len(enforcement["violations"]),
-                "wouldWrite": enforcement["wouldWrite"],
-            },
-            "simulation": simulation,
-            "production": production,
-            "road": {
-                "schema": road["schema"],
-                "requiredInventoryBuffer": road["requiredInventoryBuffer"],
-                "requiredDailyProduction": road["requiredDailyProduction"],
-                "wouldWrite": road["wouldWrite"],
-            },
-            "exceptions": {
-                "schema": exceptions["schema"],
-                "topLossReason": exceptions["topLossReason"],
-                "lossReasons": [(item["reason"], item["count"]) for item in exceptions["inventoryLossReasons"][:2]],
-                "wouldWrite": exceptions["wouldWrite"],
-            },
-            "readiness": {
-                "schema": readiness_report["schema"],
-                "inventoryBufferScore": readiness_report["inventoryBufferScore"],
-                "inventoryExceptionScore": readiness_report["inventoryExceptionScore"],
-                "overallInventoryReadiness": readiness_report["overallInventoryReadiness"],
-                "wouldWrite": readiness_report["wouldWrite"],
-            },
-            "master": {
-                "schema": master["schema"],
-                "overallInventoryReadiness": master["currentInventoryReadiness"]["overallInventoryReadiness"],
-                "requirementsFor200Accounts": master["requirementsFor200Accounts"]["requiredInventoryBuffer"],
-                "requirementsFor500Accounts": master["requirementsFor500Accounts"]["requiredInventoryBuffer"],
-                "wouldWrite": master["wouldWrite"],
-            },
-            "autopilot": {
-                "schema": autopilot["schema"],
-                "shortfall": autopilot["shortfall"],
-                "repairActionCount": len(autopilot["repairActions"]),
-                "wouldWrite": autopilot["wouldWrite"],
-            },
-            "repair": {
-                "schema": repair["schema"],
-                "shortfall": repair["shortfall"],
-                "repairActionCount": len(repair["repairActions"]),
-                "wouldWrite": repair["wouldWrite"],
-            },
-            "protection": {
-                "schema": protection["schema"],
-                "shortfall": protection["shortfall"],
-                "health": protection["health"],
-                "wouldWrite": protection["wouldWrite"],
-            },
-        }) == {
+        assert normalize(
+            {
+                "slo": {
+                    "schema": slo["schema"],
+                    "minimumValidatedDraftBuffer": slo["minimumValidatedDraftBuffer"],
+                    "minimumDraftsPerCreator": slo["minimumDraftsPerCreator"],
+                    "minimumDraftsPerSurface": slo["minimumDraftsPerSurface"],
+                    "currentDraftsPerSurface": slo["currentDraftsPerSurface"],
+                    "draftShortfall": slo["draftShortfall"],
+                    "inventoryHealth": slo["inventoryHealth"],
+                    "wouldWrite": slo["wouldWrite"],
+                },
+                "buffer": {
+                    "schema": buffer["schema"],
+                    "draftSurplus": buffer["draftSurplus"],
+                    "bufferDaysAvailable": buffer["bufferDaysAvailable"],
+                    "inventoryHealth": buffer["inventoryHealth"],
+                    "wouldWrite": buffer["wouldWrite"],
+                },
+                "audit": {
+                    "schema": audit["schema"],
+                    "dailyDemand": audit["dailyDemand"],
+                    "limitingStage": audit["limitingStage"],
+                    "scheduleSafeInventoryCapacity": audit[
+                        "scheduleSafeInventoryCapacity"
+                    ],
+                    "wouldWrite": audit["wouldWrite"],
+                },
+                "yield": {
+                    "schema": yield_report["schema"],
+                    "stageCounts": yield_report["stageCounts"],
+                    "largestDropoff": yield_report["largestDropoff"],
+                    "wouldWrite": yield_report["wouldWrite"],
+                },
+                "bufferPlan": buffer_plan,
+                "enforcement": {
+                    "schema": enforcement["schema"],
+                    "minimumPerCreator": enforcement["minimumPerCreator"],
+                    "minimumPerSurface": enforcement["minimumPerSurface"],
+                    "highestRiskCreator": enforcement["highestRiskCreator"],
+                    "highestRiskSurface": enforcement["highestRiskSurface"],
+                    "violationCount": len(enforcement["violations"]),
+                    "wouldWrite": enforcement["wouldWrite"],
+                },
+                "simulation": simulation,
+                "production": production,
+                "road": {
+                    "schema": road["schema"],
+                    "requiredInventoryBuffer": road["requiredInventoryBuffer"],
+                    "requiredDailyProduction": road["requiredDailyProduction"],
+                    "wouldWrite": road["wouldWrite"],
+                },
+                "exceptions": {
+                    "schema": exceptions["schema"],
+                    "topLossReason": exceptions["topLossReason"],
+                    "lossReasons": [
+                        (item["reason"], item["count"])
+                        for item in exceptions["inventoryLossReasons"][:2]
+                    ],
+                    "wouldWrite": exceptions["wouldWrite"],
+                },
+                "readiness": {
+                    "schema": readiness_report["schema"],
+                    "inventoryBufferScore": readiness_report["inventoryBufferScore"],
+                    "inventoryExceptionScore": readiness_report[
+                        "inventoryExceptionScore"
+                    ],
+                    "overallInventoryReadiness": readiness_report[
+                        "overallInventoryReadiness"
+                    ],
+                    "wouldWrite": readiness_report["wouldWrite"],
+                },
+                "master": {
+                    "schema": master["schema"],
+                    "overallInventoryReadiness": master["currentInventoryReadiness"][
+                        "overallInventoryReadiness"
+                    ],
+                    "requirementsFor200Accounts": master["requirementsFor200Accounts"][
+                        "requiredInventoryBuffer"
+                    ],
+                    "requirementsFor500Accounts": master["requirementsFor500Accounts"][
+                        "requiredInventoryBuffer"
+                    ],
+                    "wouldWrite": master["wouldWrite"],
+                },
+                "autopilot": {
+                    "schema": autopilot["schema"],
+                    "shortfall": autopilot["shortfall"],
+                    "repairActionCount": len(autopilot["repairActions"]),
+                    "wouldWrite": autopilot["wouldWrite"],
+                },
+                "repair": {
+                    "schema": repair["schema"],
+                    "shortfall": repair["shortfall"],
+                    "repairActionCount": len(repair["repairActions"]),
+                    "wouldWrite": repair["wouldWrite"],
+                },
+                "protection": {
+                    "schema": protection["schema"],
+                    "shortfall": protection["shortfall"],
+                    "health": protection["health"],
+                    "wouldWrite": protection["wouldWrite"],
+                },
+            }
+        ) == {
             "slo": {
                 "schema": "creator_os.inventory_slo_report.v1",
                 "minimumValidatedDraftBuffer": 8,
                 "minimumDraftsPerCreator": {"Creator 1": 4, "Creator 2": 4},
-                "minimumDraftsPerSurface": {"feed_carousel": 0, "feed_single": 1, "reel": 4, "story": 3},
-                "currentDraftsPerSurface": {"feed_carousel": 0, "feed_single": 0, "reel": 2, "story": 1},
+                "minimumDraftsPerSurface": {
+                    "feed_carousel": 0,
+                    "feed_single": 1,
+                    "reel": 4,
+                    "story": 3,
+                },
+                "currentDraftsPerSurface": {
+                    "feed_carousel": 0,
+                    "feed_single": 0,
+                    "reel": 2,
+                    "story": 1,
+                },
                 "draftShortfall": 5,
                 "inventoryHealth": "critical",
                 "wouldWrite": False,
@@ -1009,7 +1142,12 @@ def test_inventory_planning_reports_characterization(tmp_path: Path) -> None:
             "enforcement": {
                 "schema": "creator_os.inventory_slo_enforcement_audit.v1",
                 "minimumPerCreator": 4,
-                "minimumPerSurface": {"feed_carousel": 0, "feed_single": 0, "reel": 2, "story": 2},
+                "minimumPerSurface": {
+                    "feed_carousel": 0,
+                    "feed_single": 0,
+                    "reel": 2,
+                    "story": 2,
+                },
                 "highestRiskCreator": "Lola",
                 "highestRiskSurface": "reel",
                 "violationCount": 2,
@@ -1069,7 +1207,10 @@ def test_inventory_planning_reports_characterization(tmp_path: Path) -> None:
             "exceptions": {
                 "schema": "creator_os.inventory_exception_audit.v1",
                 "topLossReason": "missing_instagram_post_caption",
-                "lossReasons": [("missing_instagram_post_caption", 2), ("embedded_audio_invalid", 1)],
+                "lossReasons": [
+                    ("missing_instagram_post_caption", 2),
+                    ("embedded_audio_invalid", 1),
+                ],
                 "wouldWrite": False,
             },
             "readiness": {
@@ -1109,12 +1250,19 @@ def test_inventory_planning_reports_characterization(tmp_path: Path) -> None:
         cf.close()
 
 
-def test_inventory_reservation_and_net_inventory_characterization(tmp_path: Path) -> None:
+def test_inventory_reservation_and_net_inventory_characterization(
+    tmp_path: Path,
+) -> None:
     cf = make_factory(tmp_path)
     try:
         model = cf.upsert_model("stacey", name="Stacey")
         for index in range(2):
-            cf.upsert_account(f"stacey_{index}", platform="instagram", external_id=f"ig_{index}", model_id=model["id"])
+            cf.upsert_account(
+                f"stacey_{index}",
+                platform="instagram",
+                external_id=f"ig_{index}",
+                model_id=model["id"],
+            )
         for index in range(5):
             add_schedule_safe_asset(cf, tmp_path, asset_id=f"asset_inventory_{index}")
 
@@ -1146,43 +1294,46 @@ def test_inventory_reservation_and_net_inventory_characterization(tmp_path: Path
             content_surface="feed_single",
         )
 
-        assert normalize({
-            "reservation": {
-                "sameIdempotentRow": reservation["id"] == same_reservation["id"],
-                "assetId": reservation["asset_id"],
-                "surface": reservation["surface"],
-                "reservedBy": reservation["reserved_by"],
-                "status": reservation["status"],
-                "sourceFamilyId": reservation["source_family_id"],
-                "perceptualClusterId": reservation["perceptual_cluster_id"],
-                "idempotencyKey": reservation["idempotency_key"],
-            },
-            "acceptance": {
-                "schema": acceptance["schema"],
-                "grossInventory": acceptance["grossInventory"],
-                "reservedInventory": acceptance["reservedInventory"],
-                "usedInventory": acceptance["usedInventory"],
-                "cooldownBlockedInventory": acceptance["cooldownBlockedInventory"],
-                "netInventory": acceptance["netInventory"],
-                "availableInventory": acceptance["availableInventory"],
-                "requiredInventory": acceptance["requiredInventory"],
-                "acceptancePassed": acceptance["acceptancePassed"],
-                "blockingReasons": acceptance["blockingReasons"],
-                "wouldWrite": acceptance["wouldWrite"],
-            },
-            "released": {
-                "assetId": released["asset_id"],
-                "status": released["status"],
-                "reservationIdMatches": released["reservation_id"] == reservation["reservation_id"],
-            },
-            "afterRelease": {
-                "reservedInventory": after_release["reservedInventory"],
-                "usedInventory": after_release["usedInventory"],
-                "netInventory": after_release["netInventory"],
-                "acceptancePassed": after_release["acceptancePassed"],
-                "wouldWrite": after_release["wouldWrite"],
-            },
-        }) == {
+        assert normalize(
+            {
+                "reservation": {
+                    "sameIdempotentRow": reservation["id"] == same_reservation["id"],
+                    "assetId": reservation["asset_id"],
+                    "surface": reservation["surface"],
+                    "reservedBy": reservation["reserved_by"],
+                    "status": reservation["status"],
+                    "sourceFamilyId": reservation["source_family_id"],
+                    "perceptualClusterId": reservation["perceptual_cluster_id"],
+                    "idempotencyKey": reservation["idempotency_key"],
+                },
+                "acceptance": {
+                    "schema": acceptance["schema"],
+                    "grossInventory": acceptance["grossInventory"],
+                    "reservedInventory": acceptance["reservedInventory"],
+                    "usedInventory": acceptance["usedInventory"],
+                    "cooldownBlockedInventory": acceptance["cooldownBlockedInventory"],
+                    "netInventory": acceptance["netInventory"],
+                    "availableInventory": acceptance["availableInventory"],
+                    "requiredInventory": acceptance["requiredInventory"],
+                    "acceptancePassed": acceptance["acceptancePassed"],
+                    "blockingReasons": acceptance["blockingReasons"],
+                    "wouldWrite": acceptance["wouldWrite"],
+                },
+                "released": {
+                    "assetId": released["asset_id"],
+                    "status": released["status"],
+                    "reservationIdMatches": released["reservation_id"]
+                    == reservation["reservation_id"],
+                },
+                "afterRelease": {
+                    "reservedInventory": after_release["reservedInventory"],
+                    "usedInventory": after_release["usedInventory"],
+                    "netInventory": after_release["netInventory"],
+                    "acceptancePassed": after_release["acceptancePassed"],
+                    "wouldWrite": after_release["wouldWrite"],
+                },
+            }
+        ) == {
             "reservation": {
                 "sameIdempotentRow": True,
                 "assetId": "asset_inventory_0",

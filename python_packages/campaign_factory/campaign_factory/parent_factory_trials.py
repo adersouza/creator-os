@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 
@@ -33,7 +34,9 @@ class ParentFactoryTrialRepository:
         self._parent_factory_yield_waterfall = parent_factory_yield_waterfall
         self._parent_factory_loss_analysis = parent_factory_loss_analysis
         self._parent_factory_trial_loss_buckets = parent_factory_trial_loss_buckets
-        self._parent_factory_trial_stage_repairable = parent_factory_trial_stage_repairable
+        self._parent_factory_trial_stage_repairable = (
+            parent_factory_trial_stage_repairable
+        )
         self._explain_publishability = explain_publishability
         self._ratio = ratio
         self._score_fraction = score_fraction
@@ -44,18 +47,28 @@ class ParentFactoryTrialRepository:
             return measured
         metrics = self._reel_factory_parent_metrics()
         waterfall = self._parent_factory_yield_waterfall(required_parents_per_day=53)
-        counts = {row["stage"]: int(row.get("outputCount") or 0) for row in waterfall.get("stages") or []}
+        counts = {
+            row["stage"]: int(row.get("outputCount") or 0)
+            for row in waterfall.get("stages") or []
+        }
         raw = int(counts.get("raw_candidate") or 0)
         accepted = int(counts.get("parent_accepted") or 0)
         return {
             "schema": "creator_os.parent_factory_production_trial.v1",
             "rawCandidates": raw,
             "qualityPassed": int(counts.get("visual_qc_pass") or 0),
-            "discoverabilityPassed": int(counts.get("discoverability_safety_pass") or 0),
+            "discoverabilityPassed": int(
+                counts.get("discoverability_safety_pass") or 0
+            ),
             "publishabilityPassed": int(counts.get("publishability_pass") or 0),
             "acceptedParents": accepted,
             "yieldPct": round(self._ratio(accepted, raw) * 100, 1),
-            "operatorMinutes": int(round(float(self._operator_review_minutes_per_parent(metrics) or 0) * max(1, int(metrics.get("parentCandidates") or 0)))),
+            "operatorMinutes": int(
+                round(
+                    float(self._operator_review_minutes_per_parent(metrics) or 0)
+                    * max(1, int(metrics.get("parentCandidates") or 0))
+                )
+            ),
             "dataSource": "actual_current_state",
             "wouldWrite": False,
         }
@@ -79,13 +92,16 @@ class ParentFactoryTrialRepository:
                 (campaign["id"],),
             ).fetchall()
         ]
-        blocked = int(self.conn.execute(
-            """
+        blocked = int(
+            self.conn.execute(
+                """
             SELECT COUNT(*) FROM asset_rejection_evidence
             WHERE campaign_id = ? AND failed_stage IN ('discoverability_generation_gate', 'discoverability_pre_render_gate')
             """,
-            (campaign["id"],),
-        ).fetchone()[0] or 0)
+                (campaign["id"],),
+            ).fetchone()[0]
+            or 0
+        )
         accepted = 0
         publishability_failures = 0
         quality_failures = 0
@@ -96,7 +112,11 @@ class ParentFactoryTrialRepository:
             if publishability.get("publishableCandidate"):
                 accepted += 1
             else:
-                reasons = {str(reason) for reason in publishability.get("publishability_failure_reasons") or []}
+                reasons = {
+                    str(reason)
+                    for reason in publishability.get("publishability_failure_reasons")
+                    or []
+                }
                 if any("quality" in reason for reason in reasons):
                     quality_failures += 1
                 elif any("duplicate" in reason for reason in reasons):
@@ -105,12 +125,23 @@ class ParentFactoryTrialRepository:
                     publishability_failures += 1
                 else:
                     other_failures += 1
-        raw = accepted + blocked + publishability_failures + quality_failures + duplicate_failures + other_failures
+        raw = (
+            accepted
+            + blocked
+            + publishability_failures
+            + quality_failures
+            + duplicate_failures
+            + other_failures
+        )
         return {
             "schema": "creator_os.parent_factory_production_trial.v1",
             "campaign": campaign["slug"],
             "rawCandidates": raw,
-            "qualityPassed": accepted + blocked + publishability_failures + duplicate_failures + other_failures,
+            "qualityPassed": accepted
+            + blocked
+            + publishability_failures
+            + duplicate_failures
+            + other_failures,
             "discoverabilityPassed": len(assets),
             "publishabilityPassed": accepted,
             "acceptedParents": accepted,
@@ -129,7 +160,9 @@ class ParentFactoryTrialRepository:
     def parent_factory_53_parent_trial(self) -> dict[str, Any]:
         target = 53
         metrics = self._reel_factory_parent_metrics()
-        waterfall = self._parent_factory_yield_waterfall(required_parents_per_day=target)
+        waterfall = self._parent_factory_yield_waterfall(
+            required_parents_per_day=target
+        )
         losses = self._parent_factory_trial_loss_buckets(waterfall)
         stages = {row["stage"]: row for row in waterfall.get("stages") or []}
         raw = int(stages.get("raw_candidate", {}).get("outputCount") or 0)
@@ -147,7 +180,12 @@ class ParentFactoryTrialRepository:
             "actualCandidates": raw,
             "acceptedParents": accepted,
             "yieldPct": round(self._ratio(accepted, raw) * 100, 1),
-            "operatorMinutes": int(round(float(self._operator_review_minutes_per_parent(metrics) or 0) * max(1, int(metrics.get("parentCandidates") or raw)))),
+            "operatorMinutes": int(
+                round(
+                    float(self._operator_review_minutes_per_parent(metrics) or 0)
+                    * max(1, int(metrics.get("parentCandidates") or raw))
+                )
+            ),
             "discoverabilityFailures": losses["discoverabilityFailures"],
             "publishabilityFailures": losses["publishabilityFailures"],
             "qualityFailures": losses["qualityFailures"],
@@ -180,7 +218,9 @@ class ParentFactoryTrialRepository:
             "trialPassed": trial["trialPassed"],
             "limitingStep": trial["limitingStep"],
             "largestLossStage": largest["stage"],
-            "repairable": self._parent_factory_trial_stage_repairable(str(largest["stage"])),
+            "repairable": self._parent_factory_trial_stage_repairable(
+                str(largest["stage"])
+            ),
             "estimatedRecoveredParents": int(largest["count"]),
             "rankedLosses": ranked,
             "measuredOnly": True,
@@ -214,16 +254,20 @@ class ParentFactoryTrialRepository:
             "limitingStep": "discoverability_safety_pass",
         }
         candidates = self.post_gate_fresh_batch_candidates()
-        with tempfile.TemporaryDirectory(prefix="campaign_factory_post_gate_proof_") as tmp:
+        with tempfile.TemporaryDirectory(
+            prefix="campaign_factory_post_gate_proof_"
+        ) as tmp:
             root = Path(tmp)
-            sandbox = self._factory_constructor(Settings(
-                root=root,
-                db_path=root / "campaign_factory.sqlite",
-                reel_factory_root=root / "reel_factory",
-                contentforge_root=root / "contentforge",
-                threadsdash_root=root / "ThreadsDashboard",
-                campaigns_dir=root / "campaigns",
-            ))
+            sandbox = self._factory_constructor(
+                Settings(
+                    root=root,
+                    db_path=root / "campaign_factory.sqlite",
+                    reel_factory_root=root / "reel_factory",
+                    contentforge_root=root / "contentforge",
+                    threadsdash_root=root / "ThreadsDashboard",
+                    campaigns_dir=root / "campaigns",
+                )
+            )
             try:
                 media_dir = root / "fresh_candidates"
                 media_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +279,9 @@ class ParentFactoryTrialRepository:
                 other_failures = 0
                 for index, candidate in enumerate(candidates):
                     video = media_dir / f"candidate_{index:03d}.mp4"
-                    video.write_bytes(f"fresh-candidate-{index}:{candidate['caption']}".encode("utf-8"))
+                    video.write_bytes(
+                        f"fresh-candidate-{index}:{candidate['caption']}".encode()
+                    )
                     result = sandbox.register_finished_video(
                         input_path=video,
                         campaign_slug="post_gate_fresh_batch_proof",
@@ -256,7 +302,9 @@ class ParentFactoryTrialRepository:
                         caption_placement_decision={"status": "passed"},
                     )
                     if result.get("canProceed") is False:
-                        blocked_item = self.post_gate_blocked_candidate_evidence(sandbox, result)
+                        blocked_item = self.post_gate_blocked_candidate_evidence(
+                            sandbox, result
+                        )
                         if blocked_item:
                             blocked.append(blocked_item)
                         continue
@@ -265,16 +313,34 @@ class ParentFactoryTrialRepository:
                     if publishability.get("publishableCandidate"):
                         accepted += 1
                     else:
-                        reasons = {str(reason) for reason in publishability.get("publishability_failure_reasons") or []}
+                        reasons = {
+                            str(reason)
+                            for reason in publishability.get(
+                                "publishability_failure_reasons"
+                            )
+                            or []
+                        }
                         if "discoverability_safety_violation" in reasons:
                             late_discoverability += 1
                         elif reasons:
                             publishability_failures += 1
                         else:
                             other_failures += 1
-                render_jobs_created = int(sandbox.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"])
-                source_assets_created = int(sandbox.conn.execute("SELECT COUNT(*) AS c FROM source_assets").fetchone()["c"])
-                rendered_assets_created = int(sandbox.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"])
+                render_jobs_created = int(
+                    sandbox.conn.execute(
+                        "SELECT COUNT(*) AS c FROM render_jobs"
+                    ).fetchone()["c"]
+                )
+                source_assets_created = int(
+                    sandbox.conn.execute(
+                        "SELECT COUNT(*) AS c FROM source_assets"
+                    ).fetchone()["c"]
+                )
+                rendered_assets_created = int(
+                    sandbox.conn.execute(
+                        "SELECT COUNT(*) AS c FROM rendered_assets"
+                    ).fetchone()["c"]
+                )
             finally:
                 sandbox.close()
         raw = len(candidates)
@@ -308,9 +374,14 @@ class ParentFactoryTrialRepository:
                 "lateDiscoverabilityFailures": baseline["lateDiscoverabilityFailures"],
                 "yieldPct": baseline["yieldPct"],
             },
-            "freshBatchResult": {key: value for key, value in result.items() if key != "blockedCandidates"},
+            "freshBatchResult": {
+                key: value
+                for key, value in result.items()
+                if key != "blockedCandidates"
+            },
             "improvement": {
-                "lateDiscoverabilityFailuresReduced": late_discoverability < baseline["lateDiscoverabilityFailures"],
+                "lateDiscoverabilityFailuresReduced": late_discoverability
+                < baseline["lateDiscoverabilityFailures"],
                 "renderJobsAvoided": blocked_count,
                 "yieldImproved": yield_pct > baseline["yieldPct"],
                 "acceptedParentLift": accepted - baseline["acceptedParents"],
@@ -322,7 +393,9 @@ class ParentFactoryTrialRepository:
             "baseline": baseline,
             "comparison": comparison,
             "successCriteria": {
-                "passed": late_discoverability == 0 and blocked_count > 0 and blocked_count == result["renderJobsAvoided"],
+                "passed": late_discoverability == 0
+                and blocked_count > 0
+                and blocked_count == result["renderJobsAvoided"],
                 "strongPass": accepted >= 53 and yield_pct >= 50,
             },
             "wouldWrite": False,
@@ -349,14 +422,15 @@ class ParentFactoryTrialRepository:
             "trial": trial,
             "waterfall": waterfall,
             "estimateReplaced": True,
-            "largestLossStage": self._parent_factory_loss_analysis(required_parents_per_day=53).get("largestLossStage"),
+            "largestLossStage": self._parent_factory_loss_analysis(
+                required_parents_per_day=53
+            ).get("largestLossStage"),
             "wouldWrite": False,
         }
 
     def post_gate_fresh_batch_candidates(self) -> list[dict[str, str]]:
         safe = [
-            {"caption": f"quick outfit check {index:02d}"}
-            for index in range(1, 54)
+            {"caption": f"quick outfit check {index:02d}"} for index in range(1, 54)
         ]
         unsafe = [
             {"caption": "DM me for more"},
@@ -373,7 +447,9 @@ class ParentFactoryTrialRepository:
         ]
         return safe + unsafe
 
-    def post_gate_blocked_candidate_evidence(self, sandbox: Any, result: dict[str, Any]) -> dict[str, Any] | None:
+    def post_gate_blocked_candidate_evidence(
+        self, sandbox: Any, result: dict[str, Any]
+    ) -> dict[str, Any] | None:
         capture = result.get("rejectionEvidenceCapture") or {}
         evidence_ids = [str(item) for item in capture.get("evidenceIds") or []]
         if not evidence_ids:

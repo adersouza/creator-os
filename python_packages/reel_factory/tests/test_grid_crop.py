@@ -5,9 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
-from PIL import ImageDraw
-
 from grid_crop import (
     build_crop_plan,
     crop_image_grid_panels,
@@ -17,14 +14,36 @@ from grid_crop import (
     save_crop_plan,
     validate_boxes,
 )
+from PIL import Image, ImageDraw
 
 
 class GridCropTests(unittest.TestCase):
-    def _write_grid_image(self, root: Path, name: str, columns: int, rows: int,
-                          cell_w: int = 80, cell_h: int = 100, pad: int = 12) -> Path:
-        image = Image.new("RGB", (columns * cell_w + pad * 2, rows * cell_h + pad * 2), (245, 245, 245))
-        colors = [(180, 40, 40), (40, 150, 90), (60, 90, 190), (190, 160, 40),
-                  (170, 70, 170), (40, 170, 180), (210, 100, 50), (90, 90, 90), (35, 120, 40)]
+    def _write_grid_image(
+        self,
+        root: Path,
+        name: str,
+        columns: int,
+        rows: int,
+        cell_w: int = 80,
+        cell_h: int = 100,
+        pad: int = 12,
+    ) -> Path:
+        image = Image.new(
+            "RGB",
+            (columns * cell_w + pad * 2, rows * cell_h + pad * 2),
+            (245, 245, 245),
+        )
+        colors = [
+            (180, 40, 40),
+            (40, 150, 90),
+            (60, 90, 190),
+            (190, 160, 40),
+            (170, 70, 170),
+            (40, 170, 180),
+            (210, 100, 50),
+            (90, 90, 90),
+            (35, 120, 40),
+        ]
         for row in range(rows):
             for col in range(columns):
                 color = colors[(row * columns + col) % len(colors)]
@@ -48,7 +67,9 @@ class GridCropTests(unittest.TestCase):
             self.assertEqual(manifest["gridPreset"], {"columns": 3, "rows": 2})
             self.assertEqual(len(manifest["panelCrops"]), 6)
             self.assertEqual(manifest["contentBox"], [12, 12, 252, 212])
-            self.assertTrue(all(Path(p["path"]).exists() for p in manifest["panelCrops"]))
+            self.assertTrue(
+                all(Path(p["path"]).exists() for p in manifest["panelCrops"])
+            )
 
     def test_smart_image_crop_detects_vertical_square_and_wide_grids(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,8 +81,12 @@ class GridCropTests(unittest.TestCase):
             ]
             for name, columns, rows, count in cases:
                 image = self._write_grid_image(root, name, columns, rows)
-                manifest = crop_image_grid_panels(image, root / f"out_{columns}x{rows}", prefix=name)
-                self.assertEqual(manifest["gridPreset"], {"columns": columns, "rows": rows})
+                manifest = crop_image_grid_panels(
+                    image, root / f"out_{columns}x{rows}", prefix=name
+                )
+                self.assertEqual(
+                    manifest["gridPreset"], {"columns": columns, "rows": rows}
+                )
                 self.assertEqual(len(manifest["panelCrops"]), count)
 
     def test_ambiguous_weak_boundary_high_panel_guess_requires_review(self):
@@ -85,7 +110,9 @@ class GridCropTests(unittest.TestCase):
             path = root / "weak_boundary_grid.png"
             image.save(path)
 
-            manifest = crop_image_grid_panels(path, root / "out", columns=3, rows=2, prefix="forced")
+            manifest = crop_image_grid_panels(
+                path, root / "out", columns=3, rows=2, prefix="forced"
+            )
 
             self.assertEqual(manifest["gridPreset"], {"columns": 3, "rows": 2})
             self.assertEqual(manifest["confidence"], "operator_override")
@@ -99,24 +126,39 @@ class GridCropTests(unittest.TestCase):
             x_lines = [0, 544, 1038, 1562, 2048]
             y_lines = [0, 746, 1536]
             colors = [
-                (180, 40, 40), (40, 150, 90), (60, 90, 190), (190, 160, 40),
-                (170, 70, 170), (40, 170, 180), (210, 100, 50), (90, 90, 90),
+                (180, 40, 40),
+                (40, 150, 90),
+                (60, 90, 190),
+                (190, 160, 40),
+                (170, 70, 170),
+                (40, 170, 180),
+                (210, 100, 50),
+                (90, 90, 90),
             ]
             idx = 0
             for row in range(2):
                 for col in range(4):
                     draw.rectangle(
-                        (x_lines[col], y_lines[row], x_lines[col + 1] - 1, y_lines[row + 1] - 1),
+                        (
+                            x_lines[col],
+                            y_lines[row],
+                            x_lines[col + 1] - 1,
+                            y_lines[row + 1] - 1,
+                        ),
                         fill=colors[idx],
                     )
                     idx += 1
             for x in x_lines[1:-1]:
                 draw.rectangle((x - 3, 0, x + 3, 1535), fill=(250, 250, 250))
-            draw.rectangle((0, y_lines[1] - 3, 2047, y_lines[1] + 3), fill=(250, 250, 250))
+            draw.rectangle(
+                (0, y_lines[1] - 3, 2047, y_lines[1] + 3), fill=(250, 250, 250)
+            )
             path = root / "shifted_4x2.png"
             image.save(path)
 
-            manifest = crop_image_grid_panels(path, root / "out", columns=4, rows=2, prefix="shifted")
+            manifest = crop_image_grid_panels(
+                path, root / "out", columns=4, rows=2, prefix="shifted"
+            )
 
             self.assertEqual(manifest["gridPreset"], {"columns": 4, "rows": 2})
             self.assertEqual(manifest["confidence"], "operator_override")
@@ -134,7 +176,9 @@ class GridCropTests(unittest.TestCase):
             self.assertLess(first_crop[0] + first_crop[2], 544)
             self.assertGreater(second_crop[0], 544)
 
-            auto_manifest = crop_image_grid_panels(path, root / "auto_out", prefix="auto_shifted")
+            auto_manifest = crop_image_grid_panels(
+                path, root / "auto_out", prefix="auto_shifted"
+            )
             self.assertEqual(auto_manifest["gridPreset"], {"columns": 4, "rows": 2})
             self.assertEqual(len(auto_manifest["panelCrops"]), 8)
 
@@ -157,14 +201,19 @@ class GridCropTests(unittest.TestCase):
             source = root / "00_source_videos" / "clip_001.mp4"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"mp4")
-            with patch("grid_crop.probe_video", return_value={"width": 100, "height": 80, "duration": 5.0}):
+            with patch(
+                "grid_crop.probe_video",
+                return_value={"width": 100, "height": 80, "duration": 5.0},
+            ):
                 plan = build_crop_plan(
                     root,
                     stem="clip_001",
                     source_video=source,
                     columns=3,
                     rows=2,
-                    boxes=[{"id": 1, "x": -10, "y": 5, "w": 999, "h": 999, "enabled": True}],
+                    boxes=[
+                        {"id": 1, "x": -10, "y": 5, "w": 999, "h": 999, "enabled": True}
+                    ],
                 )
             self.assertEqual(plan["boxes"][0]["x"], 0)
             self.assertEqual(plan["boxes"][0]["w"], 100)
@@ -199,9 +248,13 @@ class GridCropTests(unittest.TestCase):
                 commands.append(cmd)
                 out.write_bytes(b"mp4")
 
-            with patch("grid_crop.render_caption_png", side_effect=fake_caption), \
-                 patch("grid_crop.subprocess.run", side_effect=fake_run):
-                render_fit_nocrop(root, source_video=source, caption="test", out_path=out)
+            with (
+                patch("grid_crop.render_caption_png", side_effect=fake_caption),
+                patch("grid_crop.subprocess.run", side_effect=fake_run),
+            ):
+                render_fit_nocrop(
+                    root, source_video=source, caption="test", out_path=out
+                )
 
             joined = " ".join(commands[-1])
             self.assertIn("force_original_aspect_ratio=decrease", joined)
@@ -216,22 +269,40 @@ class GridCropTests(unittest.TestCase):
             raw = root / "00_source_videos"
             raw.mkdir()
             (raw / "clip_001.mp4").write_bytes(b"mp4")
-            fake_probe = json.dumps({"streams": [{"width": 1200, "height": 800, "duration": "5.0"}]})
+            fake_probe = json.dumps(
+                {"streams": [{"width": 1200, "height": 800, "duration": "5.0"}]}
+            )
 
-            with patch.dict(os.environ, {
-                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                "REEL_FACTORY_ENV": "test",
-            }, clear=True), \
-                 patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui.subprocess, "check_output", return_value=fake_probe), \
-                 patch("grid_crop.probe_video", return_value={"width": 1200, "height": 800, "duration": 5.0}):
-                suggestion = reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
-                saved = reel_gui.grid_crop_save_plan_api("clip_001", {
-                    "columns": 3,
-                    "rows": 2,
-                    "boxes": suggestion["boxes"],
-                })
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                        "REEL_FACTORY_ENV": "test",
+                    },
+                    clear=True,
+                ),
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(
+                    reel_gui.subprocess, "check_output", return_value=fake_probe
+                ),
+                patch(
+                    "grid_crop.probe_video",
+                    return_value={"width": 1200, "height": 800, "duration": 5.0},
+                ),
+            ):
+                suggestion = reel_gui.grid_crop_suggest_api(
+                    "clip_001", {"columns": 3, "rows": 2}
+                )
+                saved = reel_gui.grid_crop_save_plan_api(
+                    "clip_001",
+                    {
+                        "columns": 3,
+                        "rows": 2,
+                        "boxes": suggestion["boxes"],
+                    },
+                )
 
             self.assertEqual(len(suggestion["boxes"]), 6)
             self.assertTrue(Path(saved["plan_path"]).exists())
@@ -249,10 +320,14 @@ class GridCropTests(unittest.TestCase):
     def test_gui_grid_crop_blocks_prod_even_with_allow_flag(self):
         import reel_gui
 
-        with patch.dict(os.environ, {
-            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-            "REEL_FACTORY_ENV": "production",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "production",
+            },
+            clear=True,
+        ):
             with self.assertRaises(Exception) as ctx:
                 reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
         self.assertEqual(ctx.exception.status_code, 410)

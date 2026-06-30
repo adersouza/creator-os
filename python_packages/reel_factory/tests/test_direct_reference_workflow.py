@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,14 +12,15 @@ from generate_assets import (
 )
 from reel_motion_prompt import SCENE_TYPES, compile_reel_motion_prompt
 
-
 CAPABILITIES = {
     "schema": "reel_factory.higgsfield_capabilities.v1",
     "createdAt": 1,
-    "imageModels": [{
-        "job_set_type": "text2image_soul_v2",
-        "parameters": [{"name": "custom_reference_id"}],
-    }],
+    "imageModels": [
+        {
+            "job_set_type": "text2image_soul_v2",
+            "parameters": [{"name": "custom_reference_id"}],
+        }
+    ],
     "videoModels": [{"job_set_type": "kling3_0"}],
 }
 
@@ -56,7 +56,9 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             self.assertNotIn("grok", " ".join(command).lower())
             self.assertNotIn("qwen", " ".join(command).lower())
 
-    def test_direct_reference_generation_saves_captured_higgsfield_prompt_and_no_campaign_record(self):
+    def test_direct_reference_generation_saves_captured_higgsfield_prompt_and_no_campaign_record(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             reference = root / "reference.jpg"
@@ -82,23 +84,48 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                 out_path.write_bytes(b"png")
                 return out_path
 
-            with patch("generate_assets.ensure_required_capabilities", return_value=CAPABILITIES), \
-                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
-                 patch("generate_assets._run_json", return_value=raw_image), \
-                 patch("generate_assets.download_result", side_effect=fake_download):
-                result = create_direct_reference_image_asset(plan, wait=True, download=True)
+            with (
+                patch(
+                    "generate_assets.ensure_required_capabilities",
+                    return_value=CAPABILITIES,
+                ),
+                patch(
+                    "generate_assets._cost_preflight_for_plan",
+                    return_value={
+                        "allowed": True,
+                        "blockingReason": "",
+                        "blockingReasons": [],
+                    },
+                ),
+                patch("generate_assets._run_json", return_value=raw_image),
+                patch("generate_assets.download_result", side_effect=fake_download),
+            ):
+                result = create_direct_reference_image_asset(
+                    plan, wait=True, download=True
+                )
 
             lineage = result["lineage"]
             self.assertTrue(result["ok"])
             self.assertIsNone(result["campaign_record"])
-            self.assertEqual(lineage["generation"]["capturedHiggsfieldPrompt"], "Higgsfield generated reference prompt")
+            self.assertEqual(
+                lineage["generation"]["capturedHiggsfieldPrompt"],
+                "Higgsfield generated reference prompt",
+            )
             self.assertEqual(lineage["generation"]["promptPolicy"]["grokUsed"], False)
             self.assertEqual(lineage["generation"]["promptPolicy"]["qwenUsed"], False)
-            self.assertEqual(lineage["generation"]["promptPolicy"]["visualSchemaUsed"], False)
+            self.assertEqual(
+                lineage["generation"]["promptPolicy"]["visualSchemaUsed"], False
+            )
             self.assertEqual(lineage["generation"]["params"]["imageAspectRatio"], "3:4")
-            self.assertEqual(lineage["generation"]["promptPolicy"]["promptAppendUsed"], False)
-            self.assertEqual(lineage["generation"]["promptPolicy"]["capturedPromptReused"], False)
-            self.assertEqual(lineage["generation"]["promptPolicy"]["policy"], "reference_image_only")
+            self.assertEqual(
+                lineage["generation"]["promptPolicy"]["promptAppendUsed"], False
+            )
+            self.assertEqual(
+                lineage["generation"]["promptPolicy"]["capturedPromptReused"], False
+            )
+            self.assertEqual(
+                lineage["generation"]["promptPolicy"]["policy"], "reference_image_only"
+            )
             self.assertTrue(Path(lineage["assets"]["localPaths"]["image"]).exists())
             self.assertTrue(Path(result["path"]).exists())
 
@@ -125,7 +152,9 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             "params": {"prompt": "auto described prompt"},
         }
 
-        self.assertEqual(extract_higgsfield_generated_prompt(raw), "auto described prompt")
+        self.assertEqual(
+            extract_higgsfield_generated_prompt(raw), "auto described prompt"
+        )
 
     def test_motion_prompt_compiler_covers_every_scene_with_stability_constraints(self):
         for scene_type in sorted(SCENE_TYPES):
@@ -148,7 +177,9 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
 
     def test_motion_prompt_rejects_unknown_scene_type(self):
         with self.assertRaisesRegex(ValueError, "unsupported scene_type"):
-            compile_reel_motion_prompt(start_image_path="/tmp/start.png", scene_type="runway")
+            compile_reel_motion_prompt(
+                start_image_path="/tmp/start.png", scene_type="runway"
+            )
 
 
 if __name__ == "__main__":

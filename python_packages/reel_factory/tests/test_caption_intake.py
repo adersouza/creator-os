@@ -6,8 +6,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from caption_bank import CaptionBankStore, caption_hash, load_or_build_caption_bank_store
-from caption_intake import build_inventory, import_external, plan_placement, promote, scan_local, swipe_review
+from caption_bank import (
+    CaptionBankStore,
+    caption_hash,
+    load_or_build_caption_bank_store,
+)
+from caption_intake import (
+    build_inventory,
+    import_external,
+    plan_placement,
+    promote,
+    scan_local,
+    swipe_review,
+)
 
 
 class CaptionIntakeTests(unittest.TestCase):
@@ -31,7 +42,9 @@ class CaptionIntakeTests(unittest.TestCase):
             json.dumps(
                 {
                     "rawCaptionText": "be honest\nam i your type",
-                    "captionOutcomeContext": {"caption_text": "would you date me or run away?"},
+                    "captionOutcomeContext": {
+                        "caption_text": "would you date me or run away?"
+                    },
                 }
             ),
             encoding="utf-8",
@@ -50,7 +63,12 @@ class CaptionIntakeTests(unittest.TestCase):
             json.dumps(
                 {
                     "schema": "reel_factory.caption_candidate_intake.v1",
-                    "candidates": [{"text": "brand new candidate", "caption_hash": caption_hash("brand new candidate")}],
+                    "candidates": [
+                        {
+                            "text": "brand new candidate",
+                            "caption_hash": caption_hash("brand new candidate"),
+                        }
+                    ],
                 }
             ),
             encoding="utf-8",
@@ -90,8 +108,17 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertEqual(report["added_count"], 1)
         self.assertIn("pick one\npizza\nburger\nme", texts)
         self.assertNotIn("be honest\nam i your type", texts)
-        self.assertEqual(next(row for row in report["candidates"] if row["text"].startswith("pick one"))["externalSource"]["account"], "test_account")
-        self.assertNotIn("pick one\npizza\nburger\nme", {item["text"] for item in store.all_items()})
+        self.assertEqual(
+            next(
+                row
+                for row in report["candidates"]
+                if row["text"].startswith("pick one")
+            )["externalSource"]["account"],
+            "test_account",
+        )
+        self.assertNotIn(
+            "pick one\npizza\nburger\nme", {item["text"] for item in store.all_items()}
+        )
 
     def test_import_external_keeps_sourced_edge_candidates_review_only(self):
         root = self._root()
@@ -116,13 +143,19 @@ class CaptionIntakeTests(unittest.TestCase):
 
         report = import_external(root, source)
         store = load_or_build_caption_bank_store(root)
-        candidate = next(row for row in report["candidates"] if row["text"] == "your caring nurse")
+        candidate = next(
+            row for row in report["candidates"] if row["text"] == "your caring nurse"
+        )
 
         self.assertEqual(report["added_count"], 1)
         self.assertEqual(candidate["banks"], ["experimental_edge"])
-        self.assertEqual(candidate["reviewOnlyReason"], "sourced_excluded_bank_candidate")
+        self.assertEqual(
+            candidate["reviewOnlyReason"], "sourced_excluded_bank_candidate"
+        )
         self.assertEqual(candidate["reviewOnlyExcludedBanks"], ["experimental_edge"])
-        self.assertNotIn("your caring nurse", {item["text"] for item in store.all_items()})
+        self.assertNotIn(
+            "your caring nurse", {item["text"] for item in store.all_items()}
+        )
 
     def test_build_inventory_quarantines_generated_seed_and_adapts_stacey(self):
         root = self._root()
@@ -145,9 +178,21 @@ class CaptionIntakeTests(unittest.TestCase):
         )
 
         report = build_inventory(root, stamp="20260629")
-        candidate_payload = json.loads((root / "caption_banks" / "candidate_intake.json").read_text(encoding="utf-8"))
-        quarantine = json.loads((root / "caption_banks" / "bad_caption_quarantine.json").read_text(encoding="utf-8"))
-        adaptations = json.loads((root / "caption_banks" / "stacey_caption_adaptations.json").read_text(encoding="utf-8"))
+        candidate_payload = json.loads(
+            (root / "caption_banks" / "candidate_intake.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        quarantine = json.loads(
+            (root / "caption_banks" / "bad_caption_quarantine.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        adaptations = json.loads(
+            (root / "caption_banks" / "stacey_caption_adaptations.json").read_text(
+                encoding="utf-8"
+            )
+        )
         store = load_or_build_caption_bank_store(root)
         candidate_texts = {row["text"] for row in candidate_payload["candidates"]}
 
@@ -155,9 +200,17 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertIn("real harvested hook", candidate_texts)
         self.assertIn("girl trouble", candidate_texts)
         self.assertNotIn("synthetic filler hook", candidate_texts)
-        self.assertIn("synthetic filler hook", {row["normalizedCaption"] for row in quarantine["captions"]})
-        self.assertIn("asian girl trouble", {row["rawCaption"] for row in adaptations["adaptations"]})
-        self.assertNotIn("real harvested hook", {item["text"] for item in store.all_items()})
+        self.assertIn(
+            "synthetic filler hook",
+            {row["normalizedCaption"] for row in quarantine["captions"]},
+        )
+        self.assertIn(
+            "asian girl trouble",
+            {row["rawCaption"] for row in adaptations["adaptations"]},
+        )
+        self.assertNotIn(
+            "real harvested hook", {item["text"] for item in store.all_items()}
+        )
 
     def test_build_inventory_reports_live_account_probe_status(self):
         root = self._root()
@@ -187,8 +240,14 @@ class CaptionIntakeTests(unittest.TestCase):
         )
 
         report = build_inventory(root, stamp="20260629")
-        inventory = json.loads((root / "caption_banks" / "caption_source_inventory_20260629.json").read_text(encoding="utf-8"))
-        report_md = (root / "caption_banks" / "caption_source_inventory_20260629_report.md").read_text(encoding="utf-8")
+        inventory = json.loads(
+            (
+                root / "caption_banks" / "caption_source_inventory_20260629.json"
+            ).read_text(encoding="utf-8")
+        )
+        report_md = (
+            root / "caption_banks" / "caption_source_inventory_20260629_report.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("visible_creator", report["accountsSuccessfullyRevisited"])
         self.assertIn("private_creator", report["accountsBlockedPrivateUnavailable"])
@@ -198,7 +257,9 @@ class CaptionIntakeTests(unittest.TestCase):
     def test_promote_rejects_unsafe_approved_caption(self):
         root = self._root()
         approved = root / "approved.json"
-        approved.write_text(json.dumps(["link in bio", "safe little question?"]), encoding="utf-8")
+        approved.write_text(
+            json.dumps(["link in bio", "safe little question?"]), encoding="utf-8"
+        )
 
         report = promote(root, approved)
         store = CaptionBankStore.from_root(root)
@@ -216,7 +277,11 @@ class CaptionIntakeTests(unittest.TestCase):
 
         report = promote(root, approved)
         store = CaptionBankStore.from_root(root)
-        promoted = next(item for item in store.all_items() if item["text"] == "would you say hi first?")
+        promoted = next(
+            item
+            for item in store.all_items()
+            if item["text"] == "would you say hi first?"
+        )
 
         self.assertEqual(report["promoted"], 1)
         self.assertEqual(Path(report["sidecar"]).name[:16], "approved_intake_")
@@ -230,8 +295,16 @@ class CaptionIntakeTests(unittest.TestCase):
                 {
                     "schema": "reel_factory.caption_swipe_decisions.v1",
                     "items": [
-                        {"text": "approved static hook", "status": "approved", "approvedUse": ["normal"]},
-                        {"text": "rejected static hook", "status": "rejected", "approvedUse": []},
+                        {
+                            "text": "approved static hook",
+                            "status": "approved",
+                            "approvedUse": ["normal"],
+                        },
+                        {
+                            "text": "rejected static hook",
+                            "status": "rejected",
+                            "approvedUse": [],
+                        },
                     ],
                 }
             ),
@@ -255,7 +328,9 @@ class CaptionIntakeTests(unittest.TestCase):
                     "schema": "reel_factory.caption_candidate_intake.v1",
                     "candidates": [
                         {
-                            "caption_hash": caption_hash("wife material\nor heartbreak material?"),
+                            "caption_hash": caption_hash(
+                                "wife material\nor heartbreak material?"
+                            ),
                             "text": "wife material\nor heartbreak material?",
                             "banks": ["shared_girl_next_door", "boyfriend_bait"],
                             "status": "candidate",
@@ -286,7 +361,9 @@ class CaptionIntakeTests(unittest.TestCase):
                     "schema": "reel_factory.caption_candidate_intake.v1",
                     "candidates": [
                         {
-                            "caption_hash": caption_hash("wife material\nor heartbreak material?"),
+                            "caption_hash": caption_hash(
+                                "wife material\nor heartbreak material?"
+                            ),
                             "text": "wife material\nor heartbreak material?",
                             "banks": ["shared_girl_next_door", "boyfriend_bait"],
                             "status": "candidate",
@@ -298,19 +375,26 @@ class CaptionIntakeTests(unittest.TestCase):
         )
 
         report = swipe_review(root)
-        decisions = json.loads(Path(report["decisionJsonPath"]).read_text(encoding="utf-8"))
+        decisions = json.loads(
+            Path(report["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
         html = Path(report["boardPath"]).read_text(encoding="utf-8")
         store = load_or_build_caption_bank_store(root)
 
         self.assertEqual(report["count"], 1)
         self.assertEqual(decisions["schema"], "reel_factory.caption_swipe_decisions.v1")
         self.assertEqual(decisions["reviewMode"], "static")
-        self.assertEqual(Path(report["boardPath"]).name, "caption_static_swipe_review.html")
+        self.assertEqual(
+            Path(report["boardPath"]).name, "caption_static_swipe_review.html"
+        )
         self.assertIn("wife material", html)
         self.assertIn("Approve static", html)
         self.assertNotIn("Timed beats", html)
         self.assertIn("Download approved JSON", html)
-        self.assertNotIn("wife material\nor heartbreak material?", {item["text"] for item in store.all_items()})
+        self.assertNotIn(
+            "wife material\nor heartbreak material?",
+            {item["text"] for item in store.all_items()},
+        )
 
     def test_timed_swipe_review_only_includes_timed_candidates(self):
         root = self._root()
@@ -328,13 +412,20 @@ class CaptionIntakeTests(unittest.TestCase):
                             "hookVariants": {"static": "short hook", "timed": None},
                         },
                         {
-                            "caption_hash": caption_hash("wife material\nor heartbreak material?"),
+                            "caption_hash": caption_hash(
+                                "wife material\nor heartbreak material?"
+                            ),
                             "text": "wife material\nor heartbreak material?",
                             "banks": ["boyfriend_bait"],
                             "status": "candidate",
                             "hookVariants": {
                                 "static": "wife material\nor heartbreak material?",
-                                "timed": {"segments": [{"text": "wife material"}, {"text": "or heartbreak material?"}]},
+                                "timed": {
+                                    "segments": [
+                                        {"text": "wife material"},
+                                        {"text": "or heartbreak material?"},
+                                    ]
+                                },
                             },
                         },
                     ],
@@ -344,12 +435,16 @@ class CaptionIntakeTests(unittest.TestCase):
         )
 
         report = swipe_review(root, mode="timed")
-        decisions = json.loads(Path(report["decisionJsonPath"]).read_text(encoding="utf-8"))
+        decisions = json.loads(
+            Path(report["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
         html = Path(report["boardPath"]).read_text(encoding="utf-8")
 
         self.assertEqual(report["count"], 1)
         self.assertEqual(decisions["reviewMode"], "timed")
-        self.assertEqual(Path(report["boardPath"]).name, "caption_timed_swipe_review.html")
+        self.assertEqual(
+            Path(report["boardPath"]).name, "caption_timed_swipe_review.html"
+        )
         self.assertIn("Approve timed", html)
         self.assertIn("Timed beats", html)
         self.assertNotIn("short hook", html)

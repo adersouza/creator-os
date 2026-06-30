@@ -1,4 +1,5 @@
 """Shared intelligence-layer schema and helpers for Reel Factory."""
+
 from __future__ import annotations
 
 import json
@@ -7,16 +8,37 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 REVIEW_LABELS = {
-    "eyes_bad", "face_drift", "hands_bad", "pose_drift", "weak_body", "weak_cleavage",
-    "bad_crop", "background_changed", "motion_bad", "caption_bad", "grid_bad",
-    "kling_zoomed_panel", "identity_good", "pose_good", "caption_good", "hook_good",
-    "auto_review_pass", "low_resolution_crop", "manual_higgsfield_grid",
-    "more_reference_fidelity", "native_grid_fallback",
+    "eyes_bad",
+    "face_drift",
+    "hands_bad",
+    "pose_drift",
+    "weak_body",
+    "weak_cleavage",
+    "bad_crop",
+    "background_changed",
+    "motion_bad",
+    "caption_bad",
+    "grid_bad",
+    "kling_zoomed_panel",
+    "identity_good",
+    "pose_good",
+    "caption_good",
+    "hook_good",
+    "auto_review_pass",
+    "low_resolution_crop",
+    "manual_higgsfield_grid",
+    "more_reference_fidelity",
+    "native_grid_fallback",
 }
 
-POSITIVE_REASONS = {"identity_good", "pose_good", "caption_good", "hook_good", "auto_review_pass"}
+POSITIVE_REASONS = {
+    "identity_good",
+    "pose_good",
+    "caption_good",
+    "hook_good",
+    "auto_review_pass",
+}
 DECISIONS = {"approve", "reject", "maybe", "unreviewed"}
 LOW_DATA_OUTCOME_THRESHOLD = 50
 
@@ -177,50 +199,73 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_recommendation_decisions_campaign
         ON recommendation_decisions(campaign, created_at);
     """)
-    _ensure_columns(conn, "operator_ratings", {
-        "decision": "TEXT NOT NULL DEFAULT 'unreviewed'",
-        "primary_reason": "TEXT",
-        "secondary_reasons_json": "TEXT NOT NULL DEFAULT '[]'",
-        "face_score": "INTEGER",
-        "eyes_score": "INTEGER",
-        "hands_score": "INTEGER",
-        "pose_accuracy_score": "INTEGER",
-        "body_taste_score": "INTEGER",
-        "background_score": "INTEGER",
-        "crop_score": "INTEGER",
-    })
-    _ensure_columns(conn, "asset_generations", {
-        "soul_jobs": "INTEGER NOT NULL DEFAULT 0",
-        "kling_jobs": "INTEGER NOT NULL DEFAULT 0",
-        "estimated_generation_cost": "REAL",
-        "operator_seconds": "REAL",
-    })
-    _ensure_columns(conn, "variations", {
-        "render_time_sec": "REAL",
-    })
-    _ensure_columns(conn, "reel_outcomes", {
-        "campaign_id": "TEXT",
-        "prompt_run_id": "TEXT",
-        "source_reference_id": "TEXT",
-    })
+    _ensure_columns(
+        conn,
+        "operator_ratings",
+        {
+            "decision": "TEXT NOT NULL DEFAULT 'unreviewed'",
+            "primary_reason": "TEXT",
+            "secondary_reasons_json": "TEXT NOT NULL DEFAULT '[]'",
+            "face_score": "INTEGER",
+            "eyes_score": "INTEGER",
+            "hands_score": "INTEGER",
+            "pose_accuracy_score": "INTEGER",
+            "body_taste_score": "INTEGER",
+            "background_score": "INTEGER",
+            "crop_score": "INTEGER",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "asset_generations",
+        {
+            "soul_jobs": "INTEGER NOT NULL DEFAULT 0",
+            "kling_jobs": "INTEGER NOT NULL DEFAULT 0",
+            "estimated_generation_cost": "REAL",
+            "operator_seconds": "REAL",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "variations",
+        {
+            "render_time_sec": "REAL",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "reel_outcomes",
+        {
+            "campaign_id": "TEXT",
+            "prompt_run_id": "TEXT",
+            "source_reference_id": "TEXT",
+        },
+    )
     conn.commit()
 
 
-def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
     exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
         (table,),
     ).fetchone()
     if not exists:
         return
-    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
     for name, ddl in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
-def validate_review(decision: str | None, primary_reason: str | None,
-                    secondary_reasons: list[str] | None = None) -> tuple[str, str | None, list[str]]:
+def validate_review(
+    decision: str | None,
+    primary_reason: str | None,
+    secondary_reasons: list[str] | None = None,
+) -> tuple[str, str | None, list[str]]:
     decision = decision or "unreviewed"
     if decision not in DECISIONS:
         raise ValueError(f"decision must be one of {sorted(DECISIONS)}")
@@ -237,7 +282,11 @@ def validate_review(decision: str | None, primary_reason: str | None,
 
 
 def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
-    get = row.get if isinstance(row, dict) else lambda k, default=None: row[k] if k in row.keys() else default
+    get = (
+        row.get
+        if isinstance(row, dict)
+        else lambda k, default=None: row[k] if k in row.keys() else default
+    )
     if get("manual_score") is not None:
         return float(get("manual_score") or 0)
     views = float(get("views") or 0)
@@ -248,7 +297,9 @@ def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
     return views + likes * 3 + comments * 8 + shares * 15 + saves * 12
 
 
-def confidence_for_sample_size(sample_size: int, *, total_outcomes: int | None = None) -> dict[str, Any]:
+def confidence_for_sample_size(
+    sample_size: int, *, total_outcomes: int | None = None
+) -> dict[str, Any]:
     sample_size = int(sample_size or 0)
     total_outcomes = sample_size if total_outcomes is None else int(total_outcomes or 0)
     if total_outcomes < LOW_DATA_OUTCOME_THRESHOLD or sample_size < 10:
@@ -257,10 +308,17 @@ def confidence_for_sample_size(sample_size: int, *, total_outcomes: int | None =
         level = "medium"
     else:
         level = "high"
-    reason = f"based on {sample_size} matching outcome row{'s' if sample_size != 1 else ''}"
+    reason = (
+        f"based on {sample_size} matching outcome row{'s' if sample_size != 1 else ''}"
+    )
     if total_outcomes < LOW_DATA_OUTCOME_THRESHOLD:
         reason += f"; Winner DNA has only {total_outcomes} total outcome rows"
-    return {"level": level, "sample_size": sample_size, "total_outcomes": total_outcomes, "reason": reason}
+    return {
+        "level": level,
+        "sample_size": sample_size,
+        "total_outcomes": total_outcomes,
+        "reason": reason,
+    }
 
 
 def low_data_warning(total_outcomes: int) -> str | None:

@@ -6,8 +6,9 @@ import re
 import shutil
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 from .persistence import json_load
@@ -107,7 +108,9 @@ class MakeBatchRepository:
         from .adapters.threadsdash import evaluate_export_readiness, export_threadsdash
 
         factory = self._factory_context
-        selected_format = output_format if output_format in {"reel", "slideshow", "auto"} else "auto"
+        selected_format = (
+            output_format if output_format in {"reel", "slideshow", "auto"} else "auto"
+        )
         pipeline_job = self._create_pipeline_job(
             "make_batch",
             None,
@@ -163,11 +166,21 @@ class MakeBatchRepository:
                 "campaignSlug": imported["campaign"]["slug"],
                 "modelSlug": imported["model"]["slug"],
             }
-            factory.set_pipeline_job_campaign(pipeline_job["id"], imported["campaign"]["id"])
+            factory.set_pipeline_job_campaign(
+                pipeline_job["id"], imported["campaign"]["id"]
+            )
 
             if not factory.reference_patterns(limit=1)["patterns"]:
-                bank_path = self.settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
-                prompt_pack_path = self.settings.reference_reels_root / "learning" / "higgsfield_prompt_pack_top300.json"
+                bank_path = (
+                    self.settings.reference_reels_root
+                    / "learning"
+                    / "campaign_reference_bank.json"
+                )
+                prompt_pack_path = (
+                    self.settings.reference_reels_root
+                    / "learning"
+                    / "higgsfield_prompt_pack_top300.json"
+                )
                 if bank_path.exists():
                     reference_import = factory.import_reference_bank(
                         bank_path,
@@ -178,20 +191,31 @@ class MakeBatchRepository:
                         "bankPath": reference_import.get("bankPath"),
                     }
 
-            cluster_key = None if not reference_pattern or reference_pattern == "auto" else reference_pattern
-            source_mix = factory._campaign_source_media_summary(imported["campaign"]["id"])
+            cluster_key = (
+                None
+                if not reference_pattern or reference_pattern == "auto"
+                else reference_pattern
+            )
+            source_mix = factory._campaign_source_media_summary(
+                imported["campaign"]["id"]
+            )
             formats_to_run = factory._formats_for_batch(selected_format, source_mix)
             result["sourceMix"] = source_mix
             result["formatsRun"] = formats_to_run
-            source_prompt_payload = json_load(source_prompt, {}) if source_prompt else {}
+            source_prompt_payload = (
+                json_load(source_prompt, {}) if source_prompt else {}
+            )
             finished_format_type = (
                 source_prompt_payload.get("formatType")
                 if isinstance(source_prompt_payload, dict)
-                and source_prompt_payload.get("schema") == "campaign_factory.finished_video_intake.v1"
+                and source_prompt_payload.get("schema")
+                == "campaign_factory.finished_video_intake.v1"
                 else None
             )
             reel_caption_band = (
-                factory._finished_video_caption_band(str(finished_format_type)) if finished_format_type else "auto"
+                factory._finished_video_caption_band(str(finished_format_type))
+                if finished_format_type
+                else "auto"
             )
             reel_caption_font = (
                 factory._finished_video_caption_font(str(finished_format_type))
@@ -208,7 +232,9 @@ class MakeBatchRepository:
                         variant_count=max(1, min(int(variant_count or 20), 100)),
                         title=campaign_slug.replace("_", " ").title(),
                         cluster_key=cluster_key,
-                        media_types={"image"} if source_mix.get("image", 0) else {"video"},
+                        media_types={"image"}
+                        if source_mix.get("image", 0)
+                        else {"video"},
                     )
                     prepared_by_format["slideshow"] = prepared
                 else:
@@ -263,20 +289,28 @@ class MakeBatchRepository:
                     )
                     sync_result = factory.sync_reel_outputs(campaign_slug=campaign_slug)
                     sync_retries: list[dict[str, Any]] = []
-                    prepared_jobs = (prepared.get("prepare") or {}).get("prepared") or prepared.get("prepared") or []
+                    prepared_jobs = (
+                        (prepared.get("prepare") or {}).get("prepared")
+                        or prepared.get("prepared")
+                        or []
+                    )
                     expected_sync_count = max(1, len(prepared_jobs))
                     if (
                         run_result.get("returncode") == 0
                         and len(sync_result.get("synced") or []) < expected_sync_count
                     ):
                         time.sleep(1.0)
-                        sync_retry = factory.sync_reel_outputs(campaign_slug=campaign_slug)
+                        sync_retry = factory.sync_reel_outputs(
+                            campaign_slug=campaign_slug
+                        )
                         sync_retry_count = len(sync_retry.get("synced") or [])
-                        sync_retries.append({
-                            "kind": "poll",
-                            "expectedSyncedCount": expected_sync_count,
-                            "syncedCount": sync_retry_count,
-                        })
+                        sync_retries.append(
+                            {
+                                "kind": "poll",
+                                "expectedSyncedCount": expected_sync_count,
+                                "syncedCount": sync_retry_count,
+                            }
+                        )
                         if sync_retry_count >= expected_sync_count:
                             sync_result = sync_retry
                         else:
@@ -290,16 +324,22 @@ class MakeBatchRepository:
                                 caption_font=reel_caption_font,
                                 phone_finalize=True,
                                 rerender_all=True,
-                                max_outputs_per_clip=max(1, min(int(variant_count or 20), 100)),
+                                max_outputs_per_clip=max(
+                                    1, min(int(variant_count or 20), 100)
+                                ),
                             )
-                            sync_retry = factory.sync_reel_outputs(campaign_slug=campaign_slug)
+                            sync_retry = factory.sync_reel_outputs(
+                                campaign_slug=campaign_slug
+                            )
                             sync_retry_count = len(sync_retry.get("synced") or [])
-                            sync_retries.append({
-                                "kind": "rerun",
-                                "returncode": rerun_result.get("returncode"),
-                                "expectedSyncedCount": expected_sync_count,
-                                "syncedCount": sync_retry_count,
-                            })
+                            sync_retries.append(
+                                {
+                                    "kind": "rerun",
+                                    "returncode": rerun_result.get("returncode"),
+                                    "expectedSyncedCount": expected_sync_count,
+                                    "syncedCount": sync_retry_count,
+                                }
+                            )
                             if sync_retry_count > len(sync_result.get("synced") or []):
                                 sync_result = sync_retry
                     prepared["run"] = {
@@ -307,32 +347,56 @@ class MakeBatchRepository:
                         "runCount": len(run_result.get("runs") or []),
                         "elapsedSeconds": run_result.get("elapsed_seconds"),
                     }
-                    prepared["sync"] = {"syncedCount": len(sync_result.get("synced") or []), "retries": sync_retries}
+                    prepared["sync"] = {
+                        "syncedCount": len(sync_result.get("synced") or []),
+                        "retries": sync_retries,
+                    }
                 if not pattern:
-                    pattern = ((prepared.get("selection") or {}).get("pattern") or {})
+                    pattern = (prepared.get("selection") or {}).get("pattern") or {}
 
             result["referenceSelection"] = {
                 "label": pattern.get("label"),
                 "clusterKey": pattern.get("clusterKey"),
                 "variantCount": max(1, min(int(variant_count or 20), 100)),
-                "recipes": recipes or ((pattern.get("raw") or {}).get("bank") or {}).get("suggestedVariantRecipes") or [],
+                "recipes": recipes
+                or ((pattern.get("raw") or {}).get("bank") or {}).get(
+                    "suggestedVariantRecipes"
+                )
+                or [],
             }
-            prepare_payloads = [item.get("prepare") or {} for item in prepared_by_format.values()]
+            prepare_payloads = [
+                item.get("prepare") or {} for item in prepared_by_format.values()
+            ]
             result["prepare"] = {
-                "preparedCount": sum(len(payload.get("prepared") or []) for payload in prepare_payloads),
-                "reusedExistingCount": sum(len(payload.get("reusedExisting") or []) for payload in prepare_payloads),
+                "preparedCount": sum(
+                    len(payload.get("prepared") or []) for payload in prepare_payloads
+                ),
+                "reusedExistingCount": sum(
+                    len(payload.get("reusedExisting") or [])
+                    for payload in prepare_payloads
+                ),
                 "sourceCount": sum(source_mix.values()),
                 "byFormat": {
                     format_name: {
-                        "preparedCount": len((payload.get("prepare") or {}).get("prepared") or []),
-                        "reusedExistingCount": len((payload.get("prepare") or {}).get("reusedExisting") or []),
+                        "preparedCount": len(
+                            (payload.get("prepare") or {}).get("prepared") or []
+                        ),
+                        "reusedExistingCount": len(
+                            (payload.get("prepare") or {}).get("reusedExisting") or []
+                        ),
                     }
                     for format_name, payload in prepared_by_format.items()
                 },
             }
             result["run"] = {
-                "runCount": sum((payload.get("run") or {}).get("runCount") or 0 for payload in prepared_by_format.values()),
-                "byFormat": {format_name: payload.get("run") for format_name, payload in prepared_by_format.items()},
+                "runCount": sum(
+                    (payload.get("run") or {}).get("runCount") or 0
+                    for payload in prepared_by_format.values()
+                ),
+                "byFormat": {
+                    format_name: payload.get("run")
+                    for format_name, payload in prepared_by_format.items()
+                },
             }
             result["sync"] = {
                 "syncedCount": sum(
@@ -341,7 +405,12 @@ class MakeBatchRepository:
                     for payload in prepared_by_format.values()
                 ),
                 "byFormat": {
-                    format_name: payload.get("sync") or {"syncedCount": len((payload.get("prepare") or {}).get("prepared") or [])}
+                    format_name: payload.get("sync")
+                    or {
+                        "syncedCount": len(
+                            (payload.get("prepare") or {}).get("prepared") or []
+                        )
+                    }
                     for format_name, payload in prepared_by_format.items()
                 },
             }
@@ -354,9 +423,13 @@ class MakeBatchRepository:
             reports = audit_result.get("reports") or []
             result["audit"] = {
                 "reportCount": len(reports),
-                "failedCount": sum(1 for report in reports if report.get("failedChecks")),
+                "failedCount": sum(
+                    1 for report in reports if report.get("failedChecks")
+                ),
                 "warningCount": sum(
-                    1 for report in reports if report.get("warnings") or report.get("overallVerdict") == "warn"
+                    1
+                    for report in reports
+                    if report.get("warnings") or report.get("overallVerdict") == "warn"
                 ),
             }
 
@@ -366,7 +439,9 @@ class MakeBatchRepository:
                         continue
                     latest = asset.get("latest_audit") or {}
                     readiness = latest.get("readinessSummary") or {}
-                    blocking = list(latest.get("failedChecks") or []) + list(readiness.get("blockingReasons") or [])
+                    blocking = list(latest.get("failedChecks") or []) + list(
+                        readiness.get("blockingReasons") or []
+                    )
                     if latest and not blocking:
                         self.conn.execute(
                             "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
@@ -383,19 +458,33 @@ class MakeBatchRepository:
                             metadata={"reason": "warning_only_or_ready"},
                             commit=False,
                         )
-                        result["reviewReady"].append({"renderedAssetId": asset["id"], "filename": asset["filename"]})
+                        result["reviewReady"].append(
+                            {
+                                "renderedAssetId": asset["id"],
+                                "filename": asset["filename"],
+                            }
+                        )
                 self.conn.commit()
 
             if user_id:
-                readiness_result = evaluate_export_readiness(factory, campaign_slug=campaign_slug, user_id=user_id)
+                readiness_result = evaluate_export_readiness(
+                    factory, campaign_slug=campaign_slug, user_id=user_id
+                )
                 result["readiness"] = {
                     "expectedDraftCount": readiness_result.get("expectedDraftCount"),
                     "liveExportAllowed": readiness_result.get("liveExportAllowed"),
-                    "blockingReasonCount": len(readiness_result.get("blockingReasons") or []),
+                    "blockingReasonCount": len(
+                        readiness_result.get("blockingReasons") or []
+                    ),
                     "warningCount": len(readiness_result.get("warnings") or []),
                 }
                 if dry_run_export:
-                    export_result = export_threadsdash(factory, campaign_slug=campaign_slug, user_id=user_id, dry_run=True)
+                    export_result = export_threadsdash(
+                        factory,
+                        campaign_slug=campaign_slug,
+                        user_id=user_id,
+                        dry_run=True,
+                    )
                     result["dryRunExport"] = {
                         "draftCount": export_result.get("draftCount"),
                         "path": export_result.get("path"),
@@ -422,19 +511,22 @@ class MakeBatchRepository:
                 status="success",
                 message=f"Make batch completed: {campaign_slug}",
                 metadata={
-                    "importedCount": len((imported.get("imported") or [])),
+                    "importedCount": len(imported.get("imported") or []),
                     "syncedCount": (result.get("sync") or {}).get("syncedCount"),
                     "reviewReadyCount": len(result["reviewReady"]),
                     "draftCount": (result.get("dryRunExport") or {}).get("draftCount"),
                 },
             )
-            factory.finish_pipeline_job(pipeline_job["id"], {
-                "campaign": campaign_slug,
-                "importedCount": len((imported.get("imported") or [])),
-                "syncedCount": (result.get("sync") or {}).get("syncedCount"),
-                "reviewReadyCount": len(result["reviewReady"]),
-                "draftCount": (result.get("dryRunExport") or {}).get("draftCount"),
-            })
+            factory.finish_pipeline_job(
+                pipeline_job["id"],
+                {
+                    "campaign": campaign_slug,
+                    "importedCount": len(imported.get("imported") or []),
+                    "syncedCount": (result.get("sync") or {}).get("syncedCount"),
+                    "reviewReadyCount": len(result["reviewReady"]),
+                    "draftCount": (result.get("dryRunExport") or {}).get("draftCount"),
+                },
+            )
             return result
         except Exception as exc:
             factory.record_event(
@@ -460,9 +552,15 @@ class MakeBatchRepository:
         model_slug = self._model_slug_for_campaign(campaign["id"])
         dirs = self._campaign_dirs(model_slug, campaign["slug"])
         desired_types = media_types or {"image", "video"}
-        sources = [asset for asset in self._assets_for_campaign(campaign["id"]) if asset.get("media_type") in desired_types]
+        sources = [
+            asset
+            for asset in self._assets_for_campaign(campaign["id"])
+            if asset.get("media_type") in desired_types
+        ]
         if not sources:
-            raise ValueError("no imported image/video sources available for slideshow pack")
+            raise ValueError(
+                "no imported image/video sources available for slideshow pack"
+            )
         selection = self._select_reference_pattern(
             campaign_slug,
             cluster_key=cluster_key,
@@ -480,9 +578,13 @@ class MakeBatchRepository:
             if src_path.exists():
                 shutil.copy2(src_path, media_dir / src_path.name)
         hooks_file = out_dir / "hooks.json"
-        hooks_file.write_text(json.dumps({"hooks": hooks}, indent=2, ensure_ascii=False), encoding="utf-8")
+        hooks_file.write_text(
+            json.dumps({"hooks": hooks}, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         seed = int(
-            hashlib.sha256(f"{campaign_slug}:{variant_count}:{selection['pattern']['clusterKey']}".encode("utf-8")).hexdigest()[:8],
+            hashlib.sha256(
+                f"{campaign_slug}:{variant_count}:{selection['pattern']['clusterKey']}".encode()
+            ).hexdigest()[:8],
             16,
         )
         generation_id = self._new_id("slidegen")
@@ -574,11 +676,20 @@ class MakeBatchRepository:
                             "format": "slideshow_pack",
                             "schema": manifest.get("schema"),
                             "manifestPath": str(manifest_path),
-                            "generationId": manifest.get("generation_id") or generation_id,
+                            "generationId": manifest.get("generation_id")
+                            or generation_id,
                             "referencePattern": selection.get("pattern"),
-                            "sourceHashes": [item.get("source_hash") for item in manifest.get("items", [])],
+                            "sourceHashes": [
+                                item.get("source_hash")
+                                for item in manifest.get("items", [])
+                            ],
                             "captionHashes": [
-                                hashlib.sha256(str(item.get("hook") or "").strip().lower().encode("utf-8")).hexdigest()
+                                hashlib.sha256(
+                                    str(item.get("hook") or "")
+                                    .strip()
+                                    .lower()
+                                    .encode("utf-8")
+                                ).hexdigest()
                                 for item in manifest.get("items", [])
                             ],
                         },
@@ -591,7 +702,13 @@ class MakeBatchRepository:
                     now,
                 ),
             )
-            prepared_assets.append(dict(self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone()))
+            prepared_assets.append(
+                dict(
+                    self.conn.execute(
+                        "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
+                    ).fetchone()
+                )
+            )
             self._record_event(
                 "rendered_asset_synced",
                 campaign_id=campaign["id"],
@@ -600,7 +717,11 @@ class MakeBatchRepository:
                 render_job_id=job_id,
                 status="success",
                 message=f"Slideshow pack rendered: {reel_path.name}",
-                metadata={"format": "slideshow_pack", "manifestPath": str(manifest_path), "contentHash": digest},
+                metadata={
+                    "format": "slideshow_pack",
+                    "manifestPath": str(manifest_path),
+                    "contentHash": digest,
+                },
                 commit=False,
             )
         self.conn.commit()
@@ -629,14 +750,18 @@ class MakeBatchRepository:
                 summary[media_type] += 1
         return summary
 
-    def formats_for_batch(self, selected_format: str, source_mix: dict[str, int]) -> list[str]:
+    def formats_for_batch(
+        self, selected_format: str, source_mix: dict[str, int]
+    ) -> list[str]:
         if selected_format == "reel":
             if not source_mix.get("video"):
                 raise ValueError("reel format requires at least one imported video")
             return ["reel"]
         if selected_format == "slideshow":
             if not (source_mix.get("image") or source_mix.get("video")):
-                raise ValueError("slideshow format requires at least one imported image or video")
+                raise ValueError(
+                    "slideshow format requires at least one imported image or video"
+                )
             return ["slideshow"]
         formats: list[str] = []
         if source_mix.get("video"):

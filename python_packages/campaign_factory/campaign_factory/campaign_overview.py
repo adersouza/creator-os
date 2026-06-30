@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class CampaignOverviewRepository:
@@ -54,21 +55,49 @@ class CampaignOverviewRepository:
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
         campaigns = self._list_campaigns()
-        selected = self._campaign_by_slug(campaign_slug) if campaign_slug else self.default_dashboard_campaign(campaigns)
+        selected = (
+            self._campaign_by_slug(campaign_slug)
+            if campaign_slug
+            else self.default_dashboard_campaign(campaigns)
+        )
         if not selected:
-            return {"campaigns": [], "campaign": None, "sources": [], "rendered": [], "health": None, "ranking": []}
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self._rendered_for_campaign(selected["id"])]
+            return {
+                "campaigns": [],
+                "campaign": None,
+                "sources": [],
+                "rendered": [],
+                "health": None,
+                "ranking": [],
+            }
+        rendered = [
+            self._dashboard_rendered_asset(asset)
+            for asset in self._rendered_for_campaign(selected["id"])
+        ]
         ranking = self._ranking(selected["slug"])
         audio_workflow = self._audio_workflow_summary(rendered)
         sources = self._assets_for_campaign(selected["id"])
-        summary_dashboard = {"campaign": selected, "sources": sources, "rendered": rendered}
-        daily_production = self._daily_production_counters(selected["slug"], dashboard=summary_dashboard)
-        creative_plan = self._creative_plan_for_campaign(selected["slug"], dashboard=summary_dashboard)
+        summary_dashboard = {
+            "campaign": selected,
+            "sources": sources,
+            "rendered": rendered,
+        }
+        daily_production = self._daily_production_counters(
+            selected["slug"], dashboard=summary_dashboard
+        )
+        creative_plan = self._creative_plan_for_campaign(
+            selected["slug"], dashboard=summary_dashboard
+        )
         return {
             "campaigns": campaigns,
             "campaign": selected,
             "sources": sources,
-            "rendered": sorted(rendered, key=lambda asset: (ranking["byAsset"].get(asset["id"], {}) or {}).get("score", 0), reverse=True),
+            "rendered": sorted(
+                rendered,
+                key=lambda asset: (ranking["byAsset"].get(asset["id"], {}) or {}).get(
+                    "score", 0
+                ),
+                reverse=True,
+            ),
             "activity": self._events_for_campaign(selected["slug"], limit=50),
             "jobs": self._jobs_for_campaign(selected["slug"], limit=50),
             "health": self.campaign_health(selected["slug"]),
@@ -80,7 +109,9 @@ class CampaignOverviewRepository:
             "ranking": ranking["assets"],
         }
 
-    def default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def default_dashboard_campaign(
+        self, campaigns: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         for campaign in campaigns:
             row = self.conn.execute(
                 "SELECT 1 FROM rendered_assets WHERE campaign_id = ? LIMIT 1",
@@ -93,14 +124,29 @@ class CampaignOverviewRepository:
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
         sources = self._assets_for_campaign(campaign["id"])
-        rendered = [self._dashboard_rendered_asset(asset) for asset in self._rendered_for_campaign(campaign["id"])]
+        rendered = [
+            self._dashboard_rendered_asset(asset)
+            for asset in self._rendered_for_campaign(campaign["id"])
+        ]
         jobs = self._jobs_for_campaign(campaign["slug"], limit=200)
         audited = [asset for asset in rendered if asset.get("latest_audit")]
         approved = [asset for asset in rendered if asset["review_state"] == "approved"]
         rejected = [asset for asset in rendered if asset["review_state"] == "rejected"]
-        ready = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "ready"]
-        warning = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "warning"]
-        blocked = [asset for asset in rendered if (asset.get("export_readiness") or {}).get("state") == "blocked"]
+        ready = [
+            asset
+            for asset in rendered
+            if (asset.get("export_readiness") or {}).get("state") == "ready"
+        ]
+        warning = [
+            asset
+            for asset in rendered
+            if (asset.get("export_readiness") or {}).get("state") == "warning"
+        ]
+        blocked = [
+            asset
+            for asset in rendered
+            if (asset.get("export_readiness") or {}).get("state") == "blocked"
+        ]
         audio_workflow = self._audio_workflow_summary(rendered)
         failed_jobs = self.unresolved_failed_jobs(jobs)
         return {
@@ -118,7 +164,9 @@ class CampaignOverviewRepository:
                 "blockedAssets": len(blocked),
                 "failedJobs": len(failed_jobs),
                 "audioNeedsAudio": audio_workflow["counts"]["needs_audio"],
-                "audioSelectedNotAttached": audio_workflow["counts"]["selected_not_attached"],
+                "audioSelectedNotAttached": audio_workflow["counts"][
+                    "selected_not_attached"
+                ],
                 "audioBlocked": audio_workflow["counts"]["blocked"],
                 "audioReady": audio_workflow["counts"]["ready"],
             },
@@ -126,18 +174,32 @@ class CampaignOverviewRepository:
             "failedJobs": failed_jobs[:10],
         }
 
-    def unresolved_failed_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def unresolved_failed_jobs(
+        self, jobs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         latest_success_by_type: dict[str, str] = {}
         for job in jobs:
             if job["status"] != "succeeded":
                 continue
-            timestamp = job.get("finishedAt") or job.get("updatedAt") or job.get("createdAt") or ""
-            latest_success_by_type[job["jobType"]] = max(latest_success_by_type.get(job["jobType"], ""), timestamp)
+            timestamp = (
+                job.get("finishedAt")
+                or job.get("updatedAt")
+                or job.get("createdAt")
+                or ""
+            )
+            latest_success_by_type[job["jobType"]] = max(
+                latest_success_by_type.get(job["jobType"], ""), timestamp
+            )
         unresolved = []
         for job in jobs:
             if job["status"] != "failed":
                 continue
-            failed_at = job.get("finishedAt") or job.get("updatedAt") or job.get("createdAt") or ""
+            failed_at = (
+                job.get("finishedAt")
+                or job.get("updatedAt")
+                or job.get("createdAt")
+                or ""
+            )
             if latest_success_by_type.get(job["jobType"], "") > failed_at:
                 continue
             unresolved.append(job)
@@ -145,8 +207,16 @@ class CampaignOverviewRepository:
 
     def asset_detail(self, rendered_asset_id: str) -> dict[str, Any]:
         asset = self._dashboard_rendered_asset(self._rendered_asset(rendered_asset_id))
-        campaign = dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (asset["campaign_id"],)).fetchone())
-        source = dict(self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (asset["source_asset_id"],)).fetchone())
+        campaign = dict(
+            self.conn.execute(
+                "SELECT * FROM campaigns WHERE id = ?", (asset["campaign_id"],)
+            ).fetchone()
+        )
+        source = dict(
+            self.conn.execute(
+                "SELECT * FROM source_assets WHERE id = ?", (asset["source_asset_id"],)
+            ).fetchone()
+        )
         approvals = [
             dict(row)
             for row in self.conn.execute(
@@ -186,7 +256,9 @@ class CampaignOverviewRepository:
             "exports": exports,
             "activity": self._events_for_asset(rendered_asset_id, limit=100),
             "performance": self._performance_for_asset(asset),
-            "ranking": self._ranking(campaign["slug"])["byAsset"].get(rendered_asset_id),
+            "ranking": self._ranking(campaign["slug"])["byAsset"].get(
+                rendered_asset_id
+            ),
         }
 
     def assign_asset_account(
@@ -201,7 +273,9 @@ class CampaignOverviewRepository:
     ) -> dict[str, Any]:
         asset = self._rendered_asset(rendered_asset_id)
         if account_id:
-            row = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+            row = self.conn.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
             if not row:
                 raise ValueError(f"account not found: {account_id}")
         now = self._utc_now()
@@ -233,11 +307,19 @@ class CampaignOverviewRepository:
             rendered_asset_id=rendered_asset_id,
             status="success",
             message=f"Assigned asset to Instagram account {instagram_account_id or account_id or 'unassigned'}",
-            metadata={"assignmentId": assignment_id, "accountId": account_id, "instagramAccountId": instagram_account_id},
+            metadata={
+                "assignmentId": assignment_id,
+                "accountId": account_id,
+                "instagramAccountId": instagram_account_id,
+            },
             commit=False,
         )
         self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM asset_account_assignments WHERE id = ?", (assignment_id,)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_account_assignments WHERE id = ?", (assignment_id,)
+            ).fetchone()
+        )
 
     def assignments_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(

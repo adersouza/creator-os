@@ -3,6 +3,7 @@
 The sentence-transformers backend is optional. If it is not installed or the
 model cannot be loaded, callers can fall back to the deterministic hash model.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +13,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
 
-
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 HASH_MODEL = "hash-v1"
 
@@ -20,8 +20,7 @@ HASH_MODEL = "hash-v1"
 class EmbeddingProvider(Protocol):
     name: str
 
-    def embed(self, text: str) -> list[float]:
-        ...
+    def embed(self, text: str) -> list[float]: ...
 
 
 ALIASES = {
@@ -88,11 +87,15 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b, strict=True))
 
 
-def get_embedding_provider(model: str | None = None,
-                           *, allow_fallback: bool = True) -> EmbeddingProvider:
+def get_embedding_provider(
+    model: str | None = None, *, allow_fallback: bool = True
+) -> EmbeddingProvider:
     if not model or model == HASH_MODEL:
         return HashEmbeddingProvider()
-    if model in {DEFAULT_EMBEDDING_MODEL, f"sentence-transformers/{DEFAULT_EMBEDDING_MODEL}"}:
+    if model in {
+        DEFAULT_EMBEDDING_MODEL,
+        f"sentence-transformers/{DEFAULT_EMBEDDING_MODEL}",
+    }:
         try:
             return _cached_sentence_provider(DEFAULT_EMBEDDING_MODEL)
         except Exception:

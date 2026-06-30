@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 from .persistence import json_load
@@ -31,10 +32,14 @@ class ReferenceRepository:
         self._record_event = record_event
         self._campaign_by_slug = campaign_by_slug
         self._prepare_reel_inputs = prepare_reel_inputs
-        self._discoverability_safe_content_contract = discoverability_safe_content_contract
+        self._discoverability_safe_content_contract = (
+            discoverability_safe_content_contract
+        )
         self._reference_hook_fallbacks = reference_hook_fallbacks
 
-    def import_reference_bank(self, bank_path: Path, prompt_pack_path: Path | None = None) -> dict[str, Any]:
+    def import_reference_bank(
+        self, bank_path: Path, prompt_pack_path: Path | None = None
+    ) -> dict[str, Any]:
         bank_path = Path(bank_path).expanduser().resolve()
         if not bank_path.exists():
             raise FileNotFoundError(f"reference bank not found: {bank_path}")
@@ -46,19 +51,32 @@ class ReferenceRepository:
         now = self._utc_now()
         imported = 0
         for idx, cluster in enumerate(clusters, 1):
-            cluster_key = str(cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}")
+            cluster_key = str(
+                cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}"
+            )
             prompt = prompt_by_key.get(cluster_key) or {}
             pattern_id = self._new_id("refpat")
-            existing = self.conn.execute("SELECT id FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
+            existing = self.conn.execute(
+                "SELECT id FROM reference_patterns WHERE cluster_key = ?",
+                (cluster_key,),
+            ).fetchone()
             if existing:
                 pattern_id = existing["id"]
-            reference_ids = cluster.get("referenceIds") or prompt.get("referenceIds") or []
-            local_paths = cluster.get("localPaths") or cluster.get("referenceFiles") or []
+            reference_ids = (
+                cluster.get("referenceIds") or prompt.get("referenceIds") or []
+            )
+            local_paths = (
+                cluster.get("localPaths") or cluster.get("referenceFiles") or []
+            )
             public_urls = prompt.get("publicUrls") or []
             prompt_template = cluster.get("promptTemplate") or {}
             higgsfield_json = prompt.get("higgsfieldJson") or {}
             caption_formulas = prompt.get("captionFormulas") or []
-            audio_recommendations = cluster.get("audioRecommendations") or prompt.get("audioRecommendations") or {}
+            audio_recommendations = (
+                cluster.get("audioRecommendations")
+                or prompt.get("audioRecommendations")
+                or {}
+            )
             self.conn.execute(
                 """
                 INSERT INTO reference_patterns (
@@ -97,8 +115,14 @@ class ReferenceRepository:
                     json.dumps(prompt_template, ensure_ascii=False, sort_keys=True),
                     json.dumps(higgsfield_json, ensure_ascii=False, sort_keys=True),
                     json.dumps(caption_formulas, ensure_ascii=False, sort_keys=True),
-                    json.dumps(audio_recommendations, ensure_ascii=False, sort_keys=True),
-                    json.dumps({"bank": cluster, "prompt": prompt}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        audio_recommendations, ensure_ascii=False, sort_keys=True
+                    ),
+                    json.dumps(
+                        {"bank": cluster, "prompt": prompt},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     now,
                     now,
                 ),
@@ -109,7 +133,11 @@ class ReferenceRepository:
             "reference_bank_imported",
             status="success",
             message=f"Reference bank imported: {imported} patterns",
-            metadata={"bankPath": str(bank_path), "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None, "patterns": imported},
+            metadata={
+                "bankPath": str(bank_path),
+                "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
+                "patterns": imported,
+            },
         )
         return {
             "schema": "campaign_factory.reference_bank_import.v1",
@@ -118,9 +146,15 @@ class ReferenceRepository:
             "patternsImported": imported,
         }
 
-    def reference_prompt_pack_by_cluster(self, prompt_pack_path: Path | None) -> dict[str, dict[str, Any]]:
+    def reference_prompt_pack_by_cluster(
+        self, prompt_pack_path: Path | None
+    ) -> dict[str, dict[str, Any]]:
         if prompt_pack_path is None:
-            default = self.settings.reference_reels_root / "learning" / "higgsfield_prompt_pack_top300.json"
+            default = (
+                self.settings.reference_reels_root
+                / "learning"
+                / "higgsfield_prompt_pack_top300.json"
+            )
             prompt_pack_path = default if default.exists() else None
         if prompt_pack_path is None:
             return {}
@@ -131,7 +165,11 @@ class ReferenceRepository:
         prompts = payload.get("prompts") if isinstance(payload, dict) else None
         if not isinstance(prompts, list):
             return {}
-        return {str(item.get("clusterKey")): item for item in prompts if item.get("clusterKey")}
+        return {
+            str(item.get("clusterKey")): item
+            for item in prompts
+            if item.get("clusterKey")
+        }
 
     def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
         rows = self.conn.execute(
@@ -161,9 +199,12 @@ class ReferenceRepository:
             "promptTemplate": json_load(row["prompt_template_json"], {}),
             "higgsfieldJson": json_load(row["higgsfield_json"], {}),
             "captionFormulas": json_load(row["caption_formulas_json"], []),
-            "audioRecommendations": json_load(row.get("audio_recommendations_json"), {}),
+            "audioRecommendations": json_load(
+                row.get("audio_recommendations_json"), {}
+            ),
             "suggestedFormats": (bank or {}).get("suggestedFormats") or ["reel"],
-            "suggestedVariantRecipes": (bank or {}).get("suggestedVariantRecipes") or [],
+            "suggestedVariantRecipes": (bank or {}).get("suggestedVariantRecipes")
+            or [],
             "raw": raw,
             "importedAt": row["imported_at"],
             "updatedAt": row["updated_at"],
@@ -180,13 +221,21 @@ class ReferenceRepository:
     ) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
         if reference_pattern_id:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE id = ?", (reference_pattern_id,)).fetchone()
+            pattern_row = self.conn.execute(
+                "SELECT * FROM reference_patterns WHERE id = ?", (reference_pattern_id,)
+            ).fetchone()
         elif cluster_key:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)).fetchone()
+            pattern_row = self.conn.execute(
+                "SELECT * FROM reference_patterns WHERE cluster_key = ?", (cluster_key,)
+            ).fetchone()
         else:
-            pattern_row = self.conn.execute("SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT 1").fetchone()
+            pattern_row = self.conn.execute(
+                "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label LIMIT 1"
+            ).fetchone()
         if not pattern_row:
-            raise ValueError("reference pattern not found; run import-reference-bank first")
+            raise ValueError(
+                "reference pattern not found; run import-reference-bank first"
+            )
         now = self._utc_now()
         plan_id = self._new_id("refplan")
         self.conn.execute(
@@ -195,7 +244,15 @@ class ReferenceRepository:
             (id, campaign_id, reference_pattern_id, variant_count, notes, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (plan_id, campaign["id"], pattern_row["id"], max(1, variant_count), notes, now, now),
+            (
+                plan_id,
+                campaign["id"],
+                pattern_row["id"],
+                max(1, variant_count),
+                notes,
+                now,
+                now,
+            ),
         )
         self.conn.commit()
         pattern = self.reference_pattern_payload(dict(pattern_row))
@@ -204,7 +261,12 @@ class ReferenceRepository:
             campaign_id=campaign["id"],
             status="success",
             message=f"Reference pattern selected: {pattern['label']}",
-            metadata={"referencePatternId": pattern["id"], "clusterKey": pattern["clusterKey"], "variantCount": variant_count, "notes": notes},
+            metadata={
+                "referencePatternId": pattern["id"],
+                "clusterKey": pattern["clusterKey"],
+                "variantCount": variant_count,
+                "notes": notes,
+            },
         )
         return {
             "schema": "campaign_factory.reference_pattern_selection.v1",
@@ -233,15 +295,23 @@ class ReferenceRepository:
         for row in rows:
             row_dict = dict(row)
             pattern = self.reference_pattern_payload(row_dict)
-            plans.append({
-                "planId": row_dict["plan_id"],
-                "variantCount": row_dict["variant_count"],
-                "notes": row_dict["notes"],
-                "createdAt": row_dict["plan_created_at"],
-                "pattern": pattern,
-                "hooks": self.reference_hooks(pattern, count=row_dict["variant_count"]),
-            })
-        return {"schema": "campaign_factory.reference_plan.v1", "campaign": campaign["slug"], "plans": plans}
+            plans.append(
+                {
+                    "planId": row_dict["plan_id"],
+                    "variantCount": row_dict["variant_count"],
+                    "notes": row_dict["notes"],
+                    "createdAt": row_dict["plan_created_at"],
+                    "pattern": pattern,
+                    "hooks": self.reference_hooks(
+                        pattern, count=row_dict["variant_count"]
+                    ),
+                }
+            )
+        return {
+            "schema": "campaign_factory.reference_plan.v1",
+            "campaign": campaign["slug"],
+            "plans": plans,
+        }
 
     def prepare_reel_from_reference(
         self,
@@ -282,7 +352,9 @@ class ReferenceRepository:
             "prepare": prepare,
         }
 
-    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+    def active_reference_pattern_for_campaign(
+        self, campaign_id: str
+    ) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
             SELECT rp.*
@@ -296,10 +368,17 @@ class ReferenceRepository:
         ).fetchone()
         return self.reference_pattern_payload(dict(row)) if row else None
 
-    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+    def reference_hooks(
+        self, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
         formulas = pattern.get("captionFormulas") or []
         if not formulas:
-            formulas = [{"formula": (pattern.get("promptTemplate") or {}).get("captionBrief") or "short original hook"}]
+            formulas = [
+                {
+                    "formula": (pattern.get("promptTemplate") or {}).get("captionBrief")
+                    or "short original hook"
+                }
+            ]
         candidates: list[tuple[str, int, str]] = []
         seen: set[str] = set()
         for formula_index, formula in enumerate(formulas):
@@ -315,8 +394,7 @@ class ReferenceRepository:
                 seen.add(normalized)
                 candidates.append((text, formula_index, "caption_formula"))
         safe_candidates = [
-            item for item in candidates
-            if self.reference_hook_is_schedule_safe(item[0])
+            item for item in candidates if self.reference_hook_is_schedule_safe(item[0])
         ]
         if safe_candidates:
             candidates = safe_candidates
@@ -326,17 +404,19 @@ class ReferenceRepository:
         hooks = []
         for idx in range(count):
             text, formula_index, candidate_kind = candidates[idx % len(candidates)]
-            hooks.append({
-                "text": text,
-                "referenceClusterKey": pattern["clusterKey"],
-                "referenceLabel": pattern["label"],
-                "hookType": pattern.get("hookType"),
-                "captionArchetype": pattern.get("captionArchetype"),
-                "audioRecommendations": pattern.get("audioRecommendations") or {},
-                "formulaIndex": formula_index,
-                "candidateKind": candidate_kind,
-                "source": "reference_factory",
-            })
+            hooks.append(
+                {
+                    "text": text,
+                    "referenceClusterKey": pattern["clusterKey"],
+                    "referenceLabel": pattern["label"],
+                    "hookType": pattern.get("hookType"),
+                    "captionArchetype": pattern.get("captionArchetype"),
+                    "audioRecommendations": pattern.get("audioRecommendations") or {},
+                    "formulaIndex": formula_index,
+                    "candidateKind": candidate_kind,
+                    "source": "reference_factory",
+                }
+            )
         return hooks
 
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
@@ -348,8 +428,7 @@ class ReferenceRepository:
         if len(normalized) > 42:
             return False
         plain = (
-            normalized
-            .replace("’", "'")
+            normalized.replace("’", "'")
             .replace("‘", "'")
             .replace("“", '"')
             .replace("”", '"')
@@ -373,6 +452,11 @@ class ReferenceRepository:
             re.IGNORECASE,
         ):
             return False
-        if self._discoverability_safe_content_contract(normalized).get("discoverabilitySafe") is not True:
+        if (
+            self._discoverability_safe_content_contract(normalized).get(
+                "discoverabilitySafe"
+            )
+            is not True
+        ):
             return False
         return True

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from campaign_factory import app as app_module
+from fastapi.testclient import TestClient
 
 
 def test_non_loopback_request_without_token_is_rejected(monkeypatch) -> None:

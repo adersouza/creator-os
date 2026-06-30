@@ -5,6 +5,7 @@ This is for the cheap content format shown in many "AI UGC slideshow" reels:
 one folder of model/reference photos or video frames becomes a batch of still
 slides plus an optional stitched MP4 preview. The source media is never edited.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,13 +16,11 @@ import random
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-
 
 CANVAS_W = 1080
 CANVAS_H = 1920
@@ -86,14 +85,22 @@ def discover_media(media_dir: Path) -> list[Path]:
     if not media_dir.exists():
         raise FileNotFoundError(media_dir)
     return sorted(
-        p for p in media_dir.rglob("*")
+        p
+        for p in media_dir.rglob("*")
         if p.is_file() and p.suffix.lower() in MEDIA_EXTS
     )
 
 
-def _load_font(fonts_dir: Path, *, bold: bool = True, size: int = 54) -> ImageFont.FreeTypeFont:
+def _load_font(
+    fonts_dir: Path, *, bold: bool = True, size: int = 54
+) -> ImageFont.FreeTypeFont:
     candidates = [
-        fonts_dir / ("InstagramSansCondensed-Bold.woff2" if bold else "InstagramSansCondensed-Regular.woff2"),
+        fonts_dir
+        / (
+            "InstagramSansCondensed-Bold.woff2"
+            if bold
+            else "InstagramSansCondensed-Regular.woff2"
+        ),
         fonts_dir / "SofiaSansCondensed-Medium.ttf",
         Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
@@ -105,10 +112,14 @@ def _load_font(fonts_dir: Path, *, bold: bool = True, size: int = 54) -> ImageFo
 
 
 def _fit_cover(img: Image.Image, size: tuple[int, int]) -> Image.Image:
-    return ImageOps.fit(img.convert("RGB"), size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    return ImageOps.fit(
+        img.convert("RGB"), size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5)
+    )
 
 
-def _extract_video_frame(video_path: Path, out_path: Path, *, at_seconds: float = 1.0, ffmpeg: str = "ffmpeg") -> Path:
+def _extract_video_frame(
+    video_path: Path, out_path: Path, *, at_seconds: float = 1.0, ffmpeg: str = "ffmpeg"
+) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         ffmpeg,
@@ -126,7 +137,9 @@ def _extract_video_frame(video_path: Path, out_path: Path, *, at_seconds: float 
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"ffmpeg failed extracting {video_path}")
+        raise RuntimeError(
+            result.stderr.strip() or f"ffmpeg failed extracting {video_path}"
+        )
     return out_path
 
 
@@ -136,7 +149,9 @@ def _source_image_for(path: Path, scratch_dir: Path, *, ffmpeg: str = "ffmpeg") 
     return _extract_video_frame(path, scratch_dir / f"{path.stem}.jpg", ffmpeg=ffmpeg)
 
 
-def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+def _wrap_text(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int
+) -> list[str]:
     words = text.split()
     if not words:
         return []
@@ -155,11 +170,15 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines[:3]
 
 
-def render_slide(source_image: Path, out_path: Path, *,
-                 hook: str,
-                 fonts_dir: Path,
-                 view_count_label: str | None = None,
-                 preset: str = "mirror_feed") -> Path:
+def render_slide(
+    source_image: Path,
+    out_path: Path,
+    *,
+    hook: str,
+    fonts_dir: Path,
+    view_count_label: str | None = None,
+    preset: str = "mirror_feed",
+) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source_image) as original:
         canvas = _fit_cover(original, (CANVAS_W, CANVAS_H))
@@ -183,19 +202,49 @@ def render_slide(source_image: Path, out_path: Path, *,
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=title_font, stroke_width=3)
         x = (CANVAS_W - (bbox[2] - bbox[0])) // 2
-        draw.text((x, y), line, font=title_font, fill=(255, 255, 255), stroke_width=3, stroke_fill=(0, 0, 0))
+        draw.text(
+            (x, y),
+            line,
+            font=title_font,
+            fill=(255, 255, 255),
+            stroke_width=3,
+            stroke_fill=(0, 0, 0),
+        )
         y += line_h
 
     if view_count_label:
-        draw.polygon([(42, CANVAS_H - 118), (42, CANVAS_H - 54), (96, CANVAS_H - 86)], fill=(255, 255, 255))
-        draw.text((118, CANVAS_H - 127), view_count_label, font=stat_font, fill=(255, 255, 255), stroke_width=3, stroke_fill=(0, 0, 0))
+        draw.polygon(
+            [(42, CANVAS_H - 118), (42, CANVAS_H - 54), (96, CANVAS_H - 86)],
+            fill=(255, 255, 255),
+        )
+        draw.text(
+            (118, CANVAS_H - 127),
+            view_count_label,
+            font=stat_font,
+            fill=(255, 255, 255),
+            stroke_width=3,
+            stroke_fill=(0, 0, 0),
+        )
 
     # Small carousel cue like IG grid screenshots.
-    r = 24
-    draw.rounded_rectangle((CANVAS_W - 104, 50, CANVAS_W - 50, 104), radius=12, outline=(255, 255, 255), width=5)
-    draw.rounded_rectangle((CANVAS_W - 86, 32, CANVAS_W - 32, 86), radius=12, fill=(255, 255, 255))
+    draw.rounded_rectangle(
+        (CANVAS_W - 104, 50, CANVAS_W - 50, 104),
+        radius=12,
+        outline=(255, 255, 255),
+        width=5,
+    )
+    draw.rounded_rectangle(
+        (CANVAS_W - 86, 32, CANVAS_W - 32, 86), radius=12, fill=(255, 255, 255)
+    )
     if preset == "minimal":
-        draw.text((40, CANVAS_H - 78), "slideshow", font=small_font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
+        draw.text(
+            (40, CANVAS_H - 78),
+            "slideshow",
+            font=small_font,
+            fill=(255, 255, 255),
+            stroke_width=2,
+            stroke_fill=(0, 0, 0),
+        )
 
     canvas.convert("RGB").save(out_path, quality=94)
     return out_path
@@ -209,10 +258,9 @@ def _format_fake_views(index: int, rng: random.Random) -> str:
     return f"{rng.randint(18, 160)}.{rng.randint(1, 9)}K"
 
 
-def render_grid_preview(slides: list[Path], out_path: Path, *,
-                        title: str,
-                        fonts_dir: Path,
-                        columns: int = 3) -> Path:
+def render_grid_preview(
+    slides: list[Path], out_path: Path, *, title: str, fonts_dir: Path, columns: int = 3
+) -> Path:
     if not slides:
         raise ValueError("slides cannot be empty")
     columns = max(1, columns)
@@ -247,9 +295,13 @@ def render_grid_preview(slides: list[Path], out_path: Path, *,
     return out_path
 
 
-def render_slideshow_video(slides: list[Path], out_path: Path, *,
-                           seconds_per_slide: float = 1.15,
-                           ffmpeg: str = "ffmpeg") -> Path:
+def render_slideshow_video(
+    slides: list[Path],
+    out_path: Path,
+    *,
+    seconds_per_slide: float = 1.15,
+    ffmpeg: str = "ffmpeg",
+) -> Path:
     if not slides:
         raise ValueError("slides cannot be empty")
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -285,29 +337,35 @@ def render_slideshow_video(slides: list[Path], out_path: Path, *,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "ffmpeg slideshow render failed")
+            raise RuntimeError(
+                result.stderr.strip() or "ffmpeg slideshow render failed"
+            )
     return out_path
 
 
-def build_slideshow(media_dir: Path, out_dir: Path, *,
-                    title: str,
-                    hooks: list[str] | None = None,
-                    count: int = 12,
-                    seed: int = 7,
-                    preset: str = "mirror_feed",
-                    reference_pattern_id: str | None = None,
-                    generation_id: str | None = None,
-                    render_video: bool = True,
-                    render_grid: bool = True,
-                    seconds_per_slide: float = 1.15,
-                    ffmpeg: str | None = None) -> SlideshowManifest:
+def build_slideshow(
+    media_dir: Path,
+    out_dir: Path,
+    *,
+    title: str,
+    hooks: list[str] | None = None,
+    count: int = 12,
+    seed: int = 7,
+    preset: str = "mirror_feed",
+    reference_pattern_id: str | None = None,
+    generation_id: str | None = None,
+    render_video: bool = True,
+    render_grid: bool = True,
+    seconds_per_slide: float = 1.15,
+    ffmpeg: str | None = None,
+) -> SlideshowManifest:
     media = discover_media(media_dir)
     if not media:
         raise ValueError(f"no supported media found in {media_dir}")
     rng = random.Random(seed)
     selected = media[:]
     rng.shuffle(selected)
-    selected = selected[:max(1, min(count, len(selected)))]
+    selected = selected[: max(1, min(count, len(selected)))]
     hook_pool = [h.strip() for h in (hooks or DEFAULT_HOOKS) if h.strip()]
     if not hook_pool:
         hook_pool = DEFAULT_HOOKS
@@ -339,7 +397,9 @@ def build_slideshow(media_dir: Path, out_dir: Path, *,
                 source_path=str(source.resolve()),
                 kind="image" if source.suffix.lower() in IMAGE_EXTS else "video_frame",
                 source_hash=sha256_file(source),
-                caption_hash=hashlib.sha256(" ".join(hook.strip().lower().split()).encode("utf-8")).hexdigest(),
+                caption_hash=hashlib.sha256(
+                    " ".join(hook.strip().lower().split()).encode("utf-8")
+                ).hexdigest(),
                 slide_path=str(slide_path),
                 hook=hook,
                 view_count_label=views,
@@ -348,16 +408,25 @@ def build_slideshow(media_dir: Path, out_dir: Path, *,
 
     grid_path: Path | None = None
     if render_grid:
-        grid_path = render_grid_preview(slide_paths, out_dir / "grid_preview.jpg", title=title, fonts_dir=fonts_dir)
+        grid_path = render_grid_preview(
+            slide_paths, out_dir / "grid_preview.jpg", title=title, fonts_dir=fonts_dir
+        )
 
     reel_path: Path | None = None
     if render_video:
-        reel_path = render_slideshow_video(slide_paths, out_dir / "slideshow_reel.mp4", seconds_per_slide=seconds_per_slide, ffmpeg=ffmpeg_bin)
-    duration_seconds = round(len(slide_paths) * seconds_per_slide, 3) if render_video else None
+        reel_path = render_slideshow_video(
+            slide_paths,
+            out_dir / "slideshow_reel.mp4",
+            seconds_per_slide=seconds_per_slide,
+            ffmpeg=ffmpeg_bin,
+        )
+    duration_seconds = (
+        round(len(slide_paths) * seconds_per_slide, 3) if render_video else None
+    )
 
     manifest = SlideshowManifest(
         schema="reel_factory.slideshow.v1",
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         title=title,
         preset=preset,
         format="slideshow_pack",
@@ -396,13 +465,21 @@ def _load_hooks(path: Path | None) -> list[str] | None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--media-dir", required=True, help="Folder of source images/videos.")
-    ap.add_argument("--out-dir", required=True, help="Output folder for slides, MP4, and manifest.")
+    ap.add_argument(
+        "--media-dir", required=True, help="Folder of source images/videos."
+    )
+    ap.add_argument(
+        "--out-dir", required=True, help="Output folder for slides, MP4, and manifest."
+    )
     ap.add_argument("--title", default="AI slideshow pack", help="Grid preview title.")
-    ap.add_argument("--hooks-file", type=Path, default=None, help="Optional .txt/.json hook list.")
+    ap.add_argument(
+        "--hooks-file", type=Path, default=None, help="Optional .txt/.json hook list."
+    )
     ap.add_argument("--count", type=int, default=12)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--preset", choices=["mirror_feed", "minimal"], default="mirror_feed")
+    ap.add_argument(
+        "--preset", choices=["mirror_feed", "minimal"], default="mirror_feed"
+    )
     ap.add_argument("--reference-pattern-id", default=None)
     ap.add_argument("--generation-id", default=None)
     ap.add_argument("--seconds-per-slide", type=float, default=1.15)

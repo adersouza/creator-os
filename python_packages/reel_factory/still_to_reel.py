@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Zero-cost still-to-reel motion-edit renderer."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,16 +10,14 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-from PIL import Image
 
 from audio_intent import write_audio_intent
 from audio_mux import mux_audio
 from caption_render import render_caption_png
-
+from PIL import Image
 
 SCHEMA = "reel_factory.motion_edit_render.v1"
 CANVAS_W = 1080
@@ -46,11 +45,15 @@ class MotionEditRequest:
     allow_upscale: bool = False
 
 
-def render_motion_edit(request: MotionEditRequest, *, dry_run: bool = False) -> dict[str, Any]:
+def render_motion_edit(
+    request: MotionEditRequest, *, dry_run: bool = False
+) -> dict[str, Any]:
     still = request.still_path.expanduser().resolve()
     output = request.output_path.expanduser().resolve()
     _validate_request(request, still=still)
-    command = _build_ffmpeg_command(request, still=still, output=output, caption_png=_caption_png_path(output))
+    command = _build_ffmpeg_command(
+        request, still=still, output=output, caption_png=_caption_png_path(output)
+    )
     result = _result_payload(
         request,
         still=still,
@@ -67,7 +70,11 @@ def render_motion_edit(request: MotionEditRequest, *, dry_run: bool = False) -> 
     with tempfile.TemporaryDirectory(prefix="motion_edit_") as tmp:
         tmp_dir = Path(tmp)
         caption_png = tmp_dir / f"{output.stem}.caption.png"
-        silent_output = output if request.local_audio_path is None else tmp_dir / f"{output.stem}.silent.mp4"
+        silent_output = (
+            output
+            if request.local_audio_path is None
+            else tmp_dir / f"{output.stem}.silent.mp4"
+        )
         render_caption_png(
             request.caption,
             font_family=request.caption_font,
@@ -80,10 +87,17 @@ def render_motion_edit(request: MotionEditRequest, *, dry_run: bool = False) -> 
             canvas_h=CANVAS_H,
             renderer="pillow",
         )
-        command = _build_ffmpeg_command(request, still=still, output=silent_output, caption_png=caption_png)
+        command = _build_ffmpeg_command(
+            request, still=still, output=silent_output, caption_png=caption_png
+        )
         _run(command, timeout=180)
         if request.local_audio_path is not None:
-            mux_audio(silent_output, request.local_audio_path.expanduser().resolve(), out=output, overwrite=True)
+            mux_audio(
+                silent_output,
+                request.local_audio_path.expanduser().resolve(),
+                out=output,
+                overwrite=True,
+            )
         quality = _quality(output)
         if quality["status"] != "passed":
             raise RuntimeError(f"motion edit quality failed: {quality}")
@@ -110,8 +124,15 @@ def _validate_request(request: MotionEditRequest, *, still: Path) -> None:
         raise ValueError("duration_seconds must be > 0 and <= 60")
     if request.fps <= 0:
         raise ValueError("fps must be positive")
-    if request.audio_mode not in {"platform_auto_music", "native_trending_audio", "licensed_music", "silent_by_design"}:
-        raise ValueError("audio_mode must be platform_auto_music, native_trending_audio, licensed_music, or silent_by_design")
+    if request.audio_mode not in {
+        "platform_auto_music",
+        "native_trending_audio",
+        "licensed_music",
+        "silent_by_design",
+    }:
+        raise ValueError(
+            "audio_mode must be platform_auto_music, native_trending_audio, licensed_music, or silent_by_design"
+        )
     if request.local_audio_path is not None:
         audio = request.local_audio_path.expanduser().resolve()
         if not audio.exists() or not audio.is_file():
@@ -125,7 +146,9 @@ def _validate_request(request: MotionEditRequest, *, still: Path) -> None:
         )
 
 
-def _build_ffmpeg_command(request: MotionEditRequest, *, still: Path, output: Path, caption_png: Path) -> list[str]:
+def _build_ffmpeg_command(
+    request: MotionEditRequest, *, still: Path, output: Path, caption_png: Path
+) -> list[str]:
     frames = max(1, int(round(request.duration_seconds * request.fps)))
     vf = (
         f"[0:v]{_motion_filter(request, frames)},format=yuv420p[base];"
@@ -167,7 +190,9 @@ def _build_ffmpeg_command(request: MotionEditRequest, *, still: Path, output: Pa
 
 
 def _motion_filter(request: MotionEditRequest, frames: int) -> str:
-    mode = int(hashlib.sha256(str(request.seed).encode("utf-8")).hexdigest()[:2], 16) % 4
+    mode = (
+        int(hashlib.sha256(str(request.seed).encode("utf-8")).hexdigest()[:2], 16) % 4
+    )
     if mode == 0:
         x_expr = "iw/2-(iw/zoom/2)"
         y_expr = "ih/2-(ih/zoom/2)"
@@ -194,7 +219,9 @@ def _caption_png_path(output: Path) -> Path:
 
 
 def _run(command: list[str], *, timeout: int) -> None:
-    result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        command, check=False, capture_output=True, text=True, timeout=timeout
+    )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "ffmpeg failed").strip()
         raise RuntimeError(detail[-2000:])
@@ -218,9 +245,19 @@ def _quality(output: Path) -> dict[str, Any]:
         timeout=30,
     )
     if probe.returncode != 0:
-        return {"status": "failed", "width": 0, "height": 0, "fps": 0.0, "durationSeconds": 0.0, "warnings": [probe.stderr.strip()]}
+        return {
+            "status": "failed",
+            "width": 0,
+            "height": 0,
+            "fps": 0.0,
+            "durationSeconds": 0.0,
+            "warnings": [probe.stderr.strip()],
+        }
     data = json.loads(probe.stdout or "{}")
-    video = next((item for item in data.get("streams", []) if item.get("codec_type") == "video"), {})
+    video = next(
+        (item for item in data.get("streams", []) if item.get("codec_type") == "video"),
+        {},
+    )
     fps = _parse_rate(video.get("avg_frame_rate") or video.get("r_frame_rate"))
     duration = _float((data.get("format") or {}).get("duration"))
     width = int(video.get("width") or 0)
@@ -260,7 +297,10 @@ def _write_audio_intent(request: MotionEditRequest, output: Path) -> Path:
             mode="licensed_music",
             platform=request.platform,
             notes="Local operator-provided audio muxed into motion-edit render.",
-            audio_selection={"source": "local_audio", "path": str(request.local_audio_path.expanduser().resolve())},
+            audio_selection={
+                "source": "local_audio",
+                "path": str(request.local_audio_path.expanduser().resolve()),
+            },
         )
     return write_audio_intent(
         output,
@@ -270,7 +310,9 @@ def _write_audio_intent(request: MotionEditRequest, output: Path) -> Path:
     )
 
 
-def _write_lineage(request: MotionEditRequest, *, still: Path, output: Path, quality: dict[str, Any]) -> Path:
+def _write_lineage(
+    request: MotionEditRequest, *, still: Path, output: Path, quality: dict[str, Any]
+) -> Path:
     payload = {
         "schema": "campaign_factory.generated_asset_lineage.v1",
         "pipelineTraceId": f"trace_motion_edit_{_text_hash(str(still) + ':' + str(output) + ':' + str(request.seed))}",
@@ -330,8 +372,14 @@ def _result_payload(
         "outputPath": str(output),
         "durationSeconds": request.duration_seconds,
         "caption": request.caption,
-        "audioIntentPath": str(audio_intent_path or output.with_suffix(output.suffix + ".audio_intent.json")),
-        "lineagePath": str(lineage_path or output.with_suffix(output.suffix + ".generated_asset_lineage.json")),
+        "audioIntentPath": str(
+            audio_intent_path
+            or output.with_suffix(output.suffix + ".audio_intent.json")
+        ),
+        "lineagePath": str(
+            lineage_path
+            or output.with_suffix(output.suffix + ".generated_asset_lineage.json")
+        ),
         "quality": quality,
         "ffmpegCommand": command,
         "dryRun": dry_run,
@@ -375,7 +423,7 @@ def _text_hash(value: str) -> str:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def main() -> int:
@@ -411,7 +459,13 @@ def main() -> int:
         local_audio_path=Path(args.local_audio) if args.local_audio else None,
         allow_upscale=args.allow_upscale,
     )
-    print(json.dumps(render_motion_edit(request, dry_run=not args.apply or args.dry_run), indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            render_motion_edit(request, dry_run=not args.apply or args.dry_run),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

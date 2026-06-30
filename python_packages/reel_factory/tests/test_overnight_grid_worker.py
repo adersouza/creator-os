@@ -4,8 +4,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
-
 from overnight_grid_worker import (
     CAPTIONS,
     create_kling_for_grid,
@@ -16,10 +14,11 @@ from overnight_grid_worker import (
     infer_grid,
     panel_crop_boxes,
     parse_panel_spec,
-    prompt_for_panel,
     prompt_for_grid,
+    prompt_for_panel,
     simple_rating,
 )
+from PIL import Image
 
 
 class OvernightGridWorkerTests(unittest.TestCase):
@@ -31,8 +30,12 @@ class OvernightGridWorkerTests(unittest.TestCase):
             Image.new("RGB", (2048, 2048), "white").save(square)
             Image.new("RGB", (1344, 2016), "white").save(vertical)
 
-            self.assertEqual((infer_grid(square).columns, infer_grid(square).rows), (3, 3))
-            self.assertEqual((infer_grid(vertical).columns, infer_grid(vertical).rows), (2, 3))
+            self.assertEqual(
+                (infer_grid(square).columns, infer_grid(square).rows), (3, 3)
+            )
+            self.assertEqual(
+                (infer_grid(vertical).columns, infer_grid(vertical).rows), (2, 3)
+            )
 
     def test_grid_assets_prefers_known_existing_names(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -55,12 +58,22 @@ class OvernightGridWorkerTests(unittest.TestCase):
             prompt_path = prompt_for_grid(root, infer_grid(image))
             payload = json.loads(prompt_path.read_text(encoding="utf-8"))
 
-            self.assertIn("Shared motion pass for every cropped panel", payload["klingMotionPrompt"])
-            self.assertIn("Apply the same reference-derived movement pattern", payload["klingMotionPrompt"])
-            self.assertIn("Preserve each supplied start image", payload["klingMotionPrompt"])
+            self.assertIn(
+                "Shared motion pass for every cropped panel",
+                payload["klingMotionPrompt"],
+            )
+            self.assertIn(
+                "Apply the same reference-derived movement pattern",
+                payload["klingMotionPrompt"],
+            )
+            self.assertIn(
+                "Preserve each supplied start image", payload["klingMotionPrompt"]
+            )
             self.assertNotIn("best panel", payload["klingMotionPrompt"])
             self.assertNotIn("negative_prompt", payload)
-            self.assertEqual(set(payload), {"higgsfieldGridPrompt", "klingMotionPrompt", "notes"})
+            self.assertEqual(
+                set(payload), {"higgsfieldGridPrompt", "klingMotionPrompt", "notes"}
+            )
 
     def test_prompt_for_panel_reuses_shared_motion_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,18 +83,27 @@ class OvernightGridWorkerTests(unittest.TestCase):
             prompt_path = prompt_for_panel(root, infer_grid(image), 4)
             payload = json.loads(prompt_path.read_text(encoding="utf-8"))
 
-            self.assertIn("Shared motion pass for every cropped panel", payload["klingMotionPrompt"])
+            self.assertIn(
+                "Shared motion pass for every cropped panel",
+                payload["klingMotionPrompt"],
+            )
             self.assertNotIn("panel 4", prompt_path.name)
             self.assertNotIn("negative_prompt", payload)
 
     def test_simple_rating_rejects_bad_probe_and_keeps_valid_video_shape(self):
-        with patch("overnight_grid_worker.probe_video", return_value={"width": 512, "height": 512, "duration": 5.0}):
+        with patch(
+            "overnight_grid_worker.probe_video",
+            return_value={"width": 512, "height": 512, "duration": 5.0},
+        ):
             rating = simple_rating(Path("ok.mp4"))
         self.assertTrue(rating["keep"])
         self.assertEqual(rating["scores"]["motion"], 4)
         self.assertIn("auto_review_pass", rating["labels"])
 
-        with patch("overnight_grid_worker.probe_video", return_value={"width": 200, "height": 512, "duration": 1.0}):
+        with patch(
+            "overnight_grid_worker.probe_video",
+            return_value={"width": 200, "height": 512, "duration": 1.0},
+        ):
             rating = simple_rating(Path("bad.mp4"))
         self.assertFalse(rating["keep"])
         self.assertIn("low_resolution_crop", rating["labels"])
@@ -96,8 +118,12 @@ class OvernightGridWorkerTests(unittest.TestCase):
             root = Path(tmp)
             image = root / "grid.png"
             Image.new("RGB", (1344, 1344), "white").save(image)
-            result = create_kling_for_grid(root, infer_grid(image, columns=3, rows=2), dry_run=True)
-            self.assertEqual(result["would_create"].endswith("_whole_grid_kling.mp4"), True)
+            result = create_kling_for_grid(
+                root, infer_grid(image, columns=3, rows=2), dry_run=True
+            )
+            self.assertEqual(
+                result["would_create"].endswith("_whole_grid_kling.mp4"), True
+            )
             self.assertIn("grid.png", result["start_image"])
 
     def test_crop_grid_video_uses_expected_panel_count(self):
@@ -108,11 +134,28 @@ class OvernightGridWorkerTests(unittest.TestCase):
             Image.new("RGB", (300, 300), "white").save(image)
             import subprocess
 
-            subprocess.run([
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", "testsrc=size=300x300:rate=10",
-                "-t", "1", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video),
-            ], check=True)
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc=size=300x300:rate=10",
+                    "-t",
+                    "1",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(video),
+                ],
+                check=True,
+            )
 
             outputs = crop_grid_video(video, infer_grid(image), root / "panels")
             self.assertEqual(len(outputs), 9)

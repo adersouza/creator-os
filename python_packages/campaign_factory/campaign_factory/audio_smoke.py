@@ -3,18 +3,24 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from .adapters.threadsdash import build_draft_payloads, evaluate_export_readiness, export_threadsdash
+from .adapters.threadsdash import (
+    build_draft_payloads,
+    evaluate_export_readiness,
+    export_threadsdash,
+)
 from .config import Settings
-from .contracts import validate_audio_catalog_export, validate_performance_sync, validate_threadsdash_draft_payload
+from .contracts import (
+    validate_audio_catalog_export,
+    validate_performance_sync,
+    validate_threadsdash_draft_payload,
+)
 from .core import CampaignFactory, utc_now
-
 
 SMOKE_CSV = """title,artist,platform,native_audio_id,native_audio_url,mood_tags,best_content_types,account_fit,bpm,energy,trend_status,usage_count,safe_usage_notes,expires_at
 Runway Pop,DJ A,instagram,ig_runway_pop,https://instagram.com/audio/runway_pop,glam|fit_check,regular_reel|v01_original,smoke_account,124,8,rising,120000,Attach natively only,2099-01-01T00:00:00+00:00
@@ -109,7 +115,9 @@ def _run_pipeline_audio_smoke(
 ) -> dict[str, Any]:
     workspace.mkdir(parents=True, exist_ok=True)
     audio_csv = write_smoke_audio_csv(workspace / "audio_catalog_smoke.csv")
-    snapshot_csv = write_smoke_audio_snapshot_csv(workspace / "audio_trend_snapshot_smoke.csv")
+    snapshot_csv = write_smoke_audio_snapshot_csv(
+        workspace / "audio_trend_snapshot_smoke.csv"
+    )
     reference_export = workspace / "reference_audio_catalog_export.json"
     reference_import = _run_reference_cli(
         reference_root,
@@ -131,7 +139,9 @@ def _run_pipeline_audio_smoke(
         workspace,
         ["list-audio", "--export", str(reference_export)],
     )
-    validate_audio_catalog_export(json.loads(reference_export.read_text(encoding="utf-8")))
+    validate_audio_catalog_export(
+        json.loads(reference_export.read_text(encoding="utf-8"))
+    )
 
     settings = Settings(
         root=workspace / "campaign_factory",
@@ -176,15 +186,25 @@ def _run_pipeline_audio_smoke(
         factory.conn.commit()
         factory.review_rendered_asset("asset_smoke", decision="approved")
         add_smoke_audit_report(factory)
-        draft_payload = build_draft_payloads(factory, campaign_slug="audio_smoke", user_id="smoke_user")
+        draft_payload = build_draft_payloads(
+            factory, campaign_slug="audio_smoke", user_id="smoke_user"
+        )
         validate_threadsdash_draft_payload(draft_payload)
         intent = assert_smoke_draft_audio_intent(draft_payload)
-        contentforge_response = assert_contentforge_contract_response(CONTENTFORGE_SMOKE_RESPONSE)
-        readiness = evaluate_export_readiness(factory, campaign_slug="audio_smoke", user_id="smoke_user")
+        contentforge_response = assert_contentforge_contract_response(
+            CONTENTFORGE_SMOKE_RESPONSE
+        )
+        readiness = evaluate_export_readiness(
+            factory, campaign_slug="audio_smoke", user_id="smoke_user"
+        )
         blocking_reasons = readiness.get("blockingReasons") or []
-        expected_audio_block = "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+        expected_audio_block = (
+            "campaign_audio_unresolved: select audio before ThreadsDashboard export"
+        )
         if not any(expected_audio_block in str(reason) for reason in blocking_reasons):
-            raise AssertionError(f"expected unresolved campaign audio block, got {blocking_reasons}")
+            raise AssertionError(
+                f"expected unresolved campaign audio block, got {blocking_reasons}"
+            )
         plan = factory.create_distribution_plan(
             "asset_smoke",
             instagram_account_id="smoke_account",
@@ -199,12 +219,20 @@ def _run_pipeline_audio_smoke(
             selected_reason="pipeline audio smoke native-audio proof",
             operator="pipeline_smoke",
         )
-        export_result = export_threadsdash(factory, campaign_slug="audio_smoke", user_id="smoke_user", dry_run=True)
+        export_result = export_threadsdash(
+            factory, campaign_slug="audio_smoke", user_id="smoke_user", dry_run=True
+        )
         draft_path = Path(export_result["path"])
-        _write_threadsdash_audio_gate_fixture(draft_path, {**intent, "status": "recommended"})
-        validate_threadsdash_draft_payload(json.loads(draft_path.read_text(encoding="utf-8"))["payload"])
+        _write_threadsdash_audio_gate_fixture(
+            draft_path, {**intent, "status": "recommended"}
+        )
+        validate_threadsdash_draft_payload(
+            json.loads(draft_path.read_text(encoding="utf-8"))["payload"]
+        )
         reel_result = _run_reel_approved_export_sidecar(reel_root, workspace, intent)
-        performance_sync = sync_smoke_performance(factory, draft_payload=draft_payload, user_id="smoke_user")
+        performance_sync = sync_smoke_performance(
+            factory, draft_payload=draft_payload, user_id="smoke_user"
+        )
     finally:
         factory.close()
 
@@ -234,7 +262,12 @@ def _run_pipeline_audio_smoke(
             "audioIntentStatus": intent.get("status"),
             "recommendationCount": len(intent.get("recommendations") or []),
             "performanceInserted": performance_sync.get("inserted"),
-            "leaderboardAudioCount": len((((performance_sync.get("summary") or {}).get("leaderboards") or {}).get("audioRecommendations") or [])),
+            "leaderboardAudioCount": len(
+                ((performance_sync.get("summary") or {}).get("leaderboards") or {}).get(
+                    "audioRecommendations"
+                )
+                or []
+            ),
             "liveExportAllowed": readiness.get("liveExportAllowed"),
             "blockingReasons": blocking_reasons,
             "creativePlan": {
@@ -247,7 +280,9 @@ def _run_pipeline_audio_smoke(
         "contentforge": {
             "contractVersion": contentforge_response.get("contractVersion"),
             "overallVerdict": contentforge_response.get("overallVerdict"),
-            "uploadReady": (contentforge_response.get("readinessSummary") or {}).get("uploadReady"),
+            "uploadReady": (contentforge_response.get("readinessSummary") or {}).get(
+                "uploadReady"
+            ),
         },
         "threadsdash": threadsdash_result,
         "skippedBoundaries": skipped_boundaries(threadsdash_root),
@@ -259,7 +294,9 @@ def _run_pipeline_audio_smoke(
     return summary
 
 
-def create_smoke_campaign_asset(factory: CampaignFactory, workspace: Path) -> tuple[dict[str, Any], Path]:
+def create_smoke_campaign_asset(
+    factory: CampaignFactory, workspace: Path
+) -> tuple[dict[str, Any], Path]:
     source_dir = workspace / "source_inputs"
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "source.mp4").write_bytes(b"smoke source")
@@ -269,7 +306,9 @@ def create_smoke_campaign_asset(factory: CampaignFactory, workspace: Path) -> tu
         model_slug="smoke_model",
         account_handles=["smoke_account"],
     )
-    source = factory.assets_for_campaign(factory.campaign_by_slug("audio_smoke")["id"])[0]
+    source = factory.assets_for_campaign(factory.campaign_by_slug("audio_smoke")["id"])[
+        0
+    ]
     rendered_path = workspace / "rendered_smoke.mp4"
     rendered_path.write_bytes(b"smoke rendered")
     now = "2026-05-22T00:00:00+00:00"
@@ -310,19 +349,31 @@ def create_smoke_campaign_asset(factory: CampaignFactory, workspace: Path) -> tu
             caption,
             caption_hash,
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-            json.dumps({
-                "instagram_post_caption": caption,
-                "audioIntent": {
-                    "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
-                    "required": True,
-                    "status": "needs_operator_selection",
+            json.dumps(
+                {
+                    "instagram_post_caption": caption,
+                    "audioIntent": {
+                        "schema": "pipeline.audio_intent.v1",
+                        "mode": "native_platform_audio",
+                        "required": True,
+                        "status": "needs_operator_selection",
+                    },
                 },
-            }, ensure_ascii=False, sort_keys=True),
-            json.dumps({
-                "visualQc": {"visualQcStatus": "passed", "status": "passed"},
-                "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.9},
-            }, ensure_ascii=False, sort_keys=True),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            json.dumps(
+                {
+                    "visualQc": {"visualQcStatus": "passed", "status": "passed"},
+                    "identityVerification": {
+                        "schema": "reel_factory.identity_verification.v1",
+                        "status": "passed",
+                        "score": 0.9,
+                    },
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
             now,
             now,
         ),
@@ -337,30 +388,33 @@ def _smoke_text_hash(value: str) -> str:
 
 
 def add_smoke_audit_report(factory: CampaignFactory) -> None:
-    asset = factory.conn.execute("SELECT * FROM rendered_assets WHERE id = 'asset_smoke'").fetchone()
+    asset = factory.conn.execute(
+        "SELECT * FROM rendered_assets WHERE id = 'asset_smoke'"
+    ).fetchone()
     if asset is None:
         raise AssertionError("smoke rendered asset missing")
     report_path = Path(asset["campaign_path"]).with_suffix(".audit_smoke.json")
     report_path.write_text(
-        json.dumps({
-            "readinessSummary": {
-                "uploadReady": True,
-                "blockingReasons": [],
-                "warnings": [],
+        json.dumps(
+            {
+                "readinessSummary": {
+                    "uploadReady": True,
+                    "blockingReasons": [],
+                    "warnings": [],
+                    "visualQcStatus": "passed",
+                    "identityVerificationStatus": "passed",
+                },
                 "visualQcStatus": "passed",
                 "identityVerificationStatus": "passed",
-            },
-            "visualQcStatus": "passed",
-            "identityVerificationStatus": "passed",
-            "visualQc": {"status": "passed"},
-            "identityVerification": {"status": "passed"},
-            "overallVerdict": "pass",
-            "failedChecks": [],
-            "error": None,
-        }),
+                "visualQc": {"status": "passed"},
+                "identityVerification": {"status": "passed"},
+                "overallVerdict": "pass",
+                "failedChecks": [],
+                "error": None,
+            }
+        ),
         encoding="utf-8",
     )
-    before = factory.conn.total_changes
     factory.conn.execute(
         """
         INSERT INTO audit_reports
@@ -374,27 +428,44 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
     factory.conn.commit()
 
 
-def _write_threadsdash_audio_gate_fixture(draft_path: Path, unresolved_intent: dict[str, Any]) -> None:
+def _write_threadsdash_audio_gate_fixture(
+    draft_path: Path, unresolved_intent: dict[str, Any]
+) -> None:
     payload = json.loads(draft_path.read_text(encoding="utf-8"))
     drafts = payload.get("payload", {}).get("drafts") or payload.get("drafts") or []
     if not drafts:
         raise AssertionError("expected ThreadsDashboard draft for audio gate fixture")
     campaign_factory = (drafts[0].get("metadata") or {}).get("campaign_factory") or {}
     campaign_factory["audio_intent"] = unresolved_intent
-    draft_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    draft_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def assert_contentforge_contract_response(response: dict[str, Any]) -> dict[str, Any]:
-    required = ["contractVersion", "auditProfile", "targetFile", "overallVerdict", "readinessSummary", "filesAnalyzed"]
+    required = [
+        "contractVersion",
+        "auditProfile",
+        "targetFile",
+        "overallVerdict",
+        "readinessSummary",
+        "filesAnalyzed",
+    ]
     missing = [key for key in required if key not in response]
     if missing:
         raise AssertionError(f"ContentForge smoke response missing {missing}")
     if response["auditProfile"] != "campaign_factory_v1":
-        raise AssertionError(f"unexpected ContentForge audit profile: {response['auditProfile']}")
+        raise AssertionError(
+            f"unexpected ContentForge audit profile: {response['auditProfile']}"
+        )
     if response["overallVerdict"] not in {"pass", "warn", "fail"}:
-        raise AssertionError(f"unexpected ContentForge verdict: {response['overallVerdict']}")
+        raise AssertionError(
+            f"unexpected ContentForge verdict: {response['overallVerdict']}"
+        )
     readiness = response.get("readinessSummary")
-    if not isinstance(readiness, dict) or not isinstance(readiness.get("uploadReady"), bool):
+    if not isinstance(readiness, dict) or not isinstance(
+        readiness.get("uploadReady"), bool
+    ):
         raise AssertionError(f"malformed ContentForge readiness summary: {readiness}")
     return response
 
@@ -415,23 +486,36 @@ def assert_smoke_draft_audio_intent(draft_payload: dict[str, Any]) -> dict[str, 
     primary = decision.get("primaryAudio") or {}
     if not primary:
         raise AssertionError(f"expected audio decision primary, got {decision}")
-    if primary.get("audio_title") != "Runway Pop" or primary.get("platform_audio_id") != "ig_runway_pop":
+    if (
+        primary.get("audio_title") != "Runway Pop"
+        or primary.get("platform_audio_id") != "ig_runway_pop"
+    ):
         raise AssertionError(f"unexpected audio decision primary: {primary}")
     first = recommendations[0]
-    for key in ("audio_title", "artist_name", "platform_audio_id", "platform_url", "vibe_tags", "confidence", "rationale"):
+    for key in (
+        "audio_title",
+        "artist_name",
+        "platform_audio_id",
+        "platform_url",
+        "vibe_tags",
+        "confidence",
+        "rationale",
+    ):
         if first.get(key) in (None, "", []):
             raise AssertionError(f"recommendation missing {key}: {first}")
     return intent
 
 
-def sync_smoke_performance(factory: CampaignFactory, *, draft_payload: dict[str, Any], user_id: str) -> dict[str, Any]:
+def sync_smoke_performance(
+    factory: CampaignFactory, *, draft_payload: dict[str, Any], user_id: str
+) -> dict[str, Any]:
     drafts = draft_payload.get("drafts") or []
     if not drafts:
         raise AssertionError("expected draft payload for performance smoke")
     campaign_slug = str(draft_payload.get("campaign") or "audio_smoke")
     campaign = factory.campaign_by_slug(campaign_slug)
     draft = drafts[0]
-    meta = ((draft.get("metadata") or {}).get("campaign_factory") or {})
+    meta = (draft.get("metadata") or {}).get("campaign_factory") or {}
     now = "2026-05-22T12:30:00+00:00"
     raw = {
         "id": "post_smoke_perf_1",
@@ -440,7 +524,10 @@ def sync_smoke_performance(factory: CampaignFactory, *, draft_payload: dict[str,
         "instagram_account_id": draft.get("instagramAccountId") or "smoke_account",
         "permalink": "https://instagram.test/p/smoke",
         "published_at": "2026-05-22T12:00:00+00:00",
-        "metadata": {"campaign_factory": meta, "metrics": {"reach": 1800, "watch_time_seconds": 420.0}},
+        "metadata": {
+            "campaign_factory": meta,
+            "metrics": {"reach": 1800, "watch_time_seconds": 420.0},
+        },
     }
     before = factory.conn.total_changes
     factory.conn.execute(
@@ -489,9 +576,23 @@ def sync_smoke_performance(factory: CampaignFactory, *, draft_payload: dict[str,
 
 
 def skipped_boundaries(threadsdash_root: Path) -> list[dict[str, str]]:
-    audio_event_handler = threadsdash_root / "api" / "_lib" / "handlers" / "posts" / "campaignFactoryAudioEvents.ts"
-    migration = threadsdash_root / "supabase" / "migrations" / "20260522120000_campaign_factory_audio_events.sql"
-    validator = threadsdash_root / "tests" / "unit" / "campaignFactoryAudioHandler.test.ts"
+    audio_event_handler = (
+        threadsdash_root
+        / "api"
+        / "_lib"
+        / "handlers"
+        / "posts"
+        / "campaignFactoryAudioEvents.ts"
+    )
+    migration = (
+        threadsdash_root
+        / "supabase"
+        / "migrations"
+        / "20260522120000_campaign_factory_audio_events.sql"
+    )
+    validator = (
+        threadsdash_root / "tests" / "unit" / "campaignFactoryAudioHandler.test.ts"
+    )
     if (
         audio_event_handler.exists()
         and migration.exists()
@@ -500,17 +601,23 @@ def skipped_boundaries(threadsdash_root: Path) -> list[dict[str, str]]:
     ):
         return []
     if audio_event_handler.exists() and migration.exists():
-        return [{
+        return [
+            {
+                "boundary": "threadsdash_audio_event_write_read",
+                "reason": "ThreadsDashboard exposes the handler and migration, but no local DB-backed validator fixture is present; smoke stays read-only for sibling repos.",
+            }
+        ]
+    return [
+        {
             "boundary": "threadsdash_audio_event_write_read",
-            "reason": "ThreadsDashboard exposes the handler and migration, but no local DB-backed validator fixture is present; smoke stays read-only for sibling repos.",
-        }]
-    return [{
-        "boundary": "threadsdash_audio_event_write_read",
-        "reason": "No local ThreadsDashboard audio-event validator/helper was found.",
-    }]
+            "reason": "No local ThreadsDashboard audio-event validator/helper was found.",
+        }
+    ]
 
 
-def _run_reel_approved_export_sidecar(reel_root: Path, workspace: Path, audio_intent: dict[str, Any]) -> dict[str, Any]:
+def _run_reel_approved_export_sidecar(
+    reel_root: Path, workspace: Path, audio_intent: dict[str, Any]
+) -> dict[str, Any]:
     fixture_root = workspace / "reel_factory_fixture"
     script = f"""
 import json
@@ -537,24 +644,40 @@ manifest.set_review_state(out.name, "approved")
 manifest.save()
 print(json.dumps(export_approved(root, account="smoke_account", platform="instagram", date="2026-05-22"), ensure_ascii=False))
 """
-    result = subprocess.run([sys.executable, "-c", script], cwd=reel_root, text=True, capture_output=True, check=True)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=reel_root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
     payload = json.loads(result.stdout)
     items = payload.get("items") or []
     if len(items) != 1:
-        raise AssertionError(f"expected one Reel Factory approved item, got {len(items)}")
+        raise AssertionError(
+            f"expected one Reel Factory approved item, got {len(items)}"
+        )
     sidecar_intent = items[0].get("audio_intent") or {}
-    if sidecar_intent.get("schema") != "pipeline.audio_intent.v1" or sidecar_intent.get("status") != audio_intent.get("status"):
-        raise AssertionError(f"Reel Factory audio_intent sidecar was not preserved: {sidecar_intent}")
+    if sidecar_intent.get("schema") != "pipeline.audio_intent.v1" or sidecar_intent.get(
+        "status"
+    ) != audio_intent.get("status"):
+        raise AssertionError(
+            f"Reel Factory audio_intent sidecar was not preserved: {sidecar_intent}"
+        )
     return {
         "ok": True,
         "exportPath": payload.get("path"),
         "count": payload.get("count"),
         "audioIntentStatus": sidecar_intent.get("status"),
-        "audioIntentPreserved": bool((items[0].get("audio_workflow") or {}).get("audio_intent_preserved")),
+        "audioIntentPreserved": bool(
+            (items[0].get("audio_workflow") or {}).get("audio_intent_preserved")
+        ),
     }
 
 
-def _run_reference_cli(reference_root: Path, workspace: Path, args: list[str]) -> dict[str, Any]:
+def _run_reference_cli(
+    reference_root: Path, workspace: Path, args: list[str]
+) -> dict[str, Any]:
     python = reference_root / ".venv" / "bin" / "python"
     if not python.exists():
         python = Path(sys.executable)
@@ -568,11 +691,15 @@ def _run_reference_cli(reference_root: Path, workspace: Path, args: list[str]) -
         str(workspace / "reference_data"),
         *args,
     ]
-    result = subprocess.run(cmd, cwd=reference_root, text=True, capture_output=True, check=True)
+    result = subprocess.run(
+        cmd, cwd=reference_root, text=True, capture_output=True, check=True
+    )
     return json.loads(result.stdout)
 
 
-def _run_threadsdash_validator(threadsdash_root: Path, draft_path: Path) -> dict[str, Any]:
+def _run_threadsdash_validator(
+    threadsdash_root: Path, draft_path: Path
+) -> dict[str, Any]:
     env = {**os.environ, "PIPELINE_AUDIO_SMOKE_FIXTURE": str(draft_path)}
     cmd = [
         "npm",
@@ -582,7 +709,9 @@ def _run_threadsdash_validator(threadsdash_root: Path, draft_path: Path) -> dict
         "tests/pipelineAudioSmokeFixture.test.ts",
         "tests/unit/campaignFactoryAudioHandler.test.ts",
     ]
-    result = subprocess.run(cmd, cwd=threadsdash_root, text=True, capture_output=True, env=env)
+    result = subprocess.run(
+        cmd, cwd=threadsdash_root, text=True, capture_output=True, env=env
+    )
     if result.returncode != 0:
         raise AssertionError(
             "ThreadsDashboard smoke validator failed\n"

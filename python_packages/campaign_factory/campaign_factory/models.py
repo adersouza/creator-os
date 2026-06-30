@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 from .persistence import json_load
@@ -44,62 +45,126 @@ class ModelRepository:
             path.mkdir(parents=True, exist_ok=True)
         return dirs
 
-    def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
+    def upsert_model(
+        self, slug: str, name: str | None = None, notes: str | None = None
+    ) -> dict[str, Any]:
         slug = self._slugify(slug)
         now = self._utc_now()
-        row = self.conn.execute("SELECT * FROM models WHERE slug = ?", (slug,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM models WHERE slug = ?", (slug,)
+        ).fetchone()
         if row:
             self.conn.execute(
                 "UPDATE models SET name = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ?",
                 (name or row["name"], notes, now, row["id"]),
             )
-            self._ensure_graph_node("model", local_table="models", local_id=row["id"], payload={"slug": slug, "name": name or row["name"]})
+            self._ensure_graph_node(
+                "model",
+                local_table="models",
+                local_id=row["id"],
+                payload={"slug": slug, "name": name or row["name"]},
+            )
             self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (row["id"],)).fetchone())
+            return dict(
+                self.conn.execute(
+                    "SELECT * FROM models WHERE id = ?", (row["id"],)
+                ).fetchone()
+            )
         model_id = self._new_id("model")
         self.conn.execute(
             "INSERT INTO models (id, slug, name, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
             (model_id, slug, name or slug.replace("_", " ").title(), notes, now, now),
         )
-        self._ensure_graph_node("model", local_table="models", local_id=model_id, payload={"slug": slug, "name": name or slug.replace("_", " ").title()})
+        self._ensure_graph_node(
+            "model",
+            local_table="models",
+            local_id=model_id,
+            payload={"slug": slug, "name": name or slug.replace("_", " ").title()},
+        )
         self.conn.commit()
-        model = dict(self.conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone())
+        model = dict(
+            self.conn.execute(
+                "SELECT * FROM models WHERE id = ?", (model_id,)
+            ).fetchone()
+        )
         self._record_event(
             "model_created",
             status="success",
             message=f"Model created: {model['slug']}",
-            metadata={"modelId": model["id"], "slug": model["slug"], "name": model["name"]},
+            metadata={
+                "modelId": model["id"],
+                "slug": model["slug"],
+                "name": model["name"],
+            },
         )
         return model
 
-    def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
+    def upsert_campaign(
+        self,
+        slug: str,
+        model_slug: str,
+        name: str | None = None,
+        platform: str = "instagram",
+    ) -> dict[str, Any]:
         slug = self._slugify(slug)
         model_slug = self._slugify(model_slug)
         dirs = self._campaign_dirs(model_slug, slug)
         now = self._utc_now()
-        row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (slug,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM campaigns WHERE slug = ?", (slug,)
+        ).fetchone()
         if row:
             self.conn.execute(
                 "UPDATE campaigns SET name = ?, platform = ?, root_path = ?, updated_at = ? WHERE id = ?",
                 (name or row["name"], platform, str(dirs["root"]), now, row["id"]),
             )
-            self._ensure_graph_node("campaign", local_table="campaigns", local_id=row["id"], payload={"slug": slug, "platform": platform})
+            self._ensure_graph_node(
+                "campaign",
+                local_table="campaigns",
+                local_id=row["id"],
+                payload={"slug": slug, "platform": platform},
+            )
             self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (row["id"],)).fetchone())
+            return dict(
+                self.conn.execute(
+                    "SELECT * FROM campaigns WHERE id = ?", (row["id"],)
+                ).fetchone()
+            )
         campaign_id = self._new_id("camp")
         self.conn.execute(
             "INSERT INTO campaigns (id, slug, name, platform, root_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (campaign_id, slug, name or slug.replace("_", " ").title(), platform, str(dirs["root"]), now, now),
+            (
+                campaign_id,
+                slug,
+                name or slug.replace("_", " ").title(),
+                platform,
+                str(dirs["root"]),
+                now,
+                now,
+            ),
         )
-        self._ensure_graph_node("campaign", local_table="campaigns", local_id=campaign_id, payload={"slug": slug, "platform": platform})
+        self._ensure_graph_node(
+            "campaign",
+            local_table="campaigns",
+            local_id=campaign_id,
+            payload={"slug": slug, "platform": platform},
+        )
         self.conn.commit()
-        campaign = dict(self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone())
+        campaign = dict(
+            self.conn.execute(
+                "SELECT * FROM campaigns WHERE id = ?", (campaign_id,)
+            ).fetchone()
+        )
         self._record_event(
             "campaign_created",
             campaign_id=campaign["id"],
             status="success",
             message=f"Campaign created: {campaign['slug']}",
-            metadata={"campaignId": campaign["id"], "slug": campaign["slug"], "platform": campaign["platform"]},
+            metadata={
+                "campaignId": campaign["id"],
+                "slug": campaign["slug"],
+                "platform": campaign["platform"],
+            },
         )
         return campaign
 
@@ -112,23 +177,44 @@ class ModelRepository:
     ) -> dict[str, Any]:
         handle = handle.strip().lstrip("@")
         now = self._utc_now()
-        row = self.conn.execute("SELECT * FROM accounts WHERE handle = ? AND platform = ?", (handle, platform)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM accounts WHERE handle = ? AND platform = ?",
+            (handle, platform),
+        ).fetchone()
         if row:
             self.conn.execute(
                 "UPDATE accounts SET external_id = COALESCE(?, external_id), model_id = COALESCE(?, model_id), updated_at = ? WHERE id = ?",
                 (external_id, model_id, now, row["id"]),
             )
-            self._ensure_graph_node("account", local_table="accounts", local_id=row["id"], payload={"handle": handle, "platform": platform})
+            self._ensure_graph_node(
+                "account",
+                local_table="accounts",
+                local_id=row["id"],
+                payload={"handle": handle, "platform": platform},
+            )
             self.conn.commit()
-            return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone())
+            return dict(
+                self.conn.execute(
+                    "SELECT * FROM accounts WHERE id = ?", (row["id"],)
+                ).fetchone()
+            )
         account_id = self._new_id("acct")
         self.conn.execute(
             "INSERT INTO accounts (id, handle, platform, external_id, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (account_id, handle, platform, external_id, model_id, now, now),
         )
-        self._ensure_graph_node("account", local_table="accounts", local_id=account_id, payload={"handle": handle, "platform": platform})
+        self._ensure_graph_node(
+            "account",
+            local_table="accounts",
+            local_id=account_id,
+            payload={"handle": handle, "platform": platform},
+        )
         self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+        )
 
     def upsert_model_account_profile(
         self,
@@ -145,13 +231,22 @@ class ModelRepository:
         now = self._utc_now()
         payload = {
             "label": label or model["name"],
-            "allowed_instagram_account_ids_json": json.dumps(sorted(set(allowed_instagram_account_ids or []))),
-            "allowed_account_group_names_json": json.dumps(sorted(set(allowed_account_group_names or []))),
-            "allowed_handle_patterns_json": json.dumps(sorted(set(allowed_handle_patterns or []))),
+            "allowed_instagram_account_ids_json": json.dumps(
+                sorted(set(allowed_instagram_account_ids or []))
+            ),
+            "allowed_account_group_names_json": json.dumps(
+                sorted(set(allowed_account_group_names or []))
+            ),
+            "allowed_handle_patterns_json": json.dumps(
+                sorted(set(allowed_handle_patterns or []))
+            ),
             "default_smart_link": default_smart_link,
             "story_cta_text": story_cta_text,
         }
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (model["slug"],)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM model_account_profiles WHERE model_slug = ?",
+            (model["slug"],),
+        ).fetchone()
         if row:
             self.conn.execute(
                 """
@@ -203,7 +298,9 @@ class ModelRepository:
 
     def model_account_profile(self, model_slug: str) -> dict[str, Any] | None:
         slug = self._slugify(model_slug)
-        row = self.conn.execute("SELECT * FROM model_account_profiles WHERE model_slug = ?", (slug,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM model_account_profiles WHERE model_slug = ?", (slug,)
+        ).fetchone()
         return self._model_account_profile_payload(dict(row)) if row else None
 
     def _model_account_profile_payload(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -212,8 +309,12 @@ class ModelRepository:
             "modelId": row["model_id"],
             "modelSlug": row["model_slug"],
             "label": row["label"],
-            "allowedInstagramAccountIds": json_load(row["allowed_instagram_account_ids_json"], []),
-            "allowedAccountGroupNames": json_load(row["allowed_account_group_names_json"], []),
+            "allowedInstagramAccountIds": json_load(
+                row["allowed_instagram_account_ids_json"], []
+            ),
+            "allowedAccountGroupNames": json_load(
+                row["allowed_account_group_names_json"], []
+            ),
             "allowedHandlePatterns": json_load(row["allowed_handle_patterns_json"], []),
             "defaultSmartLink": row["default_smart_link"],
             "storyCtaText": row["story_cta_text"],
@@ -234,13 +335,23 @@ class ModelRepository:
             return True, None, None
         allowed_ids = set(profile.get("allowedInstagramAccountIds") or [])
         if instagram_account_id and allowed_ids:
-            return (instagram_account_id in allowed_ids, None if instagram_account_id in allowed_ids else "model_account_mismatch", profile)
-        allowed_groups = {str(item).lower() for item in profile.get("allowedAccountGroupNames") or []}
+            return (
+                instagram_account_id in allowed_ids,
+                None
+                if instagram_account_id in allowed_ids
+                else "model_account_mismatch",
+                profile,
+            )
+        allowed_groups = {
+            str(item).lower() for item in profile.get("allowedAccountGroupNames") or []
+        }
         if account_group_name and allowed_groups:
             ok = account_group_name.lower() in allowed_groups
             return ok, None if ok else "model_account_group_mismatch", profile
         handle = (account_handle or "").lower()
-        patterns = [str(item).lower() for item in profile.get("allowedHandlePatterns") or []]
+        patterns = [
+            str(item).lower() for item in profile.get("allowedHandlePatterns") or []
+        ]
         if handle and patterns:
             ok = any(pattern in handle for pattern in patterns)
             return ok, None if ok else "model_account_handle_mismatch", profile

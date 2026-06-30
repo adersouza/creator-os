@@ -4,7 +4,6 @@ import re
 import sqlite3
 from pathlib import Path
 
-
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -1327,11 +1326,6 @@ def init_db(conn: sqlite3.Connection) -> None:
             "caption_outcome_context_json": "TEXT NOT NULL DEFAULT '{}'",
             "concept_id": "TEXT",
             "parent_reel_id": "TEXT",
-            "caption_family_id": "TEXT",
-            "caption_version_id": "TEXT",
-            "caption_angle": "TEXT",
-            "burned_caption_hash": "TEXT",
-            "instagram_post_caption_hash": "TEXT",
             "variant_family_id": "TEXT",
             "variant_id": "TEXT",
             "variant_index": "INTEGER",
@@ -1459,24 +1453,60 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _migrate_source_assets_hash_scope(conn)
     _migrate_rendered_assets_hash_scope(conn)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_caption_bank ON performance_snapshots(caption_bank)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_caption_versions_parent ON caption_versions(parent_asset_id, caption_family_index)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_caption_versions_angle ON caption_versions(caption_angle)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_caption_version ON performance_snapshots(caption_family_id, caption_version_id, caption_angle)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_source_assets_surface ON source_assets(content_surface)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_rendered_assets_surface ON rendered_assets(content_surface)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_distribution_plans_surface ON distribution_plans(content_surface, surface)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_surface ON performance_snapshots(content_surface, snapshot_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_account_requirements_creator_surface ON account_content_requirements(creator, content_surface, active)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_components_asset_order ON asset_components(asset_id, component_index)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_creator_mix ON performance_snapshots(creator_mix)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_performance_caption_fit ON performance_snapshots(frame_type, length_class, format_class, caption_fit_version)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_distribution_plans_caption_hash ON distribution_plans(caption_hash)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_proof_runs_campaign_asset ON proof_runs(campaign_id, rendered_asset_id, started_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_proof_runs_distribution_plan ON proof_runs(distribution_plan_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantined_assets_campaign ON quarantined_assets(campaign_id, created_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_asset ON asset_rejection_evidence(rendered_asset_id, failed_stage, created_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_category ON asset_rejection_evidence(failed_stage, failure_category, created_at)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_caption_bank ON performance_snapshots(caption_bank)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_caption_versions_parent ON caption_versions(parent_asset_id, caption_family_index)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_caption_versions_angle ON caption_versions(caption_angle)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_caption_version ON performance_snapshots(caption_family_id, caption_version_id, caption_angle)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_assets_surface ON source_assets(content_surface)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rendered_assets_surface ON rendered_assets(content_surface)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_distribution_plans_surface ON distribution_plans(content_surface, surface)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_surface ON performance_snapshots(content_surface, snapshot_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_account_requirements_creator_surface ON account_content_requirements(creator, content_surface, active)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_asset_components_asset_order ON asset_components(asset_id, component_index)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_creator_mix ON performance_snapshots(creator_mix)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_caption_fit ON performance_snapshots(frame_type, length_class, format_class, caption_fit_version)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_distribution_plans_caption_hash ON distribution_plans(caption_hash)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proof_runs_campaign_asset ON proof_runs(campaign_id, rendered_asset_id, started_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proof_runs_distribution_plan ON proof_runs(distribution_plan_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_quarantined_assets_campaign ON quarantined_assets(campaign_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_asset ON asset_rejection_evidence(rendered_asset_id, failed_stage, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_asset_rejection_evidence_category ON asset_rejection_evidence(failed_stage, failure_category, created_at)"
+    )
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_inventory_reservations_active_asset
@@ -1502,8 +1532,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
-    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
     for name, ddl in columns.items():
         if name not in existing:
             try:
@@ -1519,7 +1553,10 @@ def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:
     ).fetchone()
     sql = (row["sql"] if row else "") or ""
     if "content_hash TEXT NOT NULL UNIQUE" not in sql:
-        indexes = {idx["name"] for idx in conn.execute("PRAGMA index_list(source_assets)").fetchall()}
+        indexes = {
+            idx["name"]
+            for idx in conn.execute("PRAGMA index_list(source_assets)").fetchall()
+        }
         if "idx_source_assets_campaign_hash" not in indexes:
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_source_assets_campaign_hash "
@@ -1578,7 +1615,9 @@ def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "updated_at",
     ]
     joined = ", ".join(columns)
-    conn.execute(f"INSERT INTO source_assets ({joined}) SELECT {joined} FROM source_assets_old_global_hash")
+    conn.execute(
+        f"INSERT INTO source_assets ({joined}) SELECT {joined} FROM source_assets_old_global_hash"
+    )
     conn.execute("DROP TABLE source_assets_old_global_hash")
     conn.execute("PRAGMA foreign_keys = ON")
 
@@ -1589,7 +1628,10 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
     ).fetchone()
     sql = (row["sql"] if row else "") or ""
     if "content_hash TEXT NOT NULL UNIQUE" not in sql:
-        indexes = {idx["name"] for idx in conn.execute("PRAGMA index_list(rendered_assets)").fetchall()}
+        indexes = {
+            idx["name"]
+            for idx in conn.execute("PRAGMA index_list(rendered_assets)").fetchall()
+        }
         if "idx_rendered_assets_campaign_hash" not in indexes:
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_rendered_assets_campaign_hash "
@@ -1600,7 +1642,9 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
     conn.commit()
     conn.execute("PRAGMA foreign_keys = OFF")
     conn.execute("PRAGMA legacy_alter_table = ON")
-    conn.execute("ALTER TABLE rendered_assets RENAME TO rendered_assets_old_global_hash")
+    conn.execute(
+        "ALTER TABLE rendered_assets RENAME TO rendered_assets_old_global_hash"
+    )
     conn.execute("PRAGMA legacy_alter_table = OFF")
     conn.execute(
         """
@@ -1673,7 +1717,9 @@ def _migrate_rendered_assets_hash_scope(conn: sqlite3.Connection) -> None:
         "updated_at",
     ]
     joined = ", ".join(columns)
-    conn.execute(f"INSERT INTO rendered_assets ({joined}) SELECT {joined} FROM rendered_assets_old_global_hash")
+    conn.execute(
+        f"INSERT INTO rendered_assets ({joined}) SELECT {joined} FROM rendered_assets_old_global_hash"
+    )
     conn.execute("DROP TABLE rendered_assets_old_global_hash")
     conn.execute("PRAGMA foreign_keys = ON")
 
@@ -1682,7 +1728,9 @@ def _repair_source_asset_fk_references(conn: sqlite3.Connection) -> None:
     _repair_fk_references(conn, "source_assets_old_global_hash", "source_assets")
 
 
-def _repair_fk_references(conn: sqlite3.Connection, broken_name: str, replacement_name: str) -> None:
+def _repair_fk_references(
+    conn: sqlite3.Connection, broken_name: str, replacement_name: str
+) -> None:
     rows = conn.execute(
         "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE ?",
         (f"%{broken_name}%",),
@@ -1697,7 +1745,9 @@ def _repair_fk_references(conn: sqlite3.Connection, broken_name: str, replacemen
         if table == broken_name:
             continue
         old_sql = row["sql"]
-        new_sql = old_sql.replace(f'"{broken_name}"', replacement_name).replace(broken_name, replacement_name)
+        new_sql = old_sql.replace(f'"{broken_name}"', replacement_name).replace(
+            broken_name, replacement_name
+        )
         temp_table = f"{table}_fk_repair"
         temp_sql = re.sub(
             rf"^CREATE TABLE\s+\"?{re.escape(table)}\"?",
@@ -1706,11 +1756,16 @@ def _repair_fk_references(conn: sqlite3.Connection, broken_name: str, replacemen
             count=1,
             flags=re.I,
         )
-        columns = [col["name"] for col in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        columns = [
+            col["name"]
+            for col in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        ]
         joined = ", ".join(columns)
         conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
         conn.execute(temp_sql)
-        conn.execute(f"INSERT INTO {temp_table} ({joined}) SELECT {joined} FROM {table}")
+        conn.execute(
+            f"INSERT INTO {temp_table} ({joined}) SELECT {joined} FROM {table}"
+        )
         conn.execute(f"DROP TABLE {table}")
         conn.execute("PRAGMA legacy_alter_table = ON")
         conn.execute(f"ALTER TABLE {temp_table} RENAME TO {table}")

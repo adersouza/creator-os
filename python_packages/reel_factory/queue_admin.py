@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Inspect and recover the local render queue."""
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +16,9 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--recover-stale", action="store_true")
     ap.add_argument("--stale-after-sec", type=int, default=300)
-    ap.add_argument("--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite")
+    ap.add_argument(
+        "--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite"
+    )
     args = ap.parse_args()
     queue = get_queue(Path(args.root), args.queue_backend)
     result = {}

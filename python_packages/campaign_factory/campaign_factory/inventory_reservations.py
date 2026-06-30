@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 
 class InventoryReservationRepository:
@@ -24,7 +25,9 @@ class InventoryReservationRepository:
         self._utc_now = utc_now
         self._normalize_content_surface = normalize_content_surface
         self._rendered_asset = rendered_asset
-        self._ensure_rendered_asset_perceptual_metadata = ensure_rendered_asset_perceptual_metadata
+        self._ensure_rendered_asset_perceptual_metadata = (
+            ensure_rendered_asset_perceptual_metadata
+        )
         self._asset_uniqueness_values = asset_uniqueness_values
         self._default_reservation_ttl_days = default_reservation_ttl_days
 
@@ -42,12 +45,18 @@ class InventoryReservationRepository:
         override_reason: str | None = None,
     ) -> dict[str, Any]:
         asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)
-        normalized_surface = self._normalize_content_surface(surface or asset.get("content_surface") or "reel")
+        normalized_surface = self._normalize_content_surface(
+            surface or asset.get("content_surface") or "reel"
+        )
         uniqueness = self._asset_uniqueness_values(asset, metadata=metadata)
         now = self._utc_now()
-        expires_at = expires_at or (
-            datetime.fromisoformat(now) + timedelta(days=self._default_reservation_ttl_days)
-        ).isoformat()
+        expires_at = (
+            expires_at
+            or (
+                datetime.fromisoformat(now)
+                + timedelta(days=self._default_reservation_ttl_days)
+            ).isoformat()
+        )
         self.expire_inventory_reservations(now=now)
         if idempotency_key:
             existing = self.conn.execute(
@@ -57,7 +66,9 @@ class InventoryReservationRepository:
             if existing:
                 return dict(existing)
         if account_id:
-            account = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+            account = self.conn.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
             if not account:
                 raise ValueError(f"account not found: {account_id}")
         reservation_id = self._new_id("invres")
@@ -125,9 +136,15 @@ class InventoryReservationRepository:
             ),
         )
         self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row_id,)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row_id,)
+            ).fetchone()
+        )
 
-    def expire_inventory_reservations(self, *, now: str | None = None, commit: bool = True) -> int:
+    def expire_inventory_reservations(
+        self, *, now: str | None = None, commit: bool = True
+    ) -> int:
         current = now or self._utc_now()
         cursor = self.conn.execute(
             """
@@ -164,7 +181,11 @@ class InventoryReservationRepository:
             (status, now, row["id"]),
         )
         self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM asset_inventory_reservations WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
 
     def inventory_uniqueness_conflicts(
         self,
@@ -187,7 +208,11 @@ class InventoryReservationRepository:
         for key_name, value in keys.items():
             if not value:
                 continue
-            column = "source_family_id" if key_name == "sourceFamilyId" else "perceptual_cluster_id"
+            column = (
+                "source_family_id"
+                if key_name == "sourceFamilyId"
+                else "perceptual_cluster_id"
+            )
             rows = self.conn.execute(
                 f"""
                 SELECT asset_id, account_id, reserved_at, status
@@ -202,9 +227,15 @@ class InventoryReservationRepository:
             for row in rows:
                 if account_id and row["account_id"] == account_id:
                     continue
-                conflicts.append({"assetId": row["asset_id"], "reason": f"active_reservation_{column}", "status": row["status"]})
+                conflicts.append(
+                    {
+                        "assetId": row["asset_id"],
+                        "reason": f"active_reservation_{column}",
+                        "status": row["status"],
+                    }
+                )
             assigned = self.conn.execute(
-                f"""
+                """
                 SELECT a.rendered_asset_id, a.account_id, a.created_at
                 FROM asset_account_assignments a
                 JOIN rendered_assets r ON r.id = a.rendered_asset_id
@@ -220,7 +251,13 @@ class InventoryReservationRepository:
                     continue
                 if account_id and row["account_id"] == account_id:
                     continue
-                conflicts.append({"assetId": row["rendered_asset_id"], "reason": f"assigned_{column}", "status": "assigned"})
+                conflicts.append(
+                    {
+                        "assetId": row["rendered_asset_id"],
+                        "reason": f"assigned_{column}",
+                        "status": "assigned",
+                    }
+                )
         return conflicts
 
     def reservation_adjusted_inventory(
@@ -235,10 +272,18 @@ class InventoryReservationRepository:
             for row in readiness_rows
             if row.get("canHandoff")
             and row.get("assetId")
-            and (content_surface is None or row.get("contentSurface") == content_surface)
+            and (
+                content_surface is None or row.get("contentSurface") == content_surface
+            )
         ]
         if not active_asset_ids:
-            return {"grossInventory": 0, "reservedInventory": 0, "usedInventory": 0, "cooldownBlockedInventory": 0, "netInventory": 0}
+            return {
+                "grossInventory": 0,
+                "reservedInventory": 0,
+                "usedInventory": 0,
+                "cooldownBlockedInventory": 0,
+                "netInventory": 0,
+            }
         placeholders = ",".join("?" for _ in active_asset_ids)
         params = sorted(active_asset_ids)
         reserved_rows = self.conn.execute(
@@ -287,7 +332,10 @@ class InventoryReservationRepository:
             asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)
             assets_by_id[asset_id] = asset
             values = self._asset_uniqueness_values(asset)
-            if any((key_name, values.get(key_name) or "") in blocked_keys for key_name in ("sourceFamilyId", "perceptualClusterId")):
+            if any(
+                (key_name, values.get(key_name) or "") in blocked_keys
+                for key_name in ("sourceFamilyId", "perceptualClusterId")
+            ):
                 cooldown_blocked.add(asset_id)
         unavailable = reserved | used
         unavailable |= cooldown_blocked

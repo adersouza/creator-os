@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .media import ffprobe_video
-
 
 ProbeVideo = Callable[[Path], dict[str, Any]]
 ProbeImage = Callable[[Path], dict[str, Any]]
@@ -81,7 +81,9 @@ def verify_proof_bundle(
     black_detector = detect_black or detect_black_segments
     checks: list[dict[str, Any]] = []
 
-    _check(bundle.exists() and bundle.is_dir(), "bundle.exists", checks, path=str(bundle))
+    _check(
+        bundle.exists() and bundle.is_dir(), "bundle.exists", checks, path=str(bundle)
+    )
     for relative in REQUIRED_BUNDLE_FILES:
         path = bundle / relative
         _check(path.exists(), f"file.{relative}", checks, path=str(path))
@@ -109,7 +111,12 @@ def verify_proof_bundle(
     for relative, expected in EXPECTED_VIDEOS.items():
         path = bundle / relative
         probe = probe_video(path)
-        _check(bool(probe.get("valid")), f"video.{relative}.valid", checks, probe=_probe_summary(probe))
+        _check(
+            bool(probe.get("valid")),
+            f"video.{relative}.valid",
+            checks,
+            probe=_probe_summary(probe),
+        )
         if not probe.get("valid"):
             continue
         _check(
@@ -122,7 +129,8 @@ def verify_proof_bundle(
         )
         duration = float(probe.get("duration_seconds") or 0)
         _check(
-            abs(duration - float(expected["duration"])) <= float(expected["durationTolerance"]),
+            abs(duration - float(expected["duration"]))
+            <= float(expected["durationTolerance"]),
             f"video.{relative}.duration",
             checks,
             expected=expected["duration"],
@@ -145,7 +153,11 @@ def verify_proof_bundle(
         )
 
     lineage = _read_json(bundle / "generated_asset_lineage.json")
-    score = lineage.get("quality", {}).get("promptScore", {}) if isinstance(lineage, dict) else {}
+    score = (
+        lineage.get("quality", {}).get("promptScore", {})
+        if isinstance(lineage, dict)
+        else {}
+    )
     _check(
         score.get("status") == "pass",
         "lineage.prompt_score.pass",
@@ -224,7 +236,9 @@ def _probe_has_audio(probe: dict[str, Any]) -> bool:
     raw = probe.get("probe_json")
     if not isinstance(raw, dict):
         return False
-    return any(stream.get("codec_type") == "audio" for stream in raw.get("streams") or [])
+    return any(
+        stream.get("codec_type") == "audio" for stream in raw.get("streams") or []
+    )
 
 
 def probe_image_dimensions(path: Path) -> dict[str, Any]:
@@ -235,7 +249,10 @@ def probe_image_dimensions(path: Path) -> dict[str, Any]:
         check=False,
     )
     if result.returncode != 0:
-        return {"valid": False, "error": (result.stderr or result.stdout).strip()[:1000]}
+        return {
+            "valid": False,
+            "error": (result.stderr or result.stdout).strip()[:1000],
+        }
     width: int | None = None
     height: int | None = None
     for line in result.stdout.splitlines():

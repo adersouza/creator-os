@@ -24,17 +24,37 @@ class FakeClient:
 
 
 def test_select_stacey_instagram_account_uses_active_account_in_stacey_group():
-    client = FakeClient({
-        "account_groups": [
-            {"id": "group_lola", "name": "Lola"},
-            {"id": "group_stacey", "name": "Stacey main"},
-        ],
-        "instagram_accounts": [
-            {"id": "ig_z", "username": "z_stacey", "status": "active", "is_active": True, "group_id": "group_stacey"},
-            {"id": "ig_a", "username": "a_stacey", "status": "active", "is_active": True, "group_id": "group_stacey"},
-            {"id": "ig_inactive", "username": "inactive", "status": "disabled", "is_active": False, "group_id": "group_stacey"},
-        ],
-    })
+    client = FakeClient(
+        {
+            "account_groups": [
+                {"id": "group_lola", "name": "Lola"},
+                {"id": "group_stacey", "name": "Stacey main"},
+            ],
+            "instagram_accounts": [
+                {
+                    "id": "ig_z",
+                    "username": "z_stacey",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": "group_stacey",
+                },
+                {
+                    "id": "ig_a",
+                    "username": "a_stacey",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": "group_stacey",
+                },
+                {
+                    "id": "ig_inactive",
+                    "username": "inactive",
+                    "status": "disabled",
+                    "is_active": False,
+                    "group_id": "group_stacey",
+                },
+            ],
+        }
+    )
 
     account = select_stacey_instagram_account(client, user_id="user_1")
 
@@ -44,85 +64,166 @@ def test_select_stacey_instagram_account_uses_active_account_in_stacey_group():
 
 
 def test_creator_account_discovery_bridges_account_group_ids_to_accounts_table():
-    client = FakeClient({
-        "account_groups": [
-            {"id": "group_stacey", "name": "Stacey main", "account_ids": ["thread_a"]},
-        ],
-        "accounts": [
-            {"id": "thread_a", "username": "stacey_threads", "status": "active", "is_active": True, "group_id": "group_stacey"},
-        ],
-        "instagram_accounts": [
-            {
-                "id": "ig_a",
-                "username": "stacey_ig",
-                "status": "active",
-                "is_active": True,
-                "group_id": None,
-                "linked_account_id": "thread_a",
-            },
-        ],
-    })
+    client = FakeClient(
+        {
+            "account_groups": [
+                {
+                    "id": "group_stacey",
+                    "name": "Stacey main",
+                    "account_ids": ["thread_a"],
+                },
+            ],
+            "accounts": [
+                {
+                    "id": "thread_a",
+                    "username": "stacey_threads",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": "group_stacey",
+                },
+            ],
+            "instagram_accounts": [
+                {
+                    "id": "ig_a",
+                    "username": "stacey_ig",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": None,
+                    "linked_account_id": "thread_a",
+                },
+            ],
+        }
+    )
 
-    discovery = discover_creator_account_context(client, user_id="user_1", creator="Stacey")
+    discovery = discover_creator_account_context(
+        client, user_id="user_1", creator="Stacey"
+    )
 
     assert discovery["selectedAccount"]["instagramAccountId"] == "ig_a"
-    assert discovery["selectedAccount"]["resolutionPath"] == "account_groups.account_ids->accounts->instagram_accounts"
+    assert (
+        discovery["selectedAccount"]["resolutionPath"]
+        == "account_groups.account_ids->accounts->instagram_accounts"
+    )
     assert discovery["bridgedInstagramAccounts"][0]["linkedAccountId"] == "thread_a"
 
 
 def test_creator_account_discovery_bridges_accounts_to_instagram_by_unique_username():
-    client = FakeClient({
-        "account_groups": [
-            {"id": "group_stacey", "name": "Stacey main", "account_ids": ["thread_a"]},
-        ],
-        "accounts": [
-            {"id": "thread_a", "username": "staceybenw", "status": "active", "is_active": True, "group_id": "group_stacey"},
-        ],
-        "instagram_accounts": [
-            {"id": "ig_a", "username": "staceybenw", "status": "active", "is_active": True, "group_id": None},
-        ],
-    })
+    client = FakeClient(
+        {
+            "account_groups": [
+                {
+                    "id": "group_stacey",
+                    "name": "Stacey main",
+                    "account_ids": ["thread_a"],
+                },
+            ],
+            "accounts": [
+                {
+                    "id": "thread_a",
+                    "username": "staceybenw",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": "group_stacey",
+                },
+            ],
+            "instagram_accounts": [
+                {
+                    "id": "ig_a",
+                    "username": "staceybenw",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": None,
+                },
+            ],
+        }
+    )
 
-    discovery = discover_creator_account_context(client, user_id="user_1", creator="Stacey")
+    discovery = discover_creator_account_context(
+        client, user_id="user_1", creator="Stacey"
+    )
 
     assert discovery["selectedAccount"]["instagramAccountId"] == "ig_a"
-    assert discovery["selectedAccount"]["resolutionPath"] == "account_groups.account_ids->accounts.username->instagram_accounts.username"
+    assert (
+        discovery["selectedAccount"]["resolutionPath"]
+        == "account_groups.account_ids->accounts.username->instagram_accounts.username"
+    )
     assert discovery["bridgedInstagramAccounts"][0]["linkedAccountId"] == "thread_a"
 
 
 def test_account_routing_audit_reports_creator_like_null_group_instagram_rows():
-    client = FakeClient({
-        "account_groups": [
-            {"id": "group_stacey", "name": "Stacey main", "account_ids": []},
-        ],
-        "accounts": [],
-        "instagram_accounts": [
-            {"id": "ig_like", "username": "bennett_staceyy", "status": "active", "is_active": True, "group_id": None},
-        ],
-    })
+    client = FakeClient(
+        {
+            "account_groups": [
+                {"id": "group_stacey", "name": "Stacey main", "account_ids": []},
+            ],
+            "accounts": [],
+            "instagram_accounts": [
+                {
+                    "id": "ig_like",
+                    "username": "bennett_staceyy",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": None,
+                },
+            ],
+        }
+    )
 
     audit = build_account_routing_audit(client, user_id="user_1", creator="Stacey")
 
     assert audit["status"] == "blocked"
-    assert audit["creatorLikeUngroupedInstagramAccounts"][0]["instagramAccountId"] == "ig_like"
-    assert "attach instagram_accounts to the Stacey group" in audit["recommendations"][0]
+    assert (
+        audit["creatorLikeUngroupedInstagramAccounts"][0]["instagramAccountId"]
+        == "ig_like"
+    )
+    assert (
+        "attach instagram_accounts to the Stacey group" in audit["recommendations"][0]
+    )
 
 
 def test_creator_account_discovery_stops_safely_when_bridge_is_ambiguous():
-    client = FakeClient({
-        "account_groups": [
-            {"id": "group_stacey", "name": "Stacey main", "account_ids": ["thread_a"]},
-        ],
-        "accounts": [
-            {"id": "thread_a", "username": "stacey_threads", "status": "active", "is_active": True, "group_id": "group_stacey"},
-        ],
-        "instagram_accounts": [
-            {"id": "ig_a", "username": "stacey_a", "status": "active", "is_active": True, "group_id": None, "linked_account_id": "thread_a"},
-            {"id": "ig_b", "username": "stacey_b", "status": "active", "is_active": True, "group_id": None, "linked_account_id": "thread_a"},
-        ],
-    })
+    client = FakeClient(
+        {
+            "account_groups": [
+                {
+                    "id": "group_stacey",
+                    "name": "Stacey main",
+                    "account_ids": ["thread_a"],
+                },
+            ],
+            "accounts": [
+                {
+                    "id": "thread_a",
+                    "username": "stacey_threads",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": "group_stacey",
+                },
+            ],
+            "instagram_accounts": [
+                {
+                    "id": "ig_a",
+                    "username": "stacey_a",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": None,
+                    "linked_account_id": "thread_a",
+                },
+                {
+                    "id": "ig_b",
+                    "username": "stacey_b",
+                    "status": "active",
+                    "is_active": True,
+                    "group_id": None,
+                    "linked_account_id": "thread_a",
+                },
+            ],
+        }
+    )
 
-    discovery = discover_creator_account_context(client, user_id="user_1", creator="Stacey")
+    discovery = discover_creator_account_context(
+        client, user_id="user_1", creator="Stacey"
+    )
 
     assert discovery["selectedAccount"] is None
     assert discovery["status"] == "ambiguous"
@@ -153,7 +254,9 @@ def test_context_fingerprint_normalizes_absent_and_null_transport_fields():
         "caption_hash": "caption_hash",
     }
 
-    assert canonical_caption_context_for_fingerprint(asset_context) == canonical_caption_context_for_fingerprint(snapshot_context)
+    assert canonical_caption_context_for_fingerprint(
+        asset_context
+    ) == canonical_caption_context_for_fingerprint(snapshot_context)
     assert context_fingerprint(asset_context) == context_fingerprint(snapshot_context)
 
 
@@ -172,7 +275,9 @@ def test_closed_loop_proof_writes_failed_stop_records(tmp_path: Path):
     assert "no_active_stacey_instagram_account" in markdown
 
 
-def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(monkeypatch, tmp_path: Path):
+def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(
+    monkeypatch, tmp_path: Path
+):
     prompt_path = tmp_path / "stacey_prompt.json"
     output_path = tmp_path / "stacey.mp4"
     prompt_path.write_text("{}", encoding="utf-8")
@@ -186,7 +291,9 @@ def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(mo
 
         def select(self, table, params):
             rows = {
-                "account_groups": [{"id": "group_stacey", "name": "Stacey main", "account_ids": []}],
+                "account_groups": [
+                    {"id": "group_stacey", "name": "Stacey main", "account_ids": []}
+                ],
                 "accounts": [],
                 "instagram_accounts": [
                     {
@@ -225,7 +332,13 @@ def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(mo
             }
 
         def distribution_plans_for_asset(self, rendered_asset_id):
-            return [{"id": "plan_1", "renderedAssetId": rendered_asset_id, "instagramAccountId": "ig_stacey"}]
+            return [
+                {
+                    "id": "plan_1",
+                    "renderedAssetId": rendered_asset_id,
+                    "instagramAccountId": "ig_stacey",
+                }
+            ]
 
     def fake_readiness(*args, **kwargs):
         return {"liveExportAllowed": True, "blockingReasons": [], "warnings": []}
@@ -234,10 +347,18 @@ def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(mo
         export_called["value"] = True
         raise AssertionError("live export must not run without --allow-live-export")
 
-    monkeypatch.setattr("campaign_factory.closed_loop_proof.SupabaseRestClient", FakeSupabaseClient)
-    monkeypatch.setattr("campaign_factory.closed_loop_proof.CampaignFactory", FakeFactory)
-    monkeypatch.setattr("campaign_factory.closed_loop_proof.evaluate_export_readiness", fake_readiness)
-    monkeypatch.setattr("campaign_factory.closed_loop_proof.export_threadsdash", fail_export)
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.SupabaseRestClient", FakeSupabaseClient
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.CampaignFactory", FakeFactory
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.evaluate_export_readiness", fake_readiness
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.export_threadsdash", fail_export
+    )
 
     result = run_stacey_closed_loop_proof(
         campaign_slug="stacey_closed_loop",

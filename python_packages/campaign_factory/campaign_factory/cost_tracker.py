@@ -70,8 +70,7 @@ def ensure_cost_table(conn: sqlite3.Connection) -> None:
     """Create the ai_cost_events table if it doesn't exist."""
     conn.executescript(f"{CREATE_TABLE_SQL};\n{CREATE_INDEX_SQL};")
     columns = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(ai_cost_events)").fetchall()
+        row[1] for row in conn.execute("PRAGMA table_info(ai_cost_events)").fetchall()
     }
     if "source_event_key" not in columns:
         conn.execute("ALTER TABLE ai_cost_events ADD COLUMN source_event_key TEXT")
@@ -79,6 +78,7 @@ def ensure_cost_table(conn: sqlite3.Connection) -> None:
 
 
 # ── Cost estimation ──────────────────────────────────────────────────
+
 
 def estimate_token_cost(
     provider: str,
@@ -103,6 +103,7 @@ def estimate_generation_cost(
 
 
 # ── Recording ────────────────────────────────────────────────────────
+
 
 def record_ai_cost(
     conn: sqlite3.Connection,
@@ -144,9 +145,7 @@ def record_ai_cost(
         if source_event_key
         else f"cost_{uuid.uuid4().hex[:12]}"
     )
-    created_at = datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%S.%fZ"
-    )
+    created_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     conn.execute(
         """\
         INSERT OR IGNORE INTO ai_cost_events
@@ -175,6 +174,7 @@ def record_ai_cost(
 
 # ── Reporting ────────────────────────────────────────────────────────
 
+
 def cost_summary(
     conn: sqlite3.Connection,
     *,
@@ -192,8 +192,7 @@ def cost_summary(
         params.append(campaign_id)
     if days:
         cutoff = (
-            datetime.datetime.now(datetime.timezone.utc)
-            - datetime.timedelta(days=days)
+            datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)
         ).strftime("%Y-%m-%dT%H:%M:%S")
         clauses.append("created_at >= ?")
         params.append(cutoff)

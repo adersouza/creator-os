@@ -7,7 +7,7 @@ import json
 import sqlite3
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,12 +19,14 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.append(str(REEL_FACTORY_ROOT))
 
 from campaign_factory.adapters import threadsdash as threadsdash_adapter  # noqa: E402
-from campaign_factory.adapters.threadsdash import build_draft_payloads, sync_performance_snapshots  # noqa: E402
+from campaign_factory.adapters.threadsdash import (  # noqa: E402
+    build_draft_payloads,
+    sync_performance_snapshots,
+)
 from campaign_factory.config import Settings  # noqa: E402
 from campaign_factory.core import CampaignFactory  # noqa: E402
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger  # noqa: E402
 from reel_pipeline import build_caption_outcome_context  # noqa: E402
-
 
 CAPTION_TEXT = "Hard launch energy."
 CAPTION_HASH = "caption_hash_e2e_proof"
@@ -50,7 +52,9 @@ CONTEXT_KEYS = [
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Caption Outcome Tracking v1 end-to-end proof.")
+    parser = argparse.ArgumentParser(
+        description="Run Caption Outcome Tracking v1 end-to-end proof."
+    )
     parser.add_argument(
         "--record",
         type=Path,
@@ -62,7 +66,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="caption_outcome_e2e_") as tmp:
         proof = run_proof(Path(tmp))
 
-    args.record.write_text(json.dumps(proof, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    args.record.write_text(
+        json.dumps(proof, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(json.dumps(_summary(proof), indent=2, sort_keys=True))
     print(f"proof_record={args.record}")
     return 0
@@ -91,7 +98,9 @@ def run_proof(tmp_path: Path) -> dict[str, Any]:
         cf.close()
 
 
-def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _run_steps(
+    cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]
+) -> dict[str, Any]:
     rendered_output = tmp_path / "rendered_caption_outcome_proof.mp4"
     rendered_output.write_bytes(b"caption outcome proof bytes")
     campaign = cf.upsert_campaign(CAMPAIGN_SLUG, "lola")
@@ -127,7 +136,10 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
             "schema": "reel_factory.render_lineage.v1",
             "sourceClip": "clip_010",
             "captionHash": CAPTION_HASH,
-            "captionBank": {**caption_lineage, "captionOutcomeContext": emitted_context},
+            "captionBank": {
+                **caption_lineage,
+                "captionOutcomeContext": emitted_context,
+            },
             "recipe": "v09_caption_bg",
         },
     )
@@ -141,9 +153,13 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
     if not promotion.get("applied"):
         raise AssertionError(f"promotion did not apply: {promotion}")
     if promotion.get("summary", {}).get("rowsToCreate") != 1:
-        raise AssertionError(f"promotion did not produce one create action: {promotion}")
+        raise AssertionError(
+            f"promotion did not produce one create action: {promotion}"
+        )
 
-    asset_row = cf.conn.execute("SELECT * FROM rendered_assets WHERE caption_hash = ?", (CAPTION_HASH,)).fetchone()
+    asset_row = cf.conn.execute(
+        "SELECT * FROM rendered_assets WHERE caption_hash = ?", (CAPTION_HASH,)
+    ).fetchone()
     if not asset_row:
         promoted_rows = [
             dict(row)
@@ -151,10 +167,22 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
                 "SELECT id, content_hash, caption_hash, caption_outcome_context_json FROM rendered_assets"
             ).fetchall()
         ]
-        raise AssertionError(f"promoted asset did not retain caption hash {CAPTION_HASH}: {promoted_rows}")
+        raise AssertionError(
+            f"promoted asset did not retain caption hash {CAPTION_HASH}: {promoted_rows}"
+        )
     asset = dict(asset_row)
-    plan = dict(cf.conn.execute("SELECT * FROM distribution_plans WHERE rendered_asset_id = ?", (asset["id"],)).fetchone())
-    draft_payload = build_draft_payloads(cf, campaign_slug=campaign["slug"], user_id="proof_user", schedule_mode="preview")
+    plan = dict(
+        cf.conn.execute(
+            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ?",
+            (asset["id"],),
+        ).fetchone()
+    )
+    draft_payload = build_draft_payloads(
+        cf,
+        campaign_slug=campaign["slug"],
+        user_id="proof_user",
+        schedule_mode="preview",
+    )
     draft = draft_payload["drafts"][0]
     metadata = draft["metadata"]["campaign_factory"]
 
@@ -166,7 +194,12 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
         supabase_url="https://example.supabase.co",
         supabase_service_role_key="service-role",
     )
-    snapshot = dict(cf.conn.execute("SELECT * FROM performance_snapshots WHERE caption_hash = ?", (CAPTION_HASH,)).fetchone())
+    snapshot = dict(
+        cf.conn.execute(
+            "SELECT * FROM performance_snapshots WHERE caption_hash = ?",
+            (CAPTION_HASH,),
+        ).fetchone()
+    )
     report = cf.caption_outcome_report(campaign["slug"])
 
     contexts = {
@@ -183,7 +216,7 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
 
     return {
         "schema": "campaign_factory.caption_outcome_tracking_v1_e2e_proof.v1",
-        "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "generatedAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "manualReviewOnly": report["manualReviewOnly"],
         "guardrails": {
             "autoLearning": False,
@@ -205,8 +238,12 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
             "updated": sync_result["updated"],
             "skipped": sync_result["skipped"],
         },
-        "captionHashByStage": {stage: context["caption_hash"] for stage, context in contexts.items()},
-        "contextFingerprintByStage": {stage: _context_fingerprint(context) for stage, context in contexts.items()},
+        "captionHashByStage": {
+            stage: context["caption_hash"] for stage, context in contexts.items()
+        },
+        "contextFingerprintByStage": {
+            stage: _context_fingerprint(context) for stage, context in contexts.items()
+        },
         "contextsByStage": contexts,
         "reportCoverage": report["coverage"],
     }
@@ -214,14 +251,16 @@ def _run_steps(cf: CampaignFactory, tmp_path: Path, rows: list[dict[str, Any]]) 
 
 def _make_factory(tmp_path: Path) -> CampaignFactory:
     reel_root = tmp_path / "reel_factory"
-    return CampaignFactory(Settings(
-        root=tmp_path,
-        db_path=tmp_path / "campaign_factory.sqlite",
-        reel_factory_root=reel_root,
-        contentforge_root=tmp_path / "contentforge",
-        threadsdash_root=tmp_path / "ThreadsDashboard",
-        campaigns_dir=tmp_path / "campaigns",
-    ))
+    return CampaignFactory(
+        Settings(
+            root=tmp_path,
+            db_path=tmp_path / "campaign_factory.sqlite",
+            reel_factory_root=reel_root,
+            contentforge_root=tmp_path / "contentforge",
+            threadsdash_root=tmp_path / "ThreadsDashboard",
+            campaigns_dir=tmp_path / "campaigns",
+        )
+    )
 
 
 def _write_reel_posting_slot(
@@ -271,14 +310,21 @@ def _write_reel_posting_slot(
                     'main', '10:00', ?, 'fp_caption_outcome_e2e', ?, 'audio_1',
                     'native_platform_audio', 'proof fixture', 0, ?, 'approved', 'approved')
             """,
-            (campaign_slug, str(rendered_output_path), CAPTION_TEXT, json.dumps(lineage, sort_keys=True)),
+            (
+                campaign_slug,
+                str(rendered_output_path),
+                CAPTION_TEXT,
+                json.dumps(lineage, sort_keys=True),
+            ),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def _threadsdash_post_row(draft: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+def _threadsdash_post_row(
+    draft: dict[str, Any], metadata: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "id": "post_caption_outcome_e2e",
         "status": "published",
@@ -302,14 +348,20 @@ def _threadsdash_post_row(draft: dict[str, Any], metadata: dict[str, Any]) -> di
 
 
 def _assert_same_context(contexts: dict[str, dict[str, Any]]) -> None:
-    fingerprints = {stage: _context_fingerprint(context) for stage, context in contexts.items()}
+    fingerprints = {
+        stage: _context_fingerprint(context) for stage, context in contexts.items()
+    }
     if len(set(fingerprints.values())) != 1:
-        raise AssertionError(f"captionOutcomeContext changed across stages: {fingerprints}")
+        raise AssertionError(
+            f"captionOutcomeContext changed across stages: {fingerprints}"
+        )
 
 
 def _context_fingerprint(context: dict[str, Any]) -> str:
     canonical = {key: context.get(key) for key in CONTEXT_KEYS}
-    payload = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(
+        canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -318,7 +370,10 @@ def _summary(proof: dict[str, Any]) -> dict[str, Any]:
         "schema": proof["schema"],
         "captionHash": next(iter(proof["captionHashByStage"].values())),
         "allCaptionHashesMatch": len(set(proof["captionHashByStage"].values())) == 1,
-        "allContextFingerprintsMatch": len(set(proof["contextFingerprintByStage"].values())) == 1,
+        "allContextFingerprintsMatch": len(
+            set(proof["contextFingerprintByStage"].values())
+        )
+        == 1,
         "stages": list(proof["captionHashByStage"].keys()),
         "manualReviewOnly": proof["manualReviewOnly"],
         "syncResult": proof["syncResult"],

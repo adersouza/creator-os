@@ -1,4 +1,5 @@
 """Media probing and caption placement for reel_factory."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +13,16 @@ from typing import Any
 from placement_scorer import PlacementSummary, score_lanes
 
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
-FFMPEG = str(_FFMPEG_FULL / "ffmpeg") if (_FFMPEG_FULL / "ffmpeg").exists() else shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = str(_FFMPEG_FULL / "ffprobe") if (_FFMPEG_FULL / "ffprobe").exists() else shutil.which("ffprobe") or "ffprobe"
+FFMPEG = (
+    str(_FFMPEG_FULL / "ffmpeg")
+    if (_FFMPEG_FULL / "ffmpeg").exists()
+    else shutil.which("ffmpeg") or "ffmpeg"
+)
+FFPROBE = (
+    str(_FFMPEG_FULL / "ffprobe")
+    if (_FFMPEG_FULL / "ffprobe").exists()
+    else shutil.which("ffprobe") or "ffprobe"
+)
 log = logging.getLogger("reel")
 
 
@@ -32,8 +41,14 @@ class CaptionSegmentPlan:
 # ────────────────────────────────────────────────────────────────────────────
 async def probe_duration(path: Path) -> float:
     p = await asyncio.create_subprocess_exec(
-        FFPROBE, "-v", "0", "-show_entries", "format=duration",
-        "-of", "csv=p=0", str(path),
+        FFPROBE,
+        "-v",
+        "0",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
+        str(path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -45,8 +60,16 @@ async def probe_duration(path: Path) -> float:
 
 async def probe_dimensions(path: Path) -> tuple[int, int]:
     p = await asyncio.create_subprocess_exec(
-        FFPROBE, "-v", "0", "-show_entries", "stream=width,height",
-        "-select_streams", "v:0", "-of", "csv=p=0", str(path),
+        FFPROBE,
+        "-v",
+        "0",
+        "-show_entries",
+        "stream=width,height",
+        "-select_streams",
+        "v:0",
+        "-of",
+        "csv=p=0",
+        str(path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -68,8 +91,15 @@ async def probe_source_bitrate(path: Path) -> int | None:
     for entry in ("stream=bit_rate", "format=bit_rate"):
         select = ["-select_streams", "v:0"] if entry.startswith("stream") else []
         p = await asyncio.create_subprocess_exec(
-            FFPROBE, "-v", "0", "-show_entries", entry,
-            *select, "-of", "csv=p=0", str(path),
+            FFPROBE,
+            "-v",
+            "0",
+            "-show_entries",
+            entry,
+            *select,
+            "-of",
+            "csv=p=0",
+            str(path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -108,7 +138,7 @@ async def probe_caption_region_luminance(path: Path, src_duration: float) -> flo
 
 def pick_caption_color(luminance: float) -> str:
     """luminance > 0.6 → bright background → use dark text;
-       otherwise → use light text (white + black stroke)."""
+    otherwise → use light text (white + black stroke)."""
     return "dark" if luminance > 0.6 else "light"
 
 
@@ -125,9 +155,19 @@ async def _extract_probe_frame(path: Path, sample_t: float, tag: str) -> Path | 
 
     tmp = Path(tempfile.gettempdir()) / f"_probe_{tag}_{int(sample_t * 1000)}.png"
     cmd = [
-        FFMPEG, "-hide_banner", "-nostdin", "-loglevel", "error",
-        "-ss", f"{sample_t:.2f}", "-i", str(path), "-frames:v", "1",
-        "-y", str(tmp),
+        FFMPEG,
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{sample_t:.2f}",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-y",
+        str(tmp),
     ]
     try:
         p = await asyncio.create_subprocess_exec(
@@ -142,7 +182,9 @@ async def _extract_probe_frame(path: Path, sample_t: float, tag: str) -> Path | 
         return None
 
 
-async def _extract_probe_frames(path: Path, src_duration: float, count: int = 5) -> list[Path]:
+async def _extract_probe_frames(
+    path: Path, src_duration: float, count: int = 5
+) -> list[Path]:
     src_tag = hashlib.md5(str(path).encode()).hexdigest()[:10]
     frames = []
     for sample_t in _sample_times(src_duration, count=count):
@@ -152,8 +194,9 @@ async def _extract_probe_frames(path: Path, src_duration: float, count: int = 5)
     return frames
 
 
-async def _extract_probe_frames_window(path: Path, start: float, end: float,
-                                       count: int = 3) -> list[Path]:
+async def _extract_probe_frames_window(
+    path: Path, start: float, end: float, count: int = 3
+) -> list[Path]:
     src_tag = hashlib.md5(f"{path}|{start:.3f}|{end:.3f}".encode()).hexdigest()[:10]
     frames = []
     start = max(0.0, start)
@@ -176,13 +219,15 @@ def _center_luminance_from_frame(frame_path: Path) -> float | None:
         return None
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
-    crop = gray[int(h * 0.35):int(h * 0.65), int(w * 0.2):int(w * 0.8)]
+    crop = gray[int(h * 0.35) : int(h * 0.65), int(w * 0.2) : int(w * 0.8)]
     if crop.size == 0:
         return None
     return float(crop.mean()) / 255.0
 
 
-_YUNET_MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+_YUNET_MODEL_PATH = (
+    Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+)
 
 
 def _detect_face_band(frame_path: Path) -> str | None:
@@ -206,7 +251,8 @@ def _detect_face_band(frame_path: Path) -> str | None:
 
     h, w = img.shape[:2]
     det = cv2.FaceDetectorYN.create(
-        model=str(_YUNET_MODEL_PATH), config="",
+        model=str(_YUNET_MODEL_PATH),
+        config="",
         input_size=(w, h),
         score_threshold=0.5,
         nms_threshold=0.3,
@@ -218,9 +264,9 @@ def _detect_face_band(frame_path: Path) -> str | None:
 
     # Sum face area within each vertical third.
     third = h / 3.0
-    cov = [0.0, 0.0, 0.0]   # top, middle, bottom
+    cov = [0.0, 0.0, 0.0]  # top, middle, bottom
     for f in faces:
-        x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
+        _x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
         for i in range(3):
             band_top = i * third
             band_bot = (i + 1) * third
@@ -245,7 +291,8 @@ def _face_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | 
         return None
     h, w = img.shape[:2]
     det = cv2.FaceDetectorYN.create(
-        model=str(_YUNET_MODEL_PATH), config="",
+        model=str(_YUNET_MODEL_PATH),
+        config="",
         input_size=(w, h),
         score_threshold=0.5,
         nms_threshold=0.3,
@@ -257,7 +304,7 @@ def _face_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | 
     third = h / 3.0
     cov = [0.0, 0.0, 0.0]
     for f in faces:
-        x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
+        _x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
         for i in range(3):
             band_top = i * third
             band_bot = (i + 1) * third
@@ -278,7 +325,8 @@ def _face_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | No
         return None
     h, w = img.shape[:2]
     det = cv2.FaceDetectorYN.create(
-        model=str(_YUNET_MODEL_PATH), config="",
+        model=str(_YUNET_MODEL_PATH),
+        config="",
         input_size=(w, h),
         score_threshold=0.5,
         nms_threshold=0.3,
@@ -290,7 +338,7 @@ def _face_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | No
     mid = w / 2.0
     cov = [0.0, 0.0]
     for f in faces:
-        x, y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
+        x, _y, fw, fh = float(f[0]), float(f[1]), float(f[2]), float(f[3])
         left_overlap = max(0.0, min(x + fw, mid) - max(x, 0.0))
         right_overlap = max(0.0, min(x + fw, float(w)) - max(x, mid))
         cov[0] += left_overlap * fh
@@ -316,9 +364,9 @@ def _band_stddev_from_frame(frame_path: Path) -> tuple[float, float, float] | No
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, _ = gray.shape
     return (
-        float(gray[:h // 3, :].std()),
-        float(gray[h // 3:2 * h // 3, :].std()),
-        float(gray[2 * h // 3:, :].std()),
+        float(gray[: h // 3, :].std()),
+        float(gray[h // 3 : 2 * h // 3, :].std()),
+        float(gray[2 * h // 3 :, :].std()),
     )
 
 
@@ -334,8 +382,8 @@ def _side_stddev_from_frame(frame_path: Path) -> tuple[float, float] | None:
     h, w = gray.shape
     y0, y1 = int(h * 0.18), int(h * 0.82)
     return (
-        float(gray[y0:y1, :w // 2].std()),
-        float(gray[y0:y1, w // 2:].std()),
+        float(gray[y0:y1, : w // 2].std()),
+        float(gray[y0:y1, w // 2 :].std()),
     )
 
 
@@ -387,11 +435,13 @@ def _band_motion_from_frames(frames: list[Path]) -> list[tuple[float, float, flo
         if prev is not None and prev.shape == gray.shape:
             diff = cv2.absdiff(prev, gray)
             h, _ = diff.shape
-            samples.append((
-                float(diff[:h // 3, :].mean()),
-                float(diff[h // 3:2 * h // 3, :].mean()),
-                float(diff[2 * h // 3:, :].mean()),
-            ))
+            samples.append(
+                (
+                    float(diff[: h // 3, :].mean()),
+                    float(diff[h // 3 : 2 * h // 3, :].mean()),
+                    float(diff[2 * h // 3 :, :].mean()),
+                )
+            )
         prev = gray
     return samples
 
@@ -433,6 +483,7 @@ def _pose_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | 
     try:
         import cv2  # type: ignore
         import mediapipe as mp  # type: ignore
+
         if not hasattr(mp, "solutions"):
             return None
     except (ImportError, AttributeError):
@@ -452,7 +503,8 @@ def _pose_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | 
     landmarks = result.pose_landmarks.landmark
     idxs = [11, 12, 23, 24]  # shoulders and hips
     visible = [
-        lm for i, lm in enumerate(landmarks)
+        lm
+        for i, lm in enumerate(landmarks)
         if i in idxs and getattr(lm, "visibility", 1.0) >= 0.4
     ]
     if len(visible) < 2:
@@ -476,6 +528,7 @@ def _pose_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | No
     try:
         import cv2  # type: ignore
         import mediapipe as mp  # type: ignore
+
         if not hasattr(mp, "solutions"):
             return None
     except (ImportError, AttributeError):
@@ -495,7 +548,8 @@ def _pose_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | No
     landmarks = result.pose_landmarks.landmark
     idxs = [11, 12, 23, 24]
     visible = [
-        lm for i, lm in enumerate(landmarks)
+        lm
+        for i, lm in enumerate(landmarks)
         if i in idxs and getattr(lm, "visibility", 1.0) >= 0.4
     ]
     if len(visible) < 2:
@@ -535,8 +589,14 @@ def _pick_free_side_zone(
     max_face = max(left_face, right_face, 1.0)
     max_pose = max(left_pose, right_pose, 1.0)
     scores = {
-        "left": left_std + left_subject * 4.0 + (left_face / max_face) * 45.0 + (left_pose / max_pose) * 45.0,
-        "right": right_std + right_subject * 4.0 + (right_face / max_face) * 45.0 + (right_pose / max_pose) * 45.0,
+        "left": left_std
+        + left_subject * 4.0
+        + (left_face / max_face) * 45.0
+        + (left_pose / max_pose) * 45.0,
+        "right": right_std
+        + right_subject * 4.0
+        + (right_face / max_face) * 45.0
+        + (right_pose / max_pose) * 45.0,
     }
     side = min(scores, key=scores.get)
     other = "right" if side == "left" else "left"
@@ -544,7 +604,9 @@ def _pick_free_side_zone(
     # side. This avoids random side captions on centered or low-signal clips.
     if scores[side] > scores[other] * 0.95:
         return None
-    reason = f"{side} side clearest (left={scores['left']:.1f}, right={scores['right']:.1f})"
+    reason = (
+        f"{side} side clearest (left={scores['left']:.1f}, right={scores['right']:.1f})"
+    )
     return side, {k: round(v, 3) for k, v in scores.items()}, reason
 
 
@@ -565,30 +627,53 @@ def _score_placement_from_frames(
     if not std_samples:
         return score_lanes(stddev_samples=[]), []
 
-    face_samples = [c for f in frames if (c := _face_coverage_from_frame(f)) is not None]
-    focal_samples = [c for f in frames if (c := _focal_coverage_from_frame(f)) is not None]
-    side_std_samples = [s for f in frames if (s := _side_stddev_from_frame(f)) is not None]
-    face_side_samples = [c for f in frames if (c := _face_side_coverage_from_frame(f)) is not None]
-    subject_side_samples = [s for f in frames if (s := _side_subject_score_from_frame(f)) is not None]
+    face_samples = [
+        c for f in frames if (c := _face_coverage_from_frame(f)) is not None
+    ]
+    focal_samples = [
+        c for f in frames if (c := _focal_coverage_from_frame(f)) is not None
+    ]
+    side_std_samples = [
+        s for f in frames if (s := _side_stddev_from_frame(f)) is not None
+    ]
+    face_side_samples = [
+        c for f in frames if (c := _face_side_coverage_from_frame(f)) is not None
+    ]
+    subject_side_samples = [
+        s for f in frames if (s := _side_subject_score_from_frame(f)) is not None
+    ]
     motion_samples = _band_motion_from_frames(frames)
     pose_samples = None
     pose_side_samples = None
     if placement_signals == "pose":
         cached = (
             manifest.get_analysis(src_hash, "mediapipe_pose_v1")
-            if cache_pose and manifest and src_hash else None
+            if cache_pose and manifest and src_hash
+            else None
         )
         if cached and isinstance(cached.get("pose_samples"), list):
             pose_samples = [tuple(sample) for sample in cached["pose_samples"]]
-            pose_side_samples = [tuple(sample) for sample in cached.get("pose_side_samples", [])]
+            pose_side_samples = [
+                tuple(sample) for sample in cached.get("pose_side_samples", [])
+            ]
         else:
-            pose_samples = [c for f in frames if (c := _pose_coverage_from_frame(f)) is not None]
-            pose_side_samples = [c for f in frames if (c := _pose_side_coverage_from_frame(f)) is not None]
+            pose_samples = [
+                c for f in frames if (c := _pose_coverage_from_frame(f)) is not None
+            ]
+            pose_side_samples = [
+                c
+                for f in frames
+                if (c := _pose_side_coverage_from_frame(f)) is not None
+            ]
             if cache_pose and manifest and src_hash:
-                manifest.set_analysis(src_hash, "mediapipe_pose_v1", {
-                    "pose_samples": pose_samples,
-                    "pose_side_samples": pose_side_samples,
-                })
+                manifest.set_analysis(
+                    src_hash,
+                    "mediapipe_pose_v1",
+                    {
+                        "pose_samples": pose_samples,
+                        "pose_side_samples": pose_side_samples,
+                    },
+                )
 
     summary = score_lanes(
         stddev_samples=std_samples,
@@ -601,13 +686,23 @@ def _score_placement_from_frames(
     metadata = {
         "face_coverage_mean": round(
             sum(sum(sample) for sample in face_samples) / len(face_samples), 5
-        ) if face_samples else 0.0,
+        )
+        if face_samples
+        else 0.0,
         "pose_coverage_mean": round(
             sum(sum(sample) for sample in pose_samples) / len(pose_samples), 5
-        ) if pose_samples else 0.0,
-        "top_stddev_mean": round(sum(sample[0] for sample in std_samples) / len(std_samples), 3),
-        "center_stddev_mean": round(sum(sample[1] for sample in std_samples) / len(std_samples), 3),
-        "bottom_stddev_mean": round(sum(sample[2] for sample in std_samples) / len(std_samples), 3),
+        )
+        if pose_samples
+        else 0.0,
+        "top_stddev_mean": round(
+            sum(sample[0] for sample in std_samples) / len(std_samples), 3
+        ),
+        "center_stddev_mean": round(
+            sum(sample[1] for sample in std_samples) / len(std_samples), 3
+        ),
+        "bottom_stddev_mean": round(
+            sum(sample[2] for sample in std_samples) / len(std_samples), 3
+        ),
     }
     metadata.update(summary.metadata)
     summary = PlacementSummary(
@@ -679,9 +774,14 @@ async def resolve_segment_bands(
 ) -> list[CaptionSegmentPlan]:
     if placement_mode != "segment" or len(segments) <= 1:
         return [
-            CaptionSegmentPlan(s.png_path, s.start, s.end, s.text,
-                               s.band if s.explicit_band else source_band,
-                               s.explicit_band)
+            CaptionSegmentPlan(
+                s.png_path,
+                s.start,
+                s.end,
+                s.text,
+                s.band if s.explicit_band else source_band,
+                s.explicit_band,
+            )
             for s in segments
         ]
 
@@ -699,10 +799,18 @@ async def resolve_segment_bands(
         if source_band in {"lower_center", "lower_center_alt"}:
             band = "lower_center" if idx % 2 == 0 else "lower_center_alt"
             previous_band = band
-            resolved.append(CaptionSegmentPlan(seg.png_path, seg.start, seg.end, seg.text, band, False))
+            resolved.append(
+                CaptionSegmentPlan(
+                    seg.png_path, seg.start, seg.end, seg.text, band, False
+                )
+            )
             continue
 
-        seg_end = seg.end if seg.end is not None else max(seg.start, effective_end - recipe.trim_head)
+        seg_end = (
+            seg.end
+            if seg.end is not None
+            else max(seg.start, effective_end - recipe.trim_head)
+        )
         seg_duration = max(0.0, seg_end - seg.start)
         if seg_duration < 0.75:
             band = source_band
@@ -721,7 +829,9 @@ async def resolve_segment_bands(
             candidate = summary.lane
             if candidate in {"left", "right"} and _too_tall_for_side(seg.text):
                 candidate = _lane_fallback(summary, source_band)
-            smoothed = _smooth_segment_band(previous_band, candidate, summary, seg_duration)
+            smoothed = _smooth_segment_band(
+                previous_band, candidate, summary, seg_duration
+            )
             band = _retention_alternate_band(
                 previous_band,
                 smoothed,
@@ -738,7 +848,9 @@ async def resolve_segment_bands(
                 )
 
         previous_band = band
-        resolved.append(CaptionSegmentPlan(seg.png_path, seg.start, seg.end, seg.text, band, False))
+        resolved.append(
+            CaptionSegmentPlan(seg.png_path, seg.start, seg.end, seg.text, band, False)
+        )
         if placement_debug and seg_duration < 0.75:
             log.info(
                 f"segment placement {src.stem}: idx={idx} "
@@ -747,13 +859,15 @@ async def resolve_segment_bands(
     return resolved
 
 
-async def probe_caption_layout(path: Path, src_duration: float,
-                               placement_debug: bool = False,
-                               placement_signals: str = "basic",
-                               caption_placement_policy: str = "focal-safe",
-                               manifest: Any | None = None,
-                               src_hash: str | None = None,
-                               ) -> tuple[str, str, str, PlacementSummary]:
+async def probe_caption_layout(
+    path: Path,
+    src_duration: float,
+    placement_debug: bool = False,
+    placement_signals: str = "basic",
+    caption_placement_policy: str = "focal-safe",
+    manifest: Any | None = None,
+    src_hash: str | None = None,
+) -> tuple[str, str, str, PlacementSummary]:
     """Sample several frames and decide placement, visual style, and font.
 
     Returns (band, style, font):
@@ -844,12 +958,19 @@ def _lane_fallback(summary: PlacementSummary, default: str) -> str:
     return min(candidates, key=lambda z: summary.scores[z])
 
 
-def _smooth_segment_band(previous: str | None, candidate: str,
-                         summary: PlacementSummary,
-                         segment_duration: float) -> str:
+def _smooth_segment_band(
+    previous: str | None,
+    candidate: str,
+    summary: PlacementSummary,
+    segment_duration: float,
+) -> str:
     if not previous or previous == candidate:
         return candidate
-    if previous in {"left", "right"} and candidate in {"left", "right"} and segment_duration < 1.25:
+    if (
+        previous in {"left", "right"}
+        and candidate in {"left", "right"}
+        and segment_duration < 1.25
+    ):
         return previous
     prev_score = _zone_score(summary, previous)
     cand_score = _zone_score(summary, candidate)
@@ -858,10 +979,13 @@ def _smooth_segment_band(previous: str | None, candidate: str,
     return candidate if cand_score <= prev_score * 0.85 else previous
 
 
-def _retention_alternate_band(previous: str | None, current: str,
-                              summary: PlacementSummary,
-                              segment_duration: float,
-                              segment_index: int) -> str:
+def _retention_alternate_band(
+    previous: str | None,
+    current: str,
+    summary: PlacementSummary,
+    segment_duration: float,
+    segment_index: int,
+) -> str:
     """Nudge timed captions to move when a nearby-safe zone exists.
 
     Source-level captions should be stable, but timed multi-part captions can
@@ -888,7 +1012,11 @@ def _retention_alternate_band(previous: str | None, current: str,
     for zone in order:
         if zone == current:
             continue
-        if current in {"left", "right"} and zone in {"left", "right"} and segment_duration < 1.75:
+        if (
+            current in {"left", "right"}
+            and zone in {"left", "right"}
+            and segment_duration < 1.75
+        ):
             continue
         score = _zone_score(summary, zone)
         if score is not None:

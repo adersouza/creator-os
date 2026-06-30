@@ -1,18 +1,40 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from .audio import (
+    audio_catalog_health,
+    audio_resolution_shortlist,
+    list_audio_catalog,
+    list_audio_trend_snapshots,
+    recommend_audio,
+    resolve_audio_record,
+    review_audio_catalog,
+    upsert_audio_record,
+    upsert_audio_trend_snapshot,
+)
 from .config import DEFAULT_DB_PATH
-from .audio import audio_catalog_health, audio_resolution_shortlist, list_audio_catalog, list_audio_trend_snapshots, recommend_audio, resolve_audio_record, review_audio_catalog, upsert_audio_record, upsert_audio_trend_snapshot
 from .db import connect
 from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
-from .reference_intake import export_analysis_queue, export_video_prompts, generate_video_prompts, import_reference_analysis, queue_reference_analysis
-from .review import reference_detail, reference_query, review_batch, review_stats, set_reference_label
+from .reference_intake import (
+    export_analysis_queue,
+    export_video_prompts,
+    generate_video_prompts,
+    import_reference_analysis,
+    queue_reference_analysis,
+)
+from .review import (
+    reference_detail,
+    reference_query,
+    review_batch,
+    review_stats,
+    set_reference_label,
+)
 
 
 class LabelPayload(BaseModel):
@@ -101,7 +123,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         with conn() as db:
             if needsReview:
                 return review_audio_catalog(db, platform=platform, limit=limit)
-            return list_audio_catalog(db, platform=platform, fresh_only=freshOnly, limit=limit)
+            return list_audio_catalog(
+                db, platform=platform, fresh_only=freshOnly, limit=limit
+            )
 
     @app.get("/api/audio/review")
     def audio_review(
@@ -118,7 +142,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> dict[str, object]:
         with conn() as db:
-            return list_audio_trend_snapshots(db, platform=platform, audio_catalog_id=audioCatalogId, limit=limit)
+            return list_audio_trend_snapshots(
+                db, platform=platform, audio_catalog_id=audioCatalogId, limit=limit
+            )
 
     @app.get("/api/audio/recommend")
     def audio_recommend(
@@ -131,8 +157,12 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             return recommend_audio(
                 db,
                 platform=platform,
-                content_tags=[tag.strip() for tag in contentTags.split(",") if tag.strip()],
-                account_tags=[tag.strip() for tag in accountTags.split(",") if tag.strip()],
+                content_tags=[
+                    tag.strip() for tag in contentTags.split(",") if tag.strip()
+                ],
+                account_tags=[
+                    tag.strip() for tag in accountTags.split(",") if tag.strip()
+                ],
                 limit=limit,
             )
 
@@ -158,10 +188,17 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
     ) -> dict[str, object]:
         with conn() as db:
-            return export_analysis_queue(db, data_root=db_path.parent, provider_target=providerTarget, limit=limit)
+            return export_analysis_queue(
+                db,
+                data_root=db_path.parent,
+                provider_target=providerTarget,
+                limit=limit,
+            )
 
     @app.post("/api/reference-analysis/queue")
-    def reference_analysis_queue_create(payload: Annotated[ReferenceAnalysisQueuePayload, Body()]) -> dict[str, object]:
+    def reference_analysis_queue_create(
+        payload: Annotated[ReferenceAnalysisQueuePayload, Body()],
+    ) -> dict[str, object]:
         try:
             with conn() as db:
                 return queue_reference_analysis(
@@ -179,7 +216,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/reference-analysis/import")
-    def reference_analysis_import(payload: Annotated[ReferenceAnalysisImportPayload, Body()]) -> dict[str, object]:
+    def reference_analysis_import(
+        payload: Annotated[ReferenceAnalysisImportPayload, Body()],
+    ) -> dict[str, object]:
         try:
             with conn() as db:
                 return import_reference_analysis(db, Path(payload.input))
@@ -187,12 +226,16 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/video-prompts")
-    def video_prompts(limit: Annotated[int, Query(ge=1, le=500)] = 100) -> dict[str, object]:
+    def video_prompts(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> dict[str, object]:
         with conn() as db:
             return export_video_prompts(db, data_root=db_path.parent, limit=limit)
 
     @app.post("/api/video-prompts/generate")
-    def video_prompts_generate(payload: Annotated[GenerateVideoPromptsPayload, Body()]) -> dict[str, object]:
+    def video_prompts_generate(
+        payload: Annotated[GenerateVideoPromptsPayload, Body()],
+    ) -> dict[str, object]:
         try:
             with conn() as db:
                 return generate_video_prompts(
@@ -223,10 +266,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/audio/snapshots")
-    def audio_snapshot_upsert(payload: Annotated[AudioSnapshotPayload, Body()]) -> dict[str, object]:
+    def audio_snapshot_upsert(
+        payload: Annotated[AudioSnapshotPayload, Body()],
+    ) -> dict[str, object]:
         try:
             with conn() as db:
-                return upsert_audio_trend_snapshot(db, payload.model_dump(exclude_none=True))
+                return upsert_audio_trend_snapshot(
+                    db, payload.model_dump(exclude_none=True)
+                )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -277,10 +324,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             return item
 
     @app.post("/api/reference/{reference_id}/label")
-    def label(reference_id: str, payload: Annotated[LabelPayload, Body()]) -> dict[str, object]:
+    def label(
+        reference_id: str, payload: Annotated[LabelPayload, Body()]
+    ) -> dict[str, object]:
         try:
             with conn() as db:
-                return set_reference_label(db, reference_id, payload.label, payload.tags, payload.notes)
+                return set_reference_label(
+                    db, reference_id, payload.label, payload.tags, payload.notes
+                )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

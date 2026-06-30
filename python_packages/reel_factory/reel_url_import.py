@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Download a social reel URL into the local source-video folder."""
+
 from __future__ import annotations
 
 import json
@@ -45,8 +46,9 @@ def _runner_cmd(url: str, output_template: Path) -> list[str]:
     ]
 
 
-def download_reel_url(url: str, *, out_dir: Path, stem: str,
-                      timeout: int = 600) -> dict[str, object]:
+def download_reel_url(
+    url: str, *, out_dir: Path, stem: str, timeout: int = 600
+) -> dict[str, object]:
     """Download a reel/post URL to ``out_dir/<stem>.mp4`` using yt-dlp.
 
     The function stages into a temporary directory so partial downloads never
@@ -67,8 +69,19 @@ def download_reel_url(url: str, *, out_dir: Path, stem: str,
             if "No module named yt_dlp" in message or "not found" in message.lower():
                 message = "yt-dlp is required to import reel URLs. Install with: .venv/bin/python -m pip install yt-dlp"
             raise RuntimeError(message[-2000:])
-        candidates = sorted(tmp_dir.glob(f"{stem}.*"), key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
-        media = next((p for p in candidates if p.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm", ".mkv"}), None)
+        candidates = sorted(
+            tmp_dir.glob(f"{stem}.*"),
+            key=lambda p: p.stat().st_size if p.exists() else 0,
+            reverse=True,
+        )
+        media = next(
+            (
+                p
+                for p in candidates
+                if p.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
+            ),
+            None,
+        )
         if not media:
             raise RuntimeError("yt-dlp finished but no downloaded media file was found")
         if media.suffix.lower() == ".mp4":

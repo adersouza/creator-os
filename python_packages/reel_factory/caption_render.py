@@ -10,7 +10,9 @@ the PNG onto the video. Net result:
     drop shadow for "soft", white box for "bubble")
   - same auto-pick logic (font / color / style / band)
 """
+
 from __future__ import annotations
+
 import argparse
 import ctypes
 import json
@@ -18,15 +20,16 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from PIL import Image, ImageFont, ImageDraw, ImageFilter
+
 import pilmoji
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from pilmoji.source import AppleEmojiSource
 
 # Map our font-family names → bundled TTF basenames in fonts/
 FONT_FILE = {
-    "Onest":       "Onest-Variable.ttf",
-    "Inter":       "Inter-Black.ttf",
-    "Montserrat":  "Montserrat-Black.ttf",
+    "Onest": "Onest-Variable.ttf",
+    "Inter": "Inter-Black.ttf",
+    "Montserrat": "Montserrat-Black.ttf",
     "TikTok Sans": "TikTokSans-Black.ttf",
     "Instagram Sans Condensed": "InstagramSansCondensed-Regular.woff2",
     "Instagram Sans Condensed Bold": "InstagramSansCondensed-Bold.woff2",
@@ -81,7 +84,10 @@ def _ensure_homebrew_gi_library_path() -> None:
 def _reexec_with_homebrew_gi_env_if_needed() -> None:
     """Restart once with Homebrew dylib paths visible to macOS' loader."""
     brew_lib = "/opt/homebrew/lib"
-    if os.environ.get("REEL_FACTORY_GI_ENV_READY") == "1" or not Path(brew_lib).exists():
+    if (
+        os.environ.get("REEL_FACTORY_GI_ENV_READY") == "1"
+        or not Path(brew_lib).exists()
+    ):
         return
     env = dict(os.environ)
     for key in ("DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
@@ -101,30 +107,37 @@ def _homebrew_gi_env_is_ready() -> bool:
         for key in ("DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH")
     )
 
+
 # Platform UI safe zones (in px, on a 1920-tall canvas):
 #   - IG Reels:  top ~200 (status bar + 'Reels' header), bottom ~280 (caption + buttons)
 #   - TikTok:    top ~80 (status bar),                   bottom ~360 (caption + buttons)
 #   - Cross-safe (works on both platforms): top 280, bottom 480
 # Captions placed inside these zones risk being half-hidden by platform UI.
-SAFE_TOP    = 280
+SAFE_TOP = 280
 SAFE_BOTTOM = 480
 
 
-def _font_for_lines(font_path: Path, line_count: int, scale: float = 1.0) -> ImageFont.FreeTypeFont:
+def _font_for_lines(
+    font_path: Path, line_count: int, scale: float = 1.0
+) -> ImageFont.FreeTypeFont:
     fontsize_table = {1: 88, 2: 76, 3: 66, 4: 58}
     fs = round(fontsize_table.get(line_count, 52) * scale)
     return ImageFont.truetype(str(font_path), max(fs, 20))
 
 
-def _text_width(draw: ImageDraw.ImageDraw, text: str,
-                font: ImageFont.FreeTypeFont, stroke_width: int = 4) -> int:
+def _text_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    stroke_width: int = 4,
+) -> int:
     bbox = draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
     return bbox[2] - bbox[0]
 
 
-def _split_long_word(word: str, draw: ImageDraw.ImageDraw,
-                     font: ImageFont.FreeTypeFont,
-                     max_width: int) -> list[str]:
+def _split_long_word(
+    word: str, draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont, max_width: int
+) -> list[str]:
     """Break a single over-wide token at glyph boundaries."""
     if _text_width(draw, word, font) <= max_width:
         return [word]
@@ -142,8 +155,9 @@ def _split_long_word(word: str, draw: ImageDraw.ImageDraw,
     return chunks or [word]
 
 
-def _wrap_lines(text: str, font: ImageFont.FreeTypeFont,
-                max_width: int = MAX_TEXT_W) -> list[str]:
+def _wrap_lines(
+    text: str, font: ImageFont.FreeTypeFont, max_width: int = MAX_TEXT_W
+) -> list[str]:
     """Wrap each user-provided line by measured pixel width."""
     draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     wrapped: list[str] = []
@@ -173,12 +187,26 @@ def _wrap_lines(text: str, font: ImageFont.FreeTypeFont,
     return wrapped
 
 
-def _layout_text(text: str, font_path: Path, scale: float,
-                 max_width: int) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+def _layout_text(
+    text: str, font_path: Path, scale: float, max_width: int
+) -> tuple[ImageFont.FreeTypeFont, list[str]]:
     """Pick a font size and measured lines that fit the caption canvas."""
     explicit_lines = max(1, text.count("\n") + 1)
     draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    shrink_steps = (1.0, 0.95, 0.90, 0.85, 0.80, 0.74, 0.68, 0.62, 0.56, 0.50, 0.44, 0.38)
+    shrink_steps = (
+        1.0,
+        0.95,
+        0.90,
+        0.85,
+        0.80,
+        0.74,
+        0.68,
+        0.62,
+        0.56,
+        0.50,
+        0.44,
+        0.38,
+    )
     max_lines = 5 if max_width < 700 * scale else 6
     for shrink in shrink_steps:
         font = _font_for_lines(font_path, explicit_lines, scale=scale * shrink)
@@ -195,10 +223,7 @@ def _layout_text(text: str, font_path: Path, scale: float,
 
 
 def _contains_emoji_like(text: str) -> bool:
-    return any(
-        ord(ch) >= 0x1F000 or ch in {"\ufe0f", "\u200d"}
-        for ch in text
-    )
+    return any(ord(ch) >= 0x1F000 or ch in {"\ufe0f", "\u200d"} for ch in text)
 
 
 def _caption_xy(
@@ -254,7 +279,9 @@ def render_caption_png(
     if renderer == "pango":
         try:
             if Path("/opt/homebrew/lib").exists() and not _homebrew_gi_env_is_ready():
-                raise RuntimeError("Pango environment not ready; falling back to Pillow")
+                raise RuntimeError(
+                    "Pango environment not ready; falling back to Pillow"
+                )
             return _render_caption_png_pango(
                 text,
                 font_family=font_family,
@@ -275,11 +302,13 @@ def render_caption_png(
 
     # ── font + size table (mirrors caption_to_ass) ──
     scale = canvas_w / 1080
-    safe_top    = round(280 * canvas_h / 1920)
+    safe_top = round(280 * canvas_h / 1920)
     safe_bottom = round(480 * canvas_h / 1920)
-    max_text_w  = round((520 if band in {"left", "right"} else REELS_SAFE_TEXT_W) * scale)
-    canvas_w_   = canvas_w
-    canvas_h_   = canvas_h
+    max_text_w = round(
+        (520 if band in {"left", "right"} else REELS_SAFE_TEXT_W) * scale
+    )
+    canvas_w_ = canvas_w
+    canvas_h_ = canvas_h
     font_path = _resolve_font_path(font_family, fonts_dir)
     text = text.strip()
     font, lines = _layout_text(text, font_path, scale, max_text_w)
@@ -289,9 +318,9 @@ def render_caption_png(
 
     # ── style → stroke + shadow + box ──
     style_def = {
-        "classic": {"outline_mult": 0.06,  "shadow": 0, "box": False},
-        "meme":    {"outline_mult": 0.062, "shadow": 2, "box": False},
-        "ig":      {
+        "classic": {"outline_mult": 0.06, "shadow": 0, "box": False},
+        "meme": {"outline_mult": 0.062, "shadow": 2, "box": False},
+        "ig": {
             "outline_mult": 0.0,
             "outline_px": 2,
             "shadow": 0,
@@ -301,9 +330,9 @@ def render_caption_png(
             "x_scale": 1.02,
             "soften": 0.2,
         },
-        "thin":    {"outline_mult": 0.010, "shadow": 2, "box": False},
-        "soft":    {"outline_mult": 0.020, "shadow": 5, "box": False},
-        "bubble":  {"outline_mult": 0.0,   "shadow": 0, "box": True},
+        "thin": {"outline_mult": 0.010, "shadow": 2, "box": False},
+        "soft": {"outline_mult": 0.020, "shadow": 5, "box": False},
+        "bubble": {"outline_mult": 0.0, "shadow": 0, "box": True},
     }
     sd = style_def.get(style, style_def["classic"])
     outline_px = sd.get("outline_px")
@@ -314,17 +343,17 @@ def render_caption_png(
 
     # ── colors ──
     if use_box:
-        text_color   = (0, 0, 0, 255)
+        text_color = (0, 0, 0, 255)
         stroke_color = (0, 0, 0, 0)
-        box_color    = (255, 255, 255, 240)
+        box_color = (255, 255, 255, 240)
     elif color_scheme == "dark":
-        text_color   = (0, 0, 0, 255)
+        text_color = (0, 0, 0, 255)
         stroke_color = (255, 255, 255, 255)
-        box_color    = None
+        box_color = None
     else:  # light (default)
-        text_color   = sd.get("light_text", (255, 255, 255, 255))
+        text_color = sd.get("light_text", (255, 255, 255, 255))
         stroke_color = sd.get("light_stroke", (0, 0, 0, 255))
-        box_color    = None
+        box_color = None
 
     canvas = Image.new("RGBA", (canvas_w_, canvas_h_), (0, 0, 0, 0))
     block_h = line_h * line_count
@@ -344,8 +373,10 @@ def render_caption_png(
                 shadow = Image.new("RGBA", line_img.size, (0, 0, 0, 0))
                 with pilmoji.Pilmoji(shadow, source=AppleEmojiSource) as ps:
                     ps.text(
-                        (pad_x, line_h // 2), line,
-                        (0, 0, 0, 200), font,
+                        (pad_x, line_h // 2),
+                        line,
+                        (0, 0, 0, 200),
+                        font,
                     )
                 shadow = shadow.filter(ImageFilter.GaussianBlur(radius=shadow_radius))
                 line_img.alpha_composite(shadow, (3, 4))
@@ -356,8 +387,11 @@ def render_caption_png(
                 kwargs["stroke_width"] = outline_px
                 kwargs["stroke_fill"] = stroke_color
             p.text(
-                (pad_x, line_h // 2), line,
-                text_color, font, **kwargs,
+                (pad_x, line_h // 2),
+                line,
+                text_color,
+                font,
+                **kwargs,
             )
 
         # Crop to actual content
@@ -443,7 +477,7 @@ def _render_caption_png_pango(
     pil_font, lines = _layout_text(text, font_path, scale, max_text_w)
     font_size = pil_font.size
     line_height = int(font_size * 1.18)
-    block_h = line_height * max(1, len(lines))
+    line_height * max(1, len(lines))
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, canvas_w, canvas_h)
     ctx = cairo.Context(surface)
     ctx.set_source_rgba(0, 0, 0, 0)
@@ -470,9 +504,14 @@ def _render_caption_png_pango(
         pad_x = max(24, font_size // 4)
         pad_y = max(10, font_size // 8)
         ctx.set_source_rgba(1, 1, 1, 0.94)
-        _rounded_rect(ctx, x - pad_x, y - pad_y,
-                      logical.width + pad_x * 2, logical.height + pad_y * 2,
-                      font_size * 0.35)
+        _rounded_rect(
+            ctx,
+            x - pad_x,
+            y - pad_y,
+            logical.width + pad_x * 2,
+            logical.height + pad_y * 2,
+            font_size * 0.35,
+        )
         ctx.fill()
         ctx.set_source_rgba(0, 0, 0, 1)
     else:
@@ -527,7 +566,9 @@ def compare_renderers(text: str, *, fonts_dir: Path, out_dir: Path) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Render caption PNGs or compare renderers.")
+    ap = argparse.ArgumentParser(
+        description="Render caption PNGs or compare renderers."
+    )
     ap.add_argument("--compare-renderers", action="store_true")
     ap.add_argument("--text", default="hello world")
     ap.add_argument("--fonts-dir", default="fonts")
@@ -535,8 +576,19 @@ def main() -> int:
     args = ap.parse_args()
     if args.compare_renderers:
         _reexec_with_homebrew_gi_env_if_needed()
-        out_dir = Path(args.out_dir) if args.out_dir else Path(tempfile.mkdtemp(prefix="caption_compare_"))
-        print(json.dumps(compare_renderers(args.text, fonts_dir=Path(args.fonts_dir), out_dir=out_dir), indent=2))
+        out_dir = (
+            Path(args.out_dir)
+            if args.out_dir
+            else Path(tempfile.mkdtemp(prefix="caption_compare_"))
+        )
+        print(
+            json.dumps(
+                compare_renderers(
+                    args.text, fonts_dir=Path(args.fonts_dir), out_dir=out_dir
+                ),
+                indent=2,
+            )
+        )
         return 0
     ap.print_help()
     return 0
