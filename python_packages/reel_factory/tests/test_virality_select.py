@@ -19,7 +19,15 @@ def _seed(root: Path) -> None:
     rows = [
         ("dna_scene_beach", "scene", "beach", 30, 1000.0, "out_0.mp4", now),
         ("dna_scene_office", "scene", "office", 30, 50.0, "out_1.mp4", now),
-        ("dna_hook_type_curiosity", "hook_type", "curiosity", 30, 800.0, "out_2.mp4", now),
+        (
+            "dna_hook_type_curiosity",
+            "hook_type",
+            "curiosity",
+            30,
+            800.0,
+            "out_2.mp4",
+            now,
+        ),
     ]
     conn.executemany(
         "INSERT INTO winner_dna (dna_id, feature_key, feature_value, sample_size, "
@@ -52,9 +60,24 @@ def test_scorer_hook_blends_external_signal(tmp_path: Path) -> None:
     ]
     # External scorer that flips preference: office should now win.
     ranked = rank_candidates(
-        candidates, tmp_path, scorer=lambda c, _data: 1.0 if c["id"] == "office_one" else 0.0
+        candidates,
+        tmp_path,
+        scorer=lambda c, _data: 1.0 if c["id"] == "office_one" else 0.0,
     )
     assert ranked[0]["id"] == "office_one"
+
+
+def test_virality_blend_breaks_cold_start_ties(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    # Both candidates are cold-start (no winner_dna match) -> data score 0 for both.
+    # The attached predictor score is the only signal; higher virality must win.
+    candidates = [
+        {"id": "weak", "features": {"scene": "unseen_a"}, "virality": 0.1},
+        {"id": "strong", "features": {"scene": "unseen_b"}, "virality": 0.9},
+    ]
+    ranked = rank_candidates(candidates, tmp_path)
+    assert [c["id"] for c in ranked] == ["strong", "weak"]
+    assert ranked[0]["score"] > ranked[1]["score"]
 
 
 def test_cold_start_candidate_scores_zero_not_crash(tmp_path: Path) -> None:

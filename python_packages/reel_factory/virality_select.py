@@ -26,6 +26,23 @@ from winner_dna import FEATURE_KEYS, connect
 # candidate. Tunable: raise the low/medium weights as the outcome corpus grows.
 _CONFIDENCE_WEIGHT = {"low": 0.3, "medium": 0.7, "high": 1.0}
 
+# A Higgsfield virality-predictor score (0..1) attached to a candidate out-of-band
+# under this key. The predictor is an interactive MCP tool that runs on rendered
+# video, so the score is fetched when posting real content and stapled onto the
+# candidate dict; this module only blends the two numbers.
+_VIRALITY_KEY = "virality"
+# ponytail: even 50/50 blend until real predictor scores land and tell us which
+# signal actually tracks views. Raise toward virality as that data comes in.
+_VIRALITY_WEIGHT = 0.5
+
+
+def _minmax(values: list[float]) -> list[float]:
+    """Scale to 0..1 within the batch; a flat batch carries no signal -> all 0."""
+    lo, hi = min(values), max(values)
+    if hi <= lo:
+        return [0.0 for _ in values]
+    return [(v - lo) / (hi - lo) for v in values]
+
 
 def predict_engagement(
     features: dict[str, Any],
@@ -78,7 +95,12 @@ def rank_candidates(
     """Return candidates sorted best-first by predicted engagement.
 
     Each candidate is a dict with a ``features`` map (winner-DNA feature keys).
-    `scorer(candidate, data_score) -> float` optionally blends an external signal.
+    Precedence for the final score:
+      1. `scorer(candidate, data_score) -> float` if given (full override).
+      2. else if any candidate carries a `virality` (0..1) predictor score,
+         blend it batch-normalized with the data score (scale-free, so a
+         cold-start batch where every data score is 0 falls back to virality).
+      3. else the raw data score.
     """
     conn = connect(root)
     try:
@@ -90,10 +112,25 @@ def rank_candidates(
             pred = predict_engagement(
                 candidate.get("features") or {}, conn, total_outcomes=total
             )
-            score = pred["score"] if scorer is None else float(scorer(candidate, pred["score"]))
-            ranked.append({**candidate, "predictedEngagement": pred, "score": score})
+            ranked.append(
+                {**candidate, "predictedEngagement": pred, "score": pred["score"]}
+            )
     finally:
         conn.close()
+
+    if scorer is not None:
+        for candidate in ranked:
+            candidate["score"] = float(
+                scorer(candidate, candidate["predictedEngagement"]["score"])
+            )
+    elif any(c.get(_VIRALITY_KEY) is not None for c in ranked):
+        data_norm = _minmax([c["predictedEngagement"]["score"] for c in ranked])
+        # missing predictor score = predictor said nothing = worst case.
+        vir_norm = _minmax([float(c.get(_VIRALITY_KEY) or 0.0) for c in ranked])
+        for candidate, d, v in zip(ranked, data_norm, vir_norm):
+            candidate["score"] = round(
+                (1 - _VIRALITY_WEIGHT) * d + _VIRALITY_WEIGHT * v, 4
+            )
     # Tie-break on number of matched features: more evidence wins.
     ranked.sort(
         key=lambda c: (c["score"], c["predictedEngagement"]["matched"]), reverse=True
