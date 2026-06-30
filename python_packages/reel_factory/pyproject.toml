@@ -108,6 +108,7 @@ py-modules = [
   "thumbnail_gen",
   "variation_engine",
   "virality_qc",
+  "virality_select",
   "whisper_sync",
   "winner_dna",
   "worker",

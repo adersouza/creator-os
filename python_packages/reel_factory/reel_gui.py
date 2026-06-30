@@ -2514,6 +2514,18 @@ def winner_dna_leaderboard_api(limit: int = 50):
     return winner_dna_leaderboard(ROOT, limit=limit)
 
 
+@app.post("/api/winner-dna/select")
+def winner_dna_select_api(payload: dict):
+    """Rank candidate reels by predicted engagement (best-first) before posting.
+
+    Body: {"candidates": [{"id": ..., "features": {"scene": ..., "hook_type": ...}}]}
+    """
+    from virality_select import rank_candidates
+
+    ranked = rank_candidates(payload.get("candidates") or [], ROOT)
+    return {"ranked": ranked, "best": ranked[0] if ranked else None}
+
+
 @app.get("/api/reports/baseline-vs-recommended")
 def baseline_vs_recommended_api(experiment: str = "baseline_vs_recommended"):
     return baseline_vs_recommended_report(ROOT, experiment=experiment)
