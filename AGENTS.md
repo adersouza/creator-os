@@ -28,13 +28,21 @@ the dashboard production source unless the user explicitly changes that.
 
 ## Contract Ownership
 
-`packages/pipeline_contracts` is the canonical source for shared schemas,
-Python validators, and TypeScript exports inside this monorepo. Compatibility
-copies under `pipeline_contracts/` and `python_packages/campaign_factory/schemas/`
-must stay byte-for-byte synced with the package source. ThreadsDashboard
-consumes contracts from its own external checkout/package path, not from a
-Creator OS mirror path. Run `pnpm check:contracts` after any contract or payload
-change.
+`packages/pipeline_contracts/schemas` is the ONLY hand-edited source for shared
+schemas. Everything else is a generated mirror, kept byte-for-byte in sync:
+- `packages/pipeline_contracts/pipeline_contracts/schemas` (in-package runtime copy)
+- `pipeline_contracts/schemas` (root compatibility copy)
+- `python_packages/campaign_factory/schemas` (campaign_factory runtime gate, see `control.py`)
+- `*/typescript/generated-schemas.ts` and the root `pipeline_contracts/typescript/index.ts`
+
+Workflow for ANY schema/contract change:
+1. Edit only `packages/pipeline_contracts/schemas/<name>.schema.json`.
+2. Run `pnpm sync:contracts` — regenerates every mirror + TypeScript from canonical.
+3. Run `pnpm check:contracts` to verify (this is what CI's `contracts` job enforces).
+
+NEVER hand-edit a mirror directory — `pnpm sync:contracts` overwrites it and
+`pnpm check:contracts` (CI) fails on drift. ThreadsDashboard consumes contracts
+from its own external checkout, not from a Creator OS mirror path.
 
 ## Tooling And PR Safety
 

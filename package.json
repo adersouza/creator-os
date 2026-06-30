@@ -7,6 +7,7 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "sync:contracts": "node scripts/sync-pipeline-contracts.mjs",
     "check:contracts": "node scripts/generate-pipeline-contract-schemas.mjs --check && node scripts/check-pipeline-contracts-sync.mjs",
     "check:integration": "uv run pytest tests/integration",
     "check:artifacts": "bash scripts/check-runtime-artifacts.sh",

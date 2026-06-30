@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Catches pipeline-contract drift locally, before it reaches CI.
+# Only runs when a contract file is staged, so normal commits stay fast.
+# Enabled by `make install` (git config core.hooksPath scripts/hooks).
+set -euo pipefail
+
+if git diff --cached --name-only | grep -Eq '(pipeline_contracts/|campaign_factory/schemas/)'; then
+	echo "[pre-commit] contract files changed — verifying mirrors..."
+	if ! pnpm run --silent check:contracts; then
+		echo "[pre-commit] contract mirrors are out of sync. Run: pnpm sync:contracts" >&2
+		exit 1
+	fi
+fi
