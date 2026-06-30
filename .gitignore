@@ -13,6 +13,7 @@ Thumbs.db
 # Environment
 .env
 .env.*
+!.env.example
 
 # Python
 .venv

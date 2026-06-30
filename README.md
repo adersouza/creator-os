@@ -190,29 +190,30 @@ Campaign Factory uses the Creator OS package paths for pipeline tools. Dashboard
 
 Creator OS → ThreadsDashboard draft ingest secret rotation is documented in [docs/runbooks/threadsdash_ingest_secret_rotation.md](./docs/runbooks/threadsdash_ingest_secret_rotation.md).
 
-### Quick Health Check
+### Setup, Run, Verify
+
+This is a single `pnpm` + `uv` monorepo (not separate sibling repos). System
+prerequisites: `ffmpeg` and `tesseract` (e.g. `brew install ffmpeg tesseract`).
 
 ```bash
-# Reference Factory
-cd reference_factory && .venv/bin/python -m pytest -q
+# 1. Install everything (JS + Python workspaces + git hooks)
+make install
+#    Note: pulls all extras, including Apple-only reel_factory deps
+#    (mlx-whisper, PyGObject). On non-macOS, install without --all-extras.
 
-# Reel Factory
-cd reel_factory && .venv/bin/python -m pytest -q tests/
+# 2. Configure
+cp .env.example .env   # then fill in Supabase + model keys + secrets
 
-# Campaign Factory
-cd campaign_factory && .venv/bin/python -m pytest -q tests/
+# 3. Run the full stack (contentforge + the 3 Python services)
+make dev               # `pnpm dev` alone starts contentforge only
 
-# ContentForge
-cd contentforge && npm test
-
-# ThreadsDashboard
-cd ThreadsDashboard && npm test
-
-# Pipeline Contracts
-cd pipeline_contracts && python -m pytest -q
+# 4. Verify (mirrors CI: static gates + all test suites)
+make verify            # or `pnpm check:all` for static gates only
+make test              # tests only (all packages + integration)
 ```
 
-Use `campaign-factory doctor` for a full cross-repo health check including HTTP service availability.
+Per-package tests run directly, e.g.
+`uv run pytest python_packages/campaign_factory/tests`.
 
 ## Source Integration Status
 
