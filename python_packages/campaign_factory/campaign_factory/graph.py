@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class GraphRepository:
@@ -48,7 +49,11 @@ class GraphRepository:
                 "SELECT * FROM content_graph_nodes WHERE external_system = ? AND external_id = ?",
                 (external_system, external_id),
             ).fetchone()
-        payload_json = json.dumps(self._sanitize_for_storage(payload or {}), ensure_ascii=False, sort_keys=True)
+        payload_json = json.dumps(
+            self._sanitize_for_storage(payload or {}),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         if row:
             self.conn.execute(
                 """
@@ -116,7 +121,9 @@ class GraphRepository:
             return row["global_id"]
         if not entity_type:
             return None
-        return self.ensure_graph_node(entity_type, local_table=local_table, local_id=local_id, payload=payload)
+        return self.ensure_graph_node(
+            entity_type, local_table=local_table, local_id=local_id, payload=payload
+        )
 
     def ensure_graph_edge(
         self,
@@ -145,7 +152,11 @@ class GraphRepository:
                 from_global_id,
                 to_global_id,
                 self._slugify(relation_type),
-                json.dumps(self._sanitize_for_storage(evidence or {}), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(evidence or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
             ),
         )
@@ -171,7 +182,11 @@ class GraphRepository:
             """,
             (
                 system,
-                json.dumps(self._sanitize_for_storage(cursor), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(cursor),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 self._utc_now(),
             ),
         )

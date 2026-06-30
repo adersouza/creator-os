@@ -3,9 +3,10 @@ from __future__ import annotations
 import math
 import sqlite3
 import subprocess
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 from .persistence import json_load, utc_now
@@ -44,7 +45,9 @@ class TribeV2Repository:
         limit: int = 20,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        rows = self.tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
+        rows = self.tribev2_reel_analysis_rows(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         minimum = max(1, int(minimum_sample_size or 1))
         insufficient = len(rows) < minimum
         metric_fields = ["views", "reach", "saves", "shares"]
@@ -61,9 +64,14 @@ class TribeV2Repository:
                 for score_field in score_fields
             }
             if not insufficient
-            else {score_field: {metric: None for metric in metric_fields} for score_field in score_fields}
+            else {
+                score_field: {metric: None for metric in metric_fields}
+                for score_field in score_fields
+            }
         )
-        ranked = sorted(rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True)
+        ranked = sorted(
+            rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True
+        )
         bucket_size = max(1, math.ceil(len(ranked) / 4)) if ranked else 0
         top_bucket = ranked[:bucket_size] if bucket_size else []
         bottom_bucket = ranked[-bucket_size:] if bucket_size else []
@@ -80,9 +88,16 @@ class TribeV2Repository:
         statistically_interesting = bool(
             sample_adequate
             and signal_summary["strongestAbsCorrelation"] >= 0.4
-            and any(bool(signal_summary["correlatesWith"].get(metric)) for metric in ["views", "reach", "saves", "shares"])
+            and any(
+                bool(signal_summary["correlatesWith"].get(metric))
+                for metric in ["views", "reach", "saves", "shares"]
+            )
         )
-        recommended_role = "creative_knowledge_feature" if statistically_interesting else "research_only"
+        recommended_role = (
+            "creative_knowledge_feature"
+            if statistically_interesting
+            else "research_only"
+        )
         return {
             "schema": "campaign_factory.tribev2_reel_analysis.v1",
             "creator": creator_label,
@@ -119,17 +134,29 @@ class TribeV2Repository:
             "correlatesWithViews": bool(signal_summary["correlatesWith"].get("views")),
             "correlatesWithReach": bool(signal_summary["correlatesWith"].get("reach")),
             "correlatesWithSaves": bool(signal_summary["correlatesWith"].get("saves")),
-            "correlatesWithShares": bool(signal_summary["correlatesWith"].get("shares")),
+            "correlatesWithShares": bool(
+                signal_summary["correlatesWith"].get("shares")
+            ),
             "statisticallyInteresting": statistically_interesting,
-            "confidenceLevel": self.tribev2_confidence_level(len(rows), statistically_interesting),
+            "confidenceLevel": self.tribev2_confidence_level(
+                len(rows), statistically_interesting
+            ),
             "recommendedRole": recommended_role,
-            "futureUse": ["parent_reel_ranking", "variant_ranking", "creative_insights"] if recommended_role == "creative_knowledge_feature" else [],
+            "futureUse": ["parent_reel_ranking", "variant_ranking", "creative_insights"]
+            if recommended_role == "creative_knowledge_feature"
+            else [],
             "shouldRemainAdvisoryOnly": True,
-            "nextRecommendedExperiment": "score_20_to_50_published_reels_with_nonzero_metric_variance" if not sample_adequate else "hold_out_validate_against_future_25_account_pilot_metrics",
+            "nextRecommendedExperiment": "score_20_to_50_published_reels_with_nonzero_metric_variance"
+            if not sample_adequate
+            else "hold_out_validate_against_future_25_account_pilot_metrics",
             "scoredReels": ranked[: max(0, int(limit or 0))],
             "interpretation": {
                 "recommendedPipelineUse": "offline_research_sidecar",
-                "doNotUseFor": ["publishability", "schedule_safe_gates", "automatic_winner_selection"],
+                "doNotUseFor": [
+                    "publishability",
+                    "schedule_safe_gates",
+                    "automatic_winner_selection",
+                ],
                 "nextValidationStep": "compare_against_larger_known_winner_and_loser_sets",
             },
             "wouldWrite": False,
@@ -156,11 +183,17 @@ class TribeV2Repository:
         score_fields = {"meanAbsActivation", "peakAbsActivation", "stdActivation"}
         sort_field = sort_by if sort_by in score_fields else "meanAbsActivation"
         bucket_name = bucket if bucket in {"top", "bottom", "both"} else "top"
-        rows = self.tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
-        ranked = sorted(rows, key=lambda row: float(row.get(sort_field) or 0), reverse=True)
+        rows = self.tribev2_reel_analysis_rows(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
+        ranked = sorted(
+            rows, key=lambda row: float(row.get(sort_field) or 0), reverse=True
+        )
         requested_limit = max(0, int(limit or 0))
         if bucket_name == "bottom":
-            selected = list(reversed(ranked[-requested_limit:])) if requested_limit else []
+            selected = (
+                list(reversed(ranked[-requested_limit:])) if requested_limit else []
+            )
         elif bucket_name == "both":
             selected = self.tribev2_review_both_bucket(ranked, requested_limit)
         else:
@@ -211,13 +244,20 @@ class TribeV2Repository:
             "wouldWrite": False,
         }
 
-    def tribev2_review_both_bucket(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    def tribev2_review_both_bucket(
+        self, ranked: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
         if limit <= 0:
             return []
         selected: list[dict[str, Any]] = []
         seen: set[str] = set()
         for row in ranked[:limit] + list(reversed(ranked[-limit:])):
-            key = row.get("renderedAssetId") or row.get("contentHash") or row.get("postId") or str(len(seen))
+            key = (
+                row.get("renderedAssetId")
+                or row.get("contentHash")
+                or row.get("postId")
+                or str(len(seen))
+            )
             if key in seen:
                 continue
             seen.add(key)
@@ -276,15 +316,25 @@ class TribeV2Repository:
         contact_sheet: bool = False,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        rows = self.tribev2_reel_analysis_rows(creator=creator_label, campaign_slug=campaign_slug)
-        ranked = sorted(rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True)
+        rows = self.tribev2_reel_analysis_rows(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
+        ranked = sorted(
+            rows, key=lambda row: float(row.get("meanAbsActivation") or 0), reverse=True
+        )
         bucket_rows = self.tribev2_holdout_bucket_rows(ranked)
         bucket_limit = max(0, int(limit or 0))
         buckets = {
-            name: self.tribev2_holdout_bucket_summary(name, rows_for_bucket, limit=bucket_limit)
+            name: self.tribev2_holdout_bucket_summary(
+                name, rows_for_bucket, limit=bucket_limit
+            )
             for name, rows_for_bucket in bucket_rows.items()
         }
-        contact_sheet_path = self.write_tribev2_holdout_contact_sheet(buckets, creator=creator_label) if contact_sheet else ""
+        contact_sheet_path = (
+            self.write_tribev2_holdout_contact_sheet(buckets, creator=creator_label)
+            if contact_sheet
+            else ""
+        )
         return {
             "schema": "campaign_factory.tribev2_holdout_pilot_review.v1",
             "creator": creator_label,
@@ -305,7 +355,9 @@ class TribeV2Repository:
             "wouldWrite": False,
         }
 
-    def tribev2_holdout_bucket_rows(self, ranked: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    def tribev2_holdout_bucket_rows(
+        self, ranked: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
         count = len(ranked)
         if count == 0:
             return {"top20": [], "middle20": [], "bottom20": []}
@@ -313,11 +365,13 @@ class TribeV2Repository:
         middle_start = max(0, (count - bucket_size) // 2)
         return {
             "top20": ranked[:bucket_size],
-            "middle20": ranked[middle_start:middle_start + bucket_size],
+            "middle20": ranked[middle_start : middle_start + bucket_size],
             "bottom20": list(reversed(ranked[-bucket_size:])),
         }
 
-    def tribev2_holdout_bucket_summary(self, name: str, rows: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+    def tribev2_holdout_bucket_summary(
+        self, name: str, rows: list[dict[str, Any]], *, limit: int
+    ) -> dict[str, Any]:
         selected = rows[:limit] if limit else rows
         items = [
             self.tribev2_review_item(row, rank=index, sort_field="meanAbsActivation")
@@ -348,7 +402,11 @@ class TribeV2Repository:
         }
 
     def average_row_field(self, rows: list[dict[str, Any]], field: str) -> float:
-        return round(sum(float(row.get(field) or 0) for row in rows) / len(rows), 4) if rows else 0.0
+        return (
+            round(sum(float(row.get(field) or 0) for row in rows) / len(rows), 4)
+            if rows
+            else 0.0
+        )
 
     def tribev2_preview_path(self, row: dict[str, Any]) -> str:
         rendered_asset_id = row.get("renderedAssetId") or ""
@@ -389,10 +447,18 @@ class TribeV2Repository:
     ) -> str:
         root = Path(self.settings.campaigns_dir).parent / "tmp" / "tribev2_review"
         root.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        html_path = root / f"{self._slugify(creator)}_{self._slugify(title)}_{stamp}.html"
-        cards = self.tribev2_contact_sheet_cards(items, root, show_metrics=show_metrics, show_tribe_score=show_tribe_score)
-        banner = "<p><strong>Blind TRIBE review: metrics hidden.</strong></p>" if blind_mode else ""
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        html_path = (
+            root / f"{self._slugify(creator)}_{self._slugify(title)}_{stamp}.html"
+        )
+        cards = self.tribev2_contact_sheet_cards(
+            items, root, show_metrics=show_metrics, show_tribe_score=show_tribe_score
+        )
+        banner = (
+            "<p><strong>Blind TRIBE review: metrics hidden.</strong></p>"
+            if blind_mode
+            else ""
+        )
         html = self.tribev2_contact_sheet_html(
             title=f"{title}: {creator}",
             body=f"{banner}<section class='grid'>{''.join(cards)}</section>",
@@ -400,17 +466,26 @@ class TribeV2Repository:
         html_path.write_text(html, encoding="utf-8")
         return str(html_path)
 
-    def write_tribev2_holdout_contact_sheet(self, buckets: dict[str, Any], *, creator: str) -> str:
+    def write_tribev2_holdout_contact_sheet(
+        self, buckets: dict[str, Any], *, creator: str
+    ) -> str:
         root = Path(self.settings.campaigns_dir).parent / "tmp" / "tribev2_review"
         root.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        html_path = root / f"{self._slugify(creator)}_tribev2_holdout_pilot_review_{stamp}.html"
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        html_path = (
+            root / f"{self._slugify(creator)}_tribev2_holdout_pilot_review_{stamp}.html"
+        )
         sections = []
         for name in ["top20", "middle20", "bottom20"]:
             bucket = buckets.get(name) or {}
             metrics = bucket.get("avgMetrics") or {}
             score = bucket.get("avgTribeScore") or {}
-            cards = self.tribev2_contact_sheet_cards(bucket.get("items") or [], root, show_metrics=True, show_tribe_score=True)
+            cards = self.tribev2_contact_sheet_cards(
+                bucket.get("items") or [],
+                root,
+                show_metrics=True,
+                show_tribe_score=True,
+            )
             sections.append(
                 f"<h2>{name}</h2>"
                 f"<p>sample={bucket.get('sampleSize', 0)} "
@@ -441,19 +516,25 @@ class TribeV2Repository:
             preview_path = item.get("previewPath") or ""
             thumb_path = self.tribev2_extract_thumbnail(preview_path, root, item)
             media_src = thumb_path or preview_path
-            media_html = f'<img src="{Path(media_src).as_uri()}" alt="rank {item["rank"]}">' if media_src and Path(media_src).exists() else "<div class='missing'>preview missing</div>"
+            media_html = (
+                f'<img src="{Path(media_src).as_uri()}" alt="rank {item["rank"]}">'
+                if media_src and Path(media_src).exists()
+                else "<div class='missing'>preview missing</div>"
+            )
             tribe = item.get("tribeScore") or {}
             metrics = item.get("actualMetrics") or {}
             tribe_html = (
                 f"<p>mean={float(tribe.get('meanAbsActivation') or 0):.6f} "
                 f"peak={float(tribe.get('peakAbsActivation') or 0):.6f} "
                 f"std={float(tribe.get('stdActivation') or 0):.6f}</p>"
-                if show_tribe_score else "<p>TRIBE score hidden</p>"
+                if show_tribe_score
+                else "<p>TRIBE score hidden</p>"
             )
             metrics_html = (
                 f"<p>views={int(metrics.get('views') or 0)} reach={int(metrics.get('reach') or 0)} "
                 f"saves={int(metrics.get('saves') or 0)} shares={int(metrics.get('shares') or 0)}</p>"
-                if show_metrics else "<p>Instagram metrics hidden</p>"
+                if show_metrics
+                else "<p>Instagram metrics hidden</p>"
             )
             cards.append(
                 "<article>"
@@ -481,7 +562,9 @@ class TribeV2Repository:
             "</body></html>"
         )
 
-    def tribev2_extract_thumbnail(self, preview_path: str, output_dir: Path, item: dict[str, Any]) -> str:
+    def tribev2_extract_thumbnail(
+        self, preview_path: str, output_dir: Path, item: dict[str, Any]
+    ) -> str:
         if not preview_path:
             return ""
         source = Path(preview_path)
@@ -491,12 +574,27 @@ class TribeV2Repository:
             return str(source)
         if source.suffix.lower() not in self._video_exts:
             return ""
-        thumb = output_dir / f"{self._slugify(item.get('renderedAssetId') or str(item.get('rank')))}.jpg"
+        thumb = (
+            output_dir
+            / f"{self._slugify(item.get('renderedAssetId') or str(item.get('rank')))}.jpg"
+        )
         if thumb.exists():
             return str(thumb)
         try:
             subprocess.run(
-                ["ffmpeg", "-y", "-ss", "00:00:00.5", "-i", str(source), "-frames:v", "1", "-q:v", "3", str(thumb)],
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    "00:00:00.5",
+                    "-i",
+                    str(source),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "3",
+                    str(thumb),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -506,37 +604,49 @@ class TribeV2Repository:
             return ""
         return str(thumb) if thumb.exists() else ""
 
-    def tribev2_reel_analysis_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
+    def tribev2_reel_analysis_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
         rows = []
-        for row in self._creative_knowledge_rows(creator=creator, campaign_slug=campaign_slug):
+        for row in self._creative_knowledge_rows(
+            creator=creator, campaign_slug=campaign_slug
+        ):
             if self._normalize_content_surface(row.get("content_surface")) != "reel":
                 continue
             score = self.tribev2_score_for_snapshot(row)
             if not score:
                 continue
             result = self._creative_knowledge_result(row)
-            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
-            rows.append({
-                "renderedAssetId": row.get("rendered_asset_id") or "",
-                "postId": row.get("post_id") or "",
-                "contentHash": row.get("content_hash") or "",
-                "conceptId": result.get("conceptId") or "",
-                "captionAngle": result.get("captionAngle") or "",
-                "audioId": result.get("audioId") or "",
-                "publishedAt": result.get("publishedAt") or "",
-                "views": int(metrics.get("views") or 0),
-                "reach": int(metrics.get("reach") or 0),
-                "saves": int(metrics.get("saves") or 0),
-                "shares": int(metrics.get("shares") or 0),
-                "tribev2ScoreId": score.get("id") or "",
-                "modelId": score.get("model_id") or "facebook/tribev2",
-                "modelMode": score.get("model_mode") or "",
-                "meanAbsActivation": round(float(score.get("mean_abs_activation") or 0), 6),
-                "peakAbsActivation": round(float(score.get("peak_abs_activation") or 0), 6),
-                "stdActivation": round(float(score.get("std_activation") or 0), 6),
-                "segmentsCount": int(score.get("segments_count") or 0),
-                "predsShape": json_load(score.get("preds_shape_json"), []),
-            })
+            metrics = (
+                result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            )
+            rows.append(
+                {
+                    "renderedAssetId": row.get("rendered_asset_id") or "",
+                    "postId": row.get("post_id") or "",
+                    "contentHash": row.get("content_hash") or "",
+                    "conceptId": result.get("conceptId") or "",
+                    "captionAngle": result.get("captionAngle") or "",
+                    "audioId": result.get("audioId") or "",
+                    "publishedAt": result.get("publishedAt") or "",
+                    "views": int(metrics.get("views") or 0),
+                    "reach": int(metrics.get("reach") or 0),
+                    "saves": int(metrics.get("saves") or 0),
+                    "shares": int(metrics.get("shares") or 0),
+                    "tribev2ScoreId": score.get("id") or "",
+                    "modelId": score.get("model_id") or "facebook/tribev2",
+                    "modelMode": score.get("model_mode") or "",
+                    "meanAbsActivation": round(
+                        float(score.get("mean_abs_activation") or 0), 6
+                    ),
+                    "peakAbsActivation": round(
+                        float(score.get("peak_abs_activation") or 0), 6
+                    ),
+                    "stdActivation": round(float(score.get("std_activation") or 0), 6),
+                    "segmentsCount": int(score.get("segments_count") or 0),
+                    "predsShape": json_load(score.get("preds_shape_json"), []),
+                }
+            )
         return rows
 
     def tribev2_score_for_snapshot(self, row: dict[str, Any]) -> dict[str, Any] | None:
@@ -583,7 +693,11 @@ class TribeV2Repository:
         count = len(rows)
 
         def avg(field: str) -> float:
-            return round(sum(float(row.get(field) or 0) for row in rows) / count, 2) if count else 0
+            return (
+                round(sum(float(row.get(field) or 0) for row in rows) / count, 2)
+                if count
+                else 0
+            )
 
         return {
             "sampleSize": count,
@@ -596,15 +710,23 @@ class TribeV2Repository:
             "postIds": [row.get("postId") for row in rows if row.get("postId")],
         }
 
-    def tribev2_bucket_lift(self, top: dict[str, Any], bottom: dict[str, Any]) -> dict[str, Any]:
+    def tribev2_bucket_lift(
+        self, top: dict[str, Any], bottom: dict[str, Any]
+    ) -> dict[str, Any]:
         lift: dict[str, Any] = {}
         for field in ["avgViews", "avgReach", "avgSaves", "avgShares"]:
             base = float(bottom.get(field) or 0)
             observed = float(top.get(field) or 0)
-            lift[field] = round(((observed - base) / base * 100.0), 2) if base else (100.0 if observed else 0.0)
+            lift[field] = (
+                round(((observed - base) / base * 100.0), 2)
+                if base
+                else (100.0 if observed else 0.0)
+            )
         return lift
 
-    def tribev2_metric_quality(self, rows: list[dict[str, Any]], metric_fields: list[str]) -> dict[str, Any]:
+    def tribev2_metric_quality(
+        self, rows: list[dict[str, Any]], metric_fields: list[str]
+    ) -> dict[str, Any]:
         quality: dict[str, Any] = {}
         for metric in metric_fields:
             values = [float(row.get(metric) or 0) for row in rows]
@@ -613,7 +735,9 @@ class TribeV2Repository:
             quality[metric] = {
                 "nonzeroCount": nonzero,
                 "uniqueValues": unique_values,
-                "usableForCorrelation": len(values) >= 20 and nonzero >= 5 and unique_values >= 5,
+                "usableForCorrelation": len(values) >= 20
+                and nonzero >= 5
+                and unique_values >= 5,
             }
         return quality
 
@@ -635,14 +759,22 @@ class TribeV2Repository:
                 "strongestSignal": "",
                 "weakestSignal": "",
                 "strongestAbsCorrelation": 0.0,
-                "correlatesWith": {"views": False, "reach": False, "saves": False, "shares": False},
+                "correlatesWith": {
+                    "views": False,
+                    "reach": False,
+                    "saves": False,
+                    "shares": False,
+                },
             }
         strongest = max(pairs, key=lambda item: abs(item[2]))
         weakest = min(pairs, key=lambda item: abs(item[2]))
         threshold = 0.4 if sample_size >= 20 else 0.7
         correlates_with = {
             metric: bool(metric_quality.get(metric, {}).get("usableForCorrelation"))
-            and any(item_metric == metric and abs(value) >= threshold for _, item_metric, value in pairs)
+            and any(
+                item_metric == metric and abs(value) >= threshold
+                for _, item_metric, value in pairs
+            )
             for metric in ["views", "reach", "saves", "shares"]
         }
         return {
@@ -652,7 +784,9 @@ class TribeV2Repository:
             "correlatesWith": correlates_with,
         }
 
-    def tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
+    def tribev2_confidence_level(
+        self, sample_size: int, statistically_interesting: bool
+    ) -> str:
         if sample_size < 20:
             return "low"
         if sample_size < 50:

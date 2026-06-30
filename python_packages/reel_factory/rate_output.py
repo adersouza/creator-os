@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Attach operator taste/quality ratings to rendered outputs."""
+
 from __future__ import annotations
 
 import argparse

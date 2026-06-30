@@ -5,6 +5,7 @@ The production goal is privacy and consistency: strip generated/container
 metadata when an operator explicitly normalizes an output. This module never
 adds fake device, session, proxy, or platform metadata.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,6 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
-
 
 SCHEMA = "reel_factory.media_metadata_normalization.v1"
 
@@ -61,7 +61,9 @@ def main() -> int:
     ap.add_argument("--output-path")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    result = normalize_media_metadata(args.input_path, output_path=args.output_path, dry_run=args.dry_run)
+    result = normalize_media_metadata(
+        args.input_path, output_path=args.output_path, dry_run=args.dry_run
+    )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

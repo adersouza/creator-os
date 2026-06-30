@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .persistence import json_load, row_to_dict
+from .persistence import json_load
+
 
 def audit_report(self, audit_report_id: str) -> dict[str, Any]:
-    row = self.conn.execute("SELECT * FROM audit_reports WHERE id = ?", (audit_report_id,)).fetchone()
+    row = self.conn.execute(
+        "SELECT * FROM audit_reports WHERE id = ?", (audit_report_id,)
+    ).fetchone()
     if not row:
         raise ValueError(f"audit report not found: {audit_report_id}")
     row_dict = dict(row)
@@ -20,6 +23,7 @@ def audit_report(self, audit_report_id: str) -> dict[str, Any]:
             raw["database"] = report
             return raw
     return report
+
 
 def _audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
     report = {

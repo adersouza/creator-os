@@ -18,10 +18,16 @@ class ExportSummaryRepository:
         *,
         dashboard: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return exports.daily_production_counters(self._factory_context, campaign_slug, dashboard=dashboard)
+        return exports.daily_production_counters(
+            self._factory_context, campaign_slug, dashboard=dashboard
+        )
 
-    def variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def variant_pack_groups(
+        self, rendered: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return exports._variant_pack_groups(self._factory_context, rendered)
 
     def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
-        return exports.export_manifest(self._factory_context, campaign_slug=campaign_slug)
+        return exports.export_manifest(
+            self._factory_context, campaign_slug=campaign_slug
+        )

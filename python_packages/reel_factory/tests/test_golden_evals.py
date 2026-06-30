@@ -11,8 +11,8 @@ from generate_prompts import (
     normalize_grid_layout,
 )
 
-
 # ── Grid Layout Normalization ────────────────────────────────────────
+
 
 class TestGridLayoutGolden:
     """Verify grid layout normalization against known golden inputs."""
@@ -71,6 +71,7 @@ class TestGridLayoutGolden:
 
 # ── Prompt Cleanup ───────────────────────────────────────────────────
 
+
 class TestPromptCleanupGolden:
     """Verify removal-only prompt cleanup against known golden cases."""
 
@@ -86,7 +87,16 @@ class TestPromptCleanupGolden:
     def test_returns_required_structure(self):
         """Verify all expected keys are present in the result dict."""
         result = clean_direct_higgsfield_prompt("test prompt")
-        required_keys = {"raw", "cleaned", "diff", "removed", "residualForbiddenTerms", "valid", "changed", "policy"}
+        required_keys = {
+            "raw",
+            "cleaned",
+            "diff",
+            "removed",
+            "residualForbiddenTerms",
+            "valid",
+            "changed",
+            "policy",
+        }
         assert required_keys.issubset(result.keys())
 
     def test_policy_is_removal_only(self):
@@ -108,6 +118,7 @@ class TestPromptCleanupGolden:
 
 
 # ── Lineage Structure ────────────────────────────────────────────────
+
 
 class TestLineageStructureGolden:
     """Verify that prompt cleanup output has the right shape for lineage."""

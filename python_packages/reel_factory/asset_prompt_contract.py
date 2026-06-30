@@ -6,6 +6,7 @@ separate compiler outputs. Legacy field names are kept for compatibility, but
 new operator workflows should generate one standalone image prompt and one
 start-image Kling motion prompt.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,6 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
 
 REQUIRED_PROMPT_FIELDS = ("higgsfieldGridPrompt", "klingMotionPrompt")
 HIGGSFIELD_GRID_PROMPT_REJECTS = (
@@ -133,7 +133,9 @@ EMPTY_ASSET_PROMPT_SET = AssetPromptSet(
 )
 
 
-def build_grok_simple_prompt(reference_context: str = "", creative_direction: str = "") -> str:
+def build_grok_simple_prompt(
+    reference_context: str = "", creative_direction: str = ""
+) -> str:
     """Build the operator-facing Prompt Builder contract text."""
     parts = [PROMPT_BUILDER_SPEC.strip()]
     if reference_context.strip():
@@ -146,13 +148,17 @@ def build_grok_simple_prompt(reference_context: str = "", creative_direction: st
 def validate_higgsfield_grid_prompt_text(text: str) -> None:
     match = _FINAL_PROMPT_RE.search(text)
     if match:
-        raise ValueError(f"higgsfieldGridPrompt contains rejected v1 language: {match.group(0)!r}")
+        raise ValueError(
+            f"higgsfieldGridPrompt contains rejected v1 language: {match.group(0)!r}"
+        )
 
 
 def validate_kling_motion_prompt_text(text: str) -> None:
     match = _MOTION_PROMPT_RE.search(text)
     if match:
-        raise ValueError(f"klingMotionPrompt contains rejected v1 language: {match.group(0)!r}")
+        raise ValueError(
+            f"klingMotionPrompt contains rejected v1 language: {match.group(0)!r}"
+        )
 
 
 def parse_asset_prompt_response(raw: str) -> AssetPromptSet:
@@ -166,7 +172,11 @@ def parse_asset_prompt_response(raw: str) -> AssetPromptSet:
     unknown = sorted(set(data) - {*REQUIRED_PROMPT_FIELDS, "notes"})
     if unknown:
         raise ValueError(f"prompt response contains unsupported fields: {unknown}")
-    missing = [field for field in REQUIRED_PROMPT_FIELDS if not str(data.get(field, "")).strip()]
+    missing = [
+        field
+        for field in REQUIRED_PROMPT_FIELDS
+        if not str(data.get(field, "")).strip()
+    ]
     if missing:
         raise ValueError(f"prompt response missing required fields: {missing}")
     validate_higgsfield_grid_prompt_text(str(data["higgsfieldGridPrompt"]))
@@ -185,7 +195,9 @@ def prompt_response_json(prompt_set: AssetPromptSet) -> str:
 def write_prompt_template(path: str) -> None:
     out_path = Path(path).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8")
+    out_path.write_text(
+        prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8"
+    )
 
 
 def main() -> int:
@@ -194,7 +206,9 @@ def main() -> int:
     ap.add_argument("--reference-context", default="")
     ap.add_argument("--creative-direction", default="")
     ap.add_argument("--validate-response", help="Validate a Grok JSON response string.")
-    ap.add_argument("--new", help="Create an empty clean prompt JSON template at this path.")
+    ap.add_argument(
+        "--new", help="Create an empty clean prompt JSON template at this path."
+    )
     args = ap.parse_args()
 
     if args.print_system_prompt:

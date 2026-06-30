@@ -7,9 +7,9 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .db import json_dump, json_load
 from .caption_archetypes import caption_archetype
-from .identity import stable_id, text_hash
+from .db import json_dump, json_load
+from .identity import stable_id
 from .timeutil import now_iso
 
 
@@ -30,7 +30,9 @@ def import_apify_metrics(
         match_type = "exact_media_id" if exact else "external_only"
         if exact:
             exact_matches += 1
-        public_post_id = stable_id("public_post", post.get("shortCode") or post.get("url") or apify_id)
+        public_post_id = stable_id(
+            "public_post", post.get("shortCode") or post.get("url") or apify_id
+        )
         conn.execute(
             """
             INSERT INTO public_posts (
@@ -141,7 +143,9 @@ def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
     }
 
 
-def generate_prompt_cards(conn: Connection, limit: int = 50, output_dir: Path | None = None) -> dict[str, object]:
+def generate_prompt_cards(
+    conn: Connection, limit: int = 50, output_dir: Path | None = None
+) -> dict[str, object]:
     top = top_public_posts(conn, limit)
     cards = []
     timestamp = now_iso()
@@ -166,7 +170,14 @@ def generate_prompt_cards(conn: Connection, limit: int = 50, output_dir: Path | 
         with jsonl.open("w", encoding="utf-8") as f:
             for card in cards:
                 f.write(json.dumps(card, ensure_ascii=False, sort_keys=True) + "\n")
-        manifest.write_text(json.dumps({"schema": "reference_factory.prompt_cards.v1", "cards": cards}, indent=2, ensure_ascii=False) + "\n")
+        manifest.write_text(
+            json.dumps(
+                {"schema": "reference_factory.prompt_cards.v1", "cards": cards},
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
         paths = {"jsonlPath": str(jsonl), "manifestPath": str(manifest)}
     return {
         "schema": "reference_factory.generate_prompt_cards.v1",
@@ -226,7 +237,9 @@ def export_learning_set(
         "schema": "reference_factory.learning_set.v1",
         "limit": limit,
         "count": len(rows),
-        "exactLocalMatches": sum(1 for row in rows if row["matchType"] == "exact_media_id"),
+        "exactLocalMatches": sum(
+            1 for row in rows if row["matchType"] == "exact_media_id"
+        ),
         "externalOnly": sum(1 for row in rows if row["matchType"] == "external_only"),
         "copyMedia": copy_media,
         "contentforgeReferenceDir": str(media_dir),
@@ -273,8 +286,12 @@ def write_top_public_posts(top: dict[str, object], output_dir: Path) -> dict[str
             {
                 "schema": "reference_factory.top_public_posts_matched_summary.v1",
                 "count": len(items),
-                "exactLocalMatches": sum(1 for item in items if item["matchType"] == "exact_media_id"),
-                "externalOnly": sum(1 for item in items if item["matchType"] == "external_only"),
+                "exactLocalMatches": sum(
+                    1 for item in items if item["matchType"] == "exact_media_id"
+                ),
+                "externalOnly": sum(
+                    1 for item in items if item["matchType"] == "external_only"
+                ),
                 "top20": items[:20],
             },
             indent=2,
@@ -289,28 +306,41 @@ def _load_unique_posts(input_paths: list[Path]) -> list[dict[str, Any]]:
     by_key: dict[str, dict[str, Any]] = {}
     for path in input_paths:
         for item in json.loads(path.read_text()):
-            if item.get("videoPlayCount") is None and item.get("videoViewCount") is None:
+            if (
+                item.get("videoPlayCount") is None
+                and item.get("videoViewCount") is None
+            ):
                 continue
             key = str(item.get("shortCode") or item.get("url") or item.get("id"))
             score = item.get("videoPlayCount") or item.get("videoViewCount") or 0
             old = by_key.get(key)
-            old_score = (old or {}).get("videoPlayCount") or (old or {}).get("videoViewCount") or 0
+            old_score = (
+                (old or {}).get("videoPlayCount")
+                or (old or {}).get("videoViewCount")
+                or 0
+            )
             if old is None or score >= old_score:
                 by_key[key] = item
     return sorted(
         by_key.values(),
-        key=lambda item: (item.get("videoPlayCount") or item.get("videoViewCount") or 0),
+        key=lambda item: item.get("videoPlayCount") or item.get("videoViewCount") or 0,
         reverse=True,
     )
 
 
-def _local_media_index(conn: Connection) -> dict[tuple[str | None, str], dict[str, str]]:
+def _local_media_index(
+    conn: Connection,
+) -> dict[tuple[str | None, str], dict[str, str]]:
     rows = conn.execute(
         "SELECT reference_id, account, file_name, path FROM source_files WHERE kind = 'video'"
     ).fetchall()
     index: dict[tuple[str | None, str], dict[str, str]] = {}
     for row in rows:
-        nums = [part for part in Path(row["file_name"]).stem.split("_") if re.fullmatch(r"\d{10,}", part)]
+        nums = [
+            part
+            for part in Path(row["file_name"]).stem.split("_")
+            if re.fullmatch(r"\d{10,}", part)
+        ]
         media_id = nums[1] if len(nums) >= 2 else None
         if media_id:
             index[(row["account"], media_id)] = {
@@ -366,7 +396,13 @@ def _measured_outcome(row) -> dict[str, object] | None:
 def _compact_raw_json(raw_json: dict[str, Any]) -> dict[str, object]:
     return {
         key: raw_json.get(key)
-        for key in ["sourcePlatform", "sourceFormat", "authorId", "videoId", "coverPath"]
+        for key in [
+            "sourcePlatform",
+            "sourceFormat",
+            "authorId",
+            "videoId",
+            "coverPath",
+        ]
         if raw_json.get(key) is not None
     }
 
@@ -389,7 +425,11 @@ def _public_rate_score(post: dict[str, Any]) -> float | None:
     followers = _follower_count(post)
     if not followers:
         return None
-    exposure = _int_or_none(post.get("videoPlayCount")) or _int_or_none(post.get("videoViewCount")) or 0
+    exposure = (
+        _int_or_none(post.get("videoPlayCount"))
+        or _int_or_none(post.get("videoViewCount"))
+        or 0
+    )
     if exposure <= 0:
         return None
     return round(exposure / followers, 6)
@@ -458,7 +498,10 @@ def _structure_notes(archetype: str) -> str:
         "hashtag_context": "Caption uses broad context and discoverability tags.",
         "cta_bait": "Caption uses a direct call to action to trigger response.",
         "short_meme_caption": "Caption is brief, suggestive, and leaves context open.",
-    }.get(archetype, "Caption structure is broad; keep the variation original and visually legible.")
+    }.get(
+        archetype,
+        "Caption structure is broad; keep the variation original and visually legible.",
+    )
 
 
 def _visual_prompt(archetype: str) -> str:

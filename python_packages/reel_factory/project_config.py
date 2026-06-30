@@ -1,4 +1,5 @@
 """Small TOML-backed project configuration for reel_factory."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -4,8 +4,9 @@ import hashlib
 import json
 import shutil
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class SurfaceRegistrationRepository:
@@ -81,14 +82,22 @@ class SurfaceRegistrationRepository:
     ) -> dict[str, Any]:
         content_surface = self._normalize_content_surface(surface)
         if content_surface not in {"feed_single", "story", "feed_carousel"}:
-            raise ValueError("register-surface-asset supports feed_single, story, and feed_carousel")
+            raise ValueError(
+                "register-surface-asset supports feed_single, story, and feed_carousel"
+            )
         creator_label = self._creator_label(creator)
-        model = self._upsert_model(self._slugify(model_slug or creator_label), creator_label)
-        campaign = self._upsert_campaign(campaign_slug, model["slug"], platform="instagram")
+        model = self._upsert_model(
+            self._slugify(model_slug or creator_label), creator_label
+        )
+        campaign = self._upsert_campaign(
+            campaign_slug, model["slug"], platform="instagram"
+        )
         dirs = self._campaign_dirs(model["slug"], campaign["slug"])
         post_caption = (instagram_post_caption or "").strip()
         if content_surface in {"feed_single", "feed_carousel"} and not post_caption:
-            raise ValueError("instagram_post_caption is required for feed_single and feed_carousel")
+            raise ValueError(
+                "instagram_post_caption is required for feed_single and feed_carousel"
+            )
         components = self.surface_registration_components(
             input_path=input_path,
             surface=content_surface,
@@ -96,20 +105,31 @@ class SurfaceRegistrationRepository:
         )
         if content_surface == "feed_single" and components[0]["mediaType"] != "image":
             raise ValueError("feed_single registration requires an image file")
-        if content_surface == "story" and components[0]["mediaType"] not in {"image", "video"}:
+        if content_surface == "story" and components[0]["mediaType"] not in {
+            "image",
+            "video",
+        }:
             raise ValueError("story registration requires an image or video file")
         if content_surface == "story":
             story_source_blockers = self._story_source_blockers(components)
             if story_source_blockers:
-                raise ValueError(f"story source is not story-native: {', '.join(story_source_blockers)}")
+                raise ValueError(
+                    f"story source is not story-native: {', '.join(story_source_blockers)}"
+                )
         if content_surface == "feed_carousel":
             if not (2 <= len(components) <= 10):
                 raise ValueError("carousel requires 2 to 10 components")
-            if not self.aspect_ratio_safe(components[0]["aspectRatio"], "feed_carousel"):
+            if not self.aspect_ratio_safe(
+                components[0]["aspectRatio"], "feed_carousel"
+            ):
                 raise ValueError("carousel cover aspect ratio is not safe")
 
         component_hashes = [item["contentHash"] for item in components]
-        content_hash = component_hashes[0] if len(component_hashes) == 1 else hashlib.sha256("|".join(component_hashes).encode("utf-8")).hexdigest()
+        content_hash = (
+            component_hashes[0]
+            if len(component_hashes) == 1
+            else hashlib.sha256("|".join(component_hashes).encode("utf-8")).hexdigest()
+        )
         staged_components = [
             {
                 **item,
@@ -125,13 +145,23 @@ class SurfaceRegistrationRepository:
         ]
         representative = staged_components[0]
         now = self._utc_now()
-        scoped_key = hashlib.sha256(f"{campaign['id']}:{content_hash}".encode("utf-8")).hexdigest()[:12]
+        scoped_key = hashlib.sha256(
+            f"{campaign['id']}:{content_hash}".encode()
+        ).hexdigest()[:12]
         source_asset_id = f"src_surface_{scoped_key}"
         render_job_id = f"render_surface_{scoped_key}"
         rendered_id = f"asset_surface_{scoped_key}"
-        media_type = representative["mediaType"] if content_surface != "feed_carousel" else "carousel"
+        media_type = (
+            representative["mediaType"]
+            if content_surface != "feed_carousel"
+            else "carousel"
+        )
         ratio = target_ratio or representative.get("aspectRatio") or "9:16"
-        caption_hash_value = hashlib.sha256(post_caption.lower().encode("utf-8")).hexdigest() if post_caption else None
+        caption_hash_value = (
+            hashlib.sha256(post_caption.lower().encode("utf-8")).hexdigest()
+            if post_caption
+            else None
+        )
         ig_media_type = self.ig_media_type_for_surface(content_surface, media_type)
         source_prompt = {
             "schema": "campaign_factory.surface_asset_registration.v1",
@@ -160,25 +190,36 @@ class SurfaceRegistrationRepository:
             "instagramPostCaption": post_caption,
             "instagramPostCaptionHash": caption_hash_value,
             "captionOutcomeContext": caption_context,
-            "allow_empty_instagram_post_caption": content_surface == "story" and not post_caption,
+            "allow_empty_instagram_post_caption": content_surface == "story"
+            and not post_caption,
             "operatorReview": {
                 "operator": operator,
                 "approvedAt": now,
             },
         }
         if content_surface == "story":
-            caption_generation.update({
-                "story_asset_class": (story_asset_class or "").strip() or None,
-                "story_cta_type": (story_cta_type or "").strip() or None,
-                "story_cta_text": (story_cta_text or "").strip() or None,
-                "story_cta_target_url": (story_cta_target_url or "").strip() or None,
-                "story_intent": self._normalize_story_enum(story_intent, self._story_intents),
-                "story_goal": self._normalize_story_enum(story_goal, self._story_goals),
-                "story_style": self._normalize_story_enum(story_style, self._story_styles),
-                "snapchat_username": (snapchat_username or "").strip() or None,
-                "snapchat_display_name": (snapchat_display_name or "").strip() or None,
-                "snapchat_cta_text": (snapchat_cta_text or "").strip() or None,
-            })
+            caption_generation.update(
+                {
+                    "story_asset_class": (story_asset_class or "").strip() or None,
+                    "story_cta_type": (story_cta_type or "").strip() or None,
+                    "story_cta_text": (story_cta_text or "").strip() or None,
+                    "story_cta_target_url": (story_cta_target_url or "").strip()
+                    or None,
+                    "story_intent": self._normalize_story_enum(
+                        story_intent, self._story_intents
+                    ),
+                    "story_goal": self._normalize_story_enum(
+                        story_goal, self._story_goals
+                    ),
+                    "story_style": self._normalize_story_enum(
+                        story_style, self._story_styles
+                    ),
+                    "snapchat_username": (snapchat_username or "").strip() or None,
+                    "snapchat_display_name": (snapchat_display_name or "").strip()
+                    or None,
+                    "snapchat_cta_text": (snapchat_cta_text or "").strip() or None,
+                }
+            )
         self.conn.execute(
             """
             INSERT INTO source_assets
@@ -340,7 +381,9 @@ class SurfaceRegistrationRepository:
         if not rendered_row:
             raise RuntimeError("registered surface rendered asset could not be loaded")
         rendered_id = rendered_row["id"]
-        self.conn.execute("DELETE FROM asset_components WHERE asset_id = ?", (rendered_id,))
+        self.conn.execute(
+            "DELETE FROM asset_components WHERE asset_id = ?", (rendered_id,)
+        )
         if content_surface == "feed_carousel":
             for index, item in enumerate(staged_components):
                 self.conn.execute(
@@ -358,7 +401,9 @@ class SurfaceRegistrationRepository:
                         item["contentHash"],
                         item["mediaType"],
                         item["aspectRatio"],
-                        (alt_text or [None] * len(staged_components))[index] if index < len(alt_text or []) else None,
+                        (alt_text or [None] * len(staged_components))[index]
+                        if index < len(alt_text or [])
+                        else None,
                         now,
                         now,
                     ),
@@ -395,7 +440,9 @@ class SurfaceRegistrationRepository:
         audit_dir = dirs["audits"] / "surface_asset_registration"
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_path = audit_dir / f"{audit_id}.json"
-        audit_path.write_text(json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        audit_path.write_text(
+            json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         self.conn.execute(
             """
             INSERT INTO audit_reports
@@ -412,7 +459,14 @@ class SurfaceRegistrationRepository:
               files_analyzed = excluded.files_analyzed,
               created_at = excluded.created_at
             """,
-            (audit_id, campaign["id"], rendered_id, str(audit_path), len(staged_components), now),
+            (
+                audit_id,
+                campaign["id"],
+                rendered_id,
+                str(audit_path),
+                len(staged_components),
+                now,
+            ),
         )
         self._record_event(
             "surface_asset_registered",
@@ -436,7 +490,11 @@ class SurfaceRegistrationRepository:
             campaign_slug=campaign["slug"],
             rendered_asset_id=rendered_id,
         )
-        readiness = readiness_report["assets"][0] if readiness_report["assets"] else {"canHandoff": False, "igMediaType": ig_media_type}
+        readiness = (
+            readiness_report["assets"][0]
+            if readiness_report["assets"]
+            else {"canHandoff": False, "igMediaType": ig_media_type}
+        )
         return {
             "schema": "campaign_factory.register_surface_asset.v1",
             "campaign": campaign["slug"],
@@ -451,7 +509,9 @@ class SurfaceRegistrationRepository:
             "igMediaType": readiness["igMediaType"],
             "instagramPostCaptionPresent": bool(post_caption),
             "componentCount": len(staged_components),
-            "mediaItems": (readiness.get("handoffManifestV2") or {}).get("mediaItems", []),
+            "mediaItems": (readiness.get("handoffManifestV2") or {}).get(
+                "mediaItems", []
+            ),
             "publishability": "passed" if readiness.get("canHandoff") else "blocked",
             "handoffManifestV2": readiness.get("handoffManifestV2"),
             "wouldSchedule": False,
@@ -466,27 +526,54 @@ class SurfaceRegistrationRepository:
         target_ratio: str | None,
     ) -> list[dict[str, Any]]:
         if surface == "feed_carousel":
-            paths = [Path(input_path)] if isinstance(input_path, (str, Path)) else [Path(path) for path in input_path]
+            paths = (
+                [Path(input_path)]
+                if isinstance(input_path, (str, Path))
+                else [Path(path) for path in input_path]
+            )
         else:
             if isinstance(input_path, (list, tuple)):
                 if len(input_path) != 1:
-                    raise ValueError(f"{surface} registration requires exactly one media file")
+                    raise ValueError(
+                        f"{surface} registration requires exactly one media file"
+                    )
                 paths = [Path(input_path[0])]
             else:
                 paths = [Path(input_path)]
-        return [self.surface_registration_component(path, surface=surface, target_ratio=target_ratio) for path in paths]
+        return [
+            self.surface_registration_component(
+                path, surface=surface, target_ratio=target_ratio
+            )
+            for path in paths
+        ]
 
-    def surface_registration_component(self, path: Path, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
+    def surface_registration_component(
+        self, path: Path, *, surface: str, target_ratio: str | None
+    ) -> dict[str, Any]:
         source = path.expanduser().resolve()
         if not source.exists() or not source.is_file():
             raise FileNotFoundError(f"surface media not found: {source}")
         media_type = self._media_type_for_path(source)
         if media_type not in {"image", "video"}:
             raise ValueError("surface asset requires an image or video file")
-        shape = self._probe_image_shape(source) if media_type == "image" else self._probe_video_shape(source)
-        width = int(shape.get("effectiveWidth") or shape.get("width") or 0) if isinstance(shape, dict) else 0
-        height = int(shape.get("effectiveHeight") or shape.get("height") or 0) if isinstance(shape, dict) else 0
-        aspect_ratio = (target_ratio or self._ratio_label_from_shape(width, height) or "").strip()
+        shape = (
+            self._probe_image_shape(source)
+            if media_type == "image"
+            else self._probe_video_shape(source)
+        )
+        width = (
+            int(shape.get("effectiveWidth") or shape.get("width") or 0)
+            if isinstance(shape, dict)
+            else 0
+        )
+        height = (
+            int(shape.get("effectiveHeight") or shape.get("height") or 0)
+            if isinstance(shape, dict)
+            else 0
+        )
+        aspect_ratio = (
+            target_ratio or self._ratio_label_from_shape(width, height) or ""
+        ).strip()
         if media_type == "image" and (not shape.get("ok") or not width or not height):
             raise ValueError("valid image dimensions are required")
         if media_type == "video" and not aspect_ratio:

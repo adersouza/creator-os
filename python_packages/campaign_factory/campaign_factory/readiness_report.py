@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .caption_outcome import context_has_signal, load_context_json
 from .persistence import json_load, utc_now
@@ -13,7 +14,13 @@ if TYPE_CHECKING:
     from .core import CampaignFactory
 
 
-UNRESOLVED_NATIVE_AUDIO_STATUSES = {"recommended", "needs_operator_selection", "selected", "blocked", "missing"}
+UNRESOLVED_NATIVE_AUDIO_STATUSES = {
+    "recommended",
+    "needs_operator_selection",
+    "selected",
+    "blocked",
+    "missing",
+}
 
 
 class ReadinessReportRepository:
@@ -32,7 +39,9 @@ class ReadinessReportRepository:
         idempotency_proof: Callable[[], dict[str, Any]],
     ) -> None:
         self.conn = conn
-        self._creator_os_200_account_acceptance_suite = creator_os_200_account_acceptance_suite
+        self._creator_os_200_account_acceptance_suite = (
+            creator_os_200_account_acceptance_suite
+        )
         self._inventory_slo_report = inventory_slo_report
         self._surface_maturity_audit = surface_maturity_audit
         self._exception_queue_priority_report = exception_queue_priority_report
@@ -95,7 +104,13 @@ class ReadinessReportRepository:
         for surface, row in (audit.get("surfaces") or {}).items():
             proof_count = sum(
                 1
-                for key in ("draftProof", "scheduleProof", "publishProof", "metricsProof", "learningProof")
+                for key in (
+                    "draftProof",
+                    "scheduleProof",
+                    "publishProof",
+                    "metricsProof",
+                    "learningProof",
+                )
                 if row.get(key)
             )
             rating = round((proof_count / 5) * 10, 1)
@@ -118,8 +133,12 @@ class ReadinessReportRepository:
         proof_100 = self.creator_os_100_account_proof()
         volume = self.creator_os_volume_acceptance_suite()
         exception_priority = self._exception_queue_priority_report()
-        parent_plan = self._parent_factory_autopilot_plan(accounts=200, posts_per_account_per_day=3)
-        inventory_plan = self._inventory_autopilot_plan(accounts=200, posts_per_account_per_day=3, available_inventory=0)
+        parent_plan = self._parent_factory_autopilot_plan(
+            accounts=200, posts_per_account_per_day=3
+        )
+        inventory_plan = self._inventory_autopilot_plan(
+            accounts=200, posts_per_account_per_day=3, available_inventory=0
+        )
         surface = self.surface_readiness_scorecard()
         scores = {
             "architecture": 9.3,
@@ -133,11 +152,16 @@ class ReadinessReportRepository:
         scores["overall"] = round(sum(scores.values()) / len(scores), 1)
         success = {
             "canRun100Accounts": bool(proof_100.get("acceptancePassed")),
-            "canRun200Accounts": bool((volume.get("tiers") or {}).get("200", {}).get("acceptancePassed")),
+            "canRun200Accounts": bool(
+                (volume.get("tiers") or {}).get("200", {}).get("acceptancePassed")
+            ),
             "largestRemainingOperationalRisk": "parent_inventory_throughput",
             "inventoryAutopilotReady": bool(inventory_plan.get("repairActions")),
             "exceptionQueueReady": True,
-            "requiredParentsPerDayKnown": int(parent_plan.get("requiredParentsToday") or 0) == 53,
+            "requiredParentsPerDayKnown": int(
+                parent_plan.get("requiredParentsToday") or 0
+            )
+            == 53,
             "inventoryRepairPlanKnown": bool(inventory_plan.get("repairActions")),
             "overallRating": "9.5+",
         }
@@ -155,9 +179,20 @@ class ReadinessReportRepository:
             "scores": scores,
             "largestRemainingRisk": success["largestRemainingOperationalRisk"],
             "singleHighestROIImprovement": "run measured parent factory throughput trial with rejection evidence capture enabled",
-            "requiredFor100Accounts": ["900 schedule-safe drafts", "100-account acceptance proof green"],
-            "requiredFor200Accounts": ["1800 schedule-safe drafts", "53 accepted parents/day", "785 variants/day"],
-            "requiredFor1000Accounts": ["9000 schedule-safe drafts", "265 accepted parents/day", "3922 variants/day"],
+            "requiredFor100Accounts": [
+                "900 schedule-safe drafts",
+                "100-account acceptance proof green",
+            ],
+            "requiredFor200Accounts": [
+                "1800 schedule-safe drafts",
+                "53 accepted parents/day",
+                "785 variants/day",
+            ],
+            "requiredFor1000Accounts": [
+                "9000 schedule-safe drafts",
+                "265 accepted parents/day",
+                "3922 variants/day",
+            ],
             "successCriteria": success,
             "inputs": {
                 "parentFactoryAutopilot": parent_plan,
@@ -171,7 +206,12 @@ class ReadinessReportRepository:
 
     def creator_os_9_5_readiness_report(self) -> dict[str, Any]:
         acceptance = self._creator_os_200_account_acceptance_suite()
-        slo = self._inventory_slo_report(accounts=200, posts_per_account_per_day=3, creators=3, minimum_inventory_days=3)
+        slo = self._inventory_slo_report(
+            accounts=200,
+            posts_per_account_per_day=3,
+            creators=3,
+            minimum_inventory_days=3,
+        )
         surface = self._surface_maturity_audit()
         operator = self._operator_load_audit()
         failure = self._failure_injection_suite()
@@ -228,7 +268,9 @@ class ReadinessReportRepository:
             "acceptanceSuite": {
                 "acceptancePassed": acceptance.get("acceptancePassed"),
                 "dailyPlanRuntimeMs": acceptance.get("dailyPlanRuntimeMs"),
-                "executionReadinessRuntimeMs": acceptance.get("executionReadinessRuntimeMs"),
+                "executionReadinessRuntimeMs": acceptance.get(
+                    "executionReadinessRuntimeMs"
+                ),
             },
             "wouldWrite": False,
         }
@@ -245,25 +287,48 @@ def build_mass_production_readiness_report(
 ) -> dict[str, Any]:
     campaign = _campaign_by_id_or_slug(factory, campaign_id)
     days = max(1, int(days or 7))
-    source_rows = _rows(factory, "SELECT * FROM source_assets WHERE campaign_id = ?", (campaign["id"],))
+    source_rows = _rows(
+        factory, "SELECT * FROM source_assets WHERE campaign_id = ?", (campaign["id"],)
+    )
     sources_by_id = {row["id"]: row for row in source_rows}
     assets = _rows(
         factory,
         "SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC",
         (campaign["id"],),
     )
-    graph_ids = _graph_ids(factory, "rendered_assets", [asset["id"] for asset in assets])
-    assignments = _rows(factory, "SELECT * FROM asset_account_assignments WHERE campaign_id = ?", (campaign["id"],))
+    graph_ids = _graph_ids(
+        factory, "rendered_assets", [asset["id"] for asset in assets]
+    )
+    assignments = _rows(
+        factory,
+        "SELECT * FROM asset_account_assignments WHERE campaign_id = ?",
+        (campaign["id"],),
+    )
     assignments_by_asset = _group_by(assignments, "rendered_asset_id")
-    plans = _rows(factory, "SELECT * FROM distribution_plans WHERE campaign_id = ?", (campaign["id"],))
+    plans = _rows(
+        factory,
+        "SELECT * FROM distribution_plans WHERE campaign_id = ?",
+        (campaign["id"],),
+    )
     plans_by_asset = _group_by(plans, "rendered_asset_id")
-    snapshots = _rows(factory, "SELECT * FROM performance_snapshots WHERE campaign_id = ?", (campaign["id"],))
+    snapshots = _rows(
+        factory,
+        "SELECT * FROM performance_snapshots WHERE campaign_id = ?",
+        (campaign["id"],),
+    )
     snapshots_by_asset = _group_by(snapshots, "rendered_asset_id")
     snapshots_missing_caption_context = sum(
-        1 for snapshot in snapshots
-        if not context_has_signal(load_context_json(snapshot.get("caption_outcome_context_json")))
+        1
+        for snapshot in snapshots
+        if not context_has_signal(
+            load_context_json(snapshot.get("caption_outcome_context_json"))
+        )
     )
-    exports = _rows(factory, "SELECT * FROM threadsdash_exports WHERE campaign_id = ? ORDER BY created_at DESC", (campaign["id"],))
+    exports = _rows(
+        factory,
+        "SELECT * FROM threadsdash_exports WHERE campaign_id = ? ORDER BY created_at DESC",
+        (campaign["id"],),
+    )
 
     asset_reports = []
     missing = Counter()
@@ -282,9 +347,13 @@ def build_mass_production_readiness_report(
 
     for asset in assets:
         source = sources_by_id.get(asset["source_asset_id"])
-        source_prompt = json_load(source.get("source_prompt") if source else None, {}) or {}
+        source_prompt = (
+            json_load(source.get("source_prompt") if source else None, {}) or {}
+        )
         caption_generation = json_load(asset.get("caption_generation_json"), {}) or {}
-        caption_outcome_context = load_context_json(asset.get("caption_outcome_context_json"))
+        caption_outcome_context = load_context_json(
+            asset.get("caption_outcome_context_json")
+        )
         lineage = _extract_lineage(source_prompt, caption_generation)
         audio_status = _audio_status(source_prompt, caption_generation)
         audio_status_counts[audio_status] += 1
@@ -296,11 +365,13 @@ def build_mass_production_readiness_report(
         asset_usage = (usage_by_asset.get(asset["id"]) or {}).get("usage") or {}
         usage_total = int(asset_usage.get("total") or 0)
         if usage_total:
-            rendered_asset_duplicate_risks.append({
-                "renderedAssetId": asset["id"],
-                "filename": asset["filename"],
-                "usage": asset_usage,
-            })
+            rendered_asset_duplicate_risks.append(
+                {
+                    "renderedAssetId": asset["id"],
+                    "filename": asset["filename"],
+                    "usage": asset_usage,
+                }
+            )
 
         is_approved = asset.get("review_state") == "approved"
         if is_approved:
@@ -317,30 +388,41 @@ def build_mass_production_readiness_report(
             missing["caption"] += 1
         if audio_status == "missing":
             missing["audioStatus"] += 1
-        if not assignments_by_asset.get(asset["id"]) and not plans_by_asset.get(asset["id"]):
+        if not assignments_by_asset.get(asset["id"]) and not plans_by_asset.get(
+            asset["id"]
+        ):
             missing["accountAssignment"] += 1
         if audio_status in UNRESOLVED_NATIVE_AUDIO_STATUSES:
             unresolved_audio_assets.append(asset["id"])
 
-        asset_reports.append({
-            "renderedAssetId": asset["id"],
-            "filename": asset["filename"],
-            "reviewState": asset["review_state"],
-            "canonicalGraphId": graph_ids.get(asset["id"]),
-            "hasCanonicalId": bool(graph_ids.get(asset["id"])),
-            "hasLineage": bool(lineage),
-            "hasRenderedOutputPath": bool(asset.get("output_path") and asset.get("campaign_path")),
-            "hasCaption": bool(str(asset.get("caption") or "").strip()),
-            "hasCaptionOutcomeContext": context_has_signal(caption_outcome_context),
-            "captionOutcomeContext": caption_outcome_context,
-            "audioStatus": audio_status,
-            "hasAccountAssignment": bool(assignments_by_asset.get(asset["id"]) or plans_by_asset.get(asset["id"])),
-            "distributionPlanCount": len(plans_by_asset.get(asset["id"], [])),
-            "performanceSnapshotCount": len(snapshots_by_asset.get(asset["id"], [])),
-            "postedStatus": _posted_status(asset_usage),
-            "contentFingerprint": content_fingerprint,
-            "sourceFamily": source_family,
-        })
+        asset_reports.append(
+            {
+                "renderedAssetId": asset["id"],
+                "filename": asset["filename"],
+                "reviewState": asset["review_state"],
+                "canonicalGraphId": graph_ids.get(asset["id"]),
+                "hasCanonicalId": bool(graph_ids.get(asset["id"])),
+                "hasLineage": bool(lineage),
+                "hasRenderedOutputPath": bool(
+                    asset.get("output_path") and asset.get("campaign_path")
+                ),
+                "hasCaption": bool(str(asset.get("caption") or "").strip()),
+                "hasCaptionOutcomeContext": context_has_signal(caption_outcome_context),
+                "captionOutcomeContext": caption_outcome_context,
+                "audioStatus": audio_status,
+                "hasAccountAssignment": bool(
+                    assignments_by_asset.get(asset["id"])
+                    or plans_by_asset.get(asset["id"])
+                ),
+                "distributionPlanCount": len(plans_by_asset.get(asset["id"], [])),
+                "performanceSnapshotCount": len(
+                    snapshots_by_asset.get(asset["id"], [])
+                ),
+                "postedStatus": _posted_status(asset_usage),
+                "contentFingerprint": content_fingerprint,
+                "sourceFamily": source_family,
+            }
+        )
 
     schedule = _schedule_summary(plans, days=days)
     duplicate_risk = {
@@ -395,13 +477,32 @@ def build_mass_production_readiness_report(
     return {
         "schema": "campaign_factory.mass_production_readiness_report.v1",
         "generatedAt": utc_now(),
-        "campaign": {"id": campaign["id"], "slug": campaign["slug"], "name": campaign["name"]},
+        "campaign": {
+            "id": campaign["id"],
+            "slug": campaign["slug"],
+            "name": campaign["name"],
+        },
         "userId": user_id,
         "days": days,
         "targetReadinessModel": {
-            "pilot": {"accounts": 5, "reelsPerAccountPerDay": 3, "days": days, "targetSlots": 5 * 3 * days},
-            "twentyAccountScale": {"accounts": 20, "reelsPerAccountPerDayRange": [2, 3], "dailySlotRange": [40, 60], "targetSlotRange": [40 * days, 60 * days]},
-            "full": {"accounts": 80, "reelsPerAccountPerDayRange": [2, 3], "dailySlotRange": [160, 240], "targetSlotRange": [160 * days, 240 * days]},
+            "pilot": {
+                "accounts": 5,
+                "reelsPerAccountPerDay": 3,
+                "days": days,
+                "targetSlots": 5 * 3 * days,
+            },
+            "twentyAccountScale": {
+                "accounts": 20,
+                "reelsPerAccountPerDayRange": [2, 3],
+                "dailySlotRange": [40, 60],
+                "targetSlotRange": [40 * days, 60 * days],
+            },
+            "full": {
+                "accounts": 80,
+                "reelsPerAccountPerDayRange": [2, 3],
+                "dailySlotRange": [160, 240],
+                "targetSlotRange": [160 * days, 240 * days],
+            },
         },
         "counts": {
             "sourceAssets": len(source_rows),
@@ -424,7 +525,8 @@ def build_mass_production_readiness_report(
         "scaleReadiness": scale_readiness,
         "duplicateRisk": duplicate_risk,
         "externalPostingLedgerAudit": posting_ledger_audit,
-        "threadDashExportReadiness": threadsdash_readiness or {
+        "threadDashExportReadiness": threadsdash_readiness
+        or {
             "checked": False,
             "liveExportAllowed": None,
             "blockingReasons": ["not_checked"],
@@ -438,14 +540,20 @@ def build_mass_production_readiness_report(
     }
 
 
-def _campaign_by_id_or_slug(factory: CampaignFactory, campaign_id: str) -> dict[str, Any]:
-    row = factory.conn.execute("SELECT * FROM campaigns WHERE id = ? OR slug = ?", (campaign_id, campaign_id)).fetchone()
+def _campaign_by_id_or_slug(
+    factory: CampaignFactory, campaign_id: str
+) -> dict[str, Any]:
+    row = factory.conn.execute(
+        "SELECT * FROM campaigns WHERE id = ? OR slug = ?", (campaign_id, campaign_id)
+    ).fetchone()
     if not row:
         raise ValueError(f"campaign not found: {campaign_id}")
     return dict(row)
 
 
-def _rows(factory: CampaignFactory, query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+def _rows(
+    factory: CampaignFactory, query: str, params: tuple[Any, ...]
+) -> list[dict[str, Any]]:
     return [dict(row) for row in factory.conn.execute(query, params).fetchall()]
 
 
@@ -456,7 +564,9 @@ def _group_by(rows: list[dict[str, Any]], key: str) -> dict[str, list[dict[str, 
     return grouped
 
 
-def _graph_ids(factory: CampaignFactory, local_table: str, local_ids: list[str]) -> dict[str, str | None]:
+def _graph_ids(
+    factory: CampaignFactory, local_table: str, local_ids: list[str]
+) -> dict[str, str | None]:
     if not local_ids:
         return {}
     placeholders = ",".join("?" for _ in local_ids)
@@ -468,7 +578,9 @@ def _graph_ids(factory: CampaignFactory, local_table: str, local_ids: list[str])
     return {local_id: found.get(local_id) for local_id in local_ids}
 
 
-def _extract_lineage(source_prompt: dict[str, Any], caption_generation: dict[str, Any]) -> dict[str, Any]:
+def _extract_lineage(
+    source_prompt: dict[str, Any], caption_generation: dict[str, Any]
+) -> dict[str, Any]:
     for value in (
         source_prompt.get("generatedAssetLineage"),
         source_prompt.get("generated_asset_lineage"),
@@ -480,7 +592,9 @@ def _extract_lineage(source_prompt: dict[str, Any], caption_generation: dict[str
     return {}
 
 
-def _audio_status(source_prompt: dict[str, Any], caption_generation: dict[str, Any]) -> str:
+def _audio_status(
+    source_prompt: dict[str, Any], caption_generation: dict[str, Any]
+) -> str:
     candidates = [
         caption_generation.get("audioIntent"),
         caption_generation.get("audio_intent"),
@@ -493,18 +607,31 @@ def _audio_status(source_prompt: dict[str, Any], caption_generation: dict[str, A
     return "missing"
 
 
-def _content_fingerprint(asset: dict[str, Any], source_prompt: dict[str, Any], lineage: dict[str, Any]) -> str:
+def _content_fingerprint(
+    asset: dict[str, Any], source_prompt: dict[str, Any], lineage: dict[str, Any]
+) -> str:
     existing = (
         source_prompt.get("contentFingerprint")
         or source_prompt.get("content_fingerprint")
-        or ((lineage.get("quality") or {}).get("contentFingerprint") if isinstance(lineage.get("quality"), dict) else None)
+        or (
+            (lineage.get("quality") or {}).get("contentFingerprint")
+            if isinstance(lineage.get("quality"), dict)
+            else None
+        )
         or asset.get("content_hash")
     )
     return str(existing or asset["id"])
 
 
-def _source_family(asset: dict[str, Any], source: dict[str, Any] | None, source_prompt: dict[str, Any], lineage: dict[str, Any]) -> str:
-    lineage_source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+def _source_family(
+    asset: dict[str, Any],
+    source: dict[str, Any] | None,
+    source_prompt: dict[str, Any],
+    lineage: dict[str, Any],
+) -> str:
+    lineage_source = (
+        lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    )
     candidates = [
         lineage_source.get("referenceId"),
         lineage_source.get("referencePattern"),
@@ -537,7 +664,7 @@ def _duplicate_groups(groups: dict[str, list[str]]) -> list[dict[str, Any]]:
 
 
 def _schedule_summary(plans: list[dict[str, Any]], *, days: int) -> dict[str, Any]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     horizon = now + timedelta(days=days)
     by_account_day: dict[str, dict[str, Any]] = {}
     failed = 0
@@ -550,19 +677,24 @@ def _schedule_summary(plans: list[dict[str, Any]], *, days: int) -> dict[str, An
         if not in_window:
             continue
         considered += 1
-        account = plan.get("instagram_account_id") or plan.get("account_id") or "unassigned"
+        account = (
+            plan.get("instagram_account_id") or plan.get("account_id") or "unassigned"
+        )
         day = slot.date().isoformat() if slot else "unscheduled"
         surface = str(plan.get("surface") or "regular_reel")
         key = f"{account}|{day}"
-        item = by_account_day.setdefault(key, {
-            "account": account,
-            "day": day,
-            "total": 0,
-            "main": 0,
-            "trial": 0,
-            "story": 0,
-            "other": 0,
-        })
+        item = by_account_day.setdefault(
+            key,
+            {
+                "account": account,
+                "day": day,
+                "total": 0,
+                "main": 0,
+                "trial": 0,
+                "story": 0,
+                "other": 0,
+            },
+        )
         item["total"] += 1
         if surface == "regular_reel":
             item["main"] += 1
@@ -593,7 +725,11 @@ def _schedule_summary(plans: list[dict[str, Any]], *, days: int) -> dict[str, An
         "skippedSlotCount": skipped,
         "scheduledMainTrialSlots": scheduled_slots,
         "scheduleGaps": {
-            "pilot": {"targetSlots": pilot_target, "scheduledSlots": scheduled_slots, "gap": max(0, pilot_target - scheduled_slots)},
+            "pilot": {
+                "targetSlots": pilot_target,
+                "scheduledSlots": scheduled_slots,
+                "gap": max(0, pilot_target - scheduled_slots),
+            },
             "twentyAccountScale": {
                 "accounts": 20,
                 "targetMinSlots": twenty_min_target,
@@ -622,8 +758,8 @@ def _parse_dt(value: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _posted_coverage(asset_reports: list[dict[str, Any]]) -> dict[str, Any]:
@@ -633,18 +769,27 @@ def _posted_coverage(asset_reports: list[dict[str, Any]]) -> dict[str, Any]:
         "counts": dict(counts),
         "trackedAssets": tracked,
         "untrackedAssets": counts.get("not_tracked", 0),
-        "coverageRatio": round(tracked / len(asset_reports), 4) if asset_reports else 0.0,
+        "coverageRatio": round(tracked / len(asset_reports), 4)
+        if asset_reports
+        else 0.0,
     }
 
 
-def _metrics_status(asset_reports: list[dict[str, Any]], snapshots_by_asset: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+def _metrics_status(
+    asset_reports: list[dict[str, Any]],
+    snapshots_by_asset: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
     approved = [asset for asset in asset_reports if asset["reviewState"] == "approved"]
-    with_metrics = [asset for asset in approved if snapshots_by_asset.get(asset["renderedAssetId"])]
+    with_metrics = [
+        asset for asset in approved if snapshots_by_asset.get(asset["renderedAssetId"])
+    ]
     return {
         "approvedAssets": len(approved),
         "approvedAssetsWithMetrics": len(with_metrics),
         "approvedAssetsMissingMetrics": max(0, len(approved) - len(with_metrics)),
-        "coverageRatio": round(len(with_metrics) / len(approved), 4) if approved else 0.0,
+        "coverageRatio": round(len(with_metrics) / len(approved), 4)
+        if approved
+        else 0.0,
     }
 
 
@@ -667,7 +812,9 @@ def _readiness_score(
         or (threadsdash_readiness and threadsdash_readiness.get("blockingReasons"))
     ):
         return "NOT_READY"
-    if schedule["scheduleGaps"]["pilot"]["gap"] == 0 and not any(duplicate_risk.values()):
+    if schedule["scheduleGaps"]["pilot"]["gap"] == 0 and not any(
+        duplicate_risk.values()
+    ):
         if schedule["scheduleGaps"]["full"]["minGap"] == 0:
             return "SCALE_READY"
         return "PILOT_READY"
@@ -694,54 +841,149 @@ def _blocker_ranking(
         "niceToHave": [],
     }
     if approved_count == 0:
-        blockers["preventsProduction"].append(_blocker("no_approved_assets", "No approved assets are available for scheduling."))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "no_approved_assets", "No approved assets are available for scheduling."
+            )
+        )
     if missing["renderedOutputPath"]:
-        blockers["preventsProduction"].append(_blocker("missing_rendered_output_path", f"{missing['renderedOutputPath']} assets are missing output paths."))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "missing_rendered_output_path",
+                f"{missing['renderedOutputPath']} assets are missing output paths.",
+            )
+        )
     if missing["accountAssignment"]:
-        blockers["preventsProduction"].append(_blocker("missing_account_assignment", f"{missing['accountAssignment']} assets have no account assignment or distribution plan."))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "missing_account_assignment",
+                f"{missing['accountAssignment']} assets have no account assignment or distribution plan.",
+            )
+        )
     if unresolved_audio_assets:
-        blockers["preventsProduction"].append(_blocker("unresolved_native_audio", f"{len(unresolved_audio_assets)} assets have unresolved native audio.", {"renderedAssetIds": unresolved_audio_assets}))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "unresolved_native_audio",
+                f"{len(unresolved_audio_assets)} assets have unresolved native audio.",
+                {"renderedAssetIds": unresolved_audio_assets},
+            )
+        )
     if schedule["scheduleGaps"]["pilot"]["gap"] > 0:
-        blockers["preventsProduction"].append(_blocker("pilot_schedule_gap", f"Pilot target is short by {schedule['scheduleGaps']['pilot']['gap']} slots."))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "pilot_schedule_gap",
+                f"Pilot target is short by {schedule['scheduleGaps']['pilot']['gap']} slots.",
+            )
+        )
     if threadsdash_readiness and threadsdash_readiness.get("blockingReasons"):
-        blockers["preventsProduction"].append(_blocker("threadsdash_export_blocked", "ThreadDash export readiness has blocking reasons.", {"blockingReasons": threadsdash_readiness.get("blockingReasons")}))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "threadsdash_export_blocked",
+                "ThreadDash export readiness has blocking reasons.",
+                {"blockingReasons": threadsdash_readiness.get("blockingReasons")},
+            )
+        )
     if posting_ledger_audit.get("matchingSlotCount"):
-        blockers["preventsProduction"].append(_blocker(
-            "external_schedule_state_not_canonical",
-            "Matching schedule/account slots exist in Reel Factory posting_ledger; mirror or migrate them into Campaign Factory before production.",
-            {"matchingSlotCount": posting_ledger_audit.get("matchingSlotCount"), "ledgerPath": posting_ledger_audit.get("ledgerDbPath")},
-        ))
+        blockers["preventsProduction"].append(
+            _blocker(
+                "external_schedule_state_not_canonical",
+                "Matching schedule/account slots exist in Reel Factory posting_ledger; mirror or migrate them into Campaign Factory before production.",
+                {
+                    "matchingSlotCount": posting_ledger_audit.get("matchingSlotCount"),
+                    "ledgerPath": posting_ledger_audit.get("ledgerDbPath"),
+                },
+            )
+        )
     if missing["canonicalIds"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_canonical_ids", f"{missing['canonicalIds']} rendered assets lack Campaign Factory graph IDs."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_canonical_ids",
+                f"{missing['canonicalIds']} rendered assets lack Campaign Factory graph IDs.",
+            )
+        )
     if missing["lineage"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_lineage", f"{missing['lineage']} assets are missing generated lineage."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_lineage",
+                f"{missing['lineage']} assets are missing generated lineage.",
+            )
+        )
     if missing["caption"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_caption", f"{missing['caption']} assets are missing captions."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_caption", f"{missing['caption']} assets are missing captions."
+            )
+        )
     if missing["audioStatus"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_audio_status", f"{missing['audioStatus']} assets are missing audio status metadata."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_audio_status",
+                f"{missing['audioStatus']} assets are missing audio status metadata.",
+            )
+        )
     if metrics["approvedAssetsMissingMetrics"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_metrics_sync", f"{metrics['approvedAssetsMissingMetrics']} approved assets have no performance snapshot."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_metrics_sync",
+                f"{metrics['approvedAssetsMissingMetrics']} approved assets have no performance snapshot.",
+            )
+        )
     if missing["captionOutcomeContext"]:
-        blockers["risksLosingTracking"].append(_blocker("missing_caption_outcome_context", f"{missing['captionOutcomeContext']} rendered assets are missing caption outcome context."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_caption_outcome_context",
+                f"{missing['captionOutcomeContext']} rendered assets are missing caption outcome context.",
+            )
+        )
     if snapshots_missing_caption_context:
-        blockers["risksLosingTracking"].append(_blocker("missing_snapshot_caption_outcome_context", f"{snapshots_missing_caption_context} performance snapshots are missing caption outcome context."))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "missing_snapshot_caption_outcome_context",
+                f"{snapshots_missing_caption_context} performance snapshots are missing caption outcome context.",
+            )
+        )
     if posting_ledger_audit.get("matchingSlotCount"):
-        blockers["risksLosingTracking"].append(_blocker(
-            "external_posting_ledger_slots",
-            f"{posting_ledger_audit['matchingSlotCount']} matching posting slots exist in Reel Factory's local ledger outside Campaign Factory.",
-            {"canonicalOwner": posting_ledger_audit.get("canonicalOwner"), "ledgerPath": posting_ledger_audit.get("ledgerDbPath")},
-        ))
+        blockers["risksLosingTracking"].append(
+            _blocker(
+                "external_posting_ledger_slots",
+                f"{posting_ledger_audit['matchingSlotCount']} matching posting slots exist in Reel Factory's local ledger outside Campaign Factory.",
+                {
+                    "canonicalOwner": posting_ledger_audit.get("canonicalOwner"),
+                    "ledgerPath": posting_ledger_audit.get("ledgerDbPath"),
+                },
+            )
+        )
     for key, label in (
         ("byRenderedAsset", "rendered_asset_reuse"),
         ("byContentFingerprint", "content_fingerprint_reuse"),
         ("bySourceReferenceOrFamily", "source_family_reuse"),
     ):
         if duplicate_risk.get(key):
-            blockers["risksDuplicatePosting"].append(_blocker(label, f"{len(duplicate_risk[key])} duplicate-risk groups found.", {"groups": duplicate_risk[key]}))
+            blockers["risksDuplicatePosting"].append(
+                _blocker(
+                    label,
+                    f"{len(duplicate_risk[key])} duplicate-risk groups found.",
+                    {"groups": duplicate_risk[key]},
+                )
+            )
     if schedule["failedSlotCount"] or schedule["skippedSlotCount"]:
-        blockers["risksWastingPaidGeneration"].append(_blocker("failed_or_skipped_slots", "Some planned slots are marked failed/skipped.", {"failed": schedule["failedSlotCount"], "skipped": schedule["skippedSlotCount"]}))
+        blockers["risksWastingPaidGeneration"].append(
+            _blocker(
+                "failed_or_skipped_slots",
+                "Some planned slots are marked failed/skipped.",
+                {
+                    "failed": schedule["failedSlotCount"],
+                    "skipped": schedule["skippedSlotCount"],
+                },
+            )
+        )
     if schedule["scheduleGaps"]["full"]["minGap"] > 0:
-        blockers["niceToHave"].append(_blocker("full_scale_schedule_gap", f"Full-scale minimum target is short by {schedule['scheduleGaps']['full']['minGap']} slots."))
+        blockers["niceToHave"].append(
+            _blocker(
+                "full_scale_schedule_gap",
+                f"Full-scale minimum target is short by {schedule['scheduleGaps']['full']['minGap']} slots.",
+            )
+        )
     return blockers
 
 
@@ -766,13 +1008,19 @@ def _scale_readiness(
     )
     pilot_blockers = list(common_blockers)
     if schedule["scheduleGaps"]["pilot"]["gap"] > 0:
-        pilot_blockers.append(f"pilot schedule is short by {schedule['scheduleGaps']['pilot']['gap']} slots")
+        pilot_blockers.append(
+            f"pilot schedule is short by {schedule['scheduleGaps']['pilot']['gap']} slots"
+        )
     twenty_blockers = list(common_blockers)
     if schedule["scheduleGaps"]["twentyAccountScale"]["minGap"] > 0:
-        twenty_blockers.append(f"20-account schedule is short by {schedule['scheduleGaps']['twentyAccountScale']['minGap']} minimum slots")
+        twenty_blockers.append(
+            f"20-account schedule is short by {schedule['scheduleGaps']['twentyAccountScale']['minGap']} minimum slots"
+        )
     full_blockers = list(common_blockers)
     if schedule["scheduleGaps"]["full"]["minGap"] > 0:
-        full_blockers.append(f"80-account schedule is short by {schedule['scheduleGaps']['full']['minGap']} minimum slots")
+        full_blockers.append(
+            f"80-account schedule is short by {schedule['scheduleGaps']['full']['minGap']} minimum slots"
+        )
     return {
         "pilot5Accounts": {
             "target": "5 accounts x 3 reels/day x days",
@@ -805,29 +1053,43 @@ def _common_scale_blockers(
     if approved_count <= 0:
         reasons.append("no approved assets")
     if missing["canonicalIds"]:
-        reasons.append(f"{missing['canonicalIds']} assets missing Campaign Factory canonical IDs")
+        reasons.append(
+            f"{missing['canonicalIds']} assets missing Campaign Factory canonical IDs"
+        )
     if missing["lineage"]:
         reasons.append(f"{missing['lineage']} assets missing lineage")
     if missing["renderedOutputPath"]:
-        reasons.append(f"{missing['renderedOutputPath']} assets missing rendered output paths")
+        reasons.append(
+            f"{missing['renderedOutputPath']} assets missing rendered output paths"
+        )
     if missing["caption"]:
         reasons.append(f"{missing['caption']} assets missing captions")
     if missing["audioStatus"]:
         reasons.append(f"{missing['audioStatus']} assets missing audio status")
     if missing["accountAssignment"]:
-        reasons.append(f"{missing['accountAssignment']} assets missing account assignment or distribution plan")
+        reasons.append(
+            f"{missing['accountAssignment']} assets missing account assignment or distribution plan"
+        )
     if unresolved_audio_count:
-        reasons.append(f"{unresolved_audio_count} assets blocked by unresolved native audio")
+        reasons.append(
+            f"{unresolved_audio_count} assets blocked by unresolved native audio"
+        )
     if any(duplicate_risk.values()):
-        reasons.append("duplicate risk exists by rendered asset, fingerprint, or source family")
+        reasons.append(
+            "duplicate risk exists by rendered asset, fingerprint, or source family"
+        )
     if threadsdash_readiness and threadsdash_readiness.get("blockingReasons"):
         reasons.append("ThreadDash export readiness has blocking reasons")
     if posting_ledger_audit.get("matchingSlotCount"):
-        reasons.append("Reel Factory posting_ledger has matching external slots; migrate or mirror schedule state into Campaign Factory")
+        reasons.append(
+            "Reel Factory posting_ledger has matching external slots; migrate or mirror schedule state into Campaign Factory"
+        )
     return reasons
 
 
-def _external_posting_ledger_audit(factory: CampaignFactory, campaign: dict[str, Any], *, days: int) -> dict[str, Any]:
+def _external_posting_ledger_audit(
+    factory: CampaignFactory, campaign: dict[str, Any], *, days: int
+) -> dict[str, Any]:
     reel_root = Path(factory.settings.reel_factory_root)
     ledger_db = reel_root / "manifest.sqlite"
     base = {
@@ -852,9 +1114,18 @@ def _external_posting_ledger_audit(factory: CampaignFactory, campaign: dict[str,
     try:
         conn = sqlite3.connect(f"file:{ledger_db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        table = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='posting_slots'").fetchone()
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='posting_slots'"
+        ).fetchone()
         if not table:
-            return {**base, "exists": True, "notes": [*base["notes"], "manifest.sqlite exists but has no posting_slots table."]}
+            return {
+                **base,
+                "exists": True,
+                "notes": [
+                    *base["notes"],
+                    "manifest.sqlite exists but has no posting_slots table.",
+                ],
+            }
         campaign_keys = (campaign["id"], campaign["slug"])
         rows = [
             dict(row)
@@ -868,22 +1139,38 @@ def _external_posting_ledger_audit(factory: CampaignFactory, campaign: dict[str,
             ).fetchall()
         ]
     except sqlite3.Error as exc:
-        return {**base, "exists": True, "error": str(exc), "requiresMigrationToCampaignFactory": True}
+        return {
+            **base,
+            "exists": True,
+            "error": str(exc),
+            "requiresMigrationToCampaignFactory": True,
+        }
     finally:
         if conn is not None:
             conn.close()
     promoted_slot_ids = _promoted_reel_slot_ids(factory, rows)
-    unpromoted_rows = [row for row in rows if row.get("posting_slot_id") not in promoted_slot_ids]
-    status_counts = Counter(row.get("post_status") or "unknown" for row in unpromoted_rows)
-    slot_type_counts = Counter(row.get("slot_type") or "unknown" for row in unpromoted_rows)
+    unpromoted_rows = [
+        row for row in rows if row.get("posting_slot_id") not in promoted_slot_ids
+    ]
+    status_counts = Counter(
+        row.get("post_status") or "unknown" for row in unpromoted_rows
+    )
+    slot_type_counts = Counter(
+        row.get("slot_type") or "unknown" for row in unpromoted_rows
+    )
     account_day: dict[str, dict[str, Any]] = {}
     for row in unpromoted_rows:
         key = f"{row.get('account_id') or row.get('account_handle')}|{row.get('date')}"
-        item = account_day.setdefault(key, {
-            "account": row.get("account_id") or row.get("account_handle") or "unknown",
-            "day": row.get("date"),
-            "total": 0,
-        })
+        item = account_day.setdefault(
+            key,
+            {
+                "account": row.get("account_id")
+                or row.get("account_handle")
+                or "unknown",
+                "day": row.get("date"),
+                "total": 0,
+            },
+        )
         item["total"] += 1
     return {
         **base,
@@ -892,13 +1179,21 @@ def _external_posting_ledger_audit(factory: CampaignFactory, campaign: dict[str,
         "totalExternalSlotCount": len(rows),
         "statusCounts": dict(status_counts),
         "slotTypeCounts": dict(slot_type_counts),
-        "accountDayCounts": sorted(account_day.values(), key=lambda row: (row["day"] or "", row["account"])),
+        "accountDayCounts": sorted(
+            account_day.values(), key=lambda row: (row["day"] or "", row["account"])
+        ),
         "requiresMigrationToCampaignFactory": bool(unpromoted_rows),
     }
 
 
-def _promoted_reel_slot_ids(factory: CampaignFactory, rows: list[dict[str, Any]]) -> set[str]:
-    slot_ids = [str(row.get("posting_slot_id") or "") for row in rows if row.get("posting_slot_id")]
+def _promoted_reel_slot_ids(
+    factory: CampaignFactory, rows: list[dict[str, Any]]
+) -> set[str]:
+    slot_ids = [
+        str(row.get("posting_slot_id") or "")
+        for row in rows
+        if row.get("posting_slot_id")
+    ]
     if not slot_ids:
         return set()
     placeholders = ",".join("?" for _ in slot_ids)
@@ -918,11 +1213,17 @@ def _promoted_reel_slot_ids(factory: CampaignFactory, rows: list[dict[str, Any]]
         """,
         tuple(f"reel_ledger:{slot_id}" for slot_id in slot_ids),
     ).fetchall()
-    reason_slot_ids = {str(row["reason_code"]).split(":", 1)[1] for row in reason_rows if ":" in str(row["reason_code"])}
+    reason_slot_ids = {
+        str(row["reason_code"]).split(":", 1)[1]
+        for row in reason_rows
+        if ":" in str(row["reason_code"])
+    }
     return graph_slot_ids | reason_slot_ids
 
 
-def _blocker(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+def _blocker(
+    code: str, message: str, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {"code": code, "message": message, "details": details or {}}
 
 

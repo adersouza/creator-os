@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run jobs from the local SQLite render queue."""
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,7 @@ async def _run_one(queue: Any, worker_id: str) -> bool:
     while True:
         try:
             line = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             queue.heartbeat(job["job_id"], worker_id)
             continue
         if not line:
@@ -36,14 +37,21 @@ async def _run_one(queue: Any, worker_id: str) -> bool:
         last = line.decode(errors="replace").strip()
         queue.heartbeat(job["job_id"], worker_id)
     rc = await proc.wait()
-    queue.finish(job["job_id"], "succeeded" if rc == 0 else "failed", error_text=None if rc == 0 else last)
+    queue.finish(
+        job["job_id"],
+        "succeeded" if rc == 0 else "failed",
+        error_text=None if rc == 0 else last,
+    )
     return True
 
 
-async def run_workers(root: Path, *, workers: int = 3, once: bool = False,
-                      backend: str = "sqlite") -> dict:
+async def run_workers(
+    root: Path, *, workers: int = 3, once: bool = False, backend: str = "sqlite"
+) -> dict:
     queue = get_queue(root, backend)
-    worker_ids = [f"{socket.gethostname()}-{i}-{int(time.time())}" for i in range(workers)]
+    worker_ids = [
+        f"{socket.gethostname()}-{i}-{int(time.time())}" for i in range(workers)
+    ]
     completed = 0
     while True:
         queue.recover_stale()
@@ -60,11 +68,23 @@ def main() -> int:
     ap.add_argument("--root", default=".")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--once", action="store_true")
-    ap.add_argument("--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite")
+    ap.add_argument(
+        "--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite"
+    )
     args = ap.parse_args()
-    print(json.dumps(asyncio.run(run_workers(
-        Path(args.root), workers=args.workers, once=args.once, backend=args.queue_backend
-    )), indent=2))
+    print(
+        json.dumps(
+            asyncio.run(
+                run_workers(
+                    Path(args.root),
+                    workers=args.workers,
+                    once=args.once,
+                    backend=args.queue_backend,
+                )
+            ),
+            indent=2,
+        )
+    )
     return 0
 
 

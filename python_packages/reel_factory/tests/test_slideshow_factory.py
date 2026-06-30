@@ -4,8 +4,12 @@ import unittest
 from pathlib import Path
 
 from PIL import Image
-
-from slideshow_factory import build_slideshow, discover_media, render_grid_preview, render_slide
+from slideshow_factory import (
+    build_slideshow,
+    discover_media,
+    render_grid_preview,
+    render_slide,
+)
 
 
 class SlideshowFactoryTests(unittest.TestCase):
@@ -51,7 +55,9 @@ class SlideshowFactoryTests(unittest.TestCase):
             ]
             out = root / "grid.jpg"
 
-            render_grid_preview(slides, out, title="Claude = 550 videos/day", fonts_dir=Path("fonts"))
+            render_grid_preview(
+                slides, out, title="Claude = 550 videos/day", fonts_dir=Path("fonts")
+            )
 
             self.assertTrue(out.exists())
             with Image.open(out) as img:

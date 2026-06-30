@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class ContentForgeVisualQCRepository:
@@ -86,12 +87,16 @@ class ContentForgeVisualQCRepository:
             content_surface=surface,
             lookback_days=lookback_days,
         )
-        variants = [asset for asset in assets if self._schedule_safe_is_variant_asset(asset)]
+        variants = [
+            asset for asset in assets if self._schedule_safe_is_variant_asset(asset)
+        ]
         failures = [
             self.contentforge_visual_qc_failure_for_asset(asset, surface)
             for asset in variants
         ]
-        visual_failures = [failure for failure in failures if not failure["visualQcPassed"]]
+        visual_failures = [
+            failure for failure in failures if not failure["visualQcPassed"]
+        ]
         categories = self.contentforge_visual_qc_category_rows(visual_failures)
         ranked = sorted(
             categories,
@@ -102,25 +107,43 @@ class ContentForgeVisualQCRepository:
                 str(row.get("failureCategory") or ""),
             ),
         )
-        top = ranked[0] if ranked else {
-            "failureCategory": "",
-            "count": 0,
-            "repairable": False,
-            "estimatedInventoryGain": 0,
-        }
+        top = (
+            ranked[0]
+            if ranked
+            else {
+                "failureCategory": "",
+                "count": 0,
+                "repairable": False,
+                "estimatedInventoryGain": 0,
+            }
+        )
         top3 = [row["failureCategory"] for row in ranked[:3]]
-        all_surface_assets = self._surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+        all_surface_assets = self._surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
         all_surface_assets = [
-            asset for asset in all_surface_assets
-            if self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface")) == surface
+            asset
+            for asset in all_surface_assets
+            if self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
+            == surface
         ]
         current = (
             int(current_inventory)
             if current_inventory is not None
-            else sum(1 for item in self._build_surface_readiness(all_surface_assets) if item.get("canHandoff"))
+            else sum(
+                1
+                for item in self._build_surface_readiness(all_surface_assets)
+                if item.get("canHandoff")
+            )
         )
-        top_gain = self.contentforge_visual_qc_recovered_inventory(visual_failures, [str(top.get("failureCategory") or "")])
-        top3_gain = self.contentforge_visual_qc_recovered_inventory(visual_failures, top3)
+        top_gain = self.contentforge_visual_qc_recovered_inventory(
+            visual_failures, [str(top.get("failureCategory") or "")]
+        )
+        top3_gain = self.contentforge_visual_qc_recovered_inventory(
+            visual_failures, top3
+        )
         return {
             "schema": "creator_os.contentforge_visual_qc_failure_report.v1",
             "creator": creator,
@@ -146,7 +169,9 @@ class ContentForgeVisualQCRepository:
                 "requiredFor25Accounts": int(required_inventory),
                 "remainingGap": max(0, int(required_inventory) - (current + top_gain)),
             },
-            "mostImportantAnswer": self.contentforge_visual_qc_answer(top, len(visual_failures)),
+            "mostImportantAnswer": self.contentforge_visual_qc_answer(
+                top, len(visual_failures)
+            ),
             "wouldWrite": False,
         }
 
@@ -157,11 +182,31 @@ class ContentForgeVisualQCRepository:
             "variantsCreated": int(report.get("variantsAnalyzed") or 0),
             "visualQcPassed": int(report.get("visualQcPassed") or 0),
             "visualQcFailed": int(report.get("visualQcFailed") or 0),
-            "operatorReviewRequired": sum(1 for item in failed if item.get("failureCategory") == "operator_visual_review_required"),
-            "metadataFailures": sum(1 for item in failed if item.get("failureCategory") == "visual_metadata_missing"),
-            "trueVisualFailures": sum(1 for item in failed if item.get("failureCategory") == "actual_visual_quality_failure"),
-            "lineageFailures": sum(1 for item in failed if item.get("failureCategory") == "wrong_visual_lineage"),
-            "captionPlacementFailures": sum(1 for item in failed if item.get("failureCategory") == "caption_placement_failure"),
+            "operatorReviewRequired": sum(
+                1
+                for item in failed
+                if item.get("failureCategory") == "operator_visual_review_required"
+            ),
+            "metadataFailures": sum(
+                1
+                for item in failed
+                if item.get("failureCategory") == "visual_metadata_missing"
+            ),
+            "trueVisualFailures": sum(
+                1
+                for item in failed
+                if item.get("failureCategory") == "actual_visual_quality_failure"
+            ),
+            "lineageFailures": sum(
+                1
+                for item in failed
+                if item.get("failureCategory") == "wrong_visual_lineage"
+            ),
+            "captionPlacementFailures": sum(
+                1
+                for item in failed
+                if item.get("failureCategory") == "caption_placement_failure"
+            ),
         }
         return {
             "schema": "creator_os.contentforge_visual_qc_waterfall.v1",
@@ -176,7 +221,11 @@ class ContentForgeVisualQCRepository:
         report = self.contentforge_visual_qc_failure_report(**kwargs)
         ranked = sorted(
             report.get("failureCategories") or [],
-            key=lambda row: (-int(row.get("count") or 0), -int(row.get("estimatedInventoryGain") or 0), str(row.get("failureCategory") or "")),
+            key=lambda row: (
+                -int(row.get("count") or 0),
+                -int(row.get("estimatedInventoryGain") or 0),
+                str(row.get("failureCategory") or ""),
+            ),
         )
         return {
             "schema": "creator_os.contentforge_visual_qc_loss_analysis.v1",
@@ -191,7 +240,8 @@ class ContentForgeVisualQCRepository:
     def contentforge_visual_qc_repair_plan(self, **kwargs: Any) -> dict[str, Any]:
         report = self.contentforge_visual_qc_failure_report(**kwargs)
         repairable = [
-            row for row in report.get("failureCategories") or []
+            row
+            for row in report.get("failureCategories") or []
             if row.get("repairable") and int(row.get("count") or 0) > 0
         ]
         return {
@@ -200,7 +250,11 @@ class ContentForgeVisualQCRepository:
             "contentSurface": report.get("contentSurface"),
             "repairActions": sorted(
                 repairable,
-                key=lambda row: (-int(row.get("estimatedInventoryGain") or 0), int(row.get("estimatedOperatorMinutes") or 0), str(row.get("failureCategory") or "")),
+                key=lambda row: (
+                    -int(row.get("estimatedInventoryGain") or 0),
+                    int(row.get("estimatedOperatorMinutes") or 0),
+                    str(row.get("failureCategory") or ""),
+                ),
             ),
             "recoveryProjection": report.get("recoveryProjection"),
             "wouldWrite": False,
@@ -220,25 +274,53 @@ class ContentForgeVisualQCRepository:
             "wouldWrite": False,
         }
 
-    def contentforge_visual_qc_failure_for_asset(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+    def contentforge_visual_qc_failure_for_asset(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
         readiness = self._surface_handoff_readiness_for_asset(asset)
-        publishability = self._explain_publishability(str(asset["id"])) if surface == "reel" else {}
-        checks = publishability.get("checks") if isinstance(publishability.get("checks"), dict) else {}
-        blockers = sorted({
-            str(reason).replace("publishability:", "")
-            for reason in list(readiness.get("blockingReasons") or []) + list(publishability.get("publishability_failure_reasons") or [])
-        })
-        visual_passed = bool(checks.get("operator_visual_review_passed", "operator_visual_review_required" not in blockers))
-        category = "" if visual_passed else self.contentforge_visual_qc_failure_category(asset, blockers, readiness, publishability)
+        publishability = (
+            self._explain_publishability(str(asset["id"])) if surface == "reel" else {}
+        )
+        checks = (
+            publishability.get("checks")
+            if isinstance(publishability.get("checks"), dict)
+            else {}
+        )
+        blockers = sorted(
+            {
+                str(reason).replace("publishability:", "")
+                for reason in list(readiness.get("blockingReasons") or [])
+                + list(publishability.get("publishability_failure_reasons") or [])
+            }
+        )
+        visual_passed = bool(
+            checks.get(
+                "operator_visual_review_passed",
+                "operator_visual_review_required" not in blockers,
+            )
+        )
+        category = (
+            ""
+            if visual_passed
+            else self.contentforge_visual_qc_failure_category(
+                asset, blockers, readiness, publishability
+            )
+        )
         non_visual_blockers = [
-            blocker for blocker in blockers
-            if self.contentforge_visual_qc_failure_category(asset, [blocker], readiness, publishability) != category
+            blocker
+            for blocker in blockers
+            if self.contentforge_visual_qc_failure_category(
+                asset, [blocker], readiness, publishability
+            )
+            != category
         ]
         inventory_gain = (
             1
             if category
             and self.CONTENTFORGE_VISUAL_QC_REPAIRABLE.get(category, False)
-            and self.contentforge_non_visual_gates_pass(checks, readiness, publishability, non_visual_blockers)
+            and self.contentforge_non_visual_gates_pass(
+                checks, readiness, publishability, non_visual_blockers
+            )
             else 0
         )
         return {
@@ -249,7 +331,9 @@ class ContentForgeVisualQCRepository:
             "failureCategory": category,
             "blockingReasons": blockers,
             "nonVisualBlockers": non_visual_blockers,
-            "repairable": bool(self.CONTENTFORGE_VISUAL_QC_REPAIRABLE.get(category, False)),
+            "repairable": bool(
+                self.CONTENTFORGE_VISUAL_QC_REPAIRABLE.get(category, False)
+            ),
             "estimatedInventoryGain": inventory_gain,
             "wouldWrite": False,
         }
@@ -261,12 +345,15 @@ class ContentForgeVisualQCRepository:
         readiness: dict[str, Any],
         publishability: dict[str, Any],
     ) -> str:
-        text = " ".join(blockers + [
-            str(asset.get("filename") or ""),
-            str(asset.get("campaign_slug") or ""),
-            str(asset.get("recipe") or ""),
-            str(asset.get("output_path") or ""),
-        ]).lower()
+        text = " ".join(
+            blockers
+            + [
+                str(asset.get("filename") or ""),
+                str(asset.get("campaign_slug") or ""),
+                str(asset.get("recipe") or ""),
+                str(asset.get("output_path") or ""),
+            ]
+        ).lower()
         if "operator_visual_review_required" in text:
             return "operator_visual_review_required"
         if any(token in text for token in ("caption_placement", "caption placement")):
@@ -279,17 +366,46 @@ class ContentForgeVisualQCRepository:
             return "aspect_ratio_failure"
         if "duplicate" in text or "cooldown" in text:
             return "duplicate_visual_failure"
-        if any(token in text for token in ("wrong_visual", "passthrough", "wrong_approved_asset")):
+        if any(
+            token in text
+            for token in ("wrong_visual", "passthrough", "wrong_approved_asset")
+        ):
             return "wrong_visual_lineage"
-        if any(token in text for token in ("proof", "preview", "audio_preview", "surface_proof")):
+        if any(
+            token in text
+            for token in ("proof", "preview", "audio_preview", "surface_proof")
+        ):
             return "proof_asset_only"
         if "trial" in text:
             return "trial_asset_only"
-        if any(token in text for token in ("metadata", "content_hash", "fingerprint", "caption_outcome_context", "caption_hash")):
+        if any(
+            token in text
+            for token in (
+                "metadata",
+                "content_hash",
+                "fingerprint",
+                "caption_outcome_context",
+                "caption_hash",
+            )
+        ):
             return "visual_metadata_missing"
-        if any(token in text for token in ("visual_quality", "head_cutoff", "face_cutoff", "black_bars", "letterbox", "pillarbox")):
+        if any(
+            token in text
+            for token in (
+                "visual_quality",
+                "head_cutoff",
+                "face_cutoff",
+                "black_bars",
+                "letterbox",
+                "pillarbox",
+            )
+        ):
             return "actual_visual_quality_failure"
-        if not blockers and not publishability.get("publishableCandidate") and not readiness.get("canHandoff"):
+        if (
+            not blockers
+            and not publishability.get("publishableCandidate")
+            and not readiness.get("canHandoff")
+        ):
             return "visual_metadata_missing"
         return "unknown"
 
@@ -301,31 +417,53 @@ class ContentForgeVisualQCRepository:
         non_visual_blockers: list[str],
     ) -> bool:
         ignored = {"operator_visual_review_required"}
-        remaining = [blocker for blocker in non_visual_blockers if blocker not in ignored and blocker != "handoff_manifest_missing"]
+        remaining = [
+            blocker
+            for blocker in non_visual_blockers
+            if blocker not in ignored and blocker != "handoff_manifest_missing"
+        ]
         return bool(
             not remaining
             and checks.get("caption_placement_qc_passed", True)
-            and checks.get("discoverability_safe", readiness.get("discoverabilitySafe", True))
+            and checks.get(
+                "discoverability_safe", readiness.get("discoverabilitySafe", True)
+            )
             and checks.get("instagram_post_caption_quality_passed", True)
         )
 
-    def contentforge_visual_qc_category_rows(self, failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def contentforge_visual_qc_category_rows(
+        self, failures: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         total = len(failures)
         rows = []
         for category in self.CONTENTFORGE_VISUAL_QC_CATEGORIES:
-            matching = [item for item in failures if item.get("failureCategory") == category]
-            rows.append({
-                "failureCategory": category,
-                "count": len(matching),
-                "percentOfVisualFailures": round((len(matching) / total) * 100, 1) if total else 0,
-                "repairable": bool(self.CONTENTFORGE_VISUAL_QC_REPAIRABLE.get(category, False)),
-                "estimatedInventoryGain": sum(int(item.get("estimatedInventoryGain") or 0) for item in matching),
-                "estimatedOperatorMinutes": len(matching) * int(self.CONTENTFORGE_VISUAL_QC_MINUTES.get(category, 10)),
-                "wouldWrite": False,
-            })
+            matching = [
+                item for item in failures if item.get("failureCategory") == category
+            ]
+            rows.append(
+                {
+                    "failureCategory": category,
+                    "count": len(matching),
+                    "percentOfVisualFailures": round((len(matching) / total) * 100, 1)
+                    if total
+                    else 0,
+                    "repairable": bool(
+                        self.CONTENTFORGE_VISUAL_QC_REPAIRABLE.get(category, False)
+                    ),
+                    "estimatedInventoryGain": sum(
+                        int(item.get("estimatedInventoryGain") or 0)
+                        for item in matching
+                    ),
+                    "estimatedOperatorMinutes": len(matching)
+                    * int(self.CONTENTFORGE_VISUAL_QC_MINUTES.get(category, 10)),
+                    "wouldWrite": False,
+                }
+            )
         return rows
 
-    def contentforge_visual_qc_recovered_inventory(self, failures: list[dict[str, Any]], categories: list[str]) -> int:
+    def contentforge_visual_qc_recovered_inventory(
+        self, failures: list[dict[str, Any]], categories: list[str]
+    ) -> int:
         selected = {category for category in categories if category}
         return sum(
             int(item.get("estimatedInventoryGain") or 0)
@@ -333,7 +471,9 @@ class ContentForgeVisualQCRepository:
             if item.get("failureCategory") in selected
         )
 
-    def contentforge_visual_qc_answer(self, top: dict[str, Any], total_failures: int) -> str:
+    def contentforge_visual_qc_answer(
+        self, top: dict[str, Any], total_failures: int
+    ) -> str:
         category = str(top.get("failureCategory") or "")
         count = int(top.get("count") or 0)
         if not category:

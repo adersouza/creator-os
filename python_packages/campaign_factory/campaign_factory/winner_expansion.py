@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import math
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .persistence import json_load, utc_now
 
@@ -35,7 +36,9 @@ class WinnerExpansionRepository:
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
         creator_label: Callable[[Any], str],
-        concept_payload: Callable[[sqlite3.Row | dict[str, Any] | None], dict[str, Any]],
+        concept_payload: Callable[
+            [sqlite3.Row | dict[str, Any] | None], dict[str, Any]
+        ],
     ) -> None:
         self.conn = conn
         self._campaign_by_slug = campaign_by_slug
@@ -54,7 +57,11 @@ class WinnerExpansionRepository:
         preset: str = "caption_safe_v2",
     ) -> dict[str, Any]:
         target = max(1, min(30, int(target_variants or 10)))
-        contentforge_preset = preset if preset in {"caption_safe_v2", "strong_safe"} else "caption_safe_v2"
+        contentforge_preset = (
+            preset
+            if preset in {"caption_safe_v2", "strong_safe"}
+            else "caption_safe_v2"
+        )
         parent = self._rendered_asset(parent_asset_id)
         concept = self._concept_for_parent_asset(parent_asset_id)
         can_proceed = concept is not None and bool(
@@ -73,7 +80,7 @@ class WinnerExpansionRepository:
         variant_family_id = (
             family_row["id"]
             if family_row
-            else f"vfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{contentforge_preset}:winner_expansion'.encode('utf-8')).hexdigest()[:12]}"
+            else f"vfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{contentforge_preset}:winner_expansion'.encode()).hexdigest()[:12]}"
         )
         rows = self.conn.execute(
             """
@@ -93,7 +100,9 @@ class WinnerExpansionRepository:
             candidate = self.winner_variant_candidate(payload, rendered)
             family_name = str(candidate.get("familyName") or "unknown")
             fingerprint = str(
-                candidate.get("contentFingerprint") or candidate.get("sourceFingerprint") or payload["variantAssetId"]
+                candidate.get("contentFingerprint")
+                or candidate.get("sourceFingerprint")
+                or payload["variantAssetId"]
             )
             if fingerprint in seen_fingerprints or family_name in seen_families:
                 rejected["duplicateSiblings"] += 1
@@ -109,10 +118,18 @@ class WinnerExpansionRepository:
             seen_families.add(family_name)
             valid_existing.append(candidate)
         recommended_new = max(0, target - len(valid_existing))
-        missing_families = [family for family in WINNER_EXPANSION_OPERATION_FAMILIES if family not in seen_families]
+        missing_families = [
+            family
+            for family in WINNER_EXPANSION_OPERATION_FAMILIES
+            if family not in seen_families
+        ]
         operation_families: list[str] = []
         while len(operation_families) < recommended_new:
-            source_families = missing_families if missing_families else WINNER_EXPANSION_OPERATION_FAMILIES
+            source_families = (
+                missing_families
+                if missing_families
+                else WINNER_EXPANSION_OPERATION_FAMILIES
+            )
             for family in source_families:
                 if len(operation_families) >= recommended_new:
                     break
@@ -128,7 +145,9 @@ class WinnerExpansionRepository:
             "recommendedNewVariants": recommended_new,
             "operationFamilies": operation_families,
             "canProceed": bool(can_proceed),
-            "blockingReason": "" if can_proceed else "parent_reel_not_registered_or_not_publishable",
+            "blockingReason": ""
+            if can_proceed
+            else "parent_reel_not_registered_or_not_publishable",
             "wouldWrite": False,
             "preset": contentforge_preset,
             "thresholds": dict(WINNER_EXPANSION_THRESHOLDS),
@@ -150,7 +169,11 @@ class WinnerExpansionRepository:
         target = max(0, int(target_draft_shortfall or 0))
         max_per_parent = max(1, min(30, int(max_variants_per_parent or 10)))
         minimum_recommended = max(1, int(minimum_recommended_per_parent or 1))
-        contentforge_preset = preset if preset in {"caption_safe_v2", "strong_safe"} else "caption_safe_v2"
+        contentforge_preset = (
+            preset
+            if preset in {"caption_safe_v2", "strong_safe"}
+            else "caption_safe_v2"
+        )
         creator_label = self._creator_label(creator)
         rows = self.conn.execute(
             """
@@ -166,16 +189,27 @@ class WinnerExpansionRepository:
             concept = self._concept_payload(row)
             asset = self._rendered_asset(concept["parentAssetId"])
             asset_creator = self._creator_label(
-                concept.get("creator") or asset.get("creator_model") or asset.get("creator_mix")
+                concept.get("creator")
+                or asset.get("creator_model")
+                or asset.get("creator_mix")
             )
-            if creator_label != "unknown" and asset_creator not in {creator_label, "unknown"}:
+            if creator_label != "unknown" and asset_creator not in {
+                creator_label,
+                "unknown",
+            }:
                 continue
             publishability = self._explain_publishability(concept["parentAssetId"])
-            checks = publishability.get("checks") if isinstance(publishability.get("checks"), dict) else {}
-            existing_count = int(self.conn.execute(
-                "SELECT COUNT(*) AS c FROM variant_assets WHERE parent_asset_id = ?",
-                (concept["parentAssetId"],),
-            ).fetchone()["c"])
+            checks = (
+                publishability.get("checks")
+                if isinstance(publishability.get("checks"), dict)
+                else {}
+            )
+            existing_count = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) AS c FROM variant_assets WHERE parent_asset_id = ?",
+                    (concept["parentAssetId"],),
+                ).fetchone()["c"]
+            )
             base_row = {
                 "parentAssetId": concept["parentAssetId"],
                 "parentReelId": concept["parentReelId"],
@@ -194,18 +228,26 @@ class WinnerExpansionRepository:
                     checks.get("audio_assigned")
                     and checks.get("embedded_audio_verified") is not False
                 ),
-                "instagramPostCaptionSafe": bool(checks.get("instagram_post_caption_present")),
+                "instagramPostCaptionSafe": bool(
+                    checks.get("instagram_post_caption_present")
+                ),
                 "reasonEligible": "",
                 "wouldWrite": False,
             }
             if not publishability.get("publishableCandidate"):
-                failures = list(publishability.get("publishability_failure_reasons") or [])
-                blocking_reason = self.variant_inventory_primary_blocking_reason(failures)
-                blocked.append({
-                    **base_row,
-                    "blockingReason": blocking_reason,
-                    "publishabilityFailureReasons": failures,
-                })
+                failures = list(
+                    publishability.get("publishability_failure_reasons") or []
+                )
+                blocking_reason = self.variant_inventory_primary_blocking_reason(
+                    failures
+                )
+                blocked.append(
+                    {
+                        **base_row,
+                        "blockingReason": blocking_reason,
+                        "publishabilityFailureReasons": failures,
+                    }
+                )
                 continue
             expansion = self.winner_expansion_plan(
                 creator=creator,
@@ -220,36 +262,48 @@ class WinnerExpansionRepository:
                 int(expansion.get("recommendedNewVariants") or 0),
             )
             if estimated_new <= 0:
-                blocked.append({
-                    **base_row,
-                    "existingRecommendedVariantCount": existing_recommended,
-                    "blockingReason": "variant_capacity_exhausted",
-                    "publishabilityFailureReasons": [],
-                })
+                blocked.append(
+                    {
+                        **base_row,
+                        "existingRecommendedVariantCount": existing_recommended,
+                        "blockingReason": "variant_capacity_exhausted",
+                        "publishabilityFailureReasons": [],
+                    }
+                )
                 continue
             if estimated_new < minimum_recommended and target > 0:
-                blocked.append({
-                    **base_row,
-                    "existingRecommendedVariantCount": existing_recommended,
-                    "estimatedNewRecommendedVariants": estimated_new,
-                    "operationFamiliesAvailable": list(expansion.get("operationFamilies") or [])[:estimated_new],
-                    "blockingReason": "below_minimum_recommended_per_parent",
-                    "publishabilityFailureReasons": [],
-                })
+                blocked.append(
+                    {
+                        **base_row,
+                        "existingRecommendedVariantCount": existing_recommended,
+                        "estimatedNewRecommendedVariants": estimated_new,
+                        "operationFamiliesAvailable": list(
+                            expansion.get("operationFamilies") or []
+                        )[:estimated_new],
+                        "blockingReason": "below_minimum_recommended_per_parent",
+                        "publishabilityFailureReasons": [],
+                    }
+                )
                 continue
             winner_rank = self.variant_inventory_winner_rank(
                 campaign_id=campaign_row["id"],
                 parent_asset_id=concept["parentAssetId"],
                 parent_reel_id=concept["parentReelId"],
             )
-            reason = "winner_metrics" if winner_rank["hasWinnerMetrics"] else "manual_approved_parent_reel"
+            reason = (
+                "winner_metrics"
+                if winner_rank["hasWinnerMetrics"]
+                else "manual_approved_parent_reel"
+            )
             quality_risk = self.variant_inventory_quality_risk(concept["parentAssetId"])
             family_id = str(expansion.get("variantFamilyId") or "")
             parent_row = {
                 **base_row,
                 "existingRecommendedVariantCount": existing_recommended,
                 "estimatedNewRecommendedVariants": estimated_new,
-                "operationFamiliesAvailable": list(expansion.get("operationFamilies") or [])[:estimated_new],
+                "operationFamiliesAvailable": list(
+                    expansion.get("operationFamilies") or []
+                )[:estimated_new],
                 "qualityRisk": quality_risk,
                 "captionSafe": True,
                 "audioSafe": True,
@@ -257,7 +311,9 @@ class WinnerExpansionRepository:
                 "reasonEligible": reason,
                 "variantFamilyId": family_id,
                 "preset": contentforge_preset,
-                "winnerMetrics": winner_rank["metrics"] if winner_rank["hasWinnerMetrics"] else {},
+                "winnerMetrics": winner_rank["metrics"]
+                if winner_rank["hasWinnerMetrics"]
+                else {},
                 "_sort": (
                     0 if winner_rank["hasWinnerMetrics"] else 1,
                     -int(winner_rank["score"]),
@@ -273,10 +329,14 @@ class WinnerExpansionRepository:
         for candidate in candidates:
             if remaining <= 0:
                 break
-            requested = min(int(candidate["estimatedNewRecommendedVariants"]), remaining)
+            requested = min(
+                int(candidate["estimatedNewRecommendedVariants"]), remaining
+            )
             if requested <= 0:
                 continue
-            families = list(candidate.get("operationFamiliesAvailable") or [])[:requested]
+            families = list(candidate.get("operationFamiliesAvailable") or [])[
+                :requested
+            ]
             batch = {
                 "parentAssetId": candidate["parentAssetId"],
                 "preset": contentforge_preset,
@@ -285,16 +345,18 @@ class WinnerExpansionRepository:
                 "operationFamilies": families,
             }
             execution_batches.append(batch)
-            planned_families.append({
-                "parentAssetId": candidate["parentAssetId"],
-                "parentReelId": candidate["parentReelId"],
-                "conceptId": candidate["conceptId"],
-                "variantFamilyId": candidate["variantFamilyId"],
-                "preset": contentforge_preset,
-                "requestedVariants": requested,
-                "operationFamilies": families,
-                "wouldWrite": False,
-            })
+            planned_families.append(
+                {
+                    "parentAssetId": candidate["parentAssetId"],
+                    "parentReelId": candidate["parentReelId"],
+                    "conceptId": candidate["conceptId"],
+                    "variantFamilyId": candidate["variantFamilyId"],
+                    "preset": contentforge_preset,
+                    "requestedVariants": requested,
+                    "operationFamilies": families,
+                    "wouldWrite": False,
+                }
+            )
             estimated_total += requested
             remaining -= requested
         eligible_parents = []
@@ -315,8 +377,12 @@ class WinnerExpansionRepository:
             "estimatedRecommendedVariants": estimated_total,
             "missingRecommendedVariants": missing,
             "canFillShortfall": can_fill,
-            "blockingReason": "" if can_fill else f"insufficient_eligible_parent_inventory_missing_{missing}_variants",
-            "nextSafeAction": "execute_contentforge_variant_batches" if can_fill else "create_or_import_more_parent_reels",
+            "blockingReason": ""
+            if can_fill
+            else f"insufficient_eligible_parent_inventory_missing_{missing}_variants",
+            "nextSafeAction": "execute_contentforge_variant_batches"
+            if can_fill
+            else "create_or_import_more_parent_reels",
             "executionBatches": execution_batches,
             "preset": contentforge_preset,
             "maxVariantsPerParent": max_per_parent,
@@ -354,7 +420,9 @@ class WinnerExpansionRepository:
             metrics = {
                 "views": int(data.get("views") or 0),
                 "reach": int(data.get("reach") or 0),
-                "followers": int(raw.get("followers") or 0) if isinstance(raw, dict) else 0,
+                "followers": int(raw.get("followers") or 0)
+                if isinstance(raw, dict)
+                else 0,
                 "likes": int(data.get("likes") or 0),
                 "comments": int(data.get("comments") or 0),
                 "shares": int(data.get("shares") or 0),
@@ -370,16 +438,20 @@ class WinnerExpansionRepository:
             if not reason:
                 continue
             seen_posts.add(str(post_id))
-            winners.append({
-                "postId": post_id,
-                "assetId": data.get("rendered_asset_id") or "",
-                "parentReelId": data.get("parent_reel_id") or "",
-                "variantFamilyId": data.get("variant_family_id") or "",
-                "reason": reason,
-                "recommendedAction": "create_more_variants" if data.get("parent_reel_id") else "make_similar_reel",
-                "wouldWrite": False,
-                "metrics": metrics,
-            })
+            winners.append(
+                {
+                    "postId": post_id,
+                    "assetId": data.get("rendered_asset_id") or "",
+                    "parentReelId": data.get("parent_reel_id") or "",
+                    "variantFamilyId": data.get("variant_family_id") or "",
+                    "reason": reason,
+                    "recommendedAction": "create_more_variants"
+                    if data.get("parent_reel_id")
+                    else "make_similar_reel",
+                    "wouldWrite": False,
+                    "metrics": metrics,
+                }
+            )
         return {
             "schema": "campaign_factory.winner_expansion_report.v1",
             "campaign": campaign["slug"],
@@ -394,11 +466,21 @@ class WinnerExpansionRepository:
             "summary": {"winnerCount": len(winners)},
         }
 
-    def winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
-        operation_result = self.contentforge_result_from_operations(variant_payload.get("variantOperations") or [])
-        audit_result = self.latest_variant_audit_result(variant_payload.get("variantAssetId") or "")
+    def winner_variant_candidate(
+        self, variant_payload: dict[str, Any], rendered: dict[str, Any]
+    ) -> dict[str, Any]:
+        operation_result = self.contentforge_result_from_operations(
+            variant_payload.get("variantOperations") or []
+        )
+        audit_result = self.latest_variant_audit_result(
+            variant_payload.get("variantAssetId") or ""
+        )
         merged = {**operation_result, **audit_result}
-        readiness = merged.get("readinessSummary") if isinstance(merged.get("readinessSummary"), dict) else {}
+        readiness = (
+            merged.get("readinessSummary")
+            if isinstance(merged.get("readinessSummary"), dict)
+            else {}
+        )
         return {
             "variantId": variant_payload.get("variantId"),
             "variantAssetId": variant_payload.get("variantAssetId"),
@@ -406,12 +488,22 @@ class WinnerExpansionRepository:
             "parentAssetId": variant_payload.get("parentAssetId"),
             "familyName": merged.get("familyName")
             or (merged.get("variantFamilyRecipe") or {}).get("familyName")
-            or self.operation_family_from_operations(variant_payload.get("variantOperations") or []),
-            "uploadReady": bool(merged.get("uploadReady") if "uploadReady" in merged else readiness.get("uploadReady")),
+            or self.operation_family_from_operations(
+                variant_payload.get("variantOperations") or []
+            ),
+            "uploadReady": bool(
+                merged.get("uploadReady")
+                if "uploadReady" in merged
+                else readiness.get("uploadReady")
+            ),
             "qualityScore": self.score_value(merged.get("qualityScore")),
-            "captionReadabilityScore": self.score_value(merged.get("captionReadabilityScore")),
+            "captionReadabilityScore": self.score_value(
+                merged.get("captionReadabilityScore")
+            ),
             "focalSafetyScore": self.score_value(merged.get("focalSafetyScore")),
-            "operationDiversityScore": self.score_value(merged.get("operationDiversityScore")),
+            "operationDiversityScore": self.score_value(
+                merged.get("operationDiversityScore")
+            ),
             "differenceScore": self.score_value(merged.get("differenceScore")),
             "contentFingerprint": variant_payload.get("contentFingerprint")
             or rendered.get("content_hash")
@@ -419,7 +511,9 @@ class WinnerExpansionRepository:
             "sourceFingerprint": variant_payload.get("sourceFingerprint"),
         }
 
-    def winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    def winner_variant_candidate_decision(
+        self, candidate: dict[str, Any]
+    ) -> dict[str, Any]:
         blocking: list[str] = []
         if candidate.get("uploadReady") is not True:
             blocking.append("not_upload_ready")
@@ -439,28 +533,46 @@ class WinnerExpansionRepository:
             report = json_load(Path(row["report_path"]).read_text(encoding="utf-8"), {})
         except OSError:
             return {}
-        variant = report.get("variant") if isinstance(report.get("variant"), dict) else {}
-        readiness = report.get("readinessSummary") if isinstance(report.get("readinessSummary"), dict) else {}
+        variant = (
+            report.get("variant") if isinstance(report.get("variant"), dict) else {}
+        )
+        readiness = (
+            report.get("readinessSummary")
+            if isinstance(report.get("readinessSummary"), dict)
+            else {}
+        )
         return {**variant, "readinessSummary": readiness}
 
-    def contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+    def contentforge_result_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         for operation in operations:
             if not isinstance(operation, dict):
                 continue
             result = operation.get("result")
-            if operation.get("type") == "contentforge_result" and isinstance(result, dict):
+            if operation.get("type") == "contentforge_result" and isinstance(
+                result, dict
+            ):
                 return result
         return {}
 
-    def operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
+    def operation_family_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> str | None:
         for operation in operations:
             if not isinstance(operation, dict):
                 continue
             family = operation.get("familyName")
             if family:
                 return str(family)
-            result = operation.get("result") if isinstance(operation.get("result"), dict) else {}
-            family = result.get("familyName") or (result.get("variantFamilyRecipe") or {}).get("familyName")
+            result = (
+                operation.get("result")
+                if isinstance(operation.get("result"), dict)
+                else {}
+            )
+            family = result.get("familyName") or (
+                result.get("variantFamilyRecipe") or {}
+            ).get("familyName")
             if family:
                 return str(family)
         return None
@@ -497,7 +609,10 @@ class WinnerExpansionRepository:
         if not row:
             return "high"
         score = self.score_value(row["score"])
-        if row["overall_verdict"] == "fail" or row["status"] not in {"pass", "approved_candidate"}:
+        if row["overall_verdict"] == "fail" or row["status"] not in {
+            "pass",
+            "approved_candidate",
+        }:
             return "high"
         if score >= WINNER_EXPANSION_THRESHOLDS["qualityScore"]:
             return "low"
@@ -530,7 +645,9 @@ class WinnerExpansionRepository:
             metrics = {
                 "views": int(data.get("views") or 0),
                 "reach": int(data.get("reach") or 0),
-                "followers": int(raw.get("followers") or 0) if isinstance(raw, dict) else 0,
+                "followers": int(raw.get("followers") or 0)
+                if isinstance(raw, dict)
+                else 0,
                 "likes": int(data.get("likes") or 0),
                 "comments": int(data.get("comments") or 0),
                 "shares": int(data.get("shares") or 0),
@@ -554,7 +671,9 @@ class WinnerExpansionRepository:
             "metrics": best_metrics,
         }
 
-    def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def variant_asset_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         if row is None:
             return {}
         data = dict(row)

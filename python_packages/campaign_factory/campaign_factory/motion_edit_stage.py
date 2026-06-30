@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import validate_motion_edit_render
-from .core import new_id, reel_factory_python, sanitize_for_storage, sha256_file, slugify
+from .core import (
+    new_id,
+    reel_factory_python,
+    sanitize_for_storage,
+    sha256_file,
+    slugify,
+)
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
 
@@ -125,11 +131,15 @@ def _invoke_reel_factory_motion_edit(
         timeout=240,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr[-2000:] or proc.stdout[-2000:] or "still_to_reel failed")
+        raise RuntimeError(
+            proc.stderr[-2000:] or proc.stdout[-2000:] or "still_to_reel failed"
+        )
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"still_to_reel returned invalid JSON: {proc.stdout[-500:]}") from exc
+        raise RuntimeError(
+            f"still_to_reel returned invalid JSON: {proc.stdout[-500:]}"
+        ) from exc
     if not isinstance(payload, dict):
         raise RuntimeError("still_to_reel returned non-object JSON")
     return payload
@@ -198,7 +208,9 @@ def _register_rendered_asset(
             caption,
             caption_hash,
             caption_context["caption_bank"],
-            json.dumps(caption_context["caption_banks"], ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                caption_context["caption_banks"], ensure_ascii=False, sort_keys=True
+            ),
             caption_context["creator_mix"],
             caption_context["creator_model"],
             caption_context["frame_type"],
@@ -209,14 +221,24 @@ def _register_rendered_asset(
             caption_context["suitability_reason"],
             caption_context["source_clip"],
             json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-            json.dumps(sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
-            json.dumps(sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                sanitize_for_storage(caption_generation),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            json.dumps(
+                sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True
+            ),
             now,
             now,
         ),
     )
     factory.conn.commit()
-    return dict(factory.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
+        ).fetchone()
+    )
 
 
 def _caption_context(
@@ -261,5 +283,7 @@ def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]
         (campaign_id,),
     ).fetchone()
     if not row:
-        raise ValueError("campaign must have at least one source asset before motion-edit registration")
+        raise ValueError(
+            "campaign must have at least one source asset before motion-edit registration"
+        )
     return dict(row)

@@ -44,7 +44,9 @@ def _run_pipeline_smoke(
         workspace=workspace / "audio_boundary",
         run_threadsdash_validator=run_threadsdash_validator,
     )
-    generation = _run_mocked_generation_intake_smoke(projects_root=projects_root, workspace=workspace / "generation_boundary")
+    generation = _run_mocked_generation_intake_smoke(
+        projects_root=projects_root, workspace=workspace / "generation_boundary"
+    )
     summary = {
         "schema": "campaign_factory.pipeline_smoke.v1",
         "ok": bool(audio.get("ok")) and bool(generation.get("ok")),
@@ -62,22 +64,30 @@ def _run_pipeline_smoke(
             },
             "performanceFeedback": {
                 "inserted": ((audio.get("campaign") or {}).get("performanceInserted")),
-                "leaderboardAudioCount": ((audio.get("campaign") or {}).get("leaderboardAudioCount")),
+                "leaderboardAudioCount": (
+                    (audio.get("campaign") or {}).get("leaderboardAudioCount")
+                ),
             },
         },
         "skippedBoundaries": [],
     }
-    (workspace / "pipeline_smoke_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (workspace / "pipeline_smoke_summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return summary
 
 
-def _run_mocked_generation_intake_smoke(*, projects_root: Path, workspace: Path) -> dict[str, Any]:
+def _run_mocked_generation_intake_smoke(
+    *, projects_root: Path, workspace: Path
+) -> dict[str, Any]:
     workspace.mkdir(parents=True, exist_ok=True)
     source_video = workspace / "mocked_kling_output.mp4"
     source_video.write_bytes(b"mocked generated video")
     lineage_path = workspace / "generated_asset_lineage.json"
     lineage = _mock_lineage(source_video)
-    lineage_path.write_text(json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    lineage_path.write_text(
+        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
     settings = Settings(
         root=workspace / "campaign_factory",
@@ -123,10 +133,20 @@ def _run_mocked_generation_intake_smoke(*, projects_root: Path, workspace: Path)
     checks = {
         "intakeCalled": bool(captured),
         "draftFirst": bool(result.get("finishedVideoIntake", {}).get("draftFirst")),
-        "lineagePreserved": generated_lineage.get("generation", {}).get("tool") == "higgsfield_kling_cli",
-        "promptScorePreserved": (generated_lineage.get("quality", {}).get("promptScore") or {}).get("score") == 91,
-        "fallbackPreserved": generated_lineage.get("generation", {}).get("fallback", {}).get("provider") == "grok_imagine",
-        "variationGridPreserved": generated_lineage.get("generation", {}).get("variationGrid", {}).get("provider") == "higgsfield_grok_image",
+        "lineagePreserved": generated_lineage.get("generation", {}).get("tool")
+        == "higgsfield_kling_cli",
+        "promptScorePreserved": (
+            generated_lineage.get("quality", {}).get("promptScore") or {}
+        ).get("score")
+        == 91,
+        "fallbackPreserved": generated_lineage.get("generation", {})
+        .get("fallback", {})
+        .get("provider")
+        == "grok_imagine",
+        "variationGridPreserved": generated_lineage.get("generation", {})
+        .get("variationGrid", {})
+        .get("provider")
+        == "higgsfield_grok_image",
     }
     return {
         "schema": "campaign_factory.mocked_generation_intake_smoke.v1",

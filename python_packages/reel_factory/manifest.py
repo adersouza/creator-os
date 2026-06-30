@@ -1,20 +1,21 @@
 """SQLite manifest store with JSON export for reel_factory."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-import shutil
 import shlex
+import shutil
 import sqlite3
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from metrics_store import ensure_metrics_schema
 from campaign_store import ensure_campaign_schema
 from intelligence_store import ensure_intelligence_schema
+from metrics_store import ensure_metrics_schema
 
 log = logging.getLogger("reel")
 
@@ -162,7 +163,9 @@ class Manifest:
         if "error_message" not in cols:
             self.conn.execute("ALTER TABLE variations ADD COLUMN error_message TEXT")
         if "review_state" not in cols:
-            self.conn.execute("ALTER TABLE variations ADD COLUMN review_state TEXT NOT NULL DEFAULT 'draft'")
+            self.conn.execute(
+                "ALTER TABLE variations ADD COLUMN review_state TEXT NOT NULL DEFAULT 'draft'"
+            )
         self.conn.execute(
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (self.SCHEMA_VERSION, int(time.time())),
@@ -280,8 +283,14 @@ class Manifest:
         )
         return True
 
-    def upsert_video(self, video_id: str, source_path: Path, src_hash: str,
-                     duration: float, ingested_at: int | None = None):
+    def upsert_video(
+        self,
+        video_id: str,
+        source_path: Path,
+        src_hash: str,
+        duration: float,
+        ingested_at: int | None = None,
+    ):
         existing = self.conn.execute(
             "SELECT ingested_at FROM videos WHERE video_id = ?",
             (video_id,),
@@ -301,19 +310,32 @@ class Manifest:
                 str(source_path),
                 src_hash,
                 round(duration, 3),
-                ingested_at or (int(existing["ingested_at"]) if existing else int(time.time())),
+                ingested_at
+                or (int(existing["ingested_at"]) if existing else int(time.time())),
             ),
         )
 
-    def _insert_variation_row(self, *, video_id: str, job_key: str, recipe: str,
-                              recipe_params: dict, caption_text: str,
-                              caption_hash: str, output_path: str,
-                              output_hash: str, output_size_bytes: int,
-                              duration_sec: float, audio: str, encoded_at: int,
-                              encoder: str, status: str,
-                              review_state: str = "draft",
-                              render_time_sec: float | None = None,
-                              error_message: str | None = None) -> None:
+    def _insert_variation_row(
+        self,
+        *,
+        video_id: str,
+        job_key: str,
+        recipe: str,
+        recipe_params: dict,
+        caption_text: str,
+        caption_hash: str,
+        output_path: str,
+        output_hash: str,
+        output_size_bytes: int,
+        duration_sec: float,
+        audio: str,
+        encoded_at: int,
+        encoder: str,
+        status: str,
+        review_state: str = "draft",
+        render_time_sec: float | None = None,
+        error_message: str | None = None,
+    ) -> None:
         if not job_key:
             return
         self.conn.execute(
@@ -346,12 +368,19 @@ class Manifest:
             ),
         )
 
-    def add_variation(self, video_id: str, recipe: Recipe, caption: str,
-                      out_path: Path, key: str, duration: float,
-                      render_time_sec: float | None = None,
-                      lineage: dict[str, Any] | None = None,
-                      encoder: str = "h264_videotoolbox",
-                      target_ratio: str = "9:16"):
+    def add_variation(
+        self,
+        video_id: str,
+        recipe: Recipe,
+        caption: str,
+        out_path: Path,
+        key: str,
+        duration: float,
+        render_time_sec: float | None = None,
+        lineage: dict[str, Any] | None = None,
+        encoder: str = "h264_videotoolbox",
+        target_ratio: str = "9:16",
+    ):
         cap_h = sha256_str(caption)
         out_h = sha256_file(out_path)
         size = out_path.stat().st_size
@@ -377,11 +406,19 @@ class Manifest:
             render_time_sec=render_time_sec,
         )
 
-    def add_failure(self, video_id: str, recipe: Recipe, caption: str,
-                    out_path: Path, key: str, duration: float,
-                    error_message: str, render_time_sec: float | None = None,
-                    encoder: str = "h264_videotoolbox",
-                    target_ratio: str = "9:16"):
+    def add_failure(
+        self,
+        video_id: str,
+        recipe: Recipe,
+        caption: str,
+        out_path: Path,
+        key: str,
+        duration: float,
+        error_message: str,
+        render_time_sec: float | None = None,
+        encoder: str = "h264_videotoolbox",
+        target_ratio: str = "9:16",
+    ):
         cap_h = sha256_str(caption)
         recipe_params = asdict(recipe)
         recipe_params["_target_ratio"] = target_ratio
@@ -445,7 +482,11 @@ class Manifest:
             (output_path,),
         ).fetchone()
         now = int(time.time())
-        decision_id = existing["decision_id"] if existing else f"review_{sha256_str(output_path)[:16]}"
+        decision_id = (
+            existing["decision_id"]
+            if existing
+            else f"review_{sha256_str(output_path)[:16]}"
+        )
         previous = existing["decision"] if existing else row["review_state"]
         self.conn.execute(
             """
@@ -515,11 +556,16 @@ class Manifest:
                 now,
             ),
         )
-        self.conn.execute("UPDATE variations SET review_state = ? WHERE output_path = ?", (decision, output_path))
+        self.conn.execute(
+            "UPDATE variations SET review_state = ? WHERE output_path = ?",
+            (decision, output_path),
+        )
         self.conn.commit()
         return True
 
-    def undo_review_decision(self, filename: str, *, reviewer: str = "operator", reason: str = "undo") -> bool:
+    def undo_review_decision(
+        self, filename: str, *, reviewer: str = "operator", reason: str = "undo"
+    ) -> bool:
         row = self._variation_for_filename(filename)
         if row is None:
             return False
@@ -548,7 +594,9 @@ class Manifest:
             identity_verification_status=latest["identity_verification_status"],
         )
 
-    def regenerate_review_folders(self, folder_root: Path, *, deck_id: str | None = None) -> dict[str, int]:
+    def regenerate_review_folders(
+        self, folder_root: Path, *, deck_id: str | None = None
+    ) -> dict[str, int]:
         folder_root.mkdir(parents=True, exist_ok=True)
         counts = {"approved": 0, "maybe": 0, "rejected": 0}
         for state in counts:
@@ -569,7 +617,9 @@ class Manifest:
             counts[decision["decision"]] += 1
         return counts
 
-    def review_integrity_check(self, *, deck_id: str | None = None, folder_root: Path | None = None) -> dict[str, Any]:
+    def review_integrity_check(
+        self, *, deck_id: str | None = None, folder_root: Path | None = None
+    ) -> dict[str, Any]:
         issues: list[dict[str, str]] = []
         query = "SELECT * FROM review_decisions"
         params: tuple[Any, ...] = ()
@@ -590,19 +640,41 @@ class Manifest:
             hash_to_paths.setdefault(actual_hash, []).append(str(path))
         duplicates = {h: paths for h, paths in hash_to_paths.items() if len(paths) > 1}
         for digest, paths in duplicates.items():
-            issues.append({"type": "duplicate_generated_still", "hash": digest, "paths": "|".join(paths)})
+            issues.append(
+                {
+                    "type": "duplicate_generated_still",
+                    "hash": digest,
+                    "paths": "|".join(paths),
+                }
+            )
         if folder_root is not None:
             expected = {
-                state: {Path(d["output_path"]).name for d in decisions if d["decision"] == state}
+                state: {
+                    Path(d["output_path"]).name
+                    for d in decisions
+                    if d["decision"] == state
+                }
                 for state in ("approved", "maybe", "rejected")
             }
             for state, names in expected.items():
                 actual_dir = folder_root / state
-                actual = {p.name for p in actual_dir.iterdir()} if actual_dir.exists() else set()
+                actual = (
+                    {p.name for p in actual_dir.iterdir()}
+                    if actual_dir.exists()
+                    else set()
+                )
                 for missing in sorted(names - actual):
-                    issues.append({"type": "folder_missing_file", "state": state, "filename": missing})
+                    issues.append(
+                        {
+                            "type": "folder_missing_file",
+                            "state": state,
+                            "filename": missing,
+                        }
+                    )
                 for extra in sorted(actual - names):
-                    issues.append({"type": "folder_extra_file", "state": state, "filename": extra})
+                    issues.append(
+                        {"type": "folder_extra_file", "state": state, "filename": extra}
+                    )
         return {
             "schema": "reel_factory.review_integrity.v1",
             "deckId": deck_id,
@@ -613,10 +685,19 @@ class Manifest:
             "ok": not issues,
         }
 
-    def add_attempt(self, *, key: str, attempt_no: int, status: str,
-                    temp_path: Path, final_path: Path, ffmpeg_cmd: list[str],
-                    started_at: int, ended_at: int | None = None,
-                    error_message: str | None = None) -> None:
+    def add_attempt(
+        self,
+        *,
+        key: str,
+        attempt_no: int,
+        status: str,
+        temp_path: Path,
+        final_path: Path,
+        ffmpeg_cmd: list[str],
+        started_at: int,
+        ended_at: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
         self.conn.execute(
             """
             INSERT OR REPLACE INTO render_attempts (
@@ -668,7 +749,11 @@ class Manifest:
         )
 
     def to_json_data(self) -> dict:
-        data = {"schema_version": self.SCHEMA_VERSION, "videos": {}, "updated_at": int(time.time())}
+        data = {
+            "schema_version": self.SCHEMA_VERSION,
+            "videos": {},
+            "updated_at": int(time.time()),
+        }
         videos = self.conn.execute("SELECT * FROM videos ORDER BY video_id").fetchall()
         for vid in videos:
             variations = []
@@ -677,24 +762,26 @@ class Manifest:
                 (vid["video_id"],),
             ).fetchall()
             for row in rows:
-                variations.append({
-                    "job_key": row["job_key"],
-                    "recipe": row["recipe"],
-                    "recipe_params": json.loads(row["recipe_params_json"]),
-                    "caption_text": row["caption_text"],
-                    "caption_hash": row["caption_hash"],
-                    "output_path": row["output_path"],
-                    "output_hash": row["output_hash"],
-                    "output_size_bytes": row["output_size_bytes"],
-                    "duration_sec": row["duration_sec"],
-                    "audio": row["audio"],
-                    "encoded_at": row["encoded_at"],
-                    "encoder": row["encoder"],
-                    "status": row["status"],
-                    "review_state": row["review_state"],
-                    "render_time_sec": row["render_time_sec"],
-                    "error_message": row["error_message"],
-                })
+                variations.append(
+                    {
+                        "job_key": row["job_key"],
+                        "recipe": row["recipe"],
+                        "recipe_params": json.loads(row["recipe_params_json"]),
+                        "caption_text": row["caption_text"],
+                        "caption_hash": row["caption_hash"],
+                        "output_path": row["output_path"],
+                        "output_hash": row["output_hash"],
+                        "output_size_bytes": row["output_size_bytes"],
+                        "duration_sec": row["duration_sec"],
+                        "audio": row["audio"],
+                        "encoded_at": row["encoded_at"],
+                        "encoder": row["encoder"],
+                        "status": row["status"],
+                        "review_state": row["review_state"],
+                        "render_time_sec": row["render_time_sec"],
+                        "error_message": row["error_message"],
+                    }
+                )
             data["videos"][vid["video_id"]] = {
                 "source_path": vid["source_path"],
                 "source_video_hash": vid["source_video_hash"],

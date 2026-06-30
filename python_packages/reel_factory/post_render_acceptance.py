@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Compact acceptance evidence for already-rendered Reel Factory outputs."""
+
 from __future__ import annotations
 
 import time
 from typing import Any
-
 
 SCHEMA = "reel_factory.post_render_acceptance.v1"
 
@@ -26,7 +26,11 @@ def acceptance_from_readiness(record: dict[str, Any]) -> dict[str, Any]:
         blocking.extend(str(item) for item in (virality.get("warnings") or []))
 
     for warning in sorted(warnings):
-        if warning.startswith("virality_") and warning not in blocking and virality.get("required") is True:
+        if (
+            warning.startswith("virality_")
+            and warning not in blocking
+            and virality.get("required") is True
+        ):
             blocking.append(warning)
         elif warning not in blocking and warning not in review:
             review.append(warning)

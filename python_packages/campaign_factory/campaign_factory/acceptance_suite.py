@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 
 class AcceptanceSuiteRepository:
@@ -36,7 +37,9 @@ class AcceptanceSuiteRepository:
         generated_at: str | None = None,
     ) -> dict[str, Any]:
         generated = generated_at or "2026-06-08T12:00:00+00:00"
-        creator_names = [f"Creator {idx}" for idx in range(1, max(1, int(creators or 1)) + 1)]
+        creator_names = [
+            f"Creator {idx}" for idx in range(1, max(1, int(creators or 1)) + 1)
+        ]
         synthetic_accounts = self._operational_acceptance_accounts(
             accounts=max(0, int(accounts or 0)),
             creators=creator_names,
@@ -51,7 +54,9 @@ class AcceptanceSuiteRepository:
             creator_names=creator_names,
             mixed_surfaces=bool(mixed_surfaces),
         )
-        threadsdash_report = self._operational_acceptance_threadsdash_report(synthetic_accounts)
+        threadsdash_report = self._operational_acceptance_threadsdash_report(
+            synthetic_accounts
+        )
         schedule_plan = {
             "schema": "threadsdashboard.campaign_schedule_plan.v1",
             "creator": None,
@@ -83,21 +88,33 @@ class AcceptanceSuiteRepository:
         start = time.perf_counter()
         readiness_by_creator = []
         for creator in creator_names:
-            creator_accounts = [row for row in daily.get("accounts") or [] if row.get("creator") == creator]
-            requested = max(1, sum(1 for row in creator_accounts if row.get("state") != "blocked"))
-            creator_safe_accounts = [
-                account for account in synthetic_accounts
-                if account.get("creator") == creator and account.get("safeToSchedule") is not False
+            creator_accounts = [
+                row
+                for row in daily.get("accounts") or []
+                if row.get("creator") == creator
             ]
-            creator_report = self._operational_acceptance_threadsdash_report(creator_safe_accounts)
-            readiness_by_creator.append(self._creator_os_execution_readiness(
-                creator=creator,
-                requested_count=requested,
-                threadsdash_report=creator_report,
-                schedule_plan=schedule_plan,
-                time_plan=time_plan,
-                generated_at=generated,
-            ))
+            requested = max(
+                1, sum(1 for row in creator_accounts if row.get("state") != "blocked")
+            )
+            creator_safe_accounts = [
+                account
+                for account in synthetic_accounts
+                if account.get("creator") == creator
+                and account.get("safeToSchedule") is not False
+            ]
+            creator_report = self._operational_acceptance_threadsdash_report(
+                creator_safe_accounts
+            )
+            readiness_by_creator.append(
+                self._creator_os_execution_readiness(
+                    creator=creator,
+                    requested_count=requested,
+                    threadsdash_report=creator_report,
+                    schedule_plan=schedule_plan,
+                    time_plan=time_plan,
+                    generated_at=generated,
+                )
+            )
         execution_runtime_ms = int((time.perf_counter() - start) * 1000)
 
         health_reports = [
@@ -108,22 +125,38 @@ class AcceptanceSuiteRepository:
             )
             for creator in creator_names
         ]
-        blocked_accounts = sum(int((report.get("summary") or {}).get("blockedAccounts") or 0) for report in health_reports)
-        expected_blocked = min(len(synthetic_accounts), max(0, int(restricted_accounts or 0)) + max(0, int(manual_review_accounts or 0)))
-        inventory_shortfall = sum(max(0, int(row.get("inventoryShortfall") or 0)) for row in daily.get("creators") or [])
+        blocked_accounts = sum(
+            int((report.get("summary") or {}).get("blockedAccounts") or 0)
+            for report in health_reports
+        )
+        expected_blocked = min(
+            len(synthetic_accounts),
+            max(0, int(restricted_accounts or 0))
+            + max(0, int(manual_review_accounts or 0)),
+        )
+        inventory_shortfall = sum(
+            max(0, int(row.get("inventoryShortfall") or 0))
+            for row in daily.get("creators") or []
+        )
         unexpected_failures = []
         for readiness in readiness_by_creator:
             blockers = [
-                blocker for blocker in readiness.get("blockers") or []
+                blocker
+                for blocker in readiness.get("blockers") or []
                 if blocker not in {"threadsdashboard_runtime_routes_unverified"}
             ]
-            if readiness.get("managerDecision") not in {"ready_to_schedule", "needs_inventory"}:
-                unexpected_failures.append({
-                    "system": "execution-readiness",
-                    "creator": readiness.get("creator"),
-                    "reason": readiness.get("managerDecision"),
-                    "blockers": blockers,
-                })
+            if readiness.get("managerDecision") not in {
+                "ready_to_schedule",
+                "needs_inventory",
+            }:
+                unexpected_failures.append(
+                    {
+                        "system": "execution-readiness",
+                        "creator": readiness.get("creator"),
+                        "reason": readiness.get("managerDecision"),
+                        "blockers": blockers,
+                    }
+                )
         acceptance_passed = (
             inventory_shortfall == 0
             and blocked_accounts == expected_blocked
@@ -139,7 +172,8 @@ class AcceptanceSuiteRepository:
             "postsPerDay": max(0, int(daily_obligations or 0)),
             "draftsPerDay": len(synthetic_drafts),
             "metricsSnapshotsPerDay": len(synthetic_drafts),
-            "scheduleDecisionsPerDay": max(0, int(daily_obligations or 0)) + len(synthetic_accounts),
+            "scheduleDecisionsPerDay": max(0, int(daily_obligations or 0))
+            + len(synthetic_accounts),
             "accountHealthEvaluationsPerDay": len(synthetic_accounts),
             "dailyPlanRuntimeMs": daily_plan_runtime_ms,
             "executionReadinessRuntimeMs": execution_runtime_ms,
@@ -205,42 +239,52 @@ class AcceptanceSuiteRepository:
                 "accountMaturityScore": 75,
                 "accountAgeDays": 90,
                 "successfulPublishes": 40,
-                "surfaceNeeds": self._operational_acceptance_surface_needs(idx, mixed_surfaces=mixed_surfaces),
+                "surfaceNeeds": self._operational_acceptance_surface_needs(
+                    idx, mixed_surfaces=mixed_surfaces
+                ),
             }
             if idx < restricted_accounts:
-                row.update({
-                    "bucket": "blocked_reauth",
-                    "safeToSchedule": False,
-                    "needsPostToday": False,
-                    "restrictionStatus": {
-                        "active": True,
-                        "status": "active",
-                        "type": "account_restricted",
-                    },
-                    "accountTrustState": "restricted",
-                    "blockedReason": "account_restricted",
-                })
+                row.update(
+                    {
+                        "bucket": "blocked_reauth",
+                        "safeToSchedule": False,
+                        "needsPostToday": False,
+                        "restrictionStatus": {
+                            "active": True,
+                            "status": "active",
+                            "type": "account_restricted",
+                        },
+                        "accountTrustState": "restricted",
+                        "blockedReason": "account_restricted",
+                    }
+                )
             elif idx < restricted_accounts + manual_review_accounts:
-                row.update({
-                    "bucket": "blocked_unknown",
-                    "safeToSchedule": False,
-                    "needsPostToday": False,
-                    "accountTrustState": "manual_review_required",
-                    "recommendationEligibilityState": "manual_review_required",
-                    "blockedReason": "account_manual_review_required",
-                })
+                row.update(
+                    {
+                        "bucket": "blocked_unknown",
+                        "safeToSchedule": False,
+                        "needsPostToday": False,
+                        "accountTrustState": "manual_review_required",
+                        "recommendationEligibilityState": "manual_review_required",
+                        "blockedReason": "account_manual_review_required",
+                    }
+                )
             elif idx < restricted_accounts + manual_review_accounts + warming_accounts:
-                row.update({
-                    "accountTrustState": "warming",
-                    "accountMaturityScore": 25,
-                    "accountAgeDays": 7,
-                    "successfulPublishes": 3,
-                    "warmingStage": "day_4_7",
-                })
+                row.update(
+                    {
+                        "accountTrustState": "warming",
+                        "accountMaturityScore": 25,
+                        "accountAgeDays": 7,
+                        "successfulPublishes": 3,
+                        "warmingStage": "day_4_7",
+                    }
+                )
             rows.append(row)
         return rows
 
-    def _operational_acceptance_surface_needs(self, idx: int, *, mixed_surfaces: bool) -> dict[str, dict[str, Any]]:
+    def _operational_acceptance_surface_needs(
+        self, idx: int, *, mixed_surfaces: bool
+    ) -> dict[str, dict[str, Any]]:
         if not mixed_surfaces:
             return {"reel": {"needed": True, "remaining": 1}}
         surface = ("reel", "story", "feed_single")[idx % 3]
@@ -261,55 +305,94 @@ class AcceptanceSuiteRepository:
         creator_names: list[str],
         mixed_surfaces: bool,
     ) -> list[dict[str, Any]]:
-        safe_accounts = [account for account in accounts if account.get("safeToSchedule") is not False]
+        safe_accounts = [
+            account
+            for account in accounts
+            if account.get("safeToSchedule") is not False
+        ]
         if not safe_accounts:
             safe_accounts = accounts
         surfaces = ("reel", "story", "feed_single") if mixed_surfaces else ("reel",)
         rows = []
         for idx in range(max(0, count)):
             account = safe_accounts[idx % len(safe_accounts)] if safe_accounts else {}
-            creator = account.get("creator") or creator_names[idx % max(1, len(creator_names))]
+            creator = (
+                account.get("creator")
+                or creator_names[idx % max(1, len(creator_names))]
+            )
             surface = surfaces[idx % len(surfaces)]
             post_id = f"scale_post_{idx + 1:04d}"
-            rows.append({
-                "postId": post_id,
-                "draftPostId": post_id,
-                "accountId": account.get("accountId") or f"ig_scale_{idx + 1:03d}",
-                "username": account.get("username") or "",
-                "creator": creator,
-                "renderedAssetId": f"asset_{post_id}",
-                "distributionPlanId": f"dist_{post_id}",
-                "platformDraftValidated": True,
-                "handoffManifestOk": True,
-                "publishabilityState": "exportable",
-                "quarantined": False,
-                "duplicateCheck": "clear",
-                "variantCooldownCheck": "clear",
-                "qstashEligible": True,
-                "instagramPostCaption": "new post is up",
-                "captionPlacementQcStatus": "passed" if surface == "reel" else "",
-                "audioValidity": "valid" if surface == "reel" else "not_required",
-                "contentSurface": surface,
-                "scheduledFor": self._operational_acceptance_time(idx),
-                "wouldWrite": False,
-            })
+            rows.append(
+                {
+                    "postId": post_id,
+                    "draftPostId": post_id,
+                    "accountId": account.get("accountId") or f"ig_scale_{idx + 1:03d}",
+                    "username": account.get("username") or "",
+                    "creator": creator,
+                    "renderedAssetId": f"asset_{post_id}",
+                    "distributionPlanId": f"dist_{post_id}",
+                    "platformDraftValidated": True,
+                    "handoffManifestOk": True,
+                    "publishabilityState": "exportable",
+                    "quarantined": False,
+                    "duplicateCheck": "clear",
+                    "variantCooldownCheck": "clear",
+                    "qstashEligible": True,
+                    "instagramPostCaption": "new post is up",
+                    "captionPlacementQcStatus": "passed" if surface == "reel" else "",
+                    "audioValidity": "valid" if surface == "reel" else "not_required",
+                    "contentSurface": surface,
+                    "scheduledFor": self._operational_acceptance_time(idx),
+                    "wouldWrite": False,
+                }
+            )
             if surface == "reel":
                 rows[-1]["burnedCaptionTextPresent"] = True
         return rows
 
     def _operational_acceptance_time(self, idx: int) -> str:
-        base = datetime(2026, 6, 8, 6, 0, tzinfo=timezone.utc)
+        base = datetime(2026, 6, 8, 6, 0, tzinfo=UTC)
         return (base + timedelta(minutes=idx)).isoformat()
 
-    def _operational_acceptance_threadsdash_report(self, accounts: list[dict[str, Any]]) -> dict[str, Any]:
+    def _operational_acceptance_threadsdash_report(
+        self, accounts: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         buckets = {
-            "safe_to_schedule_today": [account for account in accounts if account.get("bucket") == "safe_to_schedule_today"],
-            "already_scheduled_today": [account for account in accounts if account.get("bucket") == "already_scheduled_today"],
-            "blocked_reauth": [account for account in accounts if account.get("bucket") == "blocked_reauth"],
-            "blocked_token_expired": [account for account in accounts if account.get("bucket") == "blocked_token_expired"],
-            "blocked_disabled": [account for account in accounts if account.get("bucket") == "blocked_disabled"],
-            "blocked_recent_failure": [account for account in accounts if account.get("bucket") == "blocked_recent_failure"],
-            "blocked_unknown": [account for account in accounts if account.get("bucket") == "blocked_unknown"],
+            "safe_to_schedule_today": [
+                account
+                for account in accounts
+                if account.get("bucket") == "safe_to_schedule_today"
+            ],
+            "already_scheduled_today": [
+                account
+                for account in accounts
+                if account.get("bucket") == "already_scheduled_today"
+            ],
+            "blocked_reauth": [
+                account
+                for account in accounts
+                if account.get("bucket") == "blocked_reauth"
+            ],
+            "blocked_token_expired": [
+                account
+                for account in accounts
+                if account.get("bucket") == "blocked_token_expired"
+            ],
+            "blocked_disabled": [
+                account
+                for account in accounts
+                if account.get("bucket") == "blocked_disabled"
+            ],
+            "blocked_recent_failure": [
+                account
+                for account in accounts
+                if account.get("bucket") == "blocked_recent_failure"
+            ],
+            "blocked_unknown": [
+                account
+                for account in accounts
+                if account.get("bucket") == "blocked_unknown"
+            ],
         }
         return {
             "schema": "threadsdashboard.campaign_schedule_manager_report.v1",
@@ -318,8 +401,14 @@ class AcceptanceSuiteRepository:
             "missedDispatches": [],
             "summary": {
                 "safeToScheduleCount": len(buckets["safe_to_schedule_today"]),
-                "needsPostTodayCount": sum(1 for account in accounts if account.get("needsPostToday")),
-                "blockedCount": sum(len(value) for key, value in buckets.items() if key.startswith("blocked_")),
+                "needsPostTodayCount": sum(
+                    1 for account in accounts if account.get("needsPostToday")
+                ),
+                "blockedCount": sum(
+                    len(value)
+                    for key, value in buckets.items()
+                    if key.startswith("blocked_")
+                ),
                 "missedDispatchCount": 0,
             },
         }

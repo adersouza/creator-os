@@ -6,6 +6,7 @@ reference embedding set is available. Tests and local tools can inject a fake
 provider so the readiness contract is deterministic without requiring model
 weights.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,7 +22,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-
 SCHEMA = "reel_factory.identity_verification.v1"
 REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v1"
 HEALTH_SCHEMA = "reel_factory.identity_health.v1"
@@ -33,11 +33,9 @@ VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 class IdentityProvider(Protocol):
     name: str
 
-    def available(self) -> tuple[bool, str]:
-        ...
+    def available(self) -> tuple[bool, str]: ...
 
-    def embedding(self, image_path: Path) -> list[float] | None:
-        ...
+    def embedding(self, image_path: Path) -> list[float] | None: ...
 
 
 @dataclass
@@ -73,7 +71,12 @@ class InsightFaceIdentityProvider:
         faces = self._app.get(image)
         if not faces:
             return None
-        face = max(faces, key=lambda item: float((item.bbox[2] - item.bbox[0]) * (item.bbox[3] - item.bbox[1])))
+        face = max(
+            faces,
+            key=lambda item: float(
+                (item.bbox[2] - item.bbox[0]) * (item.bbox[3] - item.bbox[1])
+            ),
+        )
         return [float(value) for value in face.normed_embedding]
 
 
@@ -81,7 +84,9 @@ def get_identity_provider() -> IdentityProvider:
     try:
         return InsightFaceIdentityProvider()
     except Exception as exc:
-        return UnavailableIdentityProvider(f"identity_provider_unavailable:{exc.__class__.__name__}")
+        return UnavailableIdentityProvider(
+            f"identity_provider_unavailable:{exc.__class__.__name__}"
+        )
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -94,7 +99,12 @@ def _reference_set_path(root: Path, creator: str) -> Path:
     env = os.environ.get("REEL_FACTORY_IDENTITY_REFERENCE_SET")
     if env:
         return Path(env)
-    slug = "".join(ch.lower() for ch in creator if ch.isalnum() or ch in {"_", "-"}).strip("-_") or "creator"
+    slug = (
+        "".join(ch.lower() for ch in creator if ch.isalnum() or ch in {"_", "-"}).strip(
+            "-_"
+        )
+        or "creator"
+    )
     return root / "identity_references" / f"{slug}.json"
 
 
@@ -115,7 +125,21 @@ def _media_frame_for_embedding(media_path: Path) -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="identity_verify_"))
     frame = tmp / "frame.jpg"
     subprocess.run(
-        [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-ss", "0.500", "-i", str(media_path), "-frames:v", "1", "-y", str(frame)],
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-ss",
+            "0.500",
+            "-i",
+            str(media_path),
+            "-frames:v",
+            "1",
+            "-y",
+            str(frame),
+        ],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -133,13 +157,23 @@ def _load_reference_embeddings(path: Path) -> tuple[str, list[list[float]], str 
         return path.stem, [], "reference_set_invalid_json"
     embeddings = payload.get("embeddings") if isinstance(payload, dict) else None
     if not isinstance(embeddings, list):
-        return str(payload.get("referenceSetId") or path.stem) if isinstance(payload, dict) else path.stem, [], "reference_embeddings_missing"
+        return (
+            str(payload.get("referenceSetId") or path.stem)
+            if isinstance(payload, dict)
+            else path.stem,
+            [],
+            "reference_embeddings_missing",
+        )
     rows = [
         [float(value) for value in row]
         for row in embeddings
         if isinstance(row, list) and row
     ]
-    return str(payload.get("referenceSetId") or path.stem), rows, None if rows else "reference_embeddings_missing"
+    return (
+        str(payload.get("referenceSetId") or path.stem),
+        rows,
+        None if rows else "reference_embeddings_missing",
+    )
 
 
 def build_reference_set(
@@ -159,7 +193,11 @@ def build_reference_set(
     root_path = Path(root).resolve()
     input_path = Path(input_dir).expanduser().resolve()
     provider = provider or get_identity_provider()
-    output_path = Path(output).expanduser().resolve() if output else _reference_set_path(root_path, creator)
+    output_path = (
+        Path(output).expanduser().resolve()
+        if output
+        else _reference_set_path(root_path, creator)
+    )
     base = {
         "schema": REFERENCE_SET_SCHEMA,
         "creator": creator,
@@ -178,7 +216,11 @@ def build_reference_set(
     ok, reason = provider.available()
     if not ok:
         return {**base, "failureReason": reason}
-    image_paths = sorted(path for path in input_path.rglob("*") if path.suffix.lower() in IMAGE_EXTS and path.is_file())
+    image_paths = sorted(
+        path
+        for path in input_path.rglob("*")
+        if path.suffix.lower() in IMAGE_EXTS and path.is_file()
+    )
     if not image_paths:
         return {**base, "failureReason": "no_reference_images_found"}
 
@@ -200,10 +242,16 @@ def build_reference_set(
         sources.append(item)
 
     if not embeddings:
-        return {**base, "sourceImages": sources, "failureReason": "no_usable_reference_embeddings"}
+        return {
+            **base,
+            "sourceImages": sources,
+            "failureReason": "no_usable_reference_embeddings",
+        }
 
     reference_material = f"{creator}:{provider.name}:{','.join(item['sha256'] for item in sources if item['status'] == 'embedded')}"
-    reference_set_id = hashlib.sha256(reference_material.encode("utf-8")).hexdigest()[:16]
+    reference_set_id = hashlib.sha256(reference_material.encode("utf-8")).hexdigest()[
+        :16
+    ]
     payload = {
         **base,
         "status": "ready",
@@ -214,7 +262,9 @@ def build_reference_set(
         "failureReason": "",
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return payload
 
 
@@ -228,7 +278,9 @@ def identity_health(
     provider = provider or get_identity_provider()
     ok, reason = provider.available()
     reference_path = _reference_set_path(root_path, creator)
-    reference_set_id, embeddings, reference_error = _load_reference_embeddings(reference_path)
+    reference_set_id, embeddings, reference_error = _load_reference_embeddings(
+        reference_path
+    )
     status = "ready" if ok and not reference_error else "unavailable"
     blocking_reasons: list[str] = []
     if not ok:
@@ -260,7 +312,9 @@ def verify_identity(
     root_path = Path(root).resolve()
     path = Path(media_path)
     provider = provider or get_identity_provider()
-    reference_set_id, references, reference_error = _load_reference_embeddings(_reference_set_path(root_path, creator))
+    reference_set_id, references, reference_error = _load_reference_embeddings(
+        _reference_set_path(root_path, creator)
+    )
     base = {
         "schema": SCHEMA,
         "creator": creator,
@@ -290,7 +344,9 @@ def verify_identity(
         **base,
         "status": status,
         "score": round(score, 6),
-        "failureReason": "" if status == "passed" else "identity_similarity_below_threshold",
+        "failureReason": ""
+        if status == "passed"
+        else "identity_similarity_below_threshold",
     }
 
 
@@ -303,25 +359,39 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="command")
 
-    verify = sub.add_parser("verify", help="verify one generated media file against a creator reference set")
+    verify = sub.add_parser(
+        "verify", help="verify one generated media file against a creator reference set"
+    )
     verify.add_argument("media_path")
     verify.add_argument("--creator", required=True)
     verify.add_argument("--root", default=".")
     verify.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
 
-    build = sub.add_parser("identity-reference-build", help="build approved local identity reference embeddings")
+    build = sub.add_parser(
+        "identity-reference-build",
+        help="build approved local identity reference embeddings",
+    )
     build.add_argument("--creator", required=True)
     build.add_argument("--input-dir", required=True)
     build.add_argument("--root", default=".")
     build.add_argument("--output")
     build.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
 
-    health = sub.add_parser("identity-health", help="report identity provider and reference-set availability")
+    health = sub.add_parser(
+        "identity-health",
+        help="report identity provider and reference-set availability",
+    )
     health.add_argument("--creator", required=True)
     health.add_argument("--root", default=".")
 
     raw_args = list(argv) if argv is not None else sys.argv[1:]
-    if raw_args and raw_args[0] not in {"verify", "identity-reference-build", "identity-health", "-h", "--help"}:
+    if raw_args and raw_args[0] not in {
+        "verify",
+        "identity-reference-build",
+        "identity-health",
+        "-h",
+        "--help",
+    }:
         raw_args.insert(0, "verify")
     args = ap.parse_args(raw_args)
     if args.command == "identity-reference-build":
@@ -335,7 +405,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "identity-health":
         result = identity_health(creator=args.creator, root=args.root)
     elif args.command == "verify":
-        result = verify_identity(args.media_path, creator=args.creator, root=args.root, threshold=args.threshold)
+        result = verify_identity(
+            args.media_path,
+            creator=args.creator,
+            root=args.root,
+            threshold=args.threshold,
+        )
     else:
         ap.print_help()
         return 2

@@ -6,7 +6,7 @@ import hashlib
 import html
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +47,9 @@ HARD_REJECT_REASONS = (
 )
 
 
-def build_approval_board(manifest_path: Path, *, out_dir: Path | None = None, title: str | None = None) -> dict[str, Any]:
+def build_approval_board(
+    manifest_path: Path, *, out_dir: Path | None = None, title: str | None = None
+) -> dict[str, Any]:
     manifest_path = Path(manifest_path).expanduser().resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     out_dir = Path(out_dir).expanduser().resolve() if out_dir else manifest_path.parent
@@ -60,7 +62,9 @@ def build_approval_board(manifest_path: Path, *, out_dir: Path | None = None, ti
     json_path = out_dir / "approval_decisions.json"
     csv_path = out_dir / "approval_decisions.csv"
 
-    json_path.write_text(json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
     _write_decision_csv(csv_path, decisions["items"])
     html_path.write_text(_render_html(manifest, decisions, title), encoding="utf-8")
 
@@ -73,7 +77,9 @@ def build_approval_board(manifest_path: Path, *, out_dir: Path | None = None, ti
     }
 
 
-def build_variant_approval_board(decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None) -> dict[str, Any]:
+def build_variant_approval_board(
+    decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None
+) -> dict[str, Any]:
     decisions_path = Path(decisions_path).expanduser().resolve()
     decisions = _load_decisions(decisions_path)
     out_dir = Path(out_dir).expanduser().resolve() if out_dir else decisions_path.parent
@@ -84,7 +90,9 @@ def build_variant_approval_board(decisions_path: Path, *, out_dir: Path | None =
     html_path = out_dir / "variant_swipe_review.html"
     json_path = out_dir / "variant_swipe_decisions.json"
 
-    json_path.write_text(json.dumps(variants, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(variants, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
     html_path.write_text(_render_variant_html(variants, title), encoding="utf-8")
     return {
         "schema": "reel_factory.variant_approval_board_result.v1",
@@ -94,7 +102,9 @@ def build_variant_approval_board(decisions_path: Path, *, out_dir: Path | None =
     }
 
 
-def build_assisted_approval_board(decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None) -> dict[str, Any]:
+def build_assisted_approval_board(
+    decisions_path: Path, *, out_dir: Path | None = None, title: str | None = None
+) -> dict[str, Any]:
     decisions_path = Path(decisions_path).expanduser().resolve()
     decisions = _load_decisions(decisions_path)
     out_dir = Path(out_dir).expanduser().resolve() if out_dir else decisions_path.parent
@@ -105,7 +115,9 @@ def build_assisted_approval_board(decisions_path: Path, *, out_dir: Path | None 
     html_path = out_dir / "assisted_review.html"
     json_path = out_dir / "assisted_review_decisions.json"
 
-    json_path.write_text(json.dumps(assisted, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(assisted, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
     html_path.write_text(_render_assisted_html(assisted, title), encoding="utf-8")
     return {
         "schema": "reel_factory.assisted_approval_board_result.v1",
@@ -115,10 +127,16 @@ def build_assisted_approval_board(decisions_path: Path, *, out_dir: Path | None 
     }
 
 
-def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | None = None) -> dict[str, Any]:
+def promote_approval_decisions(
+    decisions_path: Path, *, selected_dir: Path | None = None
+) -> dict[str, Any]:
     decisions_path = Path(decisions_path).expanduser().resolve()
     decisions = _load_decisions(decisions_path)
-    selected_dir = Path(selected_dir).expanduser().resolve() if selected_dir else decisions_path.parent / "selected_reels"
+    selected_dir = (
+        Path(selected_dir).expanduser().resolve()
+        if selected_dir
+        else decisions_path.parent / "selected_reels"
+    )
     approved = []
     errors = []
 
@@ -128,17 +146,37 @@ def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | Non
             continue
         lanes = _selected_lanes(item)
         if not lanes:
-            errors.append({"id": item.get("id"), "stem": item.get("stem"), "error": "approved item missing valid selected_lanes"})
+            errors.append(
+                {
+                    "id": item.get("id"),
+                    "stem": item.get("stem"),
+                    "error": "approved item missing valid selected_lanes",
+                }
+            )
             continue
         for lane in lanes:
-            source = Path(str((item.get("lanes") or {}).get(lane, {}).get("path") or "")).expanduser()
+            source = Path(
+                str((item.get("lanes") or {}).get(lane, {}).get("path") or "")
+            ).expanduser()
             if not source.exists():
-                errors.append({"id": item.get("id"), "stem": item.get("stem"), "lane": lane, "error": f"selected file missing: {source}"})
+                errors.append(
+                    {
+                        "id": item.get("id"),
+                        "stem": item.get("stem"),
+                        "lane": lane,
+                        "error": f"selected file missing: {source}",
+                    }
+                )
                 continue
             approved.append((item, lane, source.resolve()))
 
     if errors:
-        raise ValueError(json.dumps({"schema": "reel_factory.approval_promote_errors.v1", "errors": errors}, indent=2))
+        raise ValueError(
+            json.dumps(
+                {"schema": "reel_factory.approval_promote_errors.v1", "errors": errors},
+                indent=2,
+            )
+        )
 
     selected_dir.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -147,7 +185,11 @@ def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | Non
         dest = selected_dir / out_name
         shutil.copy2(source, dest)
         lane_data = (item.get("lanes") or {}).get(lane) or {}
-        contentforge = item.get("contentforge") if isinstance(item.get("contentforge"), dict) else {}
+        contentforge = (
+            item.get("contentforge")
+            if isinstance(item.get("contentforge"), dict)
+            else {}
+        )
         rows.append(
             {
                 "id": item.get("id"),
@@ -159,9 +201,12 @@ def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | Non
                 "sourcePath": str(source),
                 "sourceSha256": _sha256(source),
                 "outputSha256": _sha256(dest),
-                "audioIntentPath": lane_data.get("audioIntentPath") or _sidecar_path(source, "audio_intent"),
-                "generatedAssetLineagePath": lane_data.get("generatedAssetLineagePath") or _sidecar_path(source, "generated_asset_lineage"),
-                "contentForgeStatus": item.get("review_status") or contentforge.get("status"),
+                "audioIntentPath": lane_data.get("audioIntentPath")
+                or _sidecar_path(source, "audio_intent"),
+                "generatedAssetLineagePath": lane_data.get("generatedAssetLineagePath")
+                or _sidecar_path(source, "generated_asset_lineage"),
+                "contentForgeStatus": item.get("review_status")
+                or contentforge.get("status"),
                 "image": item.get("image"),
                 "grade": item.get("grade"),
                 "ratings": item.get("ratings") or {},
@@ -171,13 +216,15 @@ def promote_approval_decisions(decisions_path: Path, *, selected_dir: Path | Non
 
     manifest = {
         "schema": "reel_factory.approval_selected_manifest.v1",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": datetime.now(UTC).isoformat(),
         "sourceDecisionPath": str(decisions_path),
         "count": len(rows),
         "items": rows,
     }
     manifest_path = selected_dir / "selected_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
     return {
         "schema": "reel_factory.approval_promote_result.v1",
         "count": len(rows),
@@ -195,10 +242,18 @@ def _sidecar_path(path: Path, suffix: str) -> str | None:
     return str(candidate) if candidate.exists() else None
 
 
-def _build_decisions(manifest: dict[str, Any], manifest_path: Path, title: str) -> dict[str, Any]:
+def _build_decisions(
+    manifest: dict[str, Any], manifest_path: Path, title: str
+) -> dict[str, Any]:
     items = []
-    file_results, contentforge_loaded = _contentforge_file_results_by_path(manifest, manifest_path)
-    records = manifest.get("items") if isinstance(manifest.get("items"), list) else manifest.get("rows", [])
+    file_results, contentforge_loaded = _contentforge_file_results_by_path(
+        manifest, manifest_path
+    )
+    records = (
+        manifest.get("items")
+        if isinstance(manifest.get("items"), list)
+        else manifest.get("rows", [])
+    )
     for index, raw in enumerate(records or [], 1):
         lanes = {
             lane: {
@@ -210,12 +265,16 @@ def _build_decisions(manifest: dict[str, Any], manifest_path: Path, title: str) 
             for lane in LANES
             if _lane_path(raw.get(lane))
         }
-        contentforge = _contentforge_summary(raw, lanes, file_results, contentforge_loaded=contentforge_loaded)
+        contentforge = _contentforge_summary(
+            raw, lanes, file_results, contentforge_loaded=contentforge_loaded
+        )
         placement = _placement_summary(raw, lanes)
         items.append(
             {
                 "id": raw.get("id") or index,
-                "stem": raw.get("stem") or (raw.get("source") or {}).get("id") or f"reel_{index:03d}",
+                "stem": raw.get("stem")
+                or (raw.get("source") or {}).get("id")
+                or f"reel_{index:03d}",
                 "source_board_id": raw.get("source_board_id"),
                 "review_status": contentforge["status"],
                 "contentforge": contentforge,
@@ -235,7 +294,7 @@ def _build_decisions(manifest: dict[str, Any], manifest_path: Path, title: str) 
     return {
         "schema": "reel_factory.approval_decisions.v1",
         "title": title,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": datetime.now(UTC).isoformat(),
         "manifestPath": str(manifest_path),
         "sourceSchema": manifest.get("schema"),
         "count": len(items),
@@ -245,7 +304,9 @@ def _build_decisions(manifest: dict[str, Any], manifest_path: Path, title: str) 
     }
 
 
-def _build_variant_decisions(decisions: dict[str, Any], decisions_path: Path, title: str) -> dict[str, Any]:
+def _build_variant_decisions(
+    decisions: dict[str, Any], decisions_path: Path, title: str
+) -> dict[str, Any]:
     variants = []
     for item in decisions.get("items", []):
         for lane in LANES:
@@ -267,22 +328,28 @@ def _build_variant_decisions(decisions: dict[str, Any], decisions_path: Path, ti
                     "starred": False,
                     "notes": "",
                     "review_status": item.get("review_status"),
-                    "warningCodes": (item.get("contentforge") or {}).get("warningCodes") or [],
-                    "blockingCodes": (item.get("contentforge") or {}).get("blockingCodes") or [],
+                    "warningCodes": (item.get("contentforge") or {}).get("warningCodes")
+                    or [],
+                    "blockingCodes": (item.get("contentforge") or {}).get(
+                        "blockingCodes"
+                    )
+                    or [],
                     "placement": lane_data.get("placement") or {},
                 }
             )
     return {
         "schema": "reel_factory.variant_swipe_decisions.v1",
         "title": title,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": datetime.now(UTC).isoformat(),
         "sourceDecisionPath": str(decisions_path),
         "count": len(variants),
         "items": variants,
     }
 
 
-def _build_assisted_decisions(decisions: dict[str, Any], decisions_path: Path, title: str) -> dict[str, Any]:
+def _build_assisted_decisions(
+    decisions: dict[str, Any], decisions_path: Path, title: str
+) -> dict[str, Any]:
     rows = _manifest_rows_by_stem(decisions)
     items = []
     stats = {"high": 0, "medium": 0, "low": 0, "blocked": 0}
@@ -291,7 +358,11 @@ def _build_assisted_decisions(decisions: dict[str, Any], decisions_path: Path, t
         row = rows.get(str(item.get("stem") or ""))
         recommendation = _recommend_item(item, row)
         item["selected_lanes"] = recommendation["selectedLanes"]
-        item["selected_lane"] = recommendation["selectedLanes"][0] if recommendation["selectedLanes"] else None
+        item["selected_lane"] = (
+            recommendation["selectedLanes"][0]
+            if recommendation["selectedLanes"]
+            else None
+        )
         item["recommendation"] = recommendation
         item["status"] = "pending"
         item["captionPreviews"] = {
@@ -301,13 +372,15 @@ def _build_assisted_decisions(decisions: dict[str, Any], decisions_path: Path, t
         }
         item["captionSource"] = _caption_source(row)
         item["captionSourceApproved"] = _approved_caption_source(row)
-        stats[recommendation["confidence"]] = stats.get(recommendation["confidence"], 0) + 1
+        stats[recommendation["confidence"]] = (
+            stats.get(recommendation["confidence"], 0) + 1
+        )
         items.append(item)
     return {
         "schema": "reel_factory.approval_decisions.v1",
         "reviewMode": "assisted",
         "title": title,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": datetime.now(UTC).isoformat(),
         "sourceDecisionPath": str(decisions_path),
         "manifestPath": decisions.get("manifestPath"),
         "count": len(items),
@@ -326,7 +399,11 @@ def _manifest_rows_by_stem(decisions: dict[str, Any]) -> dict[str, dict[str, Any
     except (OSError, json.JSONDecodeError):
         return {}
     mapped = {}
-    for row in manifest.get("items") if isinstance(manifest.get("items"), list) else manifest.get("rows", []):
+    for row in (
+        manifest.get("items")
+        if isinstance(manifest.get("items"), list)
+        else manifest.get("rows", [])
+    ):
         if not isinstance(row, dict):
             continue
         keys = [row.get("stem"), row.get("id"), (row.get("source") or {}).get("id")]
@@ -337,7 +414,9 @@ def _manifest_rows_by_stem(decisions: dict[str, Any]) -> dict[str, dict[str, Any
 
 
 def _recommend_item(item: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
-    contentforge = item.get("contentforge") if isinstance(item.get("contentforge"), dict) else {}
+    contentforge = (
+        item.get("contentforge") if isinstance(item.get("contentforge"), dict) else {}
+    )
     blocking = [str(code) for code in contentforge.get("blockingCodes") or []]
     warnings = [str(code) for code in contentforge.get("warningCodes") or []]
     if blocking or item.get("review_status") == "blocked":
@@ -355,7 +434,9 @@ def _recommend_item(item: dict[str, Any], row: dict[str, Any] | None) -> dict[st
     caption_source = _caption_source(row)
     if not _approved_caption_source(row):
         if caption_source:
-            reasons.append(f"overlay skipped: caption source is not approved live bank ({caption_source})")
+            reasons.append(
+                f"overlay skipped: caption source is not approved live bank ({caption_source})"
+            )
         else:
             reasons.append("overlay skipped: caption source missing")
         confidence = "medium" if selected else "low"
@@ -382,7 +463,8 @@ def _recommend_item(item: dict[str, Any], row: dict[str, Any] | None) -> dict[st
         reasons.append("caption text looks incomplete or weak")
 
     severe_warnings = [
-        code for code in warnings
+        code
+        for code in warnings
         if not (
             code.startswith("silent_")
             or code.startswith("static_")
@@ -390,7 +472,13 @@ def _recommend_item(item: dict[str, Any], row: dict[str, Any] | None) -> dict[st
             or code.endswith("_caption_box_over_rejected_focal_lane")
         )
     ]
-    confidence = "high" if selected and not severe_warnings and not normal_bad and not timed_bad else "medium" if selected else "low"
+    confidence = (
+        "high"
+        if selected and not severe_warnings and not normal_bad and not timed_bad
+        else "medium"
+        if selected
+        else "low"
+    )
     if severe_warnings:
         reasons.extend(severe_warnings[:3])
     return {
@@ -412,19 +500,35 @@ def _approved_caption_source(row: dict[str, Any] | None) -> bool:
     if not source:
         return False
     normalized = source.replace("\\", "/")
-    return normalized == "caption_banks/banks.json" or "/caption_banks/banks.json" in normalized
+    return (
+        normalized == "caption_banks/banks.json"
+        or "/caption_banks/banks.json" in normalized
+    )
 
 
 def _caption_preview(row: dict[str, Any] | None, lane: str) -> str:
     if not isinstance(row, dict):
         return ""
     lane_data = row.get(lane) if isinstance(row.get(lane), dict) else {}
-    boxes = (((lane_data.get("readiness") or {}).get("captionLineage") or {}).get("captionRenderBoxes") or
-             (lane_data.get("captionBank") or {}).get("captionRenderBoxes") or [])
-    texts = [str(box.get("text") or "").strip() for box in boxes if isinstance(box, dict) and str(box.get("text") or "").strip()]
+    boxes = (
+        ((lane_data.get("readiness") or {}).get("captionLineage") or {}).get(
+            "captionRenderBoxes"
+        )
+        or (lane_data.get("captionBank") or {}).get("captionRenderBoxes")
+        or []
+    )
+    texts = [
+        str(box.get("text") or "").strip()
+        for box in boxes
+        if isinstance(box, dict) and str(box.get("text") or "").strip()
+    ]
     if texts:
         return " / ".join(texts)
-    text = lane_data.get("captionText") or lane_data.get("caption_text") or row.get("captionText")
+    text = (
+        lane_data.get("captionText")
+        or lane_data.get("caption_text")
+        or row.get("captionText")
+    )
     return str(text or "").strip()
 
 
@@ -434,8 +538,20 @@ def _suspicious_caption(text: str) -> bool:
     flat = " ".join(text.lower().split())
     if len(flat) < 8:
         return True
-    dangling = ("but have you tried", "what about", "because", "unless", "when he", "when she", "pov:")
-    return flat.endswith(dangling) or " / " not in text and flat in {"2 truths 1 lie", "pick one"}
+    dangling = (
+        "but have you tried",
+        "what about",
+        "because",
+        "unless",
+        "when he",
+        "when she",
+        "pov:",
+    )
+    return (
+        flat.endswith(dangling)
+        or " / " not in text
+        and flat in {"2 truths 1 lie", "pick one"}
+    )
 
 
 def _lane_path(value: Any) -> str | None:
@@ -449,19 +565,37 @@ def _lane_path(value: Any) -> str | None:
 def _lane_placement(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    decision = value.get("captionPlacementDecision") if isinstance(value.get("captionPlacementDecision"), dict) else {}
+    decision = (
+        value.get("captionPlacementDecision")
+        if isinstance(value.get("captionPlacementDecision"), dict)
+        else {}
+    )
     return {
-        "scoredLane": value.get("scoredLane") or value.get("selectedLane") or decision.get("scoredLane"),
-        "renderBand": value.get("renderBand") or value.get("finalBand") or decision.get("selectedLane"),
-        "finalBand": value.get("finalBand") or value.get("renderBand") or decision.get("selectedLane"),
+        "scoredLane": value.get("scoredLane")
+        or value.get("selectedLane")
+        or decision.get("scoredLane"),
+        "renderBand": value.get("renderBand")
+        or value.get("finalBand")
+        or decision.get("selectedLane"),
+        "finalBand": value.get("finalBand")
+        or value.get("renderBand")
+        or decision.get("selectedLane"),
         "decisionStatus": decision.get("status"),
         "decisionReason": decision.get("reason"),
-        "font": value.get("font") or value.get("captionFont") or "Instagram Sans Condensed",
+        "font": value.get("font")
+        or value.get("captionFont")
+        or "Instagram Sans Condensed",
     }
 
 
-def _contentforge_file_results_by_path(manifest: dict[str, Any], manifest_path: Path) -> tuple[dict[str, dict[str, Any]], bool]:
-    review = manifest.get("contentForgeReview") if isinstance(manifest.get("contentForgeReview"), dict) else {}
+def _contentforge_file_results_by_path(
+    manifest: dict[str, Any], manifest_path: Path
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    review = (
+        manifest.get("contentForgeReview")
+        if isinstance(manifest.get("contentForgeReview"), dict)
+        else {}
+    )
     loaded = bool(review)
     if not review and manifest.get("contentForgeAuditPath"):
         audit_path = Path(str(manifest["contentForgeAuditPath"]))
@@ -474,7 +608,9 @@ def _contentforge_file_results_by_path(manifest: dict[str, Any], manifest_path: 
         if isinstance(payload, dict):
             review = payload
             loaded = True
-    results = review.get("fileResults") if isinstance(review.get("fileResults"), list) else []
+    results = (
+        review.get("fileResults") if isinstance(review.get("fileResults"), list) else []
+    )
     mapped = {}
     for result in results:
         if not isinstance(result, dict) or not result.get("outputPath"):
@@ -504,16 +640,26 @@ def _contentforge_summary(
     for result in matched:
         warning_codes.extend(str(code) for code in result.get("warningCodes") or [])
         blocking_codes.extend(str(code) for code in result.get("blockingCodes") or [])
-        top_warnings.extend(item for item in result.get("topWarnings") or [] if isinstance(item, dict))
+        top_warnings.extend(
+            item for item in result.get("topWarnings") or [] if isinstance(item, dict)
+        )
     warning_codes.extend(str(code) for code in raw.get("contentForgeWarnings") or [])
-    blocking_codes.extend(str(code) for code in raw.get("contentForgeBlockingCodes") or [])
+    blocking_codes.extend(
+        str(code) for code in raw.get("contentForgeBlockingCodes") or []
+    )
     missing_file_evidence = bool(contentforge_loaded and lanes and not matched)
     if missing_file_evidence:
         warning_codes.append("contentforge_file_evidence_missing")
     warning_codes = sorted(set(warning_codes))
     blocking_codes = sorted(set(blocking_codes))
     raw_status = str(raw.get("contentForgeStatus") or "").lower()
-    status = "blocked" if blocking_codes or raw_status == "fail" else "review" if warning_codes or raw_status in {"warn", "warning", "review"} else "ready"
+    status = (
+        "blocked"
+        if blocking_codes or raw_status == "fail"
+        else "review"
+        if warning_codes or raw_status in {"warn", "warning", "review"}
+        else "ready"
+    )
     return {
         "status": status,
         "warningCodes": warning_codes,
@@ -524,14 +670,18 @@ def _contentforge_summary(
     }
 
 
-def _placement_summary(raw: dict[str, Any], lanes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _placement_summary(
+    raw: dict[str, Any], lanes: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     lane_rows = {}
     for lane, lane_data in lanes.items():
         placement = lane_data.get("placement") or {}
         if placement:
             lane_rows[lane] = placement
     return {
-        "status": "review" if any("caption" in code for code in raw.get("contentForgeWarnings") or []) else "ready",
+        "status": "review"
+        if any("caption" in code for code in raw.get("contentForgeWarnings") or [])
+        else "ready",
         "lanes": lane_rows,
     }
 
@@ -580,11 +730,25 @@ def _load_decisions(path: Path) -> dict[str, Any]:
         with path.open(encoding="utf-8", newline="") as handle:
             items = []
             for row in csv.DictReader(handle):
-                lanes = {lane: {"path": row.get(lane) or "", "decision": "pending", "notes": ""} for lane in LANES if row.get(lane)}
-                selected_lanes = [part for part in str(row.get("selected_lanes") or "").split("|") if part]
+                lanes = {
+                    lane: {
+                        "path": row.get(lane) or "",
+                        "decision": "pending",
+                        "notes": "",
+                    }
+                    for lane in LANES
+                    if row.get(lane)
+                }
+                selected_lanes = [
+                    part
+                    for part in str(row.get("selected_lanes") or "").split("|")
+                    if part
+                ]
                 items.append(
                     {
-                        "id": int(row["id"]) if str(row.get("id") or "").isdigit() else row.get("id"),
+                        "id": int(row["id"])
+                        if str(row.get("id") or "").isdigit()
+                        else row.get("id"),
                         "stem": row.get("stem"),
                         "source_board_id": row.get("source_board_id"),
                         "status": row.get("status"),
@@ -592,7 +756,11 @@ def _load_decisions(path: Path) -> dict[str, Any]:
                         "selected_lanes": selected_lanes,
                         "grade": row.get("grade") or None,
                         "ratings": _parse_ratings(row.get("ratings")),
-                        "reject_reasons": [part for part in str(row.get("reject_reasons") or "").split("|") if part],
+                        "reject_reasons": [
+                            part
+                            for part in str(row.get("reject_reasons") or "").split("|")
+                            if part
+                        ],
                         "notes": row.get("notes") or "",
                         "lanes": lanes,
                     }
@@ -633,13 +801,21 @@ def _parse_ratings(value: Any) -> dict[str, Any]:
 
 
 def _safe_stem(value: Any) -> str:
-    text = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "reel"))
+    text = "".join(
+        ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "reel")
+    )
     return text.strip("_") or "reel"
 
 
-def _render_html(manifest: dict[str, Any], decisions: dict[str, Any], title: str) -> str:
-    cards = "\n".join(_render_card(item, index) for index, item in enumerate(decisions["items"]))
-    reject_list = "\n".join(f"<code>{html.escape(reason)}</code>" for reason in HARD_REJECT_REASONS)
+def _render_html(
+    manifest: dict[str, Any], decisions: dict[str, Any], title: str
+) -> str:
+    cards = "\n".join(
+        _render_card(item, index) for index, item in enumerate(decisions["items"])
+    )
+    reject_list = "\n".join(
+        f"<code>{html.escape(reason)}</code>" for reason in HARD_REJECT_REASONS
+    )
     sheets = _render_sheet_links(manifest)
     decisions_json = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
     return f"""<!doctype html>
@@ -884,7 +1060,10 @@ def _render_html(manifest: dict[str, Any], decisions: dict[str, Any], title: str
 
 
 def _render_variant_html(decisions: dict[str, Any], title: str) -> str:
-    cards = "\n".join(_render_variant_card(item, index) for index, item in enumerate(decisions["items"]))
+    cards = "\n".join(
+        _render_variant_card(item, index)
+        for index, item in enumerate(decisions["items"])
+    )
     decisions_json = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en">
@@ -1027,11 +1206,19 @@ def _render_variant_html(decisions: dict[str, Any], title: str) -> str:
 
 
 def _render_variant_card(item: dict[str, Any], index: int) -> str:
-    warnings = "".join(f'<span class="chip warn">{html.escape(str(code))}</span>' for code in item.get("warningCodes") or [])
-    blocks = "".join(f'<span class="chip block">{html.escape(str(code))}</span>' for code in item.get("blockingCodes") or [])
+    warnings = "".join(
+        f'<span class="chip warn">{html.escape(str(code))}</span>'
+        for code in item.get("warningCodes") or []
+    )
+    blocks = "".join(
+        f'<span class="chip block">{html.escape(str(code))}</span>'
+        for code in item.get("blockingCodes") or []
+    )
     placement = item.get("placement") or {}
     placement_text = " · ".join(
-        str(value) for value in (placement.get("finalBand"), placement.get("font")) if value
+        str(value)
+        for value in (placement.get("finalBand"), placement.get("font"))
+        if value
     )
     return f"""<article data-index="{index}" data-lane="{html.escape(str(item.get("lane")))}">
   <h2>#{html.escape(str(index + 1))} {html.escape(str(item.get("label")))} · {html.escape(str(item.get("stem")))} </h2>
@@ -1044,7 +1231,10 @@ def _render_variant_card(item: dict[str, Any], index: int) -> str:
 
 
 def _render_assisted_html(decisions: dict[str, Any], title: str) -> str:
-    cards = "\n".join(_render_assisted_card(item, index) for index, item in enumerate(decisions["items"]))
+    cards = "\n".join(
+        _render_assisted_card(item, index)
+        for index, item in enumerate(decisions["items"])
+    )
     decisions_json = json.dumps(decisions, ensure_ascii=True).replace("</", "<\\/")
     stats = decisions.get("stats") or {}
     return f"""<!doctype html>
@@ -1219,13 +1409,25 @@ def _render_assisted_html(decisions: dict[str, Any], title: str) -> str:
 def _render_assisted_card(item: dict[str, Any], index: int) -> str:
     rec = item.get("recommendation") or {}
     confidence = str(rec.get("confidence") or "low")
-    reasons = "".join(f'<span class="chip {html.escape(confidence)}">{html.escape(str(reason))}</span>' for reason in rec.get("reasons") or [])
+    reasons = "".join(
+        f'<span class="chip {html.escape(confidence)}">{html.escape(str(reason))}</span>'
+        for reason in rec.get("reasons") or []
+    )
     lanes = item.get("lanes") or {}
-    selected_lanes = [lane for lane in (rec.get("selectedLanes") or []) if lane in lanes]
+    selected_lanes = [
+        lane for lane in (rec.get("selectedLanes") or []) if lane in lanes
+    ]
     if not selected_lanes:
         selected_lanes = [lane for lane in LANES if lane in lanes][:1]
-    display_lanes = [lane for lane in selected_lanes if lane != "clean"] or selected_lanes
-    lane_html = "\n".join(_render_assisted_lane(lane, lanes[lane], True, (item.get("captionPreviews") or {}).get(lane)) for lane in display_lanes)
+    display_lanes = [
+        lane for lane in selected_lanes if lane != "clean"
+    ] or selected_lanes
+    lane_html = "\n".join(
+        _render_assisted_lane(
+            lane, lanes[lane], True, (item.get("captionPreviews") or {}).get(lane)
+        )
+        for lane in display_lanes
+    )
     return f"""<article data-index="{index}" data-confidence="{html.escape(confidence)}">
   <h2>#{html.escape(str(item.get("id", index + 1)))} {html.escape(str(item.get("stem", "")))}</h2>
   <div class="chips"><span class="chip {html.escape(confidence)}">recommend: {html.escape(confidence)}</span>{reasons}</div>
@@ -1233,9 +1435,11 @@ def _render_assisted_card(item: dict[str, Any], index: int) -> str:
 </article>"""
 
 
-def _render_assisted_lane(lane: str, data: dict[str, Any], selected: bool, caption: str | None) -> str:
+def _render_assisted_lane(
+    lane: str, data: dict[str, Any], selected: bool, caption: str | None
+) -> str:
     caption_html = f'<div class="meta">{html.escape(caption)}</div>' if caption else ""
-    return f"""<section class="lane{' selected' if selected else ''}" data-lane="{html.escape(lane)}">
+    return f"""<section class="lane{" selected" if selected else ""}" data-lane="{html.escape(lane)}">
   <h3>{html.escape(LANE_LABELS[lane])}</h3>
   <video controls preload="none" data-src="{_uri(data.get("path"))}"></video>
   {caption_html}
@@ -1254,7 +1458,11 @@ def _render_source_media_lazy(item: dict[str, Any]) -> str:
 
 def _render_sheet_links(manifest: dict[str, Any]) -> str:
     links = []
-    for label, key in (("Clean sheet", "cleanSheet"), ("Normal sheet", "normalSheet"), ("Timed sheet", "timedSheet")):
+    for label, key in (
+        ("Clean sheet", "cleanSheet"),
+        ("Normal sheet", "normalSheet"),
+        ("Timed sheet", "timedSheet"),
+    ):
         path = manifest.get(key)
         if path:
             links.append(f'<a href="{_uri(path)}">{html.escape(label)}</a>')
@@ -1264,10 +1472,18 @@ def _render_sheet_links(manifest: dict[str, Any]) -> str:
 
 
 def _render_card(item: dict[str, Any], index: int) -> str:
-    lane_html = "\n".join(_render_lane(lane, item["lanes"][lane]) for lane in LANES if lane in item.get("lanes", {}))
+    lane_html = "\n".join(
+        _render_lane(lane, item["lanes"][lane])
+        for lane in LANES
+        if lane in item.get("lanes", {})
+    )
     grading_html = _render_grading()
     evidence_html = _render_evidence(item)
-    codes = " ".join((item.get("contentforge") or {}).get("warningCodes") or []) + " " + " ".join((item.get("contentforge") or {}).get("blockingCodes") or [])
+    codes = (
+        " ".join((item.get("contentforge") or {}).get("warningCodes") or [])
+        + " "
+        + " ".join((item.get("contentforge") or {}).get("blockingCodes") or [])
+    )
     source_media = _render_source_media(item)
     return f"""<article data-index="{index}" data-review-status="{html.escape(str(item.get("review_status") or "ready"))}" data-codes="{html.escape(codes)}">
   <h2>#{html.escape(str(item.get("id", "")))} {html.escape(str(item.get("stem", "")))}</h2>
@@ -1300,16 +1516,26 @@ def _render_evidence(item: dict[str, Any]) -> str:
     status = str(contentforge.get("status") or item.get("review_status") or "ready")
     warning_codes = contentforge.get("warningCodes") or []
     blocking_codes = contentforge.get("blockingCodes") or []
-    status_chip = f'<span class="chip {html.escape(status)}">status: {html.escape(status)}</span>'
-    block_chips = "".join(f'<span class="chip block">{html.escape(str(code))}</span>' for code in blocking_codes)
-    warn_chips = "".join(f'<span class="chip warn">{html.escape(str(code))}</span>' for code in warning_codes)
+    status_chip = (
+        f'<span class="chip {html.escape(status)}">status: {html.escape(status)}</span>'
+    )
+    block_chips = "".join(
+        f'<span class="chip block">{html.escape(str(code))}</span>'
+        for code in blocking_codes
+    )
+    warn_chips = "".join(
+        f'<span class="chip warn">{html.escape(str(code))}</span>'
+        for code in warning_codes
+    )
     if not block_chips and not warn_chips:
         warn_chips = '<span class="chip ready">no ContentForge codes</span>'
     top = []
     for warning in contentforge.get("topWarnings") or []:
         code = html.escape(str(warning.get("code") or "warning"))
-        message = html.escape(str(warning.get("message") or warning.get("summary") or "review"))
-        top.append(f"<div class=\"metric\"><code>{code}</code> {message}</div>")
+        message = html.escape(
+            str(warning.get("message") or warning.get("summary") or "review")
+        )
+        top.append(f'<div class="metric"><code>{code}</code> {message}</div>')
     placement_rows = []
     for lane, data in (placement.get("lanes") or {}).items():
         scored = data.get("scoredLane") or "unknown"
@@ -1318,15 +1544,15 @@ def _render_evidence(item: dict[str, Any]) -> str:
         reason = data.get("decisionReason") or ""
         placement_rows.append(
             f'<div class="metric"><code>{html.escape(str(lane))}</code> '
-            f'scored {html.escape(str(scored))} → rendered {html.escape(str(final))} · '
-            f'{html.escape(str(font))} {html.escape(str(reason))}</div>'
+            f"scored {html.escape(str(scored))} → rendered {html.escape(str(final))} · "
+            f"{html.escape(str(font))} {html.escape(str(reason))}</div>"
         )
     note = contentforge.get("note")
     note_html = f'<div class="metric">{html.escape(str(note))}</div>' if note else ""
     return f"""<section class="evidence">
   <div class="chips">{status_chip}{block_chips}{warn_chips}</div>
-  {''.join(top)}
-  {''.join(placement_rows)}
+  {"".join(top)}
+  {"".join(placement_rows)}
   {note_html}
 </section>"""
 
@@ -1341,11 +1567,18 @@ def _render_lane(lane: str, data: dict[str, Any]) -> str:
 
 
 def _render_grading() -> str:
-    grade_buttons = " ".join(f'<button data-grade="{grade}">{grade}</button>' for grade in GRADES)
+    grade_buttons = " ".join(
+        f'<button data-grade="{grade}">{grade}</button>' for grade in GRADES
+    )
     rows = []
     for key, label in RATING_FIELDS:
-        buttons = " ".join(f'<button data-rating-field="{key}" data-rating-value="{value}">{value}</button>' for value in range(1, 6))
-        rows.append(f'<div class="rating-row"><span>{html.escape(label)}</span>{buttons}</div>')
+        buttons = " ".join(
+            f'<button data-rating-field="{key}" data-rating-value="{value}">{value}</button>'
+            for value in range(1, 6)
+        )
+        rows.append(
+            f'<div class="rating-row"><span>{html.escape(label)}</span>{buttons}</div>'
+        )
     return f"""<section class="grading">
   <div class="grade-row"><span class="policy">Keeper grade</span>{grade_buttons}</div>
   {"".join(rows)}
@@ -1359,27 +1592,65 @@ def _uri(path: Any) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build a local reel approval board from an approved batch manifest.")
+    parser = argparse.ArgumentParser(
+        description="Build a local reel approval board from an approved batch manifest."
+    )
     parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--variant-board", type=Path, help="Build a lane-first swipe board from approval_decisions.json.")
-    parser.add_argument("--assisted-board", type=Path, help="Build a source-first board with auto lane recommendations from approval_decisions.json.")
+    parser.add_argument(
+        "--variant-board",
+        type=Path,
+        help="Build a lane-first swipe board from approval_decisions.json.",
+    )
+    parser.add_argument(
+        "--assisted-board",
+        type=Path,
+        help="Build a source-first board with auto lane recommendations from approval_decisions.json.",
+    )
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--title")
     parser.add_argument("--promote-decisions", type=Path)
     parser.add_argument("--selected-dir", type=Path)
     args = parser.parse_args(argv)
     if args.promote_decisions:
-        print(json.dumps(promote_approval_decisions(args.promote_decisions, selected_dir=args.selected_dir), indent=2))
+        print(
+            json.dumps(
+                promote_approval_decisions(
+                    args.promote_decisions, selected_dir=args.selected_dir
+                ),
+                indent=2,
+            )
+        )
         return 0
     if args.variant_board:
-        print(json.dumps(build_variant_approval_board(args.variant_board, out_dir=args.out_dir, title=args.title), indent=2))
+        print(
+            json.dumps(
+                build_variant_approval_board(
+                    args.variant_board, out_dir=args.out_dir, title=args.title
+                ),
+                indent=2,
+            )
+        )
         return 0
     if args.assisted_board:
-        print(json.dumps(build_assisted_approval_board(args.assisted_board, out_dir=args.out_dir, title=args.title), indent=2))
+        print(
+            json.dumps(
+                build_assisted_approval_board(
+                    args.assisted_board, out_dir=args.out_dir, title=args.title
+                ),
+                indent=2,
+            )
+        )
         return 0
     if not args.manifest:
-        parser.error("--manifest is required unless --promote-decisions, --variant-board, or --assisted-board is used")
-    print(json.dumps(build_approval_board(args.manifest, out_dir=args.out_dir, title=args.title), indent=2))
+        parser.error(
+            "--manifest is required unless --promote-decisions, --variant-board, or --assisted-board is used"
+        )
+    print(
+        json.dumps(
+            build_approval_board(args.manifest, out_dir=args.out_dir, title=args.title),
+            indent=2,
+        )
+    )
     return 0
 
 

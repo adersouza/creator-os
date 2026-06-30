@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 CREATOR_OS_ROOT = Path(os.environ.get("CREATOR_OS_ROOT", Path.home() / "Developer"))
 DEFAULT_SOURCE_ROOT = Path.home() / "Downloads" / "examples"
 DEFAULT_TIKTOK_SOURCE_ROOT = Path.home() / "Downloads" / "tiktok"

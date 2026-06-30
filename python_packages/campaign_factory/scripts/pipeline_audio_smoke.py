@@ -10,14 +10,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from campaign_factory.audio_smoke import run_pipeline_audio_smoke
 
-
 DEFAULT_PROJECTS_ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the local cross-repo native-audio smoke fixture.")
+    parser = argparse.ArgumentParser(
+        description="Run the local cross-repo native-audio smoke fixture."
+    )
     parser.add_argument("--projects-root", default=str(DEFAULT_PROJECTS_ROOT))
-    parser.add_argument("--workspace", default=None, help="Optional temp workspace to keep smoke artifacts.")
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Optional temp workspace to keep smoke artifacts.",
+    )
     parser.add_argument("--skip-threadsdash-validator", action="store_true")
     args = parser.parse_args()
     result = run_pipeline_audio_smoke(

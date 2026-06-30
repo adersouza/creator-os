@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 MANIFEST_DIR = ROOT / "fixtures" / "manifest_v2"
 VISUAL_QC_DIR = ROOT / "fixtures" / "visual_qc"
@@ -76,7 +75,9 @@ def test_carousel_manifest_v2_preserves_slide_order_and_hashes():
     media_items = payload["mediaItems"]
 
     assert 2 <= len(media_items) <= 10
-    assert [item["componentIndex"] for item in media_items] == list(range(len(media_items)))
+    assert [item["componentIndex"] for item in media_items] == list(
+        range(len(media_items))
+    )
     assert [item["mediaHash"] for item in media_items] == [
         "hash_carousel_slide_0",
         "hash_carousel_slide_1",
@@ -98,8 +99,14 @@ def test_visual_qc_fixture_set_covers_pass_and_fail_cases():
     }
     assert fixtures["story_valid_1080x1920"]["expectedPass"] is True
     assert fixtures["story_black_bars"]["expectedFailureReasons"] == ["black_bars"]
-    assert fixtures["story_bad_aspect_ratio"]["expectedFailureReasons"] == ["story_aspect_ratio_not_safe"]
-    assert fixtures["story_safe_zone_violation"]["expectedFailureReasons"] == ["safe_zone_violation"]
+    assert fixtures["story_bad_aspect_ratio"]["expectedFailureReasons"] == [
+        "story_aspect_ratio_not_safe"
+    ]
+    assert fixtures["story_safe_zone_violation"]["expectedFailureReasons"] == [
+        "safe_zone_violation"
+    ]
     assert fixtures["feed_image_valid"]["expectedPass"] is True
     assert fixtures["carousel_valid_ordered_slides"]["componentIndexes"] == [0, 1, 2]
-    assert fixtures["carousel_bad_slide_order"]["expectedFailureReasons"] == ["carousel_components_not_ordered"]
+    assert fixtures["carousel_bad_slide_order"]["expectedFailureReasons"] == [
+        "carousel_components_not_ordered"
+    ]

@@ -1,8 +1,8 @@
 """Runtime guard for deprecated local generation paths."""
+
 from __future__ import annotations
 
 import os
-
 
 DEPRECATED_GENERATOR_ALLOW_FLAG = "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS"
 DEPRECATED_GENERATOR_FLAG = "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS"
@@ -29,7 +29,9 @@ def _prod_env_active() -> bool:
 
 
 def _local_or_test_context() -> bool:
-    return _env_value("REEL_FACTORY_ENV") in LOCAL_ENV_VALUES or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    return _env_value("REEL_FACTORY_ENV") in LOCAL_ENV_VALUES or bool(
+        os.environ.get("PYTEST_CURRENT_TEST")
+    )
 
 
 def deprecated_generator_allowed() -> bool:

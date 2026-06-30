@@ -4,6 +4,7 @@
 This file plans and records benchmark runs. It does not introduce a new
 generation service and does not change the final prompt contract.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from generate_assets import AssetGenerationPlan, dry_run, load_prompt
-
 
 SCHEMA = "reel_factory.visual_direction_benchmark.v1"
 DEFAULT_BENCHMARK_ID = "visual_direction_v1"
@@ -33,14 +33,26 @@ def benchmark_plan_path(root: Path, benchmark_id: str = DEFAULT_BENCHMARK_ID) ->
     return benchmark_dir(root, benchmark_id) / "benchmark_plan.json"
 
 
-def benchmark_results_path(root: Path, benchmark_id: str = DEFAULT_BENCHMARK_ID) -> Path:
+def benchmark_results_path(
+    root: Path, benchmark_id: str = DEFAULT_BENCHMARK_ID
+) -> Path:
     return benchmark_dir(root, benchmark_id) / "results.jsonl"
 
 
-def _variant_plan(root: Path, *, reel_id: str, condition: str, reference_path: Path,
-                  prompt_json: Path, shared_motion_hash: str,
-                  creator: str | None, soul_name: str | None, soul_id: str | None,
-                  max_panels: int, benchmark_id: str) -> dict[str, Any]:
+def _variant_plan(
+    root: Path,
+    *,
+    reel_id: str,
+    condition: str,
+    reference_path: Path,
+    prompt_json: Path,
+    shared_motion_hash: str,
+    creator: str | None,
+    soul_name: str | None,
+    soul_id: str | None,
+    max_panels: int,
+    benchmark_id: str,
+) -> dict[str, Any]:
     stem = f"{reel_id}_{condition}_grid"
     plan = AssetGenerationPlan(
         prompt_json=prompt_json,
@@ -49,7 +61,12 @@ def _variant_plan(root: Path, *, reel_id: str, condition: str, reference_path: P
         soul_id=soul_id,
         soul_name=soul_name,
         start_image=None,
-        out_dir=root / "project_data" / "generated_assets" / "benchmarks" / reel_id / condition,
+        out_dir=root
+        / "project_data"
+        / "generated_assets"
+        / "benchmarks"
+        / reel_id
+        / condition,
         source_dir=root / "00_source_videos",
         campaign=f"benchmark:{benchmark_id}",
         creator=creator,
@@ -58,14 +75,25 @@ def _variant_plan(root: Path, *, reel_id: str, condition: str, reference_path: P
         video_aspect_ratio="9:16",
     )
     planned = dry_run(plan, wait=True)
-    crop_dir = root / "project_data" / "generated_assets" / "start_images" / "benchmarks" / reel_id / condition
+    crop_dir = (
+        root
+        / "project_data"
+        / "generated_assets"
+        / "start_images"
+        / "benchmarks"
+        / reel_id
+        / condition
+    )
     return {
         "condition": condition,
         "promptJsonPath": str(prompt_json),
         "gridStem": stem,
         "expectedGridImagePath": str(plan.out_dir / f"{stem}_soul_image.png"),
         "cropOutputDir": str(crop_dir),
-        "panelAnimationStems": [f"{reel_id}_{condition}_panel_{idx:02d}_kling" for idx in range(1, max_panels + 1)],
+        "panelAnimationStems": [
+            f"{reel_id}_{condition}_panel_{idx:02d}_kling"
+            for idx in range(1, max_panels + 1)
+        ],
         "sharedMotionHash": shared_motion_hash,
         "dryRunCommands": planned["commands"],
         "lineagePath": planned["lineage_path"],
@@ -95,12 +123,18 @@ def create_benchmark_plan(
     for idx, reel in enumerate(reels, start=1):
         reel_id = str(reel.get("reel_id") or f"reel_{idx:03d}").strip()
         reference_path = Path(str(reel["reference_path"])).expanduser().resolve()
-        neutral_prompt_json = Path(str(reel["neutral_prompt_json"])).expanduser().resolve()
-        enhanced_prompt_json = Path(str(reel["enhanced_prompt_json"])).expanduser().resolve()
+        neutral_prompt_json = (
+            Path(str(reel["neutral_prompt_json"])).expanduser().resolve()
+        )
+        enhanced_prompt_json = (
+            Path(str(reel["enhanced_prompt_json"])).expanduser().resolve()
+        )
         neutral_prompt = load_prompt(neutral_prompt_json)
         enhanced_prompt = load_prompt(enhanced_prompt_json)
         if neutral_prompt.klingMotionPrompt != enhanced_prompt.klingMotionPrompt:
-            raise ValueError(f"{reel_id} neutral/enhanced prompts must use the same klingMotionPrompt")
+            raise ValueError(
+                f"{reel_id} neutral/enhanced prompts must use the same klingMotionPrompt"
+            )
         motion_hash = _sha256_text(neutral_prompt.klingMotionPrompt)
         variants = {
             "neutral": _variant_plan(
@@ -130,20 +164,22 @@ def create_benchmark_plan(
                 benchmark_id=benchmark_id,
             ),
         }
-        planned_reels.append({
-            "reelId": reel_id,
-            "referencePath": str(reference_path),
-            "sharedKlingMotionPrompt": neutral_prompt.klingMotionPrompt,
-            "sharedMotionHash": motion_hash,
-            "variants": variants,
-            "reviewFields": [
-                "winner",
-                "selectedPanels",
-                "scores",
-                "reason",
-                "notes",
-            ],
-        })
+        planned_reels.append(
+            {
+                "reelId": reel_id,
+                "referencePath": str(reference_path),
+                "sharedKlingMotionPrompt": neutral_prompt.klingMotionPrompt,
+                "sharedMotionHash": motion_hash,
+                "variants": variants,
+                "reviewFields": [
+                    "winner",
+                    "selectedPanels",
+                    "scores",
+                    "reason",
+                    "notes",
+                ],
+            }
+        )
 
     payload = {
         "schema": SCHEMA,
@@ -162,7 +198,9 @@ def create_benchmark_plan(
         },
         "reels": planned_reels,
     }
-    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return {"ok": True, "path": str(out_path), "benchmark": payload}
 
 
@@ -222,7 +260,9 @@ def main() -> int:
     record.add_argument("--root", type=Path, default=Path("."))
     record.add_argument("--benchmark-id", default=DEFAULT_BENCHMARK_ID)
     record.add_argument("--reel-id", required=True)
-    record.add_argument("--winner", required=True, choices=["neutral", "enhanced", "tie", "reject_both"])
+    record.add_argument(
+        "--winner", required=True, choices=["neutral", "enhanced", "tie", "reject_both"]
+    )
     record.add_argument("--reason", required=True)
     record.add_argument("--selected-panels-json", default="{}")
     record.add_argument("--scores-json", default="{}")

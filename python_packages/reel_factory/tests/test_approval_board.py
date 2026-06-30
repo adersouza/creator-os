@@ -58,7 +58,10 @@ class ApprovalBoardTests(unittest.TestCase):
                                 },
                             },
                             "contentForgeStatus": "warn",
-                            "contentForgeWarnings": ["caption_low_contrast", "watchability_static_opening"],
+                            "contentForgeWarnings": [
+                                "caption_low_contrast",
+                                "watchability_static_opening",
+                            ],
                             "contentForgeBlockingCodes": [],
                         }
                     ],
@@ -68,17 +71,27 @@ class ApprovalBoardTests(unittest.TestCase):
         )
 
         result = build_approval_board(manifest, title="Test Board")
-        decisions = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        decisions = json.loads(
+            Path(result["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
         html = Path(result["boardPath"]).read_text(encoding="utf-8")
 
         self.assertEqual(result["count"], 1)
         self.assertEqual(decisions["items"][0]["status"], "pending")
         self.assertIsNone(decisions["items"][0]["selected_lane"])
         self.assertEqual(decisions["items"][0]["selected_lanes"], [])
-        self.assertEqual(set(decisions["items"][0]["lanes"]), {"clean", "normal", "timed"})
+        self.assertEqual(
+            set(decisions["items"][0]["lanes"]), {"clean", "normal", "timed"}
+        )
         self.assertEqual(decisions["items"][0]["review_status"], "review")
-        self.assertEqual(decisions["items"][0]["contentforge"]["warningCodes"], ["caption_low_contrast", "watchability_static_opening"])
-        self.assertEqual(decisions["items"][0]["placement"]["lanes"]["normal"]["finalBand"], "lower_center")
+        self.assertEqual(
+            decisions["items"][0]["contentforge"]["warningCodes"],
+            ["caption_low_contrast", "watchability_static_opening"],
+        )
+        self.assertEqual(
+            decisions["items"][0]["placement"]["lanes"]["normal"]["finalBand"],
+            "lower_center",
+        )
         self.assertIn("caption_bad_placement", decisions["hardRejectReasons"])
         self.assertIn(HARD_REJECT_REASONS[0], html)
         self.assertIn("Manual lane: no burned text", html)
@@ -96,7 +109,9 @@ class ApprovalBoardTests(unittest.TestCase):
         self.assertIn('data-rating-field="post_potential"', html)
         self.assertIn('original.manifestPath + ":" + original.createdAt', html)
 
-        with Path(result["decisionCsvPath"]).open(encoding="utf-8", newline="") as handle:
+        with Path(result["decisionCsvPath"]).open(
+            encoding="utf-8", newline=""
+        ) as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual(rows[0]["stem"], "ref07_stacey_faithful")
         self.assertEqual(rows[0]["selected_lane"], "")
@@ -129,8 +144,16 @@ class ApprovalBoardTests(unittest.TestCase):
                             "notes": "good",
                             "image": str(root / "source.png"),
                             "lanes": {
-                                "clean": {"path": str(clean_source), "decision": "pending", "notes": ""},
-                                "timed": {"path": str(timed_source), "decision": "pending", "notes": ""},
+                                "clean": {
+                                    "path": str(clean_source),
+                                    "decision": "pending",
+                                    "notes": "",
+                                },
+                                "timed": {
+                                    "path": str(timed_source),
+                                    "decision": "pending",
+                                    "notes": "",
+                                },
                             },
                         },
                         {
@@ -150,13 +173,19 @@ class ApprovalBoardTests(unittest.TestCase):
         manifest = json.loads(Path(result["manifestPath"]).read_text(encoding="utf-8"))
 
         self.assertEqual(result["count"], 2)
-        self.assertEqual([item["selectedLane"] for item in manifest["items"]], ["clean", "timed"])
+        self.assertEqual(
+            [item["selectedLane"] for item in manifest["items"]], ["clean", "timed"]
+        )
         self.assertEqual(manifest["items"][0]["selectedLanes"], ["clean", "timed"])
         self.assertEqual(manifest["items"][0]["grade"], "A")
         self.assertEqual(manifest["items"][0]["ratings"]["post_potential"], 4)
         self.assertEqual(manifest["items"][0]["notes"], "good")
-        self.assertEqual(manifest["items"][0]["sourceSha256"], hashlib.sha256(b"clean").hexdigest())
-        self.assertEqual(manifest["items"][0]["outputSha256"], hashlib.sha256(b"clean").hexdigest())
+        self.assertEqual(
+            manifest["items"][0]["sourceSha256"], hashlib.sha256(b"clean").hexdigest()
+        )
+        self.assertEqual(
+            manifest["items"][0]["outputSha256"], hashlib.sha256(b"clean").hexdigest()
+        )
         self.assertEqual(manifest["items"][0]["contentForgeStatus"], None)
         copied = [Path(item["outputPath"]).read_bytes() for item in manifest["items"]]
         self.assertEqual(copied, [b"clean", b"timed"])
@@ -182,10 +211,19 @@ class ApprovalBoardTests(unittest.TestCase):
                             "stem": "ref04_stacey",
                             "status": "pending",
                             "image": str(root / "source.png"),
-                            "contentforge": {"warningCodes": ["silent_review_pack_no_audio"], "blockingCodes": []},
+                            "contentforge": {
+                                "warningCodes": ["silent_review_pack_no_audio"],
+                                "blockingCodes": [],
+                            },
                             "lanes": {
                                 "clean": {"path": str(clean)},
-                                "timed": {"path": str(timed), "placement": {"finalBand": "lower_center_alt", "font": "Instagram Sans Condensed"}},
+                                "timed": {
+                                    "path": str(timed),
+                                    "placement": {
+                                        "finalBand": "lower_center_alt",
+                                        "font": "Instagram Sans Condensed",
+                                    },
+                                },
                             },
                         }
                     ],
@@ -195,11 +233,15 @@ class ApprovalBoardTests(unittest.TestCase):
         )
 
         result = build_variant_approval_board(decisions, title="Variant Board")
-        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        payload = json.loads(
+            Path(result["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
         html = Path(result["boardPath"]).read_text(encoding="utf-8")
 
         self.assertEqual(result["count"], 2)
-        self.assertEqual([item["lane"] for item in payload["items"]], ["clean", "timed"])
+        self.assertEqual(
+            [item["lane"] for item in payload["items"]], ["clean", "timed"]
+        )
         self.assertIn("needs_ui_crop", payload["items"][0])
         self.assertIn("variant_swipe_decisions.reviewed.json", html)
         self.assertIn('data-filter="timed"', html)
@@ -226,7 +268,14 @@ class ApprovalBoardTests(unittest.TestCase):
                             "source": {"id": "ref04_stacey", "path": str(source)},
                             "captionSource": "caption_banks/banks.json",
                             "clean": {"path": str(clean)},
-                            "normal": {"path": str(normal), "captionBank": {"captionRenderBoxes": [{"text": "anime guys say\nwaifu"}]}},
+                            "normal": {
+                                "path": str(normal),
+                                "captionBank": {
+                                    "captionRenderBoxes": [
+                                        {"text": "anime guys say\nwaifu"}
+                                    ]
+                                },
+                            },
                             "timed": {
                                 "path": str(timed),
                                 "captionBank": {
@@ -255,7 +304,10 @@ class ApprovalBoardTests(unittest.TestCase):
                             "stem": "ref04_stacey",
                             "status": "pending",
                             "image": str(source),
-                            "contentforge": {"warningCodes": ["silent_review_pack_no_audio"], "blockingCodes": []},
+                            "contentforge": {
+                                "warningCodes": ["silent_review_pack_no_audio"],
+                                "blockingCodes": [],
+                            },
                             "lanes": {
                                 "clean": {"path": str(clean)},
                                 "normal": {"path": str(normal)},
@@ -269,7 +321,9 @@ class ApprovalBoardTests(unittest.TestCase):
         )
 
         result = build_assisted_approval_board(decisions, title="Assisted")
-        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        payload = json.loads(
+            Path(result["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
         html = Path(result["boardPath"]).read_text(encoding="utf-8")
 
         self.assertEqual(result["count"], 1)
@@ -296,7 +350,10 @@ class ApprovalBoardTests(unittest.TestCase):
                     "schema": "creator_os.bulk_review.v1",
                     "rows": [
                         {
-                            "source": {"id": "ref05_stacey", "path": str(root / "source.mp4")},
+                            "source": {
+                                "id": "ref05_stacey",
+                                "path": str(root / "source.mp4"),
+                            },
                             "captionSource": "caption_banks/candidate_intake.json:review_only",
                             "clean": {"path": str(clean)},
                             "timed": {
@@ -339,12 +396,17 @@ class ApprovalBoardTests(unittest.TestCase):
         )
 
         result = build_assisted_approval_board(decisions, title="Assisted")
-        payload = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        payload = json.loads(
+            Path(result["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
 
         item = payload["items"][0]
         self.assertEqual(item["recommendation"]["selectedLanes"], ["clean"])
         self.assertFalse(item["captionSourceApproved"])
-        self.assertIn("caption source is not approved live bank", " ".join(item["recommendation"]["reasons"]))
+        self.assertIn(
+            "caption source is not approved live bank",
+            " ".join(item["recommendation"]["reasons"]),
+        )
 
     def test_builds_board_from_contentforge_audit_path(self):
         tmp = tempfile.TemporaryDirectory()
@@ -363,7 +425,12 @@ class ApprovalBoardTests(unittest.TestCase):
                             "status": "review",
                             "warningCodes": ["watchability_static_opening"],
                             "blockingCodes": [],
-                            "topWarnings": [{"code": "watchability_static_opening", "message": "Static opening"}],
+                            "topWarnings": [
+                                {
+                                    "code": "watchability_static_opening",
+                                    "message": "Static opening",
+                                }
+                            ],
                         }
                     ],
                 }
@@ -389,10 +456,15 @@ class ApprovalBoardTests(unittest.TestCase):
         )
 
         result = build_approval_board(manifest, title="Audit Path Board")
-        decisions = json.loads(Path(result["decisionJsonPath"]).read_text(encoding="utf-8"))
+        decisions = json.loads(
+            Path(result["decisionJsonPath"]).read_text(encoding="utf-8")
+        )
 
         self.assertEqual(decisions["items"][0]["review_status"], "review")
-        self.assertEqual(decisions["items"][0]["contentforge"]["warningCodes"], ["watchability_static_opening"])
+        self.assertEqual(
+            decisions["items"][0]["contentforge"]["warningCodes"],
+            ["watchability_static_opening"],
+        )
 
 
 if __name__ == "__main__":

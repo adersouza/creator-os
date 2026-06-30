@@ -69,11 +69,16 @@ def shortlist(conn: Connection, target: int = 300) -> dict[str, object]:
         item["score"] = score
         item["reasons"] = reasons
         scored.append(item)
-    scored.sort(key=lambda item: (-item["score"], item.get("account") or "", item.get("file_name") or ""))
+    scored.sort(
+        key=lambda item: (
+            -item["score"],
+            item.get("account") or "",
+            item.get("file_name") or "",
+        )
+    )
     return {
         "schema": "reference_factory.shortlist.v1",
         "target": target,
         "available": len(scored),
         "items": scored[:target],
     }
-

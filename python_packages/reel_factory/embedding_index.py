@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Index and search Reel Factory media/text embeddings."""
+
 from __future__ import annotations
 
 import argparse
@@ -31,7 +32,11 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
     sidecar = path.with_suffix(path.suffix + ".generated_asset_lineage.json")
     if sidecar.exists():
         try:
-            parts.append(json.dumps(json.loads(sidecar.read_text(encoding="utf-8")), ensure_ascii=False)[:4000])
+            parts.append(
+                json.dumps(
+                    json.loads(sidecar.read_text(encoding="utf-8")), ensure_ascii=False
+                )[:4000]
+            )
         except Exception:
             pass
     if root:
@@ -44,7 +49,10 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
                     (str(path.resolve()),),
                 ).fetchone()
                 if feature:
-                    parts.append("reel_features " + json.dumps(dict(feature), ensure_ascii=False)[:4000])
+                    parts.append(
+                        "reel_features "
+                        + json.dumps(dict(feature), ensure_ascii=False)[:4000]
+                    )
                 outcome = conn.execute(
                     """
                     SELECT filename, views, likes, comments, shares, saves, manual_score, notes
@@ -55,7 +63,10 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
                     (str(path.resolve()), path.name),
                 ).fetchone()
                 if outcome:
-                    parts.append("reel_outcome " + json.dumps(dict(outcome), ensure_ascii=False)[:1000])
+                    parts.append(
+                        "reel_outcome "
+                        + json.dumps(dict(outcome), ensure_ascii=False)[:1000]
+                    )
             except Exception:
                 pass
     return "\n".join(parts)
@@ -76,8 +87,14 @@ def entity_type_for(path: Path) -> str:
     return "media"
 
 
-def upsert_embedding(root: Path, path: Path, *, model: str = HASH_MODEL,
-                     entity_type: str | None = None, entity_id: str | None = None) -> dict[str, Any]:
+def upsert_embedding(
+    root: Path,
+    path: Path,
+    *,
+    model: str = HASH_MODEL,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     path = Path(path).expanduser().resolve()
     provider = get_embedding_provider(model)
@@ -94,16 +111,29 @@ def upsert_embedding(root: Path, path: Path, *, model: str = HASH_MODEL,
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            embedding_id, entity_type, entity_id, str(path), provider.name,
-            json.dumps(vec), json.dumps({"text": text[:4000]}, ensure_ascii=False),
+            embedding_id,
+            entity_type,
+            entity_id,
+            str(path),
+            provider.name,
+            json.dumps(vec),
+            json.dumps({"text": text[:4000]}, ensure_ascii=False),
             int(time.time()),
         ),
     )
     conn.commit()
-    return {"embedding_id": embedding_id, "entity_type": entity_type, "entity_id": entity_id, "path": str(path), "model": provider.name}
+    return {
+        "embedding_id": embedding_id,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "path": str(path),
+        "model": provider.name,
+    }
 
 
-def index_root(root: Path, *, model: str = HASH_MODEL, limit: int | None = None) -> dict[str, Any]:
+def index_root(
+    root: Path, *, model: str = HASH_MODEL, limit: int | None = None
+) -> dict[str, Any]:
     root = Path(root).resolve()
     candidates: list[Path] = []
     for base, patterns in [
@@ -120,28 +150,42 @@ def index_root(root: Path, *, model: str = HASH_MODEL, limit: int | None = None)
     if limit:
         candidates = candidates[:limit]
     rows = [upsert_embedding(root, p, model=model) for p in candidates if p.is_file()]
-    return {"ok": True, "indexed": len(rows), "model": rows[0]["model"] if rows else model}
+    return {
+        "ok": True,
+        "indexed": len(rows),
+        "model": rows[0]["model"] if rows else model,
+    }
 
 
-def similar(root: Path, path: Path, *, model: str = HASH_MODEL, limit: int = 10) -> dict[str, Any]:
+def similar(
+    root: Path, path: Path, *, model: str = HASH_MODEL, limit: int = 10
+) -> dict[str, Any]:
     root = Path(root).resolve()
     path = Path(path).expanduser().resolve()
     target = upsert_embedding(root, path, model=model)
     conn = connect(root)
-    row = conn.execute("SELECT vector_json FROM media_embeddings WHERE embedding_id=?", (target["embedding_id"],)).fetchone()
+    row = conn.execute(
+        "SELECT vector_json FROM media_embeddings WHERE embedding_id=?",
+        (target["embedding_id"],),
+    ).fetchone()
     target_vec = json.loads(row["vector_json"])
     results = []
-    for candidate in conn.execute("SELECT * FROM media_embeddings WHERE embedding_id != ?", (target["embedding_id"],)):
+    for candidate in conn.execute(
+        "SELECT * FROM media_embeddings WHERE embedding_id != ?",
+        (target["embedding_id"],),
+    ):
         if candidate["path"] and Path(candidate["path"]).resolve() == path:
             continue
         score = cosine_similarity(target_vec, json.loads(candidate["vector_json"]))
-        results.append({
-            "score": round(score, 4),
-            "entity_type": candidate["entity_type"],
-            "entity_id": candidate["entity_id"],
-            "path": candidate["path"],
-            "model": candidate["model"],
-        })
+        results.append(
+            {
+                "score": round(score, 4),
+                "entity_type": candidate["entity_type"],
+                "entity_id": candidate["entity_id"],
+                "path": candidate["path"],
+                "model": candidate["model"],
+            }
+        )
     results.sort(key=lambda item: item["score"], reverse=True)
     return {"ok": True, "query": str(path), "results": results[:limit]}
 
@@ -164,7 +208,9 @@ def _strongest_sidecar_similarity(path: Path) -> dict[str, Any] | None:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if row.get("filename") not in {path.name, str(path)} and row.get("variant") not in {path.name, str(path)}:
+        if row.get("filename") not in {path.name, str(path)} and row.get(
+            "variant"
+        ) not in {path.name, str(path)}:
             continue
         score = row.get("max_similarity") or row.get("similarity") or row.get("score")
         if score is None:
@@ -175,13 +221,23 @@ def _strongest_sidecar_similarity(path: Path) -> dict[str, Any] | None:
     return best
 
 
-def duplicate_risk(root: Path, path: Path, *, account: str, platform: str | None = None,
-                   model: str = HASH_MODEL, limit: int = 20) -> dict[str, Any]:
+def duplicate_risk(
+    root: Path,
+    path: Path,
+    *,
+    account: str,
+    platform: str | None = None,
+    model: str = HASH_MODEL,
+    limit: int = 20,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     path = Path(path).expanduser().resolve()
     target = upsert_embedding(root, path, model=model)
     conn = connect(root)
-    row = conn.execute("SELECT vector_json FROM media_embeddings WHERE embedding_id=?", (target["embedding_id"],)).fetchone()
+    row = conn.execute(
+        "SELECT vector_json FROM media_embeddings WHERE embedding_id=?",
+        (target["embedding_id"],),
+    ).fetchone()
     target_vec = json.loads(row["vector_json"])
     params: list[Any] = [account]
     platform_filter = ""
@@ -223,19 +279,24 @@ def duplicate_risk(root: Path, path: Path, *, account: str, platform: str | None
         ).fetchone()
         if not emb and resolved.exists():
             upsert_embedding(root, resolved, model=model)
-            emb = conn.execute("SELECT * FROM media_embeddings WHERE path=? ORDER BY created_at DESC LIMIT 1", (str(resolved),)).fetchone()
+            emb = conn.execute(
+                "SELECT * FROM media_embeddings WHERE path=? ORDER BY created_at DESC LIMIT 1",
+                (str(resolved),),
+            ).fetchone()
         if not emb:
             continue
         score = cosine_similarity(target_vec, json.loads(emb["vector_json"]))
-        candidates.append({
-            "score": round(score, 4),
-            "path": str(resolved),
-            "filename": outcome["filename"],
-            "platform": outcome["platform"],
-            "account": outcome["account"],
-            "posted_at": outcome["posted_at"],
-            "model": emb["model"],
-        })
+        candidates.append(
+            {
+                "score": round(score, 4),
+                "path": str(resolved),
+                "filename": outcome["filename"],
+                "platform": outcome["platform"],
+                "account": outcome["account"],
+                "posted_at": outcome["posted_at"],
+                "model": emb["model"],
+            }
+        )
     candidates.sort(key=lambda item: item["score"], reverse=True)
     nearest = candidates[0] if candidates else None
     sidecar = _strongest_sidecar_similarity(path)
@@ -294,7 +355,9 @@ def main() -> int:
     if args.cmd == "index":
         result = index_root(Path(args.root), model=args.model, limit=args.limit)
     elif args.cmd == "similar":
-        result = similar(Path(args.root), Path(args.path), model=args.model, limit=args.limit)
+        result = similar(
+            Path(args.root), Path(args.path), model=args.model, limit=args.limit
+        )
     else:
         result = duplicate_risk(
             Path(args.root),

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .persistence import json_load
 
@@ -52,12 +53,18 @@ class ArchiveQualityRepository:
         creator_slug = self._slugify(creator)
         model_slug_value = model_slug or creator_slug
         model = self.upsert_model(model_slug_value, creator)
-        campaign = self.upsert_campaign(campaign_slug, model["slug"], platform="instagram")
+        campaign = self.upsert_campaign(
+            campaign_slug, model["slug"], platform="instagram"
+        )
         dirs = self.campaign_dirs(model["slug"], campaign["slug"])
         report_dir = dirs["root"] / "06_reports" / "archive_inventory"
         report_dir.mkdir(parents=True, exist_ok=True)
 
-        video_paths = sorted(path for path in archive.iterdir() if path.is_file() and path.suffix.lower() == ".mp4")
+        video_paths = sorted(
+            path
+            for path in archive.iterdir()
+            if path.is_file() and path.suffix.lower() == ".mp4"
+        )
         seen_source_fingerprints: set[str] = set()
         items: list[dict[str, Any]] = []
         duplicate_source_fingerprint = 0
@@ -68,7 +75,7 @@ class ArchiveQualityRepository:
         audio_present_count = 0
         audio_missing_count = 0
 
-        recent_cutoff = datetime.now(timezone.utc) - timedelta(days=recent_days)
+        recent_cutoff = datetime.now(UTC) - timedelta(days=recent_days)
         for index, path in enumerate(video_paths, start=1):
             digest = self._sha256_file(path)
             probe = self._probe_video_metadata(path)
@@ -86,7 +93,9 @@ class ArchiveQualityRepository:
                 blocking_reasons.append("duplicate_existing_campaign_asset")
                 duplicate_content_hash += 1
 
-            recent_duplicate = self.archive_recent_publish_duplicate(digest, recent_cutoff)
+            recent_duplicate = self.archive_recent_publish_duplicate(
+                digest, recent_cutoff
+            )
             if recent_duplicate:
                 blocking_reasons.append("duplicate_recent_publish")
                 duplicate_recent_publish += 1
@@ -94,7 +103,10 @@ class ArchiveQualityRepository:
             if not probe.get("ok"):
                 blocking_reasons.append(str(probe.get("error") or "probe_failed"))
                 corrupted_or_invalid += 1
-            elif not isinstance(probe.get("durationSeconds"), (int, float)) or float(probe.get("durationSeconds") or 0) <= 0:
+            elif (
+                not isinstance(probe.get("durationSeconds"), (int, float))
+                or float(probe.get("durationSeconds") or 0) <= 0
+            ):
                 blocking_reasons.append("invalid_duration")
                 corrupted_or_invalid += 1
 
@@ -107,7 +119,11 @@ class ArchiveQualityRepository:
                 audio_status = "missing_needs_campaign_audio"
 
             aspect = probe.get("effectiveAspectRatio")
-            if isinstance(aspect, (int, float)) and aspect > 0 and (aspect < 0.35 or aspect > 0.9):
+            if (
+                isinstance(aspect, (int, float))
+                and aspect > 0
+                and (aspect < 0.35 or aspect > 0.9)
+            ):
                 warnings.append("source_aspect_ratio_needs_reels_render")
 
             creator_match = {
@@ -136,15 +152,25 @@ class ArchiveQualityRepository:
                     "audioPresent": audio_present,
                     "probe": probe,
                     "duplicate": {
-                        "sourceFingerprint": "duplicate" if "duplicate_source_fingerprint" in blocking_reasons else "clear",
+                        "sourceFingerprint": "duplicate"
+                        if "duplicate_source_fingerprint" in blocking_reasons
+                        else "clear",
                         "existingCampaignAsset": existing_duplicate,
                         "recentPublish": recent_duplicate,
                     },
                 }
             )
 
-        status = "ready_for_source_approval" if clean_stacey_candidates >= requested_count else "blocked"
-        blocking_reason = None if status == "ready_for_source_approval" else "insufficient_clean_archive_inventory"
+        status = (
+            "ready_for_source_approval"
+            if clean_stacey_candidates >= requested_count
+            else "blocked"
+        )
+        blocking_reason = (
+            None
+            if status == "ready_for_source_approval"
+            else "insufficient_clean_archive_inventory"
+        )
         now = self._utc_now()
         result = {
             "schema": "campaign_factory.archive_inventory_report.v1",
@@ -166,15 +192,22 @@ class ArchiveQualityRepository:
             "status": status,
             "blockingReason": blocking_reason,
             "wouldProceedToRendering": False,
-            "canProceedAfterOperatorSourceApproval": status == "ready_for_source_approval",
+            "canProceedAfterOperatorSourceApproval": status
+            == "ready_for_source_approval",
             "nextOperatorAction": "approve_25_source_candidates_before_caption_rendering"
             if status == "ready_for_source_approval"
             else "provide_more_clean_stacey_archive_inventory",
             "items": items,
         }
-        report_path = report_dir / f"archive_inventory_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        report_path = (
+            report_dir
+            / f"archive_inventory_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
+        )
         result["reportPath"] = str(report_path)
-        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
         self.record_event(
             "archive_inventory_report",
             campaign_id=campaign["id"],
@@ -228,7 +261,9 @@ class ArchiveQualityRepository:
             }
         return None
 
-    def archive_recent_publish_duplicate(self, digest: str, recent_cutoff: datetime) -> dict[str, Any] | None:
+    def archive_recent_publish_duplicate(
+        self, digest: str, recent_cutoff: datetime
+    ) -> dict[str, Any] | None:
         rows = self.conn.execute(
             """
             SELECT performance_snapshots.id, performance_snapshots.post_id, performance_snapshots.published_at,
@@ -247,11 +282,13 @@ class ArchiveQualityRepository:
             if not published_at:
                 continue
             try:
-                parsed = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(
+                    str(published_at).replace("Z", "+00:00")
+                )
             except ValueError:
                 continue
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
             if parsed >= recent_cutoff:
                 return {
                     "table": "performance_snapshots",
@@ -276,19 +313,30 @@ class ArchiveQualityRepository:
         if requested_count <= 0:
             raise ValueError("requested_count must be positive")
         inventory = json_load(path.read_text(encoding="utf-8"), {})
-        if not isinstance(inventory, dict) or inventory.get("schema") != "campaign_factory.archive_inventory_report.v1":
+        if (
+            not isinstance(inventory, dict)
+            or inventory.get("schema") != "campaign_factory.archive_inventory_report.v1"
+        ):
             raise ValueError(f"not an archive inventory report: {path}")
 
         excluded = set(exclude_indices or [])
-        clean_items = [item for item in inventory.get("items", []) if isinstance(item, dict) and item.get("status") == "clean_source_candidate"]
+        clean_items = [
+            item
+            for item in inventory.get("items", [])
+            if isinstance(item, dict) and item.get("status") == "clean_source_candidate"
+        ]
         ranked: list[dict[str, Any]] = []
         for item in clean_items:
             index = int(item.get("index") or 0)
             probe = item.get("probe") if isinstance(item.get("probe"), dict) else {}
             severity, crop_score, crop_delta = self.archive_crop_severity(probe)
-            visual_score = self.archive_visual_quality_score(probe, item.get("warnings") or [], crop_score)
+            visual_score = self.archive_visual_quality_score(
+                probe, item.get("warnings") or [], crop_score
+            )
             duplicate_confidence = self.archive_duplicate_confidence(item)
-            recommendation = "excluded_by_operator" if index in excluded else "candidate"
+            recommendation = (
+                "excluded_by_operator" if index in excluded else "candidate"
+            )
             ranked.append(
                 {
                     "index": index,
@@ -312,8 +360,16 @@ class ArchiveQualityRepository:
                 }
             )
 
-        selectable = [item for item in ranked if item["recommendation"] != "excluded_by_operator"]
-        selectable.sort(key=lambda item: (-item["visualQualityScore"], item["cropSeverityScore"], item["index"]))
+        selectable = [
+            item for item in ranked if item["recommendation"] != "excluded_by_operator"
+        ]
+        selectable.sort(
+            key=lambda item: (
+                -item["visualQualityScore"],
+                item["cropSeverityScore"],
+                item["index"],
+            )
+        )
         selected = selectable[:requested_count]
         selected_indices = {item["index"] for item in selected}
         for item in ranked:
@@ -324,16 +380,29 @@ class ArchiveQualityRepository:
                 item["selectionReason"] = "top ranked clean source candidate"
             else:
                 item["recommendation"] = "alternate"
-                item["selectionReason"] = "clean but lower ranked than requested pilot count"
+                item["selectionReason"] = (
+                    "clean but lower ranked than requested pilot count"
+                )
 
         ranked.sort(key=lambda item: item["index"])
         recommended_indices = [item["index"] for item in selected]
         recommended_indices.sort()
-        status = "ready_for_source_approval" if len(selected) >= requested_count else "blocked"
-        blocking_reason = None if status == "ready_for_source_approval" else "insufficient_ranked_archive_inventory"
+        status = (
+            "ready_for_source_approval"
+            if len(selected) >= requested_count
+            else "blocked"
+        )
+        blocking_reason = (
+            None
+            if status == "ready_for_source_approval"
+            else "insufficient_ranked_archive_inventory"
+        )
         report_dir = path.parent.parent / "candidate_quality"
         report_dir.mkdir(parents=True, exist_ok=True)
-        report_path = report_dir / f"archive_candidate_quality_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        report_path = (
+            report_dir
+            / f"archive_candidate_quality_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
+        )
         result = {
             "schema": "campaign_factory.archive_candidate_quality_report.v1",
             "campaign": inventory.get("campaign"),
@@ -356,10 +425,15 @@ class ArchiveQualityRepository:
             "items": ranked,
         }
         result["reportPath"] = str(report_path)
-        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
         return result
 
-    def archive_crop_severity(self, probe: dict[str, Any]) -> tuple[str, int, float | None]:
+    def archive_crop_severity(
+        self, probe: dict[str, Any]
+    ) -> tuple[str, int, float | None]:
         target = 9 / 16
         aspect = probe.get("effectiveAspectRatio")
         if not isinstance(aspect, (int, float)) or aspect <= 0:
@@ -373,7 +447,9 @@ class ArchiveQualityRepository:
             return "high", 32, round(delta, 4)
         return "severe", 48, round(delta, 4)
 
-    def archive_visual_quality_score(self, probe: dict[str, Any], warnings: list[Any], crop_score: int) -> int:
+    def archive_visual_quality_score(
+        self, probe: dict[str, Any], warnings: list[Any], crop_score: int
+    ) -> int:
         score = 100 - crop_score
         height = probe.get("effectiveHeight") or probe.get("height")
         width = probe.get("effectiveWidth") or probe.get("width")
@@ -404,7 +480,9 @@ class ArchiveQualityRepository:
         return max(0, min(100, int(round(score))))
 
     def archive_duplicate_confidence(self, item: dict[str, Any]) -> str:
-        duplicate = item.get("duplicate") if isinstance(item.get("duplicate"), dict) else {}
+        duplicate = (
+            item.get("duplicate") if isinstance(item.get("duplicate"), dict) else {}
+        )
         if duplicate.get("recentPublish"):
             return "recent_publish_duplicate"
         if duplicate.get("existingCampaignAsset"):

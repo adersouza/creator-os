@@ -8,11 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from audio_intent import read_audio_intent, write_audio_intent
 from audio_provider import (
+    curated_winners_path,
     eligible_trending_tracks,
+    local_winners_path,
     select_audio,
     trending_cml_path,
-    curated_winners_path,
-    local_winners_path,
     watch_list_path,
 )
 
@@ -23,13 +23,33 @@ class AudioProviderTests(unittest.TestCase):
             root = Path(tmp)
             path = trending_cml_path(root)
             path.parent.mkdir(parents=True)
-            path.write_text(json.dumps({
-                "tracks": [
-                    {"track_id": "a", "track_name": "Runway Pop", "trend_rank": 2, "tags": ["fashion", "pop"]},
-                    {"track_id": "b", "track_name": "Sad Ballad", "trend_rank": 1, "tags": ["sad"]},
-                    {"track_id": "c", "track_name": "Luxury Chill", "trend_rank": 3, "tags": ["luxury", "chill"]},
-                ]
-            }), encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    {
+                        "tracks": [
+                            {
+                                "track_id": "a",
+                                "track_name": "Runway Pop",
+                                "trend_rank": 2,
+                                "tags": ["fashion", "pop"],
+                            },
+                            {
+                                "track_id": "b",
+                                "track_name": "Sad Ballad",
+                                "trend_rank": 1,
+                                "tags": ["sad"],
+                            },
+                            {
+                                "track_id": "c",
+                                "track_name": "Luxury Chill",
+                                "trend_rank": 3,
+                                "tags": ["luxury", "chill"],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             tracks = eligible_trending_tracks(root)
 
@@ -40,9 +60,19 @@ class AudioProviderTests(unittest.TestCase):
             root = Path(tmp)
             path = trending_cml_path(root)
             path.parent.mkdir(parents=True)
-            path.write_text(json.dumps([
-                {"track_id": "t1", "track_name": "Creator Spark", "trend_rank": 4, "tags": ["upbeat"]},
-            ]), encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "track_id": "t1",
+                            "track_name": "Creator Spark",
+                            "trend_rank": 4,
+                            "tags": ["upbeat"],
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
 
             selection = select_audio(root, mode="AUTO_TRENDING", seed="always-trending")
 
@@ -57,17 +87,35 @@ class AudioProviderTests(unittest.TestCase):
             root = Path(tmp)
             local_path = local_winners_path(root)
             local_path.parent.mkdir(parents=True)
-            local_path.write_text(json.dumps({
-                "tracks": [
-                    {"track_id": "local_1", "track_name": "Local Winner", "tags": ["local_winner"]},
-                ]
-            }), encoding="utf-8")
+            local_path.write_text(
+                json.dumps(
+                    {
+                        "tracks": [
+                            {
+                                "track_id": "local_1",
+                                "track_name": "Local Winner",
+                                "tags": ["local_winner"],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
             watch_path = watch_list_path(root)
-            watch_path.write_text(json.dumps({
-                "tracks": [
-                    {"track_id": "watch_1", "track_name": "Watch Candidate", "tags": ["watch_list"]},
-                ]
-            }), encoding="utf-8")
+            watch_path.write_text(
+                json.dumps(
+                    {
+                        "tracks": [
+                            {
+                                "track_id": "watch_1",
+                                "track_name": "Watch Candidate",
+                                "tags": ["watch_list"],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             selected_ids = {
                 select_audio(root, mode="AUTO_TRENDING", seed=f"seed-{idx}")["track_id"]
@@ -82,23 +130,38 @@ class AudioProviderTests(unittest.TestCase):
             root = Path(tmp)
             path = curated_winners_path(root)
             path.parent.mkdir(parents=True)
-            path.write_text(json.dumps({
-                "tracks": [
-                    {"track_id": "w1", "track_name": "Known Winner", "tags": ["confidence"]},
-                ]
-            }), encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    {
+                        "tracks": [
+                            {
+                                "track_id": "w1",
+                                "track_name": "Known Winner",
+                                "tags": ["confidence"],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             selection = select_audio(root, mode="SAFE_LIBRARY", seed="safe")
 
             self.assertEqual(selection["track_id"], "w1")
-            self.assertEqual(selection["selected_reason"], "safe_library_curated_winner")
+            self.assertEqual(
+                selection["selected_reason"], "safe_library_curated_winner"
+            )
 
     def test_custom_mode_requires_and_returns_manual_track(self):
         selection = select_audio(
             Path("."),
             mode="CUSTOM",
             seed="manual",
-            custom_track={"track_id": "manual_1", "track_name": "Manual Pick", "source": "operator"},
+            custom_track={
+                "track_id": "manual_1",
+                "track_name": "Manual Pick",
+                "source": "operator",
+            },
         )
 
         self.assertEqual(selection["track_id"], "manual_1")
@@ -123,7 +186,9 @@ class AudioProviderTests(unittest.TestCase):
                 audio_selection=selection,
             )
 
-            self.assertEqual(read_audio_intent(output)["audio_selection"]["track_id"], "t1")
+            self.assertEqual(
+                read_audio_intent(output)["audio_selection"]["track_id"], "t1"
+            )
 
 
 if __name__ == "__main__":

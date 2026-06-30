@@ -38,7 +38,10 @@ def test_acceptance_reviews_missing_audio_or_lineage_without_rejecting():
 
     assert result["status"] == "review"
     assert result["blockingReasons"] == []
-    assert result["reviewReasons"] == ["missing_audio_intent", "missing_generated_asset_lineage"]
+    assert result["reviewReasons"] == [
+        "missing_audio_intent",
+        "missing_generated_asset_lineage",
+    ]
 
 
 def test_acceptance_rejects_not_ready_and_required_virality_failure():
@@ -46,7 +49,11 @@ def test_acceptance_rejects_not_ready_and_required_virality_failure():
         _row(
             status="not_ready",
             warnings=["virality_score_low"],
-            viralityQc={"status": "failed", "required": True, "warnings": ["virality_score_low"]},
+            viralityQc={
+                "status": "failed",
+                "required": True,
+                "warnings": ["virality_score_low"],
+            },
         )
     )
 
@@ -56,7 +63,12 @@ def test_acceptance_rejects_not_ready_and_required_virality_failure():
 
 
 def test_run_readiness_embeds_acceptance_record(tmp_path: Path):
-    output = tmp_path / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+    output = (
+        tmp_path
+        / "02_processed"
+        / "clip_001"
+        / "clip_001_h00_v01_original_light_deadbeef.mp4"
+    )
     output.parent.mkdir(parents=True)
     output.write_bytes(b"fake")
 

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from sqlite3 import Connection
-from typing import Any, Iterable
+from typing import Any
 
 from .db import json_dump
 from .timeutil import now_iso
 
 
-def import_prompt_outcomes(conn: Connection, records: Iterable[dict[str, Any]]) -> dict[str, object]:
+def import_prompt_outcomes(
+    conn: Connection, records: Iterable[dict[str, Any]]
+) -> dict[str, object]:
     timestamp = now_iso()
     updated = 0
     skipped = 0
@@ -17,9 +20,13 @@ def import_prompt_outcomes(conn: Connection, records: Iterable[dict[str, Any]]) 
     input_records = 0
     for record in records:
         input_records += 1
-        reference_id = str(record.get("referenceId") or record.get("reference_id") or "").strip()
+        reference_id = str(
+            record.get("referenceId") or record.get("reference_id") or ""
+        ).strip()
         prompt_id = str(record.get("promptId") or record.get("prompt_id") or "").strip()
-        reward_score = _float_or_none(record.get("rewardScore", record.get("reward_score")))
+        reward_score = _float_or_none(
+            record.get("rewardScore", record.get("reward_score"))
+        )
         if reward_score is None:
             skipped += 1
             _count(skip_reasons, "missing_reward_score")
@@ -28,10 +35,16 @@ def import_prompt_outcomes(conn: Connection, records: Iterable[dict[str, Any]]) 
             skipped += 1
             _count(skip_reasons, "missing_reference_or_prompt_id")
             continue
-        sample_count = max(0, _int_or_none(record.get("sampleCount", record.get("sample_count"))) or 0)
+        sample_count = max(
+            0, _int_or_none(record.get("sampleCount", record.get("sample_count"))) or 0
+        )
         confidence = _float_or_none(record.get("confidence"))
-        target_tool = _optional_text(record.get("targetTool", record.get("target_tool")))
-        model_profile = _optional_text(record.get("modelProfile", record.get("model_profile")))
+        target_tool = _optional_text(
+            record.get("targetTool", record.get("target_tool"))
+        )
+        model_profile = _optional_text(
+            record.get("modelProfile", record.get("model_profile"))
+        )
         clauses: list[str] = []
         params: list[object] = []
         if prompt_id:
@@ -83,7 +96,9 @@ def import_prompt_outcomes(conn: Connection, records: Iterable[dict[str, Any]]) 
     }
 
 
-def import_prompt_outcomes_file(conn: Connection, input_paths: Iterable[Path]) -> dict[str, object]:
+def import_prompt_outcomes_file(
+    conn: Connection, input_paths: Iterable[Path]
+) -> dict[str, object]:
     records: list[dict[str, Any]] = []
     for path in input_paths:
         payload = json.loads(path.read_text(encoding="utf-8"))

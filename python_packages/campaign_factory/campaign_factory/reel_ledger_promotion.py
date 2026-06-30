@@ -4,24 +4,44 @@ import hashlib
 import json
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import datetime, time as datetime_time, timezone
+from datetime import UTC, datetime
+from datetime import time as datetime_time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from .caption_outcome import build_caption_outcome_context, column_values
-from .core import CampaignFactory, media_type_for_path, new_id, sha256_file, slugify, utc_now
-
+from .core import (
+    CampaignFactory,
+    media_type_for_path,
+    new_id,
+    sha256_file,
+    slugify,
+    utc_now,
+)
 
 SCHEMA = "campaign_factory.reel_ledger_promotion_preview.v1"
 PROMOTED_EVENT = "reel_ledger_promoted"
 REEL_SLOT_EXTERNAL_SYSTEM = "reel_factory.posting_ledger"
 PROMOTED_REASON_PREFIX = "reel_ledger"
-PROMOTABLE_STATUSES = {"ready_for_review", "approved", "scheduled", "posted", "metrics_imported"}
+PROMOTABLE_STATUSES = {
+    "ready_for_review",
+    "approved",
+    "scheduled",
+    "posted",
+    "metrics_imported",
+}
 NON_PROMOTABLE_STATUSES = {"planned", "skipped", "failed"}
 BLOCK_AUDIO_STATUSES = {"approved", "scheduled", "posted", "metrics_imported"}
 SAFE_AUDIO_STATUSES = {"selected", "attached", "verified", "skipped", "not_required"}
-PLATFORM_PROOF_KEYS = {"post_url", "platform_post_id", "post_id", "permalink", "ig_media_id", "instagram_media_id"}
+PLATFORM_PROOF_KEYS = {
+    "post_url",
+    "platform_post_id",
+    "post_id",
+    "permalink",
+    "ig_media_id",
+    "instagram_media_id",
+}
 
 
 def promote_reel_ledger(
@@ -36,7 +56,14 @@ def promote_reel_ledger(
     campaign = _campaign_by_id_or_slug(factory, campaign_id)
     ledger_db = Path(reel_factory_root).expanduser().resolve() / "manifest.sqlite"
     rows = _read_reel_slots(ledger_db, campaign)
-    preview = _build_preview(factory, campaign=campaign, ledger_db=ledger_db, rows=rows, days=days, apply=apply)
+    preview = _build_preview(
+        factory,
+        campaign=campaign,
+        ledger_db=ledger_db,
+        rows=rows,
+        days=days,
+        apply=apply,
+    )
     if not apply:
         return preview
     if preview["blocked"] or preview["conflicts"]:
@@ -44,14 +71,19 @@ def promote_reel_ledger(
             **preview,
             "applied": False,
             "applyBlocked": True,
-            "blockingReasons": sorted({item["reason"] for item in preview["blocked"]} | {item["reason"] for item in preview["conflicts"]}),
+            "blockingReasons": sorted(
+                {item["reason"] for item in preview["blocked"]}
+                | {item["reason"] for item in preview["conflicts"]}
+            ),
         }
     _apply_preview(factory, campaign=campaign, preview=preview)
     return {**preview, "applied": True, "applyBlocked": False}
 
 
 def _campaign_by_id_or_slug(factory: CampaignFactory, value: str) -> dict[str, Any]:
-    row = factory.conn.execute("SELECT * FROM campaigns WHERE id = ? OR slug = ?", (value, slugify(value))).fetchone()
+    row = factory.conn.execute(
+        "SELECT * FROM campaigns WHERE id = ? OR slug = ?", (value, slugify(value))
+    ).fetchone()
     if not row:
         raise ValueError(f"campaign not found: {value}")
     return dict(row)
@@ -64,9 +96,13 @@ def _read_reel_slots(ledger_db: Path, campaign: dict[str, Any]) -> list[dict[str
     try:
         conn = sqlite3.connect(f"file:{ledger_db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        table = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='posting_slots'").fetchone()
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='posting_slots'"
+        ).fetchone()
         if not table:
-            raise ValueError(f"Reel Factory ledger has no posting_slots table: {ledger_db}")
+            raise ValueError(
+                f"Reel Factory ledger has no posting_slots table: {ledger_db}"
+            )
         return [
             dict(row)
             for row in conn.execute(
@@ -94,9 +130,14 @@ def _build_preview(
     blocked: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    promotable_rows = [row for row in rows if str(row.get("post_status") or "") in PROMOTABLE_STATUSES]
+    promotable_rows = [
+        row for row in rows if str(row.get("post_status") or "") in PROMOTABLE_STATUSES
+    ]
     account_day_counts = Counter(
-        (str(row.get("account_id") or row.get("account_handle") or "unassigned"), str(row.get("date") or ""))
+        (
+            str(row.get("account_id") or row.get("account_handle") or "unassigned"),
+            str(row.get("date") or ""),
+        )
         for row in promotable_rows
         if _surface_for_slot(row) in {"regular_reel", "trial_reel"}
     )
@@ -117,13 +158,34 @@ def _build_preview(
             continue
         existing = _existing_promotion(factory, slot_id)
         issues = _row_blockers(row)
-        if account_day_counts[(str(row.get("account_id") or row.get("account_handle") or "unassigned"), str(row.get("date") or ""))] > 3:
+        if (
+            account_day_counts[
+                (
+                    str(
+                        row.get("account_id")
+                        or row.get("account_handle")
+                        or "unassigned"
+                    ),
+                    str(row.get("date") or ""),
+                )
+            ]
+            > 3
+        ):
             conflicts.append(_row_note(row, "account_day_quota_exceeded"))
             continue
         fp = str(row.get("content_fingerprint") or "").strip()
         duplicate_rows = fingerprint_rows.get(fp, []) if fp else []
         if len(duplicate_rows) > 1 and not existing:
-            conflicts.append(_row_note(row, "duplicate_content_fingerprint", {"contentFingerprint": fp, "slotIds": [r.get("posting_slot_id") for r in duplicate_rows]}))
+            conflicts.append(
+                _row_note(
+                    row,
+                    "duplicate_content_fingerprint",
+                    {
+                        "contentFingerprint": fp,
+                        "slotIds": [r.get("posting_slot_id") for r in duplicate_rows],
+                    },
+                )
+            )
             continue
         if fp:
             existing_asset = factory.conn.execute(
@@ -131,7 +193,16 @@ def _build_preview(
                 (campaign["id"], fp),
             ).fetchone()
             if existing_asset and not existing:
-                conflicts.append(_row_note(row, "duplicate_content_fingerprint", {"contentFingerprint": fp, "renderedAssetId": existing_asset["id"]}))
+                conflicts.append(
+                    _row_note(
+                        row,
+                        "duplicate_content_fingerprint",
+                        {
+                            "contentFingerprint": fp,
+                            "renderedAssetId": existing_asset["id"],
+                        },
+                    )
+                )
                 continue
         if issues:
             blocked.extend(_row_note(row, reason) for reason in issues)
@@ -144,7 +215,11 @@ def _build_preview(
 
     return {
         "schema": SCHEMA,
-        "campaign": {"id": campaign["id"], "slug": campaign["slug"], "name": campaign["name"]},
+        "campaign": {
+            "id": campaign["id"],
+            "slug": campaign["slug"],
+            "name": campaign["name"],
+        },
         "apply": apply,
         "applied": applied,
         "days": days,
@@ -158,10 +233,22 @@ def _build_preview(
             "rowsToUpdate": len(updates),
             "blockedRows": len(blocked),
             "conflictCount": len(conflicts),
-            "missingLineageCount": sum(1 for item in blocked if item["reason"] == "missing_lineage"),
-            "missingAudioCount": sum(1 for item in blocked if item["reason"] == "missing_audio"),
-            "duplicateFingerprintRiskCount": sum(1 for item in conflicts if item["reason"] == "duplicate_content_fingerprint"),
-            "accountDayQuotaIssueCount": sum(1 for item in conflicts if item["reason"] == "account_day_quota_exceeded"),
+            "missingLineageCount": sum(
+                1 for item in blocked if item["reason"] == "missing_lineage"
+            ),
+            "missingAudioCount": sum(
+                1 for item in blocked if item["reason"] == "missing_audio"
+            ),
+            "duplicateFingerprintRiskCount": sum(
+                1
+                for item in conflicts
+                if item["reason"] == "duplicate_content_fingerprint"
+            ),
+            "accountDayQuotaIssueCount": sum(
+                1
+                for item in conflicts
+                if item["reason"] == "account_day_quota_exceeded"
+            ),
             "skippedRows": len(skipped),
         },
         "creates": creates,
@@ -183,7 +270,10 @@ def _row_blockers(row: dict[str, Any]) -> list[str]:
         reasons.append("missing_lineage")
     if not str(row.get("caption") or "").strip():
         reasons.append("missing_caption")
-    if str(row.get("post_status") or "") in BLOCK_AUDIO_STATUSES and _audio_intent(row)["status"] not in SAFE_AUDIO_STATUSES:
+    if (
+        str(row.get("post_status") or "") in BLOCK_AUDIO_STATUSES
+        and _audio_intent(row)["status"] not in SAFE_AUDIO_STATUSES
+    ):
         reasons.append("missing_audio")
     return reasons
 
@@ -196,12 +286,20 @@ def _promotion_action(
 ) -> dict[str, Any]:
     lineage = _lineage(row)
     output_path = Path(str(row["rendered_output_path"])).expanduser().resolve()
-    fingerprint = str(row.get("content_fingerprint") or "").strip() or sha256_file(output_path)
-    account_handle = str(row.get("account_handle") or row.get("account_id") or "unassigned").lstrip("@")
+    fingerprint = str(row.get("content_fingerprint") or "").strip() or sha256_file(
+        output_path
+    )
+    account_handle = str(
+        row.get("account_handle") or row.get("account_id") or "unassigned"
+    ).lstrip("@")
     account_id = str(row.get("account_id") or account_handle)
     platform_proof = _platform_proof(row)
     status = str(row.get("post_status") or "")
-    posted_state = status if status not in {"posted", "metrics_imported"} or platform_proof else "unverified_platform_post"
+    posted_state = (
+        status
+        if status not in {"posted", "metrics_imported"} or platform_proof
+        else "unverified_platform_post"
+    )
     caption_context = build_caption_outcome_context(
         caption_text=str(row.get("caption") or ""),
         render_recipe=lineage.get("recipe") if isinstance(lineage, dict) else None,
@@ -214,7 +312,11 @@ def _promotion_action(
         "postingSlotId": row["posting_slot_id"],
         "action": "update" if existing else "create",
         "existing": existing or {},
-        "account": {"id": account_id, "handle": account_handle, "platform": _platform(row)},
+        "account": {
+            "id": account_id,
+            "handle": account_handle,
+            "platform": _platform(row),
+        },
         "renderedAsset": {
             "contentHash": fingerprint,
             "outputPath": str(output_path),
@@ -238,7 +340,9 @@ def _promotion_action(
     }
 
 
-def _apply_preview(factory: CampaignFactory, *, campaign: dict[str, Any], preview: dict[str, Any]) -> None:
+def _apply_preview(
+    factory: CampaignFactory, *, campaign: dict[str, Any], preview: dict[str, Any]
+) -> None:
     for action in [*preview["creates"], *preview["updates"]]:
         _apply_action(factory, campaign, action)
     factory.record_event(
@@ -250,12 +354,17 @@ def _apply_preview(factory: CampaignFactory, *, campaign: dict[str, Any], previe
             "schema": SCHEMA,
             "source": preview["source"],
             "summary": preview["summary"],
-            "postingSlotIds": [item["postingSlotId"] for item in [*preview["creates"], *preview["updates"]]],
+            "postingSlotIds": [
+                item["postingSlotId"]
+                for item in [*preview["creates"], *preview["updates"]]
+            ],
         },
     )
 
 
-def _apply_action(factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]) -> None:
+def _apply_action(
+    factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]
+) -> None:
     account = factory.upsert_account(
         action["account"]["handle"],
         platform=action["account"]["platform"],
@@ -275,16 +384,25 @@ def _apply_action(factory: CampaignFactory, campaign: dict[str, Any], action: di
         "rendered_asset",
         local_table="rendered_assets",
         local_id=rendered["id"],
-        payload={"promotedFromReelLedgerSlotId": action["postingSlotId"], "contentHash": rendered["content_hash"]},
+        payload={
+            "promotedFromReelLedgerSlotId": action["postingSlotId"],
+            "contentHash": rendered["content_hash"],
+        },
     )
-    factory.ensure_graph_edge(slot_graph, rendered_graph, "reel_ledger_slot_promoted_to_rendered_asset")
+    factory.ensure_graph_edge(
+        slot_graph, rendered_graph, "reel_ledger_slot_promoted_to_rendered_asset"
+    )
     factory.conn.commit()
 
 
-def _upsert_source_asset(factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+def _upsert_source_asset(
+    factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]
+) -> dict[str, Any]:
     model_id = _model_id_for_campaign(factory, campaign["id"])
     lineage = action["lineage"]
-    lineage_source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    lineage_source = (
+        lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    )
     source_key = str(
         lineage_source.get("referenceId")
         or lineage_source.get("sourceReferenceId")
@@ -308,9 +426,17 @@ def _upsert_source_asset(factory: CampaignFactory, campaign: dict[str, Any], act
     if row:
         factory.conn.execute(
             "UPDATE source_assets SET source_prompt = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(source_prompt, ensure_ascii=False, sort_keys=True), now, row["id"]),
+            (
+                json.dumps(source_prompt, ensure_ascii=False, sort_keys=True),
+                now,
+                row["id"],
+            ),
         )
-        return dict(factory.conn.execute("SELECT * FROM source_assets WHERE id = ?", (row["id"],)).fetchone())
+        return dict(
+            factory.conn.execute(
+                "SELECT * FROM source_assets WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
     source_id = new_id("src")
     filename = f"reel_ledger_{slugify(source_key)[:40] or action['postingSlotId']}"
     factory.conn.execute(
@@ -336,11 +462,25 @@ def _upsert_source_asset(factory: CampaignFactory, campaign: dict[str, Any], act
             now,
         ),
     )
-    factory.ensure_graph_node("source_asset", local_table="source_assets", local_id=source_id, payload=source_prompt)
-    return dict(factory.conn.execute("SELECT * FROM source_assets WHERE id = ?", (source_id,)).fetchone())
+    factory.ensure_graph_node(
+        "source_asset",
+        local_table="source_assets",
+        local_id=source_id,
+        payload=source_prompt,
+    )
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()
+    )
 
 
-def _upsert_rendered_asset(factory: CampaignFactory, campaign: dict[str, Any], source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+def _upsert_rendered_asset(
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    source: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
     content_hash = action["renderedAsset"]["contentHash"]
     caption_context = action.get("captionOutcomeContext") or {}
     caption_columns = column_values(caption_context)
@@ -397,7 +537,11 @@ def _upsert_rendered_asset(factory: CampaignFactory, campaign: dict[str, Any], s
             """,
             (*values, row["id"]),
         )
-        return dict(factory.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (row["id"],)).fetchone())
+        return dict(
+            factory.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = ?", (row["id"],)
+            ).fetchone()
+        )
     rendered_id = new_id("asset")
     factory.conn.execute(
         """
@@ -438,10 +582,20 @@ def _upsert_rendered_asset(factory: CampaignFactory, campaign: dict[str, Any], s
             now,
         ),
     )
-    return dict(factory.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
+        ).fetchone()
+    )
 
 
-def _upsert_assignment(factory: CampaignFactory, campaign: dict[str, Any], rendered_asset_id: str, account: dict[str, Any], action: dict[str, Any]) -> None:
+def _upsert_assignment(
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    rendered_asset_id: str,
+    account: dict[str, Any],
+    action: dict[str, Any],
+) -> None:
     existing = factory.conn.execute(
         """
         SELECT id FROM asset_account_assignments
@@ -521,7 +675,13 @@ def _upsert_assignment(factory: CampaignFactory, campaign: dict[str, Any], rende
     )
 
 
-def _upsert_distribution_plan(factory: CampaignFactory, campaign: dict[str, Any], rendered_asset_id: str, account: dict[str, Any], action: dict[str, Any]) -> None:
+def _upsert_distribution_plan(
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    rendered_asset_id: str,
+    account: dict[str, Any],
+    action: dict[str, Any],
+) -> None:
     reason_code = action["distributionPlan"]["reasonCode"]
     existing = factory.conn.execute(
         "SELECT id FROM distribution_plans WHERE campaign_id = ? AND reason_code = ?",
@@ -606,7 +766,9 @@ def _upsert_distribution_plan(factory: CampaignFactory, campaign: dict[str, Any]
     )
 
 
-def _existing_promotion(factory: CampaignFactory, slot_id: str) -> dict[str, Any] | None:
+def _existing_promotion(
+    factory: CampaignFactory, slot_id: str
+) -> dict[str, Any] | None:
     dist = factory.conn.execute(
         "SELECT * FROM distribution_plans WHERE reason_code = ?",
         (_reason_code({"posting_slot_id": slot_id}),),
@@ -648,7 +810,9 @@ def _model_slug_for_campaign(factory: CampaignFactory, campaign_id: str) -> str 
     ).fetchone()
     if row:
         return row["slug"]
-    campaign = factory.conn.execute("SELECT root_path FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
+    campaign = factory.conn.execute(
+        "SELECT root_path FROM campaigns WHERE id = ?", (campaign_id,)
+    ).fetchone()
     if campaign and campaign["root_path"]:
         return Path(str(campaign["root_path"])).parent.name or None
     return None
@@ -661,17 +825,27 @@ def _lineage(row: dict[str, Any]) -> dict[str, Any]:
     path = row.get("lineage_path")
     if path:
         try:
-            payload = json.loads(Path(str(path)).expanduser().read_text(encoding="utf-8"))
+            payload = json.loads(
+                Path(str(path)).expanduser().read_text(encoding="utf-8")
+            )
         except (OSError, json.JSONDecodeError):
             return {}
-        return _merge_caption_lineage_sidecar(payload, row) if isinstance(payload, dict) else {}
+        return (
+            _merge_caption_lineage_sidecar(payload, row)
+            if isinstance(payload, dict)
+            else {}
+        )
     return {}
 
 
-def _merge_caption_lineage_sidecar(lineage: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+def _merge_caption_lineage_sidecar(
+    lineage: dict[str, Any], row: dict[str, Any]
+) -> dict[str, Any]:
     if not isinstance(lineage, dict):
         return {}
-    if isinstance(lineage.get("captionBank"), dict) or isinstance(lineage.get("captionLineage"), dict):
+    if isinstance(lineage.get("captionBank"), dict) or isinstance(
+        lineage.get("captionLineage"), dict
+    ):
         return lineage
     caption_lineage = _caption_lineage_sidecar(row)
     if not caption_lineage:
@@ -681,7 +855,9 @@ def _merge_caption_lineage_sidecar(lineage: dict[str, Any], row: dict[str, Any])
     if caption_lineage.get("captionHash") and not merged.get("captionHash"):
         merged["captionHash"] = caption_lineage["captionHash"]
     if isinstance(caption_lineage.get("captionOutcomeContext"), dict):
-        merged.setdefault("captionOutcomeContext", caption_lineage["captionOutcomeContext"])
+        merged.setdefault(
+            "captionOutcomeContext", caption_lineage["captionOutcomeContext"]
+        )
     return merged
 
 
@@ -708,7 +884,11 @@ def _caption_lineage_sidecar(row: dict[str, Any]) -> dict[str, Any]:
 def _audio_intent(row: dict[str, Any]) -> dict[str, Any]:
     track_id = str(row.get("audio_track_id") or "").strip()
     manual_needed = bool(row.get("manual_audio_needed"))
-    status = "selected" if track_id else ("needs_operator_selection" if manual_needed else "missing")
+    status = (
+        "selected"
+        if track_id
+        else ("needs_operator_selection" if manual_needed else "missing")
+    )
     selection = {
         key: value
         for key, value in {
@@ -724,7 +904,11 @@ def _audio_intent(row: dict[str, Any]) -> dict[str, Any]:
         "mode": row.get("audio_source") or "native_platform_audio",
         "required": status != "not_required",
         "status": status,
-        **({"operator_selection": selection, "audio_selection": selection} if selection else {}),
+        **(
+            {"operator_selection": selection, "audio_selection": selection}
+            if selection
+            else {}
+        ),
     }
 
 
@@ -758,8 +942,12 @@ def _planned_window_start(row: dict[str, Any]) -> str | None:
     except (TypeError, ValueError):
         pass
     local_tz = ZoneInfo("America/New_York")
-    local_slot = datetime.combine(datetime.fromisoformat(date_raw).date(), datetime_time(hour=hour, minute=minute), tzinfo=local_tz)
-    return local_slot.astimezone(timezone.utc).isoformat()
+    local_slot = datetime.combine(
+        datetime.fromisoformat(date_raw).date(),
+        datetime_time(hour=hour, minute=minute),
+        tzinfo=local_tz,
+    )
+    return local_slot.astimezone(UTC).isoformat()
 
 
 def _reason_code(row: dict[str, Any]) -> str:
@@ -768,7 +956,11 @@ def _reason_code(row: dict[str, Any]) -> str:
 
 def _review_state(row: dict[str, Any]) -> str:
     status = str(row.get("post_status") or "")
-    return "approved" if status in {"approved", "scheduled", "posted", "metrics_imported"} else "draft"
+    return (
+        "approved"
+        if status in {"approved", "scheduled", "posted", "metrics_imported"}
+        else "draft"
+    )
 
 
 def _review_state_from_status(value: str) -> str:
@@ -783,14 +975,18 @@ def _platform(row: dict[str, Any]) -> str:
 def _platform_proof(row: dict[str, Any]) -> dict[str, Any]:
     proof = {key: row.get(key) for key in PLATFORM_PROOF_KEYS if row.get(key)}
     lineage = _lineage(row)
-    platform = lineage.get("platform") if isinstance(lineage.get("platform"), dict) else {}
+    platform = (
+        lineage.get("platform") if isinstance(lineage.get("platform"), dict) else {}
+    )
     for key in PLATFORM_PROOF_KEYS:
         if platform.get(key):
             proof[key] = platform[key]
     return proof
 
 
-def _row_note(row: dict[str, Any], reason: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+def _row_note(
+    row: dict[str, Any], reason: str, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {
         "postingSlotId": row.get("posting_slot_id"),
         "reason": reason,

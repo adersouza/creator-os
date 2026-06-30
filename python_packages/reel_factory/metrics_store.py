@@ -1,4 +1,5 @@
 """Manual publish metrics import and reporting."""
+
 from __future__ import annotations
 
 import argparse
@@ -11,11 +12,18 @@ from typing import Any
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
 
-
 METRIC_COLUMNS = (
-    "filename", "platform", "account", "uploaded_at",
-    "views", "likes", "comments", "shares", "saves",
-    "manual_score", "notes",
+    "filename",
+    "platform",
+    "account",
+    "uploaded_at",
+    "views",
+    "likes",
+    "comments",
+    "shares",
+    "saves",
+    "manual_score",
+    "notes",
 )
 
 
@@ -50,7 +58,9 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
 
     known = {
         Path(row["output_path"]).name
-        for row in conn.execute("SELECT output_path FROM variations WHERE status = 'ok'")
+        for row in conn.execute(
+            "SELECT output_path FROM variations WHERE status = 'ok'"
+        )
     }
     imported = 0
     ignored: list[str] = []
@@ -197,9 +207,15 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     "SELECT * FROM campaign_outputs WHERE output_path=? LIMIT 1",
                     (variation["output_path"],),
                 ).fetchone()
-            output_path = variation["output_path"] if variation else (campaign_output["output_path"] if campaign_output else None)
+            output_path = (
+                variation["output_path"]
+                if variation
+                else (campaign_output["output_path"] if campaign_output else None)
+            )
             source_reference_id = None
-            prompt_run_id = campaign_output["prompt_run_id"] if campaign_output else None
+            prompt_run_id = (
+                campaign_output["prompt_run_id"] if campaign_output else None
+            )
             if campaign_output and campaign_output["asset_generation_id"]:
                 asset = conn.execute(
                     "SELECT prompt_run_id, reference_id FROM asset_generations WHERE asset_generation_id=?",
@@ -210,23 +226,36 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     source_reference_id = asset["reference_id"]
             platform = _text(row.get("platform")) or "instagram_reels"
             account = _text(row.get("account"))
-            posted_at = _text(row.get("posted_at") or row.get("uploaded_at") or row.get("date"))
+            posted_at = _text(
+                row.get("posted_at") or row.get("uploaded_at") or row.get("date")
+            )
             outcome_id = f"outcome_{slugify(filename)}_{slugify(platform or 'platform')}_{slugify(account or 'account')}_{slugify(posted_at or 'unknown')}"
             payload = (
-                outcome_id, filename, output_path,
+                outcome_id,
+                filename,
+                output_path,
                 variation["job_key"] if variation else None,
                 campaign_output["campaign_output_id"] if campaign_output else None,
                 campaign_output["campaign_id"] if campaign_output else None,
                 campaign_output["asset_generation_id"] if campaign_output else None,
                 prompt_run_id,
                 source_reference_id,
-                platform, account, posted_at,
-                _int(row.get("views")), _int(row.get("likes")), _int(row.get("comments")),
-                _int(row.get("shares")), _int(row.get("saves")),
-                _float(row.get("watch_time")), _float(row.get("retention_rate")),
-                _int(row.get("profile_visits")), _int(row.get("follows")),
+                platform,
+                account,
+                posted_at,
+                _int(row.get("views")),
+                _int(row.get("likes")),
+                _int(row.get("comments")),
+                _int(row.get("shares")),
+                _int(row.get("saves")),
+                _float(row.get("watch_time")),
+                _float(row.get("retention_rate")),
+                _int(row.get("profile_visits")),
+                _int(row.get("follows")),
                 _float(row.get("manual_score") or row.get("score")),
-                _text(row.get("source_url")), _text(row.get("notes")), int(time.time()),
+                _text(row.get("source_url")),
+                _text(row.get("notes")),
+                int(time.time()),
             )
             conn.execute(
                 """
@@ -282,11 +311,18 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     imported_at=excluded.imported_at
                 """,
                 (
-                    filename, platform, account, posted_at, _int(row.get("views")),
-                    _int(row.get("likes")), _int(row.get("comments")),
-                    _int(row.get("shares")), _int(row.get("saves")),
+                    filename,
+                    platform,
+                    account,
+                    posted_at,
+                    _int(row.get("views")),
+                    _int(row.get("likes")),
+                    _int(row.get("comments")),
+                    _int(row.get("shares")),
+                    _int(row.get("saves")),
                     _float(row.get("manual_score") or row.get("score")),
-                    _text(row.get("notes")), int(time.time()),
+                    _text(row.get("notes")),
+                    int(time.time()),
                 ),
             )
             if campaign_output:
@@ -311,8 +347,11 @@ def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
         metric: sum(int(row[metric] or 0) for row in rows)
         for metric in ("views", "likes", "comments", "shares", "saves", "follows")
     }
-    top = sorted((dict(row) | {"winner_score": winner_score(row)} for row in rows),
-                 key=lambda row: row["winner_score"], reverse=True)[:limit]
+    top = sorted(
+        (dict(row) | {"winner_score": winner_score(row)} for row in rows),
+        key=lambda row: row["winner_score"],
+        reverse=True,
+    )[:limit]
     return {"count": len(rows), "totals": totals, "top": top}
 
 
@@ -341,40 +380,49 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
     for row in rows:
         hook_idx = _hook_idx(row["filename"])
         key = (row["recipe"], hook_idx)
-        group = groups.setdefault(key, {
-            "recipe": row["recipe"],
-            "hook_idx": hook_idx,
-            "upload_count": 0,
-            "views": [],
-            "likes": [],
-            "comments": [],
-            "shares": [],
-            "saves": [],
-            "top_output": None,
-            "top_score": -1.0,
-        })
+        group = groups.setdefault(
+            key,
+            {
+                "recipe": row["recipe"],
+                "hook_idx": hook_idx,
+                "upload_count": 0,
+                "views": [],
+                "likes": [],
+                "comments": [],
+                "shares": [],
+                "saves": [],
+                "top_output": None,
+                "top_score": -1.0,
+            },
+        )
         group["upload_count"] += 1
         for metric in ("views", "likes", "comments", "shares", "saves"):
             if row[metric] is not None:
                 group[metric].append(int(row[metric]))
-        score = float(row["manual_score"]) if row["manual_score"] is not None else float(row["views"] or 0)
+        score = (
+            float(row["manual_score"])
+            if row["manual_score"] is not None
+            else float(row["views"] or 0)
+        )
         if score > group["top_score"]:
             group["top_score"] = score
             group["top_output"] = row["filename"]
 
     out = []
     for group in groups.values():
-        out.append({
-            "recipe": group["recipe"],
-            "hook_idx": group["hook_idx"],
-            "upload_count": group["upload_count"],
-            "avg_views": _avg(group["views"]),
-            "avg_likes": _avg(group["likes"]),
-            "avg_comments": _avg(group["comments"]),
-            "avg_shares": _avg(group["shares"]),
-            "avg_saves": _avg(group["saves"]),
-            "top_output": group["top_output"],
-        })
+        out.append(
+            {
+                "recipe": group["recipe"],
+                "hook_idx": group["hook_idx"],
+                "upload_count": group["upload_count"],
+                "avg_views": _avg(group["views"]),
+                "avg_likes": _avg(group["likes"]),
+                "avg_comments": _avg(group["comments"]),
+                "avg_shares": _avg(group["shares"]),
+                "avg_saves": _avg(group["saves"]),
+                "top_output": group["top_output"],
+            }
+        )
     return sorted(out, key=lambda item: (item["recipe"], item["hook_idx"]))
 
 
@@ -406,14 +454,24 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
         for metric in ("views", "likes", "comments", "shares", "saves"):
             if row[metric] is not None:
                 group[metric].append(int(row[metric]))
-        engagement = sum(int(row[m] or 0) for m in ("likes", "comments", "shares", "saves"))
-        score = float(row["manual_score"]) if row["manual_score"] is not None else float(row["views"] or 0)
+        engagement = sum(
+            int(row[m] or 0) for m in ("likes", "comments", "shares", "saves")
+        )
+        score = (
+            float(row["manual_score"])
+            if row["manual_score"] is not None
+            else float(row["views"] or 0)
+        )
         if score > group["top_score"]:
             group["top_score"] = score
             group["top_output"] = row["filename"]
         group["engagement_total"] += engagement
 
-    buckets: dict[str, dict[Any, dict[str, Any]]] = {"hooks": {}, "recipes": {}, "combos": {}}
+    buckets: dict[str, dict[Any, dict[str, Any]]] = {
+        "hooks": {},
+        "recipes": {},
+        "combos": {},
+    }
     for row in rows:
         hook_idx = _hook_idx(row["filename"])
         keys = {
@@ -422,41 +480,56 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
             "combos": (row["recipe"], hook_idx),
         }
         for bucket_name, key in keys.items():
-            bucket = buckets[bucket_name].setdefault(key, {
-                "key": key,
-                "recipe": row["recipe"] if bucket_name != "hooks" else None,
-                "hook_idx": hook_idx if bucket_name != "recipes" else None,
-                "hook_text": row["caption_text"] if bucket_name in {"hooks", "combos"} else None,
-                "upload_count": 0,
-                "views": [],
-                "likes": [],
-                "comments": [],
-                "shares": [],
-                "saves": [],
-                "engagement_total": 0,
-                "top_score": -1.0,
-                "top_output": None,
-            })
+            bucket = buckets[bucket_name].setdefault(
+                key,
+                {
+                    "key": key,
+                    "recipe": row["recipe"] if bucket_name != "hooks" else None,
+                    "hook_idx": hook_idx if bucket_name != "recipes" else None,
+                    "hook_text": row["caption_text"]
+                    if bucket_name in {"hooks", "combos"}
+                    else None,
+                    "upload_count": 0,
+                    "views": [],
+                    "likes": [],
+                    "comments": [],
+                    "shares": [],
+                    "saves": [],
+                    "engagement_total": 0,
+                    "top_score": -1.0,
+                    "top_output": None,
+                },
+            )
             add(bucket, row)
 
     def finish(groups: dict[Any, dict[str, Any]]) -> list[dict[str, Any]]:
         out = []
         for group in groups.values():
-            out.append({
-                "recipe": group["recipe"],
-                "hook_idx": group["hook_idx"],
-                "hook_text": group["hook_text"],
-                "upload_count": group["upload_count"],
-                "avg_views": _avg(group["views"]) or 0,
-                "avg_likes": _avg(group["likes"]) or 0,
-                "avg_comments": _avg(group["comments"]) or 0,
-                "avg_shares": _avg(group["shares"]) or 0,
-                "avg_saves": _avg(group["saves"]) or 0,
-                "engagement_total": group["engagement_total"],
-                "top_output": group["top_output"],
-                "top_score": group["top_score"],
-            })
-        return sorted(out, key=lambda item: (item["avg_views"], item["engagement_total"], item["top_score"]), reverse=True)[:limit]
+            out.append(
+                {
+                    "recipe": group["recipe"],
+                    "hook_idx": group["hook_idx"],
+                    "hook_text": group["hook_text"],
+                    "upload_count": group["upload_count"],
+                    "avg_views": _avg(group["views"]) or 0,
+                    "avg_likes": _avg(group["likes"]) or 0,
+                    "avg_comments": _avg(group["comments"]) or 0,
+                    "avg_shares": _avg(group["shares"]) or 0,
+                    "avg_saves": _avg(group["saves"]) or 0,
+                    "engagement_total": group["engagement_total"],
+                    "top_output": group["top_output"],
+                    "top_score": group["top_score"],
+                }
+            )
+        return sorted(
+            out,
+            key=lambda item: (
+                item["avg_views"],
+                item["engagement_total"],
+                item["top_score"],
+            ),
+            reverse=True,
+        )[:limit]
 
     return {
         "hooks": finish(buckets["hooks"]),
@@ -497,12 +570,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     sub = parser.add_subparsers(dest="cmd")
-    legacy_csv = parser.add_argument("--csv")
+    parser.add_argument("--csv")
     import_out = sub.add_parser("import-outcomes")
     import_out.add_argument("csv")
     import_old = sub.add_parser("import")
     import_old.add_argument("csv")
-    summary = sub.add_parser("outcomes-summary")
+    sub.add_parser("outcomes-summary")
     args = parser.parse_args()
     root = Path(args.root).resolve()
     if args.cmd == "import-outcomes":

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .persistence import json_load
 
@@ -40,7 +41,9 @@ class EventRepository:
         commit: bool = True,
     ) -> dict[str, Any]:
         if status not in {"info", "success", "warning", "failure"}:
-            raise ValueError("activity event status must be info, success, warning, or failure")
+            raise ValueError(
+                "activity event status must be info, success, warning, or failure"
+            )
         event_id = self._new_id("evt")
         now = self._utc_now()
         self.conn.execute(
@@ -62,13 +65,21 @@ class EventRepository:
                 pipeline_job_id,
                 status,
                 message or event_type.replace("_", " "),
-                json.dumps(self._sanitize_for_storage(metadata or {}), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(metadata or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
             ),
         )
         if commit:
             self.conn.commit()
-        return dict(self.conn.execute("SELECT * FROM activity_events WHERE id = ?", (event_id,)).fetchone())
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM activity_events WHERE id = ?", (event_id,)
+            ).fetchone()
+        )
 
     def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -87,8 +98,12 @@ class EventRepository:
             "createdAt": row["created_at"],
         }
 
-    def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
-        row = self.conn.execute("SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)).fetchone()
+    def events_for_campaign(
+        self, campaign_slug: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
+        row = self.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)
+        ).fetchone()
         if not row:
             raise ValueError(f"campaign not found: {campaign_slug}")
         rows = self.conn.execute(
@@ -97,15 +112,21 @@ class EventRepository:
         ).fetchall()
         return [self.event_payload(dict(event_row)) for event_row in rows]
 
-    def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    def events_for_asset(
+        self, rendered_asset_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT * FROM activity_events WHERE rendered_asset_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
             (rendered_asset_id, max(1, min(limit, 1000))),
         ).fetchall()
         return [self.event_payload(dict(row)) for row in rows]
 
-    def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
-        row = self.conn.execute("SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)).fetchone()
+    def jobs_for_campaign(
+        self, campaign_slug: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        row = self.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)
+        ).fetchone()
         if not row:
             raise ValueError(f"campaign not found: {campaign_slug}")
         rows = self.conn.execute(
@@ -133,7 +154,11 @@ class EventRepository:
                 job_id,
                 job_type,
                 campaign_id,
-                json.dumps(self._sanitize_for_storage(input_payload or {}), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(input_payload or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -150,31 +175,61 @@ class EventRepository:
         self.conn.commit()
         return self.pipeline_job(job_id)
 
-    def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finish_pipeline_job(
+        self, job_id: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         now = self._utc_now()
         self.conn.execute(
             "UPDATE pipeline_jobs SET status = 'succeeded', result_json = ?, error = NULL, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(self._sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), now, now, job_id),
+            (
+                json.dumps(
+                    self._sanitize_for_storage(result_payload or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                now,
+                now,
+                job_id,
+            ),
         )
         self.conn.commit()
         return self.pipeline_job(job_id)
 
-    def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def fail_pipeline_job(
+        self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         now = self._utc_now()
         self.conn.execute(
             "UPDATE pipeline_jobs SET status = 'failed', result_json = ?, error = ?, finished_at = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(self._sanitize_for_storage(result_payload or {}), ensure_ascii=False, sort_keys=True), error, now, now, job_id),
+            (
+                json.dumps(
+                    self._sanitize_for_storage(result_payload or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                error,
+                now,
+                now,
+                job_id,
+            ),
         )
         self.conn.commit()
         return self.pipeline_job(job_id)
 
-    def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
-        self.conn.execute("UPDATE pipeline_jobs SET campaign_id = ?, updated_at = ? WHERE id = ?", (campaign_id, self._utc_now(), job_id))
+    def set_pipeline_job_campaign(
+        self, job_id: str, campaign_id: str
+    ) -> dict[str, Any]:
+        self.conn.execute(
+            "UPDATE pipeline_jobs SET campaign_id = ?, updated_at = ? WHERE id = ?",
+            (campaign_id, self._utc_now(), job_id),
+        )
         self.conn.commit()
         return self.pipeline_job(job_id)
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"pipeline job not found: {job_id}")
         return self.pipeline_job_payload(dict(row))

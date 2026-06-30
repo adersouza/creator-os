@@ -1,0 +1,29 @@
+{
+  "schema": "reel_factory.stacey_caption_adaptations.v1",
+  "updatedAt": 1782799252,
+  "adaptationCount": 2,
+  "adaptations": [
+    {
+      "caption_hash": "bf7e562420915eb281508c6bc557c498ae105df1ec83afeffec0912afddc15a8",
+      "sourceAccount": null,
+      "rawCaption": "if you scroll, nothing happens... but if you share this... a goth girl will text you tonight 🖤",
+      "staceyCaption": "if you scroll, nothing happens... but if you share this... a girl will text you tonight 🖤",
+      "preservedHookStructure": true,
+      "issuesAddressed": [
+        "stacey_adapted_from_persona_specific"
+      ],
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[206].text"
+    },
+    {
+      "caption_hash": "b2c5698b62fe0b5041289c2ab1909731a76f8abb373385eb47e9590ed26f55b8",
+      "sourceAccount": null,
+      "rawCaption": "share this and a goth girl",
+      "staceyCaption": "share this and a girl",
+      "preservedHookStructure": true,
+      "issuesAddressed": [
+        "stacey_adapted_from_persona_specific"
+      ],
+      "source": "/Users/aderdesouza/Developer/creator-os/tmp/caption_candidate_scan_20260623/new_caption_candidates.json:candidates[336].text"
+    }
+  ]
+}

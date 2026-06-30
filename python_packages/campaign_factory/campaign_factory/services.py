@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .acceptance_suite import AcceptanceSuiteRepository
 from .account_health import AccountHealthRepository
@@ -14,32 +15,32 @@ from .asset_import import AssetImportRepository
 from .audio_operations import AudioOperationsRepository
 from .audio_recommendations import AudioRecommendationRepository
 from .autonomy import AutonomyPolicyRepository
+from .campaign_overview import CampaignOverviewRepository
 from .caption import CaptionFamilyRepository
 from .carousel_integrity import CarouselIntegrityRepository
-from .campaign_overview import CampaignOverviewRepository
 from .certification import CertificationRepository
 from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
 from .core_complexity import CoreComplexityRepository
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .creative_knowledge import CreativeKnowledgeRepository
+from .creative_planning import CreativePlanningRepository
 from .creator_os_drafts import CreatorOSDraftRepository
 from .creator_os_recommendations import CreatorOSRecommendationRepository
-from .creative_planning import CreativePlanningRepository
+from .daily_plan import DailyPlanRepository
 from .decision_ledger import DecisionLedgerRepository
 from .discoverability import DiscoverabilityRepository
 from .distribution import DistributionRepository
-from .daily_plan import DailyPlanRepository
 from .draft_inventory_gap import DraftInventoryGapRepository
 from .events import EventRepository
-from .export_summary import ExportSummaryRepository
-from .execution_readiness import ExecutionReadinessRepository
 from .exceptions import ExceptionRepository
+from .execution_readiness import ExecutionReadinessRepository
+from .export_summary import ExportSummaryRepository
 from .finished_video import FinishedVideoRepository
 from .fresh_reel_production import FreshReelProductionRepository
 from .graph import GraphRepository
-from .inventory_planning import InventoryPlanningRepository
 from .inventory_perceptual import InventoryPerceptualRepository
+from .inventory_planning import InventoryPlanningRepository
 from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
 from .learning_score import account_reward_baselines as _account_reward_baselines
@@ -56,19 +57,19 @@ from .parent_factory_reports import ParentFactoryReportRepository
 from .parent_factory_trials import ParentFactoryTrialRepository
 from .performance_summary import PerformanceSummaryRepository
 from .publishability import PublishabilityRepository
-from .reference import ReferenceRepository
+from .readiness_report import ReadinessReportRepository
 from .recommendation_accuracy import RecommendationAccuracyRepository
 from .recommendations import RecommendationRepository
 from .recommended_inventory_request import RecommendedInventoryRequestRepository
-from .readiness_report import ReadinessReportRepository
-from .reel_factory_reports import ReelFactoryReportRepository
 from .reel_execution import ReelExecutionRepository
+from .reel_factory_reports import ReelFactoryReportRepository
+from .reference import ReferenceRepository
 from .schedule_safe_production import ScheduleSafeProductionRepository
 from .story_management import StoryManagementRepository
 from .surface_handoff import SurfaceHandoffRepository
 from .surface_inventory import SurfaceInventoryRepository
-from .surface_requirements import SurfaceRequirementsRepository
 from .surface_registration import SurfaceRegistrationRepository
+from .surface_requirements import SurfaceRequirementsRepository
 from .surface_summary import SurfaceSummaryRepository
 from .tribev2 import TribeV2Repository
 from .variant_lineage import VariantLineageRepository
@@ -96,7 +97,9 @@ class CoreServices:
         ratio_label_from_shape: Callable[[int | None, int | None], str | None],
         dashboard_rendered_asset: Callable[[dict[str, Any]], dict[str, Any]],
         audio_recommendations_for_asset: Callable[..., dict[str, Any]],
-        generated_asset_lineage: Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any]],
+        generated_asset_lineage: Callable[
+            [dict[str, Any], dict[str, Any] | None], dict[str, Any]
+        ],
         prepare_reel_inputs: Callable[..., dict[str, Any]],
         reel_factory_python: Callable[[Any], str],
         make_batch: Callable[..., dict[str, Any]],
@@ -110,16 +113,22 @@ class CoreServices:
         urlopen: Callable[..., Any],
         concept_for_parent_asset: Callable[[str], dict[str, Any] | None],
         explain_publishability: Callable[[str], dict[str, Any]],
-        capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
+        capture_publishability_rejection_evidence_from_result: Callable[
+            ..., dict[str, Any]
+        ],
         distribution_plan_payload: Callable[[dict[str, Any]], dict[str, Any]],
         verification_id: Callable[..., str],
         caption_lineage_sidecar: Callable[[str], dict[str, Any]],
         active_quarantine_for_asset: Callable[[str], dict[str, Any] | None],
         audio_segment_for_asset: Callable[[dict[str, Any]], dict[str, Any] | None],
-        cover_frame_for_asset: Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any] | None],
+        cover_frame_for_asset: Callable[
+            [dict[str, Any], dict[str, Any] | None], dict[str, Any] | None
+        ],
         audio_intent_claims_embedded_media: Callable[[dict[str, Any]], bool],
         embedded_audio_verified: Callable[[str], bool | None],
-        discoverability_evidence_for_fields: Callable[[list[tuple[str, str]]], list[dict[str, Any]]],
+        discoverability_evidence_for_fields: Callable[
+            [list[tuple[str, str]]], list[dict[str, Any]]
+        ],
         reference_hook_is_schedule_safe: Callable[[str], bool],
         audio_intent_is_attached: Callable[[dict[str, Any], str | None], bool],
         requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
@@ -128,7 +137,9 @@ class CoreServices:
         recommend_audio: Callable[..., dict[str, Any]],
         select_audio_for_recommendation: Callable[..., dict[str, Any]],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
-        audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
+        audio_selection_for_asset: Callable[
+            [dict[str, Any]], tuple[dict[str, Any], str | None]
+        ],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
         build_surface_readiness: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         asset_matches_creator: Callable[[dict[str, Any], str], bool],
@@ -151,8 +162,12 @@ class CoreServices:
         creator_os_account_health_report: Callable[..., dict[str, Any]],
         creator_os_account_health_decision: Callable[..., dict[str, Any]],
         creator_os_tier_posting_guidance: Callable[[str], dict[str, Any]],
-        creator_os_account_tier_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
-        creator_os_account_health_summary: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        creator_os_account_tier_summary: Callable[
+            [list[dict[str, Any]]], dict[str, Any]
+        ],
+        creator_os_account_health_summary: Callable[
+            [list[dict[str, Any]]], dict[str, Any]
+        ],
         creator_os_winner_recommendations: Callable[..., list[dict[str, Any]]],
         creator_os_recommended_inventory: Callable[..., list[dict[str, Any]]],
         recommendation_explainability: Callable[..., dict[str, Any]],
@@ -164,7 +179,9 @@ class CoreServices:
         creative_result_group: Callable[..., list[dict[str, Any]]],
         creative_knowledge_results_for_report: Callable[..., list[dict[str, Any]]],
         creative_dimension_label: Callable[[str], str],
-        learning_confidence_classification: Callable[[list[dict[str, Any]]], dict[str, Any]],
+        learning_confidence_classification: Callable[
+            [list[dict[str, Any]]], dict[str, Any]
+        ],
         creative_fatigue_signals: Callable[..., list[dict[str, Any]]],
         creative_surface_rows: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
         recommendation_quality_bucket: Callable[[dict[str, Any]], str],
@@ -333,7 +350,9 @@ class CoreServices:
             sha256_file=sha256_file,
             media_type_for_path=media_type_for_path,
             reel_factory_python=reel_factory_python,
-            subprocess_run=lambda *args, **kwargs: __import__("subprocess").run(*args, **kwargs),
+            subprocess_run=lambda *args, **kwargs: __import__("subprocess").run(
+                *args, **kwargs
+            ),
             create_pipeline_job=self.events.create_pipeline_job,
             start_pipeline_job=self.events.start_pipeline_job,
             set_pipeline_job_campaign=self.events.set_pipeline_job_campaign,
@@ -345,12 +364,22 @@ class CoreServices:
             import_reference_bank=self.reference.import_reference_bank,
             select_reference_pattern=self.reference.select_reference_pattern,
             prepare_reel_from_reference=self.reference.prepare_reel_from_reference,
-            finished_video_hooks=lambda *args, **kwargs: self.finished_video.finished_video_hooks(*args, **kwargs),
-            finished_video_caption_band=lambda *args, **kwargs: self.finished_video.finished_video_caption_band(*args, **kwargs),
-            finished_video_caption_font=lambda *args, **kwargs: self.finished_video.finished_video_caption_font(*args, **kwargs),
+            finished_video_hooks=lambda *args, **kwargs: (
+                self.finished_video.finished_video_hooks(*args, **kwargs)
+            ),
+            finished_video_caption_band=lambda *args, **kwargs: (
+                self.finished_video.finished_video_caption_band(*args, **kwargs)
+            ),
+            finished_video_caption_font=lambda *args, **kwargs: (
+                self.finished_video.finished_video_caption_font(*args, **kwargs)
+            ),
             prepare_reel_inputs=prepare_reel_inputs,
-            run_reel_factory=lambda *args, **kwargs: self.reel_execution.run_reel_factory(*args, **kwargs),
-            sync_reel_outputs=lambda *args, **kwargs: self.reel_execution.sync_reel_outputs(*args, **kwargs),
+            run_reel_factory=lambda *args, **kwargs: (
+                self.reel_execution.run_reel_factory(*args, **kwargs)
+            ),
+            sync_reel_outputs=lambda *args, **kwargs: (
+                self.reel_execution.sync_reel_outputs(*args, **kwargs)
+            ),
             dashboard=dashboard,
             campaign_health=self.campaign_health,
             ranking=ranking,
@@ -648,7 +677,9 @@ class CoreServices:
             record_event=self.events.record_event,
             recommendation_item_row=self.recommendations.recommendation_item_row,
             reference_pattern_payload=self.reference.reference_pattern_payload,
-            select_audio_for_recommendation=lambda *args, **kwargs: self.audio_operations.select_audio_for_recommendation(*args, **kwargs),
+            select_audio_for_recommendation=lambda *args, **kwargs: (
+                self.audio_operations.select_audio_for_recommendation(*args, **kwargs)
+            ),
         )
         self.audio_operations = AudioOperationsRepository(
             conn,
@@ -719,7 +750,11 @@ class CoreServices:
         self.reel_factory_reports = ReelFactoryReportRepository(
             conn,
             build_surface_readiness=build_surface_readiness,
-            inventory_count_related=lambda table, column, asset_ids: self.inventory_planning.inventory_count_related(table, column, asset_ids),
+            inventory_count_related=lambda table, column, asset_ids: (
+                self.inventory_planning.inventory_count_related(
+                    table, column, asset_ids
+                )
+            ),
             inventory_production_requirements=inventory_production_requirements,
             ratio=self.ratio,
         )
@@ -759,7 +794,9 @@ class CoreServices:
         self.parent_factory_trials = ParentFactoryTrialRepository(
             conn,
             settings=settings,
-            factory_constructor=lambda sandbox_settings: factory_context.__class__(sandbox_settings),
+            factory_constructor=lambda sandbox_settings: factory_context.__class__(
+                sandbox_settings
+            ),
             reel_factory_parent_metrics=self.reel_factory_reports.reel_factory_parent_metrics,
             operator_review_minutes_per_parent=self.reel_factory_reports.operator_review_minutes_per_parent,
             parent_factory_yield_waterfall=self.parent_factory_reports.parent_factory_yield_waterfall,
@@ -914,7 +951,9 @@ class CoreServices:
         )
         self.recommended_inventory_request = RecommendedInventoryRequestRepository(
             creator_label=self.creator_label,
-            creator_os_daily_plan=lambda *args, **kwargs: self.creator_os_daily_plan(*args, **kwargs),
+            creator_os_daily_plan=lambda *args, **kwargs: self.creator_os_daily_plan(
+                *args, **kwargs
+            ),
             normalize_content_surface=normalize_content_surface,
             recommendation_explainability=recommendation_explainability,
             utc_now=utc_now,
@@ -1115,7 +1154,9 @@ class CoreServices:
         entity_type: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> str | None:
-        return self.graph.graph_id_for(local_table, local_id, entity_type=entity_type, payload=payload)
+        return self.graph.graph_id_for(
+            local_table, local_id, entity_type=entity_type, payload=payload
+        )
 
     def ensure_graph_edge(
         self,
@@ -1217,13 +1258,19 @@ class CoreServices:
     def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.events.event_payload(row)
 
-    def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
+    def events_for_campaign(
+        self, campaign_slug: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
         return self.events.events_for_campaign(campaign_slug, limit=limit)
 
-    def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    def events_for_asset(
+        self, rendered_asset_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         return self.events.events_for_asset(rendered_asset_id, limit=limit)
 
-    def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
+    def jobs_for_campaign(
+        self, campaign_slug: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         return self.events.jobs_for_campaign(campaign_slug, limit=limit)
 
     def campaign_readiness(self, campaign_slug: str, **kwargs: Any) -> dict[str, Any]:
@@ -1238,10 +1285,16 @@ class CoreServices:
     def creator_os_lifecycle_bucket(self, row: dict[str, Any]) -> str:
         return self.lifecycle_reporting.creator_os_lifecycle_bucket(row)
 
-    def lifecycle_snapshots_by_asset(self, campaign_id: str) -> dict[str, list[dict[str, Any]]]:
+    def lifecycle_snapshots_by_asset(
+        self, campaign_id: str
+    ) -> dict[str, list[dict[str, Any]]]:
         return self.lifecycle_reporting.lifecycle_snapshots_by_asset(campaign_id)
 
-    def lifecycle_threadsdash_indexes(self, **kwargs: Any) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    def lifecycle_threadsdash_indexes(
+        self, **kwargs: Any
+    ) -> tuple[
+        dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], dict[str, Any]
+    ]:
         return self.lifecycle_reporting.lifecycle_threadsdash_indexes(**kwargs)
 
     def lifecycle_row(self, **kwargs: Any) -> dict[str, Any]:
@@ -1256,7 +1309,9 @@ class CoreServices:
     def lifecycle_media_validation_issue(self, **kwargs: Any) -> dict[str, Any] | None:
         return self.lifecycle_reporting.lifecycle_media_validation_issue(**kwargs)
 
-    def latest_lifecycle_post(self, posts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def latest_lifecycle_post(
+        self, posts: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         return self.lifecycle_reporting.latest_lifecycle_post(posts)
 
     def lifecycle_snapshot_has_metrics(self, snapshot: dict[str, Any]) -> bool:
@@ -1286,10 +1341,14 @@ class CoreServices:
     def canonical_lifecycle_context(self, value: Any) -> Any:
         return self.lifecycle_reporting.canonical_lifecycle_context(value)
 
-    def compact_lifecycle_post(self, post: dict[str, Any] | None) -> dict[str, Any] | None:
+    def compact_lifecycle_post(
+        self, post: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.lifecycle_reporting.compact_lifecycle_post(post)
 
-    def compact_lifecycle_snapshot(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    def compact_lifecycle_snapshot(
+        self, snapshot: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.lifecycle_reporting.compact_lifecycle_snapshot(snapshot)
 
     def performance_summary(self, campaign_slug: str) -> dict[str, Any]:
@@ -1307,7 +1366,9 @@ class CoreServices:
     def performance_snapshot_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.performance_summary_repo.performance_snapshot_payload(row)
 
-    def account_reward_baselines(self, snapshots: list[dict[str, Any]]) -> dict[str, float]:
+    def account_reward_baselines(
+        self, snapshots: list[dict[str, Any]]
+    ) -> dict[str, float]:
         return _account_reward_baselines(snapshots)
 
     def group_performance(
@@ -1351,20 +1412,34 @@ class CoreServices:
             account_baselines=account_baselines,
         )
 
-    def caption_outcome_manual_review(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    def caption_outcome_manual_review(
+        self, snapshots: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.performance_summary_repo.caption_outcome_manual_review(snapshots)
 
     def has_caption_outcome_context(self, snapshot: dict[str, Any]) -> bool:
         return self.performance_summary_repo.has_caption_outcome_context(snapshot)
 
-    def caption_outcome_snapshot_with_placement(self, snapshot: dict[str, Any]) -> dict[str, Any]:
-        return self.performance_summary_repo.caption_outcome_snapshot_with_placement(snapshot)
+    def caption_outcome_snapshot_with_placement(
+        self, snapshot: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.performance_summary_repo.caption_outcome_snapshot_with_placement(
+            snapshot
+        )
 
-    def caption_outcome_group(self, snapshots: list[dict[str, Any]], source_key: str, output_key: str) -> list[dict[str, Any]]:
-        return self.performance_summary_repo.caption_outcome_group(snapshots, source_key, output_key)
+    def caption_outcome_group(
+        self, snapshots: list[dict[str, Any]], source_key: str, output_key: str
+    ) -> list[dict[str, Any]]:
+        return self.performance_summary_repo.caption_outcome_group(
+            snapshots, source_key, output_key
+        )
 
-    def caption_outcome_contexts_for_group(self, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return self.performance_summary_repo.caption_outcome_contexts_for_group(snapshots)
+    def caption_outcome_contexts_for_group(
+        self, snapshots: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return self.performance_summary_repo.caption_outcome_contexts_for_group(
+            snapshots
+        )
 
     def add_leaderboard_snapshot(
         self,
@@ -1373,7 +1448,9 @@ class CoreServices:
         snapshot: dict[str, Any],
         dimensions: dict[str, Any],
     ) -> None:
-        return self.performance_summary_repo.add_leaderboard_snapshot(items, key, snapshot, dimensions)
+        return self.performance_summary_repo.add_leaderboard_snapshot(
+            items, key, snapshot, dimensions
+        )
 
     def rank_leaderboard_entries(
         self,
@@ -1400,32 +1477,64 @@ class CoreServices:
     def performance_snapshot_dimensions(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.performance_summary_repo.performance_snapshot_dimensions(row)
 
-    def performance_hook_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def performance_hook_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.performance_summary_repo.performance_hook_dimension(campaign_meta)
 
-    def performance_audio_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def performance_audio_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.performance_summary_repo.performance_audio_dimension(campaign_meta)
 
-    def performance_reference_format_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_reference_format_dimension(campaign_meta)
+    def performance_reference_format_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_reference_format_dimension(
+            campaign_meta
+        )
 
-    def performance_prompt_pattern_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_prompt_pattern_dimension(campaign_meta)
+    def performance_prompt_pattern_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_prompt_pattern_dimension(
+            campaign_meta
+        )
 
-    def performance_pattern_card_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_pattern_card_dimension(campaign_meta)
+    def performance_pattern_card_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_pattern_card_dimension(
+            campaign_meta
+        )
 
-    def performance_model_account_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_model_account_dimension(campaign_meta, row)
+    def performance_model_account_dimension(
+        self, campaign_meta: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_model_account_dimension(
+            campaign_meta, row
+        )
 
-    def performance_caption_formula_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_caption_formula_dimension(campaign_meta)
+    def performance_caption_formula_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_caption_formula_dimension(
+            campaign_meta
+        )
 
-    def performance_variation_preset_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
-        return self.performance_summary_repo.performance_variation_preset_dimension(campaign_meta, row)
+    def performance_variation_preset_dimension(
+        self, campaign_meta: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.performance_summary_repo.performance_variation_preset_dimension(
+            campaign_meta, row
+        )
 
-    def performance_score(self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]) -> int | None:
-        return self.performance_summary_repo.performance_score(source=source, caption=caption, recipe=recipe)
+    def performance_score(
+        self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]
+    ) -> int | None:
+        return self.performance_summary_repo.performance_score(
+            source=source, caption=caption, recipe=recipe
+        )
 
     def import_audio_catalog(self, catalog_path: Path) -> dict[str, Any]:
         return self.audio_recommendations.import_audio_catalog(catalog_path)
@@ -1433,11 +1542,17 @@ class CoreServices:
     def import_audio_memory(self, catalog_path: Path) -> dict[str, Any]:
         return self.audio_recommendations.import_audio_memory(catalog_path)
 
-    def audio_catalog(self, platform: str | None = None, limit: int = 100) -> dict[str, Any]:
+    def audio_catalog(
+        self, platform: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
         return self.audio_recommendations.audio_catalog(platform=platform, limit=limit)
 
-    def audio_memory(self, platform: str | None = None, account: str | None = None, limit: int = 100) -> dict[str, Any]:
-        return self.audio_recommendations.audio_memory(platform=platform, account=account, limit=limit)
+    def audio_memory(
+        self, platform: str | None = None, account: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
+        return self.audio_recommendations.audio_memory(
+            platform=platform, account=account, limit=limit
+        )
 
     def recommend_audio(
         self,
@@ -1504,8 +1619,12 @@ class CoreServices:
             account_tags=account_tags,
         )
 
-    def audio_decision_score(self, item: dict[str, Any], *, requested_platform: str) -> tuple[float, list[str], list[str]]:
-        return self.audio_recommendations.audio_decision_score(item, requested_platform=requested_platform)
+    def audio_decision_score(
+        self, item: dict[str, Any], *, requested_platform: str
+    ) -> tuple[float, list[str], list[str]]:
+        return self.audio_recommendations.audio_decision_score(
+            item, requested_platform=requested_platform
+        )
 
     def audio_decision_confidence(self, primary: dict[str, Any] | None) -> str:
         return self.audio_recommendations.audio_decision_confidence(primary)
@@ -1532,7 +1651,9 @@ class CoreServices:
         campaign_id: str | None = None,
         account: str | None = None,
     ) -> dict[str, Any]:
-        return self.audio_recommendations.audio_performance_summary(item, campaign_id=campaign_id, account=account)
+        return self.audio_recommendations.audio_performance_summary(
+            item, campaign_id=campaign_id, account=account
+        )
 
     def audio_fatigue_summary(
         self,
@@ -1541,12 +1662,16 @@ class CoreServices:
         campaign_id: str | None = None,
         account: str | None = None,
     ) -> dict[str, Any]:
-        return self.audio_recommendations.audio_fatigue_summary(item, campaign_id=campaign_id, account=account)
+        return self.audio_recommendations.audio_fatigue_summary(
+            item, campaign_id=campaign_id, account=account
+        )
 
     def audio_key(self, item: dict[str, Any]) -> str:
         return self.audio_recommendations.audio_key(item)
 
-    def score_audio_catalog_item(self, item: dict[str, Any], tags: set[str], accounts: set[str]) -> tuple[float, list[str]]:
+    def score_audio_catalog_item(
+        self, item: dict[str, Any], tags: set[str], accounts: set[str]
+    ) -> tuple[float, list[str]]:
         return self.audio_recommendations.score_audio_catalog_item(item, tags, accounts)
 
     def score_audio_catalog_item_v2(
@@ -1557,7 +1682,9 @@ class CoreServices:
         *,
         account: str | None = None,
     ) -> tuple[float, list[str], dict[str, float], str]:
-        return self.audio_recommendations.score_audio_catalog_item_v2(item, tags, accounts, account=account)
+        return self.audio_recommendations.score_audio_catalog_item_v2(
+            item, tags, accounts, account=account
+        )
 
     def audio_trend_component(self, item: dict[str, Any]) -> float:
         return self.audio_recommendations.audio_trend_component(item)
@@ -1568,26 +1695,44 @@ class CoreServices:
     def audio_performance_component(self, item: dict[str, Any]) -> float:
         return self.audio_recommendations.audio_performance_component(item)
 
-    def audio_account_fit_component(self, item: dict[str, Any], accounts: set[str]) -> float:
+    def audio_account_fit_component(
+        self, item: dict[str, Any], accounts: set[str]
+    ) -> float:
         return self.audio_recommendations.audio_account_fit_component(item, accounts)
 
-    def audio_creator_fit_component(self, item: dict[str, Any], tags: set[str]) -> float:
+    def audio_creator_fit_component(
+        self, item: dict[str, Any], tags: set[str]
+    ) -> float:
         return self.audio_recommendations.audio_creator_fit_component(item, tags)
 
     def audio_fatigue_safety_component(self, item: dict[str, Any]) -> float:
         return self.audio_recommendations.audio_fatigue_safety_component(item)
 
-    def audio_recommendation_confidence(self, item: dict[str, Any], components: dict[str, float]) -> str:
-        return self.audio_recommendations.audio_recommendation_confidence(item, components)
+    def audio_recommendation_confidence(
+        self, item: dict[str, Any], components: dict[str, float]
+    ) -> str:
+        return self.audio_recommendations.audio_recommendation_confidence(
+            item, components
+        )
 
-    def latest_audio_trend_snapshot_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+    def latest_audio_trend_snapshot_payload(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.audio_recommendations.latest_audio_trend_snapshot_payload(item)
 
     def audio_memory_trust_summary(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         return self.audio_recommendations.audio_memory_trust_summary(items)
 
-    def contentforge_audio_fit_for_item(self, item: dict[str, Any], tags: set[str], *, visual_signal: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.audio_recommendations.contentforge_audio_fit_for_item(item, tags, visual_signal=visual_signal)
+    def contentforge_audio_fit_for_item(
+        self,
+        item: dict[str, Any],
+        tags: set[str],
+        *,
+        visual_signal: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        return self.audio_recommendations.contentforge_audio_fit_for_item(
+            item, tags, visual_signal=visual_signal
+        )
 
     def audio_catalog_recommendation(self, item: dict[str, Any]) -> dict[str, Any]:
         return self.audio_recommendations.audio_catalog_recommendation(item)
@@ -1595,20 +1740,36 @@ class CoreServices:
     def norm_tag(self, value: Any) -> str:
         return self.audio_recommendations.norm_tag(value)
 
-    def attach_audio_to_distribution_plan(self, distribution_plan_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.audio_operations.attach_audio_to_distribution_plan(distribution_plan_id, **kwargs)
+    def attach_audio_to_distribution_plan(
+        self, distribution_plan_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.audio_operations.attach_audio_to_distribution_plan(
+            distribution_plan_id, **kwargs
+        )
 
-    def attach_cover_frame_to_rendered_asset(self, rendered_asset_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.audio_operations.attach_cover_frame_to_rendered_asset(rendered_asset_id, **kwargs)
+    def attach_cover_frame_to_rendered_asset(
+        self, rendered_asset_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.audio_operations.attach_cover_frame_to_rendered_asset(
+            rendered_asset_id, **kwargs
+        )
 
-    def select_audio_for_recommendation(self, recommendation_item_id: str, audio_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.audio_operations.select_audio_for_recommendation(recommendation_item_id, audio_id, **kwargs)
+    def select_audio_for_recommendation(
+        self, recommendation_item_id: str, audio_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.audio_operations.select_audio_for_recommendation(
+            recommendation_item_id, audio_id, **kwargs
+        )
 
     def verify_audio_for_post(self, post_id: str, **kwargs: Any) -> dict[str, Any]:
         return self.audio_operations.verify_audio_for_post(post_id, **kwargs)
 
-    def audio_catalog_row(self, audio_id: str, *, allow_locator: bool = False) -> dict[str, Any]:
-        return self.audio_operations.audio_catalog_row(audio_id, allow_locator=allow_locator)
+    def audio_catalog_row(
+        self, audio_id: str, *, allow_locator: bool = False
+    ) -> dict[str, Any]:
+        return self.audio_operations.audio_catalog_row(
+            audio_id, allow_locator=allow_locator
+        )
 
     def audio_selection_payload(self, selection_id: str) -> dict[str, Any]:
         return self.audio_operations.audio_selection_payload(selection_id)
@@ -1616,11 +1777,19 @@ class CoreServices:
     def link_audio_selection_graph(self, **kwargs: Any) -> None:
         return self.audio_operations.link_audio_selection_graph(**kwargs)
 
-    def resolve_audio_exception_for_recommendation(self, recommendation_item_id: str, **kwargs: Any) -> None:
-        return self.audio_operations.resolve_audio_exception_for_recommendation(recommendation_item_id, **kwargs)
+    def resolve_audio_exception_for_recommendation(
+        self, recommendation_item_id: str, **kwargs: Any
+    ) -> None:
+        return self.audio_operations.resolve_audio_exception_for_recommendation(
+            recommendation_item_id, **kwargs
+        )
 
-    def record_audio_performance_snapshot(self, snapshot: dict[str, Any], *, commit: bool = True) -> dict[str, Any] | None:
-        return self.audio_operations.record_audio_performance_snapshot(snapshot, commit=commit)
+    def record_audio_performance_snapshot(
+        self, snapshot: dict[str, Any], *, commit: bool = True
+    ) -> dict[str, Any] | None:
+        return self.audio_operations.record_audio_performance_snapshot(
+            snapshot, commit=commit
+        )
 
     def performance_snapshot_score(self, snapshot: dict[str, Any]) -> float:
         return self.audio_operations.performance_snapshot_score(snapshot)
@@ -1643,19 +1812,29 @@ class CoreServices:
     def normalize_audio_segment(self, payload: Any) -> dict[str, Any] | None:
         return self.audio_operations.normalize_audio_segment(payload)
 
-    def audio_segment_for_asset(self, audio_intent: dict[str, Any]) -> dict[str, Any] | None:
+    def audio_segment_for_asset(
+        self, audio_intent: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.audio_operations.audio_segment_for_asset(audio_intent)
 
     def normalize_cover_frame(self, payload: Any) -> dict[str, Any] | None:
         return self.audio_operations.normalize_cover_frame(payload)
 
-    def cover_frame_for_asset(self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.audio_operations.cover_frame_for_asset(asset, caption_context=caption_context)
+    def cover_frame_for_asset(
+        self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        return self.audio_operations.cover_frame_for_asset(
+            asset, caption_context=caption_context
+        )
 
-    def audio_selection_for_asset(self, asset: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    def audio_selection_for_asset(
+        self, asset: dict[str, Any]
+    ) -> tuple[dict[str, Any], str | None]:
         return self.audio_operations.audio_selection_for_asset(asset)
 
-    def audio_intent_is_attached(self, audio_intent: dict[str, Any], audio_id: str | None) -> bool:
+    def audio_intent_is_attached(
+        self, audio_intent: dict[str, Any], audio_id: str | None
+    ) -> bool:
         return self.audio_operations.audio_intent_is_attached(audio_intent, audio_id)
 
     def audio_intent_claims_embedded_media(self, audio_intent: dict[str, Any]) -> bool:
@@ -1707,19 +1886,29 @@ class CoreServices:
         )
 
     def creator_os_winner_recommendations(self, **kwargs: Any) -> list[dict[str, Any]]:
-        return self.creator_os_recommendations.creator_os_winner_recommendations(**kwargs)
+        return self.creator_os_recommendations.creator_os_winner_recommendations(
+            **kwargs
+        )
 
     def creator_os_winner_action(self, value: Any) -> str:
         return self.creator_os_recommendations.creator_os_winner_action(value)
 
-    def creator_os_best_rollup_family(self, variant_metrics_rollup: dict[str, Any]) -> dict[str, Any] | None:
-        return self.creator_os_recommendations.creator_os_best_rollup_family(variant_metrics_rollup)
+    def creator_os_best_rollup_family(
+        self, variant_metrics_rollup: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.creator_os_recommendations.creator_os_best_rollup_family(
+            variant_metrics_rollup
+        )
 
     def creator_os_recommended_inventory(self, **kwargs: Any) -> list[dict[str, Any]]:
-        return self.creator_os_recommendations.creator_os_recommended_inventory(**kwargs)
+        return self.creator_os_recommendations.creator_os_recommended_inventory(
+            **kwargs
+        )
 
     def creator_os_lineage_posting_window(self, pattern: dict[str, Any]) -> str:
-        return self.creator_os_recommendations.creator_os_lineage_posting_window(pattern)
+        return self.creator_os_recommendations.creator_os_lineage_posting_window(
+            pattern
+        )
 
     def recommended_inventory_request_plan(
         self,
@@ -1736,14 +1925,22 @@ class CoreServices:
             variant_inventory_plan=variant_inventory_plan,
         )
 
-    def recommended_inventory_creator_row(self, daily_plan: dict[str, Any], creator: str) -> dict[str, Any]:
-        return self.recommended_inventory_request.recommended_inventory_creator_row(daily_plan, creator)
+    def recommended_inventory_creator_row(
+        self, daily_plan: dict[str, Any], creator: str
+    ) -> dict[str, Any]:
+        return self.recommended_inventory_request.recommended_inventory_creator_row(
+            daily_plan, creator
+        )
 
     def recommended_inventory_existing_by_parent(
         self,
         variant_inventory_plan: dict[str, Any] | None,
     ) -> dict[str, int]:
-        return self.recommended_inventory_request.recommended_inventory_existing_by_parent(variant_inventory_plan)
+        return (
+            self.recommended_inventory_request.recommended_inventory_existing_by_parent(
+                variant_inventory_plan
+            )
+        )
 
     def recommended_inventory_variant_batch(
         self,
@@ -1755,7 +1952,9 @@ class CoreServices:
             variant_inventory_plan,
         )
 
-    def recommended_inventory_action(self, *, surface: str, story_intent: Any = None) -> str:
+    def recommended_inventory_action(
+        self, *, surface: str, story_intent: Any = None
+    ) -> str:
         return self.recommended_inventory_request.recommended_inventory_action(
             surface=surface,
             story_intent=story_intent,
@@ -1905,7 +2104,9 @@ class CoreServices:
     def live_acceptance_restricted_scheduled(self, report: dict[str, Any]) -> int:
         return self.live_acceptance.live_acceptance_restricted_scheduled(report)
 
-    def live_acceptance_surface_contract_violations(self, report: dict[str, Any]) -> int:
+    def live_acceptance_surface_contract_violations(
+        self, report: dict[str, Any]
+    ) -> int:
         return self.live_acceptance.live_acceptance_surface_contract_violations(report)
 
     def live_acceptance_metrics_imported(self) -> bool:
@@ -1952,13 +2153,19 @@ class CoreServices:
     def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
         return self.events.start_pipeline_job(job_id)
 
-    def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finish_pipeline_job(
+        self, job_id: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.events.finish_pipeline_job(job_id, result_payload)
 
-    def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def fail_pipeline_job(
+        self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.events.fail_pipeline_job(job_id, error, result_payload)
 
-    def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
+    def set_pipeline_job_campaign(
+        self, job_id: str, campaign_id: str
+    ) -> dict[str, Any]:
         return self.events.set_pipeline_job_campaign(job_id, campaign_id)
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
@@ -1967,11 +2174,21 @@ class CoreServices:
     def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.events.pipeline_job_payload(row)
 
-    def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
+    def upsert_model(
+        self, slug: str, name: str | None = None, notes: str | None = None
+    ) -> dict[str, Any]:
         return self.models.upsert_model(slug, name=name, notes=notes)
 
-    def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
-        return self.models.upsert_campaign(slug, model_slug, name=name, platform=platform)
+    def upsert_campaign(
+        self,
+        slug: str,
+        model_slug: str,
+        name: str | None = None,
+        platform: str = "instagram",
+    ) -> dict[str, Any]:
+        return self.models.upsert_campaign(
+            slug, model_slug, name=name, platform=platform
+        )
 
     def upsert_account(
         self,
@@ -1980,7 +2197,9 @@ class CoreServices:
         external_id: str | None = None,
         model_id: str | None = None,
     ) -> dict[str, Any]:
-        return self.models.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
+        return self.models.upsert_account(
+            handle, platform=platform, external_id=external_id, model_id=model_id
+        )
 
     def upsert_model_account_profile(
         self,
@@ -2059,13 +2278,17 @@ class CoreServices:
     def rebuild_account_memory(self, campaign_slug: str) -> dict[str, Any]:
         return self.account_memory.rebuild_account_memory(campaign_slug)
 
-    def account_memory_report(self, campaign_slug: str, account: str | None = None) -> dict[str, Any]:
+    def account_memory_report(
+        self, campaign_slug: str, account: str | None = None
+    ) -> dict[str, Any]:
         return self.account_memory.account_memory(campaign_slug, account=account)
 
     def account_memory_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.account_memory.account_memory_payload(row)
 
-    def account_memory_for(self, campaign_id: str, account_id: str | None) -> dict[str, Any] | None:
+    def account_memory_for(
+        self, campaign_id: str, account_id: str | None
+    ) -> dict[str, Any] | None:
         return self.account_memory.account_memory_for(campaign_id, account_id)
 
     def account_pattern_stats_from_snapshots(
@@ -2102,13 +2325,21 @@ class CoreServices:
             account_baselines=account_baselines,
         )
 
-    def account_fatigue_from_pattern_stats(self, pattern_stats: list[dict[str, Any]]) -> dict[str, Any]:
+    def account_fatigue_from_pattern_stats(
+        self, pattern_stats: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.account_memory.account_fatigue_from_pattern_stats(pattern_stats)
 
-    def account_recommendation_outcomes(self, campaign_id: str, account_id: str, updated_at: str) -> dict[str, Any]:
-        return self.account_memory.account_recommendation_outcomes(campaign_id, account_id, updated_at)
+    def account_recommendation_outcomes(
+        self, campaign_id: str, account_id: str, updated_at: str
+    ) -> dict[str, Any]:
+        return self.account_memory.account_recommendation_outcomes(
+            campaign_id, account_id, updated_at
+        )
 
-    def account_memory_confidence(self, sample_size: int, outcomes: dict[str, Any]) -> str:
+    def account_memory_confidence(
+        self, sample_size: int, outcomes: dict[str, Any]
+    ) -> str:
         return self.account_memory.account_memory_confidence(sample_size, outcomes)
 
     def recommendation_accuracy(
@@ -2140,7 +2371,9 @@ class CoreServices:
         )
 
     def recommendation_proof_summary(self, campaign_id: str) -> dict[str, Any]:
-        return self.recommendation_accuracy_repo.recommendation_proof_summary(campaign_id)
+        return self.recommendation_accuracy_repo.recommendation_proof_summary(
+            campaign_id
+        )
 
     def rebuild_recommendation_accuracy_observations(
         self,
@@ -2155,8 +2388,12 @@ class CoreServices:
             commit=commit,
         )
 
-    def upsert_recommendation_accuracy_observation(self, row: dict[str, Any], *, commit: bool = False) -> dict[str, Any]:
-        return self.recommendation_accuracy_repo.upsert_recommendation_accuracy_observation(row, commit=commit)
+    def upsert_recommendation_accuracy_observation(
+        self, row: dict[str, Any], *, commit: bool = False
+    ) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.upsert_recommendation_accuracy_observation(
+            row, commit=commit
+        )
 
     def recommendation_accuracy_observations(
         self,
@@ -2208,7 +2445,9 @@ class CoreServices:
     def accuracy_segment(self, observations: list[dict[str, Any]]) -> dict[str, Any]:
         return self.recommendation_accuracy_repo.accuracy_segment(observations)
 
-    def accuracy_grouped(self, observations: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    def accuracy_grouped(
+        self, observations: list[dict[str, Any]], key: str
+    ) -> list[dict[str, Any]]:
         return self.recommendation_accuracy_repo.accuracy_grouped(observations, key)
 
     def recommendation_accuracy_drift(
@@ -2226,27 +2465,48 @@ class CoreServices:
             drop_threshold=drop_threshold,
         )
 
-    def recommendation_trust_score(self, observations: list[dict[str, Any]], drift: list[dict[str, Any]]) -> int:
-        return self.recommendation_accuracy_repo.recommendation_trust_score(observations, drift)
+    def recommendation_trust_score(
+        self, observations: list[dict[str, Any]], drift: list[dict[str, Any]]
+    ) -> int:
+        return self.recommendation_accuracy_repo.recommendation_trust_score(
+            observations, drift
+        )
 
     def recommendation_trust_confidence(self, measured_count: int) -> str:
-        return self.recommendation_accuracy_repo.recommendation_trust_confidence(measured_count)
+        return self.recommendation_accuracy_repo.recommendation_trust_confidence(
+            measured_count
+        )
 
-    def recommendation_confidence_bucket(self, confidence: str, data_quality_level: str) -> str:
-        return self.recommendation_accuracy_repo.recommendation_confidence_bucket(confidence, data_quality_level)
+    def recommendation_confidence_bucket(
+        self, confidence: str, data_quality_level: str
+    ) -> str:
+        return self.recommendation_accuracy_repo.recommendation_confidence_bucket(
+            confidence, data_quality_level
+        )
 
-    def recommendation_audio_selection(self, recommendation_item_id: str) -> dict[str, Any]:
-        return self.recommendation_accuracy_repo.recommendation_audio_selection(recommendation_item_id)
+    def recommendation_audio_selection(
+        self, recommendation_item_id: str
+    ) -> dict[str, Any]:
+        return self.recommendation_accuracy_repo.recommendation_audio_selection(
+            recommendation_item_id
+        )
 
-    def recommendation_audio_match_status(self, output: dict[str, Any], selection: dict[str, Any]) -> str:
-        return self.recommendation_accuracy_repo.recommendation_audio_match_status(output, selection)
+    def recommendation_audio_match_status(
+        self, output: dict[str, Any], selection: dict[str, Any]
+    ) -> str:
+        return self.recommendation_accuracy_repo.recommendation_audio_match_status(
+            output, selection
+        )
 
-    def recommendation_outcome_snapshot_ids(self, outcome: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
-        return self.recommendation_accuracy_repo.recommendation_outcome_snapshot_ids(outcome, evidence)
+    def recommendation_outcome_snapshot_ids(
+        self, outcome: dict[str, Any], evidence: dict[str, Any]
+    ) -> list[str]:
+        return self.recommendation_accuracy_repo.recommendation_outcome_snapshot_ids(
+            outcome, evidence
+        )
 
     def parse_datetime(self, value: Any):
         return self.recommendation_accuracy_repo.parse_datetime(value)
-
 
     def recommend_next_batch(
         self,
@@ -2263,29 +2523,53 @@ class CoreServices:
             persist=persist,
         )
 
-    def recommendation_runs(self, campaign_slug: str, *, limit: int = 10) -> dict[str, Any]:
+    def recommendation_runs(
+        self, campaign_slug: str, *, limit: int = 10
+    ) -> dict[str, Any]:
         return self.recommendations.recommendation_runs(campaign_slug, limit=limit)
 
     def top_reference_pattern(self) -> dict[str, Any] | None:
         return self.recommendations.top_reference_pattern()
 
-    def ranked_reference_patterns_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+    def ranked_reference_patterns_for_campaign(
+        self, campaign_id: str
+    ) -> list[dict[str, Any]]:
         return self.recommendations.ranked_reference_patterns_for_campaign(campaign_id)
 
-    def ranked_variation_presets_for_campaign(self, campaign_id: str, *, account: str | None = None) -> list[dict[str, Any]]:
-        return self.recommendations.ranked_variation_presets_for_campaign(campaign_id, account=account)
+    def ranked_variation_presets_for_campaign(
+        self, campaign_id: str, *, account: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.recommendations.ranked_variation_presets_for_campaign(
+            campaign_id, account=account
+        )
 
-    def compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
-        return self.recommendations.compact_recommendation_rankings(rankings, limit=limit)
+    def compact_recommendation_rankings(
+        self, rankings: list[dict[str, Any]], *, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        return self.recommendations.compact_recommendation_rankings(
+            rankings, limit=limit
+        )
 
-    def recommendation_reference_pattern_evidence(self, rankings: list[dict[str, Any]], selected_pattern: dict[str, Any] | None) -> dict[str, Any]:
-        return self.recommendations.recommendation_reference_pattern_evidence(rankings, selected_pattern)
+    def recommendation_reference_pattern_evidence(
+        self, rankings: list[dict[str, Any]], selected_pattern: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        return self.recommendations.recommendation_reference_pattern_evidence(
+            rankings, selected_pattern
+        )
 
-    def recommendation_variation_preset_evidence(self, rankings: list[dict[str, Any]], selected_preset: str | None) -> dict[str, Any]:
-        return self.recommendations.recommendation_variation_preset_evidence(rankings, selected_preset)
+    def recommendation_variation_preset_evidence(
+        self, rankings: list[dict[str, Any]], selected_preset: str | None
+    ) -> dict[str, Any]:
+        return self.recommendations.recommendation_variation_preset_evidence(
+            rankings, selected_preset
+        )
 
-    def latest_recommendation_trust_context(self, campaign_id: str, *, account: str | None) -> dict[str, Any]:
-        return self.recommendations.latest_recommendation_trust_context(campaign_id, account=account)
+    def latest_recommendation_trust_context(
+        self, campaign_id: str, *, account: str | None
+    ) -> dict[str, Any]:
+        return self.recommendations.latest_recommendation_trust_context(
+            campaign_id, account=account
+        )
 
     def apply_recommendation_trust(
         self,
@@ -2305,7 +2589,9 @@ class CoreServices:
     def recommendation_item_payload(self, **kwargs: Any) -> dict[str, Any]:
         return self.recommendations.recommendation_item_payload(**kwargs)
 
-    def reference_only_recommendation_item(self, **kwargs: Any) -> dict[str, Any] | None:
+    def reference_only_recommendation_item(
+        self, **kwargs: Any
+    ) -> dict[str, Any] | None:
         return self.recommendations.reference_only_recommendation_item(**kwargs)
 
     def write_recommendation_graph_edges(self, **kwargs: Any) -> None:
@@ -2317,8 +2603,12 @@ class CoreServices:
     def stored_recommendation_item_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.recommendations.stored_recommendation_item_payload(row)
 
-    def exceptions_for_recommendation(self, recommendation_item_id: str) -> list[dict[str, Any]]:
-        return self.recommendations.exceptions_for_recommendation(recommendation_item_id)
+    def exceptions_for_recommendation(
+        self, recommendation_item_id: str
+    ) -> list[dict[str, Any]]:
+        return self.recommendations.exceptions_for_recommendation(
+            recommendation_item_id
+        )
 
     def recommendation_item(self, recommendation_item_id: str) -> dict[str, Any]:
         return self.recommendations.recommendation_item(recommendation_item_id)
@@ -2421,7 +2711,9 @@ class CoreServices:
     def compact_execution_result(self, result: dict[str, Any]) -> dict[str, Any]:
         return self.recommendations.compact_execution_result(result)
 
-    def create_trust_exceptions_for_recommendation(self, **kwargs: Any) -> list[dict[str, Any]]:
+    def create_trust_exceptions_for_recommendation(
+        self, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         return self.recommendations.create_trust_exceptions_for_recommendation(**kwargs)
 
     def asset_has_final_audio_proof(self, asset: dict[str, Any]) -> bool:
@@ -2433,8 +2725,12 @@ class CoreServices:
     def recommendation_item_campaign(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.recommendations.recommendation_item_campaign(row)
 
-    def update_recommendation_lifecycle(self, recommendation_item_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.recommendations.update_recommendation_lifecycle(recommendation_item_id, **kwargs)
+    def update_recommendation_lifecycle(
+        self, recommendation_item_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.recommendations.update_recommendation_lifecycle(
+            recommendation_item_id, **kwargs
+        )
 
     def validate_recommendation_transition(
         self,
@@ -2473,7 +2769,9 @@ class CoreServices:
     def reference_pattern_score(self, pattern: dict[str, Any] | None) -> int:
         return self.recommendations.reference_pattern_score(pattern)
 
-    def recommendation_account_score(self, asset: dict[str, Any], account: str | None) -> int:
+    def recommendation_account_score(
+        self, asset: dict[str, Any], account: str | None
+    ) -> int:
         return self.recommendations.recommendation_account_score(asset, account)
 
     def recommendation_account_fit_evidence(
@@ -2482,15 +2780,21 @@ class CoreServices:
         asset: dict[str, Any],
         account: str | None,
     ) -> dict[str, Any]:
-        return self.recommendations.recommendation_account_fit_evidence(campaign_id, asset, account)
+        return self.recommendations.recommendation_account_fit_evidence(
+            campaign_id, asset, account
+        )
 
     def operational_recommendation_score(self, asset: dict[str, Any]) -> int:
         return self.recommendations.operational_recommendation_score(asset)
 
-    def recommendation_confidence(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> tuple[str, str]:
+    def recommendation_confidence(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> tuple[str, str]:
         return self.recommendations.recommendation_confidence(asset, pattern)
 
-    def recommendation_data_quality(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> dict[str, Any]:
+    def recommendation_data_quality(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.recommendations.recommendation_data_quality(asset, pattern)
 
     def recommendation_reasons(self, **kwargs: Any) -> list[str]:
@@ -2499,16 +2803,22 @@ class CoreServices:
     def asset_target_account(self, asset: dict[str, Any]) -> str | None:
         return self.recommendations.asset_target_account(asset)
 
-    def recommendation_reference_summary(self, pattern: dict[str, Any] | None) -> dict[str, Any] | None:
+    def recommendation_reference_summary(
+        self, pattern: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.recommendations.recommendation_reference_summary(pattern)
 
     def first_suggested_recipe(self, pattern: dict[str, Any] | None) -> str | None:
         return self.recommendations.first_suggested_recipe(pattern)
 
-    def hook_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def hook_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         return self.recommendations.hook_guidance(pattern, asset)
 
-    def caption_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def caption_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         return self.recommendations.caption_guidance(pattern, asset)
 
     def archive_inventory_report(
@@ -2533,8 +2843,12 @@ class CoreServices:
     def archive_existing_content_duplicate(self, digest: str) -> dict[str, Any] | None:
         return self.archive_quality.archive_existing_content_duplicate(digest)
 
-    def archive_recent_publish_duplicate(self, digest: str, recent_cutoff: Any) -> dict[str, Any] | None:
-        return self.archive_quality.archive_recent_publish_duplicate(digest, recent_cutoff)
+    def archive_recent_publish_duplicate(
+        self, digest: str, recent_cutoff: Any
+    ) -> dict[str, Any] | None:
+        return self.archive_quality.archive_recent_publish_duplicate(
+            digest, recent_cutoff
+        )
 
     def archive_candidate_quality_report(
         self,
@@ -2549,11 +2863,17 @@ class CoreServices:
             exclude_indices=exclude_indices,
         )
 
-    def archive_crop_severity(self, probe: dict[str, Any]) -> tuple[str, int, float | None]:
+    def archive_crop_severity(
+        self, probe: dict[str, Any]
+    ) -> tuple[str, int, float | None]:
         return self.archive_quality.archive_crop_severity(probe)
 
-    def archive_visual_quality_score(self, probe: dict[str, Any], warnings: list[Any], crop_score: int) -> int:
-        return self.archive_quality.archive_visual_quality_score(probe, warnings, crop_score)
+    def archive_visual_quality_score(
+        self, probe: dict[str, Any], warnings: list[Any], crop_score: int
+    ) -> int:
+        return self.archive_quality.archive_visual_quality_score(
+            probe, warnings, crop_score
+        )
 
     def archive_duplicate_confidence(self, item: dict[str, Any]) -> str:
         return self.archive_quality.archive_duplicate_confidence(item)
@@ -2607,12 +2927,20 @@ class CoreServices:
         return self.inventory_planning.inventory_slo_surface_targets(minimum_buffer)
 
     def inventory_health(self, *, current: int, minimum: int) -> str:
-        return self.inventory_planning.inventory_health(current=current, minimum=minimum)
+        return self.inventory_planning.inventory_health(
+            current=current, minimum=minimum
+        )
 
-    def inventory_stage_counts(self, *, creator: str | None = None, campaign_slug: str | None = None) -> dict[str, int]:
-        return self.inventory_planning.inventory_stage_counts(creator=creator, campaign_slug=campaign_slug)
+    def inventory_stage_counts(
+        self, *, creator: str | None = None, campaign_slug: str | None = None
+    ) -> dict[str, int]:
+        return self.inventory_planning.inventory_stage_counts(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
-    def inventory_count_related(self, table: str, column: str, asset_ids: set[str]) -> int:
+    def inventory_count_related(
+        self, table: str, column: str, asset_ids: set[str]
+    ) -> int:
         return self.inventory_planning.inventory_count_related(table, column, asset_ids)
 
     def inventory_limiting_stage(self, counts: dict[str, int]) -> str:
@@ -2636,35 +2964,53 @@ class CoreServices:
     def inventory_recovery_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.inventory_recovery.inventory_recovery_master_report(**kwargs)
 
-    def inventory_recovery_blocked_asset(self, readiness: dict[str, Any]) -> dict[str, Any]:
+    def inventory_recovery_blocked_asset(
+        self, readiness: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.inventory_recovery.inventory_recovery_blocked_asset(readiness)
 
     def inventory_recovery_class_for_blocker(self, reason: str) -> str:
         return self.inventory_recovery.inventory_recovery_class_for_blocker(reason)
 
-    def inventory_recovery_class_rows(self, blocked_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def inventory_recovery_class_rows(
+        self, blocked_assets: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.inventory_recovery.inventory_recovery_class_rows(blocked_assets)
 
-    def inventory_recovery_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repaired_classes: list[str]) -> int:
-        return self.inventory_recovery.inventory_recovery_assets_unlocked(blocked_assets, repaired_classes)
+    def inventory_recovery_assets_unlocked(
+        self, blocked_assets: list[dict[str, Any]], repaired_classes: list[str]
+    ) -> int:
+        return self.inventory_recovery.inventory_recovery_assets_unlocked(
+            blocked_assets, repaired_classes
+        )
 
-    def inventory_recovery_priorities(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def inventory_recovery_priorities(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.inventory_recovery.inventory_recovery_priorities(rows)
 
     def schedule_safe_production_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.schedule_safe_production.schedule_safe_production_report(**kwargs)
 
     def schedule_safe_production_waterfall(self, **kwargs: Any) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_waterfall(**kwargs)
+        return self.schedule_safe_production.schedule_safe_production_waterfall(
+            **kwargs
+        )
 
     def schedule_safe_production_loss_analysis(self, **kwargs: Any) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_loss_analysis(**kwargs)
+        return self.schedule_safe_production.schedule_safe_production_loss_analysis(
+            **kwargs
+        )
 
     def schedule_safe_production_capacity_model(self, **kwargs: Any) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_capacity_model(**kwargs)
+        return self.schedule_safe_production.schedule_safe_production_capacity_model(
+            **kwargs
+        )
 
     def schedule_safe_production_master_report(self, **kwargs: Any) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_master_report(**kwargs)
+        return self.schedule_safe_production.schedule_safe_production_master_report(
+            **kwargs
+        )
 
     def schedule_safe_production_assets(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.schedule_safe_production.schedule_safe_production_assets(**kwargs)
@@ -2672,29 +3018,53 @@ class CoreServices:
     def schedule_safe_asset_created_at(self, asset: dict[str, Any]) -> Any:
         return self.schedule_safe_production.schedule_safe_asset_created_at(asset)
 
-    def schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
-        return self.schedule_safe_production.schedule_safe_production_waterfall_rows(assets, surface)
+    def schedule_safe_production_waterfall_rows(
+        self, assets: list[dict[str, Any]], surface: str
+    ) -> list[dict[str, Any]]:
+        return self.schedule_safe_production.schedule_safe_production_waterfall_rows(
+            assets, surface
+        )
 
     def schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
         return self.schedule_safe_production.schedule_safe_is_variant_asset(asset)
 
-    def schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
-        return self.schedule_safe_production.schedule_safe_related_count(table, column, asset_ids)
+    def schedule_safe_related_count(
+        self, table: str, column: str, asset_ids: set[str]
+    ) -> int:
+        return self.schedule_safe_production.schedule_safe_related_count(
+            table, column, asset_ids
+        )
 
-    def schedule_safe_production_variant_checks(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_variant_checks(asset, surface)
+    def schedule_safe_production_variant_checks(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_variant_checks(
+            asset, surface
+        )
 
-    def schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
-        return self.schedule_safe_production.schedule_safe_production_largest_loss(waterfall)
+    def schedule_safe_production_largest_loss(
+        self, waterfall: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.schedule_safe_production.schedule_safe_production_largest_loss(
+            waterfall
+        )
 
     def schedule_safe_production_capacity(self, **kwargs: Any) -> dict[str, Any]:
         return self.schedule_safe_production.schedule_safe_production_capacity(**kwargs)
 
-    def schedule_safe_required_parents_per_day(self, produced_per_day: float, produced: int, parent_count: int) -> int:
-        return self.schedule_safe_production.schedule_safe_required_parents_per_day(produced_per_day, produced, parent_count)
+    def schedule_safe_required_parents_per_day(
+        self, produced_per_day: float, produced: int, parent_count: int
+    ) -> int:
+        return self.schedule_safe_production.schedule_safe_required_parents_per_day(
+            produced_per_day, produced, parent_count
+        )
 
-    def schedule_safe_required_variants_per_day(self, produced_per_day: float, produced: int, variant_count: int) -> int:
-        return self.schedule_safe_production.schedule_safe_required_variants_per_day(produced_per_day, produced, variant_count)
+    def schedule_safe_required_variants_per_day(
+        self, produced_per_day: float, produced: int, variant_count: int
+    ) -> int:
+        return self.schedule_safe_production.schedule_safe_required_variants_per_day(
+            produced_per_day, produced, variant_count
+        )
 
     def schedule_safe_production_summary_key(self, stage: str) -> str:
         return self.schedule_safe_production.schedule_safe_production_summary_key(stage)
@@ -2712,10 +3082,14 @@ class CoreServices:
         return self.fresh_reel_production.fresh_reel_production_master_report(**kwargs)
 
     def fresh_reel_current_schedule_safe_inventory(self, **kwargs: Any) -> int:
-        return self.fresh_reel_production.fresh_reel_current_schedule_safe_inventory(**kwargs)
+        return self.fresh_reel_production.fresh_reel_current_schedule_safe_inventory(
+            **kwargs
+        )
 
     def fresh_reel_downstream_schedule_safe_yield_pct(self) -> float:
-        return self.fresh_reel_production.fresh_reel_downstream_schedule_safe_yield_pct()
+        return (
+            self.fresh_reel_production.fresh_reel_downstream_schedule_safe_yield_pct()
+        )
 
     def fresh_reel_expected_stage_rows(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.fresh_reel_production.fresh_reel_expected_stage_rows(**kwargs)
@@ -2759,14 +3133,22 @@ class CoreServices:
     def reel_factory_intake_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
         return self.reel_factory_reports.reel_factory_intake_metrics(metrics)
 
-    def reel_factory_parent_creation_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
+    def reel_factory_parent_creation_metrics(
+        self, metrics: dict[str, int]
+    ) -> dict[str, Any]:
         return self.reel_factory_reports.reel_factory_parent_creation_metrics(metrics)
 
-    def reel_factory_quality_gate_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
+    def reel_factory_quality_gate_metrics(
+        self, yield_report: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.reel_factory_reports.reel_factory_quality_gate_metrics(yield_report)
 
-    def reel_factory_operational_readiness_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
-        return self.reel_factory_reports.reel_factory_operational_readiness_metrics(yield_report)
+    def reel_factory_operational_readiness_metrics(
+        self, yield_report: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.reel_factory_reports.reel_factory_operational_readiness_metrics(
+            yield_report
+        )
 
     def reel_factory_human_cost(self, metrics: dict[str, int]) -> dict[str, Any]:
         return self.reel_factory_reports.reel_factory_human_cost(metrics)
@@ -2789,8 +3171,12 @@ class CoreServices:
     def parent_factory_optimization_plan(self, **kwargs: Any) -> dict[str, Any]:
         return self.parent_factory_reports.parent_factory_optimization_plan(**kwargs)
 
-    def parent_factory_master_optimization_report(self, **kwargs: Any) -> dict[str, Any]:
-        return self.parent_factory_reports.parent_factory_master_optimization_report(**kwargs)
+    def parent_factory_master_optimization_report(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.parent_factory_reports.parent_factory_master_optimization_report(
+            **kwargs
+        )
 
     def parent_factory_recoverable_yield(self) -> dict[str, Any]:
         return self.parent_factory_reports.parent_factory_recoverable_yield()
@@ -2813,25 +3199,35 @@ class CoreServices:
     def parent_factory_stage_order(self) -> list[str]:
         return self.parent_factory_reports.parent_factory_stage_order()
 
-    def parent_factory_detailed_stage_counts(self, metrics: dict[str, int]) -> dict[str, int]:
+    def parent_factory_detailed_stage_counts(
+        self, metrics: dict[str, int]
+    ) -> dict[str, int]:
         return self.parent_factory_reports.parent_factory_detailed_stage_counts(metrics)
 
     def parent_factory_highest_roi(self, reasons: list[dict[str, Any]]) -> str:
         return self.parent_factory_reports.parent_factory_highest_roi(reasons)
 
-    def parent_factory_top_fixes(self, reasons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def parent_factory_top_fixes(
+        self, reasons: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.parent_factory_reports.parent_factory_top_fixes(reasons)
 
     def parent_factory_human_bottleneck(self, **kwargs: Any) -> dict[str, Any]:
         return self.parent_factory_reports.parent_factory_human_bottleneck(**kwargs)
 
-    def parent_factory_yield_explanation(self, waterfall: dict[str, Any], loss: dict[str, Any]) -> str:
-        return self.parent_factory_reports.parent_factory_yield_explanation(waterfall, loss)
+    def parent_factory_yield_explanation(
+        self, waterfall: dict[str, Any], loss: dict[str, Any]
+    ) -> str:
+        return self.parent_factory_reports.parent_factory_yield_explanation(
+            waterfall, loss
+        )
 
     def secondary_loss_reason(self, stage: str, loss_count: int) -> str:
         return self.parent_factory_reports.secondary_loss_reason(stage, loss_count)
 
-    def parent_factory_trial_loss_buckets(self, waterfall: dict[str, Any]) -> dict[str, int]:
+    def parent_factory_trial_loss_buckets(
+        self, waterfall: dict[str, Any]
+    ) -> dict[str, int]:
         return self.parent_factory_reports.parent_factory_trial_loss_buckets(waterfall)
 
     def parent_factory_trial_stage_repairable(self, stage: str) -> bool:
@@ -2864,8 +3260,12 @@ class CoreServices:
     def post_gate_fresh_batch_candidates(self) -> list[dict[str, str]]:
         return self.parent_factory_trials.post_gate_fresh_batch_candidates()
 
-    def post_gate_blocked_candidate_evidence(self, sandbox: Any, result: dict[str, Any]) -> dict[str, Any] | None:
-        return self.parent_factory_trials.post_gate_blocked_candidate_evidence(sandbox, result)
+    def post_gate_blocked_candidate_evidence(
+        self, sandbox: Any, result: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return self.parent_factory_trials.post_gate_blocked_candidate_evidence(
+            sandbox, result
+        )
 
     def parent_factory_autopilot_plan(self, **kwargs: Any) -> dict[str, Any]:
         return self.parent_factory_planning.parent_factory_autopilot_plan(**kwargs)
@@ -2877,22 +3277,32 @@ class CoreServices:
         return self.parent_factory_planning.parent_factory_production_targets(**kwargs)
 
     def contentforge_visual_qc_failure_report(self, **kwargs: Any) -> dict[str, Any]:
-        return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(**kwargs)
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_report(
+            **kwargs
+        )
 
     def contentforge_visual_qc_waterfall(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_waterfall(**kwargs)
 
     def contentforge_visual_qc_loss_analysis(self, **kwargs: Any) -> dict[str, Any]:
-        return self.contentforge_visual_qc.contentforge_visual_qc_loss_analysis(**kwargs)
+        return self.contentforge_visual_qc.contentforge_visual_qc_loss_analysis(
+            **kwargs
+        )
 
     def contentforge_visual_qc_repair_plan(self, **kwargs: Any) -> dict[str, Any]:
         return self.contentforge_visual_qc.contentforge_visual_qc_repair_plan(**kwargs)
 
     def contentforge_visual_qc_master_report(self, **kwargs: Any) -> dict[str, Any]:
-        return self.contentforge_visual_qc.contentforge_visual_qc_master_report(**kwargs)
+        return self.contentforge_visual_qc.contentforge_visual_qc_master_report(
+            **kwargs
+        )
 
-    def contentforge_visual_qc_failure_for_asset(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
-        return self.contentforge_visual_qc.contentforge_visual_qc_failure_for_asset(asset, surface)
+    def contentforge_visual_qc_failure_for_asset(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_for_asset(
+            asset, surface
+        )
 
     def contentforge_visual_qc_failure_category(
         self,
@@ -2901,7 +3311,9 @@ class CoreServices:
         readiness: dict[str, Any],
         publishability: dict[str, Any],
     ) -> str:
-        return self.contentforge_visual_qc.contentforge_visual_qc_failure_category(asset, blockers, readiness, publishability)
+        return self.contentforge_visual_qc.contentforge_visual_qc_failure_category(
+            asset, blockers, readiness, publishability
+        )
 
     def contentforge_non_visual_gates_pass(
         self,
@@ -2917,14 +3329,26 @@ class CoreServices:
             non_visual_blockers,
         )
 
-    def contentforge_visual_qc_category_rows(self, failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return self.contentforge_visual_qc.contentforge_visual_qc_category_rows(failures)
+    def contentforge_visual_qc_category_rows(
+        self, failures: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return self.contentforge_visual_qc.contentforge_visual_qc_category_rows(
+            failures
+        )
 
-    def contentforge_visual_qc_recovered_inventory(self, failures: list[dict[str, Any]], categories: list[str]) -> int:
-        return self.contentforge_visual_qc.contentforge_visual_qc_recovered_inventory(failures, categories)
+    def contentforge_visual_qc_recovered_inventory(
+        self, failures: list[dict[str, Any]], categories: list[str]
+    ) -> int:
+        return self.contentforge_visual_qc.contentforge_visual_qc_recovered_inventory(
+            failures, categories
+        )
 
-    def contentforge_visual_qc_answer(self, top: dict[str, Any], total_failures: int) -> str:
-        return self.contentforge_visual_qc.contentforge_visual_qc_answer(top, total_failures)
+    def contentforge_visual_qc_answer(
+        self, top: dict[str, Any], total_failures: int
+    ) -> str:
+        return self.contentforge_visual_qc.contentforge_visual_qc_answer(
+            top, total_failures
+        )
 
     def multi_blocker_inventory_unlock_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.multi_blocker_unlock.multi_blocker_inventory_unlock_report(**kwargs)
@@ -2944,29 +3368,53 @@ class CoreServices:
     def multi_blocker_repair_class(self, reason: str) -> str:
         return self.multi_blocker_unlock.multi_blocker_repair_class(reason)
 
-    def multi_blocker_combo_rows(self, blocked_assets: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
-        return self.multi_blocker_unlock.multi_blocker_combo_rows(blocked_assets, **kwargs)
+    def multi_blocker_combo_rows(
+        self, blocked_assets: list[dict[str, Any]], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        return self.multi_blocker_unlock.multi_blocker_combo_rows(
+            blocked_assets, **kwargs
+        )
 
-    def multi_blocker_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
-        return self.multi_blocker_unlock.multi_blocker_assets_unlocked(blocked_assets, repair_classes)
+    def multi_blocker_assets_unlocked(
+        self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]
+    ) -> int:
+        return self.multi_blocker_unlock.multi_blocker_assets_unlocked(
+            blocked_assets, repair_classes
+        )
 
-    def multi_blocker_estimated_minutes(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
-        return self.multi_blocker_unlock.multi_blocker_estimated_minutes(blocked_assets, repair_classes)
+    def multi_blocker_estimated_minutes(
+        self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]
+    ) -> int:
+        return self.multi_blocker_unlock.multi_blocker_estimated_minutes(
+            blocked_assets, repair_classes
+        )
 
     def multi_blocker_combo_difficulty(self, repair_classes: list[str]) -> str:
         return self.multi_blocker_unlock.multi_blocker_combo_difficulty(repair_classes)
 
-    def multi_blocker_best_combo(self, combo_rows: list[dict[str, Any]], size: int) -> dict[str, Any]:
+    def multi_blocker_best_combo(
+        self, combo_rows: list[dict[str, Any]], size: int
+    ) -> dict[str, Any]:
         return self.multi_blocker_unlock.multi_blocker_best_combo(combo_rows, size)
 
-    def multi_blocker_minimal_fix_set(self, combo_rows: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
-        return self.multi_blocker_unlock.multi_blocker_minimal_fix_set(combo_rows, **kwargs)
+    def multi_blocker_minimal_fix_set(
+        self, combo_rows: list[dict[str, Any]], **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.multi_blocker_unlock.multi_blocker_minimal_fix_set(
+            combo_rows, **kwargs
+        )
 
-    def asset_uniqueness_values(self, asset: dict[str, Any], **kwargs: Any) -> dict[str, str]:
+    def asset_uniqueness_values(
+        self, asset: dict[str, Any], **kwargs: Any
+    ) -> dict[str, str]:
         return self.inventory_perceptual.asset_uniqueness_values(asset, **kwargs)
 
-    def ensure_rendered_asset_perceptual_metadata(self, rendered_asset_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata(rendered_asset_id, **kwargs)
+    def ensure_rendered_asset_perceptual_metadata(
+        self, rendered_asset_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.inventory_perceptual.ensure_rendered_asset_perceptual_metadata(
+            rendered_asset_id, **kwargs
+        )
 
     def pdq_cluster_id_for_fingerprint(self, **kwargs: Any) -> str:
         return self.inventory_perceptual.pdq_cluster_id_for_fingerprint(**kwargs)
@@ -2977,19 +3425,33 @@ class CoreServices:
     def expire_inventory_reservations(self, **kwargs: Any) -> int:
         return self.inventory_reservations.expire_inventory_reservations(**kwargs)
 
-    def release_inventory_reservation(self, reservation_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self.inventory_reservations.release_inventory_reservation(reservation_id, **kwargs)
+    def release_inventory_reservation(
+        self, reservation_id: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.inventory_reservations.release_inventory_reservation(
+            reservation_id, **kwargs
+        )
 
-    def inventory_uniqueness_conflicts(self, asset: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
-        return self.inventory_reservations.inventory_uniqueness_conflicts(asset, **kwargs)
+    def inventory_uniqueness_conflicts(
+        self, asset: dict[str, Any], **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        return self.inventory_reservations.inventory_uniqueness_conflicts(
+            asset, **kwargs
+        )
 
-    def reservation_adjusted_inventory(self, readiness_rows: list[dict[str, Any]], **kwargs: Any) -> dict[str, int]:
-        return self.inventory_reservations.reservation_adjusted_inventory(readiness_rows, **kwargs)
+    def reservation_adjusted_inventory(
+        self, readiness_rows: list[dict[str, Any]], **kwargs: Any
+    ) -> dict[str, int]:
+        return self.inventory_reservations.reservation_adjusted_inventory(
+            readiness_rows, **kwargs
+        )
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
         return self.campaign_overview.dashboard(campaign_slug)
 
-    def default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def default_dashboard_campaign(
+        self, campaigns: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         return self.campaign_overview.default_dashboard_campaign(campaigns)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
@@ -3023,8 +3485,12 @@ class CoreServices:
     def assignments_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
         return self.campaign_overview.assignments_for_campaign(campaign_slug)
 
-    def account_plan(self, campaign_slug: str, *, user_id: str, usage: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.account_planning.account_plan(campaign_slug, user_id=user_id, usage=usage)
+    def account_plan(
+        self, campaign_slug: str, *, user_id: str, usage: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self.account_planning.account_plan(
+            campaign_slug, user_id=user_id, usage=usage
+        )
 
     def ranking(self, campaign_slug: str) -> dict[str, Any]:
         return self.account_planning.ranking(campaign_slug)
@@ -3049,7 +3515,9 @@ class CoreServices:
         source_prompt: dict[str, Any],
         reference_pattern: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        return self.account_planning.generated_asset_lineage(source_prompt, reference_pattern)
+        return self.account_planning.generated_asset_lineage(
+            source_prompt, reference_pattern
+        )
 
     def audio_recommendations_for_asset(
         self,
@@ -3095,13 +3563,23 @@ class CoreServices:
         return self.creative_planning.creative_plan(name)
 
     def update_creative_plan_status(self, *, name: str, status: str) -> dict[str, Any]:
-        return self.creative_planning.update_creative_plan_status(name=name, status=status)
+        return self.creative_planning.update_creative_plan_status(
+            name=name, status=status
+        )
 
-    def sync_creative_plan_progress(self, *, name: str, prompt_export_path: Any) -> dict[str, Any]:
-        return self.creative_planning.sync_creative_plan_progress(name=name, prompt_export_path=prompt_export_path)
+    def sync_creative_plan_progress(
+        self, *, name: str, prompt_export_path: Any
+    ) -> dict[str, Any]:
+        return self.creative_planning.sync_creative_plan_progress(
+            name=name, prompt_export_path=prompt_export_path
+        )
 
-    def creative_plan_for_campaign(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.creative_planning.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
+    def creative_plan_for_campaign(
+        self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        return self.creative_planning.creative_plan_for_campaign(
+            campaign_slug, dashboard=dashboard
+        )
 
     def record_creative_plan_event(
         self,
@@ -3122,7 +3600,9 @@ class CoreServices:
             commit=commit,
         )
 
-    def creative_plan_payload(self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
+    def creative_plan_payload(
+        self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.creative_planning.creative_plan_payload(row, dashboard=dashboard)
 
     def source_prompt_creative_plan_id(self, source: dict[str, Any]) -> str | None:
@@ -3131,10 +3611,14 @@ class CoreServices:
     def asset_creative_plan_id(self, asset: dict[str, Any]) -> str | None:
         return self.creative_planning.asset_creative_plan_id(asset)
 
-    def import_reference_bank(self, bank_path: Any, prompt_pack_path: Any | None = None) -> dict[str, Any]:
+    def import_reference_bank(
+        self, bank_path: Any, prompt_pack_path: Any | None = None
+    ) -> dict[str, Any]:
         return self.reference.import_reference_bank(bank_path, prompt_pack_path)
 
-    def reference_prompt_pack_by_cluster(self, prompt_pack_path: Any | None) -> dict[str, dict[str, Any]]:
+    def reference_prompt_pack_by_cluster(
+        self, prompt_pack_path: Any | None
+    ) -> dict[str, dict[str, Any]]:
         return self.reference.reference_prompt_pack_by_cluster(prompt_pack_path)
 
     def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
@@ -3186,10 +3670,14 @@ class CoreServices:
             force_new=force_new,
         )
 
-    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+    def active_reference_pattern_for_campaign(
+        self, campaign_id: str
+    ) -> dict[str, Any] | None:
         return self.reference.active_reference_pattern_for_campaign(campaign_id)
 
-    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+    def reference_hooks(
+        self, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
         return self.reference.reference_hooks(pattern, count=count)
 
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
@@ -3214,10 +3702,14 @@ class CoreServices:
             force_new=force_new,
         )
 
-    def rotate_hooks_for_source(self, hooks: list[str | dict[str, Any]], source_index: int) -> list[str | dict[str, Any]]:
+    def rotate_hooks_for_source(
+        self, hooks: list[str | dict[str, Any]], source_index: int
+    ) -> list[str | dict[str, Any]]:
         return self.reel_execution.rotate_hooks_for_source(hooks, source_index)
 
-    def reel_sidecar_hooks(self, hooks: list[str | dict[str, Any]]) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
+    def reel_sidecar_hooks(
+        self, hooks: list[str | dict[str, Any]]
+    ) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
         return self.reel_execution.reel_sidecar_hooks(hooks)
 
     def next_reel_clip_number(self, raw_dir: Any) -> int:
@@ -3290,14 +3782,20 @@ class CoreServices:
     def lineage_first_present(self, lineage: dict[str, Any] | None, key: str) -> Any:
         return self.reel_execution.lineage_first_present(lineage, key)
 
-    def lineage_placement_decision(self, lineage: dict[str, Any] | None) -> dict[str, Any] | None:
+    def lineage_placement_decision(
+        self, lineage: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.reel_execution.lineage_placement_decision(lineage)
 
     def caption_lane_from_render_recipe(self, recipe: str | None) -> str:
         return self.reel_execution.caption_lane_from_render_recipe(recipe)
 
-    def audio_intent_from_reference_recommendations(self, payload: dict[str, Any], *, now: str) -> dict[str, Any]:
-        return self.reel_execution.audio_intent_from_reference_recommendations(payload, now=now)
+    def audio_intent_from_reference_recommendations(
+        self, payload: dict[str, Any], *, now: str
+    ) -> dict[str, Any]:
+        return self.reel_execution.audio_intent_from_reference_recommendations(
+            payload, now=now
+        )
 
     def backfill_synced_reel_output_lineage(
         self,
@@ -3377,11 +3875,17 @@ class CoreServices:
     def campaign_source_media_summary(self, campaign_id: str) -> dict[str, int]:
         return self.make_batch_repo.campaign_source_media_summary(campaign_id)
 
-    def formats_for_batch(self, selected_format: str, source_mix: dict[str, int]) -> list[str]:
+    def formats_for_batch(
+        self, selected_format: str, source_mix: dict[str, int]
+    ) -> list[str]:
         return self.make_batch_repo.formats_for_batch(selected_format, source_mix)
 
-    def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
-        return self.finished_video.finished_video_hooks(format_type, pattern, count=count)
+    def finished_video_hooks(
+        self, format_type: str, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
+        return self.finished_video.finished_video_hooks(
+            format_type, pattern, count=count
+        )
 
     def intake_finished_video(
         self,
@@ -3590,10 +4094,14 @@ class CoreServices:
     def caption_family_hashtags(self, raw_tags: Any) -> list[str]:
         return self.caption_family.caption_family_hashtags(raw_tags)
 
-    def caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
+    def caption_version_by_id(
+        self, caption_version_id: str | None
+    ) -> dict[str, Any] | None:
         return self.caption_family.caption_version_by_id(caption_version_id)
 
-    def caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def caption_version_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.caption_family.caption_version_payload(row)
 
     def create_distribution_plan(
@@ -3647,10 +4155,14 @@ class CoreServices:
             trial_graduation_strategy=trial_graduation_strategy,
         )
 
-    def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+    def distribution_plans_for_asset(
+        self, rendered_asset_id: str
+    ) -> list[dict[str, Any]]:
         return self.distribution.distribution_plans_for_asset(rendered_asset_id)
 
-    def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
+    def distribution_plans_for_campaign(
+        self, campaign_slug: str
+    ) -> list[dict[str, Any]]:
         return self.distribution.distribution_plans_for_campaign(campaign_slug)
 
     def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
@@ -3716,7 +4228,9 @@ class CoreServices:
     def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
         return self.distribution.distribution_summary(campaign_slug)
 
-    def latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def latest_distribution_plan_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.distribution.latest_distribution_plan_for_asset(rendered_asset_id)
 
     def decision_ledger_preview(
@@ -3754,16 +4268,30 @@ class CoreServices:
     def decision_ledger_summary(self, **kwargs: Any) -> dict[str, Any]:
         return self.decision_ledger.decision_ledger_summary(**kwargs)
 
-    def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.decision_ledger.decision_ledger_by_creator(creator=creator, **kwargs)
+    def decision_ledger_by_creator(
+        self, *, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_creator(
+            creator=creator, **kwargs
+        )
 
-    def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.decision_ledger.decision_ledger_by_account(account_id=account_id, creator=creator, **kwargs)
+    def decision_ledger_by_account(
+        self, *, account_id: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_account(
+            account_id=account_id, creator=creator, **kwargs
+        )
 
-    def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.decision_ledger.decision_ledger_by_surface(surface=surface, creator=creator, **kwargs)
+    def decision_ledger_by_surface(
+        self, *, surface: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.decision_ledger.decision_ledger_by_surface(
+            surface=surface, creator=creator, **kwargs
+        )
 
-    def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_decision_type(
+        self, *, decision_type: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         return self.decision_ledger.decision_ledger_by_decision_type(
             decision_type=decision_type,
             creator=creator,
@@ -3799,7 +4327,9 @@ class CoreServices:
     def exception(self, exception_id: str) -> dict[str, Any]:
         return self.exceptions.exception(exception_id)
 
-    def exceptions_report(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
+    def exceptions_report(
+        self, campaign_slug: str | None = None, *, status: str = "open"
+    ) -> dict[str, Any]:
         return self.exceptions.exceptions(campaign_slug, status=status)
 
     def trust_summary(self, campaign_slug: str) -> dict[str, Any]:
@@ -3812,7 +4342,9 @@ class CoreServices:
         resolution: str | None = None,
         operator: str | None = None,
     ) -> dict[str, Any]:
-        return self.exceptions.resolve_exception(exception_id, resolution=resolution, operator=operator)
+        return self.exceptions.resolve_exception(
+            exception_id, resolution=resolution, operator=operator
+        )
 
     def snooze_exception(
         self,
@@ -3822,7 +4354,9 @@ class CoreServices:
         reason: str | None = None,
         operator: str | None = None,
     ) -> dict[str, Any]:
-        return self.exceptions.snooze_exception(exception_id, until=until, reason=reason, operator=operator)
+        return self.exceptions.snooze_exception(
+            exception_id, until=until, reason=reason, operator=operator
+        )
 
     def reopen_exception(
         self,
@@ -3831,7 +4365,9 @@ class CoreServices:
         reason: str | None = None,
         operator: str | None = None,
     ) -> dict[str, Any]:
-        return self.exceptions.reopen_exception(exception_id, reason=reason, operator=operator)
+        return self.exceptions.reopen_exception(
+            exception_id, reason=reason, operator=operator
+        )
 
     def update_exception_status(
         self,
@@ -3911,7 +4447,9 @@ class CoreServices:
     def exception_repairable(self, reason: str) -> bool:
         return self.exceptions.exception_repairable(reason)
 
-    def exception_resolution_minutes(self, reason: str, *, count: int | None = None) -> int:
+    def exception_resolution_minutes(
+        self, reason: str, *, count: int | None = None
+    ) -> int:
         return self.exceptions.exception_resolution_minutes(reason, count=count)
 
     def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
@@ -3920,17 +4458,25 @@ class CoreServices:
     def discoverability_intake_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.discoverability.discoverability_intake_gate(payload)
 
-    def discoverability_generation_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def discoverability_generation_gate(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.discoverability.discoverability_generation_gate(payload)
 
-    def discoverability_pre_render_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def discoverability_pre_render_gate(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.discoverability.discoverability_pre_render_gate(payload)
 
     def discoverability_violation_origin_map(self) -> dict[str, Any]:
         return self.discoverability.discoverability_violation_origin_map()
 
-    def parent_factory_discoverability_loss_analysis(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.discoverability.parent_factory_discoverability_loss_analysis(waterfall=waterfall)
+    def parent_factory_discoverability_loss_analysis(
+        self, *, waterfall: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self.discoverability.parent_factory_discoverability_loss_analysis(
+            waterfall=waterfall
+        )
 
     def parent_factory_waterfall_after_discoverability(self) -> dict[str, Any]:
         return self.discoverability.parent_factory_waterfall_after_discoverability()
@@ -3986,20 +4532,44 @@ class CoreServices:
     def bounded_score(self, value: Any, *, default: int) -> int:
         return self.story_management.bounded_score(value, default=default)
 
-    def story_black_bar_check(self, media_path: Any, *, media_type: str) -> dict[str, Any]:
-        return self.story_management.story_black_bar_check(media_path, media_type=media_type)
+    def story_black_bar_check(
+        self, media_path: Any, *, media_type: str
+    ) -> dict[str, Any]:
+        return self.story_management.story_black_bar_check(
+            media_path, media_type=media_type
+        )
 
-    def story_no_text_check(self, media_path: Any, *, media_type: str, quality: dict[str, Any]) -> dict[str, Any]:
-        return self.story_management.story_no_text_check(media_path, media_type=media_type, quality=quality)
+    def story_no_text_check(
+        self, media_path: Any, *, media_type: str, quality: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.story_management.story_no_text_check(
+            media_path, media_type=media_type, quality=quality
+        )
 
     def story_ocr_frame_paths(self, media_path: Any, *, media_type: str) -> list[Any]:
-        return self.story_management.story_ocr_frame_paths(media_path, media_type=media_type)
+        return self.story_management.story_ocr_frame_paths(
+            media_path, media_type=media_type
+        )
 
-    def story_ocr_detect_text(self, image_path: Any, *, frame_index: int) -> list[dict[str, Any]]:
-        return self.story_management.story_ocr_detect_text(image_path, frame_index=frame_index)
+    def story_ocr_detect_text(
+        self, image_path: Any, *, frame_index: int
+    ) -> list[dict[str, Any]]:
+        return self.story_management.story_ocr_detect_text(
+            image_path, frame_index=frame_index
+        )
 
-    def pixel_region_black(self, rows: list[list[tuple[int, int, int]]], *, x0: int, x1: int, y0: int, y1: int) -> bool:
-        return self.story_management.pixel_region_black(rows, x0=x0, x1=x1, y0=y0, y1=y1)
+    def pixel_region_black(
+        self,
+        rows: list[list[tuple[int, int, int]]],
+        *,
+        x0: int,
+        x1: int,
+        y0: int,
+        y1: int,
+    ) -> bool:
+        return self.story_management.pixel_region_black(
+            rows, x0=x0, x1=x1, y0=y0, y1=y1
+        )
 
     def story_gap_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.story_gap_report(**kwargs)
@@ -4016,7 +4586,9 @@ class CoreServices:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.surface_inventory.multi_surface_inventory_audit(creator=creator, campaign_slug=campaign_slug)
+        return self.surface_inventory.multi_surface_inventory_audit(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def build_surface_inventory(
         self,
@@ -4024,10 +4596,16 @@ class CoreServices:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.surface_inventory.build_surface_inventory(creator=creator, campaign_slug=campaign_slug)
+        return self.surface_inventory.build_surface_inventory(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
-    def account_surface_obligations_plan(self, *, creator: str, date: str) -> dict[str, Any]:
-        return self.surface_requirements.account_surface_obligations_plan(creator=creator, date=date)
+    def account_surface_obligations_plan(
+        self, *, creator: str, date: str
+    ) -> dict[str, Any]:
+        return self.surface_requirements.account_surface_obligations_plan(
+            creator=creator, date=date
+        )
 
     def account_content_needs(
         self,
@@ -4036,7 +4614,9 @@ class CoreServices:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        return self.surface_requirements.account_content_needs(account_id=account_id, creator=creator, date=date)
+        return self.surface_requirements.account_content_needs(
+            account_id=account_id, creator=creator, date=date
+        )
 
     def account_surface_status(
         self,
@@ -4045,16 +4625,22 @@ class CoreServices:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        return self.surface_requirements.account_surface_status(account_id=account_id, creator=creator, date=date)
+        return self.surface_requirements.account_surface_status(
+            account_id=account_id, creator=creator, date=date
+        )
 
     def creator_content_needs(self, *, creator: str, date: str) -> dict[str, Any]:
-        return self.surface_requirements.creator_content_needs(creator=creator, date=date)
+        return self.surface_requirements.creator_content_needs(
+            creator=creator, date=date
+        )
 
     def surface_gap_report(self, *, creator: str, date: str) -> dict[str, Any]:
         return self.surface_requirements.surface_gap_report(creator=creator, date=date)
 
     def build_surface_status(self, *, creator: str, date: str) -> dict[str, Any]:
-        return self.surface_requirements.build_surface_status(creator=creator, date=date)
+        return self.surface_requirements.build_surface_status(
+            creator=creator, date=date
+        )
 
     def account_content_requirement_rows(
         self,
@@ -4062,31 +4648,65 @@ class CoreServices:
         creator: str | None = None,
         account_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.surface_requirements.account_content_requirement_rows(creator=creator, account_id=account_id)
+        return self.surface_requirements.account_content_requirement_rows(
+            creator=creator, account_id=account_id
+        )
 
-    def account_row_for_requirement_account(self, account_id: str) -> dict[str, Any] | None:
+    def account_row_for_requirement_account(
+        self, account_id: str
+    ) -> dict[str, Any] | None:
         return self.surface_requirements.account_row_for_requirement_account(account_id)
 
-    def content_obligation_for_requirement(self, requirement: dict[str, Any], target_date: Any) -> dict[str, Any]:
-        return self.surface_requirements.content_obligation_for_requirement(requirement, target_date)
+    def content_obligation_for_requirement(
+        self, requirement: dict[str, Any], target_date: Any
+    ) -> dict[str, Any]:
+        return self.surface_requirements.content_obligation_for_requirement(
+            requirement, target_date
+        )
 
-    def required_content_count(self, requirement: dict[str, Any], target_date: Any) -> int:
-        return self.surface_requirements.required_content_count(requirement, target_date)
+    def required_content_count(
+        self, requirement: dict[str, Any], target_date: Any
+    ) -> int:
+        return self.surface_requirements.required_content_count(
+            requirement, target_date
+        )
 
     def empty_surface_totals(self) -> dict[str, dict[str, int]]:
         return self.surface_requirements.empty_surface_totals()
 
-    def add_obligation_to_totals(self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]) -> None:
+    def add_obligation_to_totals(
+        self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]
+    ) -> None:
         self.surface_requirements.add_obligation_to_totals(totals, obligation)
 
-    def requirement_active_on_date(self, requirement: dict[str, Any], target_date: Any) -> bool:
-        return self.surface_requirements.requirement_active_on_date(requirement, target_date)
+    def requirement_active_on_date(
+        self, requirement: dict[str, Any], target_date: Any
+    ) -> bool:
+        return self.surface_requirements.requirement_active_on_date(
+            requirement, target_date
+        )
 
-    def surface_scheduled_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> int:
-        return self.surface_requirements.surface_scheduled_count(account_id, instagram_account_id, surface, target_date)
+    def surface_scheduled_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Any,
+    ) -> int:
+        return self.surface_requirements.surface_scheduled_count(
+            account_id, instagram_account_id, surface, target_date
+        )
 
-    def surface_completed_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> int:
-        return self.surface_requirements.surface_completed_count(account_id, instagram_account_id, surface, target_date)
+    def surface_completed_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Any,
+    ) -> int:
+        return self.surface_requirements.surface_completed_count(
+            account_id, instagram_account_id, surface, target_date
+        )
 
     def last_surface_posted_at(
         self,
@@ -4103,11 +4723,27 @@ class CoreServices:
             before_date=before_date,
         )
 
-    def surface_scheduled_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> bool:
-        return self.surface_requirements.surface_scheduled_for_account(account_id, instagram_account_id, surface, target_date)
+    def surface_scheduled_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Any,
+    ) -> bool:
+        return self.surface_requirements.surface_scheduled_for_account(
+            account_id, instagram_account_id, surface, target_date
+        )
 
-    def surface_completed_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Any) -> bool:
-        return self.surface_requirements.surface_completed_for_account(account_id, instagram_account_id, surface, target_date)
+    def surface_completed_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Any,
+    ) -> bool:
+        return self.surface_requirements.surface_completed_for_account(
+            account_id, instagram_account_id, surface, target_date
+        )
 
     def creator_surface_summary(
         self,
@@ -4116,7 +4752,9 @@ class CoreServices:
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        return self.surface_summary.creator_surface_summary(creator=creator, date=date, generated_at=generated_at)
+        return self.surface_summary.creator_surface_summary(
+            creator=creator, date=date, generated_at=generated_at
+        )
 
     def account_surface_summary(
         self,
@@ -4140,7 +4778,9 @@ class CoreServices:
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        return self.surface_summary.creator_surface_gap_report(creator=creator, date=date, generated_at=generated_at)
+        return self.surface_summary.creator_surface_gap_report(
+            creator=creator, date=date, generated_at=generated_at
+        )
 
     def story_certification_proof(self, **kwargs: Any) -> dict[str, Any]:
         return self.story_management.story_certification_proof(**kwargs)
@@ -4172,44 +4812,82 @@ class CoreServices:
     def creator_os_account_warmup_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.account_health.creator_os_account_warmup_report(**kwargs)
 
-    def creator_os_execution_account_health_blockers(self, account_health: dict[str, Any]) -> list[str]:
-        return self.account_health.creator_os_execution_account_health_blockers(account_health)
+    def creator_os_execution_account_health_blockers(
+        self, account_health: dict[str, Any]
+    ) -> list[str]:
+        return self.account_health.creator_os_execution_account_health_blockers(
+            account_health
+        )
 
-    def creator_os_execution_account_health_warnings(self, account_health: dict[str, Any]) -> list[str]:
-        return self.account_health.creator_os_execution_account_health_warnings(account_health)
+    def creator_os_execution_account_health_warnings(
+        self, account_health: dict[str, Any]
+    ) -> list[str]:
+        return self.account_health.creator_os_execution_account_health_warnings(
+            account_health
+        )
 
-    def creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
+    def creator_os_local_schedule_safe_assets(
+        self, creator: str
+    ) -> list[dict[str, Any]]:
         return self.creator_os_drafts.creator_os_local_schedule_safe_assets(creator)
 
-    def creator_os_target_date(self, *, date: str | None = None, generated_at: str | None = None) -> str:
-        return self.creator_os_drafts.creator_os_target_date(date=date, generated_at=generated_at)
+    def creator_os_target_date(
+        self, *, date: str | None = None, generated_at: str | None = None
+    ) -> str:
+        return self.creator_os_drafts.creator_os_target_date(
+            date=date, generated_at=generated_at
+        )
 
-    def creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
-        return self.creator_os_drafts.creator_os_account_surface_status(account, reel_needed=reel_needed)
+    def creator_os_account_surface_status(
+        self, account: dict[str, Any], *, reel_needed: bool
+    ) -> dict[str, dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_account_surface_status(
+            account, reel_needed=reel_needed
+        )
 
     def creator_os_surface_summary_for_creator(self, **kwargs: Any) -> dict[str, Any]:
         return self.creator_os_drafts.creator_os_surface_summary_for_creator(**kwargs)
 
-    def creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
-        return self.creator_os_drafts.creator_os_gap_blocking_reason(reason, blockers, item)
+    def creator_os_gap_blocking_reason(
+        self, reason: str, blockers: list[str], item: dict[str, Any]
+    ) -> str:
+        return self.creator_os_drafts.creator_os_gap_blocking_reason(
+            reason, blockers, item
+        )
 
-    def creator_os_draft_items(self, planner_inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def creator_os_draft_items(
+        self, planner_inputs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.creator_os_drafts.creator_os_draft_items(planner_inputs)
 
-    def creator_os_draft_has_instagram_post_caption(self, draft: dict[str, Any]) -> bool:
+    def creator_os_draft_has_instagram_post_caption(
+        self, draft: dict[str, Any]
+    ) -> bool:
         return self.creator_os_drafts.creator_os_draft_has_instagram_post_caption(draft)
 
     def creator_os_draft_exclusion_reason(self, draft: dict[str, Any]) -> str:
         return self.creator_os_drafts.creator_os_draft_exclusion_reason(draft)
 
-    def creator_os_draft_exclusion_counts(self, creator: str, draft_items: list[dict[str, Any]]) -> dict[str, int]:
-        return self.creator_os_drafts.creator_os_draft_exclusion_counts(creator, draft_items)
+    def creator_os_draft_exclusion_counts(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> dict[str, int]:
+        return self.creator_os_drafts.creator_os_draft_exclusion_counts(
+            creator, draft_items
+        )
 
-    def creator_os_schedule_safe_drafts(self, creator: str, draft_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return self.creator_os_drafts.creator_os_schedule_safe_drafts(creator, draft_items)
+    def creator_os_schedule_safe_drafts(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return self.creator_os_drafts.creator_os_schedule_safe_drafts(
+            creator, draft_items
+        )
 
-    def creator_os_execution_draft_blockers(self, creator: str, draft_items: list[dict[str, Any]]) -> list[str]:
-        return self.creator_os_drafts.creator_os_execution_draft_blockers(creator, draft_items)
+    def creator_os_execution_draft_blockers(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> list[str]:
+        return self.creator_os_drafts.creator_os_execution_draft_blockers(
+            creator, draft_items
+        )
 
     def creator_os_explicit_false(self, item: dict[str, Any], *keys: str) -> bool:
         return self.creator_os_drafts.creator_os_explicit_false(item, *keys)
@@ -4220,36 +4898,60 @@ class CoreServices:
         planner_inputs: list[dict[str, Any]],
         draft_items: list[dict[str, Any]],
     ) -> dict[str, int]:
-        return self.creator_os_drafts.creator_os_inventory_for_creator(creator, planner_inputs, draft_items)
+        return self.creator_os_drafts.creator_os_inventory_for_creator(
+            creator, planner_inputs, draft_items
+        )
 
-    def creator_os_blocked_account_breakdown(self, blocked_accounts: list[dict[str, Any]]) -> dict[str, int]:
-        return self.creator_os_drafts.creator_os_blocked_account_breakdown(blocked_accounts)
+    def creator_os_blocked_account_breakdown(
+        self, blocked_accounts: list[dict[str, Any]]
+    ) -> dict[str, int]:
+        return self.creator_os_drafts.creator_os_blocked_account_breakdown(
+            blocked_accounts
+        )
 
     def creator_os_manager_decision(self, **kwargs: Any) -> dict[str, str]:
         return self.creator_os_drafts.creator_os_manager_decision(**kwargs)
 
-    def creator_os_account_state(self, account: dict[str, Any], blocked_reason: str) -> str:
+    def creator_os_account_state(
+        self, account: dict[str, Any], blocked_reason: str
+    ) -> str:
         return self.creator_os_drafts.creator_os_account_state(account, blocked_reason)
 
     def creator_os_post_time(self, value: Any) -> str:
         return self.creator_os_drafts.creator_os_post_time(value)
 
-    def creator_os_recommended_post_count(self, state: str, needs_post_today: bool) -> int:
-        return self.creator_os_drafts.creator_os_recommended_post_count(state, needs_post_today)
+    def creator_os_recommended_post_count(
+        self, state: str, needs_post_today: bool
+    ) -> int:
+        return self.creator_os_drafts.creator_os_recommended_post_count(
+            state, needs_post_today
+        )
 
-    def recommended_story_intent_for_date(self, target_date: str, *, creator: str | None = None) -> str:
-        return self.creator_os_drafts.recommended_story_intent_for_date(target_date, creator=creator)
+    def recommended_story_intent_for_date(
+        self, target_date: str, *, creator: str | None = None
+    ) -> str:
+        return self.creator_os_drafts.recommended_story_intent_for_date(
+            target_date, creator=creator
+        )
 
     def recommended_story_style_for_intent(self, intent: str) -> str:
         return self.creator_os_drafts.recommended_story_style_for_intent(intent)
 
-    def creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
+    def creator_os_account_tier_summary(
+        self, accounts: list[dict[str, Any]], *, key: str = "accountTier"
+    ) -> dict[str, int]:
         return self.account_health.creator_os_account_tier_summary(accounts, key=key)
 
-    def creator_os_account_health_decision(self, account: dict[str, Any], *, missed: list[dict[str, Any]]) -> dict[str, Any]:
-        return self.account_health.creator_os_account_health_decision(account, missed=missed)
+    def creator_os_account_health_decision(
+        self, account: dict[str, Any], *, missed: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.account_health.creator_os_account_health_decision(
+            account, missed=missed
+        )
 
-    def creator_os_account_health_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def creator_os_account_health_summary(
+        self, rows: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.account_health.creator_os_account_health_summary(rows)
 
     def creator_os_account_trust_state(self, account: dict[str, Any]) -> str:
@@ -4264,8 +4966,12 @@ class CoreServices:
     def creator_os_maturity_score(self, account: dict[str, Any]) -> int:
         return self.account_health.creator_os_maturity_score(account)
 
-    def creator_os_warming_stage(self, account: dict[str, Any], *, maturity_score: int) -> str:
-        return self.account_health.creator_os_warming_stage(account, maturity_score=maturity_score)
+    def creator_os_warming_stage(
+        self, account: dict[str, Any], *, maturity_score: int
+    ) -> str:
+        return self.account_health.creator_os_warming_stage(
+            account, maturity_score=maturity_score
+        )
 
     def creator_os_creative_risk(self, account: dict[str, Any]) -> dict[str, Any]:
         return self.account_health.creator_os_creative_risk(account)
@@ -4273,17 +4979,31 @@ class CoreServices:
     def creator_os_similarity_budget(self, account: dict[str, Any]) -> dict[str, Any]:
         return self.account_health.creator_os_similarity_budget(account)
 
-    def creator_os_account_tier_from_health(self, account: dict[str, Any], *, trust_state: str, maturity_score: int) -> str:
-        return self.account_health.creator_os_account_tier_from_health(account, trust_state=trust_state, maturity_score=maturity_score)
+    def creator_os_account_tier_from_health(
+        self, account: dict[str, Any], *, trust_state: str, maturity_score: int
+    ) -> str:
+        return self.account_health.creator_os_account_tier_from_health(
+            account, trust_state=trust_state, maturity_score=maturity_score
+        )
 
-    def creator_os_cadence_overrides(self, account: dict[str, Any], *, warming_stage: str, maturity_score: int) -> dict[str, Any]:
-        return self.account_health.creator_os_cadence_overrides(account, warming_stage=warming_stage, maturity_score=maturity_score)
+    def creator_os_cadence_overrides(
+        self, account: dict[str, Any], *, warming_stage: str, maturity_score: int
+    ) -> dict[str, Any]:
+        return self.account_health.creator_os_cadence_overrides(
+            account, warming_stage=warming_stage, maturity_score=maturity_score
+        )
 
-    def creator_os_account_over_cadence(self, account: dict[str, Any], guidance: dict[str, Any]) -> bool:
+    def creator_os_account_over_cadence(
+        self, account: dict[str, Any], guidance: dict[str, Any]
+    ) -> bool:
         return self.account_health.creator_os_account_over_cadence(account, guidance)
 
-    def creator_os_account_tier(self, account: dict[str, Any], *, state: str, blocked_reason: str) -> str:
-        return self.account_health.creator_os_account_tier(account, state=state, blocked_reason=blocked_reason)
+    def creator_os_account_tier(
+        self, account: dict[str, Any], *, state: str, blocked_reason: str
+    ) -> str:
+        return self.account_health.creator_os_account_tier(
+            account, state=state, blocked_reason=blocked_reason
+        )
 
     def creator_os_numeric(self, value: Any) -> float:
         return self.account_health.creator_os_numeric(value)
@@ -4291,7 +5011,9 @@ class CoreServices:
     def creator_os_tier_posting_guidance(self, tier: str) -> dict[str, Any]:
         return self.account_health.creator_os_tier_posting_guidance(tier)
 
-    def creator_os_blocked_reason(self, account: dict[str, Any], missed: list[dict[str, Any]]) -> str:
+    def creator_os_blocked_reason(
+        self, account: dict[str, Any], missed: list[dict[str, Any]]
+    ) -> str:
         return self.account_health.creator_os_blocked_reason(account, missed)
 
     def parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
@@ -4309,10 +5031,14 @@ class CoreServices:
     def discoverability_prevention_stage(self, category: str) -> str:
         return self.discoverability.discoverability_prevention_stage(category)
 
-    def discoverability_gate_fields(self, payload: dict[str, Any], allowed_fields: set[str]) -> list[tuple[str, str]]:
+    def discoverability_gate_fields(
+        self, payload: dict[str, Any], allowed_fields: set[str]
+    ) -> list[tuple[str, str]]:
         return self.discoverability.discoverability_gate_fields(payload, allowed_fields)
 
-    def discoverability_gate_result(self, gate: str, fields: list[tuple[str, str]]) -> dict[str, Any]:
+    def discoverability_gate_result(
+        self, gate: str, fields: list[tuple[str, str]]
+    ) -> dict[str, Any]:
         return self.discoverability.discoverability_gate_result(gate, fields)
 
     def discoverability_origin_stage(self, source_field: str, reason: str) -> str:
@@ -4321,7 +5047,9 @@ class CoreServices:
     def post_discoverability_downstream_confidence(self) -> dict[str, Any]:
         return self.discoverability.post_discoverability_downstream_confidence()
 
-    def discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    def discoverability_evidence_for_fields(
+        self, fields: list[tuple[str, str]]
+    ) -> list[dict[str, Any]]:
         return self.discoverability.discoverability_evidence_for_fields(fields)
 
     def register_surface_asset(
@@ -4382,8 +5110,12 @@ class CoreServices:
             target_ratio=target_ratio,
         )
 
-    def surface_registration_component(self, path: Any, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
-        return self.surface_registration.surface_registration_component(path, surface=surface, target_ratio=target_ratio)
+    def surface_registration_component(
+        self, path: Any, *, surface: str, target_ratio: str | None
+    ) -> dict[str, Any]:
+        return self.surface_registration.surface_registration_component(
+            path, surface=surface, target_ratio=target_ratio
+        )
 
     def stage_surface_registration_file(
         self,
@@ -4440,18 +5172,28 @@ class CoreServices:
         creator: str | None = None,
         campaign_slug: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.surface_handoff.surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+        return self.surface_handoff.surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
-    def build_surface_readiness(self, assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def build_surface_readiness(
+        self, assets: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.surface_handoff.build_surface_readiness(assets)
 
-    def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
+    def surface_draft_payload_for_readiness(
+        self, readiness: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.surface_handoff.surface_draft_payload_for_readiness(readiness)
 
-    def surface_handoff_readiness_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+    def surface_handoff_readiness_for_asset(
+        self, asset: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.surface_handoff.surface_handoff_readiness_for_asset(asset)
 
-    def requires_operator_visual_review_for_handoff(self, asset: dict[str, Any]) -> bool:
+    def requires_operator_visual_review_for_handoff(
+        self, asset: dict[str, Any]
+    ) -> bool:
         return self.surface_handoff.requires_operator_visual_review_for_handoff(asset)
 
     def content_trust_status_blockers(
@@ -4460,7 +5202,9 @@ class CoreServices:
         latest_audit: dict[str, Any] | None,
         caption_context: dict[str, Any] | None,
     ) -> tuple[list[str], dict[str, str]]:
-        return self.surface_handoff.content_trust_status_blockers(asset, latest_audit, caption_context)
+        return self.surface_handoff.content_trust_status_blockers(
+            asset, latest_audit, caption_context
+        )
 
     def asset_matches_creator(self, asset: dict[str, Any], creator: str) -> bool:
         return self.surface_handoff.asset_matches_creator(asset, creator)
@@ -4468,7 +5212,9 @@ class CoreServices:
     def asset_components(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         return self.surface_handoff.asset_components(rendered_asset_id)
 
-    def surface_handoff_ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
+    def surface_handoff_ig_media_type_for_surface(
+        self, surface: str, media_type: str
+    ) -> str:
         return self.surface_handoff.ig_media_type_for_surface(surface, media_type)
 
     def surface_handoff_aspect_ratio_safe(self, ratio: Any, surface: str) -> bool:
@@ -4519,7 +5265,9 @@ class CoreServices:
     def carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.carousel_integrity.carousel_integrity_for_asset(asset)
 
-    def carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def carousel_component_signature(
+        self, components: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.carousel_integrity.carousel_component_signature(components)
 
     def carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
@@ -4531,7 +5279,9 @@ class CoreServices:
         *,
         extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self.carousel_integrity.carousel_signature_payload(signature, extra=extra)
+        return self.carousel_integrity.carousel_signature_payload(
+            signature, extra=extra
+        )
 
     def carousel_boundary_result(
         self,
@@ -4548,19 +5298,31 @@ class CoreServices:
         draft: dict[str, Any],
         components: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        return self.carousel_integrity.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
+        return self.carousel_integrity.carousel_meta_child_payload_preview(
+            asset=asset, draft=draft, components=components
+        )
 
     def carousel_certification_proof(self, **kwargs: Any) -> dict[str, Any]:
         return self.carousel_integrity.carousel_certification_proof(**kwargs)
 
-    def certification_asset_for_surface(self, surface: str, *, rendered_asset_id: str | None = None) -> dict[str, Any] | None:
-        return self.carousel_integrity.certification_asset_for_surface(surface, rendered_asset_id=rendered_asset_id)
+    def certification_asset_for_surface(
+        self, surface: str, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any] | None:
+        return self.carousel_integrity.certification_asset_for_surface(
+            surface, rendered_asset_id=rendered_asset_id
+        )
 
-    def latest_proof_run_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def latest_proof_run_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.carousel_integrity.latest_proof_run_for_asset(rendered_asset_id)
 
-    def latest_surface_metric_for_asset(self, rendered_asset_id: str, surface: str) -> dict[str, Any] | None:
-        return self.carousel_integrity.latest_surface_metric_for_asset(rendered_asset_id, surface)
+    def latest_surface_metric_for_asset(
+        self, rendered_asset_id: str, surface: str
+    ) -> dict[str, Any] | None:
+        return self.carousel_integrity.latest_surface_metric_for_asset(
+            rendered_asset_id, surface
+        )
 
     def empty_surface_certification_audit(self, surface: str) -> dict[str, Any]:
         return self.carousel_integrity.empty_surface_certification_audit(surface)
@@ -4625,19 +5387,27 @@ class CoreServices:
             min_followers=min_followers,
         )
 
-    def winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
+    def winner_variant_candidate(
+        self, variant_payload: dict[str, Any], rendered: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.winner_expansion.winner_variant_candidate(variant_payload, rendered)
 
-    def winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    def winner_variant_candidate_decision(
+        self, candidate: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.winner_expansion.winner_variant_candidate_decision(candidate)
 
     def latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
         return self.winner_expansion.latest_variant_audit_result(variant_asset_id)
 
-    def contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+    def contentforge_result_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.winner_expansion.contentforge_result_from_operations(operations)
 
-    def operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
+    def operation_family_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> str | None:
         return self.winner_expansion.operation_family_from_operations(operations)
 
     def score_value(self, value: Any) -> int:
@@ -4662,7 +5432,9 @@ class CoreServices:
             parent_reel_id=parent_reel_id,
         )
 
-    def variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def variant_asset_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.winner_expansion.variant_asset_payload(row)
 
     def creative_knowledge_base(self, **kwargs: Any) -> dict[str, Any]:
@@ -4711,7 +5483,9 @@ class CoreServices:
         return self.creative_knowledge.build_creative_knowledge_base(*args, **kwargs)
 
     def build_creative_performance_analysis(self, *args: Any, **kwargs: Any) -> Any:
-        return self.creative_knowledge.build_creative_performance_analysis(*args, **kwargs)
+        return self.creative_knowledge.build_creative_performance_analysis(
+            *args, **kwargs
+        )
 
     def creative_performance_baseline(self, *args: Any, **kwargs: Any) -> Any:
         return self.creative_knowledge.creative_performance_baseline(*args, **kwargs)
@@ -4732,7 +5506,9 @@ class CoreServices:
         return self.creative_knowledge.confidence_score(*args, **kwargs)
 
     def learning_confidence_classification(self, *args: Any, **kwargs: Any) -> Any:
-        return self.creative_knowledge.learning_confidence_classification(*args, **kwargs)
+        return self.creative_knowledge.learning_confidence_classification(
+            *args, **kwargs
+        )
 
     def creative_fatigue_signals(self, *args: Any, **kwargs: Any) -> Any:
         return self.creative_knowledge.creative_fatigue_signals(*args, **kwargs)
@@ -4762,7 +5538,9 @@ class CoreServices:
         return self.creative_knowledge.creative_pattern_priority(*args, **kwargs)
 
     def creative_knowledge_results_for_report(self, *args: Any, **kwargs: Any) -> Any:
-        return self.creative_knowledge.creative_knowledge_results_for_report(*args, **kwargs)
+        return self.creative_knowledge.creative_knowledge_results_for_report(
+            *args, **kwargs
+        )
 
     def creative_knowledge_rows(self, *args: Any, **kwargs: Any) -> Any:
         return self.creative_knowledge.creative_knowledge_rows(*args, **kwargs)
@@ -4850,8 +5628,12 @@ class CoreServices:
             min_followers=min_followers,
         )
 
-    def winner_memory_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.creative_knowledge.winner_memory_rows(creator=creator, campaign_slug=campaign_slug)
+    def winner_memory_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.creative_knowledge.winner_memory_rows(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def winner_memory_item(
         self,
@@ -4946,7 +5728,9 @@ class CoreServices:
             contact_sheet=contact_sheet,
         )
 
-    def tribev2_review_both_bucket(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    def tribev2_review_both_bucket(
+        self, ranked: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
         return self.tribev2.tribev2_review_both_bucket(ranked, limit)
 
     def tribev2_review_item(
@@ -4966,10 +5750,14 @@ class CoreServices:
             show_tribe_score=show_tribe_score,
         )
 
-    def tribev2_holdout_bucket_rows(self, ranked: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    def tribev2_holdout_bucket_rows(
+        self, ranked: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
         return self.tribev2.tribev2_holdout_bucket_rows(ranked)
 
-    def tribev2_holdout_bucket_summary(self, name: str, rows: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+    def tribev2_holdout_bucket_summary(
+        self, name: str, rows: list[dict[str, Any]], *, limit: int
+    ) -> dict[str, Any]:
         return self.tribev2.tribev2_holdout_bucket_summary(name, rows, limit=limit)
 
     def tribev2_average_metrics(self, rows: list[dict[str, Any]]) -> dict[str, float]:
@@ -5003,8 +5791,12 @@ class CoreServices:
             show_tribe_score=show_tribe_score,
         )
 
-    def write_tribev2_holdout_contact_sheet(self, buckets: dict[str, Any], *, creator: str) -> str:
-        return self.tribev2.write_tribev2_holdout_contact_sheet(buckets, creator=creator)
+    def write_tribev2_holdout_contact_sheet(
+        self, buckets: dict[str, Any], *, creator: str
+    ) -> str:
+        return self.tribev2.write_tribev2_holdout_contact_sheet(
+            buckets, creator=creator
+        )
 
     def tribev2_contact_sheet_cards(
         self,
@@ -5024,11 +5816,17 @@ class CoreServices:
     def tribev2_contact_sheet_html(self, *, title: str, body: str) -> str:
         return self.tribev2.tribev2_contact_sheet_html(title=title, body=body)
 
-    def tribev2_extract_thumbnail(self, preview_path: str, output_dir: Any, item: dict[str, Any]) -> str:
+    def tribev2_extract_thumbnail(
+        self, preview_path: str, output_dir: Any, item: dict[str, Any]
+    ) -> str:
         return self.tribev2.tribev2_extract_thumbnail(preview_path, output_dir, item)
 
-    def tribev2_reel_analysis_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.tribev2.tribev2_reel_analysis_rows(creator=creator, campaign_slug=campaign_slug)
+    def tribev2_reel_analysis_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.tribev2.tribev2_reel_analysis_rows(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def tribev2_score_for_snapshot(self, row: dict[str, Any]) -> dict[str, Any] | None:
         return self.tribev2.tribev2_score_for_snapshot(row)
@@ -5039,10 +5837,14 @@ class CoreServices:
     def tribev2_bucket_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
         return self.tribev2.tribev2_bucket_summary(rows)
 
-    def tribev2_bucket_lift(self, top: dict[str, Any], bottom: dict[str, Any]) -> dict[str, Any]:
+    def tribev2_bucket_lift(
+        self, top: dict[str, Any], bottom: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.tribev2.tribev2_bucket_lift(top, bottom)
 
-    def tribev2_metric_quality(self, rows: list[dict[str, Any]], metric_fields: list[str]) -> dict[str, Any]:
+    def tribev2_metric_quality(
+        self, rows: list[dict[str, Any]], metric_fields: list[str]
+    ) -> dict[str, Any]:
         return self.tribev2.tribev2_metric_quality(rows, metric_fields)
 
     def tribev2_signal_summary(
@@ -5058,8 +5860,12 @@ class CoreServices:
             metric_quality=metric_quality,
         )
 
-    def tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
-        return self.tribev2.tribev2_confidence_level(sample_size, statistically_interesting)
+    def tribev2_confidence_level(
+        self, sample_size: int, statistically_interesting: bool
+    ) -> str:
+        return self.tribev2.tribev2_confidence_level(
+            sample_size, statistically_interesting
+        )
 
     def operator_inventory_review_batch_plan(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_inventory_review_batch_plan(**kwargs)
@@ -5076,9 +5882,13 @@ class CoreServices:
         *,
         dashboard: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self.export_summary.daily_production_counters(campaign_slug, dashboard=dashboard)
+        return self.export_summary.daily_production_counters(
+            campaign_slug, dashboard=dashboard
+        )
 
-    def variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def variant_pack_groups(
+        self, rendered: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.export_summary.variant_pack_groups(rendered)
 
     def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
@@ -5093,13 +5903,17 @@ class CoreServices:
     def operator_review_efficiency_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_review_efficiency_report(**kwargs)
 
-    def operator_review_minimum_certification_path(self, **kwargs: Any) -> dict[str, Any]:
+    def operator_review_minimum_certification_path(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
         return self.operator_review.operator_review_minimum_certification_path(**kwargs)
 
     def operator_review_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_review_master_report(**kwargs)
 
-    def operator_review_execution_order(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def operator_review_execution_order(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.operator_review.operator_review_execution_order(rows)
 
     def operator_review_batch_priority(self, repair_classes: list[str]) -> int:
@@ -5142,7 +5956,9 @@ class CoreServices:
     def operator_review_lowest_risk_batch_type(self, rows: list[dict[str, Any]]) -> str:
         return self.operator_review.operator_review_lowest_risk_batch_type(rows)
 
-    def operator_review_batch_order_labels(self, rows: list[dict[str, Any]]) -> list[str]:
+    def operator_review_batch_order_labels(
+        self, rows: list[dict[str, Any]]
+    ) -> list[str]:
         return self.operator_review.operator_review_batch_order_labels(rows)
 
     def operator_review_candidate_eligible(self, asset: dict[str, Any]) -> bool:
@@ -5155,13 +5971,17 @@ class CoreServices:
         return self.operator_review.operator_review_actions(repair_classes)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM campaigns WHERE slug = ?", (self._slugify(slug),)
+        ).fetchone()
         if not row:
             raise ValueError(f"campaign not found: {slug}")
         return dict(row)
 
     def list_campaigns(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM campaigns ORDER BY updated_at DESC").fetchall()
+        rows = self.conn.execute(
+            "SELECT * FROM campaigns ORDER BY updated_at DESC"
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def campaign_dirs(self, model_slug: str, campaign_slug: str) -> dict[str, Path]:
@@ -5180,11 +6000,16 @@ class CoreServices:
         return dirs
 
     def rendered_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC", (campaign_id,)).fetchall()
+        rows = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE campaign_id = ? ORDER BY created_at DESC",
+            (campaign_id,),
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def rendered_asset(self, rendered_asset_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"rendered asset not found: {rendered_asset_id}")
         return dict(row)
@@ -5201,7 +6026,9 @@ class CoreServices:
             return 0.0
         return round(10 * min(1.0, max(0.0, float(numerator or 0) / denom)), 1)
 
-    def road_to_accounts_payload(self, *, accounts: int, production: dict[str, Any]) -> dict[str, Any]:
+    def road_to_accounts_payload(
+        self, *, accounts: int, production: dict[str, Any]
+    ) -> dict[str, Any]:
         posts = int(production.get("postsPerDay") or 0)
         return {
             "schema": f"creator_os.road_to_{accounts}_accounts.v1",
@@ -5209,15 +6036,23 @@ class CoreServices:
             "requiredInventoryBuffer": f"{posts * 3} schedule-safe drafts",
             "requiredDailyProduction": f"{posts} schedule-safe drafts/day",
             "requiredValidatedDrafts": f"{production.get('requiredValidatedDraftsPerDay')} validated drafts/day",
-            "requiredParentAssetsPerDay": int(production.get("requiredParentsPerDay") or 0),
-            "requiredCaptionFamiliesPerDay": int(production.get("requiredCaptionFamiliesPerDay") or 0),
-            "requiredVariantsPerDay": int(production.get("requiredVariantsPerDay") or 0),
+            "requiredParentAssetsPerDay": int(
+                production.get("requiredParentsPerDay") or 0
+            ),
+            "requiredCaptionFamiliesPerDay": int(
+                production.get("requiredCaptionFamiliesPerDay") or 0
+            ),
+            "requiredVariantsPerDay": int(
+                production.get("requiredVariantsPerDay") or 0
+            ),
             "requiredExceptionRate": "<=2.0% inventory-blocking exceptions",
             "requiredOperatorLoad": "<=25 inventory exceptions/day per operator queue",
             "wouldWrite": False,
         }
 
-    def wilson_lower_bound(self, *, successes: int, trials: int, z: float = 1.96) -> float:
+    def wilson_lower_bound(
+        self, *, successes: int, trials: int, z: float = 1.96
+    ) -> float:
         if trials <= 0:
             return 0.0
         phat = successes / trials
@@ -5239,17 +6074,25 @@ class CoreServices:
             return False
         return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
-    def surface_from_pattern(self, item: dict[str, Any], lineage: dict[str, Any]) -> str:
+    def surface_from_pattern(
+        self, item: dict[str, Any], lineage: dict[str, Any]
+    ) -> str:
         if item.get("dimension") == "contentSurface":
             return str(item.get("key") or "reel")
-        surfaces = lineage.get("contentSurfaces") if isinstance(lineage.get("contentSurfaces"), list) else []
+        surfaces = (
+            lineage.get("contentSurfaces")
+            if isinstance(lineage.get("contentSurfaces"), list)
+            else []
+        )
         if surfaces:
             return str(surfaces[0] or "reel")
         if item.get("dimension") in {"storyIntent", "storyStyle"}:
             return "story"
         return "reel"
 
-    def first_lineage_value(self, lineage: dict[str, Any], key: str, *, fallback: str = "") -> str:
+    def first_lineage_value(
+        self, lineage: dict[str, Any], key: str, *, fallback: str = ""
+    ) -> str:
         values = lineage.get(key) if isinstance(lineage.get(key), list) else []
         return str(values[0]) if values else fallback
 
@@ -5380,28 +6223,42 @@ class CoreServices:
     def variant_lineage_for_asset(self, rendered_asset_id: str) -> dict[str, Any]:
         return self.variant_lineage.variant_lineage_for_asset(rendered_asset_id)
 
-    def concept_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def concept_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.variant_lineage.concept_payload(row)
 
-    def variant_family_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def variant_family_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         return self.variant_lineage.variant_family_payload(row)
 
-    def variant_lineage_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def variant_lineage_asset_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.variant_lineage.variant_lineage_asset_payload(row)
 
-    def variant_usage_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def variant_usage_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         return self.variant_lineage.variant_usage_payload(row)
 
-    def variant_rollup_group(self, snapshots: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+    def variant_rollup_group(
+        self, snapshots: list[dict[str, Any]], key: str, output_key: str
+    ) -> list[dict[str, Any]]:
         return self.variant_lineage.variant_rollup_group(snapshots, key, output_key)
 
-    def local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
+    def local_export_readiness(
+        self, asset: dict[str, Any], latest_audit: dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.publishability.local_export_readiness(asset, latest_audit)
 
     def latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         return self.publishability.latest_audit_for_asset(rendered_asset_id)
 
-    def active_quarantine_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def active_quarantine_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.publishability.active_quarantine_for_asset(rendered_asset_id)
 
     def quarantine_asset(
@@ -5462,8 +6319,12 @@ class CoreServices:
             distribution_plan_id=distribution_plan_id,
         )
 
-    def capture_publishability_rejection_evidence(self, rendered_asset_id: str) -> dict[str, Any]:
-        return self.publishability.capture_publishability_rejection_evidence(rendered_asset_id)
+    def capture_publishability_rejection_evidence(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any]:
+        return self.publishability.capture_publishability_rejection_evidence(
+            rendered_asset_id
+        )
 
     def capture_publishability_rejection_evidence_from_result(
         self,
@@ -5472,14 +6333,20 @@ class CoreServices:
         *,
         commit: bool,
     ) -> dict[str, Any]:
-        return self.publishability.capture_publishability_rejection_evidence_from_result(
-            rendered_asset_id,
-            result,
-            commit=commit,
+        return (
+            self.publishability.capture_publishability_rejection_evidence_from_result(
+                rendered_asset_id,
+                result,
+                commit=commit,
+            )
         )
 
-    def capture_discoverability_gate_rejection_evidence(self, **kwargs: Any) -> dict[str, Any]:
-        return self.publishability.capture_discoverability_gate_rejection_evidence(**kwargs)
+    def capture_discoverability_gate_rejection_evidence(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.publishability.capture_discoverability_gate_rejection_evidence(
+            **kwargs
+        )
 
     def record_proof_run(
         self,
@@ -5529,7 +6396,9 @@ class CoreServices:
             post_caption=post_caption,
         )
 
-    def instagram_post_caption_quality(self, post_caption: dict[str, Any]) -> dict[str, Any]:
+    def instagram_post_caption_quality(
+        self, post_caption: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.publishability.instagram_post_caption_quality(post_caption)
 
     def caption_quality_repair_plan(
@@ -5550,7 +6419,9 @@ class CoreServices:
     def caption_quality_recovery_class(self, quality_reasons: list[str]) -> str:
         return self.publishability.caption_quality_recovery_class(quality_reasons)
 
-    def suggest_simple_instagram_post_caption(self, *, asset_id: str, current_caption: str, burned_caption: str) -> str:
+    def suggest_simple_instagram_post_caption(
+        self, *, asset_id: str, current_caption: str, burned_caption: str
+    ) -> str:
         return self.publishability.suggest_simple_instagram_post_caption(
             asset_id=asset_id,
             current_caption=current_caption,

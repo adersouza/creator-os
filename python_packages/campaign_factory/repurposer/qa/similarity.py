@@ -1,13 +1,15 @@
-from pathlib import Path
 import re
 import subprocess
 import tempfile
+from pathlib import Path
+
 import imagehash
 from PIL import Image
 
+
 class SimilarityGate:
     """Evaluates how visually and structurally distinct two videos are."""
-    
+
     @staticmethod
     def extract_keyframes(video_path: Path, count: int = 5) -> list[Image.Image]:
         """Extract keyframes evenly spaced from the video."""
@@ -34,7 +36,11 @@ class SimilarityGate:
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                detail = (result.stderr or result.stdout or "ffmpeg keyframe extraction failed").strip()
+                detail = (
+                    result.stderr
+                    or result.stdout
+                    or "ffmpeg keyframe extraction failed"
+                ).strip()
                 raise RuntimeError(detail)
             frames: list[Image.Image] = []
             for frame_path in sorted(Path(tmp).glob("frame_*.jpg"))[:count]:
@@ -55,13 +61,21 @@ class SimilarityGate:
         if not distances:
             raise RuntimeError("no comparable keyframes for pHash distance")
         return sum(distances) / len(distances)
-        
+
     @staticmethod
     def calculate_ssim(master: Path, variant: Path) -> float:
         """Calculate Structural Similarity Index between two videos using FFmpeg."""
         cmd = [
-            "ffmpeg", "-i", str(master), "-i", str(variant),
-            "-filter_complex", "ssim", "-f", "null", "-"
+            "ffmpeg",
+            "-i",
+            str(master),
+            "-i",
+            str(variant),
+            "-filter_complex",
+            "ssim",
+            "-f",
+            "null",
+            "-",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -74,7 +88,9 @@ class SimilarityGate:
         return float(match.group(1))
 
     @classmethod
-    def is_distinct_enough(cls, master: Path, variant: Path, threshold: float = 0.85) -> bool:
+    def is_distinct_enough(
+        cls, master: Path, variant: Path, threshold: float = 0.85
+    ) -> bool:
         """
         Check if the variant is different enough from the master.
         For SSIM, lower means MORE distinct. We want SSIM < threshold.

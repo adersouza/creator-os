@@ -3,6 +3,7 @@
 install:
 	pnpm install
 	uv sync --all-extras --all-packages
+	git config core.hooksPath scripts/hooks
 
 dev-web:
 	pnpm run dev

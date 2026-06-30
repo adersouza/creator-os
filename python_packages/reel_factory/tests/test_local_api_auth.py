@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 import reel_gui
+from fastapi.testclient import TestClient
 
 
 def test_non_loopback_request_without_token_is_rejected(monkeypatch) -> None:

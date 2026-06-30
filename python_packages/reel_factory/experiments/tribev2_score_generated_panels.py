@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
-
 DEFAULT_BATCH_DIR = Path(
     "/Users/aderdesouza/Developer/reel_factory/output/reference_grok_grids_20260611"
 )
@@ -50,7 +49,11 @@ def _load_summary_records(batch_dir: Path) -> dict[str, dict[str, Any]]:
         creator = record.get("creator", "")
         job_dir = Path(record.get("jobDir", ""))
         reference = record.get("reference", {}) or {}
-        reference_slug = f"{reference.get('username', '')}_{reference.get('shortcode', '')}".strip("_")
+        reference_slug = (
+            f"{reference.get('username', '')}_{reference.get('shortcode', '')}".strip(
+                "_"
+            )
+        )
         profile = record.get("profile", "") or (job_dir.name if job_dir.name else "")
         crop = record.get("crop", {}) or {}
         review = record.get("review", {}) or {}
@@ -106,7 +109,9 @@ def collect_panels(batch_dir: Path, include_all_crops: bool) -> list[PanelRecord
                 panel=int(panel_num),
                 status=info.get("status", "unknown"),
                 flags=tuple(info.get("flags") or []),
-                reference_image=info.get("reference_image", str(job_dir / "reference.jpg")),
+                reference_image=info.get(
+                    "reference_image", str(job_dir / "reference.jpg")
+                ),
                 comparison_sheet=info.get(
                     "comparison_sheet", str(job_dir / "reference_comparison_sheet.jpg")
                 ),
@@ -154,7 +159,9 @@ def make_silent_clip(
         "-shortest",
         str(tmp_path),
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
     tmp_path.replace(clip_path)
 
 
@@ -183,7 +190,9 @@ def load_tribe_model(tribe_dir: Path, feature_mode: str):
     )
 
 
-def score_clip(model: Any, clip_path: Path, direct_video_events: bool) -> dict[str, Any]:
+def score_clip(
+    model: Any, clip_path: Path, direct_video_events: bool
+) -> dict[str, Any]:
     started = time.time()
     if direct_video_events:
         events = pd.DataFrame(
@@ -200,7 +209,9 @@ def score_clip(model: Any, clip_path: Path, direct_video_events: bool) -> dict[s
     else:
         events = model.get_events_dataframe(video_path=str(clip_path))
     preds, segments = model.predict(events=events)
-    arr = preds.detach().cpu().numpy() if hasattr(preds, "detach") else np.asarray(preds)
+    arr = (
+        preds.detach().cpu().numpy() if hasattr(preds, "detach") else np.asarray(preds)
+    )
     return {
         "status": "ok",
         "seconds": round(time.time() - started, 2),
@@ -230,7 +241,9 @@ def score_clip_batch(model: Any, clip_paths: list[Path]) -> dict[str, dict[str, 
         )
         timeline_to_path[timeline] = str(clip_path)
     preds, segments = model.predict(events=pd.DataFrame(rows))
-    arr = preds.detach().cpu().numpy() if hasattr(preds, "detach") else np.asarray(preds)
+    arr = (
+        preds.detach().cpu().numpy() if hasattr(preds, "detach") else np.asarray(preds)
+    )
     out: dict[str, dict[str, Any]] = {}
     for idx, segment in enumerate(segments):
         timeline = getattr(segment, "timeline", "")
@@ -274,7 +287,9 @@ def _load_existing(result_path: Path) -> dict[str, dict[str, Any]]:
 
 
 def _percentile_scores(items: list[dict[str, Any]]) -> None:
-    ok_items = [item for item in items if item.get("tribeScore", {}).get("status") == "ok"]
+    ok_items = [
+        item for item in items if item.get("tribeScore", {}).get("status") == "ok"
+    ]
     values = sorted(
         (item["tribeScore"].get("meanAbsActivation", 0.0), item.get("panelPath", ""))
         for item in ok_items
@@ -282,7 +297,10 @@ def _percentile_scores(items: list[dict[str, Any]]) -> None:
     if not values:
         return
     denom = max(len(values) - 1, 1)
-    ranks = {panel_path: round((idx / denom) * 100, 2) for idx, (_, panel_path) in enumerate(values)}
+    ranks = {
+        panel_path: round((idx / denom) * 100, 2)
+        for idx, (_, panel_path) in enumerate(values)
+    }
     for item in ok_items:
         item["tribeVisualRating"] = ranks.get(item.get("panelPath", ""), 0.0)
 
@@ -348,7 +366,9 @@ def _fit_image(path: Path, size: tuple[int, int]) -> Image.Image:
     return canvas
 
 
-def build_contact_sheet(items: list[dict[str, Any]], output_path: Path, title: str, limit: int) -> None:
+def build_contact_sheet(
+    items: list[dict[str, Any]], output_path: Path, title: str, limit: int
+) -> None:
     selected = items[:limit]
     if not selected:
         return
@@ -376,14 +396,18 @@ def build_contact_sheet(items: list[dict[str, Any]], output_path: Path, title: s
             f"mean {score.get('meanAbsActivation', 0):.4f} peak {score.get('peakAbsActivation', 0):.4f}\n"
             f"{item.get('referenceSlug')} p{item.get('panel')}"
         )
-        draw.multiline_text((x + 8, y + tile_h - 68), label, fill=(245, 245, 245), font=small, spacing=3)
+        draw.multiline_text(
+            (x + 8, y + tile_h - 68), label, fill=(245, 245, 245), font=small, spacing=3
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(output_path, quality=92)
 
 
 def score_panels(args: argparse.Namespace) -> dict[str, Any]:
     batch_dir = Path(args.batch_dir)
-    output_dir = Path(args.output_dir) if args.output_dir else batch_dir / "tribev2_panel_review"
+    output_dir = (
+        Path(args.output_dir) if args.output_dir else batch_dir / "tribev2_panel_review"
+    )
     clips_dir = output_dir / "clips"
     result_path = output_dir / "tribev2_panel_scores.json"
     csv_path = output_dir / "tribev2_panel_scores.csv"
@@ -391,7 +415,9 @@ def score_panels(args: argparse.Namespace) -> dict[str, Any]:
 
     panels = collect_panels(batch_dir, include_all_crops=args.include_all_crops)
     if args.creator:
-        panels = [panel for panel in panels if panel.creator.lower() == args.creator.lower()]
+        panels = [
+            panel for panel in panels if panel.creator.lower() == args.creator.lower()
+        ]
     if args.limit:
         panels = panels[: args.limit]
 
@@ -420,7 +446,9 @@ def score_panels(args: argparse.Namespace) -> dict[str, Any]:
             "productionGate": False,
         }
         try:
-            make_silent_clip(panel.path, clip_path, Path(args.ffmpeg), args.duration, args.scale_size)
+            make_silent_clip(
+                panel.path, clip_path, Path(args.ffmpeg), args.duration, args.scale_size
+            )
         except Exception as exc:
             item["tribeScore"] = {
                 "status": "error",
@@ -434,7 +462,9 @@ def score_panels(args: argparse.Namespace) -> dict[str, Any]:
             partial = build_report(items, batch_dir, args, complete=False)
             result_path.write_text(json.dumps(partial, indent=2))
 
-    model = load_tribe_model(Path(args.tribe_dir), args.feature_mode) if pending else None
+    model = (
+        load_tribe_model(Path(args.tribe_dir), args.feature_mode) if pending else None
+    )
     for offset in range(0, len(pending), args.batch_size):
         batch = pending[offset : offset + args.batch_size]
         print(
@@ -444,13 +474,17 @@ def score_panels(args: argparse.Namespace) -> dict[str, Any]:
         )
         try:
             if args.direct_video_events:
-                batch_scores = score_clip_batch(model, [clip_path for _, _, clip_path in batch])
+                batch_scores = score_clip_batch(
+                    model, [clip_path for _, _, clip_path in batch]
+                )
                 for _, item, clip_path in batch:
                     item["tribeScore"] = batch_scores[str(clip_path)]
                     items.append(item)
             else:
                 for _, item, clip_path in batch:
-                    item["tribeScore"] = score_clip(model, clip_path, args.direct_video_events)
+                    item["tribeScore"] = score_clip(
+                        model, clip_path, args.direct_video_events
+                    )
                     items.append(item)
         except Exception as exc:
             for _, item, _ in batch:
@@ -477,8 +511,12 @@ def score_panels(args: argparse.Namespace) -> dict[str, Any]:
         args.contact_sheet_limit,
     )
     report["csvPath"] = str(csv_path)
-    report["topContactSheetPath"] = str(output_dir / "tribev2_top_panels_contact_sheet.jpg")
-    report["bottomContactSheetPath"] = str(output_dir / "tribev2_bottom_panels_contact_sheet.jpg")
+    report["topContactSheetPath"] = str(
+        output_dir / "tribev2_top_panels_contact_sheet.jpg"
+    )
+    report["bottomContactSheetPath"] = str(
+        output_dir / "tribev2_bottom_panels_contact_sheet.jpg"
+    )
     result_path.write_text(json.dumps(report, indent=2))
     return report
 
@@ -500,11 +538,17 @@ def build_report(
     )
     for rank, item in enumerate(ranked, start=1):
         item["rank"] = rank
-    scored = [item for item in ranked if item.get("tribeScore", {}).get("status") == "ok"]
-    errors = [item for item in ranked if item.get("tribeScore", {}).get("status") != "ok"]
+    scored = [
+        item for item in ranked if item.get("tribeScore", {}).get("status") == "ok"
+    ]
+    errors = [
+        item for item in ranked if item.get("tribeScore", {}).get("status") != "ok"
+    ]
     by_creator: dict[str, int] = {}
     for item in scored:
-        by_creator[item.get("creator", "")] = by_creator.get(item.get("creator", ""), 0) + 1
+        by_creator[item.get("creator", "")] = (
+            by_creator.get(item.get("creator", ""), 0) + 1
+        )
     return {
         "schema": "reel_factory.tribev2_generated_panel_scores.v1",
         "batchDir": str(batch_dir),
@@ -539,7 +583,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--duration", type=float, default=5.0)
     parser.add_argument("--scale-size", type=int, default=512)
-    parser.add_argument("--feature-mode", choices=("video", "audio_video"), default="video")
+    parser.add_argument(
+        "--feature-mode", choices=("video", "audio_video"), default="video"
+    )
     parser.add_argument("--sort-by", default="meanAbsActivation")
     parser.add_argument("--contact-sheet-limit", type=int, default=24)
     parser.add_argument("--batch-size", type=int, default=12)
@@ -548,9 +594,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-resume", dest="resume", action="store_false")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--include-all-crops", action="store_true", default=True)
-    parser.add_argument("--summary-only", dest="include_all_crops", action="store_false")
+    parser.add_argument(
+        "--summary-only", dest="include_all_crops", action="store_false"
+    )
     parser.add_argument("--direct-video-events", action="store_true", default=True)
-    parser.add_argument("--full-video-helper", dest="direct_video_events", action="store_false")
+    parser.add_argument(
+        "--full-video-helper", dest="direct_video_events", action="store_false"
+    )
     return parser.parse_args()
 
 

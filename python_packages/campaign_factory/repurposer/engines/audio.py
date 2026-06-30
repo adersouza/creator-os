@@ -1,11 +1,12 @@
-from pathlib import Path
 from importlib import import_module
+from pathlib import Path
 
 from .common import ensure_input_file, run_ffmpeg
 
+
 class AudioEngine:
     """Layer 2: Audio replacement and mixing."""
-    
+
     @staticmethod
     def apply(
         video_path: Path,
@@ -18,12 +19,12 @@ class AudioEngine:
     ) -> Path:
         """Strips original audio and injects new audio."""
         ensure_input_file(video_path, label="video")
-        
+
         # If no track is explicitly passed, try to fetch a trending one
         get_connection, recommend_audio = _reference_audio_helpers()
         if not music_track and get_connection and recommend_audio:
             try:
-                conn = get_connection(video_path.parent) # Root config/db lookup
+                conn = get_connection(video_path.parent)  # Root config/db lookup
                 shortlist_size = max(1, int(account_index or 0) + 1)
                 result = recommend_audio(conn, platform=platform, limit=shortlist_size)
                 recs = result.get("recommendations", [])
@@ -32,26 +33,43 @@ class AudioEngine:
                     candidate = rec.get("localPreviewPath")
                     candidate_path = Path(candidate) if candidate else None
                     if candidate_path and candidate_path.exists():
-                        print(f"[AudioEngine] Sourced account audio: {rec.get('title')} ({candidate_path.name})")
+                        print(
+                            f"[AudioEngine] Sourced account audio: {rec.get('title')} ({candidate_path.name})"
+                        )
                         music_track = candidate_path
             except Exception as exc:
                 print(f"[AudioEngine] Failed to source dynamic trending audio: {exc}")
-                
+
         if not music_track and not voiceover:
             if require_audio_change:
-                raise RuntimeError("audio change required but no replacement track or voiceover was available")
-            return video_path # Nothing to do
-            
+                raise RuntimeError(
+                    "audio change required but no replacement track or voiceover was available"
+                )
+            return video_path  # Nothing to do
+
         if music_track:
             ensure_input_file(music_track, label="music track")
             # Map video from input 0, audio from input 1
             cmd = [
-                "ffmpeg", "-i", str(video_path), "-i", str(music_track),
-                "-map", "0:v:0", "-map", "1:a:0",
-                "-c:v", "copy", "-c:a", "aac", "-shortest", "-y", str(output_path)
+                "ffmpeg",
+                "-i",
+                str(video_path),
+                "-i",
+                str(music_track),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-shortest",
+                "-y",
+                str(output_path),
             ]
             return run_ffmpeg(cmd, output_path=output_path)
-            
+
         return video_path
 
 
@@ -61,4 +79,6 @@ def _reference_audio_helpers():
         audio_module = import_module("reference_factory.audio")
     except ImportError:
         return None, None
-    return getattr(db_module, "get_connection", None), getattr(audio_module, "recommend_audio", None)
+    return getattr(db_module, "get_connection", None), getattr(
+        audio_module, "recommend_audio", None
+    )

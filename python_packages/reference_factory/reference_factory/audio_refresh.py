@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .audio import audio_catalog_health, competitor_audio_leaderboard, import_audio_csv, recommend_audio
+from .audio import (
+    audio_catalog_health,
+    competitor_audio_leaderboard,
+    import_audio_csv,
+    recommend_audio,
+)
 from .tiktok_archive import import_tiktok_archive
-
 
 CATALOG_FIELDS = [
     "title",
@@ -51,7 +55,9 @@ def refresh_tiktok_audio(
     learning_dir.mkdir(parents=True, exist_ok=True)
     existing_ids = {
         str(row["native_audio_id"])
-        for row in conn.execute("SELECT native_audio_id FROM audio_catalog WHERE platform = 'tiktok' AND native_audio_id IS NOT NULL")
+        for row in conn.execute(
+            "SELECT native_audio_id FROM audio_catalog WHERE platform = 'tiktok' AND native_audio_id IS NOT NULL"
+        )
         if row["native_audio_id"]
     }
 
@@ -73,8 +79,14 @@ def refresh_tiktok_audio(
     catalog_path = learning_dir / "audio_catalog_from_latest_tiktok_downloads.csv"
     catalog_rows = leaderboard_to_catalog_rows(leaderboard, limit=catalog_limit)
     write_audio_catalog_csv(catalog_rows, catalog_path)
-    new_audio_ids = [row["native_audio_id"] for row in catalog_rows if row.get("native_audio_id") and row["native_audio_id"] not in existing_ids]
-    catalog_import = import_audio_csv(conn, catalog_path, preserve_manual_fields=preserve_manual_fields)
+    new_audio_ids = [
+        row["native_audio_id"]
+        for row in catalog_rows
+        if row.get("native_audio_id") and row["native_audio_id"] not in existing_ids
+    ]
+    catalog_import = import_audio_csv(
+        conn, catalog_path, preserve_manual_fields=preserve_manual_fields
+    )
     recommendations = recommend_audio(
         conn,
         platform="tiktok",
@@ -107,18 +119,24 @@ def refresh_tiktok_audio(
     }
     summary_path = learning_dir / "tiktok_audio_latest_downloads_summary.json"
     summary["summaryPath"] = str(summary_path)
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return summary
 
 
-def leaderboard_to_catalog_rows(payload: dict[str, Any], *, limit: int | None = None) -> list[dict[str, str]]:
-    now = datetime.now(timezone.utc)
+def leaderboard_to_catalog_rows(
+    payload: dict[str, Any], *, limit: int | None = None
+) -> list[dict[str, str]]:
+    now = datetime.now(UTC)
     expires = (now + timedelta(days=10)).isoformat()
     rows: list[dict[str, str]] = []
     items = payload.get("items") or []
     for item in items[: limit or len(items)]:
         examples = item.get("examples") or []
-        example_urls = [str(example.get("url")) for example in examples if example.get("url")]
+        example_urls = [
+            str(example.get("url")) for example in examples if example.get("url")
+        ]
         captions = " | ".join(
             str(example.get("caption") or "").strip()
             for example in examples[:3]
@@ -129,8 +147,12 @@ def leaderboard_to_catalog_rows(payload: dict[str, Any], *, limit: int | None = 
         usage_count = int(item.get("totalPlays") or item.get("medianPlays") or 0)
         rows.append(
             {
-                "title": str(item.get("audioTitle") or f"TikTok audio {item.get('audioId')}"),
-                "artist": str(item.get("artistName") or (accounts[0] if accounts else "")),
+                "title": str(
+                    item.get("audioTitle") or f"TikTok audio {item.get('audioId')}"
+                ),
+                "artist": str(
+                    item.get("artistName") or (accounts[0] if accounts else "")
+                ),
                 "platform": "tiktok",
                 "native_audio_id": str(item.get("audioId") or ""),
                 "native_audio_url": example_urls[0] if example_urls else "",
@@ -138,7 +160,9 @@ def leaderboard_to_catalog_rows(payload: dict[str, Any], *, limit: int | None = 
                 "best_content_types": "slideshow|ai_ofm|reel|captioned_reference",
                 "account_fit": "|".join(accounts),
                 "bpm": "",
-                "energy": "8" if {"dance", "high_energy"} & tags or usage_count >= 100000 else "6",
+                "energy": "8"
+                if {"dance", "high_energy"} & tags or usage_count >= 100000
+                else "6",
                 "vocality": "unknown",
                 "danceability": "",
                 "valence": "",
@@ -177,11 +201,16 @@ def _catalog_tags(item: dict[str, Any], captions: str) -> set[str]:
     if vibe:
         tags.add(str(vibe))
     caption_text = captions.lower()
-    if any(word in caption_text for word in ["glowup", "different", "resemblance", "transformation", "before"]):
+    if any(
+        word in caption_text
+        for word in ["glowup", "different", "resemblance", "transformation", "before"]
+    ):
         tags.update(["glowup", "transformation"])
     if any(word in caption_text for word in ["dancer", "dance", "cardio", "strut"]):
         tags.update(["dance", "high_energy"])
-    if any(word in caption_text for word in ["older men", "date", "single", "boy", "men"]):
+    if any(
+        word in caption_text for word in ["older men", "date", "single", "boy", "men"]
+    ):
         tags.update(["dating", "relationship"])
     return tags
 

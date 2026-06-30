@@ -15,13 +15,20 @@ from winner_dna import upsert_reel_feature
 
 
 def _output(root: Path) -> Path:
-    output = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+    output = (
+        root
+        / "02_processed"
+        / "clip_001"
+        / "clip_001_h00_v01_original_light_deadbeef.mp4"
+    )
     output.parent.mkdir(parents=True)
     output.write_bytes(b"fake")
     return output
 
 
-def test_analysis_report_request_manifest_is_zero_cost_when_no_provider_configured(tmp_path: Path) -> None:
+def test_analysis_report_request_manifest_is_zero_cost_when_no_provider_configured(
+    tmp_path: Path,
+) -> None:
     output = _output(tmp_path)
 
     result = request_analysis_reports(tmp_path, clip="clip_001")
@@ -31,13 +38,24 @@ def test_analysis_report_request_manifest_is_zero_cost_when_no_provider_configur
     assert result["estimatedCostUsd"] == 0
     assert result["records"][0]["status"] == "operator_input_required"
     assert result["records"][0]["outputPath"] == str(output)
-    assert set(result["records"][0]["requestedReports"]) == {"virality", "video_analysis"}
-    manifest = json.loads((output.parent / "_analysis_report_requests.json").read_text(encoding="utf-8"))
-    assert manifest["records"][0]["sidecars"]["virality"].endswith(".virality_report.json")
-    assert manifest["records"][0]["sidecars"]["video_analysis"].endswith(".video_analysis.json")
+    assert set(result["records"][0]["requestedReports"]) == {
+        "virality",
+        "video_analysis",
+    }
+    manifest = json.loads(
+        (output.parent / "_analysis_report_requests.json").read_text(encoding="utf-8")
+    )
+    assert manifest["records"][0]["sidecars"]["virality"].endswith(
+        ".virality_report.json"
+    )
+    assert manifest["records"][0]["sidecars"]["video_analysis"].endswith(
+        ".video_analysis.json"
+    )
 
 
-def test_operator_reports_write_sidecars_consumed_by_readiness_and_winner_dna(tmp_path: Path) -> None:
+def test_operator_reports_write_sidecars_consumed_by_readiness_and_winner_dna(
+    tmp_path: Path,
+) -> None:
     output = _output(tmp_path)
 
     result = write_operator_reports(
@@ -69,14 +87,18 @@ def test_operator_reports_write_sidecars_consumed_by_readiness_and_winner_dna(tm
     assert features["hook_type"] == "curiosity"
 
 
-def test_provider_command_generates_requested_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_provider_command_generates_requested_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     output = _output(tmp_path)
     calls: list[list[str]] = []
 
     def fake_run(cmd, capture_output, text, timeout, check):  # type: ignore[no-untyped-def]
         calls.append(cmd)
         if "--output" not in cmd:
-            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"streams": []}), stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=json.dumps({"streams": []}), stderr=""
+            )
         assert str(output) in cmd
         return subprocess.CompletedProcess(
             cmd,

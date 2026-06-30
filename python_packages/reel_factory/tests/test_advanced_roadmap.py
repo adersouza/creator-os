@@ -6,72 +6,54 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ai_visual_qc import record_from_scores, sample_positions
 from asset_prompt_contract import (
     AssetPromptSet,
     build_grok_simple_prompt,
     parse_asset_prompt_response,
     write_prompt_template,
 )
-from caption_render import render_caption_png
-from audio_mux import audio_id, output_path_for
-from embedding_provider import HashEmbeddingProvider
-from graph_builder import build_ffmpeg_cmd
-from caption_generation_log import caption_library, rank_clip_sidecar, score_caption_quality
-from hook_ai import generate_hooks, parse_hook_response, validate_hook_variant, validate_hook_variants
-from hook_tools import find_semantic_duplicates, reindex_hook_library, save_hook_to_library
-from placement_scorer import score_lanes
-from qc_check import QcRecord, _parse_psnr, _parse_ssim, probe_with_audio_mode
-from reel_pipeline import Recipe
-from render_queue import RenderQueue
-from render_plan import RenderPlan
-from thumbnail_gen import thumbnail_path_for
-from ai_visual_qc import record_from_scores
-from ai_visual_qc import sample_positions
 from audio_intent import write_audio_intent
-from embedding_index import duplicate_risk, similar as similar_media, upsert_embedding
-from generate_assets import (
-    AssetGenerationPlan,
-    _six_pack_prompts,
-    build_source_lineage,
-    build_image_cmd,
-    create_image_asset,
-    detect_grid_status,
-    dry_run,
-    extract_url,
-    HiggsfieldCommandError,
-    image_identity_flag,
-    probe_higgsfield_capabilities,
-    resolve_generation_models,
-    validate_required_capabilities,
-)
-from intelligence_store import confidence_for_sample_size, data_quality_score, low_data_warning, validate_review, winner_score
-from manifest import Manifest
-from metrics_store import import_metrics_csv, import_outcomes_csv, outcomes_summary
-from reference_analyzer import analyze_reference, build_analysis_instruction, normalize_analysis
+from audio_mux import audio_id, output_path_for
 from campaign_store import (
     add_reference,
     campaign_leaderboard,
-    connect as campaign_connect,
     create_campaign,
     next_batch_plan,
-    rate_output as store_rate_output,
     record_asset_generation,
     record_prompt_run,
     retry_helper_direction,
     validate_generation_soul,
 )
-from winner_dna import (
-    account_fatigue_report,
-    assign_experiment,
-    baseline_vs_recommended_report,
-    cost_analytics,
-    decision_log,
-    experiment_report,
-    persist_recommendation_decision,
-    record_cost,
-    refresh_winner_dna,
-    upsert_reel_feature,
-    winner_dna_leaderboard,
+from campaign_store import (
+    connect as campaign_connect,
+)
+from campaign_store import (
+    rate_output as store_rate_output,
+)
+from caption_generation_log import (
+    caption_library,
+    rank_clip_sidecar,
+    score_caption_quality,
+)
+from caption_render import render_caption_png
+from embedding_index import duplicate_risk, upsert_embedding
+from embedding_index import similar as similar_media
+from embedding_provider import HashEmbeddingProvider
+from generate_assets import (
+    AssetGenerationPlan,
+    HiggsfieldCommandError,
+    _six_pack_prompts,
+    build_image_cmd,
+    build_source_lineage,
+    create_image_asset,
+    detect_grid_status,
+    dry_run,
+    extract_url,
+    image_identity_flag,
+    probe_higgsfield_capabilities,
+    resolve_generation_models,
+    validate_required_capabilities,
 )
 from generate_prompts import (
     HIGGSFIELD_REFERENCE_PROMPT_MODE,
@@ -95,7 +77,30 @@ from generate_prompts import (
     scene_json_to_higgsfield_prompt,
     strip_json_fence,
 )
-from reel_url_import import download_reel_url
+from graph_builder import build_ffmpeg_cmd
+from hook_ai import (
+    generate_hooks,
+    parse_hook_response,
+    validate_hook_variant,
+    validate_hook_variants,
+)
+from hook_tools import (
+    find_semantic_duplicates,
+    reindex_hook_library,
+    save_hook_to_library,
+)
+from intelligence_store import (
+    confidence_for_sample_size,
+    data_quality_score,
+    low_data_warning,
+    validate_review,
+    winner_score,
+)
+from manifest import Manifest
+from metrics_store import import_metrics_csv, import_outcomes_csv, outcomes_summary
+from placement_scorer import score_lanes
+from qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
+from readiness_check import evaluate_output, run_readiness
 from reel_gui import (
     auto_hooks_api,
     clip_status_from_evidence,
@@ -104,30 +109,61 @@ from reel_gui import (
     queue_threadsdashboard_post,
     save_photo_post_asset,
 )
-from readiness_check import evaluate_output, run_readiness
+from reel_pipeline import Recipe
+from reel_url_import import download_reel_url
+from reference_analyzer import (
+    analyze_reference,
+    build_analysis_instruction,
+    normalize_analysis,
+)
+from render_plan import RenderPlan
+from render_queue import RenderQueue
 from safe_zone import score_safe_zone
-
+from thumbnail_gen import thumbnail_path_for
+from winner_dna import (
+    account_fatigue_report,
+    assign_experiment,
+    baseline_vs_recommended_report,
+    cost_analytics,
+    decision_log,
+    experiment_report,
+    persist_recommendation_decision,
+    record_cost,
+    refresh_winner_dna,
+    upsert_reel_feature,
+    winner_dna_leaderboard,
+)
 
 REEL_ROOT = Path(__file__).resolve().parents[1]
 
 
 class AdvancedRoadmapTests(unittest.TestCase):
     def test_asset_prompt_contract_accepts_simple_json_only(self):
-        parsed = parse_asset_prompt_response(json.dumps({
-            "higgsfieldGridPrompt": "2x3 grid, adult glamour outfit variations",
-            "klingMotionPrompt": "subtle confident turn toward camera",
-            "notes": "use best panel",
-        }))
-        self.assertEqual(parsed.higgsfieldGridPrompt, "2x3 grid, adult glamour outfit variations")
+        parsed = parse_asset_prompt_response(
+            json.dumps(
+                {
+                    "higgsfieldGridPrompt": "2x3 grid, adult glamour outfit variations",
+                    "klingMotionPrompt": "subtle confident turn toward camera",
+                    "notes": "use best panel",
+                }
+            )
+        )
+        self.assertEqual(
+            parsed.higgsfieldGridPrompt, "2x3 grid, adult glamour outfit variations"
+        )
         self.assertEqual(parsed.notes, "use best panel")
 
     def test_asset_prompt_contract_rejects_negative_prompt_field(self):
         with self.assertRaisesRegex(ValueError, "unsupported fields"):
-            parse_asset_prompt_response(json.dumps({
-                "higgsfieldGridPrompt": "2x3 grid, adult glamour outfit variations",
-                "klingMotionPrompt": "subtle confident turn toward camera",
-                "negative_prompt": "bad hands",
-            }))
+            parse_asset_prompt_response(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "2x3 grid, adult glamour outfit variations",
+                        "klingMotionPrompt": "subtle confident turn toward camera",
+                        "negative_prompt": "bad hands",
+                    }
+                )
+            )
 
     def test_asset_prompt_contract_rejects_negative_higgsfield_language(self):
         rejected = [
@@ -142,34 +178,52 @@ class AdvancedRoadmapTests(unittest.TestCase):
         for prompt in rejected:
             with self.subTest(prompt=prompt):
                 with self.assertRaisesRegex(ValueError, "rejected v1 language"):
-                    parse_asset_prompt_response(json.dumps({
-                        "higgsfieldGridPrompt": prompt,
-                        "klingMotionPrompt": "subtle confident turn toward camera",
-                    }))
+                    parse_asset_prompt_response(
+                        json.dumps(
+                            {
+                                "higgsfieldGridPrompt": prompt,
+                                "klingMotionPrompt": "subtle confident turn toward camera",
+                            }
+                        )
+                    )
 
     def test_asset_prompt_contract_rejects_identity_language_in_final_prompts(self):
         rejected = [
-            ("2x3 grid using the trained identity", "subtle confident turn toward camera"),
+            (
+                "2x3 grid using the trained identity",
+                "subtle confident turn toward camera",
+            ),
             ("2x3 grid with long layered hair", "subtle confident turn toward camera"),
             ("2x3 grid with curly hairstyle", "subtle confident turn toward camera"),
-            ("2x3 grid, adult glamour outfit variations", "keep identity stable during motion"),
+            (
+                "2x3 grid, adult glamour outfit variations",
+                "keep identity stable during motion",
+            ),
         ]
         for image_prompt, motion_prompt in rejected:
             with self.subTest(image_prompt=image_prompt, motion_prompt=motion_prompt):
                 with self.assertRaisesRegex(ValueError, "rejected v1 language"):
-                    parse_asset_prompt_response(json.dumps({
-                        "higgsfieldGridPrompt": image_prompt,
-                        "klingMotionPrompt": motion_prompt,
-                    }))
+                    parse_asset_prompt_response(
+                        json.dumps(
+                            {
+                                "higgsfieldGridPrompt": image_prompt,
+                                "klingMotionPrompt": motion_prompt,
+                            }
+                        )
+                    )
 
     def test_asset_prompt_contract_allows_generic_panel_consistency_language(self):
-        parsed = parse_asset_prompt_response(json.dumps({
-            "higgsfieldGridPrompt": (
-                "Create one high-quality native 2x3 grid featuring six variations of the same adult woman "
-                "with consistent body proportions, deep cleavage, skin-tight fabric cling, bright lighting, and same camera framing"
-            ),
-            "klingMotionPrompt": "subtle confident turn toward camera",
-        }))
+        parsed = parse_asset_prompt_response(
+            json.dumps(
+                {
+                    "higgsfieldGridPrompt": (
+                        "Create one high-quality native 2x3 grid featuring six variations of the same adult woman "
+                        "with consistent body proportions, deep cleavage, skin-tight fabric cling, bright lighting, and same camera framing"
+                    ),
+                    "klingMotionPrompt": "subtle confident turn toward camera",
+                }
+            )
+        )
         self.assertIn("consistent body proportions", parsed.higgsfieldGridPrompt)
         self.assertIn("deep cleavage", parsed.higgsfieldGridPrompt)
 
@@ -186,28 +240,51 @@ class AdvancedRoadmapTests(unittest.TestCase):
         for term in rejected_terms:
             with self.subTest(term=term):
                 with self.assertRaisesRegex(ValueError, "rejected v1 language"):
-                    parse_asset_prompt_response(json.dumps({
-                        "higgsfieldGridPrompt": f"2x3 grid, adult glamour pose, deep cleavage, {term}",
-                        "klingMotionPrompt": "subtle confident turn toward camera",
-                    }))
+                    parse_asset_prompt_response(
+                        json.dumps(
+                            {
+                                "higgsfieldGridPrompt": f"2x3 grid, adult glamour pose, deep cleavage, {term}",
+                                "klingMotionPrompt": "subtle confident turn toward camera",
+                            }
+                        )
+                    )
 
     def test_asset_prompt_contract_rejects_caption_overlay_and_platform_language(self):
         rejected = [
-            ("2x3 grid with caption overlay hook", "subtle confident turn toward camera"),
+            (
+                "2x3 grid with caption overlay hook",
+                "subtle confident turn toward camera",
+            ),
             ("2x3 grid with big text at bottom", "subtle confident turn toward camera"),
-            ("2x3 grid with on-screen text question", "subtle confident turn toward camera"),
+            (
+                "2x3 grid with on-screen text question",
+                "subtle confident turn toward camera",
+            ),
             ("2x3 grid based on the text hook", "subtle confident turn toward camera"),
-            ("2x3 grid with Instagram interface crop", "subtle confident turn toward camera"),
-            ("2x3 grid, adult glamour outfit variations", "social-media style motion clip"),
-            ("2x3 grid, adult glamour outfit variations", "keep UI buttons outside the frame"),
+            (
+                "2x3 grid with Instagram interface crop",
+                "subtle confident turn toward camera",
+            ),
+            (
+                "2x3 grid, adult glamour outfit variations",
+                "social-media style motion clip",
+            ),
+            (
+                "2x3 grid, adult glamour outfit variations",
+                "keep UI buttons outside the frame",
+            ),
         ]
         for image_prompt, motion_prompt in rejected:
             with self.subTest(image_prompt=image_prompt, motion_prompt=motion_prompt):
                 with self.assertRaisesRegex(ValueError, "rejected v1 language"):
-                    parse_asset_prompt_response(json.dumps({
-                        "higgsfieldGridPrompt": image_prompt,
-                        "klingMotionPrompt": motion_prompt,
-                    }))
+                    parse_asset_prompt_response(
+                        json.dumps(
+                            {
+                                "higgsfieldGridPrompt": image_prompt,
+                                "klingMotionPrompt": motion_prompt,
+                            }
+                        )
+                    )
 
     def test_asset_prompt_set_has_no_legacy_prompt_aliases(self):
         parsed = AssetPromptSet(
@@ -220,13 +297,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_asset_prompt_contract_rejects_legacy_compiler_shape(self):
         with self.assertRaisesRegex(ValueError, "unsupported fields"):
-            parse_asset_prompt_response(json.dumps({
-                "soul_id_2x3_prompt": "2x3 grid prompt",
-                "kling_video_prompt": "motion prompt",
-                "kling_negative_prompt": "bad anatomy",
-                "structured_breakdown": {},
-                "confidence_score": 88,
-            }))
+            parse_asset_prompt_response(
+                json.dumps(
+                    {
+                        "soul_id_2x3_prompt": "2x3 grid prompt",
+                        "kling_video_prompt": "motion prompt",
+                        "kling_negative_prompt": "bad anatomy",
+                        "structured_breakdown": {},
+                        "confidence_score": 88,
+                    }
+                )
+            )
 
     def test_grok_simple_prompt_documents_only_clean_fields(self):
         prompt = build_grok_simple_prompt("mirror selfie reference", "red dress")
@@ -250,10 +331,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("cleavage-forward", prompt)
 
     def test_retry_helpers_preserve_reference_while_amplifying_body(self):
-        self.assertIn("larger pushed-up breasts", retry_helper_direction("more_reference_fidelity"))
-        self.assertIn("deep cleavage", retry_helper_direction("more_reference_fidelity"))
-        self.assertIn("larger pushed-up full breasts", retry_helper_direction("more_body_emphasis"))
-        self.assertIn("deep plunging cleavage as the focal point", retry_helper_direction("more_body_emphasis"))
+        self.assertIn(
+            "larger pushed-up breasts",
+            retry_helper_direction("more_reference_fidelity"),
+        )
+        self.assertIn(
+            "deep cleavage", retry_helper_direction("more_reference_fidelity")
+        )
+        self.assertIn(
+            "larger pushed-up full breasts",
+            retry_helper_direction("more_body_emphasis"),
+        )
+        self.assertIn(
+            "deep plunging cleavage as the focal point",
+            retry_helper_direction("more_body_emphasis"),
+        )
         self.assertIn("curvier frame", retry_helper_direction("more_body_emphasis"))
         self.assertIn("deep plunging cleavage", retry_helper_direction("more_cleavage"))
 
@@ -261,10 +353,15 @@ class AdvancedRoadmapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt_path = root / "prompt.json"
-            prompt_path.write_text(json.dumps({
-                "higgsfieldGridPrompt": "2x3 grid",
-                "klingMotionPrompt": "motion",
-            }), encoding="utf-8")
+            prompt_path.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "2x3 grid",
+                        "klingMotionPrompt": "motion",
+                    }
+                ),
+                encoding="utf-8",
+            )
             plan = AssetGenerationPlan(
                 prompt_json=prompt_path,
                 stem="clip_001",
@@ -275,27 +372,50 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 out_dir=root / "project_data" / "generated_assets",
                 source_dir=root / "00_source_videos",
             )
-            err = HiggsfieldCommandError(["higgsfield", "generate", "create"], 1, "", "rejected by provider")
-            with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
-                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
-                 patch("generate_assets._run_json", side_effect=err):
+            err = HiggsfieldCommandError(
+                ["higgsfield", "generate", "create"], 1, "", "rejected by provider"
+            )
+            with (
+                patch(
+                    "generate_assets.ensure_required_capabilities",
+                    return_value={"schema": "cap", "createdAt": 1},
+                ),
+                patch(
+                    "generate_assets._cost_preflight_for_plan",
+                    return_value={
+                        "allowed": True,
+                        "blockingReason": "",
+                        "blockingReasons": [],
+                    },
+                ),
+                patch("generate_assets._run_json", side_effect=err),
+            ):
                 result = create_image_asset(plan)
             self.assertFalse(result["ok"])
             lineage_path = Path(result["path"])
             self.assertTrue(lineage_path.exists())
             lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
-            self.assertEqual(lineage["generation"]["status"], "generation_rejected_or_failed")
+            self.assertEqual(
+                lineage["generation"]["status"], "generation_rejected_or_failed"
+            )
             self.assertEqual(lineage["generation"]["failure"]["stage"], "image_create")
-            self.assertIn("rejected by provider", lineage["generation"]["failure"]["stderrTail"])
+            self.assertIn(
+                "rejected by provider", lineage["generation"]["failure"]["stderrTail"]
+            )
 
     def test_higgsfield_cost_preflight_blocks_paid_image_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt_path = root / "prompt.json"
-            prompt_path.write_text(json.dumps({
-                "higgsfieldGridPrompt": "reference image still",
-                "klingMotionPrompt": "motion",
-            }), encoding="utf-8")
+            prompt_path.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "reference image still",
+                        "klingMotionPrompt": "motion",
+                    }
+                ),
+                encoding="utf-8",
+            )
             plan = AssetGenerationPlan(
                 prompt_json=prompt_path,
                 stem="clip_cost",
@@ -307,26 +427,48 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 source_dir=root / "00_source_videos",
             )
 
-            with patch("generate_assets.ensure_required_capabilities", return_value={"schema": "cap", "createdAt": 1}), \
-                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": False, "blockingReason": "budget_policy_missing", "blockingReasons": ["budget_policy_missing"]}), \
-                 patch("generate_assets._run_json") as run_json:
+            with (
+                patch(
+                    "generate_assets.ensure_required_capabilities",
+                    return_value={"schema": "cap", "createdAt": 1},
+                ),
+                patch(
+                    "generate_assets._cost_preflight_for_plan",
+                    return_value={
+                        "allowed": False,
+                        "blockingReason": "budget_policy_missing",
+                        "blockingReasons": ["budget_policy_missing"],
+                    },
+                ),
+                patch("generate_assets._run_json") as run_json,
+            ):
                 result = create_image_asset(plan)
 
             self.assertFalse(result["ok"])
             run_json.assert_not_called()
             lineage = result["lineage"]
             self.assertEqual(lineage["generation"]["status"], "cost_preflight_blocked")
-            self.assertEqual(lineage["generation"]["failure"]["stage"], "cost_preflight")
-            self.assertEqual(lineage["generation"]["costPreflight"]["blockingReason"], "budget_policy_missing")
+            self.assertEqual(
+                lineage["generation"]["failure"]["stage"], "cost_preflight"
+            )
+            self.assertEqual(
+                lineage["generation"]["costPreflight"]["blockingReason"],
+                "budget_policy_missing",
+            )
 
     def test_active_image_asset_lineage_does_not_call_deprecated_grid_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt_path = root / "prompt.json"
-            prompt_path.write_text(json.dumps({
-                "higgsfieldGridPrompt": "reference image still",
-                "klingMotionPrompt": "motion",
-            }), encoding="utf-8")
+            prompt_path.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "reference image still",
+                        "klingMotionPrompt": "motion",
+                    }
+                ),
+                encoding="utf-8",
+            )
             plan = AssetGenerationPlan(
                 prompt_json=prompt_path,
                 stem="clip_single",
@@ -340,19 +482,44 @@ class AdvancedRoadmapTests(unittest.TestCase):
             capabilities = {
                 "schema": "cap",
                 "createdAt": 1,
-                "imageModels": [{"job_set_type": "soul_2", "parameters": [{"name": "soul_id"}]}],
+                "imageModels": [
+                    {"job_set_type": "soul_2", "parameters": [{"name": "soul_id"}]}
+                ],
                 "videoModels": [{"job_set_type": "kling3_0"}],
             }
 
-            with patch("generate_assets.ensure_required_capabilities", return_value=capabilities), \
-                 patch("generate_assets._cost_preflight_for_plan", return_value={"allowed": True, "blockingReason": "", "blockingReasons": []}), \
-                 patch("generate_assets._run_json", return_value={"id": "img_1", "url": "https://example.test/img.png"}), \
-                 patch("generate_assets.validate_generation_soul", return_value={"status": "valid"}), \
-                 patch("generate_assets.detect_grid_status", side_effect=AssertionError("deprecated grid detection called")):
+            with (
+                patch(
+                    "generate_assets.ensure_required_capabilities",
+                    return_value=capabilities,
+                ),
+                patch(
+                    "generate_assets._cost_preflight_for_plan",
+                    return_value={
+                        "allowed": True,
+                        "blockingReason": "",
+                        "blockingReasons": [],
+                    },
+                ),
+                patch(
+                    "generate_assets._run_json",
+                    return_value={"id": "img_1", "url": "https://example.test/img.png"},
+                ),
+                patch(
+                    "generate_assets.validate_generation_soul",
+                    return_value={"status": "valid"},
+                ),
+                patch(
+                    "generate_assets.detect_grid_status",
+                    side_effect=AssertionError("deprecated grid detection called"),
+                ),
+            ):
                 result = create_image_asset(plan, wait=True, download=False)
 
             self.assertTrue(result["ok"])
-            self.assertEqual(result["lineage"]["generation"]["grid"]["status"], "single_image_layout")
+            self.assertEqual(
+                result["lineage"]["generation"]["grid"]["status"], "single_image_layout"
+            )
             self.assertFalse(result["lineage"]["generation"]["grid"]["isGrid"])
 
     def test_first_visible_frame_selector_skips_black_frames(self):
@@ -374,9 +541,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     ImageDraw.Draw(im).rectangle([0, 0, 39, 79], fill="gray")
                 im.save(out)
 
-            with patch("generate_prompts.video_duration", return_value=1.0), \
-                 patch("generate_prompts.subprocess.run", side_effect=fake_run):
-                result = extract_first_visible_frame(video, out_dir, max_scan_seconds=1.0, step_seconds=0.5)
+            with (
+                patch("generate_prompts.video_duration", return_value=1.0),
+                patch("generate_prompts.subprocess.run", side_effect=fake_run),
+            ):
+                result = extract_first_visible_frame(
+                    video, out_dir, max_scan_seconds=1.0, step_seconds=0.5
+                )
 
             self.assertEqual(result, out_dir / "reference_00_first_visible.jpg")
             self.assertGreaterEqual(calls["n"], 2)
@@ -392,11 +563,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (1344, 2016), "white").save(single)
             Image.new("RGB", (1800, 1800), "white").save(grid)
 
-            with patch.dict(os.environ, {
-                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                "REEL_FACTORY_ENV": "test",
-            }, clear=True):
-                self.assertEqual(detect_grid_status(single)["status"], "single_image_or_invalid_grid")
+            with patch.dict(
+                os.environ,
+                {
+                    "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                    "REEL_FACTORY_ENV": "test",
+                },
+                clear=True,
+            ):
+                self.assertEqual(
+                    detect_grid_status(single)["status"], "single_image_or_invalid_grid"
+                )
                 self.assertEqual(detect_grid_status(grid)["status"], "native_2x3_grid")
 
     def test_capability_probe_validates_required_models(self):
@@ -406,12 +583,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
         }
         self.assertTrue(validate_required_capabilities(payload)["ok"])
         payload["videoModels"] = []
-        self.assertEqual(validate_required_capabilities(payload)["missing"], ["kling3_0"])
+        self.assertEqual(
+            validate_required_capabilities(payload)["missing"], ["kling3_0"]
+        )
 
     def test_capability_resolver_prefers_current_soul_model_and_identity_flag(self):
         payload = {
             "imageModels": [
-                {"job_set_type": "text2image_soul_v2", "parameters": [{"name": "custom_reference_id"}]},
+                {
+                    "job_set_type": "text2image_soul_v2",
+                    "parameters": [{"name": "custom_reference_id"}],
+                },
                 {"job_set_type": "soul_2", "parameters": [{"name": "soul_id"}]},
             ],
             "videoModels": [{"job_set_type": "kling3_0"}],
@@ -424,7 +606,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_capability_resolver_falls_back_to_legacy_soul_param(self):
         payload = {
-            "imageModels": [{"job_set_type": "text2image_soul_v2", "parameters": [{"name": "custom_reference_id"}]}],
+            "imageModels": [
+                {
+                    "job_set_type": "text2image_soul_v2",
+                    "parameters": [{"name": "custom_reference_id"}],
+                }
+            ],
             "videoModels": [{"job_set_type": "kling3_0"}],
         }
         resolved = resolve_generation_models(payload)
@@ -444,15 +631,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch("generate_assets._run_json", side_effect=fake_run_json), \
-                 patch("generate_assets._run_text", return_value="help text"):
+            with (
+                patch("generate_assets._run_json", side_effect=fake_run_json),
+                patch("generate_assets._run_text", return_value="help text"),
+            ):
                 result = probe_higgsfield_capabilities(root, force=True)
 
             self.assertTrue(result["validation"]["ok"])
-            self.assertTrue((root / "project_data" / "higgsfield_capabilities.json").exists())
+            self.assertTrue(
+                (root / "project_data" / "higgsfield_capabilities.json").exists()
+            )
 
     def test_grok_api_prompt_instruction_matches_clean_contract(self):
-        instruction = build_user_instruction("reference reel frames", "tight blue dress")
+        instruction = build_user_instruction(
+            "reference reel frames", "tight blue dress"
+        )
         self.assertIn("standalone Higgsfield Soul ID prompt", instruction)
         self.assertIn("one shared Kling motion prompt", instruction)
         self.assertIn("accepted 9:16 start image", instruction)
@@ -465,7 +658,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             img = Path(tmp) / "frame.jpg"
             img.write_bytes(b"fakejpg")
 
-            payload = build_xai_payload(model="grok-4.3", frames=[img], instruction="make prompt")
+            payload = build_xai_payload(
+                model="grok-4.3", frames=[img], instruction="make prompt"
+            )
 
             self.assertFalse(payload["store"])
             parts = payload["input"][0]["content"]
@@ -475,12 +670,16 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_grok_response_text_and_json_fence_parsing(self):
         payload = {
-            "output": [{
-                "content": [{
-                    "type": "output_text",
-                    "text": '```json\n{"higgsfieldGridPrompt":"grid","klingMotionPrompt":"motion","notes":"ok"}\n```',
-                }],
-            }],
+            "output": [
+                {
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": '```json\n{"higgsfieldGridPrompt":"grid","klingMotionPrompt":"motion","notes":"ok"}\n```',
+                        }
+                    ],
+                }
+            ],
         }
 
         parsed = parse_asset_prompt_response(strip_json_fence(response_text(payload)))
@@ -504,7 +703,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (64, 64), "white").save(ref)
 
             with patch("generate_prompts.call_grok") as grok:
-                with self.assertRaisesRegex(RuntimeError, "dry-run prompt JSON creation only"):
+                with self.assertRaisesRegex(
+                    RuntimeError, "dry-run prompt JSON creation only"
+                ):
                     generate_prompt(
                         out_path=root / "prompt.json",
                         root=root,
@@ -533,11 +734,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
             root = Path(tmp)
             prompt = root / "clip_001_grok.json"
             prompt.write_text(
-                json.dumps({
-                    "higgsfieldGridPrompt": "six panel soul id grid",
-                    "klingMotionPrompt": "subtle camera motion",
-                    "notes": "manual review",
-                }),
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "six panel soul id grid",
+                        "klingMotionPrompt": "subtle camera motion",
+                        "notes": "manual review",
+                    }
+                ),
                 encoding="utf-8",
             )
             reference = root / "ref.png"
@@ -558,7 +761,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             self.assertNotIn("higgsfield upload create", "\n".join(commands))
             self.assertIn("text2image_soul_v2", commands[0])
-            self.assertIn("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644", commands[0])
+            self.assertIn(
+                "--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644",
+                commands[0],
+            )
             self.assertIn("--aspect_ratio 9:16", commands[0])
             self.assertNotIn("--image", commands[0])
             self.assertIn("kling3_0", commands[1])
@@ -568,11 +774,16 @@ class AdvancedRoadmapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt = root / "clip_001_grok.json"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "six panel soul id grid",
-                "klingMotionPrompt": "subtle camera motion",
-                "notes": "manual review",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "six panel soul id grid",
+                        "klingMotionPrompt": "subtle camera motion",
+                        "notes": "manual review",
+                    }
+                ),
+                encoding="utf-8",
+            )
             plan = AssetGenerationPlan(
                 prompt_json=prompt,
                 stem="clip_001",
@@ -585,15 +796,26 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 image_mode="six-pack",
             )
 
-            with patch.dict(os.environ, {
-                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                "REEL_FACTORY_ENV": "test",
-            }, clear=True):
-                commands = [" ".join(cmd) for cmd in dry_run(plan, wait=True)["commands"]]
+            with patch.dict(
+                os.environ,
+                {
+                    "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                    "REEL_FACTORY_ENV": "test",
+                },
+                clear=True,
+            ):
+                commands = [
+                    " ".join(cmd) for cmd in dry_run(plan, wait=True)["commands"]
+                ]
             image_commands = [cmd for cmd in commands if "text2image_soul_v2" in cmd]
 
             self.assertEqual(len(image_commands), 6)
-            self.assertTrue(all("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644" in cmd for cmd in image_commands))
+            self.assertTrue(
+                all(
+                    "--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644" in cmd
+                    for cmd in image_commands
+                )
+            )
             self.assertIn("Render only outfit variation 6", image_commands[-1])
 
     def test_deprecated_six_pack_path_raises_by_default(self):
@@ -612,10 +834,14 @@ class AdvancedRoadmapTests(unittest.TestCase):
             klingMotionPrompt="subtle camera motion",
             notes="manual review",
         )
-        with patch.dict(os.environ, {
-            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-            "REEL_FACTORY_ENV": "test",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "test",
+            },
+            clear=True,
+        ):
             self.assertEqual(len(_six_pack_prompts(prompt)), 6)
 
     def test_prod_env_blocks_deprecated_generators_even_with_allow_flag(self):
@@ -624,10 +850,14 @@ class AdvancedRoadmapTests(unittest.TestCase):
             klingMotionPrompt="subtle camera motion",
             notes="manual review",
         )
-        with patch.dict(os.environ, {
-            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-            "REEL_FACTORY_ENV": "production",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "production",
+            },
+            clear=True,
+        ):
             with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
                 _six_pack_prompts(prompt)
 
@@ -637,22 +867,32 @@ class AdvancedRoadmapTests(unittest.TestCase):
             klingMotionPrompt="subtle camera motion",
             notes="manual review",
         )
-        with patch.dict(os.environ, {
-            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-            "REEL_FACTORY_ENV": "test",
-            "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                "REEL_FACTORY_ENV": "test",
+                "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS": "1",
+            },
+            clear=True,
+        ):
             with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
                 _six_pack_prompts(prompt)
 
-    def test_deprecated_grok_reference_analysis_returns_controlled_api_error_by_default(self):
+    def test_deprecated_grok_reference_analysis_returns_controlled_api_error_by_default(
+        self,
+    ):
         import reel_gui
 
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(Exception) as ctx:
-                reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
+                reel_gui.analyze_reference_api(
+                    {"reference": "ref.png", "model": "grok-4.3"}
+                )
         self.assertEqual(ctx.exception.status_code, 410)
-        self.assertIn("grok_reference_analysis is deprecated", str(ctx.exception.detail))
+        self.assertIn(
+            "grok_reference_analysis is deprecated", str(ctx.exception.detail)
+        )
 
     def test_reference_analysis_requires_explicit_model(self):
         import reel_gui
@@ -662,26 +902,42 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "model is required")
 
-    def test_deprecated_grok_reference_analysis_allows_explicit_local_test_override(self):
+    def test_deprecated_grok_reference_analysis_allows_explicit_local_test_override(
+        self,
+    ):
         import reel_gui
 
-        with patch.dict(os.environ, {
-            "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-            "REEL_FACTORY_ENV": "test",
-        }, clear=True), \
-             patch.object(reel_gui, "_resolve_project_path", return_value="ref.png"), \
-             patch.object(reel_gui, "analyze_reference", return_value={"ok": True}) as analyze:
-            result = reel_gui.analyze_reference_api({"reference": "ref.png", "model": "grok-4.3"})
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
+                    "REEL_FACTORY_ENV": "test",
+                },
+                clear=True,
+            ),
+            patch.object(reel_gui, "_resolve_project_path", return_value="ref.png"),
+            patch.object(
+                reel_gui, "analyze_reference", return_value={"ok": True}
+            ) as analyze,
+        ):
+            result = reel_gui.analyze_reference_api(
+                {"reference": "ref.png", "model": "grok-4.3"}
+            )
 
         self.assertEqual(result, {"ok": True})
         analyze.assert_called_once()
 
     def test_generate_assets_image_command_requires_soul_identity_param(self):
-        prompt = parse_asset_prompt_response(json.dumps({
-            "higgsfieldGridPrompt": "grid",
-            "klingMotionPrompt": "motion",
-            "notes": "ok",
-        }))
+        prompt = parse_asset_prompt_response(
+            json.dumps(
+                {
+                    "higgsfieldGridPrompt": "grid",
+                    "klingMotionPrompt": "motion",
+                    "notes": "ok",
+                }
+            )
+        )
 
         cmd = build_image_cmd(
             prompt,
@@ -698,11 +954,16 @@ class AdvancedRoadmapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt = root / "clip_001_grok.json"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid",
-                "klingMotionPrompt": "motion",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid",
+                        "klingMotionPrompt": "motion",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             plan = AssetGenerationPlan(
                 prompt_json=prompt,
                 stem="clip_001",
@@ -725,11 +986,16 @@ class AdvancedRoadmapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             prompt = root / "clip_001_grok.json"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "single creator start frame",
-                "klingMotionPrompt": "match source reel pacing",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "single creator start frame",
+                        "klingMotionPrompt": "match source reel pacing",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             ref = root / "reference_reel.mp4"
             ref.write_bytes(b"video")
             plan = AssetGenerationPlan(
@@ -754,18 +1020,22 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_failed_generation_does_not_extract_nested_media_url(self):
         response = {
-            "items": [{
-                "id": "vid_1",
-                "status": "failed",
-                "result_url": "",
-                "params": {
-                    "medias": [{
-                        "data": {
-                            "url": "https://example.test/start-image.png",
-                        },
-                    }],
-                },
-            }],
+            "items": [
+                {
+                    "id": "vid_1",
+                    "status": "failed",
+                    "result_url": "",
+                    "params": {
+                        "medias": [
+                            {
+                                "data": {
+                                    "url": "https://example.test/start-image.png",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
         }
 
         self.assertIsNone(extract_url(response))
@@ -775,23 +1045,40 @@ class AdvancedRoadmapTests(unittest.TestCase):
             conn = campaign_connect(Path(tmp))
             tables = {
                 row["name"]
-                for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
             }
             for table in {
-                "creators", "campaigns", "campaign_references", "prompt_runs",
-                "asset_generations", "operator_ratings", "campaign_outputs",
+                "creators",
+                "campaigns",
+                "campaign_references",
+                "prompt_runs",
+                "asset_generations",
+                "operator_ratings",
+                "campaign_outputs",
             }:
                 self.assertIn(table, tables)
-            stacey = conn.execute("SELECT * FROM creators WHERE name='Stacey'").fetchone()
+            stacey = conn.execute(
+                "SELECT * FROM creators WHERE name='Stacey'"
+            ).fetchone()
             self.assertEqual(stacey["soul_id"], "5828d958-91dd-4d6d-8909-934503f47644")
 
     def test_campaign_prompt_asset_rating_and_next_batch_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            create_campaign(root, name="Test Campaign", creator="Stacey", account="acct", platform="instagram_reels")
+            create_campaign(
+                root,
+                name="Test Campaign",
+                creator="Stacey",
+                account="acct",
+                platform="instagram_reels",
+            )
             ref = root / "ref.mp4"
             ref.write_bytes(b"video")
-            add_reference(root, campaign="Test Campaign", source_path=ref, visual_tags=["mirror"])
+            add_reference(
+                root, campaign="Test Campaign", source_path=ref, visual_tags=["mirror"]
+            )
             prompt_path = root / "prompt.json"
             prompt_fields = {
                 "higgsfieldGridPrompt": "grid prompt",
@@ -817,7 +1104,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "videoJobId": "video",
                     "videoResultUrl": "https://example.test/video.mp4",
                     "params": {},
-                    "raw": {"image": {"params": {"custom_reference_id": "5828d958-91dd-4d6d-8909-934503f47644"}}},
+                    "raw": {
+                        "image": {
+                            "params": {
+                                "custom_reference_id": "5828d958-91dd-4d6d-8909-934503f47644"
+                            }
+                        }
+                    },
                 },
                 "assets": {"localPaths": {}},
             }
@@ -837,13 +1130,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 output_path=out,
                 campaign="Test Campaign",
                 asset_generation_id=asset_rec["asset_generation_id"],
-                scores={"identity": 5, "pose": 2, "taste": 3, "artifacts": 2, "motion": 4},
+                scores={
+                    "identity": 5,
+                    "pose": 2,
+                    "taste": 3,
+                    "artifacts": 2,
+                    "motion": 4,
+                },
                 labels=["pose_drift", "hand_bad"],
             )
             board = campaign_leaderboard(root, campaign="Test Campaign")
             plan = next_batch_plan(root, campaign="Test Campaign", count=2)
             before_persist = decision_log(root, campaign="Test Campaign")
-            persisted_plan = next_batch_plan(root, campaign="Test Campaign", count=1, persist=True)
+            persisted_plan = next_batch_plan(
+                root, campaign="Test Campaign", count=1, persist=True
+            )
             logged = decision_log(root, campaign="Test Campaign")
             self.assertTrue(prompt_rec["prompt_run_id"])
             self.assertEqual(asset_rec["identity"]["status"], "valid")
@@ -852,7 +1153,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("data_quality", plan["ideas"][0]["recommendation"])
             self.assertEqual(before_persist["decisions"], [])
             self.assertTrue(persisted_plan["decision_id"])
-            self.assertEqual(logged["decisions"][0]["decision_id"], persisted_plan["decision_id"])
+            self.assertEqual(
+                logged["decisions"][0]["decision_id"], persisted_plan["decision_id"]
+            )
             self.assertTrue(board["worst_failure_patterns"])
 
     def test_outcome_import_links_variation_campaign_output_and_legacy_metrics(self):
@@ -861,7 +1164,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
             manifest = Manifest(root / "manifest.json")
             src = root / "clip_001.mp4"
             src.write_bytes(b"src")
-            out = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_deadbeef.mp4"
+            out = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_deadbeef.mp4"
+            )
             out.parent.mkdir(parents=True)
             out.write_bytes(b"video")
             manifest.upsert_video("clip_001", src, "hash", 2.0)
@@ -883,9 +1191,15 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             result = import_outcomes_csv(root, csv_path)
             summary = outcomes_summary(root)
-            row = manifest.conn.execute("SELECT * FROM reel_outcomes WHERE filename=?", (out.name,)).fetchone()
-            legacy = manifest.conn.execute("SELECT * FROM publish_metrics WHERE filename=?", (out.name,)).fetchone()
-            campaign_output = manifest.conn.execute("SELECT * FROM campaign_outputs WHERE metrics_filename=?", (out.name,)).fetchone()
+            row = manifest.conn.execute(
+                "SELECT * FROM reel_outcomes WHERE filename=?", (out.name,)
+            ).fetchone()
+            legacy = manifest.conn.execute(
+                "SELECT * FROM publish_metrics WHERE filename=?", (out.name,)
+            ).fetchone()
+            campaign_output = manifest.conn.execute(
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=?", (out.name,)
+            ).fetchone()
 
             self.assertEqual(result["imported"], 1)
             self.assertEqual(row["output_path"], str(out))
@@ -902,23 +1216,40 @@ class AdvancedRoadmapTests(unittest.TestCase):
             manifest = Manifest(root / "manifest.json")
             src = root / "clip_001.mp4"
             src.write_bytes(b"src")
-            out = root / "02_processed" / "clip_001" / "clip_001_h01_v01_original_deadbeef.mp4"
+            out = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h01_v01_original_deadbeef.mp4"
+            )
             out.parent.mkdir(parents=True)
             out.write_bytes(b"video")
             manifest.upsert_video("clip_001", src, "hash", 2.0)
-            manifest.add_variation("clip_001", Recipe("v01_original"), "hook", out, "job_2", 2.0)
+            manifest.add_variation(
+                "clip_001", Recipe("v01_original"), "hook", out, "job_2", 2.0
+            )
             manifest.conn.commit()
             csv_path = root / "metrics.csv"
-            csv_path.write_text("filename,platform,account,uploaded_at,views,likes,comments,shares,saves,manual_score,notes\n"
-                                f"{out.name},ig,acct,2026-05-28,10,1,0,0,0,,ok\n", encoding="utf-8")
+            csv_path.write_text(
+                "filename,platform,account,uploaded_at,views,likes,comments,shares,saves,manual_score,notes\n"
+                f"{out.name},ig,acct,2026-05-28,10,1,0,0,0,,ok\n",
+                encoding="utf-8",
+            )
 
             result = import_metrics_csv(root, csv_path)
 
             self.assertEqual(result["imported"], 1)
-            self.assertEqual(manifest.conn.execute("SELECT views FROM publish_metrics WHERE filename=?", (out.name,)).fetchone()["views"], 10)
+            self.assertEqual(
+                manifest.conn.execute(
+                    "SELECT views FROM publish_metrics WHERE filename=?", (out.name,)
+                ).fetchone()["views"],
+                10,
+            )
 
     def test_review_decision_reason_validation_and_positive_approve(self):
-        self.assertEqual(validate_review("approve", "identity_good", ["pose_good"])[0], "approve")
+        self.assertEqual(
+            validate_review("approve", "identity_good", ["pose_good"])[0], "approve"
+        )
         with self.assertRaisesRegex(ValueError, "primary_reason is required"):
             validate_review("reject", None, [])
         with self.assertRaisesRegex(ValueError, "unknown review"):
@@ -935,16 +1266,29 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             analysis = analyze_reference(root, ref, dry_run=True)
             fake_raw = {
-                "output": [{"content": [{"type": "output_text", "text": json.dumps({
-                    "higgsfieldGridPrompt": (
-                        "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman "
-                        "in a tight bathroom mirror selfie pose with strong curves, deep cleavage, skin-tight fabric cling, "
-                        "bright indoor lighting, consistent pose, and sharp photorealistic detail."
-                    )
-                })}]}]
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "higgsfieldGridPrompt": (
+                                            "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman "
+                                            "in a tight bathroom mirror selfie pose with strong curves, deep cleavage, skin-tight fabric cling, "
+                                            "bright indoor lighting, consistent pose, and sharp photorealistic detail."
+                                        )
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+                ]
             }
-            with patch("generate_prompts.load_xai_api_key", return_value="key"), \
-                 patch("generate_prompts.call_grok", return_value=fake_raw):
+            with (
+                patch("generate_prompts.load_xai_api_key", return_value="key"),
+                patch("generate_prompts.call_grok", return_value=fake_raw),
+            ):
                 prompt = generate_prompt(
                     out_path=root / "prompt.json",
                     root=root,
@@ -955,7 +1299,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue(Path(analysis["path"]).exists())
             self.assertEqual(analysis["analysis"]["scene_type"], "bathroom_mirror")
             self.assertEqual(analysis["dimensions"]["width"], 1080)
-            self.assertEqual(prompt["prompt_source"], "live_grok_direct_higgsfield_prompt")
+            self.assertEqual(
+                prompt["prompt_source"], "live_grok_direct_higgsfield_prompt"
+            )
             self.assertIn("Reference analysis", prompt["instruction_preview"])
             self.assertIn("bathroom_mirror", prompt["instruction_preview"])
 
@@ -978,78 +1324,98 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("interface", instruction.lower())
 
     def test_reference_analysis_preserves_structured_enhanced_direction(self):
-        normalized = normalize_analysis({
-            "baseVisualFormula": {
-                "outfit": "black fitted mini dress",
-                "garmentFit": "tight",
-            },
-            "viralVisualStructure": {
-                "framing": "centered chest-to-thigh vertical frame",
-                "cameraAngle": "slightly low front angle",
-            },
-            "sexierVisualDirection": {
-                "cleavage": "push deeper cleavage and fuller breasts",
-                "curves": "rounder ass, wider hips, tighter waist",
-            },
-            "visualEmphasisSignals": {
-                "necklineDepth": "low",
-                "garmentTightness": "very high",
-            },
-            "enhancementSuggestions": [
-                "stronger hourglass silhouette",
-                "tighter fabric cling",
-            ],
-            "motion_prompt_hint": "subtle hip sway and slow push-in",
-        })
+        normalized = normalize_analysis(
+            {
+                "baseVisualFormula": {
+                    "outfit": "black fitted mini dress",
+                    "garmentFit": "tight",
+                },
+                "viralVisualStructure": {
+                    "framing": "centered chest-to-thigh vertical frame",
+                    "cameraAngle": "slightly low front angle",
+                },
+                "sexierVisualDirection": {
+                    "cleavage": "push deeper cleavage and fuller breasts",
+                    "curves": "rounder ass, wider hips, tighter waist",
+                },
+                "visualEmphasisSignals": {
+                    "necklineDepth": "low",
+                    "garmentTightness": "very high",
+                },
+                "enhancementSuggestions": [
+                    "stronger hourglass silhouette",
+                    "tighter fabric cling",
+                ],
+                "motion_prompt_hint": "subtle hip sway and slow push-in",
+            }
+        )
 
-        self.assertEqual(normalized["sexierVisualDirection"]["curves"], "rounder ass, wider hips, tighter waist")
-        self.assertEqual(normalized["visualEmphasisSignals"]["garmentTightness"], "very high")
+        self.assertEqual(
+            normalized["sexierVisualDirection"]["curves"],
+            "rounder ass, wider hips, tighter waist",
+        )
+        self.assertEqual(
+            normalized["visualEmphasisSignals"]["garmentTightness"], "very high"
+        )
         self.assertIn("tighter fabric cling", normalized["enhancementSuggestions"])
 
     def test_reference_analysis_scrubs_caption_overlay_and_ui_values(self):
-        normalized = normalize_analysis({
-            "baseVisualFormula": {
-                "core": "tight upper-body frame",
-                "caption": "source text overlay",
-                "platform": "instagram interface",
-            },
-            "viralVisualStructure": {
-                "hook": "caption overlay question",
-                "composition": "centered bodycon dress framing",
-            },
-            "visualEmphasisSignals": [
-                "cleavage",
-                "text overlay hook",
-                "fabric cling",
-            ],
-            "environment": "minimal room with UI buttons",
-            "motion_prompt_hint": "caption stays centered",
-        })
+        normalized = normalize_analysis(
+            {
+                "baseVisualFormula": {
+                    "core": "tight upper-body frame",
+                    "caption": "source text overlay",
+                    "platform": "instagram interface",
+                },
+                "viralVisualStructure": {
+                    "hook": "caption overlay question",
+                    "composition": "centered bodycon dress framing",
+                },
+                "visualEmphasisSignals": [
+                    "cleavage",
+                    "text overlay hook",
+                    "fabric cling",
+                ],
+                "environment": "minimal room with UI buttons",
+                "motion_prompt_hint": "caption stays centered",
+            }
+        )
 
-        self.assertEqual(normalized["baseVisualFormula"], {"core": "tight upper-body frame"})
-        self.assertEqual(normalized["viralVisualStructure"], {"composition": "centered bodycon dress framing"})
-        self.assertEqual(normalized["visualEmphasisSignals"], ["cleavage", "fabric cling"])
+        self.assertEqual(
+            normalized["baseVisualFormula"], {"core": "tight upper-body frame"}
+        )
+        self.assertEqual(
+            normalized["viralVisualStructure"],
+            {"composition": "centered bodycon dress framing"},
+        )
+        self.assertEqual(
+            normalized["visualEmphasisSignals"], ["cleavage", "fabric cling"]
+        )
         self.assertEqual(normalized["environment"], "")
         self.assertEqual(normalized["motion_prompt_hint"], "")
 
     def test_gemini_motion_cleanup_preserves_motion_when_hair_phrase_appears(self):
-        normalized = normalize_motion_analysis({
-            "camera_motion": "Static medium shot.",
-            "subject_motion": (
-                "Subject stands centered, subtly sways hips, slowly raises hands to hips, "
-                "then lowers them. Towards the end, both hands raise to touch hair, then lower. "
-                "Head remains mostly still, facing forward with a slight smile. "
-                "Movement is slow and deliberate."
-            ),
-            "motion_prompt_hint": (
-                "A static medium shot of a subject standing centered, subtly swaying hips. "
-                "Hands slowly raise to hips, then lower. Towards the end, both hands raise "
-                "to touch hair, then lower. Head remains mostly still, facing forward with "
-                "a slight smile. The movement is slow and deliberate."
-            ),
-        })
+        normalized = normalize_motion_analysis(
+            {
+                "camera_motion": "Static medium shot.",
+                "subject_motion": (
+                    "Subject stands centered, subtly sways hips, slowly raises hands to hips, "
+                    "then lowers them. Towards the end, both hands raise to touch hair, then lower. "
+                    "Head remains mostly still, facing forward with a slight smile. "
+                    "Movement is slow and deliberate."
+                ),
+                "motion_prompt_hint": (
+                    "A static medium shot of a subject standing centered, subtly swaying hips. "
+                    "Hands slowly raise to hips, then lower. Towards the end, both hands raise "
+                    "to touch hair, then lower. Head remains mostly still, facing forward with "
+                    "a slight smile. The movement is slow and deliberate."
+                ),
+            }
+        )
 
-        prompt = compile_prompt_contract(reference_analysis=normalized).klingMotionPrompt
+        prompt = compile_prompt_contract(
+            reference_analysis=normalized
+        ).klingMotionPrompt
 
         self.assertIn("Static medium shot", prompt)
         self.assertIn("subtly sways hips", prompt)
@@ -1067,11 +1433,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
         )
 
     def test_gemini_motion_cleanup_minimally_rewrites_hair_motion_phrases(self):
-        normalized = normalize_motion_analysis({
-            "camera_motion": "slow handheld push-in",
-            "subject_motion": "hands to hair, hair movement, torso leans forward, hips shift right",
-            "motion_prompt_hint": "loop-friendly pacing with a small expression change",
-        })
+        normalized = normalize_motion_analysis(
+            {
+                "camera_motion": "slow handheld push-in",
+                "subject_motion": "hands to hair, hair movement, torso leans forward, hips shift right",
+                "motion_prompt_hint": "loop-friendly pacing with a small expression change",
+            }
+        )
 
         joined = " ".join(normalized.values())
 
@@ -1097,11 +1465,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         for raw, expected in cases:
             with self.subTest(raw=raw):
-                normalized = normalize_motion_analysis({
-                    "camera_motion": "slow push-in camera move",
-                    "subject_motion": raw,
-                    "motion_prompt_hint": "looks down, smiles, looks back at camera",
-                })
+                normalized = normalize_motion_analysis(
+                    {
+                        "camera_motion": "slow push-in camera move",
+                        "subject_motion": raw,
+                        "motion_prompt_hint": "looks down, smiles, looks back at camera",
+                    }
+                )
                 joined = " ".join(normalized.values())
 
                 self.assertIn("slow push-in camera move", joined)
@@ -1112,13 +1482,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 self.assertNotIn("raise near head", joined.lower())
 
     def test_gemini_motion_cleanup_preserves_static_hold_without_generic_fallback(self):
-        normalized = normalize_motion_analysis({
-            "camera_motion": "Static camera, no movement.",
-            "subject_motion": "Subject is completely still, no body movement.",
-            "motion_prompt_hint": "No motion.",
-        })
+        normalized = normalize_motion_analysis(
+            {
+                "camera_motion": "Static camera, no movement.",
+                "subject_motion": "Subject is completely still, no body movement.",
+                "motion_prompt_hint": "No motion.",
+            }
+        )
 
-        prompt = compile_prompt_contract(reference_analysis=normalized).klingMotionPrompt
+        prompt = compile_prompt_contract(
+            reference_analysis=normalized
+        ).klingMotionPrompt
 
         self.assertIn("Static camera", prompt)
         self.assertIn("locked framing", prompt)
@@ -1148,20 +1522,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         for payload in forbidden_payloads:
             with self.subTest(payload=payload):
-                with self.assertRaisesRegex(ValueError, "unsupported Grok perception fields"):
+                with self.assertRaisesRegex(
+                    ValueError, "unsupported Grok perception fields"
+                ):
                     normalize_analysis(payload)
 
     def test_prompt_compiler_strips_caption_overlay_and_platform_fragments(self):
-        prompt = compile_prompt_contract(reference_analysis={
-            "outfit": "black strapless mini dress",
-            "garmentFit": "second-skin fabric cling",
-            "viralVisualStructure": {"hook": "caption overlay question"},
-            "visualEmphasisSignals": ["cleavage", "text overlay hook", "hips"],
-            "environment": "minimal room with interface buttons",
-            "camera_motion": "static Instagram UI frame",
-            "subject_motion": "slow hip sway",
-            "motion_prompt_hint": "caption stays centered",
-        })
+        prompt = compile_prompt_contract(
+            reference_analysis={
+                "outfit": "black strapless mini dress",
+                "garmentFit": "second-skin fabric cling",
+                "viralVisualStructure": {"hook": "caption overlay question"},
+                "visualEmphasisSignals": ["cleavage", "text overlay hook", "hips"],
+                "environment": "minimal room with interface buttons",
+                "camera_motion": "static Instagram UI frame",
+                "subject_motion": "slow hip sway",
+                "motion_prompt_hint": "caption stays centered",
+            }
+        )
 
         joined = f"{prompt.higgsfieldGridPrompt}\n{prompt.klingMotionPrompt}".lower()
         self.assertIn("black strapless mini dress", joined)
@@ -1176,32 +1554,42 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("creator-reel", joined)
 
     def test_prompt_compiler_writes_natural_higgsfield_direction(self):
-        prompt = compile_prompt_contract(reference_analysis={
-            "outfit": {"type": "strapless mini dress", "color": "black", "material": "stretch knit"},
-            "garmentFit": {"fit": "bodycon tight", "cling": "high"},
-            "garmentPlacement": {"placement": "low strapless neckline, hem mid-thigh"},
-            "pose": {"type": "shoulders angled forward, slight torso lean"},
-            "framing": {"type": "tight vertical crop on torso and face"},
-            "cameraAngle": {"angle": "slightly low eye-level"},
-            "lighting": {"type": "soft frontal natural"},
-            "environment": {"setting": "minimal indoor wall"},
-            "visualEmphasisSignals": {
-                "cleavage": "deep",
-                "breasts": "prominent",
-                "ass": "partial",
-                "hips": "accentuated",
-                "waist": "cinched",
-                "thighs": "visible",
-                "fabric_cling": "high",
-                "silhouette": "hourglass",
-            },
-            "sexierVisualDirection": {"enhancements": "deeper cleavage, tighter cling, stronger hourglass"},
-            "enhancementSuggestions": [
-                "increase cleavage depth",
-                "fuller rounder breasts",
-                "tighter waist cinch",
-            ],
-        })
+        prompt = compile_prompt_contract(
+            reference_analysis={
+                "outfit": {
+                    "type": "strapless mini dress",
+                    "color": "black",
+                    "material": "stretch knit",
+                },
+                "garmentFit": {"fit": "bodycon tight", "cling": "high"},
+                "garmentPlacement": {
+                    "placement": "low strapless neckline, hem mid-thigh"
+                },
+                "pose": {"type": "shoulders angled forward, slight torso lean"},
+                "framing": {"type": "tight vertical crop on torso and face"},
+                "cameraAngle": {"angle": "slightly low eye-level"},
+                "lighting": {"type": "soft frontal natural"},
+                "environment": {"setting": "minimal indoor wall"},
+                "visualEmphasisSignals": {
+                    "cleavage": "deep",
+                    "breasts": "prominent",
+                    "ass": "partial",
+                    "hips": "accentuated",
+                    "waist": "cinched",
+                    "thighs": "visible",
+                    "fabric_cling": "high",
+                    "silhouette": "hourglass",
+                },
+                "sexierVisualDirection": {
+                    "enhancements": "deeper cleavage, tighter cling, stronger hourglass"
+                },
+                "enhancementSuggestions": [
+                    "increase cleavage depth",
+                    "fuller rounder breasts",
+                    "tighter waist cinch",
+                ],
+            }
+        )
 
         image_prompt = prompt.higgsfieldGridPrompt
         motion_prompt = prompt.klingMotionPrompt
@@ -1217,7 +1605,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("cropped panel", motion_prompt.lower())
         self.assertNotIn("Push the enhanced direction toward", image_prompt)
         self.assertNotIn("Use the reference", image_prompt)
-        self.assertNotIn("deep, prominent, accentuated, cinched, visible, high, hourglass", image_prompt)
+        self.assertNotIn(
+            "deep, prominent, accentuated, cinched, visible, high, hourglass",
+            image_prompt,
+        )
         self.assertNotIn("bodycon tight, high", image_prompt)
         self.assertNotIn("partial ass", image_prompt)
         self.assertLessEqual(image_prompt.count("."), 5)
@@ -1233,7 +1624,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         instruction = build_direct_higgsfield_prompt_instruction("make it sexier")
 
         self.assertIn("Reference image/reel attached.", instruction)
-        self.assertIn("Create a high-quality image prompt for Higgsfield Soul V2.", instruction)
+        self.assertIn(
+            "Create a high-quality image prompt for Higgsfield Soul V2.", instruction
+        )
         self.assertIn("old structured prompts", instruction)
         self.assertIn("Create one high-quality native six-panel grid", instruction)
         self.assertIn("exactly three columns and two rows", instruction)
@@ -1245,7 +1638,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("thick thighs", instruction)
         self.assertIn("vary only outfit color and material", instruction)
         self.assertIn("keep the same garment style/cut", instruction)
-        self.assertIn("detailed and descriptive like the old structured prompts", instruction)
+        self.assertIn(
+            "detailed and descriptive like the old structured prompts", instruction
+        )
         self.assertIn("strong arched back", instruction)
         self.assertIn("dramatic S-curve posture", instruction)
         self.assertIn('"image_prompt"', instruction)
@@ -1253,7 +1648,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn('"higgsfieldGridPrompt"', instruction)
         self.assertNotIn('"structured_breakdown"', instruction)
         self.assertNotIn('"klingMotionPrompt"', instruction)
-        example_block = instruction.split("Example prompt style to imitate:", 1)[1].lower()
+        example_block = instruction.split("Example prompt style to imitate:", 1)[
+            1
+        ].lower()
         self.assertNotIn("perfect face", example_block)
         self.assertNotIn("skin texture", example_block)
         self.assertNotIn("skin sheen", example_block)
@@ -1263,14 +1660,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("face realism", example_block)
 
     def test_direct_higgsfield_instruction_supports_operator_grid_layouts_and_age(self):
-        two_by_four = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="2x4")
+        two_by_four = build_direct_higgsfield_prompt_instruction(
+            "make it sexier", grid_layout="2x4"
+        )
 
         self.assertIn("exactly two columns and four rows", two_by_four)
         self.assertIn("native eight-panel image", two_by_four)
         self.assertIn("eight variations", two_by_four)
         self.assertNotIn("exact age", two_by_four)
 
-        single = build_direct_higgsfield_prompt_instruction("make it sexier", grid_layout="single")
+        single = build_direct_higgsfield_prompt_instruction(
+            "make it sexier", grid_layout="single"
+        )
         self.assertIn("standalone image", single)
         self.assertIn("one standalone image", single)
         self.assertNotIn("Outfit variations: 1.", single)
@@ -1281,7 +1682,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(parsed["panel_count"], 6)
 
     def test_higgsfield_reference_instruction_is_simple_single_image_request(self):
-        instruction = build_higgsfield_reference_prompt_instruction("make it more bedroom selfie")
+        instruction = build_higgsfield_reference_prompt_instruction(
+            "make it more bedroom selfie"
+        )
 
         self.assertIn("Make a prompt similar to this reference image", instruction)
         self.assertIn("Higgsfield with Soul ID", instruction)
@@ -1296,24 +1699,35 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("six-panel", instruction.lower())
         self.assertNotIn('"higgsfieldGridPrompt"', instruction)
 
-    def test_direct_higgsfield_parser_accepts_old_reference_factory_key_and_strips_face_polish(self):
-        raw = json.dumps({
-            "soul_id_2x3_prompt": (
-                "Create one high-quality six-panel grid image, exactly three columns and two rows, featuring six variations "
-                "of the exact same stunning woman with long wavy red hair, blue eyes, freckles, and an extreme hourglass figure. "
-                "She sits on a gray couch in a bright apartment. Exact reference pose in all panels: seated three-quarter view, "
-                "one hand resting in her hair, soft smile. Strong body emphasis in every panel: deep cleavage, tiny waist, "
-                "wide hips, thick thighs, skin-tight fabric cling. Outfit variations: 1. Beige set 2. Black set 3. White set "
-                "4. Rose set 5. Charcoal set 6. Taupe set. Bright daylight, photorealistic skin texture with natural sheen, "
-                "consistent face and body proportions across all panels, high detail, sharp focus, vertical smartphone aesthetic."
-            ),
-            "structured_breakdown": {
-                "pose_lock": "seated three-quarter view",
-                "body_emphasis": "deep cleavage, tiny waist",
-                "outfit_variations": ["beige", "black", "white", "rose", "charcoal", "taupe"],
-            },
-            "confidence_score": 90,
-        })
+    def test_direct_higgsfield_parser_accepts_old_reference_factory_key_and_strips_face_polish(
+        self,
+    ):
+        raw = json.dumps(
+            {
+                "soul_id_2x3_prompt": (
+                    "Create one high-quality six-panel grid image, exactly three columns and two rows, featuring six variations "
+                    "of the exact same stunning woman with long wavy red hair, blue eyes, freckles, and an extreme hourglass figure. "
+                    "She sits on a gray couch in a bright apartment. Exact reference pose in all panels: seated three-quarter view, "
+                    "one hand resting in her hair, soft smile. Strong body emphasis in every panel: deep cleavage, tiny waist, "
+                    "wide hips, thick thighs, skin-tight fabric cling. Outfit variations: 1. Beige set 2. Black set 3. White set "
+                    "4. Rose set 5. Charcoal set 6. Taupe set. Bright daylight, photorealistic skin texture with natural sheen, "
+                    "consistent face and body proportions across all panels, high detail, sharp focus, vertical smartphone aesthetic."
+                ),
+                "structured_breakdown": {
+                    "pose_lock": "seated three-quarter view",
+                    "body_emphasis": "deep cleavage, tiny waist",
+                    "outfit_variations": [
+                        "beige",
+                        "black",
+                        "white",
+                        "rose",
+                        "charcoal",
+                        "taupe",
+                    ],
+                },
+                "confidence_score": 90,
+            }
+        )
 
         parsed = parse_direct_higgsfield_prompt_response(
             raw,
@@ -1334,16 +1748,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("consistent face", prompt)
 
     def test_direct_higgsfield_parser_accepts_manual_grok_image_prompt_key(self):
-        raw = json.dumps({
-            "image_prompt": (
-                "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman. "
-                "Exact reference pose in all panels: seated over-the-shoulder pose, strong arched back, seductive gaze. "
-                "Strong sexual body emphasis in every panel: deep plunging cleavage, massive round plump juicy ass, "
-                "tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging to every curve. "
-                "Outfit variations: 1. Grey set. 2. Black set. 3. White set. 4. Navy set. 5. Deep red set. 6. Soft pink set."
-            ),
-            "notes": "manual Grok response shape",
-        })
+        raw = json.dumps(
+            {
+                "image_prompt": (
+                    "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman. "
+                    "Exact reference pose in all panels: seated over-the-shoulder pose, strong arched back, seductive gaze. "
+                    "Strong sexual body emphasis in every panel: deep plunging cleavage, massive round plump juicy ass, "
+                    "tiny cinched waist, wide hips, thick thighs, dramatic S-curve posture, skin-tight fabric clinging to every curve. "
+                    "Outfit variations: 1. Grey set. 2. Black set. 3. White set. 4. Navy set. 5. Deep red set. 6. Soft pink set."
+                ),
+                "notes": "manual Grok response shape",
+            }
+        )
 
         parsed = parse_direct_higgsfield_prompt_response(
             raw,
@@ -1374,7 +1790,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("high detail", low)
         self.assertNotIn("sharp focus", low)
 
-    def test_direct_higgsfield_cleanup_records_removal_only_diff_and_pose_replacement(self):
+    def test_direct_higgsfield_cleanup_records_removal_only_diff_and_pose_replacement(
+        self,
+    ):
         cleanup = clean_direct_higgsfield_prompt(
             "A bright living room with a gray couch, blue eyes, freckles, long red hair, "
             "hand resting in her hair, deep cleavage, pushed-up breasts, dramatic S-curve posture, "
@@ -1383,7 +1801,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
         )
 
         low = cleanup["cleaned"].lower()
-        self.assertEqual(cleanup["raw"].split(", deep cleavage", 1)[1].count("dramatic S-curve posture"), 1)
+        self.assertEqual(
+            cleanup["raw"]
+            .split(", deep cleavage", 1)[1]
+            .count("dramatic S-curve posture"),
+            1,
+        )
         self.assertIn("deep cleavage", low)
         self.assertIn("pushed-up breasts", low)
         self.assertIn("dramatic s-curve posture", low)
@@ -1398,50 +1821,60 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("sharp focus", low)
         self.assertTrue(cleanup["changed"])
         self.assertGreaterEqual(len(cleanup["diff"]), 1)
-        self.assertIn("reference_factory_sexy_realistic_removal_only", cleanup["policy"])
+        self.assertIn(
+            "reference_factory_sexy_realistic_removal_only", cleanup["policy"]
+        )
 
-    def test_scene_json_to_higgsfield_prompt_preserves_dense_visual_spec_and_strips_forbidden_fields(self):
-        prompt = scene_json_to_higgsfield_prompt({
-            "subject": {
-                "type": "adult woman",
-                "identity": "same person from reference",
-                "pose": "standing, both hands gripping and slightly pulling down the waistband of unbuttoned light-wash denim shorts, one hand resting in hair",
-                "expression": "neutral sultry gaze with slightly parted lips",
-            },
-            "face": {"features": "heart-shaped face"},
-            "hair": {"style": "long dark waves"},
-            "body": {
-                "build": "exaggerated hourglass figure with very large breasts and a big round ass",
-                "breasts": "deep cleavage with pushed-up breasts",
-                "hips_and_ass": "tiny waist, wide hips, thick thighs, big round ass",
-            },
-            "clothing": {
-                "top": "tight black square-neck spaghetti strap bodysuit stretched tightly over very large breasts",
-                "bottom": "light wash distressed denim shorts unbuttoned and pulled down low on the hips",
-            },
-            "environment": {
-                "setting": "minimalist indoor room",
-                "background": "plain off-white wall",
-            },
-            "lighting_and_camera": {
-                "lighting": "soft front-facing flash effect",
-                "camera_angle": "eye-level amateur iPhone shot",
-            },
-            "outfit_variations": [
-                "1. black bodysuit with light-wash denim shorts",
-                "2. white bodysuit with light-wash denim shorts",
-                "3. burgundy bodysuit with light-wash denim shorts",
-                "4. charcoal bodysuit with light-wash denim shorts",
-                "5. olive bodysuit with light-wash denim shorts",
-                "6. blush bodysuit with light-wash denim shorts",
-            ],
-            "negative_prompt": "tattoos, bad hands",
-            "constraints": {"avoid": ["tattoos"]},
-            "ethnicity": "White",
-        })
+    def test_scene_json_to_higgsfield_prompt_preserves_dense_visual_spec_and_strips_forbidden_fields(
+        self,
+    ):
+        prompt = scene_json_to_higgsfield_prompt(
+            {
+                "subject": {
+                    "type": "adult woman",
+                    "identity": "same person from reference",
+                    "pose": "standing, both hands gripping and slightly pulling down the waistband of unbuttoned light-wash denim shorts, one hand resting in hair",
+                    "expression": "neutral sultry gaze with slightly parted lips",
+                },
+                "face": {"features": "heart-shaped face"},
+                "hair": {"style": "long dark waves"},
+                "body": {
+                    "build": "exaggerated hourglass figure with very large breasts and a big round ass",
+                    "breasts": "deep cleavage with pushed-up breasts",
+                    "hips_and_ass": "tiny waist, wide hips, thick thighs, big round ass",
+                },
+                "clothing": {
+                    "top": "tight black square-neck spaghetti strap bodysuit stretched tightly over very large breasts",
+                    "bottom": "light wash distressed denim shorts unbuttoned and pulled down low on the hips",
+                },
+                "environment": {
+                    "setting": "minimalist indoor room",
+                    "background": "plain off-white wall",
+                },
+                "lighting_and_camera": {
+                    "lighting": "soft front-facing flash effect",
+                    "camera_angle": "eye-level amateur iPhone shot",
+                },
+                "outfit_variations": [
+                    "1. black bodysuit with light-wash denim shorts",
+                    "2. white bodysuit with light-wash denim shorts",
+                    "3. burgundy bodysuit with light-wash denim shorts",
+                    "4. charcoal bodysuit with light-wash denim shorts",
+                    "5. olive bodysuit with light-wash denim shorts",
+                    "6. blush bodysuit with light-wash denim shorts",
+                ],
+                "negative_prompt": "tattoos, bad hands",
+                "constraints": {"avoid": ["tattoos"]},
+                "ethnicity": "White",
+            }
+        )
 
-        self.assertIn("Create one high-quality native 2x3 grid featuring six variations", prompt)
-        self.assertIn("both hands gripping and slightly pulling down the waistband", prompt)
+        self.assertIn(
+            "Create one high-quality native 2x3 grid featuring six variations", prompt
+        )
+        self.assertIn(
+            "both hands gripping and slightly pulling down the waistband", prompt
+        )
         self.assertIn("hand raised near head", prompt)
         self.assertIn("neutral sultry gaze", prompt)
         self.assertIn("very large breasts", prompt)
@@ -1458,30 +1891,36 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("tattoo", prompt.lower())
         self.assertNotIn("bad hands", prompt.lower())
 
-    def test_direct_higgsfield_prompt_parser_accepts_scene_json_and_allows_generic_consistency_language(self):
+    def test_direct_higgsfield_prompt_parser_accepts_scene_json_and_allows_generic_consistency_language(
+        self,
+    ):
         parsed = parse_direct_higgsfield_prompt_response(
-            json.dumps({
-                "subject": {
-                    "type": "adult woman",
-                    "pose": "casual iPhone mirror-selfie pose",
-                },
-                "body": {
-                    "build": "voluptuous extreme hourglass figure, deep cleavage, tiny waist, wide hips",
-                },
-                "clothing": {
-                    "top": "skin-tight ribbed crop top",
-                },
-                "environment": {
-                    "setting": "bright indoor room",
-                },
-                "consistency": "exact same stunning woman, consistent body proportions, same pose across panels",
-            }),
+            json.dumps(
+                {
+                    "subject": {
+                        "type": "adult woman",
+                        "pose": "casual iPhone mirror-selfie pose",
+                    },
+                    "body": {
+                        "build": "voluptuous extreme hourglass figure, deep cleavage, tiny waist, wide hips",
+                    },
+                    "clothing": {
+                        "top": "skin-tight ribbed crop top",
+                    },
+                    "environment": {
+                        "setting": "bright indoor room",
+                    },
+                    "consistency": "exact same stunning woman, consistent body proportions, same pose across panels",
+                }
+            ),
             shared_motion_prompt="subtle body sway and slow phone-camera push-in",
         )
 
         self.assertIn("exact same stunning woman", parsed.higgsfieldGridPrompt)
         self.assertIn("casual iPhone mirror-selfie pose", parsed.higgsfieldGridPrompt)
-        self.assertEqual(parsed.klingMotionPrompt, "subtle body sway and slow phone-camera push-in")
+        self.assertEqual(
+            parsed.klingMotionPrompt, "subtle body sway and slow phone-camera push-in"
+        )
 
     def test_prompt_drift_report_preserves_valid_grok_prompt(self):
         raw_prompt = (
@@ -1514,13 +1953,26 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 "deep red set, soft pink set. Identical bathroom lighting, mirror angle, framing, and room across all panels."
             )
             fake_raw = {
-                "output": [{"content": [{"type": "output_text", "text": json.dumps({
-                    "image_prompt": raw_prompt,
-                    "notes": "manual Grok image prompt response shape",
-                })}]}]
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "image_prompt": raw_prompt,
+                                        "notes": "manual Grok image prompt response shape",
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+                ]
             }
-            with patch("generate_prompts.load_xai_api_key", return_value="key"), \
-                 patch("generate_prompts.call_grok", return_value=fake_raw):
+            with (
+                patch("generate_prompts.load_xai_api_key", return_value="key"),
+                patch("generate_prompts.call_grok", return_value=fake_raw),
+            ):
                 result = generate_prompt(
                     out_path=root / "prompt.json",
                     root=root,
@@ -1530,7 +1982,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         self.assertIn("prompt_drift", result)
         self.assertEqual(result["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE)
-        self.assertEqual(result["lineage"]["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE)
+        self.assertEqual(
+            result["lineage"]["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE
+        )
         self.assertEqual(result["lineage"]["raw_grok_prompt"], raw_prompt)
         self.assertEqual(result["lineage"]["cleaned_prompt"], raw_prompt)
         self.assertEqual(result["lineage"]["aspect_ratio"], "4:3")
@@ -1553,13 +2007,26 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 "warm bedroom lighting, sexy body-forward posture, deep neckline, tight fabric cling."
             )
             fake_raw = {
-                "output": [{"content": [{"type": "output_text", "text": json.dumps({
-                    "image_prompt": raw_prompt,
-                    "notes": "simple Higgsfield reference prompt",
-                })}]}]
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "image_prompt": raw_prompt,
+                                        "notes": "simple Higgsfield reference prompt",
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+                ]
             }
-            with patch("generate_prompts.load_xai_api_key", return_value="key"), \
-                 patch("generate_prompts.call_grok", return_value=fake_raw) as grok:
+            with (
+                patch("generate_prompts.load_xai_api_key", return_value="key"),
+                patch("generate_prompts.call_grok", return_value=fake_raw) as grok,
+            ):
                 result = generate_prompt(
                     out_path=root / "prompt.json",
                     root=root,
@@ -1575,7 +2042,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("get the pose down correctly", instruction)
         self.assertIn("exactly one standalone image", instruction)
         self.assertEqual(result["prompt_mode"], HIGGSFIELD_REFERENCE_PROMPT_MODE)
-        self.assertEqual(result["prompt_source"], "live_grok_higgsfield_reference_prompt")
+        self.assertEqual(
+            result["prompt_source"], "live_grok_higgsfield_reference_prompt"
+        )
         self.assertEqual(result["lineage"]["grid_layout"]["value"], "single")
         self.assertIn("bedroom mirror selfie", result["prompt"]["higgsfieldGridPrompt"])
         self.assertNotIn("2x3", result["prompt"]["higgsfieldGridPrompt"].lower())
@@ -1584,18 +2053,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_direct_higgsfield_prompt_parser_still_blocks_caption_overlay(self):
         with self.assertRaisesRegex(ValueError, "rejected v1 language"):
             parse_direct_higgsfield_prompt_response(
-                json.dumps({"higgsfieldGridPrompt": "Create one native 2x3 grid with caption overlay at bottom"}),
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "Create one native 2x3 grid with caption overlay at bottom"
+                    }
+                ),
                 shared_motion_prompt="subtle body sway",
             )
 
     def test_direct_higgsfield_prompt_parser_scrubs_identity_traits(self):
         parsed = parse_direct_higgsfield_prompt_response(
-            json.dumps({
-                "higgsfieldGridPrompt": (
-                    "Create one native 2x3 grid with long brown hair, wrist tattoo, deep cleavage, "
-                    "and mirror selfie pose."
-                )
-            }),
+            json.dumps(
+                {
+                    "higgsfieldGridPrompt": (
+                        "Create one native 2x3 grid with long brown hair, wrist tattoo, deep cleavage, "
+                        "and mirror selfie pose."
+                    )
+                }
+            ),
             shared_motion_prompt="subtle body sway",
         )
 
@@ -1613,9 +2088,22 @@ class AdvancedRoadmapTests(unittest.TestCase):
             b = root / "prompts" / "bathroom_mirror_variant.json"
             c = root / "prompts" / "beach_dance.json"
             a.parent.mkdir()
-            a.write_text(json.dumps({"higgsfieldGridPrompt": "bathroom mirror selfie crop top"}), encoding="utf-8")
-            b.write_text(json.dumps({"higgsfieldGridPrompt": "bathroom mirror selfie crop top alternate"}), encoding="utf-8")
-            c.write_text(json.dumps({"higgsfieldGridPrompt": "beach dance swimsuit ocean"}), encoding="utf-8")
+            a.write_text(
+                json.dumps({"higgsfieldGridPrompt": "bathroom mirror selfie crop top"}),
+                encoding="utf-8",
+            )
+            b.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "bathroom mirror selfie crop top alternate"
+                    }
+                ),
+                encoding="utf-8",
+            )
+            c.write_text(
+                json.dumps({"higgsfieldGridPrompt": "beach dance swimsuit ocean"}),
+                encoding="utf-8",
+            )
             upsert_embedding(root, b)
             upsert_embedding(root, c)
 
@@ -1642,24 +2130,106 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             manifest.conn.execute(
                 "INSERT INTO reel_outcomes (outcome_id, filename, output_path, platform, account, posted_at, views, likes, comments, shares, saves, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("oa", out_a.name, str(out_a), "ig", "acct", "2026-05-28", 100, 100, 0, 0, 0, now),
+                (
+                    "oa",
+                    out_a.name,
+                    str(out_a),
+                    "ig",
+                    "acct",
+                    "2026-05-28",
+                    100,
+                    100,
+                    0,
+                    0,
+                    0,
+                    now,
+                ),
             )
             manifest.conn.execute(
                 "INSERT INTO reel_outcomes (outcome_id, filename, output_path, platform, account, posted_at, views, likes, comments, shares, saves, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("ob", out_b.name, str(out_b), "ig", "acct", "2026-05-28", 100, 0, 0, 1, 1, now),
+                (
+                    "ob",
+                    out_b.name,
+                    str(out_b),
+                    "ig",
+                    "acct",
+                    "2026-05-28",
+                    100,
+                    0,
+                    0,
+                    1,
+                    1,
+                    now,
+                ),
             )
             manifest.conn.commit()
-            upsert_reel_feature(root, out_a, features={"scene": "bathroom_mirror", "camera": "mirror_selfie", "pose": "seated_side", "motion": "hip_sway", "outfit": "crop_top", "creator": "stacey", "grid_source": 1, "caption_style": "short_direct", "hook_type": "curiosity", "body_style": "hourglass"})
-            upsert_reel_feature(root, out_b, features={"scene": "beach", "camera": "phone", "pose": "standing", "motion": "walk", "outfit": "swimsuit", "creator": "stacey", "grid_source": 0, "caption_style": "short_direct", "hook_type": "direct", "body_style": "hourglass"})
-            assign_experiment(root, name="grid_vs_individual", group="grid", output_path=str(out_a))
-            assign_experiment(root, name="grid_vs_individual", group="individual", output_path=str(out_b))
-            record_cost(root, entity_type="final_reel", output_path=str(out_a), estimated_generation_cost=10.0)
-            record_cost(root, entity_type="final_reel", output_path=str(out_b), estimated_generation_cost=2.0)
+            upsert_reel_feature(
+                root,
+                out_a,
+                features={
+                    "scene": "bathroom_mirror",
+                    "camera": "mirror_selfie",
+                    "pose": "seated_side",
+                    "motion": "hip_sway",
+                    "outfit": "crop_top",
+                    "creator": "stacey",
+                    "grid_source": 1,
+                    "caption_style": "short_direct",
+                    "hook_type": "curiosity",
+                    "body_style": "hourglass",
+                },
+            )
+            upsert_reel_feature(
+                root,
+                out_b,
+                features={
+                    "scene": "beach",
+                    "camera": "phone",
+                    "pose": "standing",
+                    "motion": "walk",
+                    "outfit": "swimsuit",
+                    "creator": "stacey",
+                    "grid_source": 0,
+                    "caption_style": "short_direct",
+                    "hook_type": "direct",
+                    "body_style": "hourglass",
+                },
+            )
+            assign_experiment(
+                root, name="grid_vs_individual", group="grid", output_path=str(out_a)
+            )
+            assign_experiment(
+                root,
+                name="grid_vs_individual",
+                group="individual",
+                output_path=str(out_b),
+            )
+            record_cost(
+                root,
+                entity_type="final_reel",
+                output_path=str(out_a),
+                estimated_generation_cost=10.0,
+            )
+            record_cost(
+                root,
+                entity_type="final_reel",
+                output_path=str(out_b),
+                estimated_generation_cost=2.0,
+            )
 
-            self.assertGreater(winner_score({"views": 0, "likes": 10, "comments": 0, "shares": 0, "saves": 0}), 0)
             self.assertGreater(
-                winner_score({"views": 0, "likes": 0, "comments": 0, "shares": 1, "saves": 1}),
-                winner_score({"views": 0, "likes": 5, "comments": 0, "shares": 0, "saves": 0}),
+                winner_score(
+                    {"views": 0, "likes": 10, "comments": 0, "shares": 0, "saves": 0}
+                ),
+                0,
+            )
+            self.assertGreater(
+                winner_score(
+                    {"views": 0, "likes": 0, "comments": 0, "shares": 1, "saves": 1}
+                ),
+                winner_score(
+                    {"views": 0, "likes": 5, "comments": 0, "shares": 0, "saves": 0}
+                ),
             )
             refresh_winner_dna(root)
             board = winner_dna_leaderboard(root)
@@ -1667,47 +2237,58 @@ class AdvancedRoadmapTests(unittest.TestCase):
             exp = experiment_report(root, "grid_vs_individual")
 
             self.assertTrue(board["top_scenes"])
-            self.assertEqual(board["low_data_warning"], "Winner DNA is based on fewer than 50 outcome rows (2 available). Treat recommendations as directional.")
+            self.assertEqual(
+                board["low_data_warning"],
+                "Winner DNA is based on fewer than 50 outcome rows (2 available). Treat recommendations as directional.",
+            )
             self.assertEqual(board["top_scenes"][0]["confidence"]["level"], "low")
             self.assertEqual(exp["groups"][0]["name"], "individual")
             self.assertGreater(costs["assets"][0]["winner_score_per_cost"], 0)
 
-    def test_winner_dna_features_prefer_video_analysis_sidecar_over_filename_inference(self):
+    def test_winner_dna_features_prefer_video_analysis_sidecar_over_filename_inference(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             out = root / "unknown_clip.mp4"
             out.write_bytes(b"video")
             out.with_suffix(out.suffix + ".video_analysis.json").write_text(
-                json.dumps({
-                    "schema": "reference_factory.video_analysis.v1",
-                    "id": "analysis_unknown_clip",
-                    "referenceId": "unknown_clip",
-                    "provider": "operator_vlm",
-                    "model": "video_analysis",
-                    "status": "pattern_ready",
-                    "winnerDnaFeatures": {
-                        "scene": "gym_mirror",
-                        "camera": "mirror_selfie",
-                        "pose": "standing",
-                        "motion": "slow_pan",
-                        "outfit": "black_set",
-                        "creator": "stacey",
-                        "body_style": "athletic_hourglass",
-                        "caption_style": "lower_third",
-                        "hook_type": "pov",
-                    },
-                    "media": {"durationSeconds": 7.0, "width": 1080, "height": 1920},
-                    "signals": {},
-                    "patternCard": {
-                        "schema": "reference_factory.pattern_card.v1",
-                        "id": "pattern_gym_mirror",
-                        "platform": "instagram",
-                        "source": {"referenceId": "unknown_clip"},
-                        "formatType": "mirror_selfie",
-                        "hookType": "pov",
-                        "visualPattern": "Gym mirror clip",
-                    },
-                }),
+                json.dumps(
+                    {
+                        "schema": "reference_factory.video_analysis.v1",
+                        "id": "analysis_unknown_clip",
+                        "referenceId": "unknown_clip",
+                        "provider": "operator_vlm",
+                        "model": "video_analysis",
+                        "status": "pattern_ready",
+                        "winnerDnaFeatures": {
+                            "scene": "gym_mirror",
+                            "camera": "mirror_selfie",
+                            "pose": "standing",
+                            "motion": "slow_pan",
+                            "outfit": "black_set",
+                            "creator": "stacey",
+                            "body_style": "athletic_hourglass",
+                            "caption_style": "lower_third",
+                            "hook_type": "pov",
+                        },
+                        "media": {
+                            "durationSeconds": 7.0,
+                            "width": 1080,
+                            "height": 1920,
+                        },
+                        "signals": {},
+                        "patternCard": {
+                            "schema": "reference_factory.pattern_card.v1",
+                            "id": "pattern_gym_mirror",
+                            "platform": "instagram",
+                            "source": {"referenceId": "unknown_clip"},
+                            "formatType": "mirror_selfie",
+                            "hookType": "pov",
+                            "visualPattern": "Gym mirror clip",
+                        },
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -1719,9 +2300,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["features"]["feature_source"], "video_analysis")
 
     def test_confidence_helpers_label_small_samples_as_directional(self):
-        self.assertEqual(confidence_for_sample_size(8, total_outcomes=20)["level"], "low")
+        self.assertEqual(
+            confidence_for_sample_size(8, total_outcomes=20)["level"], "low"
+        )
         self.assertIn("fewer than 50", low_data_warning(20))
-        self.assertEqual(confidence_for_sample_size(30, total_outcomes=80)["level"], "high")
+        self.assertEqual(
+            confidence_for_sample_size(30, total_outcomes=80)["level"], "high"
+        )
 
     def test_proof_reports_fatigue_duplicate_and_decision_log(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1734,7 +2319,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
             candidate = root / "candidate_bathroom.mp4"
             for path in (manual, rec, varied, candidate):
                 path.write_bytes(path.name.encode())
-            for co_id, path in (("co_manual", manual), ("co_rec", rec), ("co_varied", varied)):
+            for co_id, path in (
+                ("co_manual", manual),
+                ("co_rec", rec),
+                ("co_varied", varied),
+            ):
                 manifest.conn.execute(
                     "INSERT INTO campaign_outputs (campaign_output_id, output_path, recipe, caption_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                     (co_id, str(path), "v01_original", "wait?", now, now),
@@ -1744,40 +2333,134 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 ("or", rec, "acct", 200, 10, 1, 3, 4),
                 ("ov", varied, "acct", 50, 0, 0, 0, 0),
             ]
-            for outcome_id, path, account, views, likes, comments, shares, saves in rows:
+            for (
+                outcome_id,
+                path,
+                account,
+                views,
+                likes,
+                comments,
+                shares,
+                saves,
+            ) in rows:
                 manifest.conn.execute(
                     "INSERT INTO reel_outcomes (outcome_id, filename, output_path, platform, account, posted_at, views, likes, comments, shares, saves, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (outcome_id, path.name, str(path), "ig", account, "2026-05-28", views, likes, comments, shares, saves, now),
+                    (
+                        outcome_id,
+                        path.name,
+                        str(path),
+                        "ig",
+                        account,
+                        "2026-05-28",
+                        views,
+                        likes,
+                        comments,
+                        shares,
+                        saves,
+                        now,
+                    ),
                 )
             manifest.conn.commit()
             for path in (manual, rec):
-                upsert_reel_feature(root, path, features={"scene": "bathroom_mirror", "camera": "mirror_selfie", "pose": "seated_side", "motion": "hip_sway", "outfit": "crop_top", "creator": "stacey", "grid_source": 1, "caption_style": "short_direct", "hook_type": "curiosity", "body_style": "hourglass"})
-            upsert_reel_feature(root, varied, features={"scene": "beach", "camera": "phone", "pose": "standing", "motion": "walk", "outfit": "dress", "creator": "stacey", "grid_source": 0, "caption_style": "short_direct", "hook_type": "direct", "body_style": "hourglass"})
-            assign_experiment(root, name="baseline_vs_recommended", group="manual", output_path=str(manual))
-            assign_experiment(root, name="baseline_vs_recommended", group="recommended", output_path=str(rec))
+                upsert_reel_feature(
+                    root,
+                    path,
+                    features={
+                        "scene": "bathroom_mirror",
+                        "camera": "mirror_selfie",
+                        "pose": "seated_side",
+                        "motion": "hip_sway",
+                        "outfit": "crop_top",
+                        "creator": "stacey",
+                        "grid_source": 1,
+                        "caption_style": "short_direct",
+                        "hook_type": "curiosity",
+                        "body_style": "hourglass",
+                    },
+                )
+            upsert_reel_feature(
+                root,
+                varied,
+                features={
+                    "scene": "beach",
+                    "camera": "phone",
+                    "pose": "standing",
+                    "motion": "walk",
+                    "outfit": "dress",
+                    "creator": "stacey",
+                    "grid_source": 0,
+                    "caption_style": "short_direct",
+                    "hook_type": "direct",
+                    "body_style": "hourglass",
+                },
+            )
+            assign_experiment(
+                root,
+                name="baseline_vs_recommended",
+                group="manual",
+                output_path=str(manual),
+            )
+            assign_experiment(
+                root,
+                name="baseline_vs_recommended",
+                group="recommended",
+                output_path=str(rec),
+            )
             upsert_embedding(root, rec)
             upsert_embedding(root, varied)
 
-            baseline = baseline_vs_recommended_report(root, experiment="baseline_vs_recommended")
+            baseline = baseline_vs_recommended_report(
+                root, experiment="baseline_vs_recommended"
+            )
             fatigue = account_fatigue_report(root, account="acct", window=30)
             duplicate = duplicate_risk(root, candidate, account="acct")
-            plan = {"ideas": [{
-                "prompt_focus": "fix_hands",
-                "avoid_labels": ["hands_bad"],
-                "winner_dna_focus": [{"feature_key": "scene", "feature_value": "bathroom_mirror", "sample_size": 2}],
-                "recommendation": {"pattern": "bathroom_mirror", "confidence": "low", "confidence_reason": "based on 2 matching outcome rows", "data_quality": {"score": 20}},
-            }]}
-            decision_id = persist_recommendation_decision(root, campaign="Test Campaign", plan=plan, rejection_patterns=[{"label": "hands_bad", "count": 1}])
+            plan = {
+                "ideas": [
+                    {
+                        "prompt_focus": "fix_hands",
+                        "avoid_labels": ["hands_bad"],
+                        "winner_dna_focus": [
+                            {
+                                "feature_key": "scene",
+                                "feature_value": "bathroom_mirror",
+                                "sample_size": 2,
+                            }
+                        ],
+                        "recommendation": {
+                            "pattern": "bathroom_mirror",
+                            "confidence": "low",
+                            "confidence_reason": "based on 2 matching outcome rows",
+                            "data_quality": {"score": 20},
+                        },
+                    }
+                ]
+            }
+            decision_id = persist_recommendation_decision(
+                root,
+                campaign="Test Campaign",
+                plan=plan,
+                rejection_patterns=[{"label": "hands_bad", "count": 1}],
+            )
             decisions = decision_log(root, campaign="Test Campaign")
 
-            self.assertGreater(baseline["recommended"]["avg_winner_score"], baseline["manual"]["avg_winner_score"])
+            self.assertGreater(
+                baseline["recommended"]["avg_winner_score"],
+                baseline["manual"]["avg_winner_score"],
+            )
             self.assertGreater(baseline["lift_percent"], 0)
             self.assertEqual(fatigue["level"], "medium")
-            self.assertIn("bathroom_mirror", {row["feature_value"] for row in fatigue["overused_patterns"]})
-            self.assertNotEqual(duplicate["nearest_prior_output"]["path"], str(candidate.resolve()))
+            self.assertIn(
+                "bathroom_mirror",
+                {row["feature_value"] for row in fatigue["overused_patterns"]},
+            )
+            self.assertNotEqual(
+                duplicate["nearest_prior_output"]["path"], str(candidate.resolve())
+            )
             self.assertIn(duplicate["recommended_action"], {"safe", "review", "avoid"})
             self.assertEqual(decisions["decisions"][0]["decision_id"], decision_id)
-            self.assertEqual(decisions["decisions"][0]["recommendation_pattern"], "bathroom_mirror")
+            self.assertEqual(
+                decisions["decisions"][0]["recommendation_pattern"], "bathroom_mirror"
+            )
 
     def test_duplicate_risk_accepts_legacy_similarity_list_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1796,7 +2479,15 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             manifest.conn.commit()
             (out_dir / "_similarity.json").write_text(
-                json.dumps([{"filename": candidate.name, "score": 0.95, "verdict": "near_duplicate"}]),
+                json.dumps(
+                    [
+                        {
+                            "filename": candidate.name,
+                            "score": 0.95,
+                            "verdict": "near_duplicate",
+                        }
+                    ]
+                ),
                 encoding="utf-8",
             )
 
@@ -1825,7 +2516,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             result = duplicate_risk(root, candidate, account="acct")
 
-            self.assertEqual(result["nearest_prior_output"]["path"], str(prior.resolve()))
+            self.assertEqual(
+                result["nearest_prior_output"]["path"], str(prior.resolve())
+            )
 
     def test_data_quality_score_penalizes_missing_inputs(self):
         weak = data_quality_score(
@@ -1851,27 +2544,62 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_guided_cockpit_status_next_action_and_dashboard_summary(self):
         self.assertEqual(
-            clip_status_from_evidence(stem="clip_001", output_count=0, review_states=[], outcome_count=0, has_prompt=False)["status"],
+            clip_status_from_evidence(
+                stem="clip_001",
+                output_count=0,
+                review_states=[],
+                outcome_count=0,
+                has_prompt=False,
+            )["status"],
             "Needs Captions",
         )
         self.assertEqual(
-            clip_status_from_evidence(stem="clip_001", output_count=0, review_states=[], outcome_count=0, has_prompt=False, hook_count=3)["status"],
+            clip_status_from_evidence(
+                stem="clip_001",
+                output_count=0,
+                review_states=[],
+                outcome_count=0,
+                has_prompt=False,
+                hook_count=3,
+            )["status"],
             "Ready to Render",
         )
         self.assertEqual(
-            clip_status_from_evidence(stem="clip_001", output_count=0, review_states=[], outcome_count=0, has_prompt=True)["status"],
+            clip_status_from_evidence(
+                stem="clip_001",
+                output_count=0,
+                review_states=[],
+                outcome_count=0,
+                has_prompt=True,
+            )["status"],
             "Needs Soul",
         )
         self.assertEqual(
-            clip_status_from_evidence(stem="clip_001", output_count=3, review_states=["draft", "draft"], outcome_count=0, has_prompt=True)["status"],
+            clip_status_from_evidence(
+                stem="clip_001",
+                output_count=3,
+                review_states=["draft", "draft"],
+                outcome_count=0,
+                has_prompt=True,
+            )["status"],
             "Needs Review",
         )
         self.assertEqual(
-            clip_status_from_evidence(stem="clip_001", output_count=3, review_states=["approved"], outcome_count=0, has_prompt=True)["status"],
+            clip_status_from_evidence(
+                stem="clip_001",
+                output_count=3,
+                review_states=["approved"],
+                outcome_count=0,
+                has_prompt=True,
+            )["status"],
             "Needs Metrics",
         )
-        self.assertEqual(next_action_for_status("Needs Kling")["label"], "Create Kling video")
-        self.assertEqual(next_action_for_status("Needs Captions")["label"], "Auto-caption + render")
+        self.assertEqual(
+            next_action_for_status("Needs Kling")["label"], "Create Kling video"
+        )
+        self.assertEqual(
+            next_action_for_status("Needs Captions")["label"], "Auto-caption + render"
+        )
 
         summary = dashboard_summary_api()
 
@@ -1888,7 +2616,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 reel_gui.ROOT = Path(tmp)
                 reel_gui.CAP_DIR = Path(tmp) / "01_captions"
                 result = auto_hooks_api("clip_001", {"count": 5})
-                saved = json.loads((Path(tmp) / "01_captions" / "clip_001.json").read_text())
+                saved = json.loads(
+                    (Path(tmp) / "01_captions" / "clip_001.json").read_text()
+                )
                 repeat = auto_hooks_api("clip_001", {"count": 5})
             finally:
                 reel_gui.ROOT, reel_gui.CAP_DIR = old_root, old_cap
@@ -1908,14 +2638,30 @@ class AdvancedRoadmapTests(unittest.TestCase):
             image = root / "project_data" / "generated_assets" / "image.png"
             image.parent.mkdir(parents=True)
             image.write_bytes(b"png")
-            reel = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_deadbeef.mp4"
+            reel = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_deadbeef.mp4"
+            )
             reel.parent.mkdir(parents=True)
             reel.write_bytes(b"mp4")
             old_root = reel_gui.ROOT
             try:
                 reel_gui.ROOT = root
-                photo = save_photo_post_asset(root, source_image=str(image), account="acct", caption="photo caption")
-                queued = queue_threadsdashboard_post(root, output_path=str(reel), account="acct", caption="reel caption", scheduled_at="2026-05-30T10:00:00")
+                photo = save_photo_post_asset(
+                    root,
+                    source_image=str(image),
+                    account="acct",
+                    caption="photo caption",
+                )
+                queued = queue_threadsdashboard_post(
+                    root,
+                    output_path=str(reel),
+                    account="acct",
+                    caption="reel caption",
+                    scheduled_at="2026-05-30T10:00:00",
+                )
             finally:
                 reel_gui.ROOT = old_root
 
@@ -1931,6 +2677,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_reel_pipeline_accepts_campaign_render_flags(self):
         import subprocess
         import sys
+
         result = subprocess.run(
             [sys.executable, "reel_pipeline.py", "--help"],
             cwd=REEL_ROOT,
@@ -1944,8 +2691,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_generation_soul_validation_fails_on_missing_or_wrong_id(self):
         expected = "5828d958-91dd-4d6d-8909-934503f47644"
         missing = validate_generation_soul({"params": {}}, expected)
-        wrong = validate_generation_soul({"params": {"custom_reference_id": "wrong"}}, expected)
-        ok = validate_generation_soul({"params": {"custom_reference_id": expected}}, expected)
+        wrong = validate_generation_soul(
+            {"params": {"custom_reference_id": "wrong"}}, expected
+        )
+        ok = validate_generation_soul(
+            {"params": {"custom_reference_id": expected}}, expected
+        )
         self.assertEqual(missing["status"], "invalid")
         self.assertEqual(wrong["status"], "invalid")
         self.assertEqual(ok["status"], "valid")
@@ -1961,11 +2712,15 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_generate_assets_source_lineage_captures_job_ids_and_models(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prompt = parse_asset_prompt_response(json.dumps({
-                "higgsfieldGridPrompt": "grid",
-                "klingMotionPrompt": "motion",
-                "notes": "ok",
-            }))
+            prompt = parse_asset_prompt_response(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid",
+                        "klingMotionPrompt": "motion",
+                        "notes": "ok",
+                    }
+                )
+            )
             plan = AssetGenerationPlan(
                 prompt_json=root / "prompt.json",
                 stem="clip_001",
@@ -1990,22 +2745,31 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 video_result_url="https://example.test/video.mp4",
             )
 
-            self.assertEqual(lineage["generation"]["models"]["image"], "text2image_soul_v2")
+            self.assertEqual(
+                lineage["generation"]["models"]["image"], "text2image_soul_v2"
+            )
             self.assertEqual(lineage["generation"]["models"]["video"], "kling3_0")
             self.assertEqual(lineage["generation"]["uploadId"], "upload_123")
             self.assertEqual(lineage["generation"]["soulId"], "soul_123")
             self.assertEqual(lineage["source"]["soulName"], "Stacey")
             self.assertEqual(lineage["generation"]["imageJobId"], "image_job")
-            self.assertEqual(lineage["generation"]["videoResultUrl"], "https://example.test/video.mp4")
+            self.assertEqual(
+                lineage["generation"]["videoResultUrl"],
+                "https://example.test/video.mp4",
+            )
 
     def test_ai_visual_qc_record_flags_deterministic_warnings(self):
-        record = record_from_scores("out.mp4", "/tmp/out.mp4", {
-            "opencv_available": 1,
-            "blur_min": 10,
-            "jump_max": 80,
-            "text_edge_score": 0.2,
-            "face_count_variance": 1,
-        })
+        record = record_from_scores(
+            "out.mp4",
+            "/tmp/out.mp4",
+            {
+                "opencv_available": 1,
+                "blur_min": 10,
+                "jump_max": 80,
+                "text_edge_score": 0.2,
+                "face_count_variance": 1,
+            },
+        )
 
         self.assertEqual(record.filename, "out.mp4")
         self.assertIn("possible_blur_or_low_detail", record.warnings)
@@ -2048,7 +2812,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_readiness_warns_for_missing_audio_intent_and_lineage(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            out = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            out = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            )
             out.parent.mkdir(parents=True)
             out.write_bytes(b"fake")
 
@@ -2067,7 +2836,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_readiness_platform_warnings_for_tiktok_non_9x16_and_text(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            out = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_4x5_deadbeef.mp4"
+            out = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_light_4x5_deadbeef.mp4"
+            )
             out.parent.mkdir(parents=True)
             out.write_bytes(b"fake")
 
@@ -2120,7 +2894,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_readiness_cli_writes_report_for_clip(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            out = root / "02_processed" / "clip_001" / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            out = (
+                root
+                / "02_processed"
+                / "clip_001"
+                / "clip_001_h00_v01_original_light_deadbeef.mp4"
+            )
             out.parent.mkdir(parents=True)
             out.write_bytes(b"fake")
 
@@ -2145,42 +2924,67 @@ class AdvancedRoadmapTests(unittest.TestCase):
             (caps / "clip_001.json").write_text('{"hooks":["hook"]}', encoding="utf-8")
             output = clip_proc / "clip_001_h00_v01_original_light_deadbeef.mp4"
             output.write_bytes(b"output")
-            (clip_proc / "_ai_qc.json").write_text(json.dumps({
-                "schema": "reel_factory.ai_visual_qc.v1",
-                "clip": "clip_001",
-                "summary": {"total": 1, "warned": 1},
-                "records": [{
-                    "filename": output.name,
-                    "path": str(output),
-                    "warnings": ["possible_text_or_watermark"],
-                    "scores": {"text_edge_score": 0.2},
-                }],
-            }), encoding="utf-8")
-            (clip_proc / "_readiness.json").write_text(json.dumps({
-                "schema": "reel_factory.readiness.v1",
-                "clip": "clip_001",
-                "platform": "instagram_reels",
-                "records": [{
-                    "filename": output.name,
-                    "status": "warn",
-                    "score": 80,
-                    "warnings": ["missing_audio_intent"],
-                    "safeZone": {"safeZoneStatus": "pass"},
-                }],
-            }), encoding="utf-8")
-            write_audio_intent(output, mode="native_trending_audio", platform="instagram_reels")
+            (clip_proc / "_ai_qc.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.ai_visual_qc.v1",
+                        "clip": "clip_001",
+                        "summary": {"total": 1, "warned": 1},
+                        "records": [
+                            {
+                                "filename": output.name,
+                                "path": str(output),
+                                "warnings": ["possible_text_or_watermark"],
+                                "scores": {"text_edge_score": 0.2},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (clip_proc / "_readiness.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.readiness.v1",
+                        "clip": "clip_001",
+                        "platform": "instagram_reels",
+                        "records": [
+                            {
+                                "filename": output.name,
+                                "status": "warn",
+                                "score": 80,
+                                "warnings": ["missing_audio_intent"],
+                                "safeZone": {"safeZoneStatus": "pass"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_audio_intent(
+                output, mode="native_trending_audio", platform="instagram_reels"
+            )
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "CAP_DIR", caps), \
-                 patch.object(reel_gui, "PROC_DIR", proc), \
-                 patch.object(reel_gui, "audio_stream_count", return_value=0):
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "CAP_DIR", caps),
+                patch.object(reel_gui, "PROC_DIR", proc),
+                patch.object(reel_gui, "audio_stream_count", return_value=0),
+            ):
                 detail = reel_gui.get_clip("clip_001")
 
-            self.assertEqual(detail["safe_zones"]["source"], "renderer_default_safe_margins")
-            self.assertEqual(detail["outputs"][0]["ai_qc"]["warnings"], ["possible_text_or_watermark"])
+            self.assertEqual(
+                detail["safe_zones"]["source"], "renderer_default_safe_margins"
+            )
+            self.assertEqual(
+                detail["outputs"][0]["ai_qc"]["warnings"],
+                ["possible_text_or_watermark"],
+            )
             self.assertEqual(detail["outputs"][0]["readiness"]["status"], "warn")
-            self.assertEqual(detail["outputs"][0]["audio_intent"]["mode"], "native_trending_audio")
+            self.assertEqual(
+                detail["outputs"][0]["audio_intent"]["mode"], "native_trending_audio"
+            )
 
     def test_gui_asset_dry_run_uses_stacey_identity(self):
         import reel_gui
@@ -2190,20 +2994,33 @@ class AdvancedRoadmapTests(unittest.TestCase):
             raw = root / "00_source_videos"
             raw.mkdir(parents=True)
             prompt = root / "prompt.json"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
-            with patch.object(reel_gui, "ROOT", root), patch.object(reel_gui, "RAW_DIR", raw):
-                result = reel_gui.asset_dry_run_api({
-                    "prompt_json": str(prompt),
-                    "stem": "clip_001",
-                    "creator": "Stacey",
-                })
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+            ):
+                result = reel_gui.asset_dry_run_api(
+                    {
+                        "prompt_json": str(prompt),
+                        "stem": "clip_001",
+                        "creator": "Stacey",
+                    }
+                )
 
             commands = [" ".join(cmd) for cmd in result["commands"]]
-            self.assertIn("--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644", commands[0])
+            self.assertIn(
+                "--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644",
+                commands[0],
+            )
 
     def test_gui_panel_crop_and_full_image_fallback(self):
         import reel_gui
@@ -2214,17 +3031,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
             data = root / "project_data"
             image = root / "grid.png"
             Image.new("RGB", (300, 200), "white").save(image)
-            with patch.object(reel_gui, "ROOT", root), patch.object(reel_gui, "DATA_DIR", data):
-                panel = reel_gui.asset_select_panel_api({
-                    "source_image": str(image),
-                    "stem": "clip_001",
-                    "panel": "4",
-                })
-                full = reel_gui.asset_select_panel_api({
-                    "source_image": str(image),
-                    "stem": "clip_001",
-                    "panel": "full_image",
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "DATA_DIR", data),
+            ):
+                panel = reel_gui.asset_select_panel_api(
+                    {
+                        "source_image": str(image),
+                        "stem": "clip_001",
+                        "panel": "4",
+                    }
+                )
+                full = reel_gui.asset_select_panel_api(
+                    {
+                        "source_image": str(image),
+                        "stem": "clip_001",
+                        "panel": "full_image",
+                    }
+                )
 
             self.assertEqual(panel["crop_box"], [0, 100, 100, 200])
             self.assertEqual(full["crop_box"], [0, 0, 300, 200])
@@ -2241,31 +3065,46 @@ class AdvancedRoadmapTests(unittest.TestCase):
             raw = root / "00_source_videos"
             prompt = root / "prompt.json"
             image = data / "generated_assets" / "clip_001_soul_image.png"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             fake = {
                 "ok": True,
                 "path": str(raw / "clip_001.generated_asset_lineage.json"),
                 "campaign_record": {"asset_generation_id": "asset_1"},
                 "lineage": {
-                    "generation": {"imageJobId": "img_1", "imageResultUrl": "https://example.test/img.png"},
+                    "generation": {
+                        "imageJobId": "img_1",
+                        "imageResultUrl": "https://example.test/img.png",
+                    },
                     "assets": {"localPaths": {"image": str(image)}},
                 },
             }
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "DATA_DIR", data), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "create_image_asset", return_value=fake):
-                result = reel_gui.asset_create_image_api({"prompt_json": str(prompt), "stem": "clip_001"})
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "DATA_DIR", data),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_image_asset", return_value=fake),
+            ):
+                result = reel_gui.asset_create_image_api(
+                    {"prompt_json": str(prompt), "stem": "clip_001"}
+                )
 
             self.assertEqual(result["image_job_id"], "img_1")
             self.assertEqual(result["image_result_url"], "https://example.test/img.png")
             self.assertEqual(result["local_image_path"], str(image))
             self.assertEqual(result["asset_generation_id"], "asset_1")
-            self.assertEqual(result["lineage_path"], str(raw / "clip_001.generated_asset_lineage.json"))
+            self.assertEqual(
+                result["lineage_path"],
+                str(raw / "clip_001.generated_asset_lineage.json"),
+            )
 
     def test_gui_create_video_response_exposes_normalized_fields(self):
         import reel_gui
@@ -2275,34 +3114,51 @@ class AdvancedRoadmapTests(unittest.TestCase):
             raw = root / "00_source_videos"
             prompt = root / "prompt.json"
             start = root / "start.png"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             start.write_bytes(b"png")
             fake = {
                 "ok": True,
                 "path": str(raw / "clip_001.generated_asset_lineage.json"),
                 "campaign_record": {"asset_generation_id": "asset_2"},
                 "lineage": {
-                    "generation": {"videoJobId": "vid_1", "videoResultUrl": "https://example.test/video.mp4"},
+                    "generation": {
+                        "videoJobId": "vid_1",
+                        "videoResultUrl": "https://example.test/video.mp4",
+                    },
                     "assets": {"localPaths": {}},
                 },
             }
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "create_video_asset", return_value=fake):
-                result = reel_gui.asset_create_video_api({
-                    "prompt_json": str(prompt),
-                    "stem": "clip_001",
-                    "start_image": str(start),
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_video_asset", return_value=fake),
+            ):
+                result = reel_gui.asset_create_video_api(
+                    {
+                        "prompt_json": str(prompt),
+                        "stem": "clip_001",
+                        "start_image": str(start),
+                    }
+                )
 
             self.assertEqual(result["video_job_id"], "vid_1")
-            self.assertEqual(result["video_result_url"], "https://example.test/video.mp4")
+            self.assertEqual(
+                result["video_result_url"], "https://example.test/video.mp4"
+            )
             self.assertEqual(result["asset_generation_id"], "asset_2")
-            self.assertEqual(result["lineage_path"], str(raw / "clip_001.generated_asset_lineage.json"))
+            self.assertEqual(
+                result["lineage_path"],
+                str(raw / "clip_001.generated_asset_lineage.json"),
+            )
 
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
         import reel_gui
@@ -2312,11 +3168,16 @@ class AdvancedRoadmapTests(unittest.TestCase):
             raw = root / "00_source_videos"
             prompt = root / "prompt.json"
             start = root / "start.png"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             start.write_bytes(b"png")
             captured = {}
 
@@ -2327,23 +3188,32 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "ok": True,
                     "path": str(raw / "clip_001.generated_asset_lineage.json"),
                     "lineage": {
-                        "generation": {"videoJobId": "vid_1", "videoResultUrl": "https://example.test/video.mp4"},
+                        "generation": {
+                            "videoJobId": "vid_1",
+                            "videoResultUrl": "https://example.test/video.mp4",
+                        },
                         "assets": {"localPaths": {}},
                     },
                 }
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "create_video_asset", side_effect=fake_create), \
-                 patch.object(reel_gui, "update_asset_generation", return_value={"ok": True}):
-                result = reel_gui.asset_create_video_api({
-                    "prompt_json": str(prompt),
-                    "stem": "clip_001",
-                    "start_image": str(start),
-                    "campaign": "Campaign",
-                    "creator": "Stacey",
-                    "asset_generation_id": "asset_existing",
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
+                patch.object(
+                    reel_gui, "update_asset_generation", return_value={"ok": True}
+                ),
+            ):
+                result = reel_gui.asset_create_video_api(
+                    {
+                        "prompt_json": str(prompt),
+                        "stem": "clip_001",
+                        "start_image": str(start),
+                        "campaign": "Campaign",
+                        "creator": "Stacey",
+                        "asset_generation_id": "asset_existing",
+                    }
+                )
 
             self.assertIsNone(captured["campaign"])
             self.assertIsNone(captured["creator"])
@@ -2361,7 +3231,14 @@ class AdvancedRoadmapTests(unittest.TestCase):
             source = data / "generated_assets" / "clip_001_soul_image.png"
             source.parent.mkdir(parents=True)
             image = Image.new("RGB", (324, 224), (245, 245, 245))
-            colors = [(180, 40, 40), (40, 150, 90), (60, 90, 190), (190, 160, 40), (170, 70, 170), (40, 170, 180)]
+            colors = [
+                (180, 40, 40),
+                (40, 150, 90),
+                (60, 90, 190),
+                (190, 160, 40),
+                (170, 70, 170),
+                (40, 170, 180),
+            ]
             for idx, color in enumerate(colors):
                 col = idx % 3
                 row = idx // 3
@@ -2371,33 +3248,58 @@ class AdvancedRoadmapTests(unittest.TestCase):
             image.save(source)
             prompt = root / "prompts" / "clip_001_grok.json"
             prompt.parent.mkdir()
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
             lineage = raw / "clip_001.generated_asset_lineage.json"
-            lineage.write_text(json.dumps({"generation": {}, "assets": {"localPaths": {"image": str(source)}}}), encoding="utf-8")
+            lineage.write_text(
+                json.dumps(
+                    {"generation": {}, "assets": {"localPaths": {"image": str(source)}}}
+                ),
+                encoding="utf-8",
+            )
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "DATA_DIR", data), \
-                 patch.object(reel_gui, "RAW_DIR", raw):
-                result = reel_gui.asset_fanout_panels_api({
-                    "stem": "clip_001",
-                    "prompt_json": str(prompt),
-                    "source_image": str(source),
-                    "lineage_path": str(lineage),
-                    "dry_run": True,
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "DATA_DIR", data),
+                patch.object(reel_gui, "RAW_DIR", raw),
+            ):
+                result = reel_gui.asset_fanout_panels_api(
+                    {
+                        "stem": "clip_001",
+                        "prompt_json": str(prompt),
+                        "source_image": str(source),
+                        "lineage_path": str(lineage),
+                        "dry_run": True,
+                    }
+                )
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["planned"], 6)
-            self.assertEqual(result["gridDetection"]["gridPreset"], {"columns": 3, "rows": 2})
-            self.assertTrue(all(Path(panel["startImagePath"]).exists() for panel in result["cropManifest"]["panelCrops"]))
+            self.assertEqual(
+                result["gridDetection"]["gridPreset"], {"columns": 3, "rows": 2}
+            )
+            self.assertTrue(
+                all(
+                    Path(panel["startImagePath"]).exists()
+                    for panel in result["cropManifest"]["panelCrops"]
+                )
+            )
             prompt_paths = {panel["promptJsonPath"] for panel in result["panels"]}
             self.assertEqual(len(prompt_paths), 1)
-            self.assertTrue(next(iter(prompt_paths)).endswith("_shared_kling_motion_prompt.json"))
-            self.assertTrue(all(panel["sharedMotionPrompt"] for panel in result["panels"]))
+            self.assertTrue(
+                next(iter(prompt_paths)).endswith("_shared_kling_motion_prompt.json")
+            )
+            self.assertTrue(
+                all(panel["sharedMotionPrompt"] for panel in result["panels"])
+            )
             updated = json.loads(lineage.read_text(encoding="utf-8"))
             self.assertEqual(len(updated["generation"]["panelCrops"]), 6)
             self.assertIn("panelStartImages", updated["assets"]["localPaths"])
@@ -2416,26 +3318,37 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (2048, 1536), (60, 50, 42)).save(source)
             prompt = root / "prompts" / "clip_001_grok.json"
             prompt.parent.mkdir()
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "DATA_DIR", data), \
-                 patch.object(reel_gui, "RAW_DIR", raw):
-                result = reel_gui.asset_fanout_panels_api({
-                    "stem": "clip_001",
-                    "prompt_json": str(prompt),
-                    "source_image": str(source),
-                    "grid_layout": "2x2",
-                    "dry_run": True,
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "DATA_DIR", data),
+                patch.object(reel_gui, "RAW_DIR", raw),
+            ):
+                result = reel_gui.asset_fanout_panels_api(
+                    {
+                        "stem": "clip_001",
+                        "prompt_json": str(prompt),
+                        "source_image": str(source),
+                        "grid_layout": "2x2",
+                        "dry_run": True,
+                    }
+                )
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["planned"], 4)
-            self.assertEqual(result["gridDetection"]["gridPreset"], {"columns": 2, "rows": 2})
+            self.assertEqual(
+                result["gridDetection"]["gridPreset"], {"columns": 2, "rows": 2}
+            )
             self.assertEqual(result["gridDetection"]["confidence"], "operator_override")
 
     def test_gui_fanout_create_records_partial_failures(self):
@@ -2452,37 +3365,59 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (300, 200), "white").save(source)
             prompt = root / "prompts" / "clip_001_grok.json"
             prompt.parent.mkdir()
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             def fake_create(plan, *, wait, download):
                 if "_panel_02_" in plan.stem:
-                    return {"ok": False, "path": str(raw / f"{plan.stem}.json"), "lineage": {"generation": {}}, "error": "quota"}
+                    return {
+                        "ok": False,
+                        "path": str(raw / f"{plan.stem}.json"),
+                        "lineage": {"generation": {}},
+                        "error": "quota",
+                    }
                 return {
                     "ok": True,
                     "path": str(raw / f"{plan.stem}.json"),
-                    "lineage": {"generation": {"videoJobId": f"vid_{plan.selected_panel}", "videoResultUrl": f"https://example.test/{plan.selected_panel}.mp4"}},
+                    "lineage": {
+                        "generation": {
+                            "videoJobId": f"vid_{plan.selected_panel}",
+                            "videoResultUrl": f"https://example.test/{plan.selected_panel}.mp4",
+                        }
+                    },
                 }
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "DATA_DIR", data), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "create_video_asset", side_effect=fake_create):
-                result = reel_gui.asset_fanout_panels_api({
-                    "stem": "clip_001",
-                    "prompt_json": str(prompt),
-                    "source_image": str(source),
-                    "dry_run": False,
-                    "max_jobs": 3,
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "DATA_DIR", data),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
+            ):
+                result = reel_gui.asset_fanout_panels_api(
+                    {
+                        "stem": "clip_001",
+                        "prompt_json": str(prompt),
+                        "source_image": str(source),
+                        "dry_run": False,
+                        "max_jobs": 3,
+                    }
+                )
 
             self.assertFalse(result["ok"])
             self.assertEqual(result["created"], 2)
             self.assertEqual(result["failed"], 1)
-            self.assertEqual([panel["status"] for panel in result["panels"]], ["created", "failed", "created"])
+            self.assertEqual(
+                [panel["status"] for panel in result["panels"]],
+                ["created", "failed", "created"],
+            )
 
     def test_gui_download_video_uses_stored_asset_generation_url(self):
         import reel_gui
@@ -2494,19 +3429,39 @@ class AdvancedRoadmapTests(unittest.TestCase):
             raw.mkdir()
             cap.mkdir()
             prompt = root / "prompt.json"
-            prompt.write_text(json.dumps({
-                "higgsfieldGridPrompt": "grid prompt",
-                "klingMotionPrompt": "motion prompt",
-                "notes": "ok",
-            }), encoding="utf-8")
-            create_campaign(root, name="Download Campaign", creator="Stacey", account="acct", platform="instagram_reels")
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            create_campaign(
+                root,
+                name="Download Campaign",
+                creator="Stacey",
+                account="acct",
+                platform="instagram_reels",
+            )
             lineage = {
-                "source": {"selectedPanel": "full_image", "startImage": str(root / "start.png")},
+                "source": {
+                    "selectedPanel": "full_image",
+                    "startImage": str(root / "start.png"),
+                },
                 "generation": {
                     "soulId": "5828d958-91dd-4d6d-8909-934503f47644",
                     "videoJobId": "vid_1",
                     "videoResultUrl": "https://example.test/video.mp4",
-                    "raw": {"image": {"params": {"custom_reference_id": "5828d958-91dd-4d6d-8909-934503f47644"}}},
+                    "raw": {
+                        "image": {
+                            "params": {
+                                "custom_reference_id": "5828d958-91dd-4d6d-8909-934503f47644"
+                            }
+                        }
+                    },
                 },
                 "assets": {"localPaths": {}},
             }
@@ -2524,20 +3479,31 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 Path(out).write_bytes(b"mp4")
                 return str(out), None
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "CAP_DIR", cap), \
-                 patch.object(reel_gui.urllib.request, "urlretrieve", side_effect=fake_download):
-                result = reel_gui.asset_download_video_api({
-                    "stem": "clip_001",
-                    "prompt_json": str(prompt),
-                    "asset_generation_id": record["asset_generation_id"],
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "CAP_DIR", cap),
+                patch.object(
+                    reel_gui.urllib.request, "urlretrieve", side_effect=fake_download
+                ),
+            ):
+                result = reel_gui.asset_download_video_api(
+                    {
+                        "stem": "clip_001",
+                        "prompt_json": str(prompt),
+                        "asset_generation_id": record["asset_generation_id"],
+                    }
+                )
 
             self.assertEqual(result["downloaded_stem"], "clip_001")
             self.assertTrue((raw / "clip_001.mp4").exists())
-            sidecar = json.loads((raw / "clip_001.generated_asset_lineage.json").read_text())
-            self.assertEqual(sidecar["generation"]["videoResultUrl"], "https://example.test/video.mp4")
+            sidecar = json.loads(
+                (raw / "clip_001.generated_asset_lineage.json").read_text()
+            )
+            self.assertEqual(
+                sidecar["generation"]["videoResultUrl"],
+                "https://example.test/video.mp4",
+            )
 
     def test_gui_prompt_generate_uses_live_grok_direct_prompt_preview(self):
         import reel_gui
@@ -2546,36 +3512,65 @@ class AdvancedRoadmapTests(unittest.TestCase):
             root = Path(tmp)
             ref = root / "ref.jpg"
             ref.write_bytes(b"jpg")
-            create_campaign(root, name="Prompt Campaign", creator="Stacey", account="acct", platform="instagram_reels")
+            create_campaign(
+                root,
+                name="Prompt Campaign",
+                creator="Stacey",
+                account="acct",
+                platform="instagram_reels",
+            )
             fake_raw = {
-                "output": [{"content": [{"type": "output_text", "text": json.dumps({
-                    "image_prompt": (
-                        "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman "
-                        "with a perfect face, deep cleavage, round ass emphasis, skin-tight fabric cling, bright lighting, and sharp focus"
-                    ),
-                    "notes": "manual Grok image prompt response shape",
-                })}]}]
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "image_prompt": (
+                                            "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman "
+                                            "with a perfect face, deep cleavage, round ass emphasis, skin-tight fabric cling, bright lighting, and sharp focus"
+                                        ),
+                                        "notes": "manual Grok image prompt response shape",
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+                ]
             }
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch("generate_prompts.load_xai_api_key", return_value="key"), \
-                 patch("generate_prompts.call_grok", return_value=fake_raw) as grok:
-                result = reel_gui.prompt_generate_api({
-                    "reference_image": str(ref),
-                    "out": str(root / "prompt.json"),
-                    "campaign": "Prompt Campaign",
-                    "creator": "Stacey",
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch("generate_prompts.load_xai_api_key", return_value="key"),
+                patch("generate_prompts.call_grok", return_value=fake_raw) as grok,
+            ):
+                result = reel_gui.prompt_generate_api(
+                    {
+                        "reference_image": str(ref),
+                        "out": str(root / "prompt.json"),
+                        "campaign": "Prompt Campaign",
+                        "creator": "Stacey",
+                    }
+                )
 
             self.assertTrue(result["dry_run"])
-            self.assertEqual(result["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE)
-            self.assertEqual(result["prompt_source"], "live_grok_direct_higgsfield_prompt")
+            self.assertEqual(
+                result["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE
+            )
+            self.assertEqual(
+                result["prompt_source"], "live_grok_direct_higgsfield_prompt"
+            )
             self.assertIn("cleaned_prompt", result["lineage"])
-            self.assertNotIn("perfect face", result["lineage"]["cleaned_prompt"].lower())
+            self.assertNotIn(
+                "perfect face", result["lineage"]["cleaned_prompt"].lower()
+            )
             self.assertNotIn("sharp focus", result["lineage"]["cleaned_prompt"].lower())
             self.assertIn("instruction_preview", result)
             grok.assert_called_once()
             conn = campaign_connect(root)
-            count = conn.execute("SELECT COUNT(*) AS n FROM prompt_runs").fetchone()["n"]
+            count = conn.execute("SELECT COUNT(*) AS n FROM prompt_runs").fetchone()[
+                "n"
+            ]
             self.assertEqual(count, 0)
 
     def test_gui_active_action_labels_use_direct_reference_language(self):
@@ -2600,21 +3595,27 @@ class AdvancedRoadmapTests(unittest.TestCase):
             ref = root / "reference.jpg"
             ref.write_bytes(b"jpg")
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "DATA_DIR", data):
-                result = reel_gui.asset_reference_image_dry_run_api({
-                    "reference": str(ref),
-                    "stem": "clip_001",
-                    "creator": "Stacey",
-                    "body_emphasis": "bust_hips",
-                    "wait": True,
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "DATA_DIR", data),
+            ):
+                result = reel_gui.asset_reference_image_dry_run_api(
+                    {
+                        "reference": str(ref),
+                        "stem": "clip_001",
+                        "creator": "Stacey",
+                        "body_emphasis": "bust_hips",
+                        "wait": True,
+                    }
+                )
 
             self.assertEqual(result["workflow"], "higgsfield_direct_reference_image")
             command_text = " ".join(result["commands"][0])
             self.assertIn("--image", result["commands"][0])
-            image_arg = result["commands"][0][result["commands"][0].index("--image") + 1]
+            image_arg = result["commands"][0][
+                result["commands"][0].index("--image") + 1
+            ]
             self.assertEqual(Path(image_arg).resolve(), ref.resolve())
             self.assertIn("--custom_reference_id", result["commands"][0])
             self.assertIn("d63ea9c7-b2c7-439c-bf0c-edfdf9938a36", result["commands"][0])
@@ -2635,8 +3636,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("direct reference-image", combined)
         self.assertIn("9:16", combined)
         self.assertNotIn("current default image grid aspect ratio is `4:3`", combined)
-        self.assertNotIn("reference frames are sent to grok for prompt creation", combined)
-        self.assertNotIn("do not pass reference images into higgsfield image generation", combined)
+        self.assertNotIn(
+            "reference frames are sent to grok for prompt creation", combined
+        )
+        self.assertNotIn(
+            "do not pass reference images into higgsfield image generation", combined
+        )
         self.assertNotIn("grid layout default", combined)
 
     def test_reel_url_downloader_stages_and_moves_mp4(self):
@@ -2652,9 +3657,15 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 out.write_bytes(b"mp4")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            with patch("reel_url_import.shutil.which", return_value="/usr/bin/yt-dlp"), \
-                 patch("reel_url_import.subprocess.run", side_effect=fake_run):
-                result = download_reel_url("https://www.instagram.com/reel/example/", out_dir=root, stem="clip_001")
+            with (
+                patch("reel_url_import.shutil.which", return_value="/usr/bin/yt-dlp"),
+                patch("reel_url_import.subprocess.run", side_effect=fake_run),
+            ):
+                result = download_reel_url(
+                    "https://www.instagram.com/reel/example/",
+                    out_dir=root,
+                    stem="clip_001",
+                )
 
             self.assertTrue((root / "clip_001.mp4").exists())
             self.assertEqual(result["stem"], "clip_001")
@@ -2669,12 +3680,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
             cap = root / "01_captions"
             raw.mkdir()
             cap.mkdir()
-            create_campaign(root, name="URL Campaign", creator="Stacey", account="acct", platform="instagram_reels")
+            create_campaign(
+                root,
+                name="URL Campaign",
+                creator="Stacey",
+                account="acct",
+                platform="instagram_reels",
+            )
 
             def fake_download(url, *, out_dir, stem):
                 out = Path(out_dir) / f"{stem}.mp4"
                 out.write_bytes(b"mp4")
-                return {"ok": True, "url": url, "stem": stem, "path": str(out.resolve()), "command": ["yt-dlp"]}
+                return {
+                    "ok": True,
+                    "url": url,
+                    "stem": stem,
+                    "path": str(out.resolve()),
+                    "command": ["yt-dlp"],
+                }
 
             fake_prompt = {
                 "ok": True,
@@ -2686,17 +3709,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 },
             }
 
-            with patch.object(reel_gui, "ROOT", root), \
-                 patch.object(reel_gui, "RAW_DIR", raw), \
-                 patch.object(reel_gui, "CAP_DIR", cap), \
-                 patch.object(reel_gui, "download_reel_url", side_effect=fake_download), \
-                 patch.object(reel_gui, "generate_prompt", return_value=fake_prompt):
-                result = reel_gui.import_reel_url_api({
-                    "url": "https://www.instagram.com/reel/example/",
-                    "campaign": "URL Campaign",
-                    "stem": "clip_001",
-                    "generate_prompt": True,
-                })
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "CAP_DIR", cap),
+                patch.object(reel_gui, "download_reel_url", side_effect=fake_download),
+                patch.object(reel_gui, "generate_prompt", return_value=fake_prompt),
+            ):
+                result = reel_gui.import_reel_url_api(
+                    {
+                        "url": "https://www.instagram.com/reel/example/",
+                        "campaign": "URL Campaign",
+                        "stem": "clip_001",
+                        "generate_prompt": True,
+                    }
+                )
 
             self.assertEqual(result["stem"], "clip_001")
             self.assertTrue((raw / "clip_001.mp4").exists())
@@ -2787,7 +3814,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 return True, "ok"
 
             def rewrite(self, base, *, n, min_chars, max_chars, seed=42):
-                return ["when he says he misses you again", "x", "when he says he misses you again"]
+                return [
+                    "when he says he misses you again",
+                    "x",
+                    "when he says he misses you again",
+                ]
 
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "project_data" / "caption_generations.jsonl"
@@ -2811,11 +3842,19 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(len(lines), 1)
             record = json.loads(lines[0])
             self.assertEqual(record["generationId"], result["generationId"])
-            self.assertEqual(record["acceptedHooks"][0]["captionHash"], result["quality"][0]["captionHash"])
+            self.assertEqual(
+                record["acceptedHooks"][0]["captionHash"],
+                result["quality"][0]["captionHash"],
+            )
             self.assertEqual(record["rejectedHooks"][0]["reason"], "too_short")
 
     def test_caption_quality_flags_basic_review_warnings(self):
-        quality = score_caption_quality("hi\nthere\nagain\nand\nagain\nand\nagain", recent_hooks=["something else"], min_chars=5, max_chars=20)
+        quality = score_caption_quality(
+            "hi\nthere\nagain\nand\nagain\nand\nagain",
+            recent_hooks=["something else"],
+            min_chars=5,
+            max_chars=20,
+        )
         self.assertIn("too_many_lines", quality["warnings"])
         self.assertIn("weak_first_line_hook", quality["warnings"])
         self.assertIn("too_long", quality["warnings"])
@@ -2863,22 +3902,36 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(library["captions"][0]["state"], "accepted")
             cap_dir = root / "01_captions"
             cap_dir.mkdir()
-            (cap_dir / "clip_010.json").write_text(json.dumps({
-                "hooks": ["strong caption hook", "x", "strong caption hook"],
-                "generation": {"generation_id": "capgen_1", "model": "fake"},
-            }), encoding="utf-8")
+            (cap_dir / "clip_010.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": ["strong caption hook", "x", "strong caption hook"],
+                        "generation": {"generation_id": "capgen_1", "model": "fake"},
+                    }
+                ),
+                encoding="utf-8",
+            )
             ranked = rank_clip_sidecar(
                 cap_dir,
                 "clip_010",
                 top=2,
                 performance_by_caption_hash={
-                    score_caption_quality("strong caption hook")["captionHash"]: {"totals": {"views": 5000, "shares": 30, "saves": 25}}
+                    score_caption_quality("strong caption hook")["captionHash"]: {
+                        "totals": {"views": 5000, "shares": 30, "saves": 25}
+                    }
                 },
             )
             self.assertEqual(ranked["clip"], "clip_010")
             self.assertEqual(ranked["ranked"][0]["text"], "strong caption hook")
-            self.assertIn("matching caption has positive history", ranked["ranked"][0]["reasons"])
-            self.assertTrue(any("duplicate_in_batch" in row["quality"]["warnings"] for row in ranked["ranked"]))
+            self.assertIn(
+                "matching caption has positive history", ranked["ranked"][0]["reasons"]
+            )
+            self.assertTrue(
+                any(
+                    "duplicate_in_batch" in row["quality"]["warnings"]
+                    for row in ranked["ranked"]
+                )
+            )
 
     def test_save_hooks_preserves_generation_metadata(self):
         import reel_gui
@@ -2892,9 +3945,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 "caption_hashes": ["hash_1"],
             }
             with patch.object(reel_gui, "CAP_DIR", cap_dir):
-                result = reel_gui.save_hooks("clip_001", {"hooks": ["hook one"], "generation": generation})
+                result = reel_gui.save_hooks(
+                    "clip_001", {"hooks": ["hook one"], "generation": generation}
+                )
             self.assertTrue(result["ok"])
-            sidecar = json.loads((cap_dir / "clip_001.json").read_text(encoding="utf-8"))
+            sidecar = json.loads(
+                (cap_dir / "clip_001.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(sidecar["generation"]["generation_id"], "capgen_test")
             self.assertEqual(sidecar["hooks"], ["hook one"])
 
@@ -2914,7 +3971,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             a = save_hook_to_library(path, "when he misses you")
             result = reindex_hook_library(path, embedding_model="hash-v1")
             self.assertEqual(result["count"], 1)
-            self.assertEqual(save_hook_to_library(path, "when he misses you")["id"], a["id"])
+            self.assertEqual(
+                save_hook_to_library(path, "when he misses you")["id"], a["id"]
+            )
 
     def test_hash_embedding_provider_is_deterministic(self):
         provider = HashEmbeddingProvider()
@@ -2956,9 +4015,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
             src_hash="abc",
             src_dims=(1080, 1920),
         )
-        cpu = build_ffmpeg_cmd(RenderPlan(**base, output_profile="cpu_h264_x264"), "ffmpeg")
+        cpu = build_ffmpeg_cmd(
+            RenderPlan(**base, output_profile="cpu_h264_x264"), "ffmpeg"
+        )
         self.assertIn("libx264", cpu)
-        nvenc = build_ffmpeg_cmd(RenderPlan(**base, output_profile="linux_nvenc"), "ffmpeg")
+        nvenc = build_ffmpeg_cmd(
+            RenderPlan(**base, output_profile="linux_nvenc"), "ffmpeg"
+        )
         self.assertIn("h264_nvenc", nvenc)
         with self.assertRaises(ValueError):
             build_ffmpeg_cmd(RenderPlan(**base, output_profile="linux_vaapi"), "ffmpeg")
@@ -2997,7 +4060,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "tags": {"encoder": "Lavf60.0.0"},
                 },
             }
-            with patch("qc_check._ffprobe_json", return_value=probe_json), patch("qc_check._has_faststart", return_value=False):
+            with (
+                patch("qc_check._ffprobe_json", return_value=probe_json),
+                patch("qc_check._has_faststart", return_value=False),
+            ):
                 rec = probe_with_audio_mode(path, upload_ready=True)
 
             reasons = " ".join(rec.reasons)
@@ -3009,11 +4075,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_render_queue_state_transitions_and_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             queue = RenderQueue(Path(tmp))
-            job_id = queue.enqueue(job_key="abc", command=["python3", "--version"], cwd=Path(tmp), max_attempts=1)
+            job_id = queue.enqueue(
+                job_key="abc",
+                command=["python3", "--version"],
+                cwd=Path(tmp),
+                max_attempts=1,
+            )
             job = queue.claim("worker-1")
             self.assertEqual(job["job_id"], job_id)
             queue.mark_running(job_id, "worker-1")
-            queue.conn.execute("UPDATE queue_jobs SET heartbeat_at = 1 WHERE job_id = ?", (job_id,))
+            queue.conn.execute(
+                "UPDATE queue_jobs SET heartbeat_at = 1 WHERE job_id = ?", (job_id,)
+            )
             self.assertEqual(queue.recover_stale(stale_after_sec=1), 1)
             self.assertEqual(queue.status()["counts"]["interrupted"], 1)
 

@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PIL import Image
-
 from ai_visual_qc import record_from_scores
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
-from hook_ai import hook_similarity_mode
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from hook_ai import hook_similarity_mode
 from identity_verification import build_reference_set, identity_health, verify_identity
 from media_metadata import normalize_media_metadata
+from PIL import Image
 
 
 class FakeIdentityProvider:
@@ -27,11 +26,15 @@ class FakeIdentityProvider:
         return self._embedding
 
 
-def _write_reference_set(root: Path, creator: str, embeddings: list[list[float]]) -> None:
+def _write_reference_set(
+    root: Path, creator: str, embeddings: list[list[float]]
+) -> None:
     target = root / "identity_references" / f"{creator.lower()}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        json.dumps({"referenceSetId": f"{creator.lower()}_refs", "embeddings": embeddings}),
+        json.dumps(
+            {"referenceSetId": f"{creator.lower()}_refs", "embeddings": embeddings}
+        ),
         encoding="utf-8",
     )
 
@@ -45,9 +48,24 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
     _write_image(image)
     _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
 
-    passed = verify_identity(image, creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([1.0, 0.0]))
-    failed = verify_identity(image, creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([0.0, 1.0]))
-    unavailable = verify_identity(image, creator="Stacey", root=tmp_path, provider=FakeIdentityProvider(available=False))
+    passed = verify_identity(
+        image,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider([1.0, 0.0]),
+    )
+    failed = verify_identity(
+        image,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider([0.0, 1.0]),
+    )
+    unavailable = verify_identity(
+        image,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider(available=False),
+    )
 
     assert passed["status"] == "passed"
     assert failed["status"] == "failed"
@@ -68,7 +86,9 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
         root=tmp_path,
         provider=FakeIdentityProvider([1.0, 0.0]),
     )
-    health = identity_health(creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([1.0, 0.0]))
+    health = identity_health(
+        creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([1.0, 0.0])
+    )
 
     assert built["schema"] == "reel_factory.identity_reference_set.v1"
     assert built["status"] == "ready"
@@ -78,7 +98,9 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
     assert health["referenceEmbeddings"] == 2
 
 
-def test_identity_reference_build_fails_closed_when_provider_missing(tmp_path: Path) -> None:
+def test_identity_reference_build_fails_closed_when_provider_missing(
+    tmp_path: Path,
+) -> None:
     input_dir = tmp_path / "approved_refs"
     input_dir.mkdir()
     _write_image(input_dir / "ref_a.png")
@@ -129,7 +151,9 @@ def test_caption_bank_uses_approved_outcome_weights(tmp_path: Path) -> None:
     )
 
     selected = store.resolve_mix("Stacey", limit=1, seed=1)[0]
-    lineage = store.lineage_for(selected, selected_mix="Stacey", selected_banks=selected["selected_banks"])
+    lineage = store.lineage_for(
+        selected, selected_mix="Stacey", selected_banks=selected["selected_banks"]
+    )
 
     assert selected["caption_hash"] == second["caption_hash"]
     assert lineage["weightSource"] == "approved_outcome_weights"
@@ -152,10 +176,16 @@ class FakeBalanceProvider:
 
 
 def test_higgsfield_cost_preflight_blocks_missing_policy(monkeypatch) -> None:
-    for key in ("HIGGSFIELD_DAILY_BUDGET_USD", "HIGGSFIELD_RUN_MAX_ASSETS", "HIGGSFIELD_MIN_BALANCE_USD"):
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
         monkeypatch.delenv(key, raising=False)
 
-    result = check_higgsfield_cost_preflight(asset_count=1, provider=FakeBalanceProvider(25.0))
+    result = check_higgsfield_cost_preflight(
+        asset_count=1, provider=FakeBalanceProvider(25.0)
+    )
 
     assert result["allowed"] is False
     assert "budget_policy_missing" in result["blockingReasons"]
@@ -167,13 +197,17 @@ def test_higgsfield_cost_preflight_allows_with_policy(monkeypatch) -> None:
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "3")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "5")
 
-    result = check_higgsfield_cost_preflight(asset_count=2, estimated_cost_usd=12, provider=FakeBalanceProvider(25.0))
+    result = check_higgsfield_cost_preflight(
+        asset_count=2, estimated_cost_usd=12, provider=FakeBalanceProvider(25.0)
+    )
 
     assert result["allowed"] is True
     assert result["blockingReasons"] == []
 
 
-def test_metadata_normalization_reports_missing_exiftool_without_spoofing(tmp_path: Path, monkeypatch) -> None:
+def test_metadata_normalization_reports_missing_exiftool_without_spoofing(
+    tmp_path: Path, monkeypatch
+) -> None:
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"fake media")
     monkeypatch.setattr("media_metadata.shutil.which", lambda name: None)
@@ -186,7 +220,9 @@ def test_metadata_normalization_reports_missing_exiftool_without_spoofing(tmp_pa
     assert result["spoofedPlatformMetadata"] is False
 
 
-def test_metadata_normalization_strips_mp4_metadata_tags(tmp_path: Path, monkeypatch) -> None:
+def test_metadata_normalization_strips_mp4_metadata_tags(
+    tmp_path: Path, monkeypatch
+) -> None:
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"fake media")
     calls: list[list[str]] = []

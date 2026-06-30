@@ -1,4 +1,5 @@
 """Campaign, creator, taste, and generation tracking for reel_factory."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,19 +19,27 @@ from intelligence_store import (
     validate_review,
 )
 
-
 DEFAULT_CREATORS = {
     "Stacey": {
         "soul_id": "5828d958-91dd-4d6d-8909-934503f47644",
-        "default_settings": {"image_model": "text2image_soul_v2", "video_model": "kling3_0"},
+        "default_settings": {
+            "image_model": "text2image_soul_v2",
+            "video_model": "kling3_0",
+        },
     },
     "Larissa": {
         "soul_id": "44326567-b12c-410c-95b7-31891bb0629b",
-        "default_settings": {"image_model": "text2image_soul_v2", "video_model": "kling3_0"},
+        "default_settings": {
+            "image_model": "text2image_soul_v2",
+            "video_model": "kling3_0",
+        },
     },
     "Lola": {
         "soul_id": "4c86c548-7aa5-4ad1-bc03-b94aa4ce8385",
-        "default_settings": {"image_model": "text2image_soul_v2", "video_model": "kling3_0"},
+        "default_settings": {
+            "image_model": "text2image_soul_v2",
+            "video_model": "kling3_0",
+        },
     },
 }
 
@@ -82,7 +91,9 @@ def retry_helper_direction(helper: str | None) -> str:
     if not helper:
         return ""
     if helper not in RETRY_HELPER_DIRECTIONS:
-        raise ValueError(f"retry_helper must be one of {sorted(RETRY_HELPER_DIRECTIONS)}")
+        raise ValueError(
+            f"retry_helper must be one of {sorted(RETRY_HELPER_DIRECTIONS)}"
+        )
     return RETRY_HELPER_DIRECTIONS[helper]
 
 
@@ -243,6 +254,7 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)
     from posting_ledger import ensure_posting_ledger_schema
+
     ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
     now = int(time.time())
@@ -255,27 +267,45 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
                 soul_id = excluded.soul_id,
                 default_settings_json = excluded.default_settings_json
             """,
-            (slugify(name), name, cfg["soul_id"], json.dumps(cfg["default_settings"], sort_keys=True), now),
+            (
+                slugify(name),
+                name,
+                cfg["soul_id"],
+                json.dumps(cfg["default_settings"], sort_keys=True),
+                now,
+            ),
         )
     conn.commit()
 
 
 def creator_by_name(conn: sqlite3.Connection, name: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM creators WHERE lower(name)=lower(?)", (name,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM creators WHERE lower(name)=lower(?)", (name,)
+    ).fetchone()
     if not row:
         raise ValueError(f"unknown creator: {name}")
     return row
 
 
 def campaign_by_name(conn: sqlite3.Connection, name: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM campaigns WHERE name=? OR campaign_id=?", (name, name)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM campaigns WHERE name=? OR campaign_id=?", (name, name)
+    ).fetchone()
     if not row:
         raise ValueError(f"unknown campaign: {name}")
     return row
 
 
-def create_campaign(root: Path, *, name: str, creator: str, account: str,
-                    platform: str, content_angle: str = "", notes: str = "") -> dict[str, Any]:
+def create_campaign(
+    root: Path,
+    *,
+    name: str,
+    creator: str,
+    account: str,
+    platform: str,
+    content_angle: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
     conn = connect(root)
     creator_row = creator_by_name(conn, creator)
     campaign_id = slugify(name)
@@ -294,20 +324,41 @@ def create_campaign(root: Path, *, name: str, creator: str, account: str,
             notes = excluded.notes,
             updated_at = excluded.updated_at
         """,
-        (campaign_id, name, creator_row["creator_id"], account, platform, content_angle, notes, now, now),
+        (
+            campaign_id,
+            name,
+            creator_row["creator_id"],
+            account,
+            platform,
+            content_angle,
+            notes,
+            now,
+            now,
+        ),
     )
     conn.commit()
     return {"ok": True, "campaign_id": campaign_id, "name": name, "creator": creator}
 
 
-def add_reference(root: Path, *, campaign: str, source_path: Path, source_type: str | None = None,
-                  frames: list[str] | None = None, visual_tags: list[str] | None = None,
-                  intended_pose: str = "", intended_outfit: str = "",
-                  intended_scene: str = "", notes: str = "") -> dict[str, Any]:
+def add_reference(
+    root: Path,
+    *,
+    campaign: str,
+    source_path: Path,
+    source_type: str | None = None,
+    frames: list[str] | None = None,
+    visual_tags: list[str] | None = None,
+    intended_pose: str = "",
+    intended_outfit: str = "",
+    intended_scene: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign)
     source_path = Path(source_path).expanduser().resolve()
-    inferred = source_type or ("video" if source_path.suffix.lower() in {".mp4", ".mov", ".m4v"} else "image")
+    inferred = source_type or (
+        "video" if source_path.suffix.lower() in {".mp4", ".mov", ".m4v"} else "image"
+    )
     reference_id = f"{campaign_row['campaign_id']}_{slugify(source_path.stem)}"
     conn.execute(
         """
@@ -340,30 +391,49 @@ def add_reference(root: Path, *, campaign: str, source_path: Path, source_type: 
         ),
     )
     conn.commit()
-    return {"ok": True, "reference_id": reference_id, "campaign_id": campaign_row["campaign_id"]}
+    return {
+        "ok": True,
+        "reference_id": reference_id,
+        "campaign_id": campaign_row["campaign_id"],
+    }
 
 
-def latest_reference_for_campaign(conn: sqlite3.Connection, campaign_id: str) -> sqlite3.Row | None:
+def latest_reference_for_campaign(
+    conn: sqlite3.Connection, campaign_id: str
+) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM campaign_references WHERE campaign_id=? ORDER BY created_at DESC LIMIT 1",
         (campaign_id,),
     ).fetchone()
 
 
-def record_prompt_run(root: Path, *, campaign: str | None, creator: str | None,
-                      prompt_json_path: Path, model: str, prompt_fields: dict[str, Any],
-                      lineage_path: Path | None = None, response_id: str | None = None,
-                      reference_id: str | None = None, operator_notes: str = "",
-                      status: str = "ok") -> dict[str, Any]:
+def record_prompt_run(
+    root: Path,
+    *,
+    campaign: str | None,
+    creator: str | None,
+    prompt_json_path: Path,
+    model: str,
+    prompt_fields: dict[str, Any],
+    lineage_path: Path | None = None,
+    response_id: str | None = None,
+    reference_id: str | None = None,
+    operator_notes: str = "",
+    status: str = "ok",
+) -> dict[str, Any]:
     parse_asset_prompt_response(json.dumps(prompt_fields, ensure_ascii=False))
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign) if campaign else None
     creator_row = creator_by_name(conn, creator) if creator else None
     if campaign_row and not creator_row:
-        creator_row = conn.execute("SELECT * FROM creators WHERE creator_id=?", (campaign_row["creator_id"],)).fetchone()
+        creator_row = conn.execute(
+            "SELECT * FROM creators WHERE creator_id=?", (campaign_row["creator_id"],)
+        ).fetchone()
     reference_row = None
     if reference_id:
-        reference_row = conn.execute("SELECT * FROM campaign_references WHERE reference_id=?", (reference_id,)).fetchone()
+        reference_row = conn.execute(
+            "SELECT * FROM campaign_references WHERE reference_id=?", (reference_id,)
+        ).fetchone()
     elif campaign_row:
         reference_row = latest_reference_for_campaign(conn, campaign_row["campaign_id"])
     prompt_run_id = f"prompt_{int(time.time() * 1000)}"
@@ -394,7 +464,9 @@ def record_prompt_run(root: Path, *, campaign: str | None, creator: str | None,
     return {"ok": True, "prompt_run_id": prompt_run_id}
 
 
-def prompt_run_for_path(conn: sqlite3.Connection, prompt_json_path: Path) -> sqlite3.Row | None:
+def prompt_run_for_path(
+    conn: sqlite3.Connection, prompt_json_path: Path
+) -> sqlite3.Row | None:
     resolved = str(Path(prompt_json_path).resolve())
     return conn.execute(
         "SELECT * FROM prompt_runs WHERE prompt_json_path=? ORDER BY created_at DESC LIMIT 1",
@@ -405,7 +477,9 @@ def prompt_run_for_path(conn: sqlite3.Connection, prompt_json_path: Path) -> sql
 def extract_custom_reference_id(payload: Any) -> str | None:
     if isinstance(payload, dict):
         params = payload.get("params")
-        if isinstance(params, dict) and isinstance(params.get("custom_reference_id"), str):
+        if isinstance(params, dict) and isinstance(
+            params.get("custom_reference_id"), str
+        ):
             return params["custom_reference_id"]
         for value in payload.values():
             found = extract_custom_reference_id(value)
@@ -419,7 +493,9 @@ def extract_custom_reference_id(payload: Any) -> str | None:
     return None
 
 
-def validate_generation_soul(raw_image_response: Any, expected_soul_id: str | None) -> dict[str, Any]:
+def validate_generation_soul(
+    raw_image_response: Any, expected_soul_id: str | None
+) -> dict[str, Any]:
     actual = extract_custom_reference_id(raw_image_response)
     if not expected_soul_id:
         return {"status": "unknown", "expected": None, "actual": actual}
@@ -430,21 +506,36 @@ def validate_generation_soul(raw_image_response: Any, expected_soul_id: str | No
     }
 
 
-def record_asset_generation(root: Path, *, campaign: str | None, creator: str | None,
-                            prompt_json_path: Path, stem: str, lineage_path: Path | None,
-                            lineage: dict[str, Any]) -> dict[str, Any]:
+def record_asset_generation(
+    root: Path,
+    *,
+    campaign: str | None,
+    creator: str | None,
+    prompt_json_path: Path,
+    stem: str,
+    lineage_path: Path | None,
+    lineage: dict[str, Any],
+) -> dict[str, Any]:
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign) if campaign else None
     creator_row = creator_by_name(conn, creator) if creator else None
     if campaign_row and not creator_row:
-        creator_row = conn.execute("SELECT * FROM creators WHERE creator_id=?", (campaign_row["creator_id"],)).fetchone()
+        creator_row = conn.execute(
+            "SELECT * FROM creators WHERE creator_id=?", (campaign_row["creator_id"],)
+        ).fetchone()
     prompt_run = prompt_run_for_path(conn, prompt_json_path)
     generation = lineage.get("generation") or {}
     source = lineage.get("source") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
-    validation = validate_generation_soul((generation.get("raw") or {}).get("image"), generation.get("soulId"))
+    validation = validate_generation_soul(
+        (generation.get("raw") or {}).get("image"), generation.get("soulId")
+    )
     generation_status = str(generation.get("status") or "")
-    record_status = generation_status if generation_status else ("created" if validation["status"] != "invalid" else "invalid_identity")
+    record_status = (
+        generation_status
+        if generation_status
+        else ("created" if validation["status"] != "invalid" else "invalid_identity")
+    )
     asset_generation_id = f"asset_{stem}_{int(time.time() * 1000)}"
     conn.execute(
         """
@@ -476,25 +567,45 @@ def record_asset_generation(root: Path, *, campaign: str | None, creator: str | 
             validation["actual"],
             validation["status"],
             str(Path(lineage_path).resolve()) if lineage_path else None,
-            json.dumps(generation.get("params") or {}, ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                generation.get("params") or {}, ensure_ascii=False, sort_keys=True
+            ),
             json.dumps(generation.get("raw") or {}, ensure_ascii=False, sort_keys=True),
             record_status,
             int(time.time()),
         ),
     )
     conn.commit()
-    return {"ok": True, "asset_generation_id": asset_generation_id, "identity": validation}
+    return {
+        "ok": True,
+        "asset_generation_id": asset_generation_id,
+        "identity": validation,
+    }
 
 
-def update_asset_generation(root: Path, asset_generation_id: str, **fields: Any) -> dict[str, Any]:
+def update_asset_generation(
+    root: Path, asset_generation_id: str, **fields: Any
+) -> dict[str, Any]:
     allowed = {
-        "video_job_id", "video_result_url", "local_image_path", "local_video_path",
-        "selected_panel", "start_image", "lineage_path", "status", "params_json", "raw_json",
+        "video_job_id",
+        "video_result_url",
+        "local_image_path",
+        "local_video_path",
+        "selected_panel",
+        "start_image",
+        "lineage_path",
+        "status",
+        "params_json",
+        "raw_json",
     }
     if "params_json" in fields and not isinstance(fields["params_json"], str):
-        fields["params_json"] = json.dumps(fields["params_json"], ensure_ascii=False, sort_keys=True)
+        fields["params_json"] = json.dumps(
+            fields["params_json"], ensure_ascii=False, sort_keys=True
+        )
     if "raw_json" in fields and not isinstance(fields["raw_json"], str):
-        fields["raw_json"] = json.dumps(fields["raw_json"], ensure_ascii=False, sort_keys=True)
+        fields["raw_json"] = json.dumps(
+            fields["raw_json"], ensure_ascii=False, sort_keys=True
+        )
     updates = {key: value for key, value in fields.items() if key in allowed}
     if not updates:
         return {"ok": True, "asset_generation_id": asset_generation_id, "changed": 0}
@@ -506,7 +617,11 @@ def update_asset_generation(root: Path, asset_generation_id: str, **fields: Any)
         values,
     )
     conn.commit()
-    return {"ok": True, "asset_generation_id": asset_generation_id, "changed": cur.rowcount}
+    return {
+        "ok": True,
+        "asset_generation_id": asset_generation_id,
+        "changed": cur.rowcount,
+    }
 
 
 def get_asset_generation(root: Path, asset_generation_id: str) -> dict[str, Any] | None:
@@ -526,11 +641,19 @@ def get_asset_generation(root: Path, asset_generation_id: str) -> dict[str, Any]
     return data
 
 
-def link_campaign_output(root: Path, *, output_path: Path, campaign: str | None = None,
-                         asset_generation_id: str | None = None, prompt_run_id: str | None = None,
-                         job_key: str | None = None, caption_text: str | None = None,
-                         recipe: str | None = None, review_state: str | None = None,
-                         readiness_status: str | None = None) -> dict[str, Any]:
+def link_campaign_output(
+    root: Path,
+    *,
+    output_path: Path,
+    campaign: str | None = None,
+    asset_generation_id: str | None = None,
+    prompt_run_id: str | None = None,
+    job_key: str | None = None,
+    caption_text: str | None = None,
+    recipe: str | None = None,
+    review_state: str | None = None,
+    readiness_status: str | None = None,
+) -> dict[str, Any]:
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign) if campaign else None
     output_path = Path(output_path).resolve()
@@ -572,16 +695,27 @@ def link_campaign_output(root: Path, *, output_path: Path, campaign: str | None 
     return {"ok": True, "campaign_output_id": campaign_output_id}
 
 
-def rate_output(root: Path, *, output_path: Path, campaign: str | None = None,
-                asset_generation_id: str | None = None, scores: dict[str, int | None] | None = None,
-                labels: list[str] | None = None, retry_helper: str | None = None,
-                reason: str = "", notes: str = "", decision: str | None = None,
-                primary_reason: str | None = None,
-                secondary_reasons: list[str] | None = None) -> dict[str, Any]:
+def rate_output(
+    root: Path,
+    *,
+    output_path: Path,
+    campaign: str | None = None,
+    asset_generation_id: str | None = None,
+    scores: dict[str, int | None] | None = None,
+    labels: list[str] | None = None,
+    retry_helper: str | None = None,
+    reason: str = "",
+    notes: str = "",
+    decision: str | None = None,
+    primary_reason: str | None = None,
+    secondary_reasons: list[str] | None = None,
+) -> dict[str, Any]:
     if retry_helper and retry_helper not in VALID_RETRY_HELPERS:
         raise ValueError(f"retry_helper must be one of {sorted(VALID_RETRY_HELPERS)}")
     scores = scores or {}
-    decision, primary_reason, secondary_reasons = validate_review(decision, primary_reason, secondary_reasons)
+    decision, primary_reason, secondary_reasons = validate_review(
+        decision, primary_reason, secondary_reasons
+    )
     for field, value in scores.items():
         if value is not None and (int(value) < 1 or int(value) > 5):
             raise ValueError(f"{field} score must be 1-5")
@@ -656,16 +790,26 @@ def latest_rating_for_output(root: Path, output_path: Path) -> dict[str, Any] | 
         "face": row["face_score"] if "face_score" in row.keys() else None,
         "eyes": row["eyes_score"] if "eyes_score" in row.keys() else None,
         "hands": row["hands_score"] if "hands_score" in row.keys() else None,
-        "pose_accuracy": row["pose_accuracy_score"] if "pose_accuracy_score" in row.keys() else None,
-        "body_taste": row["body_taste_score"] if "body_taste_score" in row.keys() else None,
-        "background": row["background_score"] if "background_score" in row.keys() else None,
+        "pose_accuracy": row["pose_accuracy_score"]
+        if "pose_accuracy_score" in row.keys()
+        else None,
+        "body_taste": row["body_taste_score"]
+        if "body_taste_score" in row.keys()
+        else None,
+        "background": row["background_score"]
+        if "background_score" in row.keys()
+        else None,
         "crop": row["crop_score"] if "crop_score" in row.keys() else None,
         "labels": json.loads(row["labels_json"] or "[]"),
         "retry_helper": row["retry_helper"],
         "reason": row["approve_reject_reason"],
         "decision": row["decision"] if "decision" in row.keys() else "unreviewed",
-        "primary_reason": row["primary_reason"] if "primary_reason" in row.keys() else None,
-        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]") if "secondary_reasons_json" in row.keys() else [],
+        "primary_reason": row["primary_reason"]
+        if "primary_reason" in row.keys()
+        else None,
+        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]")
+        if "secondary_reasons_json" in row.keys()
+        else [],
         "notes": row["notes"],
     }
 
@@ -718,7 +862,9 @@ def taste_memory(root: Path, *, campaign: str | None = None, limit: int = 8) -> 
             ]
             if row[col] is not None
         )
-        lessons.append(f"- labels: {labels}; scores: {scores}; notes: {row['notes'] or row['approve_reject_reason'] or ''}".strip())
+        lessons.append(
+            f"- labels: {labels}; scores: {scores}; notes: {row['notes'] or row['approve_reject_reason'] or ''}".strip()
+        )
     return "Recent operator taste lessons:\n" + "\n".join(lessons)
 
 
@@ -747,34 +893,73 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
             label_counts[label] = label_counts.get(label, 0) + 1
         score = row["manual_score"] if row["manual_score"] is not None else row["views"]
         if score is None:
-            score = sum(v for v in [row["identity_score"], row["pose_score"], row["taste_score"], row["motion_score"]] if v)
+            score = sum(
+                v
+                for v in [
+                    row["identity_score"],
+                    row["pose_score"],
+                    row["taste_score"],
+                    row["motion_score"],
+                ]
+                if v
+            )
         score = float(score or 0)
         if row["recipe"]:
             recipe_scores.setdefault(row["recipe"], []).append(score)
-        outputs.append({"output_path": row["output_path"], "recipe": row["recipe"], "score": score, "labels": labels})
+        outputs.append(
+            {
+                "output_path": row["output_path"],
+                "recipe": row["recipe"],
+                "score": score,
+                "labels": labels,
+            }
+        )
     return {
         "campaign": campaign_row["name"],
         "best_recipes": sorted(
-            [{"recipe": k, "score": round(sum(v) / len(v), 2), "count": len(v)} for k, v in recipe_scores.items()],
+            [
+                {"recipe": k, "score": round(sum(v) / len(v), 2), "count": len(v)}
+                for k, v in recipe_scores.items()
+            ],
             key=lambda item: item["score"],
             reverse=True,
         ),
         "labels": sorted(label_counts.items(), key=lambda item: item[1], reverse=True),
-        "top_outputs": sorted(outputs, key=lambda item: item["score"], reverse=True)[:10],
+        "top_outputs": sorted(outputs, key=lambda item: item["score"], reverse=True)[
+            :10
+        ],
         "worst_failure_patterns": [
             {"label": label, "count": count}
-            for label, count in sorted(label_counts.items(), key=lambda item: item[1], reverse=True)
-            if label.endswith("_bad") or label in {"pose_drift", "too_smiley", "too_generic", "not_sexy_enough", "artifact_bad", "hand_bad"}
+            for label, count in sorted(
+                label_counts.items(), key=lambda item: item[1], reverse=True
+            )
+            if label.endswith("_bad")
+            or label
+            in {
+                "pose_drift",
+                "too_smiley",
+                "too_generic",
+                "not_sexy_enough",
+                "artifact_bad",
+                "hand_bad",
+            }
         ],
     }
 
 
-def next_batch_plan(root: Path, *, campaign: str, count: int = 20, persist: bool = False) -> dict[str, Any]:
+def next_batch_plan(
+    root: Path, *, campaign: str, count: int = 20, persist: bool = False
+) -> dict[str, Any]:
     board = campaign_leaderboard(root, campaign=campaign)
     reject_labels = {item["label"] for item in board["worst_failure_patterns"]}
-    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or ["v01_original", "v09_caption_bg"]
+    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or [
+        "v01_original",
+        "v09_caption_bg",
+    ]
     conn = connect(root)
-    total_outcomes = int(conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0)
+    total_outcomes = int(
+        conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0
+    )
     dna_rows = conn.execute(
         """
         SELECT feature_key, feature_value, avg_winner_score, sample_size
@@ -785,11 +970,18 @@ def next_batch_plan(root: Path, *, campaign: str, count: int = 20, persist: bool
         """
     ).fetchall()
     winner_dna_focus = [
-        dict(row) | {"confidence": confidence_for_sample_size(row["sample_size"], total_outcomes=total_outcomes)}
+        dict(row)
+        | {
+            "confidence": confidence_for_sample_size(
+                row["sample_size"], total_outcomes=total_outcomes
+            )
+        }
         for row in dna_rows
     ]
     recommendation = _next_batch_recommendation(winner_dna_focus, total_outcomes)
-    data_quality = data_quality_from_connection(conn, matched_sample_size=int(recommendation["sample_size"] or 0))
+    data_quality = data_quality_from_connection(
+        conn, matched_sample_size=int(recommendation["sample_size"] or 0)
+    )
     recommendation["data_quality"] = data_quality
     ideas = []
     for idx in range(count):
@@ -802,22 +994,30 @@ def next_batch_plan(root: Path, *, campaign: str, count: int = 20, persist: bool
             retry_focus = "less_smile"
         elif "not_sexy_enough" in reject_labels:
             retry_focus = "more_body_emphasis"
-        ideas.append({
-            "index": idx,
-            "campaign": campaign,
-            "recipe_hint": best_recipes[idx % len(best_recipes)],
-            "prompt_focus": retry_focus,
-            "avoid_labels": sorted(reject_labels),
-            "winner_dna_focus": winner_dna_focus,
-            "recommendation": recommendation,
-            "confidence": recommendation["confidence"],
-            "data_quality": data_quality,
-            "low_data_warning": low_data_warning(total_outcomes),
-            "brief": _next_batch_brief(winner_dna_focus),
-        })
-    plan = {"schema": "campaign_factory.next_batch.v1", "campaign": campaign, "count": count, "ideas": ideas}
+        ideas.append(
+            {
+                "index": idx,
+                "campaign": campaign,
+                "recipe_hint": best_recipes[idx % len(best_recipes)],
+                "prompt_focus": retry_focus,
+                "avoid_labels": sorted(reject_labels),
+                "winner_dna_focus": winner_dna_focus,
+                "recommendation": recommendation,
+                "confidence": recommendation["confidence"],
+                "data_quality": data_quality,
+                "low_data_warning": low_data_warning(total_outcomes),
+                "brief": _next_batch_brief(winner_dna_focus),
+            }
+        )
+    plan = {
+        "schema": "campaign_factory.next_batch.v1",
+        "campaign": campaign,
+        "count": count,
+        "ideas": ideas,
+    }
     if persist:
         from winner_dna import persist_recommendation_decision
+
         decision_id = persist_recommendation_decision(
             root,
             campaign=campaign,
@@ -839,22 +1039,38 @@ def _next_batch_brief(winner_dna_focus: list[dict[str, Any]]) -> str:
     for row in winner_dna_focus:
         if row.get("feature_key") and row.get("feature_value"):
             by_key.setdefault(row["feature_key"], row["feature_value"])
-    parts = [by_key.get(key) for key in ("scene", "pose", "motion", "outfit") if by_key.get(key)]
+    parts = [
+        by_key.get(key)
+        for key in ("scene", "pose", "motion", "outfit")
+        if by_key.get(key)
+    ]
     if not parts:
         return "Use proven reference-faithful Stacey generation patterns with exact pose and recent winner labels."
-    return "Lean into Winner DNA: " + " / ".join(parts) + ". Keep the selected Soul ID and recent winner labels."
+    return (
+        "Lean into Winner DNA: "
+        + " / ".join(parts)
+        + ". Keep the selected Soul ID and recent winner labels."
+    )
 
 
-def _next_batch_recommendation(winner_dna_focus: list[dict[str, Any]], total_outcomes: int) -> dict[str, Any]:
+def _next_batch_recommendation(
+    winner_dna_focus: list[dict[str, Any]], total_outcomes: int
+) -> dict[str, Any]:
     by_key: dict[str, dict[str, Any]] = {}
     for row in winner_dna_focus:
         if row.get("feature_key") and row.get("feature_value"):
             by_key.setdefault(row["feature_key"], row)
-    ordered = [by_key.get(key) for key in ("scene", "pose", "motion", "outfit") if by_key.get(key)]
+    ordered = [
+        by_key.get(key)
+        for key in ("scene", "pose", "motion", "outfit")
+        if by_key.get(key)
+    ]
     sample_size = min((int(row["sample_size"] or 0) for row in ordered), default=0)
     confidence = confidence_for_sample_size(sample_size, total_outcomes=total_outcomes)
     return {
-        "pattern": " / ".join(str(row["feature_value"]) for row in ordered) if ordered else "",
+        "pattern": " / ".join(str(row["feature_value"]) for row in ordered)
+        if ordered
+        else "",
         "confidence": confidence["level"],
         "confidence_reason": confidence["reason"],
         "sample_size": sample_size,

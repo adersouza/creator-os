@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class CertificationRepository:
@@ -16,9 +17,13 @@ class CertificationRepository:
         carousel_certification_proof: Callable[..., dict[str, Any]],
     ) -> None:
         self.conn = conn
-        self._creator_os_live_100_account_readiness = creator_os_live_100_account_readiness
+        self._creator_os_live_100_account_readiness = (
+            creator_os_live_100_account_readiness
+        )
         self._parent_factory_production_scorecard = parent_factory_production_scorecard
-        self._discoverability_prevention_scorecard = discoverability_prevention_scorecard
+        self._discoverability_prevention_scorecard = (
+            discoverability_prevention_scorecard
+        )
         self._story_certification_proof = story_certification_proof
         self._carousel_certification_proof = carousel_certification_proof
 
@@ -31,7 +36,10 @@ class CertificationRepository:
         reels_certified = True
         feed_single_certified = True
         account_health_certified = True
-        discoverability_certified = bool(prevention.get("score", 0) >= 8 or parent.get("canMeetRequiredParentsPerDay"))
+        discoverability_certified = bool(
+            prevention.get("score", 0) >= 8
+            or parent.get("canMeetRequiredParentsPerDay")
+        )
         inventory_certified = bool(parent.get("canMeetRequiredParentsPerDay"))
         learning_certified = True
         scheduling_certified = True
@@ -47,7 +55,9 @@ class CertificationRepository:
             "learningCertified": learning_certified,
             "schedulingCertified": scheduling_certified,
             "publishingCertified": publishing_certified,
-            "100AccountCertified": bool(live.get("safeToRun100Accounts") or live.get("canRun100AccountsToday")),
+            "100AccountCertified": bool(
+                live.get("safeToRun100Accounts") or live.get("canRun100AccountsToday")
+            ),
         }
         blockers = []
         if not proof_flags["100AccountCertified"]:
@@ -58,7 +68,11 @@ class CertificationRepository:
             blockers.append("discoverability_prevention_not_upstream_enough")
         blockers.extend(story.get("blockers") or [])
         blockers.extend(carousel.get("blockers") or [])
-        final_rating = round((sum(1 for passed in proof_flags.values() if passed) / len(proof_flags)) * 10, 1)
+        final_rating = round(
+            (sum(1 for passed in proof_flags.values() if passed) / len(proof_flags))
+            * 10,
+            1,
+        )
         return {
             "schema": "creator_os.certification_report.v1",
             **proof_flags,

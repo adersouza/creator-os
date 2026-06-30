@@ -71,11 +71,16 @@ class CaptionBankTests(unittest.TestCase):
         store = CaptionBankStore.build(root)
         all_texts = {item["text"] for item in store.all_items()}
 
-        self.assertIn("account so small that if you follow me I will message you", all_texts)
+        self.assertIn(
+            "account so small that if you follow me I will message you", all_texts
+        )
         self.assertIn("which one would you choose?\n1. kiss\n2. date\n3. me", all_texts)
         self.assertIn("read this backwards", all_texts)
         self.assertIn("it’s that right?????", all_texts)
-        self.assertIn("it’s that right?????", {item["text"] for item in store.bank_items("weird_generated_history")})
+        self.assertIn(
+            "it’s that right?????",
+            {item["text"] for item in store.bank_items("weird_generated_history")},
+        )
         self.assertEqual(store.bank_items("winner_bank"), [])
         for bank in ACTIVE_BANKS:
             self.assertIn(bank, store.banks)
@@ -87,7 +92,9 @@ class CaptionBankTests(unittest.TestCase):
 
         self.assertTrue((root / "caption_banks" / "banks.json").exists())
         self.assertTrue((root / "caption_banks" / "mixes.json").exists())
-        performance = json.loads((root / "caption_banks" / "performance.json").read_text())
+        performance = json.loads(
+            (root / "caption_banks" / "performance.json").read_text()
+        )
         self.assertEqual(performance["schema"], "reel_factory.caption_performance.v1")
         self.assertEqual(performance["captions"], {})
 
@@ -104,9 +111,18 @@ class CaptionBankTests(unittest.TestCase):
             sum("gym_body" in item["banks"] for item in lola),
             sum("gym_body" in item["banks"] for item in larissa),
         )
-        excluded = {"goth_dark_alt", "experimental_edge", "weird_generated_history", "winner_bank"}
-        self.assertFalse(any(excluded.intersection(item["selected_banks"]) for item in larissa))
-        self.assertFalse(any(excluded.intersection(item["selected_banks"]) for item in lola))
+        excluded = {
+            "goth_dark_alt",
+            "experimental_edge",
+            "weird_generated_history",
+            "winner_bank",
+        }
+        self.assertFalse(
+            any(excluded.intersection(item["selected_banks"]) for item in larissa)
+        )
+        self.assertFalse(
+            any(excluded.intersection(item["selected_banks"]) for item in lola)
+        )
 
     def test_explicit_bank_selection_can_pick_goth_bank(self):
         root = self._root_with_sources()
@@ -115,7 +131,9 @@ class CaptionBankTests(unittest.TestCase):
         selected = store.resolve_banks(["goth_dark_alt"], limit=10, seed=3)
 
         self.assertTrue(selected)
-        self.assertTrue(all("goth_dark_alt" in item["selected_banks"] for item in selected))
+        self.assertTrue(
+            all("goth_dark_alt" in item["selected_banks"] for item in selected)
+        )
 
     def test_deterministic_seed_repeats_selection(self):
         root = self._root_with_sources()
@@ -124,11 +142,16 @@ class CaptionBankTests(unittest.TestCase):
         first = store.resolve_mix("Larissa", limit=3, seed=42)
         second = store.resolve_mix("Larissa", limit=3, seed=42)
 
-        self.assertEqual([item["caption_hash"] for item in first], [item["caption_hash"] for item in second])
+        self.assertEqual(
+            [item["caption_hash"] for item in first],
+            [item["caption_hash"] for item in second],
+        )
 
     def test_caption_static_metadata_classifies_length_and_format(self):
         short = caption_static_metadata("wife or girlfriend")
-        numbered = caption_static_metadata("3 things I hate in guys\n1. boring\n2. rude\n3. cheap")
+        numbered = caption_static_metadata(
+            "3 things I hate in guys\n1. boring\n2. rude\n3. cheap"
+        )
         paragraph = caption_static_metadata(
             "I'm so single I end up texting anyone who follows me because I get excited thinking we might become friends"
         )
@@ -142,7 +165,11 @@ class CaptionBankTests(unittest.TestCase):
         root = self._root_with_sources()
         store = CaptionBankStore.build(root)
 
-        item = next(item for item in store.all_items() if item["text"].startswith("which one would you choose"))
+        item = next(
+            item
+            for item in store.all_items()
+            if item["text"].startswith("which one would you choose")
+        )
 
         self.assertIn("length_class", item)
         self.assertIn("format_class", item)
@@ -168,7 +195,9 @@ class CaptionBankTests(unittest.TestCase):
         self.assertIn("dm", report["blockedTerms"])
         self.assertIn("link", report["blockedTerms"])
         self.assertIn("snapchat", report["blockedTerms"])
-        self.assertEqual(report["blockedReason"], "unsafe_dm_link_or_off_platform_language")
+        self.assertEqual(
+            report["blockedReason"], "unsafe_dm_link_or_off_platform_language"
+        )
         self.assertFalse(report["wouldWrite"])
 
     def test_discoverability_contract_does_not_block_lowercase_word_of(self):
@@ -196,9 +225,7 @@ class CaptionBankTests(unittest.TestCase):
                 json.dumps(
                     {
                         "banks": {
-                            "shared_girl_next_door": [
-                                {"text": "mirror selfie energy"}
-                            ],
+                            "shared_girl_next_door": [{"text": "mirror selfie energy"}],
                             "comment_bait": [
                                 {"text": "who didn't get a pic in dms yet today?"}
                             ],

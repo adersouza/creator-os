@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .config import get_settings
-from .core import CampaignFactory
 from .adapters.contentforge import audit_review_batch_manifest
 from .adapters.threadsdash import sync_threadsdash_instagram_accounts
+from .config import get_settings
+from .core import CampaignFactory
 
 
 def _load_json(path: str | None) -> dict[str, Any] | None:
@@ -37,7 +37,11 @@ def _load_env_file(path: Path) -> dict[str, str]:
 
 def _threadsdash_supabase_args(args) -> tuple[str | None, str | None]:
     settings = get_settings()
-    env_file = Path(args.threadsdash_env_file) if getattr(args, "threadsdash_env_file", None) else settings.threadsdash_root / ".env.local"
+    env_file = (
+        Path(args.threadsdash_env_file)
+        if getattr(args, "threadsdash_env_file", None)
+        else settings.threadsdash_root / ".env.local"
+    )
     env_values = _load_env_file(env_file)
     url = (
         getattr(args, "supabase_url", None)
@@ -115,7 +119,9 @@ def main() -> int:
     review_batch_audit.add_argument("--animation-mode")
     review_batch_audit.add_argument("--allow-static-opening", action="store_true")
     review_batch_audit.add_argument("--per-file", action="store_true", default=True)
-    review_batch_audit.add_argument("--no-per-file", action="store_false", dest="per_file")
+    review_batch_audit.add_argument(
+        "--no-per-file", action="store_false", dest="per_file"
+    )
     review_batch_audit.add_argument("--no-update-manifest", action="store_true")
 
     inventory_slo = sub.add_parser("inventory-slo-report")
@@ -136,7 +142,9 @@ def main() -> int:
     inventory_factory_audit.add_argument("--creator")
     inventory_factory_audit.add_argument("--campaign")
     inventory_factory_audit.add_argument("--accounts", type=int, default=200)
-    inventory_factory_audit.add_argument("--posts-per-account-per-day", type=int, default=3)
+    inventory_factory_audit.add_argument(
+        "--posts-per-account-per-day", type=int, default=3
+    )
 
     inventory_yield = sub.add_parser("inventory-yield-analysis")
     inventory_yield.add_argument("--creator")
@@ -152,16 +160,24 @@ def main() -> int:
     inventory_slo_enforcement = sub.add_parser("inventory-slo-enforcement-audit")
     inventory_slo_enforcement.add_argument("--creator", action="append", default=[])
     inventory_slo_enforcement.add_argument("--accounts", type=int, default=200)
-    inventory_slo_enforcement.add_argument("--posts-per-account-per-day", type=int, default=3)
-    inventory_slo_enforcement.add_argument("--minimum-inventory-days", type=int, default=3)
+    inventory_slo_enforcement.add_argument(
+        "--posts-per-account-per-day", type=int, default=3
+    )
+    inventory_slo_enforcement.add_argument(
+        "--minimum-inventory-days", type=int, default=3
+    )
 
     inventory_consumption = sub.add_parser("inventory-consumption-simulation")
     inventory_consumption.add_argument("--available-inventory", type=int, default=0)
-    inventory_consumption.add_argument("--posts-per-account-per-day", type=int, default=3)
+    inventory_consumption.add_argument(
+        "--posts-per-account-per-day", type=int, default=3
+    )
 
     inventory_production = sub.add_parser("inventory-production-requirements")
     inventory_production.add_argument("--accounts", type=int, default=200)
-    inventory_production.add_argument("--posts-per-account-per-day", type=int, default=3)
+    inventory_production.add_argument(
+        "--posts-per-account-per-day", type=int, default=3
+    )
 
     inventory_exception = sub.add_parser("inventory-exception-audit")
     inventory_exception.add_argument("--execution-readiness-json")
@@ -194,10 +210,13 @@ def main() -> int:
 
     inventory_protection = sub.add_parser("inventory-buffer-protection-report")
     inventory_protection.add_argument("--accounts", type=int, default=200)
-    inventory_protection.add_argument("--posts-per-account-per-day", type=int, default=3)
+    inventory_protection.add_argument(
+        "--posts-per-account-per-day", type=int, default=3
+    )
     inventory_protection.add_argument("--available-inventory", type=int, default=0)
     inventory_protection.add_argument("--buffer-target-days", type=int, default=3)
     inventory_protection.add_argument("--surface", default="reel")
+
     def add_inventory_recovery_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -206,6 +225,7 @@ def main() -> int:
         command.add_argument("--account-target", type=int, default=25)
         command.add_argument("--posts-per-account-per-day", type=int, default=3)
         command.add_argument("--buffer-days", type=int, default=3)
+
     inventory_recovery = sub.add_parser("inventory-recovery-report")
     add_inventory_recovery_args(inventory_recovery)
     inventory_recovery_priority = sub.add_parser("inventory-recovery-priority-report")
@@ -214,6 +234,7 @@ def main() -> int:
     add_inventory_recovery_args(inventory_recovery_by_blocker)
     inventory_recovery_master = sub.add_parser("inventory-recovery-master-report")
     add_inventory_recovery_args(inventory_recovery_master)
+
     def add_schedule_safe_production_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -221,6 +242,7 @@ def main() -> int:
         command.add_argument("--lookback-days", type=int, default=1)
         command.add_argument("--required-inventory", type=int)
         command.add_argument("--current-inventory", type=int)
+
     production_report = sub.add_parser("schedule-safe-production-report")
     add_schedule_safe_production_args(production_report)
     production_waterfall = sub.add_parser("schedule-safe-production-waterfall")
@@ -241,12 +263,14 @@ def main() -> int:
     add_schedule_safe_production_args(visual_qc_repair)
     visual_qc_master = sub.add_parser("contentforge-visual-qc-master-report")
     add_schedule_safe_production_args(visual_qc_master)
+
     def add_inventory_unlock_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
         command.add_argument("--content-surface", default="reel")
         command.add_argument("--required-inventory", type=int, default=225)
         command.add_argument("--current-inventory", type=int)
+
     multi_unlock = sub.add_parser("multi-blocker-inventory-unlock-report")
     add_inventory_unlock_args(multi_unlock)
     multi_unlock_plan = sub.add_parser("multi-blocker-inventory-unlock-plan")
@@ -273,6 +297,7 @@ def main() -> int:
     add_inventory_unlock_args(review_minimum)
     review_master = sub.add_parser("operator-review-master-report")
     add_inventory_unlock_args(review_master)
+
     def add_fresh_reel_production_args(command):
         command.add_argument("--creator")
         command.add_argument("--campaign")
@@ -281,6 +306,7 @@ def main() -> int:
         command.add_argument("--caption-versions-per-parent", type=int, default=5)
         command.add_argument("--variants-per-caption", type=int, default=3)
         command.add_argument("--batch-schedule-safe-target", type=int, default=90)
+
     fresh_plan = sub.add_parser("fresh-schedule-safe-production-plan")
     add_fresh_reel_production_args(fresh_plan)
     fresh_batch = sub.add_parser("fresh-reel-production-batch-plan")
@@ -371,9 +397,13 @@ def main() -> int:
     sub.add_parser("creator-os-live-100-account-readiness")
     live_acceptance = sub.add_parser("creator-os-live-account-acceptance")
     live_acceptance.add_argument("--account-target", type=int, default=10)
-    live_acceptance.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
+    live_acceptance.add_argument(
+        "--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"]
+    )
     staged_acceptance = sub.add_parser("creator-os-staged-live-acceptance")
-    staged_acceptance.add_argument("--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"])
+    staged_acceptance.add_argument(
+        "--content-surface", choices=["reel", "story", "feed_single", "feed_carousel"]
+    )
     sync_accounts = sub.add_parser("sync-threadsdash-instagram-accounts")
     sync_accounts.add_argument("--creator", required=True)
     sync_accounts.add_argument("--match")
@@ -440,7 +470,9 @@ def main() -> int:
     lifecycle.add_argument("--campaign", required=True)
     lifecycle.add_argument("--user-id")
     lifecycle.add_argument("--threadsdash-posts-json")
-    lifecycle.add_argument("--include-threadsdash", choices=["auto", "live", "off"], default="auto")
+    lifecycle.add_argument(
+        "--include-threadsdash", choices=["auto", "live", "off"], default="auto"
+    )
 
     creator_surface = sub.add_parser("creator-surface-summary")
     creator_surface.add_argument("--creator", required=True)
@@ -504,8 +536,14 @@ def main() -> int:
     tribev2_review = sub.add_parser("tribev2-reel-review")
     tribev2_review.add_argument("--creator", required=True)
     tribev2_review.add_argument("--campaign")
-    tribev2_review.add_argument("--sort-by", default="meanAbsActivation", choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"])
-    tribev2_review.add_argument("--bucket", default="top", choices=["top", "bottom", "both"])
+    tribev2_review.add_argument(
+        "--sort-by",
+        default="meanAbsActivation",
+        choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"],
+    )
+    tribev2_review.add_argument(
+        "--bucket", default="top", choices=["top", "bottom", "both"]
+    )
     tribev2_review.add_argument("--limit", type=int, default=12)
     tribev2_review.add_argument("--contact-sheet", action="store_true")
     tribev2_review.add_argument("--show-metrics", action="store_true")
@@ -597,161 +635,205 @@ def main() -> int:
     cf = CampaignFactory(get_settings())
     try:
         if args.cmd == "daily-plan":
-            print_json(cf.creator_os_daily_plan(
-                creators=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-                schedule_plan=_load_json(args.schedule_plan_json),
-                time_plan=_load_json(args.time_plan_json),
-                winner_expansion_report=_load_json(args.winner_expansion_report_json),
-                winner_expansion_plan=_load_json(args.winner_expansion_plan_json),
-                variant_metrics_rollup=_load_json(args.variant_metrics_rollup_json),
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_os_daily_plan(
+                    creators=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                    schedule_plan=_load_json(args.schedule_plan_json),
+                    time_plan=_load_json(args.time_plan_json),
+                    winner_expansion_report=_load_json(
+                        args.winner_expansion_report_json
+                    ),
+                    winner_expansion_plan=_load_json(args.winner_expansion_plan_json),
+                    variant_metrics_rollup=_load_json(args.variant_metrics_rollup_json),
+                    date=args.date,
+                )
+            )
             return 0
         if args.cmd == "recommended-inventory-request-plan":
-            print_json(cf.recommended_inventory_request_plan(
-                creator=args.creator,
-                target_count=args.target_count,
-                daily_plan=_load_json(args.daily_plan_json),
-                variant_inventory_plan=_load_json(args.variant_inventory_plan_json),
-            ))
+            print_json(
+                cf.recommended_inventory_request_plan(
+                    creator=args.creator,
+                    target_count=args.target_count,
+                    daily_plan=_load_json(args.daily_plan_json),
+                    variant_inventory_plan=_load_json(args.variant_inventory_plan_json),
+                )
+            )
             return 0
         if args.cmd == "200-account-acceptance-suite":
-            print_json(cf.creator_os_200_account_acceptance_suite(
-                accounts=args.accounts,
-                creators=args.creators,
-                daily_obligations=args.daily_obligations,
-                draft_inventory=args.draft_inventory,
-                warming_accounts=args.warming_accounts,
-                restricted_accounts=args.restricted_accounts,
-                manual_review_accounts=args.manual_review_accounts,
-                mixed_surfaces=not args.single_surface,
-            ))
+            print_json(
+                cf.creator_os_200_account_acceptance_suite(
+                    accounts=args.accounts,
+                    creators=args.creators,
+                    daily_obligations=args.daily_obligations,
+                    draft_inventory=args.draft_inventory,
+                    warming_accounts=args.warming_accounts,
+                    restricted_accounts=args.restricted_accounts,
+                    manual_review_accounts=args.manual_review_accounts,
+                    mixed_surfaces=not args.single_surface,
+                )
+            )
             return 0
         if args.cmd == "review-batch-contentforge-audit":
-            print_json(audit_review_batch_manifest(
-                contentforge_root=cf.settings.contentforge_root,
-                manifest_path=Path(args.manifest),
-                source_path=Path(args.source),
-                contentforge_base_url=args.contentforge_base_url or cf.settings.contentforge_base_url,
-                report_path=Path(args.report_path) if args.report_path else None,
-                layers=args.layers,
-                animation_mode=args.animation_mode,
-                allow_static_opening=args.allow_static_opening,
-                per_file=args.per_file,
-                update_manifest=not args.no_update_manifest,
-            ))
+            print_json(
+                audit_review_batch_manifest(
+                    contentforge_root=cf.settings.contentforge_root,
+                    manifest_path=Path(args.manifest),
+                    source_path=Path(args.source),
+                    contentforge_base_url=args.contentforge_base_url
+                    or cf.settings.contentforge_base_url,
+                    report_path=Path(args.report_path) if args.report_path else None,
+                    layers=args.layers,
+                    animation_mode=args.animation_mode,
+                    allow_static_opening=args.allow_static_opening,
+                    per_file=args.per_file,
+                    update_manifest=not args.no_update_manifest,
+                )
+            )
             return 0
         if args.cmd == "inventory-slo-report":
-            print_json(cf.inventory_slo_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                creators=args.creators,
-                minimum_inventory_days=args.minimum_inventory_days,
-                current_validated_drafts=args.current_validated_drafts,
-            ))
+            print_json(
+                cf.inventory_slo_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    creators=args.creators,
+                    minimum_inventory_days=args.minimum_inventory_days,
+                    current_validated_drafts=args.current_validated_drafts,
+                )
+            )
             return 0
         if args.cmd == "inventory-buffer-report":
-            print_json(cf.inventory_buffer_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                creators=args.creators,
-                minimum_inventory_days=args.minimum_inventory_days,
-                current_validated_drafts=args.current_validated_drafts,
-            ))
+            print_json(
+                cf.inventory_buffer_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    creators=args.creators,
+                    minimum_inventory_days=args.minimum_inventory_days,
+                    current_validated_drafts=args.current_validated_drafts,
+                )
+            )
             return 0
         if args.cmd == "inventory-factory-audit":
-            print_json(cf.inventory_factory_audit(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.inventory_factory_audit(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "inventory-yield-analysis":
-            print_json(cf.inventory_yield_analysis(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.inventory_yield_analysis(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
             return 0
         if args.cmd == "inventory-buffer-policy-plan":
-            print_json(cf.inventory_buffer_policy_plan(
-                creator=args.creator,
-                surface=args.surface,
-                daily_demand=args.daily_demand,
-                buffer_target_days=args.buffer_target_days,
-                available_inventory=args.available_inventory,
-            ))
+            print_json(
+                cf.inventory_buffer_policy_plan(
+                    creator=args.creator,
+                    surface=args.surface,
+                    daily_demand=args.daily_demand,
+                    buffer_target_days=args.buffer_target_days,
+                    available_inventory=args.available_inventory,
+                )
+            )
             return 0
         if args.cmd == "inventory-slo-enforcement-audit":
-            print_json(cf.inventory_slo_enforcement_audit(
-                creators=args.creator,
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                minimum_inventory_days=args.minimum_inventory_days,
-            ))
+            print_json(
+                cf.inventory_slo_enforcement_audit(
+                    creators=args.creator,
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    minimum_inventory_days=args.minimum_inventory_days,
+                )
+            )
             return 0
         if args.cmd == "inventory-consumption-simulation":
-            print_json(cf.inventory_consumption_simulation(
-                available_inventory=args.available_inventory,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.inventory_consumption_simulation(
+                    available_inventory=args.available_inventory,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "inventory-production-requirements":
-            print_json(cf.inventory_production_requirements(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.inventory_production_requirements(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "inventory-exception-audit":
-            print_json(cf.inventory_exception_audit(
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.inventory_exception_audit(
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "inventory-factory-readiness-report":
-            print_json(cf.inventory_factory_readiness_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                available_inventory=args.available_inventory,
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.inventory_factory_readiness_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    available_inventory=args.available_inventory,
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "inventory-factory-master-report":
-            print_json(cf.inventory_factory_master_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                available_inventory=args.available_inventory,
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.inventory_factory_master_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    available_inventory=args.available_inventory,
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "inventory-autopilot-plan":
-            print_json(cf.inventory_autopilot_plan(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                available_inventory=args.available_inventory,
-                buffer_target_days=args.buffer_target_days,
-                surface=args.surface,
-            ))
+            print_json(
+                cf.inventory_autopilot_plan(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    available_inventory=args.available_inventory,
+                    buffer_target_days=args.buffer_target_days,
+                    surface=args.surface,
+                )
+            )
             return 0
         if args.cmd == "inventory-shortage-repair-plan":
-            print_json(cf.inventory_shortage_repair_plan(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                available_inventory=args.available_inventory,
-                buffer_target_days=args.buffer_target_days,
-                surface=args.surface,
-            ))
+            print_json(
+                cf.inventory_shortage_repair_plan(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    available_inventory=args.available_inventory,
+                    buffer_target_days=args.buffer_target_days,
+                    surface=args.surface,
+                )
+            )
             return 0
         if args.cmd == "inventory-buffer-protection-report":
-            print_json(cf.inventory_buffer_protection_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-                available_inventory=args.available_inventory,
-                buffer_target_days=args.buffer_target_days,
-                surface=args.surface,
-            ))
+            print_json(
+                cf.inventory_buffer_protection_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                    available_inventory=args.available_inventory,
+                    buffer_target_days=args.buffer_target_days,
+                    surface=args.surface,
+                )
+            )
             return 0
-        if args.cmd in {"inventory-recovery-report", "inventory-recovery-priority-report", "inventory-recovery-by-blocker", "inventory-recovery-master-report"}:
+        if args.cmd in {
+            "inventory-recovery-report",
+            "inventory-recovery-priority-report",
+            "inventory-recovery-by-blocker",
+            "inventory-recovery-master-report",
+        }:
             payload = {
                 "creator": args.creator,
                 "campaign_slug": args.campaign,
@@ -844,7 +926,10 @@ def main() -> int:
             else:
                 print_json(cf.inventory_unlock_master_report(**payload))
             return 0
-        if args.cmd in {"operator-inventory-review-batch-plan", "operator-inventory-review-batch-summary"}:
+        if args.cmd in {
+            "operator-inventory-review-batch-plan",
+            "operator-inventory-review-batch-summary",
+        }:
             payload = {
                 "creator": args.creator,
                 "campaign_slug": args.campaign,
@@ -912,10 +997,12 @@ def main() -> int:
             print_json(cf.road_to_200_accounts())
             return 0
         if args.cmd == "reel-factory-parent-throughput-proof":
-            print_json(cf.reel_factory_parent_throughput_proof(
-                required_parents_per_day=args.required_parents_per_day,
-                lookback_days=args.lookback_days,
-            ))
+            print_json(
+                cf.reel_factory_parent_throughput_proof(
+                    required_parents_per_day=args.required_parents_per_day,
+                    lookback_days=args.lookback_days,
+                )
+            )
             return 0
         if args.cmd == "reel-factory-yield-analysis":
             print_json(cf.reel_factory_yield_analysis())
@@ -924,9 +1011,11 @@ def main() -> int:
             print_json(cf.reel_factory_failure_analysis())
             return 0
         if args.cmd == "reel-factory-capacity-model":
-            print_json(cf.reel_factory_capacity_model(
-                required_parents_per_day=args.required_parents_per_day,
-            ))
+            print_json(
+                cf.reel_factory_capacity_model(
+                    required_parents_per_day=args.required_parents_per_day,
+                )
+            )
             return 0
         if args.cmd == "reel-factory-200-account-readiness":
             print_json(cf.reel_factory_200_account_readiness())
@@ -935,14 +1024,18 @@ def main() -> int:
             print_json(cf.reel_factory_master_report())
             return 0
         if args.cmd == "parent-factory-yield-waterfall":
-            print_json(cf.parent_factory_yield_waterfall(
-                required_parents_per_day=args.required_parents_per_day,
-            ))
+            print_json(
+                cf.parent_factory_yield_waterfall(
+                    required_parents_per_day=args.required_parents_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-loss-analysis":
-            print_json(cf.parent_factory_loss_analysis(
-                required_parents_per_day=args.required_parents_per_day,
-            ))
+            print_json(
+                cf.parent_factory_loss_analysis(
+                    required_parents_per_day=args.required_parents_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-rejection-report":
             print_json(cf.parent_factory_rejection_report())
@@ -951,13 +1044,19 @@ def main() -> int:
             print_json(cf.parent_factory_discoverability_loss_analysis())
             return 0
         if args.cmd == "discoverability-intake-gate":
-            print_json(cf.discoverability_intake_gate(_load_json(args.payload_json) or {}))
+            print_json(
+                cf.discoverability_intake_gate(_load_json(args.payload_json) or {})
+            )
             return 0
         if args.cmd == "discoverability-generation-gate":
-            print_json(cf.discoverability_generation_gate(_load_json(args.payload_json) or {}))
+            print_json(
+                cf.discoverability_generation_gate(_load_json(args.payload_json) or {})
+            )
             return 0
         if args.cmd == "discoverability-pre-render-gate":
-            print_json(cf.discoverability_pre_render_gate(_load_json(args.payload_json) or {}))
+            print_json(
+                cf.discoverability_pre_render_gate(_load_json(args.payload_json) or {})
+            )
             return 0
         if args.cmd == "discoverability-violation-origin-map":
             print_json(cf.discoverability_violation_origin_map())
@@ -990,56 +1089,74 @@ def main() -> int:
             print_json(cf.parent_factory_quality_gate_analysis())
             return 0
         if args.cmd == "parent-factory-optimization-plan":
-            print_json(cf.parent_factory_optimization_plan(
-                required_parents_per_day=args.required_parents_per_day,
-            ))
+            print_json(
+                cf.parent_factory_optimization_plan(
+                    required_parents_per_day=args.required_parents_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-master-optimization-report":
-            print_json(cf.parent_factory_master_optimization_report(
-                required_parents_per_day=args.required_parents_per_day,
-            ))
+            print_json(
+                cf.parent_factory_master_optimization_report(
+                    required_parents_per_day=args.required_parents_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-autopilot-plan":
-            print_json(cf.parent_factory_autopilot_plan(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.parent_factory_autopilot_plan(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-shortfall-report":
-            print_json(cf.parent_factory_shortfall_report(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.parent_factory_shortfall_report(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "parent-factory-production-targets":
-            print_json(cf.parent_factory_production_targets(
-                accounts=args.accounts,
-                posts_per_account_per_day=args.posts_per_account_per_day,
-            ))
+            print_json(
+                cf.parent_factory_production_targets(
+                    accounts=args.accounts,
+                    posts_per_account_per_day=args.posts_per_account_per_day,
+                )
+            )
             return 0
         if args.cmd == "exception-queue-report":
-            print_json(cf.exception_queue_report(
-                daily_plan=_load_json(args.daily_plan_json),
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.exception_queue_report(
+                    daily_plan=_load_json(args.daily_plan_json),
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "exception-queue-summary":
-            print_json(cf.exception_queue_summary(
-                daily_plan=_load_json(args.daily_plan_json),
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.exception_queue_summary(
+                    daily_plan=_load_json(args.daily_plan_json),
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "exception-queue-priority-report":
-            print_json(cf.exception_queue_priority_report(
-                daily_plan=_load_json(args.daily_plan_json),
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.exception_queue_priority_report(
+                    daily_plan=_load_json(args.daily_plan_json),
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "exception-queue-owner-report":
-            print_json(cf.exception_queue_owner_report(
-                daily_plan=_load_json(args.daily_plan_json),
-                execution_readiness=_load_json(args.execution_readiness_json),
-            ))
+            print_json(
+                cf.exception_queue_owner_report(
+                    daily_plan=_load_json(args.daily_plan_json),
+                    execution_readiness=_load_json(args.execution_readiness_json),
+                )
+            )
             return 0
         if args.cmd == "failure-injection-suite":
             print_json(cf.failure_injection_suite())
@@ -1078,22 +1195,33 @@ def main() -> int:
             print_json(cf.creator_os_live_100_account_readiness())
             return 0
         if args.cmd == "creator-os-live-account-acceptance":
-            print_json(cf.creator_os_live_account_acceptance(account_target=args.account_target, content_surface=args.content_surface))
+            print_json(
+                cf.creator_os_live_account_acceptance(
+                    account_target=args.account_target,
+                    content_surface=args.content_surface,
+                )
+            )
             return 0
         if args.cmd == "creator-os-staged-live-acceptance":
-            print_json(cf.creator_os_staged_live_acceptance(content_surface=args.content_surface))
+            print_json(
+                cf.creator_os_staged_live_acceptance(
+                    content_surface=args.content_surface
+                )
+            )
             return 0
         if args.cmd == "sync-threadsdash-instagram-accounts":
             supabase_url, service_key = _threadsdash_supabase_args(args)
-            print_json(sync_threadsdash_instagram_accounts(
-                cf,
-                creator=args.creator,
-                match=args.match,
-                user_id=args.user_id,
-                limit=args.limit,
-                supabase_url=supabase_url,
-                supabase_service_role_key=service_key,
-            ))
+            print_json(
+                sync_threadsdash_instagram_accounts(
+                    cf,
+                    creator=args.creator,
+                    match=args.match,
+                    user_id=args.user_id,
+                    limit=args.limit,
+                    supabase_url=supabase_url,
+                    supabase_service_role_key=service_key,
+                )
+            )
             return 0
         if args.cmd == "creator-os-live-scale-runbook":
             print_json(cf.creator_os_live_scale_runbook())
@@ -1129,7 +1257,9 @@ def main() -> int:
             print_json(cf.discoverability_prevention_scorecard())
             return 0
         if args.cmd == "story-certification-proof":
-            print_json(cf.story_certification_proof(rendered_asset_id=args.rendered_asset_id))
+            print_json(
+                cf.story_certification_proof(rendered_asset_id=args.rendered_asset_id)
+            )
             return 0
         if args.cmd == "story-production-readiness":
             print_json(cf.story_production_readiness())
@@ -1138,7 +1268,11 @@ def main() -> int:
             print_json(cf.story_proof_gap_analysis())
             return 0
         if args.cmd == "carousel-certification-proof":
-            print_json(cf.carousel_certification_proof(rendered_asset_id=args.rendered_asset_id))
+            print_json(
+                cf.carousel_certification_proof(
+                    rendered_asset_id=args.rendered_asset_id
+                )
+            )
             return 0
         if args.cmd == "carousel-production-readiness":
             print_json(cf.carousel_production_readiness())
@@ -1150,284 +1284,366 @@ def main() -> int:
             print_json(cf.creator_os_certification_report())
             return 0
         if args.cmd == "draft-inventory-gap":
-            print_json(cf.creator_os_draft_inventory_gap(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-                schedule_plan=_load_json(args.schedule_plan_json),
-                time_plan=_load_json(args.time_plan_json),
-            ))
+            print_json(
+                cf.creator_os_draft_inventory_gap(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                    schedule_plan=_load_json(args.schedule_plan_json),
+                    time_plan=_load_json(args.time_plan_json),
+                )
+            )
             return 0
         if args.cmd == "execution-readiness":
-            print_json(cf.creator_os_execution_readiness(
-                creator=args.creator,
-                requested_count=args.requested_count,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-                schedule_plan=_load_json(args.schedule_plan_json),
-                time_plan=_load_json(args.time_plan_json),
-            ))
+            print_json(
+                cf.creator_os_execution_readiness(
+                    creator=args.creator,
+                    requested_count=args.requested_count,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                    schedule_plan=_load_json(args.schedule_plan_json),
+                    time_plan=_load_json(args.time_plan_json),
+                )
+            )
             return 0
         if args.cmd == "account-tiers":
-            print_json(cf.creator_os_account_tiers(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-            ))
+            print_json(
+                cf.creator_os_account_tiers(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                )
+            )
             return 0
         if args.cmd == "account-health-report":
-            print_json(cf.creator_os_account_health_report(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-            ))
+            print_json(
+                cf.creator_os_account_health_report(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                )
+            )
             return 0
         if args.cmd == "restricted-account-report":
-            print_json(cf.creator_os_restricted_account_report(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-            ))
+            print_json(
+                cf.creator_os_restricted_account_report(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                )
+            )
             return 0
         if args.cmd == "manual-review-queue":
-            print_json(cf.creator_os_manual_review_queue(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-            ))
+            print_json(
+                cf.creator_os_manual_review_queue(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                )
+            )
             return 0
         if args.cmd == "account-warmup-report":
-            print_json(cf.creator_os_account_warmup_report(
-                creator=args.creator,
-                threadsdash_report=_load_json(args.threadsdash_report_json),
-            ))
+            print_json(
+                cf.creator_os_account_warmup_report(
+                    creator=args.creator,
+                    threadsdash_report=_load_json(args.threadsdash_report_json),
+                )
+            )
             return 0
         if args.cmd == "lifecycle-dashboard":
             posts_payload = _load_json(args.threadsdash_posts_json)
             posts = None
             if isinstance(posts_payload, dict):
-                raw_posts = posts_payload.get("posts") or posts_payload.get("rows") or posts_payload.get("items")
+                raw_posts = (
+                    posts_payload.get("posts")
+                    or posts_payload.get("rows")
+                    or posts_payload.get("items")
+                )
                 if isinstance(raw_posts, list):
                     posts = [item for item in raw_posts if isinstance(item, dict)]
-            print_json(cf.creator_os_lifecycle_dashboard(
-                campaign=args.campaign,
-                user_id=args.user_id,
-                threadsdash_posts=posts,
-                include_threadsdash=args.include_threadsdash,
-            ))
+            print_json(
+                cf.creator_os_lifecycle_dashboard(
+                    campaign=args.campaign,
+                    user_id=args.user_id,
+                    threadsdash_posts=posts,
+                    include_threadsdash=args.include_threadsdash,
+                )
+            )
             return 0
         if args.cmd == "creator-surface-summary":
-            print_json(cf.creator_surface_summary(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_surface_summary(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
             return 0
         if args.cmd == "account-surface-summary":
-            print_json(cf.account_surface_summary(
-                creator=args.creator,
-                date=args.date,
-                account_id=args.account_id,
-            ))
+            print_json(
+                cf.account_surface_summary(
+                    creator=args.creator,
+                    date=args.date,
+                    account_id=args.account_id,
+                )
+            )
             return 0
         if args.cmd == "creator-surface-gap-report":
-            print_json(cf.creator_surface_gap_report(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_surface_gap_report(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
             return 0
         if args.cmd == "carousel-integrity-report":
-            print_json(cf.carousel_integrity_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.carousel_integrity_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
             return 0
         if args.cmd == "carousel-child-metrics-plan":
-            print_json(cf.carousel_child_metrics_plan(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                rendered_asset_id=args.rendered_asset_id,
-            ))
+            print_json(
+                cf.carousel_child_metrics_plan(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    rendered_asset_id=args.rendered_asset_id,
+                )
+            )
             return 0
         if args.cmd == "creative-knowledge-base":
-            print_json(cf.creative_knowledge_base(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_knowledge_base(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-pattern-report":
-            print_json(cf.creative_pattern_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_pattern_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-surface-report":
-            print_json(cf.creative_surface_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_surface_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-account-tier-report":
-            print_json(cf.creative_account_tier_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_account_tier_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-caption-report":
-            print_json(cf.creative_caption_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_caption_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-audio-report":
-            print_json(cf.creative_audio_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_audio_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-window-report":
-            print_json(cf.creative_window_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_window_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-performance-analysis":
-            print_json(cf.creative_performance_analysis(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_performance_analysis(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creator-learning-summary":
-            print_json(cf.creator_learning_summary(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creator_learning_summary(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "next-content-recommendations":
-            print_json(cf.next_content_recommendations(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.next_content_recommendations(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-learning-confidence-model":
-            print_json(cf.creative_learning_confidence_model(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-            ))
+            print_json(
+                cf.creative_learning_confidence_model(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                )
+            )
             return 0
         if args.cmd == "creative-fatigue-report":
-            print_json(cf.creative_fatigue_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_fatigue_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "creative-surface-comparison-report":
-            print_json(cf.creative_surface_comparison_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.creative_surface_comparison_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "recommendation-quality-audit":
-            print_json(cf.recommendation_quality_audit(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.recommendation_quality_audit(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "tribev2-reel-analysis":
-            print_json(cf.tribev2_reel_analysis(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                minimum_sample_size=args.minimum_sample_size,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.tribev2_reel_analysis(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    minimum_sample_size=args.minimum_sample_size,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "tribev2-reel-review":
-            print_json(cf.tribev2_reel_review(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                sort_by=args.sort_by,
-                bucket=args.bucket,
-                limit=args.limit,
-                contact_sheet=args.contact_sheet,
-                show_metrics=True if args.show_metrics or not args.blind_mode else False,
-                show_tribe_score=not args.hide_tribe_score,
-                blind_mode=args.blind_mode,
-            ))
+            print_json(
+                cf.tribev2_reel_review(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    sort_by=args.sort_by,
+                    bucket=args.bucket,
+                    limit=args.limit,
+                    contact_sheet=args.contact_sheet,
+                    show_metrics=True
+                    if args.show_metrics or not args.blind_mode
+                    else False,
+                    show_tribe_score=not args.hide_tribe_score,
+                    blind_mode=args.blind_mode,
+                )
+            )
             return 0
         if args.cmd == "tribev2-holdout-pilot-review":
-            print_json(cf.tribev2_holdout_pilot_review(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                limit=args.limit,
-                contact_sheet=args.contact_sheet,
-            ))
+            print_json(
+                cf.tribev2_holdout_pilot_review(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    limit=args.limit,
+                    contact_sheet=args.contact_sheet,
+                )
+            )
             return 0
         if args.cmd == "caption-quality-repair-plan":
-            print_json(cf.caption_quality_repair_plan(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-                content_surface=args.content_surface,
-                limit=args.limit,
-            ))
+            print_json(
+                cf.caption_quality_repair_plan(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                    content_surface=args.content_surface,
+                    limit=args.limit,
+                )
+            )
             return 0
         if args.cmd == "story-inventory-report":
-            print_json(cf.story_inventory_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_inventory_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
             return 0
         if args.cmd == "story-gap-report":
-            print_json(cf.story_gap_report(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.story_gap_report(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
             return 0
         if args.cmd == "story-quality-report":
-            print_json(cf.story_quality_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_quality_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
             return 0
         if args.cmd == "story-intent-report":
-            print_json(cf.story_intent_report(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_intent_report(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
             return 0
         if args.cmd == "story-mix-plan":
-            print_json(cf.story_mix_plan(
-                creator=args.creator,
-            ))
+            print_json(
+                cf.story_mix_plan(
+                    creator=args.creator,
+                )
+            )
             return 0
         if args.cmd == "story-calendar-plan":
-            print_json(cf.story_calendar_plan(
-                creator=args.creator,
-            ))
+            print_json(
+                cf.story_calendar_plan(
+                    creator=args.creator,
+                )
+            )
             return 0
         if args.cmd == "story-intent-summary":
-            print_json(cf.story_intent_summary(
-                creator=args.creator,
-                campaign_slug=args.campaign,
-            ))
+            print_json(
+                cf.story_intent_summary(
+                    creator=args.creator,
+                    campaign_slug=args.campaign,
+                )
+            )
             return 0
         if args.cmd == "decision-ledger-preview":
             print_json(cf.decision_ledger_preview(**_decision_ledger_kwargs(args)))
@@ -1442,26 +1658,42 @@ def main() -> int:
             print_json(cf.decision_ledger_by_creator(**_decision_ledger_kwargs(args)))
             return 0
         if args.cmd == "decision-ledger-by-account":
-            print_json(cf.decision_ledger_by_account(account_id=args.account_id, **_decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_account(
+                    account_id=args.account_id, **_decision_ledger_kwargs(args)
+                )
+            )
             return 0
         if args.cmd == "decision-ledger-by-surface":
-            print_json(cf.decision_ledger_by_surface(surface=args.surface, **_decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_surface(
+                    surface=args.surface, **_decision_ledger_kwargs(args)
+                )
+            )
             return 0
         if args.cmd == "decision-ledger-by-decision-type":
-            print_json(cf.decision_ledger_by_decision_type(decision_type=args.decision_type, **_decision_ledger_kwargs(args)))
+            print_json(
+                cf.decision_ledger_by_decision_type(
+                    decision_type=args.decision_type, **_decision_ledger_kwargs(args)
+                )
+            )
             return 0
         if args.cmd == "account-story-status":
-            print_json(cf.account_story_status(
-                account_id=args.account_id,
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.account_story_status(
+                    account_id=args.account_id,
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
             return 0
         if args.cmd == "creator-story-summary":
-            print_json(cf.creator_story_summary(
-                creator=args.creator,
-                date=args.date,
-            ))
+            print_json(
+                cf.creator_story_summary(
+                    creator=args.creator,
+                    date=args.date,
+                )
+            )
             return 0
     finally:
         cf.close()

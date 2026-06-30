@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .persistence import json_load
 
@@ -84,7 +85,9 @@ class RecommendationRepository:
         self.record_event = record_event
         self.performance_summary = performance_summary
         self.ranking = ranking
-        self.active_reference_pattern_for_campaign = active_reference_pattern_for_campaign
+        self.active_reference_pattern_for_campaign = (
+            active_reference_pattern_for_campaign
+        )
         self._reference_pattern_payload = reference_pattern_payload
         self._performance_snapshot_payload = performance_snapshot_payload
         self._account_reward_baselines = account_reward_baselines
@@ -124,21 +127,34 @@ class RecommendationRepository:
         )
         performance = self.performance_summary(campaign["slug"])
         ranking = self.ranking(campaign["slug"])
-        reference_pattern_rankings = self.ranked_reference_patterns_for_campaign(campaign["id"])
+        reference_pattern_rankings = self.ranked_reference_patterns_for_campaign(
+            campaign["id"]
+        )
         reference_pattern = (
             reference_pattern_rankings[0]["pattern"]
             if reference_pattern_rankings
-            else self.active_reference_pattern_for_campaign(campaign["id"]) or self.top_reference_pattern()
+            else self.active_reference_pattern_for_campaign(campaign["id"])
+            or self.top_reference_pattern()
         )
-        variation_preset_rankings = self.ranked_variation_presets_for_campaign(campaign["id"], account=account)
-        recommendation_trust = self.latest_recommendation_trust_context(campaign["id"], account=account)
-        reference_pattern_id = reference_pattern.get("id") if reference_pattern else None
-        reference_pattern_graph_id = self.graph_id_for(
-            "reference_patterns",
-            reference_pattern_id,
-            entity_type="reference_pattern",
-            payload=reference_pattern,
-        ) if reference_pattern_id else None
+        variation_preset_rankings = self.ranked_variation_presets_for_campaign(
+            campaign["id"], account=account
+        )
+        recommendation_trust = self.latest_recommendation_trust_context(
+            campaign["id"], account=account
+        )
+        reference_pattern_id = (
+            reference_pattern.get("id") if reference_pattern else None
+        )
+        reference_pattern_graph_id = (
+            self.graph_id_for(
+                "reference_patterns",
+                reference_pattern_id,
+                entity_type="reference_pattern",
+                payload=reference_pattern,
+            )
+            if reference_pattern_id
+            else None
+        )
         candidates = self.account_ranked_candidates(
             ranking.get("assets") or [],
             account=account,
@@ -151,13 +167,21 @@ class RecommendationRepository:
             "count": max(1, int(count)),
             "scoringVersion": "recommendation_score.v1",
             "performanceSnapshotCount": performance.get("snapshotCount") or 0,
-            "candidateRenderedAssetIds": [item.get("renderedAssetId") for item in candidates],
+            "candidateRenderedAssetIds": [
+                item.get("renderedAssetId") for item in candidates
+            ],
             "referencePatternId": reference_pattern_id,
-            "referencePatternRankings": self.compact_recommendation_rankings(reference_pattern_rankings),
-            "variationPresetRankings": self.compact_recommendation_rankings(variation_preset_rankings),
+            "referencePatternRankings": self.compact_recommendation_rankings(
+                reference_pattern_rankings
+            ),
+            "variationPresetRankings": self.compact_recommendation_rankings(
+                variation_preset_rankings
+            ),
             "recommendationTrust": recommendation_trust,
         }
-        input_hash = hashlib.sha256(json.dumps(input_snapshot, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        input_hash = hashlib.sha256(
+            json.dumps(input_snapshot, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
         run_id = f"recrun_{input_hash}"
         run_graph_id = None
         now = self._utc_now()
@@ -183,7 +207,11 @@ class RecommendationRepository:
                     run_id,
                     campaign["id"],
                     input_hash,
-                    json.dumps(self._sanitize_for_storage(input_snapshot), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(input_snapshot),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     now,
                     now,
                 ),
@@ -192,7 +220,11 @@ class RecommendationRepository:
                 "recommendation_run",
                 local_table="recommendation_runs",
                 local_id=run_id,
-                payload={"campaign": campaign["slug"], "inputHash": input_hash, "scope": "next_batch"},
+                payload={
+                    "campaign": campaign["slug"],
+                    "inputHash": input_hash,
+                    "scope": "next_batch",
+                },
             )
             if campaign_graph_id:
                 self.ensure_graph_edge(
@@ -204,7 +236,7 @@ class RecommendationRepository:
 
         items = []
         warnings = []
-        for rank, candidate in enumerate(candidates[:max(1, int(count))], start=1):
+        for rank, candidate in enumerate(candidates[: max(1, int(count))], start=1):
             asset = self.rendered_asset(candidate["renderedAssetId"])
             enriched = self._dashboard_rendered_asset(asset)
             item = self.recommendation_item_payload(
@@ -247,7 +279,12 @@ class RecommendationRepository:
                 campaign_id=campaign["id"],
                 status="success" if items else "warning",
                 message=f"Recommended next batch for {campaign['slug']}",
-                metadata={"runId": run_id, "itemCount": len(items), "inputHash": input_hash, "warnings": warnings},
+                metadata={
+                    "runId": run_id,
+                    "itemCount": len(items),
+                    "inputHash": input_hash,
+                    "warnings": warnings,
+                },
                 commit=False,
             )
             self.conn.commit()
@@ -288,7 +325,9 @@ class RecommendationRepository:
             reverse=True,
         )
 
-    def recommendation_runs(self, campaign_slug: str, *, limit: int = 10) -> dict[str, Any]:
+    def recommendation_runs(
+        self, campaign_slug: str, *, limit: int = 10
+    ) -> dict[str, Any]:
         campaign = self.campaign_by_slug(campaign_slug)
         rows = self.conn.execute(
             """
@@ -305,18 +344,27 @@ class RecommendationRepository:
                 "SELECT * FROM recommendation_items WHERE run_id = ? ORDER BY rank",
                 (row["id"],),
             ).fetchall()
-            runs.append({
-                "id": row["id"],
-                "scope": row["scope"],
-                "scoringVersion": row["scoring_version"],
-                "inputHash": row["input_hash"],
-                "inputSnapshot": json_load(row["input_snapshot_json"], {}),
-                "runGraphId": self.graph_id_for("recommendation_runs", row["id"]),
-                "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"],
-                "items": [self.stored_recommendation_item_payload(dict(item)) for item in items],
-            })
-        return {"schema": "campaign_factory.recommendation_runs.v1", "campaign": campaign["slug"], "runs": runs}
+            runs.append(
+                {
+                    "id": row["id"],
+                    "scope": row["scope"],
+                    "scoringVersion": row["scoring_version"],
+                    "inputHash": row["input_hash"],
+                    "inputSnapshot": json_load(row["input_snapshot_json"], {}),
+                    "runGraphId": self.graph_id_for("recommendation_runs", row["id"]),
+                    "createdAt": row["created_at"],
+                    "updatedAt": row["updated_at"],
+                    "items": [
+                        self.stored_recommendation_item_payload(dict(item))
+                        for item in items
+                    ],
+                }
+            )
+        return {
+            "schema": "campaign_factory.recommendation_runs.v1",
+            "campaign": campaign["slug"],
+            "runs": runs,
+        }
 
     def top_reference_pattern(self) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -324,7 +372,9 @@ class RecommendationRepository:
         ).fetchone()
         return self._reference_pattern_payload(dict(row)) if row else None
 
-    def ranked_reference_patterns_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+    def ranked_reference_patterns_for_campaign(
+        self, campaign_id: str
+    ) -> list[dict[str, Any]]:
         pattern_rows = self.conn.execute(
             "SELECT * FROM reference_patterns ORDER BY COALESCE(rank, 999999), label"
         ).fetchall()
@@ -372,35 +422,51 @@ class RecommendationRepository:
                 if key in pattern_by_key
             }
             for pattern_id, pattern in matched_patterns.items():
-                bucket = buckets.setdefault(pattern_id, {"pattern": pattern, "snapshots": {}})
+                bucket = buckets.setdefault(
+                    pattern_id, {"pattern": pattern, "snapshots": {}}
+                )
                 bucket["snapshots"][snapshot["id"]] = snapshot
         rankings = []
         for bucket in buckets.values():
             snapshots = list(bucket["snapshots"].values())
-            performance = self._aggregate_performance(snapshots, account_baselines=account_baselines)
-            rankings.append({
-                "pattern": bucket["pattern"],
-                "patternId": bucket["pattern"].get("id"),
-                "clusterKey": bucket["pattern"].get("clusterKey"),
-                "label": bucket["pattern"].get("label"),
-                "sampleSize": int(performance.get("count") or 0),
-                "performanceScore": self._performance_quality_score(performance),
-                "planningScore": self._performance_planning_score(performance),
-                "bandit": (performance.get("learning") or {}).get("bandit"),
-                "performance": performance,
-            })
+            performance = self._aggregate_performance(
+                snapshots, account_baselines=account_baselines
+            )
+            rankings.append(
+                {
+                    "pattern": bucket["pattern"],
+                    "patternId": bucket["pattern"].get("id"),
+                    "clusterKey": bucket["pattern"].get("clusterKey"),
+                    "label": bucket["pattern"].get("label"),
+                    "sampleSize": int(performance.get("count") or 0),
+                    "performanceScore": self._performance_quality_score(performance),
+                    "planningScore": self._performance_planning_score(performance),
+                    "bandit": (performance.get("learning") or {}).get("bandit"),
+                    "performance": performance,
+                }
+            )
         return sorted(
             rankings,
             key=lambda item: (
-                -(item["planningScore"] if item.get("planningScore") is not None else -1),
-                -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
+                -(
+                    item["planningScore"]
+                    if item.get("planningScore") is not None
+                    else -1
+                ),
+                -(
+                    item["performanceScore"]
+                    if item.get("performanceScore") is not None
+                    else -1
+                ),
                 -int(item.get("sampleSize") or 0),
                 int((item.get("pattern") or {}).get("rank") or 999999),
                 str(item.get("label") or ""),
             ),
         )
 
-    def ranked_variation_presets_for_campaign(self, campaign_id: str, *, account: str | None = None) -> list[dict[str, Any]]:
+    def ranked_variation_presets_for_campaign(
+        self, campaign_id: str, *, account: str | None = None
+    ) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
             SELECT * FROM performance_snapshots
@@ -413,7 +479,10 @@ class RecommendationRepository:
         account_baselines = self._account_reward_baselines(all_snapshots)
         buckets: dict[str, list[dict[str, Any]]] = {}
         for snapshot in all_snapshots:
-            if account and account not in {snapshot.get("instagramAccountId"), snapshot.get("accountId")}:
+            if account and account not in {
+                snapshot.get("instagramAccountId"),
+                snapshot.get("accountId"),
+            }:
                 continue
             preset = (snapshot.get("dimensions") or {}).get("variationPreset")
             if not isinstance(preset, dict) or not preset.get("key"):
@@ -421,37 +490,60 @@ class RecommendationRepository:
             buckets.setdefault(str(preset["key"]), []).append(snapshot)
         rankings = []
         for preset_name, snapshots in buckets.items():
-            performance = self._aggregate_performance(snapshots, account_baselines=account_baselines)
+            performance = self._aggregate_performance(
+                snapshots, account_baselines=account_baselines
+            )
             latest = snapshots[0]
             preset = (latest.get("dimensions") or {}).get("variationPreset") or {}
-            rankings.append({
-                "presetName": preset_name,
-                "label": preset.get("label") or preset_name,
-                "sampleSize": int(performance.get("count") or 0),
-                "performanceScore": self._performance_quality_score(performance),
-                "planningScore": self._performance_planning_score(performance),
-                "bandit": (performance.get("learning") or {}).get("bandit"),
-                "performance": performance,
-            })
+            rankings.append(
+                {
+                    "presetName": preset_name,
+                    "label": preset.get("label") or preset_name,
+                    "sampleSize": int(performance.get("count") or 0),
+                    "performanceScore": self._performance_quality_score(performance),
+                    "planningScore": self._performance_planning_score(performance),
+                    "bandit": (performance.get("learning") or {}).get("bandit"),
+                    "performance": performance,
+                }
+            )
         return sorted(
             rankings,
             key=lambda item: (
-                -(item["planningScore"] if item.get("planningScore") is not None else -1),
-                -(item["performanceScore"] if item.get("performanceScore") is not None else -1),
+                -(
+                    item["planningScore"]
+                    if item.get("planningScore") is not None
+                    else -1
+                ),
+                -(
+                    item["performanceScore"]
+                    if item.get("performanceScore") is not None
+                    else -1
+                ),
                 -int(item.get("sampleSize") or 0),
                 str(item.get("presetName") or ""),
             ),
         )
 
-    def compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
+    def compact_recommendation_rankings(
+        self, rankings: list[dict[str, Any]], *, limit: int = 5
+    ) -> list[dict[str, Any]]:
         compact = []
         for item in rankings[:limit]:
             row = {
                 key: item.get(key)
-                for key in ("patternId", "clusterKey", "presetName", "label", "sampleSize", "performanceScore", "planningScore", "bandit")
+                for key in (
+                    "patternId",
+                    "clusterKey",
+                    "presetName",
+                    "label",
+                    "sampleSize",
+                    "performanceScore",
+                    "planningScore",
+                    "bandit",
+                )
                 if item.get(key) is not None
             }
-            learning = ((item.get("performance") or {}).get("learning") or {})
+            learning = (item.get("performance") or {}).get("learning") or {}
             if learning:
                 row["learning"] = learning
             compact.append(row)
@@ -465,7 +557,9 @@ class RecommendationRepository:
         return {
             "selectedPatternId": (selected_pattern or {}).get("id"),
             "selectedClusterKey": (selected_pattern or {}).get("clusterKey"),
-            "selectionSource": "performance_snapshots" if rankings else "active_or_static_fallback",
+            "selectionSource": "performance_snapshots"
+            if rankings
+            else "active_or_static_fallback",
             "rankings": self.compact_recommendation_rankings(rankings),
         }
 
@@ -476,11 +570,15 @@ class RecommendationRepository:
     ) -> dict[str, Any]:
         return {
             "selectedPresetName": selected_preset,
-            "selectionSource": "performance_snapshots" if rankings else "default_fallback",
+            "selectionSource": "performance_snapshots"
+            if rankings
+            else "default_fallback",
             "rankings": self.compact_recommendation_rankings(rankings),
         }
 
-    def latest_recommendation_trust_context(self, campaign_id: str, *, account: str | None) -> dict[str, Any]:
+    def latest_recommendation_trust_context(
+        self, campaign_id: str, *, account: str | None
+    ) -> dict[str, Any]:
         account_key = account or ""
         row = self.conn.execute(
             """
@@ -501,7 +599,9 @@ class RecommendationRepository:
                 "source": "no_recommendation_accuracy_report",
             }
         payload = json_load(row["report_json"], {})
-        overall = payload.get("overall") if isinstance(payload.get("overall"), dict) else {}
+        overall = (
+            payload.get("overall") if isinstance(payload.get("overall"), dict) else {}
+        )
         score = payload.get("recommendationTrustScore")
         score_int = int(score) if isinstance(score, (int, float)) else None
         if score_int is None:
@@ -536,7 +636,12 @@ class RecommendationRepository:
     ) -> tuple[int, str, str, list[str]]:
         trust_score = recommendation_trust.get("score")
         if not isinstance(trust_score, int):
-            return int(max(0, min(100, round(score)))), confidence, confidence_reason, []
+            return (
+                int(max(0, min(100, round(score)))),
+                confidence,
+                confidence_reason,
+                [],
+            )
         risks = []
         adjusted_score = int(max(0, min(100, round(score))))
         adjusted_confidence = confidence
@@ -572,11 +677,15 @@ class RecommendationRepository:
         run_id: str,
     ) -> dict[str, Any]:
         breakdown = candidate.get("breakdown") or {}
-        performance_score = int(asset.get("performanceScore") or self.best_asset_history_score(asset) or 50)
+        performance_score = int(
+            asset.get("performanceScore") or self.best_asset_history_score(asset) or 50
+        )
         reference_score = self.reference_pattern_score(reference_pattern)
         audit_score = int(breakdown.get("quality") or 50)
         account_score = self.recommendation_account_score(asset, account)
-        account_fit_evidence = self.recommendation_account_fit_evidence(campaign["id"], asset, account)
+        account_fit_evidence = self.recommendation_account_fit_evidence(
+            campaign["id"], asset, account
+        )
         novelty_score = int(breakdown.get("novelty") or 50)
         operational_score = self.operational_recommendation_score(asset)
         score = round(
@@ -588,15 +697,21 @@ class RecommendationRepository:
             + operational_score * 0.05
         )
         readiness = asset.get("export_readiness") or {}
-        risks = list(candidate.get("blockingReasons") or []) + list(candidate.get("warnings") or [])
+        risks = list(candidate.get("blockingReasons") or []) + list(
+            candidate.get("warnings") or []
+        )
         if readiness.get("state") == "blocked":
             score = min(score, 45)
-        confidence, confidence_reason = self.recommendation_confidence(asset, reference_pattern)
-        score, confidence, confidence_reason, trust_risks = self.apply_recommendation_trust(
-            score=score,
-            confidence=confidence,
-            confidence_reason=confidence_reason,
-            recommendation_trust=recommendation_trust,
+        confidence, confidence_reason = self.recommendation_confidence(
+            asset, reference_pattern
+        )
+        score, confidence, confidence_reason, trust_risks = (
+            self.apply_recommendation_trust(
+                score=score,
+                confidence=confidence,
+                confidence_reason=confidence_reason,
+                recommendation_trust=recommendation_trust,
+            )
         )
         risks.extend(trust_risks)
         data_quality = self.recommendation_data_quality(asset, reference_pattern)
@@ -606,9 +721,15 @@ class RecommendationRepository:
             if variation_preset_rankings
             else "ig_subtle"
         )
-        reference_pattern_evidence = self.recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
-        variation_preset_evidence = self.recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
-        readiness_evidence = self.recommendation_readiness_evidence(asset, account=account)
+        reference_pattern_evidence = self.recommendation_reference_pattern_evidence(
+            reference_pattern_rankings, reference_pattern
+        )
+        variation_preset_evidence = self.recommendation_variation_preset_evidence(
+            variation_preset_rankings, recommended_variation_preset
+        )
+        readiness_evidence = self.recommendation_readiness_evidence(
+            asset, account=account
+        )
         reasons = self.recommendation_reasons(
             performance_score=performance_score,
             reference_score=reference_score,
@@ -619,8 +740,12 @@ class RecommendationRepository:
             candidate=candidate,
             reference_pattern=reference_pattern,
         )
-        source_graph_id = self.graph_id_for("source_assets", asset.get("source_asset_id"), entity_type="source_asset")
-        rendered_graph_id = self.graph_id_for("rendered_assets", asset.get("id"), entity_type="rendered_asset")
+        source_graph_id = self.graph_id_for(
+            "source_assets", asset.get("source_asset_id"), entity_type="source_asset"
+        )
+        rendered_graph_id = self.graph_id_for(
+            "rendered_assets", asset.get("id"), entity_type="rendered_asset"
+        )
         latest_performance = asset.get("latestPerformance") or {}
         performance_graph_id = None
         recommendation_input_graph_id = None
@@ -635,7 +760,10 @@ class RecommendationRepository:
                 "recommendation_input",
                 external_system="campaign_factory.recommendation_input",
                 external_id=f"recommendation_input:{latest_performance['id']}",
-                payload={"performanceSnapshotId": latest_performance["id"], "campaign": campaign["slug"]},
+                payload={
+                    "performanceSnapshotId": latest_performance["id"],
+                    "campaign": campaign["slug"],
+                },
             )
         graph_evidence = {
             "campaignGraphId": campaign_graph_id,
@@ -678,7 +806,9 @@ class RecommendationRepository:
             campaign_slug=campaign.get("slug"),
             recommendation_item_id=None,
             content_tags=[str(tag) for tag in audio_context_tags if tag],
-            account_tags=[str(tag) for tag in [account or self.asset_target_account(asset)] if tag],
+            account_tags=[
+                str(tag) for tag in [account or self.asset_target_account(asset)] if tag
+            ],
             account=account or self.asset_target_account(asset),
             limit=5,
         )
@@ -688,7 +818,9 @@ class RecommendationRepository:
             audio_recommendations=audio_recommendations,
         )
         audio_memory_evidence = {
-            "recommendationCount": len(audio_recommendations.get("recommendations") or []),
+            "recommendationCount": len(
+                audio_recommendations.get("recommendations") or []
+            ),
             "topAudioMemoryGraphIds": [
                 item.get("audioMemoryGraphId")
                 for item in (audio_recommendations.get("recommendations") or [])[:3]
@@ -734,13 +866,18 @@ class RecommendationRepository:
             "targetAccount": target_account,
             "renderedAssetId": asset.get("id"),
             "filename": asset.get("filename"),
-            "referencePatternId": reference_pattern.get("id") if reference_pattern else None,
-            "referencePattern": self.recommendation_reference_summary(reference_pattern),
+            "referencePatternId": reference_pattern.get("id")
+            if reference_pattern
+            else None,
+            "referencePattern": self.recommendation_reference_summary(
+                reference_pattern
+            ),
             "referencePatternEvidence": reference_pattern_evidence,
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
             "readinessEvidence": readiness_evidence,
-            "suggestedRecipe": asset.get("recipe") or self.first_suggested_recipe(reference_pattern),
+            "suggestedRecipe": asset.get("recipe")
+            or self.first_suggested_recipe(reference_pattern),
             "hookGuidance": self.hook_guidance(reference_pattern, asset),
             "captionGuidance": caption,
             "audioRecommendations": audio_recommendations,
@@ -781,7 +918,11 @@ class RecommendationRepository:
                 "recommendation_item",
                 local_table="recommendation_items",
                 local_id=item_id,
-                payload={key: value for key, value in output.items() if key != "recommendationGraphId"},
+                payload={
+                    key: value
+                    for key, value in output.items()
+                    if key != "recommendationGraphId"
+                },
             )
             output["recommendationGraphId"] = recommendation_graph_id
             self.conn.execute(
@@ -820,9 +961,21 @@ class RecommendationRepository:
                     confidence,
                     json.dumps(reasons, ensure_ascii=False, sort_keys=True),
                     json.dumps(output["risks"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(evidence), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(data_quality), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(output), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(evidence),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(data_quality),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(output),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     self._utc_now(),
                 ),
             )
@@ -864,9 +1017,17 @@ class RecommendationRepository:
         risks: list[str] | None = None,
     ) -> dict[str, Any]:
         recommendations = audio_recommendations.get("recommendations") or []
-        audio_decision = audio_recommendations.get("decision") if isinstance(audio_recommendations.get("decision"), dict) else {}
-        status = audio_selection_status or ("recommended" if recommendations else "needs_operator_selection")
-        readiness_decision = self.recommendation_readiness_decision_evidence(readiness_evidence)
+        audio_decision = (
+            audio_recommendations.get("decision")
+            if isinstance(audio_recommendations.get("decision"), dict)
+            else {}
+        )
+        status = audio_selection_status or (
+            "recommended" if recommendations else "needs_operator_selection"
+        )
+        readiness_decision = self.recommendation_readiness_decision_evidence(
+            readiness_evidence
+        )
         learning_evidence = self.recommendation_learning_evidence(
             performance_score=performance_score,
             data_quality=data_quality,
@@ -877,7 +1038,9 @@ class RecommendationRepository:
         audio_evidence = {
             "status": status,
             "selectedAudio": selected_audio,
-            "primaryAudio": selected_audio or audio_decision.get("primaryAudio") or (recommendations[0] if recommendations else None),
+            "primaryAudio": selected_audio
+            or audio_decision.get("primaryAudio")
+            or (recommendations[0] if recommendations else None),
             "recommendationCount": len(recommendations),
             "decisionConfidence": audio_decision.get("decisionConfidence"),
         }
@@ -886,7 +1049,9 @@ class RecommendationRepository:
             "captionHash": readiness_evidence.get("captionHash"),
             **self.recommendation_caption_evidence(readiness_evidence),
         }
-        variation_safety = self.recommendation_variation_safety_evidence(readiness_evidence)
+        variation_safety = self.recommendation_variation_safety_evidence(
+            readiness_evidence
+        )
         variation_evidence = {
             "preset": recommended_variation_preset,
             "safety": variation_safety,
@@ -949,8 +1114,14 @@ class RecommendationRepository:
             "trustRisk": trust_risks[0] if trust_risks else None,
         }
 
-    def recommendation_caption_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
-        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+    def recommendation_caption_evidence(
+        self, readiness_evidence: dict[str, Any]
+    ) -> dict[str, Any]:
+        failure_reasons = [
+            str(reason)
+            for reason in readiness_evidence.get("publishabilityFailureReasons") or []
+            if reason
+        ]
         caption_reasons = [
             reason
             for reason in failure_reasons
@@ -961,9 +1132,20 @@ class RecommendationRepository:
             "blockingReasons": caption_reasons,
         }
 
-    def recommendation_quality_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
-        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
-        categories = sorted({self.recommendation_quality_failure_category(reason) for reason in failure_reasons})
+    def recommendation_quality_evidence(
+        self, readiness_evidence: dict[str, Any]
+    ) -> dict[str, Any]:
+        failure_reasons = [
+            str(reason)
+            for reason in readiness_evidence.get("publishabilityFailureReasons") or []
+            if reason
+        ]
+        categories = sorted(
+            {
+                self.recommendation_quality_failure_category(reason)
+                for reason in failure_reasons
+            }
+        )
         return {
             "status": "blocked" if failure_reasons else "passed",
             "blockingCategories": categories,
@@ -971,8 +1153,14 @@ class RecommendationRepository:
             "operatorScore": readiness_evidence.get("operatorScore"),
         }
 
-    def recommendation_variation_safety_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
-        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
+    def recommendation_variation_safety_evidence(
+        self, readiness_evidence: dict[str, Any]
+    ) -> dict[str, Any]:
+        failure_reasons = [
+            str(reason)
+            for reason in readiness_evidence.get("publishabilityFailureReasons") or []
+            if reason
+        ]
         safety_reasons = [
             reason
             for reason in failure_reasons
@@ -985,10 +1173,24 @@ class RecommendationRepository:
             "ssimRole": "diagnostic_only",
         }
 
-    def recommendation_readiness_decision_evidence(self, readiness_evidence: dict[str, Any]) -> dict[str, Any]:
-        blocking_reasons = [str(reason) for reason in readiness_evidence.get("blockingReasons") or [] if reason]
-        failure_reasons = [str(reason) for reason in readiness_evidence.get("publishabilityFailureReasons") or [] if reason]
-        blocked = bool(blocking_reasons or failure_reasons or readiness_evidence.get("state") == "blocked")
+    def recommendation_readiness_decision_evidence(
+        self, readiness_evidence: dict[str, Any]
+    ) -> dict[str, Any]:
+        blocking_reasons = [
+            str(reason)
+            for reason in readiness_evidence.get("blockingReasons") or []
+            if reason
+        ]
+        failure_reasons = [
+            str(reason)
+            for reason in readiness_evidence.get("publishabilityFailureReasons") or []
+            if reason
+        ]
+        blocked = bool(
+            blocking_reasons
+            or failure_reasons
+            or readiness_evidence.get("state") == "blocked"
+        )
         if "missing_rendered_assets" in blocking_reasons:
             next_action = "make_or_register_rendered_asset"
         elif blocking_reasons:
@@ -1043,8 +1245,12 @@ class RecommendationRepository:
             },
             "learning": {
                 "status": (learning_evidence.get("dataQuality") or {}).get("level"),
-                "sampleSize": (learning_evidence.get("dataQuality") or {}).get("sampleSize", 0),
-                "latestPerformanceSnapshotId": learning_evidence.get("latestPerformanceSnapshotId"),
+                "sampleSize": (learning_evidence.get("dataQuality") or {}).get(
+                    "sampleSize", 0
+                ),
+                "latestPerformanceSnapshotId": learning_evidence.get(
+                    "latestPerformanceSnapshotId"
+                ),
             },
             "audio": {
                 "status": audio_evidence.get("status"),
@@ -1085,26 +1291,50 @@ class RecommendationRepository:
         return "quality"
 
     def selected_audio_from_asset(self, asset: dict[str, Any]) -> dict[str, Any] | None:
-        caption_generation = asset.get("captionGeneration") if isinstance(asset.get("captionGeneration"), dict) else {}
-        audio_intent = caption_generation.get("audioIntent") or caption_generation.get("audio_intent") or {}
+        caption_generation = (
+            asset.get("captionGeneration")
+            if isinstance(asset.get("captionGeneration"), dict)
+            else {}
+        )
+        audio_intent = (
+            caption_generation.get("audioIntent")
+            or caption_generation.get("audio_intent")
+            or {}
+        )
         if not isinstance(audio_intent, dict):
             return None
         status = str(audio_intent.get("status") or "").strip().lower()
         if status not in {"selected", "attached", "verified"}:
             return None
-        selection = audio_intent.get("operator_selection") or audio_intent.get("operatorSelection") or {}
+        selection = (
+            audio_intent.get("operator_selection")
+            or audio_intent.get("operatorSelection")
+            or {}
+        )
         if not isinstance(selection, dict):
             return None
-        audio_id = selection.get("audio_id") or selection.get("platform_audio_id") or selection.get("audioId") or selection.get("platformAudioId")
+        audio_id = (
+            selection.get("audio_id")
+            or selection.get("platform_audio_id")
+            or selection.get("audioId")
+            or selection.get("platformAudioId")
+        )
         if not audio_id:
             return None
         return {
             "audioId": str(audio_id),
-            "audioTitle": selection.get("audio_title") or selection.get("title") or selection.get("audioTitle"),
-            "audioArtist": selection.get("audio_artist") or selection.get("artist") or selection.get("audioArtist"),
-            "audioType": selection.get("audio_type") or selection.get("type") or selection.get("audioType"),
+            "audioTitle": selection.get("audio_title")
+            or selection.get("title")
+            or selection.get("audioTitle"),
+            "audioArtist": selection.get("audio_artist")
+            or selection.get("artist")
+            or selection.get("audioArtist"),
+            "audioType": selection.get("audio_type")
+            or selection.get("type")
+            or selection.get("audioType"),
             "status": status,
-            "selectionSource": selection.get("selection_source") or selection.get("selectionSource"),
+            "selectionSource": selection.get("selection_source")
+            or selection.get("selectionSource"),
             "selectedAt": selection.get("selected_at") or selection.get("selectedAt"),
             "attachedAt": selection.get("attached_at") or selection.get("attachedAt"),
             "verifiedAt": selection.get("verified_at") or selection.get("verifiedAt"),
@@ -1118,22 +1348,44 @@ class RecommendationRepository:
     ) -> str:
         if selected_audio:
             return str(selected_audio.get("status") or "selected")
-        return "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection"
+        return (
+            "recommended"
+            if audio_recommendations.get("recommendations")
+            else "needs_operator_selection"
+        )
 
-    def recommendation_readiness_evidence(self, asset: dict[str, Any], *, account: str | None) -> dict[str, Any]:
+    def recommendation_readiness_evidence(
+        self, asset: dict[str, Any], *, account: str | None
+    ) -> dict[str, Any]:
         readiness = asset.get("export_readiness") or {}
-        publishability = readiness.get("publishability") if isinstance(readiness.get("publishability"), dict) else {}
-        audio_intent = publishability.get("audioIntent") if isinstance(publishability.get("audioIntent"), dict) else {}
-        latest_audit = asset.get("latest_audit") if isinstance(asset.get("latest_audit"), dict) else {}
+        publishability = (
+            readiness.get("publishability")
+            if isinstance(readiness.get("publishability"), dict)
+            else {}
+        )
+        audio_intent = (
+            publishability.get("audioIntent")
+            if isinstance(publishability.get("audioIntent"), dict)
+            else {}
+        )
+        latest_audit = (
+            asset.get("latest_audit")
+            if isinstance(asset.get("latest_audit"), dict)
+            else {}
+        )
         return {
             "state": readiness.get("state") or "unknown",
             "operatorScore": int(readiness.get("operatorScore") or 0),
             "blockingReasons": readiness.get("blockingReasons") or [],
             "warnings": readiness.get("warnings") or [],
-            "publishabilityFailureReasons": publishability.get("failureReasons") or publishability.get("publishability_failure_reasons") or [],
+            "publishabilityFailureReasons": publishability.get("failureReasons")
+            or publishability.get("publishability_failure_reasons")
+            or [],
             "reviewState": asset.get("review_state"),
             "auditStatus": asset.get("audit_status"),
-            "contentSurface": publishability.get("contentSurface") or publishability.get("content_surface") or asset.get("content_surface"),
+            "contentSurface": publishability.get("contentSurface")
+            or publishability.get("content_surface")
+            or asset.get("content_surface"),
             "audioStatus": audio_intent.get("status"),
             "captionHash": asset.get("captionHash") or asset.get("caption_hash"),
             "targetAccount": account or self.asset_target_account(asset),
@@ -1165,8 +1417,12 @@ class RecommendationRepository:
             if variation_preset_rankings
             else "ig_subtle"
         )
-        reference_pattern_evidence = self.recommendation_reference_pattern_evidence(reference_pattern_rankings, reference_pattern)
-        variation_preset_evidence = self.recommendation_variation_preset_evidence(variation_preset_rankings, recommended_variation_preset)
+        reference_pattern_evidence = self.recommendation_reference_pattern_evidence(
+            reference_pattern_rankings, reference_pattern
+        )
+        variation_preset_evidence = self.recommendation_variation_preset_evidence(
+            variation_preset_rankings, recommended_variation_preset
+        )
         target_account = account
         audio_context_tags = [
             reference_pattern.get("visualFormat"),
@@ -1192,15 +1448,25 @@ class RecommendationRepository:
             "reviewState": None,
             "auditStatus": None,
             "contentSurface": "reel",
-            "audioStatus": (audio_recommendations.get("decision") or {}).get("decisionConfidence"),
+            "audioStatus": (audio_recommendations.get("decision") or {}).get(
+                "decisionConfidence"
+            ),
             "captionHash": None,
             "targetAccount": target_account,
             "latestAuditId": None,
             "latestAuditVerdict": None,
         }
-        account_fit_evidence = {"level": "low", "score": None, "account": target_account, "reasons": ["missing_rendered_assets"], "memory": None}
+        account_fit_evidence = {
+            "level": "low",
+            "score": None,
+            "account": target_account,
+            "reasons": ["missing_rendered_assets"],
+            "memory": None,
+        }
         caption = self.caption_guidance(reference_pattern, {})
-        why_now_reasons = ["active reference pattern is available for the next generation batch"]
+        why_now_reasons = [
+            "active reference pattern is available for the next generation batch"
+        ]
         why_now_risks = [
             "missing_rendered_assets",
             "missing_performance_history",
@@ -1222,7 +1488,9 @@ class RecommendationRepository:
             },
             latest_performance={},
             recommendation_trust=recommendation_trust,
-            trust_risks=["low_recommendation_trust"] if recommendation_trust.get("status") == "low" else [],
+            trust_risks=["low_recommendation_trust"]
+            if recommendation_trust.get("status") == "low"
+            else [],
             audio_recommendations=audio_recommendations,
             caption_guidance=caption,
             readiness_evidence=readiness_evidence,
@@ -1230,11 +1498,13 @@ class RecommendationRepository:
             reasons=why_now_reasons,
             risks=why_now_risks,
         )
-        score, confidence, confidence_reason, trust_risks = self.apply_recommendation_trust(
-            score=self.reference_pattern_score(reference_pattern),
-            confidence="low",
-            confidence_reason="No rendered assets are available yet; recommendation is based on the active reference pattern only.",
-            recommendation_trust=recommendation_trust,
+        score, confidence, confidence_reason, trust_risks = (
+            self.apply_recommendation_trust(
+                score=self.reference_pattern_score(reference_pattern),
+                confidence="low",
+                confidence_reason="No rendered assets are available yet; recommendation is based on the active reference pattern only.",
+                recommendation_trust=recommendation_trust,
+            )
         )
         output = {
             "recommendationId": item_id,
@@ -1254,7 +1524,9 @@ class RecommendationRepository:
             "renderedAssetId": None,
             "filename": None,
             "referencePatternId": reference_pattern.get("id"),
-            "referencePattern": self.recommendation_reference_summary(reference_pattern),
+            "referencePattern": self.recommendation_reference_summary(
+                reference_pattern
+            ),
             "referencePatternEvidence": reference_pattern_evidence,
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
@@ -1266,7 +1538,9 @@ class RecommendationRepository:
             "audioRecommendations": audio_recommendations,
             "audioDecision": audio_recommendations.get("decision") or {},
             "audioMemoryEvidence": {
-                "recommendationCount": len(audio_recommendations.get("recommendations") or []),
+                "recommendationCount": len(
+                    audio_recommendations.get("recommendations") or []
+                ),
                 "topAudioMemoryGraphIds": [
                     item.get("audioMemoryGraphId")
                     for item in (audio_recommendations.get("recommendations") or [])[:3]
@@ -1274,7 +1548,9 @@ class RecommendationRepository:
                 ],
             },
             "selectedAudio": None,
-            "audioSelectionStatus": "recommended" if audio_recommendations.get("recommendations") else "needs_operator_selection",
+            "audioSelectionStatus": "recommended"
+            if audio_recommendations.get("recommendations")
+            else "needs_operator_selection",
             "reasons": why_now_reasons,
             "risks": why_now_risks,
             "scoreBreakdown": {
@@ -1292,8 +1568,14 @@ class RecommendationRepository:
                     "runGraphId": run_graph_id,
                     "referencePatternGraphId": reference_pattern_graph_id,
                 },
-                "reasons": ["active reference pattern is available for the next generation batch"],
-                "risks": ["missing_rendered_assets", "missing_performance_history", *trust_risks],
+                "reasons": [
+                    "active reference pattern is available for the next generation batch"
+                ],
+                "risks": [
+                    "missing_rendered_assets",
+                    "missing_performance_history",
+                    *trust_risks,
+                ],
                 "recommendationTrust": recommendation_trust,
                 "referencePatternRankings": reference_pattern_evidence,
                 "variationPresetRankings": variation_preset_evidence,
@@ -1358,9 +1640,21 @@ class RecommendationRepository:
                     output["confidence"],
                     json.dumps(output["reasons"], ensure_ascii=False, sort_keys=True),
                     json.dumps(output["risks"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(output["evidence"]), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(output["dataQuality"]), ensure_ascii=False, sort_keys=True),
-                    json.dumps(self._sanitize_for_storage(output), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        self._sanitize_for_storage(output["evidence"]),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(output["dataQuality"]),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        self._sanitize_for_storage(output),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     self._utc_now(),
                 ),
             )
@@ -1391,11 +1685,27 @@ class RecommendationRepository:
         rendered_graph_id: str | None,
         reference_pattern_graph_id: str | None,
     ) -> None:
-        self.ensure_graph_edge(performance_graph_id, recommendation_input_graph_id, "performance_snapshot_to_recommendation_input")
-        self.ensure_graph_edge(recommendation_input_graph_id, run_graph_id, "recommendation_input_to_recommendation_run")
-        self.ensure_graph_edge(run_graph_id, item_graph_id, "recommendation_run_to_recommendation_item")
-        self.ensure_graph_edge(reference_pattern_graph_id, item_graph_id, "reference_pattern_to_recommendation_item")
-        self.ensure_graph_edge(rendered_graph_id, item_graph_id, "rendered_asset_to_recommendation_item")
+        self.ensure_graph_edge(
+            performance_graph_id,
+            recommendation_input_graph_id,
+            "performance_snapshot_to_recommendation_input",
+        )
+        self.ensure_graph_edge(
+            recommendation_input_graph_id,
+            run_graph_id,
+            "recommendation_input_to_recommendation_run",
+        )
+        self.ensure_graph_edge(
+            run_graph_id, item_graph_id, "recommendation_run_to_recommendation_item"
+        )
+        self.ensure_graph_edge(
+            reference_pattern_graph_id,
+            item_graph_id,
+            "reference_pattern_to_recommendation_item",
+        )
+        self.ensure_graph_edge(
+            rendered_graph_id, item_graph_id, "rendered_asset_to_recommendation_item"
+        )
 
     def write_audio_recommendation_graph_edges(
         self,
@@ -1418,7 +1728,7 @@ class RecommendationRepository:
                 entity_type="audio_memory",
                 payload=rec,
             )
-            audio_rec_id = f"audiorec_{hashlib.sha256(f'{recommendation_item_id}:{catalog_audio_id}'.encode('utf-8')).hexdigest()[:12]}"
+            audio_rec_id = f"audiorec_{hashlib.sha256(f'{recommendation_item_id}:{catalog_audio_id}'.encode()).hexdigest()[:12]}"
             audio_rec_graph_id = self.ensure_graph_node(
                 "audio_recommendation",
                 local_table="audio_selections",
@@ -1429,7 +1739,10 @@ class RecommendationRepository:
                 recommendation_graph_id,
                 audio_rec_graph_id,
                 "recommendation_item_to_audio_recommendation",
-                evidence={"catalogAudioId": catalog_audio_id, "selectionRank": rec.get("selectionRank")},
+                evidence={
+                    "catalogAudioId": catalog_audio_id,
+                    "selectionRank": rec.get("selectionRank"),
+                },
                 campaign_id=campaign_id,
                 recommendation_item_id=recommendation_item_id,
                 source_operation="audio_memory_recommendation",
@@ -1451,21 +1764,41 @@ class RecommendationRepository:
         payload = json_load(row.get("output_json"), {})
         if isinstance(payload, dict):
             payload.setdefault("recommendationId", row["id"])
-            payload.setdefault("recommendationGraphId", row.get("recommendation_graph_id"))
+            payload.setdefault(
+                "recommendationGraphId", row.get("recommendation_graph_id")
+            )
             payload["status"] = row.get("status") or payload.get("status") or "proposed"
-            payload["executionStatus"] = row.get("execution_status") or payload.get("executionStatus") or "not_started"
-            payload["evidence"] = json_load(row.get("evidence_json"), payload.get("evidence") or {})
-            payload["dataQuality"] = json_load(row.get("data_quality_json"), payload.get("dataQuality") or {})
-            payload["decision"] = json_load(row.get("decision_json"), payload.get("decision") or {})
-            payload["outcome"] = json_load(row.get("outcome_json"), payload.get("outcome") or {})
-            payload["baseline"] = json_load(row.get("baseline_json"), payload.get("baseline") or {})
-            payload["measurementVersion"] = row.get("measurement_version") or payload.get("measurementVersion")
+            payload["executionStatus"] = (
+                row.get("execution_status")
+                or payload.get("executionStatus")
+                or "not_started"
+            )
+            payload["evidence"] = json_load(
+                row.get("evidence_json"), payload.get("evidence") or {}
+            )
+            payload["dataQuality"] = json_load(
+                row.get("data_quality_json"), payload.get("dataQuality") or {}
+            )
+            payload["decision"] = json_load(
+                row.get("decision_json"), payload.get("decision") or {}
+            )
+            payload["outcome"] = json_load(
+                row.get("outcome_json"), payload.get("outcome") or {}
+            )
+            payload["baseline"] = json_load(
+                row.get("baseline_json"), payload.get("baseline") or {}
+            )
+            payload["measurementVersion"] = row.get(
+                "measurement_version"
+            ) or payload.get("measurementVersion")
             payload["acceptedAt"] = row.get("accepted_at")
             payload["rejectedAt"] = row.get("rejected_at")
             payload["executedAt"] = row.get("executed_at")
             payload["postedAt"] = row.get("posted_at")
             payload["measuredAt"] = row.get("measured_at")
-            payload["autonomyLevel"] = payload.get("autonomyLevel") or self.autonomy_level()
+            payload["autonomyLevel"] = (
+                payload.get("autonomyLevel") or self.autonomy_level()
+            )
             payload["exceptions"] = self.exceptions_for_recommendation(row["id"])
             return payload
         return {
@@ -1488,7 +1821,9 @@ class RecommendationRepository:
             "exceptions": self.exceptions_for_recommendation(row["id"]),
         }
 
-    def exceptions_for_recommendation(self, recommendation_item_id: str) -> list[dict[str, Any]]:
+    def exceptions_for_recommendation(
+        self, recommendation_item_id: str
+    ) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
             SELECT * FROM trust_exceptions
@@ -1512,7 +1847,12 @@ class RecommendationRepository:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        decision = {"action": "accepted", "operator": operator, "notes": notes, "decidedAt": self._utc_now()}
+        decision = {
+            "action": "accepted",
+            "operator": operator,
+            "notes": notes,
+            "decidedAt": self._utc_now(),
+        }
         return self.update_recommendation_lifecycle(
             recommendation_item_id,
             status="accepted",
@@ -1534,7 +1874,13 @@ class RecommendationRepository:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        decision = {"action": "rejected", "reason": reason, "operator": operator, "notes": notes, "decidedAt": self._utc_now()}
+        decision = {
+            "action": "rejected",
+            "reason": reason,
+            "operator": operator,
+            "notes": notes,
+            "decidedAt": self._utc_now(),
+        }
         return self.update_recommendation_lifecycle(
             recommendation_item_id,
             status="rejected",
@@ -1561,14 +1907,20 @@ class RecommendationRepository:
     ) -> dict[str, Any]:
         row = self.recommendation_item_row(recommendation_item_id)
         campaign = self.recommendation_item_campaign(row)
-        item_graph_id = row.get("recommendation_graph_id") or self.graph_id_for("recommendation_items", recommendation_item_id, entity_type="recommendation_item")
+        item_graph_id = row.get("recommendation_graph_id") or self.graph_id_for(
+            "recommendation_items",
+            recommendation_item_id,
+            entity_type="recommendation_item",
+        )
         link_evidence = json_load(row.get("evidence_json"), {})
         links = link_evidence.setdefault("links", {})
         status = "executed"
         now = self._utc_now()
         updates: dict[str, Any] = {}
         if source_asset_id:
-            source_graph_id = self.graph_id_for("source_assets", source_asset_id, entity_type="source_asset")
+            source_graph_id = self.graph_id_for(
+                "source_assets", source_asset_id, entity_type="source_asset"
+            )
             self.ensure_graph_edge_strict(
                 item_graph_id,
                 source_graph_id,
@@ -1583,7 +1935,9 @@ class RecommendationRepository:
             links["sourceAssetGraphId"] = source_graph_id
             updates["source_asset_id"] = source_asset_id
         if render_job_id:
-            render_graph_id = self.graph_id_for("render_jobs", render_job_id, entity_type="render_job")
+            render_graph_id = self.graph_id_for(
+                "render_jobs", render_job_id, entity_type="render_job"
+            )
             self.ensure_graph_edge_strict(
                 item_graph_id,
                 render_graph_id,
@@ -1597,7 +1951,9 @@ class RecommendationRepository:
             links["renderJobId"] = render_job_id
             links["renderJobGraphId"] = render_graph_id
         if rendered_asset_id:
-            rendered_graph_id = self.graph_id_for("rendered_assets", rendered_asset_id, entity_type="rendered_asset")
+            rendered_graph_id = self.graph_id_for(
+                "rendered_assets", rendered_asset_id, entity_type="rendered_asset"
+            )
             self.ensure_graph_edge_strict(
                 item_graph_id,
                 rendered_graph_id,
@@ -1612,7 +1968,12 @@ class RecommendationRepository:
             links["renderedAssetGraphId"] = rendered_graph_id
             updates["rendered_asset_id"] = rendered_asset_id
         if post_id:
-            post_graph_id = self.ensure_graph_node("threadsdash_post", external_system="threadsdash.posts", external_id=post_id, payload={"postId": post_id})
+            post_graph_id = self.ensure_graph_node(
+                "threadsdash_post",
+                external_system="threadsdash.posts",
+                external_id=post_id,
+                payload={"postId": post_id},
+            )
             self.ensure_graph_edge_strict(
                 item_graph_id,
                 post_graph_id,
@@ -1627,10 +1988,20 @@ class RecommendationRepository:
             links["postGraphId"] = post_graph_id
             status = "posted"
         if performance_snapshot_id:
-            perf = self.conn.execute("SELECT * FROM performance_snapshots WHERE id = ?", (performance_snapshot_id,)).fetchone()
+            perf = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE id = ?",
+                (performance_snapshot_id,),
+            ).fetchone()
             if not perf:
-                raise ValueError(f"performance snapshot not found: {performance_snapshot_id}")
-            perf_graph_id = self.ensure_graph_node("performance_snapshot", local_table="performance_snapshots", local_id=performance_snapshot_id, payload=self._performance_snapshot_payload(dict(perf)))
+                raise ValueError(
+                    f"performance snapshot not found: {performance_snapshot_id}"
+                )
+            perf_graph_id = self.ensure_graph_node(
+                "performance_snapshot",
+                local_table="performance_snapshots",
+                local_id=performance_snapshot_id,
+                payload=self._performance_snapshot_payload(dict(perf)),
+            )
             self.ensure_graph_edge_strict(
                 item_graph_id,
                 perf_graph_id,
@@ -1651,11 +2022,31 @@ class RecommendationRepository:
             override_reason=override_reason,
         )
         if evidence:
-            link_evidence.setdefault("operatorEvidence", []).append({"at": now, **self._sanitize_for_storage(evidence)})
+            link_evidence.setdefault("operatorEvidence", []).append(
+                {"at": now, **self._sanitize_for_storage(evidence)}
+            )
         if admin_override:
-            link_evidence.setdefault("adminOverrides", []).append({"at": now, "reason": override_reason, "toStatus": status})
-        set_parts = ["status = ?", "execution_status = ?", "evidence_json = ?", "output_json = ?", "executed_at = COALESCE(executed_at, ?)"]
-        params: list[Any] = [status, "completed", json.dumps(self._sanitize_for_storage(link_evidence), ensure_ascii=False, sort_keys=True), "", now]
+            link_evidence.setdefault("adminOverrides", []).append(
+                {"at": now, "reason": override_reason, "toStatus": status}
+            )
+        set_parts = [
+            "status = ?",
+            "execution_status = ?",
+            "evidence_json = ?",
+            "output_json = ?",
+            "executed_at = COALESCE(executed_at, ?)",
+        ]
+        params: list[Any] = [
+            status,
+            "completed",
+            json.dumps(
+                self._sanitize_for_storage(link_evidence),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "",
+            now,
+        ]
         if status == "posted":
             set_parts.append("posted_at = COALESCE(posted_at, ?)")
             params.append(now)
@@ -1673,16 +2064,25 @@ class RecommendationRepository:
         payload["executedAt"] = payload.get("executedAt") or now
         if status == "posted":
             payload["postedAt"] = payload.get("postedAt") or now
-        params[3] = json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True)
+        params[3] = json.dumps(
+            self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True
+        )
         params.append(recommendation_item_id)
-        self.conn.execute(f"UPDATE recommendation_items SET {', '.join(set_parts)} WHERE id = ?", params)
+        self.conn.execute(
+            f"UPDATE recommendation_items SET {', '.join(set_parts)} WHERE id = ?",
+            params,
+        )
         self.record_event(
             "recommendation_item_linked",
             campaign_id=campaign["id"],
             rendered_asset_id=rendered_asset_id or row.get("rendered_asset_id"),
             status="success",
             message="Recommendation linked to lifecycle artifact",
-            metadata={"recommendationItemId": recommendation_item_id, "status": status, "links": links},
+            metadata={
+                "recommendationItemId": recommendation_item_id,
+                "status": status,
+                "links": links,
+            },
             commit=False,
         )
         self.conn.commit()
@@ -1699,12 +2099,18 @@ class RecommendationRepository:
         row = self.recommendation_item_row(recommendation_item_id)
         campaign = self.recommendation_item_campaign(row)
         if performance_snapshot_id:
-            self.link_recommendation_item(recommendation_item_id, performance_snapshot_id=performance_snapshot_id)
+            self.link_recommendation_item(
+                recommendation_item_id, performance_snapshot_id=performance_snapshot_id
+            )
             row = self.recommendation_item_row(recommendation_item_id)
         perf_rows = self.recommendation_performance_rows(row)
         if not perf_rows:
-            raise ValueError("recommendation has no linked or matching performance snapshots")
-        snapshots = [self._performance_snapshot_payload(dict(perf)) for perf in perf_rows]
+            raise ValueError(
+                "recommendation has no linked or matching performance snapshots"
+            )
+        snapshots = [
+            self._performance_snapshot_payload(dict(perf)) for perf in perf_rows
+        ]
         baseline_rows = self.conn.execute(
             """
             SELECT * FROM performance_snapshots
@@ -1713,11 +2119,19 @@ class RecommendationRepository:
             """,
             (campaign["id"], row.get("rendered_asset_id") or ""),
         ).fetchall()
-        baseline_snapshots = [self._performance_snapshot_payload(dict(perf)) for perf in baseline_rows]
-        account_baselines = self._account_reward_baselines(snapshots + baseline_snapshots)
-        outcome_summary = self._aggregate_performance(snapshots, account_baselines=account_baselines)
+        baseline_snapshots = [
+            self._performance_snapshot_payload(dict(perf)) for perf in baseline_rows
+        ]
+        account_baselines = self._account_reward_baselines(
+            snapshots + baseline_snapshots
+        )
+        outcome_summary = self._aggregate_performance(
+            snapshots, account_baselines=account_baselines
+        )
         outcome_score = self._performance_quality_score(outcome_summary)
-        baseline_summary = self._aggregate_performance(baseline_snapshots, account_baselines=account_baselines)
+        baseline_summary = self._aggregate_performance(
+            baseline_snapshots, account_baselines=account_baselines
+        )
         baseline_score = self._performance_quality_score(baseline_summary)
         status = "measured"
         baseline = self.recommendation_baseline_payload(
@@ -1725,7 +2139,11 @@ class RecommendationRepository:
             baseline_score=baseline_score,
             threshold=RECOMMENDATION_MEASUREMENT_THRESHOLD,
         )
-        if outcome_score is not None and baseline_score is not None and int(baseline_summary.get("count") or 0) >= 3:
+        if (
+            outcome_score is not None
+            and baseline_score is not None
+            and int(baseline_summary.get("count") or 0) >= 3
+        ):
             if outcome_score >= baseline_score + RECOMMENDATION_MEASUREMENT_THRESHOLD:
                 status = "proved"
             elif outcome_score <= baseline_score - RECOMMENDATION_MEASUREMENT_THRESHOLD:
@@ -1778,7 +2196,9 @@ class RecommendationRepository:
                 recommendation_item_id=recommendation_item_id,
                 payload={"activeLevel": active_level, "requestedMode": mode},
             )
-            raise ValueError(f"auto execute blocked by autonomy level: {exception['id']}")
+            raise ValueError(
+                f"auto execute blocked by autonomy level: {exception['id']}"
+            )
         if row.get("status") not in {"accepted", "executed"}:
             exception = self.create_exception(
                 reason_code="recommendation_not_accepted",
@@ -1789,7 +2209,9 @@ class RecommendationRepository:
                 recommendation_item_id=recommendation_item_id,
                 payload={"status": row.get("status")},
             )
-            raise ValueError(f"recommendation must be accepted before execute: {exception['id']}")
+            raise ValueError(
+                f"recommendation must be accepted before execute: {exception['id']}"
+            )
         pipeline_job = self.create_pipeline_job(
             "execute_recommendation",
             campaign["id"],
@@ -1823,11 +2245,33 @@ class RecommendationRepository:
                     notes=f"auto execute recommendation {recommendation_item_id}",
                     force_new=force,
                 )
-                steps.append({"step": "prepare_from_reference", "status": "completed", "result": prepared})
-                rendered = self.run_reel_factory(campaign_slug=campaign["slug"], dry_run=dry_run_render, max_outputs_per_clip=1)
-                steps.append({"step": "run_reel", "status": "completed", "result": self.compact_execution_result(rendered)})
+                steps.append(
+                    {
+                        "step": "prepare_from_reference",
+                        "status": "completed",
+                        "result": prepared,
+                    }
+                )
+                rendered = self.run_reel_factory(
+                    campaign_slug=campaign["slug"],
+                    dry_run=dry_run_render,
+                    max_outputs_per_clip=1,
+                )
+                steps.append(
+                    {
+                        "step": "run_reel",
+                        "status": "completed",
+                        "result": self.compact_execution_result(rendered),
+                    }
+                )
                 synced = self.sync_reel_outputs(campaign_slug=campaign["slug"])
-                steps.append({"step": "sync_reel", "status": "completed", "result": self.compact_execution_result(synced)})
+                steps.append(
+                    {
+                        "step": "sync_reel",
+                        "status": "completed",
+                        "result": self.compact_execution_result(synced),
+                    }
+                )
                 synced_assets = synced.get("synced") or []
                 if synced_assets:
                     linked_rendered_id = synced_assets[0].get("id")
@@ -1835,9 +2279,15 @@ class RecommendationRepository:
                 self.link_recommendation_item(
                     recommendation_item_id,
                     rendered_asset_id=linked_rendered_id,
-                    evidence={"source": "execute_accepted_recommendation", "pipelineJobId": pipeline_job["id"], "mode": mode},
+                    evidence={
+                        "source": "execute_accepted_recommendation",
+                        "pipelineJobId": pipeline_job["id"],
+                        "mode": mode,
+                    },
                     admin_override=row.get("status") == "executed",
-                    override_reason="refresh execution links" if row.get("status") == "executed" else None,
+                    override_reason="refresh execution links"
+                    if row.get("status") == "executed"
+                    else None,
                 )
             else:
                 self.create_exception(
@@ -1853,19 +2303,39 @@ class RecommendationRepository:
             if run_audit and linked_rendered_id:
                 from .adapters.contentforge import audit_campaign
 
-                audit_result = audit_campaign(self, campaign_slug=campaign["slug"], contentforge_base_url=contentforge_base_url)
-                steps.append({"step": "audit", "status": "completed", "result": self.compact_execution_result(audit_result)})
+                audit_result = audit_campaign(
+                    self,
+                    campaign_slug=campaign["slug"],
+                    contentforge_base_url=contentforge_base_url,
+                )
+                steps.append(
+                    {
+                        "step": "audit",
+                        "status": "completed",
+                        "result": self.compact_execution_result(audit_result),
+                    }
+                )
             current = self.recommendation_item_row(recommendation_item_id)
             asset_payload = None
             if linked_rendered_id:
-                asset_payload = self._dashboard_rendered_asset(self.rendered_asset(linked_rendered_id))
-                self.create_trust_exceptions_for_recommendation(current, asset_payload, commit=False)
+                asset_payload = self._dashboard_rendered_asset(
+                    self.rendered_asset(linked_rendered_id)
+                )
+                self.create_trust_exceptions_for_recommendation(
+                    current, asset_payload, commit=False
+                )
             exceptions = self.exceptions_for_recommendation(recommendation_item_id)
             blocking_exceptions = [
-                item for item in exceptions
-                if item.get("status") in {"open", "snoozed"} and item.get("severity") in {"medium", "high", "critical"}
+                item
+                for item in exceptions
+                if item.get("status") in {"open", "snoozed"}
+                and item.get("severity") in {"medium", "high", "critical"}
             ]
-            execution_status = "blocked" if blocking_exceptions or not linked_rendered_id else "completed"
+            execution_status = (
+                "blocked"
+                if blocking_exceptions or not linked_rendered_id
+                else "completed"
+            )
             payload = self.stored_recommendation_item_payload(current)
             payload["executionStatus"] = execution_status
             payload["autonomyLevel"] = mode
@@ -1878,7 +2348,15 @@ class RecommendationRepository:
             }
             self.conn.execute(
                 "UPDATE recommendation_items SET execution_status = ?, output_json = ? WHERE id = ?",
-                (execution_status, json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True), recommendation_item_id),
+                (
+                    execution_status,
+                    json.dumps(
+                        self._sanitize_for_storage(payload),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    recommendation_item_id,
+                ),
             )
             self.record_event(
                 "recommendation_item_executed",
@@ -1899,7 +2377,11 @@ class RecommendationRepository:
             self.conn.commit()
             self.finish_pipeline_job(
                 pipeline_job["id"],
-                {"steps": [step["step"] for step in steps], "renderedAssetId": linked_rendered_id, "executionStatus": execution_status},
+                {
+                    "steps": [step["step"] for step in steps],
+                    "renderedAssetId": linked_rendered_id,
+                    "executionStatus": execution_status,
+                },
             )
             return {
                 "schema": "campaign_factory.recommendation_execution.v1",
@@ -1931,7 +2413,10 @@ class RecommendationRepository:
                 pipeline_job_id=pipeline_job["id"],
                 status="failure",
                 message=f"Recommendation execution failed: {exc}",
-                metadata={"recommendationItemId": recommendation_item_id, "error": str(exc)},
+                metadata={
+                    "recommendationItemId": recommendation_item_id,
+                    "error": str(exc),
+                },
                 commit=False,
             )
             self.conn.commit()
@@ -1940,7 +2425,13 @@ class RecommendationRepository:
 
     def compact_execution_result(self, result: dict[str, Any]) -> dict[str, Any]:
         compact = {}
-        for key in ("schema", "pipelineJobId", "campaign", "returncode", "elapsed_seconds"):
+        for key in (
+            "schema",
+            "pipelineJobId",
+            "campaign",
+            "returncode",
+            "elapsed_seconds",
+        ):
             if key in result:
                 compact[key] = result[key]
         for key in ("prepared", "reusedExisting", "synced", "reports", "runs"):
@@ -1958,93 +2449,133 @@ class RecommendationRepository:
         campaign = self.recommendation_item_campaign(row)
         recommendation_item_id = row["id"]
         account_id = row.get("target_account") or self.asset_target_account(asset)
-        entity_graph_id = row.get("recommendation_graph_id") or self.graph_id_for("recommendation_items", recommendation_item_id, entity_type="recommendation_item")
+        entity_graph_id = row.get("recommendation_graph_id") or self.graph_id_for(
+            "recommendation_items",
+            recommendation_item_id,
+            entity_type="recommendation_item",
+        )
         created = []
         readiness = asset.get("export_readiness") or {}
         data_quality = json_load(row.get("data_quality_json"), {})
-        account_fit = self.recommendation_account_fit_evidence(campaign["id"], asset, account_id)
+        account_fit = self.recommendation_account_fit_evidence(
+            campaign["id"], asset, account_id
+        )
         if not account_id:
-            created.append(self.create_exception(
-                reason_code="missing_account_assignment",
-                severity="medium",
-                campaign_id=campaign["id"],
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"renderedAssetId": asset.get("id")},
-                commit=False,
-            ))
+            created.append(
+                self.create_exception(
+                    reason_code="missing_account_assignment",
+                    severity="medium",
+                    campaign_id=campaign["id"],
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={"renderedAssetId": asset.get("id")},
+                    commit=False,
+                )
+            )
         for reason in readiness.get("blockingReasons") or []:
-            created.append(self.create_exception(
-                reason_code=f"audit_blocked:{reason}",
-                severity="high",
-                campaign_id=campaign["id"],
-                account_id=account_id,
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"renderedAssetId": asset.get("id"), "readiness": readiness},
-                commit=False,
-            ))
+            created.append(
+                self.create_exception(
+                    reason_code=f"audit_blocked:{reason}",
+                    severity="high",
+                    campaign_id=campaign["id"],
+                    account_id=account_id,
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={
+                        "renderedAssetId": asset.get("id"),
+                        "readiness": readiness,
+                    },
+                    commit=False,
+                )
+            )
         if data_quality.get("level") in {"low", "medium"}:
-            created.append(self.create_exception(
-                reason_code=f"qc_confidence_{data_quality.get('level')}",
-                severity="medium" if data_quality.get("level") == "medium" else "high",
-                campaign_id=campaign["id"],
-                account_id=account_id,
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"dataQuality": data_quality},
-                commit=False,
-            ))
-        fatigue = ((account_fit.get("memory") or {}).get("fatigue") or {})
+            created.append(
+                self.create_exception(
+                    reason_code=f"qc_confidence_{data_quality.get('level')}",
+                    severity="medium"
+                    if data_quality.get("level") == "medium"
+                    else "high",
+                    campaign_id=campaign["id"],
+                    account_id=account_id,
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={"dataQuality": data_quality},
+                    commit=False,
+                )
+            )
+        fatigue = (account_fit.get("memory") or {}).get("fatigue") or {}
         if fatigue.get("level") in {"medium", "high"}:
-            created.append(self.create_exception(
-                reason_code=f"account_fatigue_{fatigue.get('level')}",
-                severity="high" if fatigue.get("level") == "high" else "medium",
-                campaign_id=campaign["id"],
-                account_id=account_id,
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"fatigue": fatigue},
-                commit=False,
-            ))
+            created.append(
+                self.create_exception(
+                    reason_code=f"account_fatigue_{fatigue.get('level')}",
+                    severity="high" if fatigue.get("level") == "high" else "medium",
+                    campaign_id=campaign["id"],
+                    account_id=account_id,
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={"fatigue": fatigue},
+                    commit=False,
+                )
+            )
         warnings = readiness.get("warnings") or []
-        if any("reuse" in str(warning) or "duplicate" in str(warning) for warning in warnings):
-            created.append(self.create_exception(
-                reason_code="duplicate_or_reuse_risk",
-                severity="medium",
-                campaign_id=campaign["id"],
-                account_id=account_id,
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"warnings": warnings},
-                commit=False,
-            ))
-        audio = asset.get("audioRecommendations") if isinstance(asset.get("audioRecommendations"), dict) else {}
+        if any(
+            "reuse" in str(warning) or "duplicate" in str(warning)
+            for warning in warnings
+        ):
+            created.append(
+                self.create_exception(
+                    reason_code="duplicate_or_reuse_risk",
+                    severity="medium",
+                    campaign_id=campaign["id"],
+                    account_id=account_id,
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={"warnings": warnings},
+                    commit=False,
+                )
+            )
+        audio = (
+            asset.get("audioRecommendations")
+            if isinstance(asset.get("audioRecommendations"), dict)
+            else {}
+        )
         if audio.get("recommendations") and not self.asset_has_final_audio_proof(asset):
-            created.append(self.create_exception(
-                reason_code="unresolved_native_audio",
-                severity="high",
-                campaign_id=campaign["id"],
-                account_id=account_id,
-                entity_graph_id=entity_graph_id,
-                recommendation_item_id=recommendation_item_id,
-                payload={"audioRecommendations": audio},
-                commit=False,
-            ))
+            created.append(
+                self.create_exception(
+                    reason_code="unresolved_native_audio",
+                    severity="high",
+                    campaign_id=campaign["id"],
+                    account_id=account_id,
+                    entity_graph_id=entity_graph_id,
+                    recommendation_item_id=recommendation_item_id,
+                    payload={"audioRecommendations": audio},
+                    commit=False,
+                )
+            )
         if commit:
             self.conn.commit()
         return created
 
     def asset_has_final_audio_proof(self, asset: dict[str, Any]) -> bool:
-        caption_generation = asset.get("captionGeneration") if isinstance(asset.get("captionGeneration"), dict) else {}
-        intent = caption_generation.get("audioIntent") or caption_generation.get("audio_intent") or {}
+        caption_generation = (
+            asset.get("captionGeneration")
+            if isinstance(asset.get("captionGeneration"), dict)
+            else {}
+        )
+        intent = (
+            caption_generation.get("audioIntent")
+            or caption_generation.get("audio_intent")
+            or {}
+        )
         if not isinstance(intent, dict):
             return False
         status = str(intent.get("status") or "").strip().lower()
         return status in {"attached", "verified", "not_required", "skipped"}
 
     def recommendation_item_row(self, recommendation_item_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM recommendation_items WHERE id = ?", (recommendation_item_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM recommendation_items WHERE id = ?", (recommendation_item_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"recommendation item not found: {recommendation_item_id}")
         return dict(row)
@@ -2101,12 +2632,14 @@ class RecommendationRepository:
             payload["measurementVersion"] = measurement_version
         if admin_override:
             decision_payload = dict(payload.get("decision") or {})
-            decision_payload.setdefault("adminOverrides", []).append({
-                "at": now,
-                "fromStatus": current_status,
-                "toStatus": status,
-                "reason": override_reason,
-            })
+            decision_payload.setdefault("adminOverrides", []).append(
+                {
+                    "at": now,
+                    "fromStatus": current_status,
+                    "toStatus": status,
+                    "reason": override_reason,
+                }
+            )
             payload["decision"] = decision_payload
             decision = decision_payload
         if timestamp_column:
@@ -2119,16 +2652,39 @@ class RecommendationRepository:
             }[timestamp_column]
             payload[payload_key] = row.get(timestamp_column) or now
         set_parts = ["status = ?", "output_json = ?"]
-        params: list[Any] = [status, json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True)]
+        params: list[Any] = [
+            status,
+            json.dumps(
+                self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True
+            ),
+        ]
         if decision is not None:
             set_parts.append("decision_json = ?")
-            params.append(json.dumps(self._sanitize_for_storage(decision), ensure_ascii=False, sort_keys=True))
+            params.append(
+                json.dumps(
+                    self._sanitize_for_storage(decision),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         if outcome is not None:
             set_parts.append("outcome_json = ?")
-            params.append(json.dumps(self._sanitize_for_storage(outcome), ensure_ascii=False, sort_keys=True))
+            params.append(
+                json.dumps(
+                    self._sanitize_for_storage(outcome),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         if baseline is not None:
             set_parts.append("baseline_json = ?")
-            params.append(json.dumps(self._sanitize_for_storage(baseline), ensure_ascii=False, sort_keys=True))
+            params.append(
+                json.dumps(
+                    self._sanitize_for_storage(baseline),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         if measurement_version is not None:
             set_parts.append("measurement_version = ?")
             params.append(measurement_version)
@@ -2136,7 +2692,10 @@ class RecommendationRepository:
             set_parts.append(f"{timestamp_column} = COALESCE({timestamp_column}, ?)")
             params.append(now)
         params.append(recommendation_item_id)
-        self.conn.execute(f"UPDATE recommendation_items SET {', '.join(set_parts)} WHERE id = ?", params)
+        self.conn.execute(
+            f"UPDATE recommendation_items SET {', '.join(set_parts)} WHERE id = ?",
+            params,
+        )
         if row.get("recommendation_graph_id"):
             self.ensure_graph_node(
                 "recommendation_item",
@@ -2170,11 +2729,15 @@ class RecommendationRepository:
             return
         if admin_override:
             if not override_reason:
-                raise ValueError("override_reason is required when admin_override is true")
+                raise ValueError(
+                    "override_reason is required when admin_override is true"
+                )
             return
         allowed = RECOMMENDATION_STATUS_TRANSITIONS.get(current_status, set())
         if next_status not in allowed:
-            raise ValueError(f"invalid recommendation status transition: {current_status} -> {next_status}")
+            raise ValueError(
+                f"invalid recommendation status transition: {current_status} -> {next_status}"
+            )
 
     def recommendation_baseline_payload(
         self,
@@ -2189,7 +2752,9 @@ class RecommendationRepository:
         latest = baseline_summary.get("latest")
         if latest:
             snapshots.append(latest)
-        confidence = "usable" if count >= 3 and baseline_score is not None else "insufficient"
+        confidence = (
+            "usable" if count >= 3 and baseline_score is not None else "insufficient"
+        )
         return {
             "baselineType": "campaign_account_history",
             "sampleSize": count,
@@ -2206,9 +2771,13 @@ class RecommendationRepository:
     def recommendation_performance_rows(self, row: dict[str, Any]) -> list[sqlite3.Row]:
         evidence = json_load(row.get("evidence_json"), {})
         links = evidence.get("links") if isinstance(evidence, dict) else {}
-        snapshot_id = links.get("performanceSnapshotId") if isinstance(links, dict) else None
+        snapshot_id = (
+            links.get("performanceSnapshotId") if isinstance(links, dict) else None
+        )
         if snapshot_id:
-            rows = self.conn.execute("SELECT * FROM performance_snapshots WHERE id = ?", (snapshot_id,)).fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchall()
             if rows:
                 return rows
         if row.get("rendered_asset_id"):
@@ -2242,12 +2811,19 @@ class RecommendationRepository:
             score += 3
         return int(max(0, min(100, score)))
 
-    def recommendation_account_score(self, asset: dict[str, Any], account: str | None) -> int:
-        evidence = self.recommendation_account_fit_evidence(asset["campaign_id"], asset, account)
+    def recommendation_account_score(
+        self, asset: dict[str, Any], account: str | None
+    ) -> int:
+        evidence = self.recommendation_account_fit_evidence(
+            asset["campaign_id"], asset, account
+        )
         if evidence.get("score") is not None:
             return int(evidence["score"])
         assignments = self.assignments_for_asset(asset["id"])
-        if account and any(account in {row.get("instagram_account_id"), row.get("account_id")} for row in assignments):
+        if account and any(
+            account in {row.get("instagram_account_id"), row.get("account_id")}
+            for row in assignments
+        ):
             return 72
         if assignments:
             return 62
@@ -2264,14 +2840,27 @@ class RecommendationRepository:
     ) -> dict[str, Any]:
         target = account or self.asset_target_account(asset)
         if not target:
-            return {"level": "low", "score": None, "reasons": ["missing_account_assignment"], "memory": None}
+            return {
+                "level": "low",
+                "score": None,
+                "reasons": ["missing_account_assignment"],
+                "memory": None,
+            }
         memory = self._account_memory_for(campaign_id, target)
         if not memory:
-            return {"level": "low", "score": None, "account": target, "reasons": ["account_memory_missing_or_not_rebuilt"], "memory": None}
+            return {
+                "level": "low",
+                "score": None,
+                "account": target,
+                "reasons": ["account_memory_missing_or_not_rebuilt"],
+                "memory": None,
+            }
         score = int(memory.get("performanceScore") or 50)
         fatigue = memory.get("fatigue") or {}
         fatigue_level = fatigue.get("level")
-        reasons = [f"account memory confidence {memory.get('confidence')} with {memory.get('sampleSize')} samples"]
+        reasons = [
+            f"account memory confidence {memory.get('confidence')} with {memory.get('sampleSize')} samples"
+        ]
         if fatigue_level == "high":
             score -= 20
             reasons.append("high account fatigue pressure")
@@ -2296,28 +2885,60 @@ class RecommendationRepository:
             score = 65
         else:
             score = 20
-        audio = asset.get("audioRecommendations") if isinstance(asset.get("audioRecommendations"), dict) else {}
+        audio = (
+            asset.get("audioRecommendations")
+            if isinstance(asset.get("audioRecommendations"), dict)
+            else {}
+        )
         if audio.get("recommendations") or audio.get("primaryStrategy"):
             score += 5
         return int(max(0, min(100, score)))
 
-    def recommendation_confidence(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> tuple[str, str]:
-        summaries = [asset.get("sourcePerformance") or {}, asset.get("captionPerformance") or {}, asset.get("recipePerformance") or {}]
+    def recommendation_confidence(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> tuple[str, str]:
+        summaries = [
+            asset.get("sourcePerformance") or {},
+            asset.get("captionPerformance") or {},
+            asset.get("recipePerformance") or {},
+        ]
         sample_size = sum(int(summary.get("count") or 0) for summary in summaries)
         completeness = 0
         completeness += 1 if asset.get("latest_audit") else 0
         completeness += 1 if pattern else 0
         completeness += 1 if sample_size else 0
         rendered_asset_id = asset.get("id") or asset.get("renderedAssetId")
-        completeness += 1 if asset.get("graphId") or self.graph_id_for("rendered_assets", rendered_asset_id, entity_type="rendered_asset") else 0
+        completeness += (
+            1
+            if asset.get("graphId")
+            or self.graph_id_for(
+                "rendered_assets", rendered_asset_id, entity_type="rendered_asset"
+            )
+            else 0
+        )
         if sample_size >= 10 and completeness >= 3:
-            return "high", f"{sample_size} matched performance samples and complete graph/audit context"
+            return (
+                "high",
+                f"{sample_size} matched performance samples and complete graph/audit context",
+            )
         if sample_size >= 3 or completeness >= 3:
-            return "medium", f"{sample_size} matched performance samples with partial context"
-        return "low", "Limited performance history; score is mostly quality, readiness, and reference-pattern based"
+            return (
+                "medium",
+                f"{sample_size} matched performance samples with partial context",
+            )
+        return (
+            "low",
+            "Limited performance history; score is mostly quality, readiness, and reference-pattern based",
+        )
 
-    def recommendation_data_quality(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> dict[str, Any]:
-        summaries = [asset.get("sourcePerformance") or {}, asset.get("captionPerformance") or {}, asset.get("recipePerformance") or {}]
+    def recommendation_data_quality(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        summaries = [
+            asset.get("sourcePerformance") or {},
+            asset.get("captionPerformance") or {},
+            asset.get("recipePerformance") or {},
+        ]
         sample_size = sum(int(summary.get("count") or 0) for summary in summaries)
         missing = []
         if not sample_size:
@@ -2327,7 +2948,9 @@ class RecommendationRepository:
         if not pattern:
             missing.append("reference_pattern")
         rendered_asset_id = asset.get("id") or asset.get("renderedAssetId")
-        if not asset.get("graphId") and not self.graph_id_for("rendered_assets", rendered_asset_id, entity_type="rendered_asset"):
+        if not asset.get("graphId") and not self.graph_id_for(
+            "rendered_assets", rendered_asset_id, entity_type="rendered_asset"
+        ):
             missing.append("rendered_asset_graph_id")
         if sample_size >= 10 and not missing:
             level = "high"
@@ -2360,7 +2983,9 @@ class RecommendationRepository:
         if performance_score >= 70:
             reasons.append("performance history is positive")
         if reference_score >= 80 and reference_pattern:
-            reasons.append(f"reference pattern is strong: {reference_pattern.get('label')}")
+            reasons.append(
+                f"reference pattern is strong: {reference_pattern.get('label')}"
+            )
         if audit_score >= 80:
             reasons.append("ContentForge/readiness quality is strong")
         if account_score > 55:
@@ -2379,7 +3004,9 @@ class RecommendationRepository:
         account_ids = asset.get("account_ids") or []
         return str(account_ids[0]) if account_ids else None
 
-    def recommendation_reference_summary(self, pattern: dict[str, Any] | None) -> dict[str, Any] | None:
+    def recommendation_reference_summary(
+        self, pattern: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         if not pattern:
             return None
         return {
@@ -2393,23 +3020,41 @@ class RecommendationRepository:
         }
 
     def first_suggested_recipe(self, pattern: dict[str, Any] | None) -> str | None:
-        recipes = ((pattern or {}).get("raw") or {}).get("bank", {}).get("suggestedVariantRecipes") if pattern else []
+        recipes = (
+            ((pattern or {}).get("raw") or {})
+            .get("bank", {})
+            .get("suggestedVariantRecipes")
+            if pattern
+            else []
+        )
         if isinstance(recipes, list) and recipes:
             return str(recipes[0])
         suggested = (pattern or {}).get("suggestedVariantRecipes") if pattern else []
         return str(suggested[0]) if isinstance(suggested, list) and suggested else None
 
-    def hook_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def hook_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         if pattern and pattern.get("hookType"):
             return f"Use a {pattern['hookType']} hook from {pattern.get('label') or pattern.get('clusterKey')}."
         caption = asset.get("caption")
-        return f"Adapt the existing hook/caption: {caption[:120]}" if caption else "Use a proven short curiosity hook."
+        return (
+            f"Adapt the existing hook/caption: {caption[:120]}"
+            if caption
+            else "Use a proven short curiosity hook."
+        )
 
-    def caption_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def caption_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         formulas = (pattern or {}).get("captionFormulas") or []
         if formulas and isinstance(formulas[0], dict):
             formula = formulas[0].get("formula") or formulas[0].get("label")
             if formula:
                 return str(formula)
         caption = asset.get("caption")
-        return caption[:160] if caption else "Keep caption short, native, and matched to the visual pattern."
+        return (
+            caption[:160]
+            if caption
+            else "Keep caption short, native, and matched to the visual pattern."
+        )

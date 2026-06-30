@@ -4,12 +4,12 @@ import hashlib
 import json
 import os
 import shutil
-import socket
 import sqlite3
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -17,8 +17,18 @@ from .caption_outcome import load_context_json
 from .config import Settings
 from .persistence import json_load
 
-CONTENTFORGE_VARIANT_PRESETS = {"caption_safe", "caption_safe_v2", "strong_safe", "subtle", "balanced", "strong"}
-CONTENTFORGE_VARIANT_PACK_SCHEMAS = {"contentforge.variant_pack.v1", "contentforge.variant_pack.v2"}
+CONTENTFORGE_VARIANT_PRESETS = {
+    "caption_safe",
+    "caption_safe_v2",
+    "strong_safe",
+    "subtle",
+    "balanced",
+    "strong",
+}
+CONTENTFORGE_VARIANT_PACK_SCHEMAS = {
+    "contentforge.variant_pack.v1",
+    "contentforge.variant_pack.v2",
+}
 DEFAULT_VARIANT_SIBLING_COOLDOWN_DAYS = 14
 
 
@@ -36,9 +46,13 @@ class VariantLineageRepository:
         campaign_by_slug: Callable[[str], dict[str, Any]],
         rendered_asset: Callable[[str], dict[str, Any]],
         explain_publishability: Callable[..., dict[str, Any]],
-        capture_publishability_rejection_evidence_from_result: Callable[..., dict[str, Any]],
+        capture_publishability_rejection_evidence_from_result: Callable[
+            ..., dict[str, Any]
+        ],
         surface_handoff_readiness_for_asset: Callable[[dict[str, Any]], dict[str, Any]],
-        audio_selection_for_asset: Callable[[dict[str, Any]], tuple[dict[str, Any], str | None]],
+        audio_selection_for_asset: Callable[
+            [dict[str, Any]], tuple[dict[str, Any], str | None]
+        ],
         record_event: Callable[..., dict[str, Any]],
         caption_version_by_id: Callable[[str | None], dict[str, Any] | None],
         model_slug_for_campaign: Callable[[str], str],
@@ -62,7 +76,9 @@ class VariantLineageRepository:
         self.campaign_by_slug = campaign_by_slug
         self.rendered_asset = rendered_asset
         self.explain_publishability = explain_publishability
-        self._capture_publishability_rejection_evidence_from_result = capture_publishability_rejection_evidence_from_result
+        self._capture_publishability_rejection_evidence_from_result = (
+            capture_publishability_rejection_evidence_from_result
+        )
         self._surface_handoff_readiness_for_asset = surface_handoff_readiness_for_asset
         self._audio_selection_for_asset = audio_selection_for_asset
         self.record_event = record_event
@@ -74,9 +90,15 @@ class VariantLineageRepository:
         self._instagram_post_caption_for_asset = instagram_post_caption_for_asset
         self._performance_snapshot_payload = performance_snapshot_payload
         self._aggregate_performance = aggregate_performance
-        self._register_variant_asset = register_variant_asset or self.register_variant_asset
-        self._contentforge_variant_presets = contentforge_variant_presets or CONTENTFORGE_VARIANT_PRESETS
-        self._contentforge_variant_pack_schemas = contentforge_variant_pack_schemas or CONTENTFORGE_VARIANT_PACK_SCHEMAS
+        self._register_variant_asset = (
+            register_variant_asset or self.register_variant_asset
+        )
+        self._contentforge_variant_presets = (
+            contentforge_variant_presets or CONTENTFORGE_VARIANT_PRESETS
+        )
+        self._contentforge_variant_pack_schemas = (
+            contentforge_variant_pack_schemas or CONTENTFORGE_VARIANT_PACK_SCHEMAS
+        )
 
     def register_parent_reel(
         self,
@@ -96,19 +118,30 @@ class VariantLineageRepository:
                     publishability,
                     commit=True,
                 )
-                raise ValueError(f"parent reel must be publishable_candidate: {publishability.get('failureReasons') or publishability.get('publishability_failure_reasons')}")
+                raise ValueError(
+                    f"parent reel must be publishable_candidate: {publishability.get('failureReasons') or publishability.get('publishability_failure_reasons')}"
+                )
         else:
             readiness = self._surface_handoff_readiness_for_asset(asset)
             if not readiness.get("canHandoff"):
-                raise ValueError(f"parent surface asset must be handoff-ready: {readiness.get('blockingReasons')}")
+                raise ValueError(
+                    f"parent surface asset must be handoff-ready: {readiness.get('blockingReasons')}"
+                )
         now = self._utc_now()
         campaign_id = asset["campaign_id"]
-        concept_id = f"concept_{hashlib.sha256(f'{campaign_id}:{rendered_asset_id}'.encode('utf-8')).hexdigest()[:12]}"
-        parent_reel_id = f"parent_{hashlib.sha256(f'parent:{campaign_id}:{rendered_asset_id}'.encode('utf-8')).hexdigest()[:12]}"
+        concept_id = f"concept_{hashlib.sha256(f'{campaign_id}:{rendered_asset_id}'.encode()).hexdigest()[:12]}"
+        parent_reel_id = f"parent_{hashlib.sha256(f'parent:{campaign_id}:{rendered_asset_id}'.encode()).hexdigest()[:12]}"
         caption_context = load_context_json(asset.get("caption_outcome_context_json"))
         audio_intent, audio_id = self._audio_selection_for_asset(asset)
-        creator = asset.get("creator_model") or asset.get("creator_mix") or caption_context.get("creator_model") or caption_context.get("creator_mix")
-        source = self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (asset["source_asset_id"],)).fetchone()
+        creator = (
+            asset.get("creator_model")
+            or asset.get("creator_mix")
+            or caption_context.get("creator_model")
+            or caption_context.get("creator_mix")
+        )
+        source = self.conn.execute(
+            "SELECT * FROM source_assets WHERE id = ?", (asset["source_asset_id"],)
+        ).fetchone()
         source_fingerprint = source["content_hash"] if source else None
         payload = {
             "operator": operator,
@@ -145,7 +178,11 @@ class VariantLineageRepository:
                 asset.get("caption_hash") or caption_context.get("caption_hash"),
                 audio_id,
                 status,
-                json.dumps(self._sanitize_for_storage(payload), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(payload),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -165,11 +202,19 @@ class VariantLineageRepository:
             rendered_asset_id=rendered_asset_id,
             status="success",
             message=f"Parent reel registered: {rendered_asset_id}",
-            metadata={"conceptId": concept_id, "parentReelId": parent_reel_id, "operator": operator},
+            metadata={
+                "conceptId": concept_id,
+                "parentReelId": parent_reel_id,
+                "operator": operator,
+            },
             commit=False,
         )
         self.conn.commit()
-        return self.concept_payload(self.conn.execute("SELECT * FROM concepts WHERE id = ?", (concept_id,)).fetchone())
+        return self.concept_payload(
+            self.conn.execute(
+                "SELECT * FROM concepts WHERE id = ?", (concept_id,)
+            ).fetchone()
+        )
 
     def variant_plan(
         self,
@@ -182,20 +227,40 @@ class VariantLineageRepository:
     ) -> dict[str, Any]:
         if count <= 0:
             raise ValueError("count must be positive")
-        preset = contentforge_preset if contentforge_preset in self._contentforge_variant_presets else "caption_safe"
+        preset = (
+            contentforge_preset
+            if contentforge_preset in self._contentforge_variant_presets
+            else "caption_safe"
+        )
         asset = self.rendered_asset(parent_asset_id)
         concept = self.concept_for_parent_asset(parent_asset_id)
-        caption_version = self._caption_version_by_id(caption_version_id) if caption_version_id else None
+        caption_version = (
+            self._caption_version_by_id(caption_version_id)
+            if caption_version_id
+            else None
+        )
         caption_lineage_ok = not caption_version_id or (
-            caption_version is not None and caption_version.get("parentAssetId") == parent_asset_id
+            caption_version is not None
+            and caption_version.get("parentAssetId") == parent_asset_id
         )
         can_generate = (
             concept is not None
             and self.explain_publishability(parent_asset_id).get("publishableCandidate")
             and caption_lineage_ok
         )
-        family_key = ":".join(str(part or "") for part in (asset["campaign_id"], parent_asset_id, caption_version_id, preset, count))
-        variant_family_id = f"vfam_{hashlib.sha256(family_key.encode('utf-8')).hexdigest()[:12]}"
+        family_key = ":".join(
+            str(part or "")
+            for part in (
+                asset["campaign_id"],
+                parent_asset_id,
+                caption_version_id,
+                preset,
+                count,
+            )
+        )
+        variant_family_id = (
+            f"vfam_{hashlib.sha256(family_key.encode('utf-8')).hexdigest()[:12]}"
+        )
         planned = [
             {
                 "variantIndex": idx,
@@ -205,7 +270,9 @@ class VariantLineageRepository:
                     {
                         "type": "preserve_parent_lineage",
                         "parentAssetId": parent_asset_id,
-                        "captionFamilyId": caption_version.get("captionFamilyId") if caption_version else None,
+                        "captionFamilyId": caption_version.get("captionFamilyId")
+                        if caption_version
+                        else None,
                         "captionVersionId": caption_version_id,
                     },
                 ],
@@ -218,14 +285,22 @@ class VariantLineageRepository:
             "parentAssetId": parent_asset_id,
             "parentReelId": concept.get("parentReelId") if concept else None,
             "conceptId": concept.get("conceptId") if concept else None,
-            "captionFamilyId": caption_version.get("captionFamilyId") if caption_version else None,
+            "captionFamilyId": caption_version.get("captionFamilyId")
+            if caption_version
+            else None,
             "captionVersionId": caption_version_id,
             "variantFamilyId": variant_family_id,
             "requestedVariants": count,
             "contentforgePreset": preset,
             "cooldownDays": cooldown_days,
             "canGenerate": bool(can_generate),
-            "blockingReason": None if can_generate else ("caption_version_not_found_for_parent" if not caption_lineage_ok else "parent_reel_not_registered_or_not_publishable"),
+            "blockingReason": None
+            if can_generate
+            else (
+                "caption_version_not_found_for_parent"
+                if not caption_lineage_ok
+                else "parent_reel_not_registered_or_not_publishable"
+            ),
             "plannedOperations": planned,
             "wouldWrite": False,
         }
@@ -255,7 +330,9 @@ class VariantLineageRepository:
                 "plan": plan,
                 "registeredVariants": [],
             }
-        base_url = (contentforge_base_url or self.settings.contentforge_base_url or "").rstrip("/")
+        base_url = (
+            contentforge_base_url or self.settings.contentforge_base_url or ""
+        ).rstrip("/")
         if not base_url:
             return {
                 "schema": "campaign_factory.generate_variants.v1",
@@ -265,9 +342,15 @@ class VariantLineageRepository:
                 "registeredVariants": [],
             }
         parent = self.rendered_asset(parent_asset_id)
-        source_path = Path(source_media_path).expanduser() if source_media_path else Path(parent["campaign_path"])
+        source_path = (
+            Path(source_media_path).expanduser()
+            if source_media_path
+            else Path(parent["campaign_path"])
+        )
         if not source_path.exists():
-            source_path = Path(parent["output_path"]) if not source_media_path else source_path
+            source_path = (
+                Path(parent["output_path"]) if not source_media_path else source_path
+            )
         if not source_path.exists():
             return {
                 "schema": "campaign_factory.generate_variants.v1",
@@ -279,13 +362,13 @@ class VariantLineageRepository:
         uploads_dir = self.settings.contentforge_root / "uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
         staged_fingerprint = hashlib.sha256(
-            f"{parent_asset_id}:{caption_version_id or ''}:{count}:{contentforge_preset}:{parent.get('content_hash') or ''}".encode("utf-8")
+            f"{parent_asset_id}:{caption_version_id or ''}:{count}:{contentforge_preset}:{parent.get('content_hash') or ''}".encode()
         ).hexdigest()[:12]
         staged_name = f"campaign_variant_parent_{parent_asset_id}_{staged_fingerprint}{source_path.suffix.lower()}"
         staged_path = uploads_dir / staged_name
         shutil.copy2(source_path, staged_path)
         idempotency_key = hashlib.sha256(
-            f"campaign_factory:{parent_asset_id}:{caption_version_id or ''}:{count}:{contentforge_preset}:{parent.get('content_hash') or ''}".encode("utf-8")
+            f"campaign_factory:{parent_asset_id}:{caption_version_id or ''}:{count}:{contentforge_preset}:{parent.get('content_hash') or ''}".encode()
         ).hexdigest()
         body_payload = {
             "source": staged_name,
@@ -308,12 +391,14 @@ class VariantLineageRepository:
             or os.environ.get("CONTENTFORGE_VARIANT_PACK_TIMEOUT_SECONDS")
             or 180
         )
-        poll_interval_seconds = float(os.environ.get("CONTENTFORGE_VARIANT_PACK_POLL_INTERVAL_SECONDS") or 2)
+        poll_interval_seconds = float(
+            os.environ.get("CONTENTFORGE_VARIANT_PACK_POLL_INTERVAL_SECONDS") or 2
+        )
         request_timeout_seconds = min(30, max(1, timeout_seconds))
         try:
             with self._urlopen(request, timeout=request_timeout_seconds) as response:
                 job = json.loads(response.read().decode("utf-8"))
-        except (TimeoutError, socket.timeout) as exc:
+        except TimeoutError as exc:
             return self.contentforge_variant_pack_blocked_result(
                 plan=plan,
                 blocking_reason="contentforge_variant_pack_start_timeout",
@@ -366,10 +451,17 @@ class VariantLineageRepository:
             terminal_job = job
             report = None
             while time.monotonic() < deadline:
-                if terminal_job.get("status") == "succeeded" and isinstance(terminal_job.get("report"), dict):
+                if terminal_job.get("status") == "succeeded" and isinstance(
+                    terminal_job.get("report"), dict
+                ):
                     report = terminal_job["report"]
                     break
-                if terminal_job.get("status") in {"failed", "timed_out", "aborted", "cancelled"}:
+                if terminal_job.get("status") in {
+                    "failed",
+                    "timed_out",
+                    "aborted",
+                    "cancelled",
+                }:
                     return {
                         "schema": "campaign_factory.generate_variants.v1",
                         "status": "blocked",
@@ -381,12 +473,20 @@ class VariantLineageRepository:
                         "partialCommitPrevented": True,
                     }
                 time.sleep(max(0.25, poll_interval_seconds))
-                poll_endpoint = f"{base_url}{poll_url}" if str(poll_url).startswith("/") else str(poll_url)
-                poll_request = Request(poll_endpoint, headers={"Accept": "application/json"}, method="GET")
+                poll_endpoint = (
+                    f"{base_url}{poll_url}"
+                    if str(poll_url).startswith("/")
+                    else str(poll_url)
+                )
+                poll_request = Request(
+                    poll_endpoint, headers={"Accept": "application/json"}, method="GET"
+                )
                 try:
-                    with self._urlopen(poll_request, timeout=request_timeout_seconds) as response:
+                    with self._urlopen(
+                        poll_request, timeout=request_timeout_seconds
+                    ) as response:
                         terminal_job = json.loads(response.read().decode("utf-8"))
-                except (TimeoutError, socket.timeout) as exc:
+                except TimeoutError as exc:
                     return self.contentforge_variant_pack_blocked_result(
                         plan=plan,
                         blocking_reason="contentforge_variant_pack_poll_timeout",
@@ -404,7 +504,11 @@ class VariantLineageRepository:
                         staged_source=staged_name,
                         timeout_seconds=request_timeout_seconds,
                         error=exc,
-                        extra={"runId": run_id, "pollUrl": poll_url, "statusCode": exc.code},
+                        extra={
+                            "runId": run_id,
+                            "pollUrl": poll_url,
+                            "statusCode": exc.code,
+                        },
                     )
                 except URLError as exc:
                     return self.contentforge_variant_pack_blocked_result(
@@ -438,24 +542,41 @@ class VariantLineageRepository:
             }
         registered = []
         output_dir = Path(str(report.get("outputDir") or ""))
-        campaign_row = self.conn.execute("SELECT * FROM campaigns WHERE id = ?", (parent["campaign_id"],)).fetchone()
+        campaign_row = self.conn.execute(
+            "SELECT * FROM campaigns WHERE id = ?", (parent["campaign_id"],)
+        ).fetchone()
         if not campaign_row:
             raise ValueError(f"campaign not found for parent asset: {parent_asset_id}")
         campaign = dict(campaign_row)
         model_slug = self._model_slug_for_campaign(campaign["id"])
         dirs = self.campaign_dirs(model_slug, campaign["slug"])
-        caption_version = self._caption_version_by_id(caption_version_id) if caption_version_id else None
-        parent_caption_context = load_context_json(parent.get("caption_outcome_context_json"))
+        caption_version = (
+            self._caption_version_by_id(caption_version_id)
+            if caption_version_id
+            else None
+        )
+        parent_caption_context = load_context_json(
+            parent.get("caption_outcome_context_json")
+        )
         parent_caption_generation = json_load(parent.get("caption_generation_json"), {})
         parent_latest_audit = self._latest_audit_for_asset(parent_asset_id)
-        _, parent_trust_statuses = self._content_trust_status_blockers(parent, parent_latest_audit, parent_caption_context)
-        variant_burned_caption = caption_version.get("burnedCaptionText") if caption_version else parent.get("caption")
+        _, parent_trust_statuses = self._content_trust_status_blockers(
+            parent, parent_latest_audit, parent_caption_context
+        )
+        variant_burned_caption = (
+            caption_version.get("burnedCaptionText")
+            if caption_version
+            else parent.get("caption")
+        )
         variant_burned_hash = (
             caption_version.get("burnedCaptionHash")
             if caption_version
-            else parent.get("caption_hash") or parent_caption_context.get("caption_hash")
+            else parent.get("caption_hash")
+            or parent_caption_context.get("caption_hash")
         )
-        parent_post_caption = self._instagram_post_caption_for_asset(parent, parent_caption_context)
+        parent_post_caption = self._instagram_post_caption_for_asset(
+            parent, parent_caption_context
+        )
         variant_instagram_caption = (
             caption_version.get("instagramPostCaption")
             if caption_version
@@ -472,78 +593,135 @@ class VariantLineageRepository:
             for result in report.get("results") or []:
                 if not isinstance(result, dict):
                     continue
-                if result.get("uploadReady") is not True or result.get("recommended") is not True:
+                if (
+                    result.get("uploadReady") is not True
+                    or result.get("recommended") is not True
+                ):
                     continue
                 filename = result.get("filename") or result.get("file")
                 if not filename:
                     continue
-                source_variant = Path(str(result.get("filePath") or output_dir / filename))
+                source_variant = Path(
+                    str(result.get("filePath") or output_dir / filename)
+                )
                 if not source_variant.exists():
                     continue
                 digest = self._sha256_file(source_variant)
-                dest = dirs["rendered"] / f"{Path(filename).stem}_{digest[:10]}{source_variant.suffix.lower()}"
+                dest = (
+                    dirs["rendered"]
+                    / f"{Path(filename).stem}_{digest[:10]}{source_variant.suffix.lower()}"
+                )
                 shutil.copy2(source_variant, dest)
                 now = self._utc_now()
                 variant_asset_id = f"asset_variant_{digest[:12]}"
                 caption_hash = variant_burned_hash
                 operations = [
-                    {"type": "contentforge_variant_pack", "preset": contentforge_preset},
-                    {"type": "contentforge_result", "result": self._sanitize_for_storage(result)},
+                    {
+                        "type": "contentforge_variant_pack",
+                        "preset": contentforge_preset,
+                    },
+                    {
+                        "type": "contentforge_result",
+                        "result": self._sanitize_for_storage(result),
+                    },
                     {
                         "type": "preserve_parent_lineage",
                         "parentAssetId": parent_asset_id,
-                        "captionFamilyId": caption_version.get("captionFamilyId") if caption_version else None,
+                        "captionFamilyId": caption_version.get("captionFamilyId")
+                        if caption_version
+                        else None,
                         "captionVersionId": caption_version_id,
                     },
                 ]
-                result_visual = result.get("visualQcStatus") or result.get("visual_qc_status")
+                result_visual = result.get("visualQcStatus") or result.get(
+                    "visual_qc_status"
+                )
                 if isinstance(result.get("visualQc"), dict):
                     result_visual = result_visual or result["visualQc"].get("status")
-                result_identity = result.get("identityVerificationStatus") or result.get("identity_verification_status")
+                result_identity = result.get(
+                    "identityVerificationStatus"
+                ) or result.get("identity_verification_status")
                 if isinstance(result.get("identityVerification"), dict):
-                    result_identity = result_identity or result["identityVerification"].get("status")
-                visual_qc_status = str(
-                    result_visual
-                    or ("passed" if result.get("uploadReady") is True else parent_trust_statuses["visualQcStatus"])
-                ).strip().lower()
-                identity_verification_status = str(result_identity or parent_trust_statuses["identityVerificationStatus"]).strip().lower()
+                    result_identity = result_identity or result[
+                        "identityVerification"
+                    ].get("status")
+                visual_qc_status = (
+                    str(
+                        result_visual
+                        or (
+                            "passed"
+                            if result.get("uploadReady") is True
+                            else parent_trust_statuses["visualQcStatus"]
+                        )
+                    )
+                    .strip()
+                    .lower()
+                )
+                identity_verification_status = (
+                    str(
+                        result_identity
+                        or parent_trust_statuses["identityVerificationStatus"]
+                    )
+                    .strip()
+                    .lower()
+                )
                 caption_context = dict(parent_caption_context)
-                caption_context.update({
-                    "parent_asset_id": parent_asset_id,
-                    "concept_id": plan.get("conceptId"),
-                    "parent_reel_id": plan.get("parentReelId"),
-                    "variant_family_id": plan.get("variantFamilyId"),
-                    "caption_family_id": caption_version.get("captionFamilyId") if caption_version else None,
-                    "caption_version_id": caption_version_id,
-                    "caption_angle": caption_version.get("captionAngle") if caption_version else None,
-                    "caption_text": variant_burned_caption,
-                    "caption_hash": caption_hash,
-                    "burned_caption_text": variant_burned_caption,
-                    "burned_caption_hash": caption_hash,
-                    "instagram_post_caption": variant_instagram_caption,
-                    "instagram_post_caption_hash": variant_instagram_hash,
-                    "caption_cta": caption_version.get("captionCta") if caption_version else None,
-                    "hashtags": caption_version.get("hashtags") if caption_version else [],
-                    "post_caption_style": caption_version.get("postCaptionStyle") if caption_version else None,
-                    "variant_operations": operations,
-                    "visualQcStatus": visual_qc_status,
-                    "identityVerificationStatus": identity_verification_status,
-                    "visualQc": {"status": visual_qc_status},
-                    "identityVerification": {"status": identity_verification_status},
-                })
+                caption_context.update(
+                    {
+                        "parent_asset_id": parent_asset_id,
+                        "concept_id": plan.get("conceptId"),
+                        "parent_reel_id": plan.get("parentReelId"),
+                        "variant_family_id": plan.get("variantFamilyId"),
+                        "caption_family_id": caption_version.get("captionFamilyId")
+                        if caption_version
+                        else None,
+                        "caption_version_id": caption_version_id,
+                        "caption_angle": caption_version.get("captionAngle")
+                        if caption_version
+                        else None,
+                        "caption_text": variant_burned_caption,
+                        "caption_hash": caption_hash,
+                        "burned_caption_text": variant_burned_caption,
+                        "burned_caption_hash": caption_hash,
+                        "instagram_post_caption": variant_instagram_caption,
+                        "instagram_post_caption_hash": variant_instagram_hash,
+                        "caption_cta": caption_version.get("captionCta")
+                        if caption_version
+                        else None,
+                        "hashtags": caption_version.get("hashtags")
+                        if caption_version
+                        else [],
+                        "post_caption_style": caption_version.get("postCaptionStyle")
+                        if caption_version
+                        else None,
+                        "variant_operations": operations,
+                        "visualQcStatus": visual_qc_status,
+                        "identityVerificationStatus": identity_verification_status,
+                        "visualQc": {"status": visual_qc_status},
+                        "identityVerification": {
+                            "status": identity_verification_status
+                        },
+                    }
+                )
                 caption_generation = dict(parent_caption_generation)
-                caption_generation.update({
-                    "caption": variant_burned_caption,
-                    "captionHash": caption_hash,
-                    "captionFamilyId": caption_version.get("captionFamilyId") if caption_version else None,
-                    "captionVersionId": caption_version_id,
-                    "captionAngle": caption_version.get("captionAngle") if caption_version else None,
-                    "instagram_post_caption": variant_instagram_caption,
-                    "instagram_post_caption_hash": variant_instagram_hash,
-                    "captionOutcomeContext": caption_context,
-                })
+                caption_generation.update(
+                    {
+                        "caption": variant_burned_caption,
+                        "captionHash": caption_hash,
+                        "captionFamilyId": caption_version.get("captionFamilyId")
+                        if caption_version
+                        else None,
+                        "captionVersionId": caption_version_id,
+                        "captionAngle": caption_version.get("captionAngle")
+                        if caption_version
+                        else None,
+                        "instagram_post_caption": variant_instagram_caption,
+                        "instagram_post_caption_hash": variant_instagram_hash,
+                        "captionOutcomeContext": caption_context,
+                    }
+                )
                 self.conn.execute(
-                """
+                    """
                 INSERT INTO rendered_assets
                 (id, campaign_id, source_asset_id, render_job_id, content_hash, output_path,
                  campaign_path, filename, caption, caption_hash, caption_bank, caption_banks_json,
@@ -584,14 +762,25 @@ class VariantLineageRepository:
                         parent.get("suitability_decision"),
                         parent.get("suitability_reason"),
                         parent.get("source_clip"),
-                        json.dumps(self._sanitize_for_storage(caption_context), ensure_ascii=False, sort_keys=True),
-                        json.dumps(self._sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
+                        json.dumps(
+                            self._sanitize_for_storage(caption_context),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        json.dumps(
+                            self._sanitize_for_storage(caption_generation),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
                         parent.get("target_ratio") or "9:16",
                         now,
                         now,
                     ),
                 )
-                row = self.conn.execute("SELECT id FROM rendered_assets WHERE campaign_id = ? AND content_hash = ?", (parent["campaign_id"], digest)).fetchone()
+                row = self.conn.execute(
+                    "SELECT id FROM rendered_assets WHERE campaign_id = ? AND content_hash = ?",
+                    (parent["campaign_id"], digest),
+                ).fetchone()
                 if not row:
                     continue
                 audit_id = f"audit_variant_{digest[:12]}"
@@ -621,9 +810,12 @@ class VariantLineageRepository:
                 audit_dir = dirs["audits"] / "contentforge_variants"
                 audit_dir.mkdir(parents=True, exist_ok=True)
                 audit_path = audit_dir / f"{audit_id}.json"
-                audit_path.write_text(json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+                audit_path.write_text(
+                    json.dumps(audit_payload, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
                 self.conn.execute(
-                """
+                    """
                 INSERT INTO audit_reports
                 (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score,
                  status, layers_json, verdicts_json, overall_verdict, files_analyzed,
@@ -646,7 +838,11 @@ class VariantLineageRepository:
                         row["id"],
                         report.get("runId"),
                         str(audit_path),
-                        int(result.get("qualityScore") or result.get("creativeQualityScore") or 90),
+                        int(
+                            result.get("qualityScore")
+                            or result.get("creativeQualityScore")
+                            or 90
+                        ),
                         json.dumps(result.get("mainWarnings") or []),
                         now,
                     ),
@@ -657,7 +853,9 @@ class VariantLineageRepository:
                     variant_family_id=plan["variantFamilyId"],
                     variant_index=len(registered) + 1,
                     operations=operations,
-                    caption_family_id=caption_version.get("captionFamilyId") if caption_version else None,
+                    caption_family_id=caption_version.get("captionFamilyId")
+                    if caption_version
+                    else None,
                     caption_version_id=caption_version_id,
                     contentforge_run_id=report.get("runId"),
                     contentforge_preset=contentforge_preset,
@@ -680,7 +878,11 @@ class VariantLineageRepository:
                 "runId": report.get("runId"),
                 "manifestPath": report.get("manifestPath"),
                 "outputDir": report.get("outputDir"),
-                "recommendedCount": sum(1 for item in report.get("results") or [] if isinstance(item, dict) and item.get("recommended") is True),
+                "recommendedCount": sum(
+                    1
+                    for item in report.get("results") or []
+                    if isinstance(item, dict) and item.get("recommended") is True
+                ),
             },
             "registeredVariants": registered,
         }
@@ -740,12 +942,16 @@ class VariantLineageRepository:
         if not concept:
             concept = self.register_parent_reel(parent_asset_id)
         now = self._utc_now()
-        variant_id = f"var_{hashlib.sha256(f'{variant_family_id}:{variant_index}:{variant_asset_id}'.encode('utf-8')).hexdigest()[:12]}"
-        source = self.conn.execute("SELECT * FROM source_assets WHERE id = ?", (variant["source_asset_id"],)).fetchone()
+        variant_id = f"var_{hashlib.sha256(f'{variant_family_id}:{variant_index}:{variant_asset_id}'.encode()).hexdigest()[:12]}"
+        source = self.conn.execute(
+            "SELECT * FROM source_assets WHERE id = ?", (variant["source_asset_id"],)
+        ).fetchone()
         source_fingerprint = source["content_hash"] if source else None
         caption_context = load_context_json(variant.get("caption_outcome_context_json"))
         _, audio_id = self._audio_selection_for_asset(variant)
-        content_surface = self._normalize_content_surface(variant.get("content_surface") or parent.get("content_surface"))
+        content_surface = self._normalize_content_surface(
+            variant.get("content_surface") or parent.get("content_surface")
+        )
         self.conn.execute(
             """
             INSERT INTO variant_families
@@ -776,7 +982,11 @@ class VariantLineageRepository:
                 contentforge_run_id,
                 contentforge_preset,
                 cooldown_days,
-                json.dumps({"contentforgeRunId": contentforge_run_id}, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    {"contentforgeRunId": contentforge_run_id},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -817,7 +1027,11 @@ class VariantLineageRepository:
                 variant.get("caption_hash") or caption_context.get("caption_hash"),
                 audio_id,
                 content_surface,
-                json.dumps(self._sanitize_for_storage(operations), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(operations),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 qc_status,
                 contentforge_run_id,
                 now,
@@ -839,21 +1053,54 @@ class VariantLineageRepository:
                 variant_family_id,
                 variant_id,
                 variant_index,
-                json.dumps(self._sanitize_for_storage(operations), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(operations),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 variant_asset_id,
             ),
         )
         if commit:
             self.conn.commit()
-        return self.variant_lineage_asset_payload(self.conn.execute("SELECT * FROM variant_assets WHERE variant_asset_id = ?", (variant_asset_id,)).fetchone())
+        return self.variant_lineage_asset_payload(
+            self.conn.execute(
+                "SELECT * FROM variant_assets WHERE variant_asset_id = ?",
+                (variant_asset_id,),
+            ).fetchone()
+        )
 
     def parent_variant_inventory(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self.campaign_by_slug(campaign_slug)
-        concepts = [self.concept_payload(row) for row in self.conn.execute("SELECT * FROM concepts WHERE campaign_id = ? ORDER BY created_at", (campaign["id"],)).fetchall()]
-        families = [self.variant_family_payload(row) for row in self.conn.execute("SELECT * FROM variant_families WHERE campaign_id = ? ORDER BY created_at", (campaign["id"],)).fetchall()]
-        variants = [self.variant_lineage_asset_payload(row) for row in self.conn.execute("SELECT * FROM variant_assets WHERE campaign_id = ? ORDER BY variant_family_id, variant_index", (campaign["id"],)).fetchall()]
-        usage = [self.variant_usage_payload(row) for row in self.conn.execute("SELECT * FROM variant_account_usage WHERE campaign_id = ? ORDER BY created_at DESC", (campaign["id"],)).fetchall()]
+        concepts = [
+            self.concept_payload(row)
+            for row in self.conn.execute(
+                "SELECT * FROM concepts WHERE campaign_id = ? ORDER BY created_at",
+                (campaign["id"],),
+            ).fetchall()
+        ]
+        families = [
+            self.variant_family_payload(row)
+            for row in self.conn.execute(
+                "SELECT * FROM variant_families WHERE campaign_id = ? ORDER BY created_at",
+                (campaign["id"],),
+            ).fetchall()
+        ]
+        variants = [
+            self.variant_lineage_asset_payload(row)
+            for row in self.conn.execute(
+                "SELECT * FROM variant_assets WHERE campaign_id = ? ORDER BY variant_family_id, variant_index",
+                (campaign["id"],),
+            ).fetchall()
+        ]
+        usage = [
+            self.variant_usage_payload(row)
+            for row in self.conn.execute(
+                "SELECT * FROM variant_account_usage WHERE campaign_id = ? ORDER BY created_at DESC",
+                (campaign["id"],),
+            ).fetchall()
+        ]
         used_variant_ids = {row["variantId"] for row in usage if row.get("variantId")}
         return {
             "schema": "campaign_factory.parent_variant_inventory.v1",
@@ -863,13 +1110,19 @@ class VariantLineageRepository:
                 "concepts": len(concepts),
                 "variantFamilies": len(families),
                 "variants": len(variants),
-                "unusedVariants": sum(1 for row in variants if row.get("variantId") not in used_variant_ids),
+                "unusedVariants": sum(
+                    1
+                    for row in variants
+                    if row.get("variantId") not in used_variant_ids
+                ),
                 "usageRows": len(usage),
             },
             "concepts": concepts,
             "variantFamilies": families,
             "variants": variants,
-            "unusedVariants": [row for row in variants if row.get("variantId") not in used_variant_ids],
+            "unusedVariants": [
+                row for row in variants if row.get("variantId") not in used_variant_ids
+            ],
             "accountUsage": usage,
         }
 
@@ -885,28 +1138,58 @@ class VariantLineageRepository:
             "campaign": campaign["slug"],
             "generatedAt": self._utc_now(),
             "summary": {
-                "variantsPosted": len({s.get("variantId") for s in snapshots if s.get("variantId")}),
-                "accountsReached": len({s.get("instagramAccountId") for s in snapshots if s.get("instagramAccountId")}),
-                "totalViews": sum(int((s.get("metrics") or {}).get("views") or 0) for s in snapshots),
-                "totalReach": sum(int((s.get("metrics") or {}).get("reach") or 0) for s in snapshots),
+                "variantsPosted": len(
+                    {s.get("variantId") for s in snapshots if s.get("variantId")}
+                ),
+                "accountsReached": len(
+                    {
+                        s.get("instagramAccountId")
+                        for s in snapshots
+                        if s.get("instagramAccountId")
+                    }
+                ),
+                "totalViews": sum(
+                    int((s.get("metrics") or {}).get("views") or 0) for s in snapshots
+                ),
+                "totalReach": sum(
+                    int((s.get("metrics") or {}).get("reach") or 0) for s in snapshots
+                ),
                 "totalFollowersGained": 0,
             },
-            "parents": self.variant_rollup_group(snapshots, "parentReelId", "parentReelId"),
-            "families": self.variant_rollup_group(snapshots, "variantFamilyId", "variantFamilyId"),
+            "parents": self.variant_rollup_group(
+                snapshots, "parentReelId", "parentReelId"
+            ),
+            "families": self.variant_rollup_group(
+                snapshots, "variantFamilyId", "variantFamilyId"
+            ),
             "variants": self.variant_rollup_group(snapshots, "variantId", "variantId"),
-            "captions": self.variant_rollup_group(snapshots, "captionHash", "captionHash"),
-            "captionFamilies": self.variant_rollup_group(snapshots, "captionFamilyId", "captionFamilyId"),
-            "captionVersions": self.variant_rollup_group(snapshots, "captionVersionId", "captionVersionId"),
+            "captions": self.variant_rollup_group(
+                snapshots, "captionHash", "captionHash"
+            ),
+            "captionFamilies": self.variant_rollup_group(
+                snapshots, "captionFamilyId", "captionFamilyId"
+            ),
+            "captionVersions": self.variant_rollup_group(
+                snapshots, "captionVersionId", "captionVersionId"
+            ),
             "audio": self.variant_rollup_group(snapshots, "audioId", "audioId"),
-            "surfaces": self.variant_rollup_group(snapshots, "contentSurface", "contentSurface"),
+            "surfaces": self.variant_rollup_group(
+                snapshots, "contentSurface", "contentSurface"
+            ),
         }
 
     def concept_for_parent_asset(self, parent_asset_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute("SELECT * FROM concepts WHERE parent_asset_id = ? ORDER BY updated_at DESC LIMIT 1", (parent_asset_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM concepts WHERE parent_asset_id = ? ORDER BY updated_at DESC LIMIT 1",
+            (parent_asset_id,),
+        ).fetchone()
         return self.concept_payload(row) if row else None
 
     def variant_lineage_for_asset(self, rendered_asset_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM variant_assets WHERE variant_asset_id = ?", (rendered_asset_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM variant_assets WHERE variant_asset_id = ?",
+            (rendered_asset_id,),
+        ).fetchone()
         if row:
             payload = self.variant_lineage_asset_payload(row)
             return {
@@ -942,7 +1225,9 @@ class VariantLineageRepository:
             "parent_asset_id": asset.get("parent_asset_id") or rendered_asset_id,
         }
 
-    def concept_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def concept_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         if row is None:
             return {}
         data = dict(row)
@@ -964,7 +1249,9 @@ class VariantLineageRepository:
             "updatedAt": data.get("updated_at"),
         }
 
-    def variant_family_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def variant_family_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         data = dict(row)
         return {
             "variantFamilyId": data["id"],
@@ -983,7 +1270,9 @@ class VariantLineageRepository:
             "manifest": json_load(data.get("manifest_json"), {}),
         }
 
-    def variant_lineage_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def variant_lineage_asset_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         if row is None:
             return {}
         data = dict(row)
@@ -1008,7 +1297,9 @@ class VariantLineageRepository:
             "contentforgeRunId": data.get("contentforge_run_id"),
         }
 
-    def variant_usage_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def variant_usage_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         data = dict(row)
         return {
             "id": data["id"],
@@ -1027,7 +1318,9 @@ class VariantLineageRepository:
             "metricsEligible": bool(data.get("metrics_eligible")),
         }
 
-    def variant_rollup_group(self, snapshots: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+    def variant_rollup_group(
+        self, snapshots: list[dict[str, Any]], key: str, output_key: str
+    ) -> list[dict[str, Any]]:
         groups: dict[str, list[dict[str, Any]]] = {}
         for snapshot in snapshots:
             value = snapshot.get(key)
@@ -1035,14 +1328,57 @@ class VariantLineageRepository:
                 groups.setdefault(str(value), []).append(snapshot)
         rows = []
         for value, group in groups.items():
-            rows.append({
-                output_key: value,
-                "parentReelId": next((item.get("parentReelId") for item in group if item.get("parentReelId")), None),
-                "variantFamilyId": next((item.get("variantFamilyId") for item in group if item.get("variantFamilyId")), None),
-                "variantId": next((item.get("variantId") for item in group if item.get("variantId")), None),
-                "performance": self._aggregate_performance(group),
-                "renderedAssetIds": sorted({str(item["renderedAssetId"]) for item in group if item.get("renderedAssetId")}),
-                "postIds": sorted({str(item["postId"]) for item in group if item.get("postId")}),
-                "accountIds": sorted({str(item["instagramAccountId"]) for item in group if item.get("instagramAccountId")}),
-            })
-        return sorted(rows, key=lambda item: (-(item["performance"]["totals"].get("views") or 0), str(item.get(output_key) or "")))
+            rows.append(
+                {
+                    output_key: value,
+                    "parentReelId": next(
+                        (
+                            item.get("parentReelId")
+                            for item in group
+                            if item.get("parentReelId")
+                        ),
+                        None,
+                    ),
+                    "variantFamilyId": next(
+                        (
+                            item.get("variantFamilyId")
+                            for item in group
+                            if item.get("variantFamilyId")
+                        ),
+                        None,
+                    ),
+                    "variantId": next(
+                        (
+                            item.get("variantId")
+                            for item in group
+                            if item.get("variantId")
+                        ),
+                        None,
+                    ),
+                    "performance": self._aggregate_performance(group),
+                    "renderedAssetIds": sorted(
+                        {
+                            str(item["renderedAssetId"])
+                            for item in group
+                            if item.get("renderedAssetId")
+                        }
+                    ),
+                    "postIds": sorted(
+                        {str(item["postId"]) for item in group if item.get("postId")}
+                    ),
+                    "accountIds": sorted(
+                        {
+                            str(item["instagramAccountId"])
+                            for item in group
+                            if item.get("instagramAccountId")
+                        }
+                    ),
+                }
+            )
+        return sorted(
+            rows,
+            key=lambda item: (
+                -(item["performance"]["totals"].get("views") or 0),
+                str(item.get(output_key) or ""),
+            ),
+        )

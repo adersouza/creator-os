@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -19,18 +18,20 @@ from .adapters.threadsdash import (
     promote_preview_schedule,
     safe_live_smoke_export,
     summarize_threadsdash_usage,
-    sync_threadsdash_account_assignments,
     sync_performance_snapshots,
+    sync_threadsdash_account_assignments,
     verify_threadsdash_export,
 )
-from .config import PROJECT_ROOT, get_settings
+from .config import get_settings
 from .core import CampaignFactory
 from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
 
 settings = get_settings()
 app = FastAPI(title="campaign_factory", dependencies=[Depends(require_local_api_auth)])
 install_local_api_auth_middleware(app)
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.mount(
+    "/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static"
+)
 
 
 def factory() -> CampaignFactory:
@@ -196,7 +197,8 @@ def promote_preview(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
@@ -214,7 +216,8 @@ def clear_preview(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
             reason=body.get("reason") or "audio_workflow_not_ready",
         )
@@ -294,10 +297,14 @@ def recommendations(campaign: str, limit: int = 10):
 
 
 @app.get("/api/recommendations/accuracy")
-def recommendation_accuracy(campaign: str, account: str | None = None, windowDays: int = 30):
+def recommendation_accuracy(
+    campaign: str, account: str | None = None, windowDays: int = 30
+):
     cf = factory()
     try:
-        return cf.recommendation_accuracy(campaign, account=account, window_days=windowDays, persist=True)
+        return cf.recommendation_accuracy(
+            campaign, account=account, window_days=windowDays, persist=True
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -320,7 +327,9 @@ def rebuild_recommendation_accuracy(body: dict[str, Any] = Body(...)):
 
 
 @app.post("/api/recommendations/{recommendation_item_id}/accept")
-def accept_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body(default={})):
+def accept_recommendation(
+    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+):
     cf = factory()
     try:
         return cf.accept_recommendation_item(
@@ -337,7 +346,9 @@ def accept_recommendation(recommendation_item_id: str, body: dict[str, Any] = Bo
 
 
 @app.post("/api/recommendations/{recommendation_item_id}/reject")
-def reject_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body(default={})):
+def reject_recommendation(
+    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+):
     cf = factory()
     try:
         return cf.reject_recommendation_item(
@@ -365,7 +376,9 @@ def link_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body
             rendered_asset_id=body.get("renderedAssetId"),
             post_id=body.get("postId"),
             performance_snapshot_id=body.get("performanceSnapshotId"),
-            evidence=body.get("evidence") if isinstance(body.get("evidence"), dict) else None,
+            evidence=body.get("evidence")
+            if isinstance(body.get("evidence"), dict)
+            else None,
             admin_override=bool(body.get("adminOverride")),
             override_reason=body.get("overrideReason"),
         )
@@ -376,7 +389,9 @@ def link_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body
 
 
 @app.post("/api/recommendations/{recommendation_item_id}/measure")
-def measure_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body(default={})):
+def measure_recommendation(
+    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+):
     cf = factory()
     try:
         return cf.measure_recommendation_item(
@@ -392,7 +407,9 @@ def measure_recommendation(recommendation_item_id: str, body: dict[str, Any] = B
 
 
 @app.post("/api/recommendations/{recommendation_item_id}/execute")
-def execute_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body(default={})):
+def execute_recommendation(
+    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+):
     cf = factory()
     try:
         return cf.execute_accepted_recommendation(
@@ -446,7 +463,11 @@ def exceptions(campaign: str | None = None, status: str = "open"):
 def resolve_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
     cf = factory()
     try:
-        return cf.resolve_exception(exception_id, resolution=body.get("resolution"), operator=body.get("operator"))
+        return cf.resolve_exception(
+            exception_id,
+            resolution=body.get("resolution"),
+            operator=body.get("operator"),
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -473,7 +494,9 @@ def snooze_exception(exception_id: str, body: dict[str, Any] = Body(default={}))
 def reopen_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
     cf = factory()
     try:
-        return cf.reopen_exception(exception_id, reason=body.get("reason"), operator=body.get("operator"))
+        return cf.reopen_exception(
+            exception_id, reason=body.get("reason"), operator=body.get("operator")
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -484,7 +507,9 @@ def reopen_exception(exception_id: str, body: dict[str, Any] = Body(default={}))
 def import_reference_bank(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        default_bank = settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
+        default_bank = (
+            settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
+        )
         return cf.import_reference_bank(
             Path(body.get("path") or default_bank),
             Path(body["promptPack"]) if body.get("promptPack") else None,
@@ -529,7 +554,9 @@ def audio_catalog(platform: str | None = None, limit: int = 100):
 
 
 @app.get("/api/audio-memory")
-def audio_memory(platform: str | None = None, account: str | None = None, limit: int = 100):
+def audio_memory(
+    platform: str | None = None, account: str | None = None, limit: int = 100
+):
     cf = factory()
     try:
         return cf.audio_memory(platform=platform, account=account, limit=limit)
@@ -681,7 +708,8 @@ def make_batch(body: dict[str, Any] = Body(...)):
             output_format=body.get("format") or body.get("outputFormat") or "auto",
             variant_count=int(body.get("variantCount") or 20),
             reference_pattern=body.get("referencePattern") or "auto",
-            contentforge_base_url=body.get("contentforgeBaseUrl") or settings.contentforge_base_url,
+            contentforge_base_url=body.get("contentforgeBaseUrl")
+            or settings.contentforge_base_url,
             user_id=body.get("userId"),
             dry_run_export=bool(body.get("dryRunExport", True)),
             workers=int(body.get("workers") or 3),
@@ -705,7 +733,8 @@ def intake_finished_video(body: dict[str, Any] = Body(...)):
             goal=body.get("goal") or "reach",
             reference_pattern=body.get("referencePattern") or "auto",
             campaign_slug=body.get("campaign"),
-            contentforge_base_url=body.get("contentforgeBaseUrl") or settings.contentforge_base_url,
+            contentforge_base_url=body.get("contentforgeBaseUrl")
+            or settings.contentforge_base_url,
             user_id=body.get("userId"),
             dry_run_export=bool(body.get("dryRunExport", True)),
             variant_count=int(body.get("variantCount") or 10),
@@ -713,7 +742,9 @@ def intake_finished_video(body: dict[str, Any] = Body(...)):
             recipes=body.get("recipes") or None,
             creative_plan=body.get("creativePlan") or body.get("creative_plan"),
             style_lane=body.get("styleLane") or body.get("style_lane"),
-            source_lineage_path=Path(body["sourceLineage"]) if body.get("sourceLineage") else None,
+            source_lineage_path=Path(body["sourceLineage"])
+            if body.get("sourceLineage")
+            else None,
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -739,11 +770,19 @@ def create_creative_plan(body: dict[str, Any] = Body(...)):
         return cf.create_creative_plan(
             name=body.get("name") or "daily_plan",
             platform=body.get("platform") or "instagram",
-            target_account=body.get("targetAccount") or body.get("target_account") or "",
-            daily_base_video_target=int(body.get("dailyBaseVideoTarget") or body.get("daily_base_video_target") or 10),
+            target_account=body.get("targetAccount")
+            or body.get("target_account")
+            or "",
+            daily_base_video_target=int(
+                body.get("dailyBaseVideoTarget")
+                or body.get("daily_base_video_target")
+                or 10
+            ),
             style_lanes=body.get("styleLanes") or body.get("style_lanes") or None,
             model_profile=body.get("modelProfile") or body.get("model_profile") or "",
-            source_accounts=body.get("sourceAccounts") or body.get("source_accounts") or [],
+            source_accounts=body.get("sourceAccounts")
+            or body.get("source_accounts")
+            or [],
             goal=body.get("goal") or "views_reach",
             linked_campaign=body.get("linkedCampaign") or body.get("linked_campaign"),
         )
@@ -768,7 +807,9 @@ def creative_plan(name: str):
 def update_creative_plan_status(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.update_creative_plan_status(name=body.get("name") or "", status=body.get("status") or "")
+        return cf.update_creative_plan_status(
+            name=body.get("name") or "", status=body.get("status") or ""
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -781,7 +822,9 @@ def sync_creative_plan_progress(body: dict[str, Any] = Body(...)):
     try:
         return cf.sync_creative_plan_progress(
             name=body.get("name") or "",
-            prompt_export_path=Path(body.get("promptExport") or body.get("prompt_export") or ""),
+            prompt_export_path=Path(
+                body.get("promptExport") or body.get("prompt_export") or ""
+            ),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -793,7 +836,11 @@ def sync_creative_plan_progress(body: dict[str, Any] = Body(...)):
 def activity_log(campaign: str, limit: int = 200):
     cf = factory()
     try:
-        return {"schema": "campaign_factory.activity_log.v1", "campaign": campaign, "events": cf.events_for_campaign(campaign, limit=limit)}
+        return {
+            "schema": "campaign_factory.activity_log.v1",
+            "campaign": campaign,
+            "events": cf.events_for_campaign(campaign, limit=limit),
+        }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -804,7 +851,11 @@ def activity_log(campaign: str, limit: int = 200):
 def jobs(campaign: str, limit: int = 100):
     cf = factory()
     try:
-        return {"schema": "campaign_factory.jobs.v1", "campaign": campaign, "jobs": cf.jobs_for_campaign(campaign, limit=limit)}
+        return {
+            "schema": "campaign_factory.jobs.v1",
+            "campaign": campaign,
+            "jobs": cf.jobs_for_campaign(campaign, limit=limit),
+        }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -849,7 +900,9 @@ def rendered_poster(rendered_asset_id: str):
             raise HTTPException(404, f"rendered media not found: {rendered_asset_id}")
         cache_dir = settings.root / ".cache" / "posters"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        safe_id = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in rendered_asset_id)
+        safe_id = "".join(
+            ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in rendered_asset_id
+        )
         poster_path = cache_dir / f"{safe_id}_{int(media_path.stat().st_mtime)}.jpg"
         if not poster_path.exists():
             subprocess.run(
@@ -976,7 +1029,8 @@ def audit(body: dict[str, Any] = Body(...)):
             cf,
             campaign_slug=body["campaign"],
             min_score=int(body.get("minScore") or 85),
-            contentforge_base_url=body.get("contentforgeBaseUrl") or settings.contentforge_base_url,
+            contentforge_base_url=body.get("contentforgeBaseUrl")
+            or settings.contentforge_base_url,
             layers=body.get("layers") or None,
         )
     except Exception as exc:
@@ -1025,7 +1079,8 @@ def export_readiness(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
@@ -1047,17 +1102,24 @@ def export_td(body: dict[str, Any] = Body(...)):
             user_id=body["userId"],
             dry_run=body.get("dryRun", True),
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            supabase_storage_bucket=body.get("supabaseStorageBucket") or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_storage_bucket=body.get("supabaseStorageBucket")
+            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
             allow_warnings=bool(body.get("allowWarnings")),
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
             language=body.get("language"),
-            max_drafts=int(body["maxDrafts"]) if body.get("maxDrafts") is not None else None,
+            max_drafts=int(body["maxDrafts"])
+            if body.get("maxDrafts") is not None
+            else None,
             rendered_asset_ids=body.get("renderedAssetIds") or None,
             schedule_mode=body.get("scheduleMode") or "draft",
-            threadsdash_ingest_url=body.get("threadsdashIngestUrl") or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL") or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
-            threadsdash_ingest_secret=body.get("threadsdashIngestSecret") or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
+            threadsdash_ingest_url=body.get("threadsdashIngestUrl")
+            or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+            or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
+            threadsdash_ingest_secret=body.get("threadsdashIngestSecret")
+            or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1074,7 +1136,8 @@ def threadsdash_usage(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
@@ -1092,7 +1155,8 @@ def sync_threadsdash_assignments(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
@@ -1108,17 +1172,25 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
         "supabase_preflight",
         None,
         {
-            "hasSupabaseUrl": bool(body.get("supabaseUrl") or os.environ.get("SUPABASE_URL")),
-            "hasSupabaseServiceRoleKey": bool(body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")),
-            "supabaseStorageBucket": body.get("supabaseStorageBucket") or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+            "hasSupabaseUrl": bool(
+                body.get("supabaseUrl") or os.environ.get("SUPABASE_URL")
+            ),
+            "hasSupabaseServiceRoleKey": bool(
+                body.get("supabaseServiceRoleKey")
+                or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            ),
+            "supabaseStorageBucket": body.get("supabaseStorageBucket")
+            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
         },
     )
     cf.start_pipeline_job(pipeline_job["id"])
     try:
         result = preflight_supabase(
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            supabase_storage_bucket=body.get("supabaseStorageBucket") or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_storage_bucket=body.get("supabaseStorageBucket")
+            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
         )
         result["pipelineJobId"] = pipeline_job["id"]
         cf.record_event(
@@ -1126,12 +1198,28 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             pipeline_job_id=pipeline_job["id"],
             status="success" if result["ok"] else "failure",
             message=f"Supabase preflight {'passed' if result['ok'] else 'failed'}",
-            metadata={"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []},
+            metadata={
+                "ok": result["ok"],
+                "blockingReasons": result.get("blockingReasons") or [],
+            },
         )
         if result["ok"]:
-            cf.finish_pipeline_job(pipeline_job["id"], {"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []})
+            cf.finish_pipeline_job(
+                pipeline_job["id"],
+                {
+                    "ok": result["ok"],
+                    "blockingReasons": result.get("blockingReasons") or [],
+                },
+            )
         else:
-            cf.fail_pipeline_job(pipeline_job["id"], "Supabase preflight failed", {"ok": result["ok"], "blockingReasons": result.get("blockingReasons") or []})
+            cf.fail_pipeline_job(
+                pipeline_job["id"],
+                "Supabase preflight failed",
+                {
+                    "ok": result["ok"],
+                    "blockingReasons": result.get("blockingReasons") or [],
+                },
+            )
         return result
     except Exception as exc:
         cf.record_event(
@@ -1150,7 +1238,14 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
 @app.post("/api/verify-threadsdash-export")
 def verify_td_export(body: dict[str, Any] = Body(...)):
     cf = factory()
-    pipeline_job = cf.create_pipeline_job("verify_threadsdash_export", None, {"hasExportResult": bool(body.get("exportResult")), "exportPath": body.get("exportPath")})
+    pipeline_job = cf.create_pipeline_job(
+        "verify_threadsdash_export",
+        None,
+        {
+            "hasExportResult": bool(body.get("exportResult")),
+            "exportPath": body.get("exportPath"),
+        },
+    )
     cf.start_pipeline_job(pipeline_job["id"])
     try:
         export_value = body.get("exportResult") or body.get("exportPath")
@@ -1159,7 +1254,8 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
         result = verify_threadsdash_export(
             export_result_or_path=export_value,
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
         )
         result["pipelineJobId"] = pipeline_job["id"]
         cf.record_event(
@@ -1167,12 +1263,32 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             pipeline_job_id=pipeline_job["id"],
             status="success" if result["ok"] else "failure",
             message=f"ThreadsDash export {'verified' if result['ok'] else 'verification failed'}",
-            metadata={"ok": result["ok"], "campaign": result.get("campaign"), "exportPath": result.get("exportPath"), "blockingReasons": result.get("blockingReasons") or []},
+            metadata={
+                "ok": result["ok"],
+                "campaign": result.get("campaign"),
+                "exportPath": result.get("exportPath"),
+                "blockingReasons": result.get("blockingReasons") or [],
+            },
         )
         if result["ok"]:
-            cf.finish_pipeline_job(pipeline_job["id"], {"ok": result["ok"], "campaign": result.get("campaign"), "blockingReasons": result.get("blockingReasons") or []})
+            cf.finish_pipeline_job(
+                pipeline_job["id"],
+                {
+                    "ok": result["ok"],
+                    "campaign": result.get("campaign"),
+                    "blockingReasons": result.get("blockingReasons") or [],
+                },
+            )
         else:
-            cf.fail_pipeline_job(pipeline_job["id"], "ThreadsDash export verification failed", {"ok": result["ok"], "campaign": result.get("campaign"), "blockingReasons": result.get("blockingReasons") or []})
+            cf.fail_pipeline_job(
+                pipeline_job["id"],
+                "ThreadsDash export verification failed",
+                {
+                    "ok": result["ok"],
+                    "campaign": result.get("campaign"),
+                    "blockingReasons": result.get("blockingReasons") or [],
+                },
+            )
         return result
     except Exception as exc:
         cf.record_event(
@@ -1197,8 +1313,10 @@ def safe_live_smoke(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            supabase_storage_bucket=body.get("supabaseStorageBucket") or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_storage_bucket=body.get("supabaseStorageBucket")
+            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
             allow_warnings=bool(body.get("allowWarnings")),
         )
     except Exception as exc:
@@ -1216,7 +1334,8 @@ def sync_performance(body: dict[str, Any] = Body(...)):
             campaign_slug=body["campaign"],
             user_id=body["userId"],
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
+            supabase_service_role_key=body.get("supabaseServiceRoleKey")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:

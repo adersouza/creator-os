@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Lightweight reference reel analysis before prompt generation."""
+
 from __future__ import annotations
 
 import argparse
@@ -23,7 +24,6 @@ from generate_prompts import (
     video_duration,
 )
 from intelligence_store import ensure_intelligence_schema
-
 
 ANALYSIS_FIELDS = {
     "baseVisualFormula": {},
@@ -78,6 +78,8 @@ PERCEPTION_TEXT_REJECT_RE = re.compile(
     r"|\busername\b|\bcomment\b|\bbutton\b|\bwatermark\b",
     flags=re.IGNORECASE,
 )
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -88,7 +90,12 @@ def sha256_file(path: Path) -> str:
 
 def sidecar_path(root: Path, reference: Path) -> Path:
     digest = sha256_file(reference)[:16]
-    return root / "project_data" / "reference_analysis" / f"{reference.stem}_{digest}.reference_analysis.json"
+    return (
+        root
+        / "project_data"
+        / "reference_analysis"
+        / f"{reference.stem}_{digest}.reference_analysis.json"
+    )
 
 
 def build_analysis_instruction() -> str:
@@ -171,12 +178,20 @@ def normalize_analysis(data: dict[str, Any]) -> dict[str, Any]:
             out[key] = scrub(data[key])
     if not isinstance(out["background_elements"], list):
         out["background_elements"] = [str(out["background_elements"])]
-    out["background_elements"] = [str(x) for x in out["background_elements"] if str(x).strip()]
+    out["background_elements"] = [
+        str(x) for x in out["background_elements"] if str(x).strip()
+    ]
     if not isinstance(out["enhancementSuggestions"], list):
         out["enhancementSuggestions"] = [str(out["enhancementSuggestions"])]
-    out["enhancementSuggestions"] = [str(x) for x in out["enhancementSuggestions"] if str(x).strip()]
+    out["enhancementSuggestions"] = [
+        str(x) for x in out["enhancementSuggestions"] if str(x).strip()
+    ]
     for key, value in list(out.items()):
-        if key not in {"background_elements", "enhancementSuggestions", "visualEmphasisSignals"} and not isinstance(value, dict):
+        if key not in {
+            "background_elements",
+            "enhancementSuggestions",
+            "visualEmphasisSignals",
+        } and not isinstance(value, dict):
             out[key] = str(value or "").strip()
     return out
 
@@ -192,7 +207,9 @@ def heuristic_analysis(reference: Path) -> dict[str, Any]:
         scene = "living_room"
     return {
         "scene_type": scene,
-        "shot_type": "reference_reel" if reference.suffix.lower() in {".mp4", ".mov", ".m4v"} else "reference_image",
+        "shot_type": "reference_reel"
+        if reference.suffix.lower() in {".mp4", ".mov", ".m4v"}
+        else "reference_image",
         "camera_motion": "unknown",
         "subject_motion": "unknown",
         "pose_type": "unknown",
@@ -205,10 +222,22 @@ def heuristic_analysis(reference: Path) -> dict[str, Any]:
 def media_dimensions(path: Path) -> dict[str, Any]:
     if path.suffix.lower() in {".mp4", ".mov", ".m4v"}:
         import subprocess
+
         from generate_prompts import FFPROBE
 
         result = subprocess.run(
-            [FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", str(path)],
+            [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "json",
+                str(path),
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -223,16 +252,22 @@ def media_dimensions(path: Path) -> dict[str, Any]:
     else:
         try:
             from PIL import Image
+
             with Image.open(path) as im:
                 width, height = im.size
         except Exception:
             width = height = 0
     aspect_ratio = round(width / height, 4) if width and height else None
-    return {"width": width or None, "height": height or None, "aspect_ratio": aspect_ratio}
+    return {
+        "width": width or None,
+        "height": height or None,
+        "aspect_ratio": aspect_ratio,
+    }
 
 
-def analyze_reference(root: Path, reference: Path, *, model: str = DEFAULT_MODEL,
-                      dry_run: bool = False) -> dict[str, Any]:
+def analyze_reference(
+    root: Path, reference: Path, *, model: str = DEFAULT_MODEL, dry_run: bool = False
+) -> dict[str, Any]:
     root = Path(root).resolve()
     reference = Path(reference).expanduser().resolve()
     out_path = sidecar_path(root, reference)
@@ -250,10 +285,14 @@ def analyze_reference(root: Path, reference: Path, *, model: str = DEFAULT_MODEL
         analysis = heuristic_analysis(reference)
         raw_response: dict[str, Any] | None = None
     else:
-        payload = build_xai_payload(model=model, frames=frames, instruction=build_analysis_instruction())
+        payload = build_xai_payload(
+            model=model, frames=frames, instruction=build_analysis_instruction()
+        )
         api_key = load_xai_api_key(root)
         if not api_key:
-            raise RuntimeError("XAI_API_KEY or project_data/secrets.toml xai_api_key is required to call Grok")
+            raise RuntimeError(
+                "XAI_API_KEY or project_data/secrets.toml xai_api_key is required to call Grok"
+            )
         raw_response = call_grok(payload, api_key=api_key)
         text = strip_json_fence(response_text(raw_response))
         analysis = normalize_analysis(json.loads(text))
@@ -264,7 +303,9 @@ def analyze_reference(root: Path, reference: Path, *, model: str = DEFAULT_MODEL
         "referencePath": str(reference),
         "referenceHash": reference_hash,
         "model": model,
-        "duration": video_duration(reference) if reference.suffix.lower() in {".mp4", ".mov", ".m4v"} else None,
+        "duration": video_duration(reference)
+        if reference.suffix.lower() in {".mp4", ".mov", ".m4v"}
+        else None,
         "dimensions": media_dimensions(reference),
         "frames": [str(p) for p in frames],
         "analysis": normalize_analysis(analysis),
@@ -272,7 +313,9 @@ def analyze_reference(root: Path, reference: Path, *, model: str = DEFAULT_MODEL
         "createdAt": int(time.time()),
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     db = root / "manifest.sqlite"
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
@@ -285,9 +328,14 @@ def analyze_reference(root: Path, reference: Path, *, model: str = DEFAULT_MODEL
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            payload["analysisId"], str(reference), reference_hash, str(out_path),
-            model, json.dumps(payload["frames"], ensure_ascii=False),
-            json.dumps(payload["analysis"], ensure_ascii=False), payload["createdAt"],
+            payload["analysisId"],
+            str(reference),
+            reference_hash,
+            str(out_path),
+            model,
+            json.dumps(payload["frames"], ensure_ascii=False),
+            json.dumps(payload["analysis"], ensure_ascii=False),
+            payload["createdAt"],
         ),
     )
     conn.commit()
@@ -339,7 +387,9 @@ def main() -> int:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    result = analyze_reference(Path(args.root), Path(args.reference), model=args.model, dry_run=args.dry_run)
+    result = analyze_reference(
+        Path(args.root), Path(args.reference), model=args.model, dry_run=args.dry_run
+    )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

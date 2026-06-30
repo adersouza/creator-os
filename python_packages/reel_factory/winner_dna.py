@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Feature extraction, experiments, cost analytics, and Winner DNA refresh."""
+
 from __future__ import annotations
 
 import argparse
-import statistics
 import json
 import sqlite3
+import statistics
 import time
 from pathlib import Path
 from typing import Any
@@ -19,8 +20,17 @@ from intelligence_store import (
     winner_score,
 )
 
-
-FEATURE_KEYS = ("scene", "camera", "pose", "motion", "outfit", "creator", "body_style", "caption_style", "hook_type")
+FEATURE_KEYS = (
+    "scene",
+    "camera",
+    "pose",
+    "motion",
+    "outfit",
+    "creator",
+    "body_style",
+    "caption_style",
+    "hook_type",
+)
 _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 
 
@@ -41,10 +51,24 @@ def infer_features_from_text(text: str) -> dict[str, Any]:
     elif "living room" in low or "fireplace" in low:
         scene = "living_room"
     camera = "mirror_selfie" if "mirror" in low or "selfie" in low else "unknown"
-    pose = "seated_side" if "seated" in low or "sitting" in low else ("standing" if "standing" in low else "unknown")
+    pose = (
+        "seated_side"
+        if "seated" in low or "sitting" in low
+        else ("standing" if "standing" in low else "unknown")
+    )
     motion = "hip_sway" if "hip" in low or "sway" in low else "unknown"
-    outfit = "crop_top" if "crop top" in low else ("dress" if "dress" in low else ("bikini" if "bikini" in low else "unknown"))
-    body_style = "thick_hourglass" if "hourglass" in low or "thick" in low or "curves" in low else "unknown"
+    outfit = (
+        "crop_top"
+        if "crop top" in low
+        else (
+            "dress" if "dress" in low else ("bikini" if "bikini" in low else "unknown")
+        )
+    )
+    body_style = (
+        "thick_hourglass"
+        if "hourglass" in low or "thick" in low or "curves" in low
+        else "unknown"
+    )
     return {
         "scene": scene,
         "camera": camera,
@@ -54,7 +78,9 @@ def infer_features_from_text(text: str) -> dict[str, Any]:
         "creator": "stacey" if "stacey" in low else "unknown",
         "grid_source": 1 if "grid" in low or "panel" in low else 0,
         "caption_style": "short_direct",
-        "hook_type": "curiosity" if "?" in text or "wait" in low or "which" in low else "unknown",
+        "hook_type": "curiosity"
+        if "?" in text or "wait" in low or "which" in low
+        else "unknown",
         "body_style": body_style,
     }
 
@@ -84,10 +110,18 @@ def _explicit_winner_dna_features(report: dict[str, Any]) -> dict[str, Any]:
     candidates = [
         report.get("winnerDnaFeatures"),
         report.get("winner_dna_features"),
-        (report.get("signals") or {}).get("winnerDnaFeatures") if isinstance(report.get("signals"), dict) else None,
-        (report.get("signals") or {}).get("winner_dna_features") if isinstance(report.get("signals"), dict) else None,
-        (report.get("raw") or {}).get("winnerDnaFeatures") if isinstance(report.get("raw"), dict) else None,
-        (report.get("raw") or {}).get("winner_dna_features") if isinstance(report.get("raw"), dict) else None,
+        (report.get("signals") or {}).get("winnerDnaFeatures")
+        if isinstance(report.get("signals"), dict)
+        else None,
+        (report.get("signals") or {}).get("winner_dna_features")
+        if isinstance(report.get("signals"), dict)
+        else None,
+        (report.get("raw") or {}).get("winnerDnaFeatures")
+        if isinstance(report.get("raw"), dict)
+        else None,
+        (report.get("raw") or {}).get("winner_dna_features")
+        if isinstance(report.get("raw"), dict)
+        else None,
     ]
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -102,7 +136,9 @@ def _explicit_winner_dna_features(report: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def video_analysis_features_for_output(root: Path, output_path: Path) -> dict[str, Any] | None:
+def video_analysis_features_for_output(
+    root: Path, output_path: Path
+) -> dict[str, Any] | None:
     for path in _video_analysis_sidecar_paths(root, output_path):
         if not path.exists():
             continue
@@ -110,7 +146,11 @@ def video_analysis_features_for_output(root: Path, output_path: Path) -> dict[st
         if not report:
             continue
         features = _explicit_winner_dna_features(report)
-        pattern_card = report.get("patternCard") if isinstance(report.get("patternCard"), dict) else {}
+        pattern_card = (
+            report.get("patternCard")
+            if isinstance(report.get("patternCard"), dict)
+            else {}
+        )
         pattern_text = " ".join(
             str(value)
             for value in (
@@ -118,22 +158,34 @@ def video_analysis_features_for_output(root: Path, output_path: Path) -> dict[st
                 pattern_card.get("hookType"),
                 pattern_card.get("visualPattern"),
                 pattern_card.get("subjectAction"),
-                " ".join(pattern_card.get("shotSequence") or []) if isinstance(pattern_card.get("shotSequence"), list) else "",
+                " ".join(pattern_card.get("shotSequence") or [])
+                if isinstance(pattern_card.get("shotSequence"), list)
+                else "",
             )
             if value
         )
         inferred = infer_features_from_text(pattern_text) if pattern_text else {}
         for key in FEATURE_KEYS:
-            if features.get(key) in (None, "", "unknown") and inferred.get(key) not in (None, "", "unknown"):
+            if features.get(key) in (None, "", "unknown") and inferred.get(key) not in (
+                None,
+                "",
+                "unknown",
+            ):
                 features[key] = inferred[key]
         if "camera" not in features and pattern_card.get("formatType"):
             features["camera"] = pattern_card["formatType"]
         if "hook_type" not in features and pattern_card.get("hookType"):
             features["hook_type"] = pattern_card["hookType"]
         text_style = pattern_card.get("textOverlayStyle")
-        if "caption_style" not in features and isinstance(text_style, dict) and text_style.get("placement"):
+        if (
+            "caption_style" not in features
+            and isinstance(text_style, dict)
+            and text_style.get("placement")
+        ):
             features["caption_style"] = str(text_style["placement"])
-        if not any(features.get(key) not in (None, "", "unknown") for key in FEATURE_KEYS):
+        if not any(
+            features.get(key) not in (None, "", "unknown") for key in FEATURE_KEYS
+        ):
             continue
         baseline = infer_features_from_text(feature_text_for_output(root, output_path))
         baseline.update(features)
@@ -149,31 +201,53 @@ def video_analysis_features_for_output(root: Path, output_path: Path) -> dict[st
 
 def feature_text_for_output(root: Path, output_path: Path) -> str:
     parts = [output_path.stem.replace("_", " ")]
-    lineage = output_path.with_suffix(output_path.suffix + ".generated_asset_lineage.json")
+    lineage = output_path.with_suffix(
+        output_path.suffix + ".generated_asset_lineage.json"
+    )
     if lineage.exists():
         try:
-            parts.append(json.dumps(json.loads(lineage.read_text(encoding="utf-8")), ensure_ascii=False))
+            parts.append(
+                json.dumps(
+                    json.loads(lineage.read_text(encoding="utf-8")), ensure_ascii=False
+                )
+            )
         except Exception:
             pass
-    source_lineage = root / "00_source_videos" / f"{output_path.stem}.generated_asset_lineage.json"
+    source_lineage = (
+        root / "00_source_videos" / f"{output_path.stem}.generated_asset_lineage.json"
+    )
     if source_lineage.exists():
         try:
-            parts.append(json.dumps(json.loads(source_lineage.read_text(encoding="utf-8")), ensure_ascii=False))
+            parts.append(
+                json.dumps(
+                    json.loads(source_lineage.read_text(encoding="utf-8")),
+                    ensure_ascii=False,
+                )
+            )
         except Exception:
             pass
     return "\n".join(parts)
 
 
-def upsert_reel_feature(root: Path, output_path: Path, *, asset_generation_id: str | None = None,
-                        campaign_id: str | None = None,
-                        source_reference_id: str | None = None,
-                        features: dict[str, Any] | None = None) -> dict[str, Any]:
+def upsert_reel_feature(
+    root: Path,
+    output_path: Path,
+    *,
+    asset_generation_id: str | None = None,
+    campaign_id: str | None = None,
+    source_reference_id: str | None = None,
+    features: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     output_path = Path(output_path).expanduser().resolve()
     conn = connect(root)
-    features = features or video_analysis_features_for_output(root, output_path) or infer_features_from_text(feature_text_for_output(root, output_path))
+    features = (
+        features
+        or video_analysis_features_for_output(root, output_path)
+        or infer_features_from_text(feature_text_for_output(root, output_path))
+    )
     now = int(time.time())
-    feature_id = f"feat_{abs(hash(str(output_path))) & 0xffffffff:x}"
+    feature_id = f"feat_{abs(hash(str(output_path))) & 0xFFFFFFFF:x}"
     conn.execute(
         """
         INSERT INTO reel_features (
@@ -199,12 +273,24 @@ def upsert_reel_feature(root: Path, output_path: Path, *, asset_generation_id: s
             updated_at=excluded.updated_at
         """,
         (
-            feature_id, str(output_path), asset_generation_id, campaign_id, source_reference_id,
-            features.get("scene"), features.get("camera"), features.get("pose"),
-            features.get("motion"), features.get("outfit"), features.get("creator"),
-            int(bool(features.get("grid_source"))), features.get("caption_style"),
-            features.get("hook_type"), features.get("body_style"),
-            json.dumps(features, ensure_ascii=False), now, now,
+            feature_id,
+            str(output_path),
+            asset_generation_id,
+            campaign_id,
+            source_reference_id,
+            features.get("scene"),
+            features.get("camera"),
+            features.get("pose"),
+            features.get("motion"),
+            features.get("outfit"),
+            features.get("creator"),
+            int(bool(features.get("grid_source"))),
+            features.get("caption_style"),
+            features.get("hook_type"),
+            features.get("body_style"),
+            json.dumps(features, ensure_ascii=False),
+            now,
+            now,
         ),
     )
     conn.commit()
@@ -225,7 +311,9 @@ def refresh_features(root: Path, *, limit: int | None = None) -> dict[str, Any]:
         rows = rows[:limit]
     count = 0
     for row in rows:
-        existing = conn.execute("SELECT 1 FROM reel_features WHERE output_path=?", (row["output_path"],)).fetchone()
+        existing = conn.execute(
+            "SELECT 1 FROM reel_features WHERE output_path=?", (row["output_path"],)
+        ).fetchone()
         if existing:
             continue
         upsert_reel_feature(
@@ -239,9 +327,16 @@ def refresh_features(root: Path, *, limit: int | None = None) -> dict[str, Any]:
     return {"ok": True, "features_refreshed": count}
 
 
-def assign_experiment(root: Path, *, name: str, group: str, output_path: str | None = None,
-                      asset_generation_id: str | None = None, hypothesis: str = "",
-                      notes: str = "") -> dict[str, Any]:
+def assign_experiment(
+    root: Path,
+    *,
+    name: str,
+    group: str,
+    output_path: str | None = None,
+    asset_generation_id: str | None = None,
+    hypothesis: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
     conn = connect(root)
     now = int(time.time())
     exp_id = f"exp_{name.lower().replace(' ', '_')}"
@@ -261,20 +356,36 @@ def assign_experiment(root: Path, *, name: str, group: str, output_path: str | N
             output_path, asset_generation_id, notes, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (assignment_id, exp_id, group, "output" if output_path else "asset_generation",
-         output_path or asset_generation_id, output_path, asset_generation_id, notes, now),
+        (
+            assignment_id,
+            exp_id,
+            group,
+            "output" if output_path else "asset_generation",
+            output_path or asset_generation_id,
+            output_path,
+            asset_generation_id,
+            notes,
+            now,
+        ),
     )
     conn.commit()
     return {"ok": True, "experiment_id": exp_id, "assignment_id": assignment_id}
 
 
-def record_cost(root: Path, *, entity_type: str, entity_id: str | None = None,
-                output_path: str | None = None, asset_generation_id: str | None = None,
-                soul_jobs: int = 0, kling_jobs: int = 0,
-                estimated_generation_cost: float | None = None,
-                render_time_sec: float | None = None,
-                operator_seconds: float | None = None,
-                notes: str = "") -> dict[str, Any]:
+def record_cost(
+    root: Path,
+    *,
+    entity_type: str,
+    entity_id: str | None = None,
+    output_path: str | None = None,
+    asset_generation_id: str | None = None,
+    soul_jobs: int = 0,
+    kling_jobs: int = 0,
+    estimated_generation_cost: float | None = None,
+    render_time_sec: float | None = None,
+    operator_seconds: float | None = None,
+    notes: str = "",
+) -> dict[str, Any]:
     conn = connect(root)
     cost_id = f"cost_{time.time_ns()}"
     conn.execute(
@@ -285,9 +396,20 @@ def record_cost(root: Path, *, entity_type: str, entity_id: str | None = None,
             operator_seconds, notes, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (cost_id, entity_type, entity_id, output_path, asset_generation_id,
-         soul_jobs, kling_jobs, estimated_generation_cost, render_time_sec,
-         operator_seconds, notes, int(time.time())),
+        (
+            cost_id,
+            entity_type,
+            entity_id,
+            output_path,
+            asset_generation_id,
+            soul_jobs,
+            kling_jobs,
+            estimated_generation_cost,
+            render_time_sec,
+            operator_seconds,
+            notes,
+            int(time.time()),
+        ),
     )
     conn.commit()
     return {"ok": True, "cost_id": cost_id}
@@ -307,29 +429,42 @@ def _score_rows_for_costs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     for row in rows:
         score = winner_score(row)
         cost = float(row["estimated_generation_cost"] or 0)
-        out.append(dict(row) | {
-            "winner_score": round(score, 2),
-            "winner_score_per_cost": round(score / cost, 4) if cost else None,
-        })
+        out.append(
+            dict(row)
+            | {
+                "winner_score": round(score, 2),
+                "winner_score_per_cost": round(score / cost, 4) if cost else None,
+            }
+        )
     return out
 
 
 def cost_analytics(root: Path) -> dict[str, Any]:
     conn = connect(root)
     assets = _score_rows_for_costs(conn)
-    assets.sort(key=lambda row: (row["winner_score_per_cost"] is not None, row["winner_score_per_cost"] or 0, row["winner_score"]), reverse=True)
+    assets.sort(
+        key=lambda row: (
+            row["winner_score_per_cost"] is not None,
+            row["winner_score_per_cost"] or 0,
+            row["winner_score"],
+        ),
+        reverse=True,
+    )
     grouped: dict[str, dict[str, Any]] = {}
     for row in assets:
-        group = grouped.setdefault(row["entity_type"], {
-            "entity_type": row["entity_type"],
-            "count": 0,
-            "total_cost": 0.0,
-            "winner_score": 0.0,
-            "soul_jobs": 0,
-            "kling_jobs": 0,
-            "render_time_sec": 0.0,
-            "operator_seconds": 0.0,
-        })
+        group = grouped.setdefault(
+            row["entity_type"],
+            {
+                "entity_type": row["entity_type"],
+                "count": 0,
+                "total_cost": 0.0,
+                "winner_score": 0.0,
+                "soul_jobs": 0,
+                "kling_jobs": 0,
+                "render_time_sec": 0.0,
+                "operator_seconds": 0.0,
+            },
+        )
         group["count"] += 1
         group["total_cost"] += float(row["estimated_generation_cost"] or 0)
         group["winner_score"] += float(row["winner_score"] or 0)
@@ -340,14 +475,25 @@ def cost_analytics(root: Path) -> dict[str, Any]:
     groups = []
     for group in grouped.values():
         total_cost = group["total_cost"]
-        groups.append(group | {
-            "total_cost": round(total_cost, 4),
-            "winner_score": round(group["winner_score"], 2),
-            "winner_score_per_cost": round(group["winner_score"] / total_cost, 4) if total_cost else None,
-            "render_time_sec": round(group["render_time_sec"], 2),
-            "operator_seconds": round(group["operator_seconds"], 2),
-        })
-    groups.sort(key=lambda row: (row["winner_score_per_cost"] is not None, row["winner_score_per_cost"] or 0), reverse=True)
+        groups.append(
+            group
+            | {
+                "total_cost": round(total_cost, 4),
+                "winner_score": round(group["winner_score"], 2),
+                "winner_score_per_cost": round(group["winner_score"] / total_cost, 4)
+                if total_cost
+                else None,
+                "render_time_sec": round(group["render_time_sec"], 2),
+                "operator_seconds": round(group["operator_seconds"], 2),
+            }
+        )
+    groups.sort(
+        key=lambda row: (
+            row["winner_score_per_cost"] is not None,
+            row["winner_score_per_cost"] or 0,
+        ),
+        reverse=True,
+    )
     return {"assets": assets, "by_entity_type": groups}
 
 
@@ -378,13 +524,16 @@ def experiment_report(root: Path, name: str | None = None) -> dict[str, Any]:
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         key = (row["name"], row["group_name"])
-        group = groups.setdefault(key, {
-            "experiment": row["name"],
-            "name": row["group_name"],
-            "count": 0,
-            "winner_score": 0.0,
-            "cost": 0.0,
-        })
+        group = groups.setdefault(
+            key,
+            {
+                "experiment": row["name"],
+                "name": row["group_name"],
+                "count": 0,
+                "winner_score": 0.0,
+                "cost": 0.0,
+            },
+        )
         group["count"] += 1
         group["winner_score"] += winner_score(row)
         group["cost"] += float(row["estimated_generation_cost"] or 0)
@@ -392,14 +541,33 @@ def experiment_report(root: Path, name: str | None = None) -> dict[str, Any]:
     for group in groups.values():
         count = group["count"] or 1
         cost = group["cost"]
-        out.append(group | {
-            "avg_winner_score": round(group["winner_score"] / count, 2),
-            "cost": round(cost, 4),
-            "winner_score_per_cost": round(group["winner_score"] / cost, 4) if cost else None,
-        })
-    out.sort(key=lambda row: (row["winner_score_per_cost"] is not None, row["winner_score_per_cost"] or 0, row["avg_winner_score"]), reverse=True)
+        out.append(
+            group
+            | {
+                "avg_winner_score": round(group["winner_score"] / count, 2),
+                "cost": round(cost, 4),
+                "winner_score_per_cost": round(group["winner_score"] / cost, 4)
+                if cost
+                else None,
+            }
+        )
+    out.sort(
+        key=lambda row: (
+            row["winner_score_per_cost"] is not None,
+            row["winner_score_per_cost"] or 0,
+            row["avg_winner_score"],
+        ),
+        reverse=True,
+    )
     by_avg = sorted(out, key=lambda row: row["avg_winner_score"], reverse=True)
-    by_roi = sorted(out, key=lambda row: (row["winner_score_per_cost"] is not None, row["winner_score_per_cost"] or 0), reverse=True)
+    by_roi = sorted(
+        out,
+        key=lambda row: (
+            row["winner_score_per_cost"] is not None,
+            row["winner_score_per_cost"] or 0,
+        ),
+        reverse=True,
+    )
     return {
         "groups": out,
         "winner_by_avg_score": by_avg[0] if by_avg else None,
@@ -407,7 +575,9 @@ def experiment_report(root: Path, name: str | None = None) -> dict[str, Any]:
     }
 
 
-def _experiment_outcome_rows(conn: sqlite3.Connection, name: str | None = None) -> list[sqlite3.Row]:
+def _experiment_outcome_rows(
+    conn: sqlite3.Connection, name: str | None = None
+) -> list[sqlite3.Row]:
     where = ""
     params: list[Any] = []
     if name:
@@ -429,22 +599,27 @@ def _experiment_outcome_rows(conn: sqlite3.Connection, name: str | None = None) 
     ).fetchall()
 
 
-def baseline_vs_recommended_report(root: Path, *, experiment: str = "baseline_vs_recommended") -> dict[str, Any]:
+def baseline_vs_recommended_report(
+    root: Path, *, experiment: str = "baseline_vs_recommended"
+) -> dict[str, Any]:
     conn = connect(root)
     rows = _experiment_outcome_rows(conn, experiment)
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
-        group = groups.setdefault(row["group_name"], {
-            "name": row["group_name"],
-            "assigned_count": 0,
-            "outcome_count": 0,
-            "scores": [],
-            "views": 0,
-            "likes": 0,
-            "comments": 0,
-            "shares": 0,
-            "saves": 0,
-        })
+        group = groups.setdefault(
+            row["group_name"],
+            {
+                "name": row["group_name"],
+                "assigned_count": 0,
+                "outcome_count": 0,
+                "scores": [],
+                "views": 0,
+                "likes": 0,
+                "comments": 0,
+                "shares": 0,
+                "saves": 0,
+            },
+        )
         group["assigned_count"] += 1
         if row["filename"]:
             group["outcome_count"] += 1
@@ -462,18 +637,32 @@ def baseline_vs_recommended_report(root: Path, *, experiment: str = "baseline_vs
     for group in groups.values():
         scores = group.pop("scores")
         count = len(scores)
-        out_groups.append(group | {
-            "avg_winner_score": round(sum(scores) / count, 2) if count else 0.0,
-            "median_winner_score": round(statistics.median(scores), 2) if count else 0.0,
-            "confidence": confidence_for_sample_size(count, total_outcomes=sum(group_counts)),
-        })
+        out_groups.append(
+            group
+            | {
+                "avg_winner_score": round(sum(scores) / count, 2) if count else 0.0,
+                "median_winner_score": round(statistics.median(scores), 2)
+                if count
+                else 0.0,
+                "confidence": confidence_for_sample_size(
+                    count, total_outcomes=sum(group_counts)
+                ),
+            }
+        )
     out_groups.sort(key=lambda item: item["avg_winner_score"], reverse=True)
     by_name = {row["name"]: row for row in out_groups}
     manual = by_name.get("manual")
     recommended = by_name.get("recommended")
     lift = None
     if manual and recommended and manual["avg_winner_score"]:
-        lift = round(((recommended["avg_winner_score"] - manual["avg_winner_score"]) / manual["avg_winner_score"]) * 100, 2)
+        lift = round(
+            (
+                (recommended["avg_winner_score"] - manual["avg_winner_score"])
+                / manual["avg_winner_score"]
+            )
+            * 100,
+            2,
+        )
     return {
         "schema": "reel_factory.baseline_vs_recommended.v1",
         "experiment": experiment,
@@ -482,12 +671,16 @@ def baseline_vs_recommended_report(root: Path, *, experiment: str = "baseline_vs
         "recommended": recommended,
         "lift_percent": lift,
         "winner": out_groups[0] if out_groups else None,
-        "confidence": confidence_for_sample_size(min(group_counts) if group_counts else 0, total_outcomes=sum(group_counts)),
+        "confidence": confidence_for_sample_size(
+            min(group_counts) if group_counts else 0, total_outcomes=sum(group_counts)
+        ),
         "data_quality": quality,
     }
 
 
-def account_fatigue_report(root: Path, *, account: str, window: int = 30) -> dict[str, Any]:
+def account_fatigue_report(
+    root: Path, *, account: str, window: int = 30
+) -> dict[str, Any]:
     conn = connect(root)
     rows = conn.execute(
         """
@@ -512,15 +705,24 @@ def account_fatigue_report(root: Path, *, account: str, window: int = 30) -> dic
                 counts[str(value)] = counts.get(str(value), 0) + 1
         for value, count in counts.items():
             if count >= 2:
-                repeated.append({"feature_key": key, "feature_value": value, "count": count})
+                repeated.append(
+                    {"feature_key": key, "feature_value": value, "count": count}
+                )
     combo_counts: dict[str, int] = {}
     for row in rows:
-        if row["creator"] and row["scene"] and row["creator"] != "unknown" and row["scene"] != "unknown":
+        if (
+            row["creator"]
+            and row["scene"]
+            and row["creator"] != "unknown"
+            and row["scene"] != "unknown"
+        ):
             combo = f"{row['creator']} / {row['scene']}"
             combo_counts[combo] = combo_counts.get(combo, 0) + 1
     for value, count in combo_counts.items():
         if count >= 2:
-            repeated.append({"feature_key": "creator_scene", "feature_value": value, "count": count})
+            repeated.append(
+                {"feature_key": "creator_scene", "feature_value": value, "count": count}
+            )
     repeated.sort(key=lambda row: row["count"], reverse=True)
     max_repeat = repeated[0]["count"] if repeated else 0
     total = len(rows)
@@ -590,7 +792,9 @@ def persist_recommendation_decision(
     return decision_id
 
 
-def decision_log(root: Path, *, campaign: str | None = None, limit: int = 50) -> dict[str, Any]:
+def decision_log(
+    root: Path, *, campaign: str | None = None, limit: int = 50
+) -> dict[str, Any]:
     conn = connect(root)
     where = ""
     params: list[Any] = []
@@ -610,13 +814,22 @@ def decision_log(root: Path, *, campaign: str | None = None, limit: int = 50) ->
     decisions = []
     for row in rows:
         item = dict(row)
-        for key in ("avoid_labels_json", "winner_dna_json", "rejection_patterns_json", "data_quality_json", "plan_json"):
+        for key in (
+            "avoid_labels_json",
+            "winner_dna_json",
+            "rejection_patterns_json",
+            "data_quality_json",
+            "plan_json",
+        ):
             try:
                 item[key.replace("_json", "")] = json.loads(item[key] or "{}")
             except json.JSONDecodeError:
                 item[key.replace("_json", "")] = None
         decisions.append(item)
-    return {"schema": "reel_factory.recommendation_decisions.v1", "decisions": decisions}
+    return {
+        "schema": "reel_factory.recommendation_decisions.v1",
+        "decisions": decisions,
+    }
 
 
 def refresh_winner_dna(root: Path) -> dict[str, Any]:
@@ -635,7 +848,9 @@ def refresh_winner_dna(root: Path) -> dict[str, Any]:
         for key in FEATURE_KEYS:
             value = row[key]
             if value and value != "unknown":
-                buckets.setdefault((key, str(value)), []).append((score, row["output_path"]))
+                buckets.setdefault((key, str(value)), []).append(
+                    (score, row["output_path"])
+                )
     now = int(time.time())
     conn.execute("DELETE FROM winner_dna")
     for (key, value), samples in buckets.items():
@@ -657,7 +872,9 @@ def refresh_winner_dna(root: Path) -> dict[str, Any]:
 
 def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
     conn = connect(root)
-    total_outcomes = int(conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0)
+    total_outcomes = int(
+        conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0
+    )
     rows = conn.execute(
         "SELECT * FROM winner_dna ORDER BY avg_winner_score DESC, sample_size DESC LIMIT ?",
         (limit,),
@@ -672,9 +889,15 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
         LIMIT 20
         """
     ).fetchall()
+
     def top_for(key: str) -> list[dict[str, Any]]:
         return [
-            dict(row) | {"confidence": confidence_for_sample_size(row["sample_size"], total_outcomes=total_outcomes)}
+            dict(row)
+            | {
+                "confidence": confidence_for_sample_size(
+                    row["sample_size"], total_outcomes=total_outcomes
+                )
+            }
             for row in conn.execute(
                 """
                 SELECT * FROM winner_dna
@@ -685,6 +908,7 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
                 (key, limit),
             ).fetchall()
         ]
+
     combo_rows = conn.execute(
         """
         SELECT creator, scene, COUNT(*) AS sample_size, AVG(score) AS avg_winner_score
@@ -706,13 +930,20 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
     ).fetchall()
     costs = cost_analytics(root)
     matched_sample_size = int(rows[0]["sample_size"] or 0) if rows else 0
-    quality = data_quality_from_connection(conn, matched_sample_size=matched_sample_size)
+    quality = data_quality_from_connection(
+        conn, matched_sample_size=matched_sample_size
+    )
     return {
         "total_outcomes": total_outcomes,
         "low_data_warning": low_data_warning(total_outcomes),
         "data_quality": quality,
         "winner_dna": [
-            dict(row) | {"confidence": confidence_for_sample_size(row["sample_size"], total_outcomes=total_outcomes)}
+            dict(row)
+            | {
+                "confidence": confidence_for_sample_size(
+                    row["sample_size"], total_outcomes=total_outcomes
+                )
+            }
             for row in rows
         ],
         "top_scenes": top_for("scene"),
@@ -773,7 +1004,7 @@ def main() -> int:
         result = refresh_features(root, limit=args.limit)
     elif args.cmd == "costs":
         result = cost_analytics(root)
-        result["assets"] = result["assets"][:args.limit]
+        result["assets"] = result["assets"][: args.limit]
     elif args.cmd == "experiment-report":
         result = experiment_report(root, args.name)
     elif args.cmd == "baseline-report":

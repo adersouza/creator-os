@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .caption_outcome import load_context_json
 from .persistence import json_load, utc_now
@@ -35,7 +36,9 @@ class SurfaceHandoffRepository:
         self._creator_label = creator_label
         self._media_type_for_path = media_type_for_path
         self._normalize_content_surface = normalize_content_surface
-        self._discoverability_safe_content_contract = discoverability_safe_content_contract
+        self._discoverability_safe_content_contract = (
+            discoverability_safe_content_contract
+        )
         self._explain_publishability = explain_publishability
         self._latest_distribution_plan_for_asset = latest_distribution_plan_for_asset
         self._latest_audit_for_asset = latest_audit_for_asset
@@ -136,10 +139,14 @@ class SurfaceHandoffRepository:
             return rows
         return [row for row in rows if self.asset_matches_creator(row, creator)]
 
-    def build_surface_readiness(self, assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def build_surface_readiness(
+        self, assets: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return [self.surface_handoff_readiness_for_asset(asset) for asset in assets]
 
-    def requires_operator_visual_review_for_handoff(self, asset: dict[str, Any]) -> bool:
+    def requires_operator_visual_review_for_handoff(
+        self, asset: dict[str, Any]
+    ) -> bool:
         operations: list[dict[str, Any]] = []
         raw_operations = json_load(asset.get("variant_operations_json"), [])
         if isinstance(raw_operations, list):
@@ -150,20 +157,31 @@ class SurfaceHandoffRepository:
         asset_id = asset.get("id")
         if asset_id:
             lineage = self._variant_lineage_for_asset(str(asset_id))
-            lineage_operations = lineage.get("variant_operations") if isinstance(lineage, dict) else None
+            lineage_operations = (
+                lineage.get("variant_operations") if isinstance(lineage, dict) else None
+            )
             if isinstance(lineage_operations, list):
-                operations.extend(item for item in lineage_operations if isinstance(item, dict))
+                operations.extend(
+                    item for item in lineage_operations if isinstance(item, dict)
+                )
         uses_ad_hoc_inventory_fill = any(
             operation.get("type") == "inventory_fill_ffmpeg_variant"
             for operation in operations
         )
-        has_visual_review_pass = any(
-            operation.get("type") in {"operator_visual_review_passed", "visual_qc_passed"}
-            or operation.get("visualReviewPassed") is True
-            or operation.get("visual_qc_passed") is True
-            for operation in operations
-        ) or metadata.get("operator_visual_review_passed") is True or metadata.get("visual_qc_passed") is True
-        surface = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
+        has_visual_review_pass = (
+            any(
+                operation.get("type")
+                in {"operator_visual_review_passed", "visual_qc_passed"}
+                or operation.get("visualReviewPassed") is True
+                or operation.get("visual_qc_passed") is True
+                for operation in operations
+            )
+            or metadata.get("operator_visual_review_passed") is True
+            or metadata.get("visual_qc_passed") is True
+        )
+        surface = self._normalize_content_surface(
+            asset.get("content_surface") or asset.get("source_content_surface")
+        )
         source_marker_parts = [
             str(asset.get("campaign_slug") or ""),
             str(asset.get("filename") or ""),
@@ -183,7 +201,10 @@ class SurfaceHandoffRepository:
                 "surface_proof",
             )
         )
-        return bool((uses_ad_hoc_inventory_fill or uses_unreviewed_reel_proof_or_preview) and not has_visual_review_pass)
+        return bool(
+            (uses_ad_hoc_inventory_fill or uses_unreviewed_reel_proof_or_preview)
+            and not has_visual_review_pass
+        )
 
     def content_trust_status_blockers(
         self,
@@ -195,7 +216,11 @@ class SurfaceHandoffRepository:
         if not isinstance(metadata, dict):
             metadata = {}
         audit = latest_audit if isinstance(latest_audit, dict) else {}
-        readiness = audit.get("readinessSummary") if isinstance(audit.get("readinessSummary"), dict) else {}
+        readiness = (
+            audit.get("readinessSummary")
+            if isinstance(audit.get("readinessSummary"), dict)
+            else {}
+        )
 
         def nested_status(source: dict[str, Any], *keys: str) -> str:
             for key in keys:
@@ -203,7 +228,12 @@ class SurfaceHandoffRepository:
                 if isinstance(value, str) and value.strip():
                     return value.strip().lower()
                 if isinstance(value, dict):
-                    for nested_key in ("status", key, "visualQcStatus", "identityVerificationStatus"):
+                    for nested_key in (
+                        "status",
+                        key,
+                        "visualQcStatus",
+                        "identityVerificationStatus",
+                    ):
                         nested = value.get(nested_key)
                         if isinstance(nested, str) and nested.strip():
                             return nested.strip().lower()
@@ -212,14 +242,21 @@ class SurfaceHandoffRepository:
         passed_statuses = {"passed", "pass", "approved", "ready"}
 
         def resolved_status(*keys: str) -> str:
-            statuses = [nested_status(source, *keys) for source in [metadata, caption_context or {}, audit, readiness]]
+            statuses = [
+                nested_status(source, *keys)
+                for source in [metadata, caption_context or {}, audit, readiness]
+            ]
             statuses = [status for status in statuses if status]
-            blocking_status = next((status for status in statuses if status not in passed_statuses), "")
+            blocking_status = next(
+                (status for status in statuses if status not in passed_statuses), ""
+            )
             if blocking_status:
                 return blocking_status
             return "passed" if statuses else ""
 
-        visual_status = resolved_status("visualQcStatus", "visual_qc_status", "visualQc", "visual_qc")
+        visual_status = resolved_status(
+            "visualQcStatus", "visual_qc_status", "visualQc", "visual_qc"
+        )
         identity_status = resolved_status(
             "identityVerificationStatus",
             "identity_verification_status",
@@ -227,7 +264,18 @@ class SurfaceHandoffRepository:
             "identity_verification",
         )
         blockers: list[str] = []
-        unavailable_statuses = {"", "missing", "none", "null", "pending", "queued", "unknown", "unavailable", "not_available", "not_found"}
+        unavailable_statuses = {
+            "",
+            "missing",
+            "none",
+            "null",
+            "pending",
+            "queued",
+            "unknown",
+            "unavailable",
+            "not_available",
+            "not_found",
+        }
 
         def blocker_code(prefix: str, status: str) -> str:
             suffix = "unavailable" if status in unavailable_statuses else "failed"
@@ -250,22 +298,38 @@ class SurfaceHandoffRepository:
             asset.get("creator_model"),
             asset.get("model_slug"),
             asset.get("model_name"),
-            caption_context.get("creator_mix") if isinstance(caption_context, dict) else None,
-            caption_context.get("creator_model") if isinstance(caption_context, dict) else None,
+            caption_context.get("creator_mix")
+            if isinstance(caption_context, dict)
+            else None,
+            caption_context.get("creator_model")
+            if isinstance(caption_context, dict)
+            else None,
         ]
-        return any(self._creator_label(candidate).lower() == expected for candidate in candidates if candidate)
+        return any(
+            self._creator_label(candidate).lower() == expected
+            for candidate in candidates
+            if candidate
+        )
 
-    def surface_handoff_readiness_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
-        surface = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
+    def surface_handoff_readiness_for_asset(
+        self, asset: dict[str, Any]
+    ) -> dict[str, Any]:
+        surface = self._normalize_content_surface(
+            asset.get("content_surface") or asset.get("source_content_surface")
+        )
         media_type = str(
             asset.get("media_type")
             or asset.get("source_media_type")
-            or self._media_type_for_path(asset.get("campaign_path") or asset.get("filename") or "")
+            or self._media_type_for_path(
+                asset.get("campaign_path") or asset.get("filename") or ""
+            )
         ).lower()
         blocking: list[str] = []
         warnings: list[str] = []
         caption_context = load_context_json(asset.get("caption_outcome_context_json"))
-        post_caption = self._instagram_post_caption_for_asset(asset, caption_context if isinstance(caption_context, dict) else {})
+        post_caption = self._instagram_post_caption_for_asset(
+            asset, caption_context if isinstance(caption_context, dict) else {}
+        )
         caption_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(caption_generation, dict):
             caption_generation = {}
@@ -284,12 +348,14 @@ class SurfaceHandoffRepository:
             caption_generation.get("story_cta_target_url"),
         )
         media_path = str(asset.get("campaign_path") or asset.get("output_path") or "")
-        media_items = [{
-            "mediaPath": media_path,
-            "mediaHash": asset.get("content_hash"),
-            "mediaType": media_type,
-            "componentIndex": 0,
-        }]
+        media_items = [
+            {
+                "mediaPath": media_path,
+                "mediaHash": asset.get("content_hash"),
+                "mediaType": media_type,
+                "componentIndex": 0,
+            }
+        ]
         can_handoff = False
         legacy_handoff = None
         audio_readiness = None
@@ -304,12 +370,20 @@ class SurfaceHandoffRepository:
 
         if surface == "reel":
             plan = self._latest_distribution_plan_for_asset(asset["id"])
-            publishability = self._explain_publishability(asset["id"], distribution_plan_id=plan["id"] if plan else None)
+            publishability = self._explain_publishability(
+                asset["id"], distribution_plan_id=plan["id"] if plan else None
+            )
             audio_readiness = self.audio_readiness_from_publishability(publishability)
-            caption_readiness = self.caption_readiness_from_publishability(publishability)
+            caption_readiness = self.caption_readiness_from_publishability(
+                publishability
+            )
             legacy_handoff = publishability.get("handoff_manifest")
             if not publishability.get("publishableCandidate"):
-                blocking.extend(str(reason) for reason in publishability.get("publishability_failure_reasons") or ["publishability_blocked"])
+                blocking.extend(
+                    str(reason)
+                    for reason in publishability.get("publishability_failure_reasons")
+                    or ["publishability_blocked"]
+                )
             if not legacy_handoff:
                 blocking.append("handoff_manifest_missing")
             if media_type != "video":
@@ -324,21 +398,32 @@ class SurfaceHandoffRepository:
                 blocking.append("story_aspect_ratio_not_safe")
             story_quality = self._story_quality_gate_for_asset(asset)
             style = self._story_style_value(asset)
-            story_asset_class = str(asset.get("story_asset_class") or caption_generation.get("story_asset_class") or "").strip()
+            story_asset_class = str(
+                asset.get("story_asset_class")
+                or caption_generation.get("story_asset_class")
+                or ""
+            ).strip()
             story_intent = self._story_intent_value(asset)
-            story_style_approved = bool(style in self._story_native_proof_styles and (story_asset_class or story_intent))
+            story_style_approved = bool(
+                style in self._story_native_proof_styles
+                and (story_asset_class or story_intent)
+            )
             if not story_style_approved:
                 blocking.append("story_style_not_approved")
             if not story_quality.get("story_quality_gate_passed"):
                 blocking.append("story_quality_gate_failed")
-                blocking.extend(str(reason) for reason in story_quality.get("failureReasons") or [])
+                blocking.extend(
+                    str(reason) for reason in story_quality.get("failureReasons") or []
+                )
             can_handoff = not blocking
         elif surface == "feed_single":
             if media_type != "image":
                 blocking.append("feed_single_requires_image")
             if not self.aspect_ratio_safe(asset.get("target_ratio"), "feed_single"):
                 blocking.append("feed_single_aspect_ratio_not_safe")
-            if not post_caption.get("instagram_post_caption") and not self.allows_blank_instagram_post_caption(asset):
+            if not post_caption.get(
+                "instagram_post_caption"
+            ) and not self.allows_blank_instagram_post_caption(asset):
                 blocking.append("instagram_post_caption_missing")
             can_handoff = not blocking
         elif surface == "feed_carousel":
@@ -362,11 +447,20 @@ class SurfaceHandoffRepository:
                     blocking.append("carousel_component_media_invalid")
                 if not Path(item["media_path"]).exists():
                     blocking.append("carousel_component_media_missing")
-                if str(item["publishability_state"] or "").lower() not in {"passed", "pass", "ready", "approved"}:
+                if str(item["publishability_state"] or "").lower() not in {
+                    "passed",
+                    "pass",
+                    "ready",
+                    "approved",
+                }:
                     blocking.append("carousel_component_publishability_failed")
-            if components and not self.aspect_ratio_safe(components[0]["aspect_ratio"], "feed_carousel"):
+            if components and not self.aspect_ratio_safe(
+                components[0]["aspect_ratio"], "feed_carousel"
+            ):
                 blocking.append("carousel_cover_aspect_ratio_not_safe")
-            if not post_caption.get("instagram_post_caption") and not self.allows_blank_instagram_post_caption(asset):
+            if not post_caption.get(
+                "instagram_post_caption"
+            ) and not self.allows_blank_instagram_post_caption(asset):
                 blocking.append("instagram_post_caption_missing")
             can_handoff = not blocking
         else:
@@ -378,7 +472,9 @@ class SurfaceHandoffRepository:
             can_handoff = False
 
         if caption_readiness is None:
-            caption_readiness = self.caption_readiness_from_surface(post_caption, blocking)
+            caption_readiness = self.caption_readiness_from_surface(
+                post_caption, blocking
+            )
 
         ig_media_type = self.ig_media_type_for_surface(surface, media_type)
         manifest_v2 = None
@@ -396,15 +492,23 @@ class SurfaceHandoffRepository:
                 "igMediaType": ig_media_type,
                 "ig_media_type": ig_media_type,
                 "mediaItems": media_items,
-                "instagramPostCaption": post_caption.get("instagram_post_caption") or "",
-                "instagram_post_caption": post_caption.get("instagram_post_caption") or "",
-                "instagram_post_caption_hash": post_caption.get("instagram_post_caption_hash"),
+                "instagramPostCaption": post_caption.get("instagram_post_caption")
+                or "",
+                "instagram_post_caption": post_caption.get("instagram_post_caption")
+                or "",
+                "instagram_post_caption_hash": post_caption.get(
+                    "instagram_post_caption_hash"
+                ),
                 "hashtags": post_caption.get("hashtags") or [],
                 "post_caption_style": post_caption.get("post_caption_style"),
                 "visualQcStatus": trust_statuses["visualQcStatus"],
-                "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
+                "identityVerificationStatus": trust_statuses[
+                    "identityVerificationStatus"
+                ],
                 "visualQc": {"status": trust_statuses["visualQcStatus"]},
-                "identityVerification": {"status": trust_statuses["identityVerificationStatus"]},
+                "identityVerification": {
+                    "status": trust_statuses["identityVerificationStatus"]
+                },
                 "exported_by_system": "campaign_factory",
                 "exported_at": utc_now(),
                 "surfaceReadiness": {
@@ -416,15 +520,29 @@ class SurfaceHandoffRepository:
                 "discoverabilityContract": discoverability_contract,
             }
             if surface == "story" and story_quality is not None:
-                manifest_v2.update({
-                    "storyQualityGatePassed": bool(story_quality.get("storyQualityGatePassed")),
-                    "storySourceNative": bool(story_quality.get("storySourceNative")),
-                    "storyNoTextRequired": bool(story_quality.get("storyNoTextRequired")),
-                    "storyNoTextPassed": bool(story_quality.get("storyNoTextPassed")),
-                    "storyStyleApproved": bool(story_style_approved),
-                    "sourceLineageBlockers": story_quality.get("sourceLineageBlockers") or [],
-                    "visualQualityStatus": story_quality.get("visualQualityStatus") or "passed",
-                })
+                manifest_v2.update(
+                    {
+                        "storyQualityGatePassed": bool(
+                            story_quality.get("storyQualityGatePassed")
+                        ),
+                        "storySourceNative": bool(
+                            story_quality.get("storySourceNative")
+                        ),
+                        "storyNoTextRequired": bool(
+                            story_quality.get("storyNoTextRequired")
+                        ),
+                        "storyNoTextPassed": bool(
+                            story_quality.get("storyNoTextPassed")
+                        ),
+                        "storyStyleApproved": bool(story_style_approved),
+                        "sourceLineageBlockers": story_quality.get(
+                            "sourceLineageBlockers"
+                        )
+                        or [],
+                        "visualQualityStatus": story_quality.get("visualQualityStatus")
+                        or "passed",
+                    }
+                )
         return {
             "assetId": asset["id"],
             "contentSurface": surface,
@@ -447,37 +565,80 @@ class SurfaceHandoffRepository:
             "wouldWrite": False,
         }
 
-    def audio_readiness_from_publishability(self, publishability: dict[str, Any]) -> dict[str, Any]:
-        intent = publishability.get("audioIntent") if isinstance(publishability.get("audioIntent"), dict) else {}
+    def audio_readiness_from_publishability(
+        self, publishability: dict[str, Any]
+    ) -> dict[str, Any]:
+        intent = (
+            publishability.get("audioIntent")
+            if isinstance(publishability.get("audioIntent"), dict)
+            else {}
+        )
         task = intent.get("task") if isinstance(intent.get("task"), dict) else {}
         status = str(intent.get("status") or "unavailable").strip().lower()
-        failures = [str(reason) for reason in publishability.get("publishability_failure_reasons") or []]
-        checks = publishability.get("checks") if isinstance(publishability.get("checks"), dict) else {}
+        failures = [
+            str(reason)
+            for reason in publishability.get("publishability_failure_reasons") or []
+        ]
+        checks = (
+            publishability.get("checks")
+            if isinstance(publishability.get("checks"), dict)
+            else {}
+        )
         return {
             "required": bool(intent.get("required", False)),
             "status": status,
-            "taskStatus": str(task.get("status") or ("proof_missing" if "missing_audio" in failures else "completed")).strip().lower(),
+            "taskStatus": str(
+                task.get("status")
+                or ("proof_missing" if "missing_audio" in failures else "completed")
+            )
+            .strip()
+            .lower(),
             "audioId": publishability.get("audio_id") or None,
-            "nativeProofValid": bool(checks.get("audio_assigned")) if "audio_assigned" in checks else "missing_audio" not in failures,
-            "blockingReasons": sorted({reason for reason in failures if reason == "missing_audio"}),
+            "nativeProofValid": bool(checks.get("audio_assigned"))
+            if "audio_assigned" in checks
+            else "missing_audio" not in failures,
+            "blockingReasons": sorted(
+                {reason for reason in failures if reason == "missing_audio"}
+            ),
         }
 
-    def caption_readiness_from_publishability(self, publishability: dict[str, Any]) -> dict[str, Any]:
+    def caption_readiness_from_publishability(
+        self, publishability: dict[str, Any]
+    ) -> dict[str, Any]:
         quality = publishability.get("instagramPostCaptionQuality")
         if not isinstance(quality, dict):
-            quality = publishability.get("instagram_post_caption_quality") if isinstance(publishability.get("instagram_post_caption_quality"), dict) else {}
-        failures = [str(reason) for reason in publishability.get("publishability_failure_reasons") or []]
+            quality = (
+                publishability.get("instagram_post_caption_quality")
+                if isinstance(
+                    publishability.get("instagram_post_caption_quality"), dict
+                )
+                else {}
+            )
+        failures = [
+            str(reason)
+            for reason in publishability.get("publishability_failure_reasons") or []
+        ]
         return {
-            "present": bool(publishability.get("instagram_post_caption") or publishability.get("instagramPostCaption")),
-            "qualityPassed": bool(quality.get("passed")) if quality else "instagram_post_caption_quality_failed" not in failures,
+            "present": bool(
+                publishability.get("instagram_post_caption")
+                or publishability.get("instagramPostCaption")
+            ),
+            "qualityPassed": bool(quality.get("passed"))
+            if quality
+            else "instagram_post_caption_quality_failed" not in failures,
             "policy": quality.get("policy") or None,
             "reasons": [str(reason) for reason in quality.get("reasons") or []],
             "blockingReasons": self.caption_blocking_reasons(failures),
         }
 
-    def caption_readiness_from_surface(self, post_caption: dict[str, Any], blocking: list[str]) -> dict[str, Any]:
+    def caption_readiness_from_surface(
+        self, post_caption: dict[str, Any], blocking: list[str]
+    ) -> dict[str, Any]:
         return {
-            "present": bool(post_caption.get("instagram_post_caption") or post_caption.get("instagramPostCaption")),
+            "present": bool(
+                post_caption.get("instagram_post_caption")
+                or post_caption.get("instagramPostCaption")
+            ),
             "qualityPassed": "instagram_post_caption_quality_failed" not in blocking,
             "policy": None,
             "reasons": [],
@@ -493,11 +654,23 @@ class SurfaceHandoffRepository:
             "unsafe_reel_caption_link_or_dm_reference",
             "burned_caption_quality_failed",
         }
-        return sorted({str(reason) for reason in reasons if str(reason) in caption_reasons})
+        return sorted(
+            {str(reason) for reason in reasons if str(reason) in caption_reasons}
+        )
 
-    def surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
-        manifest = readiness.get("handoffManifestV2") if isinstance(readiness.get("handoffManifestV2"), dict) else {}
-        media_items = manifest.get("mediaItems") if isinstance(manifest.get("mediaItems"), list) else []
+    def surface_draft_payload_for_readiness(
+        self, readiness: dict[str, Any]
+    ) -> dict[str, Any]:
+        manifest = (
+            readiness.get("handoffManifestV2")
+            if isinstance(readiness.get("handoffManifestV2"), dict)
+            else {}
+        )
+        media_items = (
+            manifest.get("mediaItems")
+            if isinstance(manifest.get("mediaItems"), list)
+            else []
+        )
         return {
             "schema": "threadsdash.surface_draft.preview.v1",
             "status": "draft",
@@ -516,12 +689,18 @@ class SurfaceHandoffRepository:
                     "ig_media_type": readiness.get("igMediaType"),
                     "asset_state": "exportable",
                     "publishability_failure_reasons": [],
-                    "content_fingerprint": manifest.get("content_fingerprint") or manifest.get("content_hash"),
+                    "content_fingerprint": manifest.get("content_fingerprint")
+                    or manifest.get("content_hash"),
                     "caption_hash": manifest.get("caption_hash"),
-                    "instagram_post_caption": manifest.get("instagramPostCaption") or manifest.get("instagram_post_caption") or "",
-                    "instagram_post_caption_hash": manifest.get("instagram_post_caption_hash"),
+                    "instagram_post_caption": manifest.get("instagramPostCaption")
+                    or manifest.get("instagram_post_caption")
+                    or "",
+                    "instagram_post_caption_hash": manifest.get(
+                        "instagram_post_caption_hash"
+                    ),
                     "hashtags": manifest.get("hashtags") or [],
-                    "post_caption_style": manifest.get("post_caption_style") or "short_natural",
+                    "post_caption_style": manifest.get("post_caption_style")
+                    or "short_natural",
                     "handoff_manifest": manifest,
                     "handoff_manifest_v2": manifest,
                     "dry_run": True,
@@ -555,4 +734,7 @@ class SurfaceHandoffRepository:
         generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(generation, dict):
             return False
-        return self._truthy(generation.get("allow_empty_instagram_post_caption") or generation.get("allowEmptyInstagramPostCaption"))
+        return self._truthy(
+            generation.get("allow_empty_instagram_post_caption")
+            or generation.get("allowEmptyInstagramPostCaption")
+        )

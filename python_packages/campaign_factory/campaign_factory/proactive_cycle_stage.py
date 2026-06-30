@@ -10,7 +10,6 @@ from .cost_tracker import PROVIDER_PRICING
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
 
-
 SCHEMA = "campaign_factory.proactive_cycle_run.v1"
 DEFAULT_FRONT_IMAGE_COST_USD = PROVIDER_PRICING["higgsfield"]["per_generation"]
 DEFAULT_FRONT_VIDEO_COST_USD = PROVIDER_PRICING["kling"]["per_generation"]
@@ -40,7 +39,9 @@ def run_proactive_cycle_stage(
     """Plan one draft-first campaign cycle with fail-closed live guards."""
     campaign = factory.campaign_by_slug(campaign_slug)
     live_mode = bool(apply and not dry_run)
-    normalized_generation_mode = _normalize_generation_mode(generation_mode, reference_image_path)
+    normalized_generation_mode = _normalize_generation_mode(
+        generation_mode, reference_image_path
+    )
     projected_cost = _projected_cost(normalized_generation_mode)
     live_guard = _live_guard(
         live_mode=live_mode,
@@ -118,7 +119,9 @@ def run_proactive_cycle_stage(
                 rendered_asset_ids=[top_item["renderedAssetId"]],
                 dry_run=True,
             )
-            executed_actions.append({"action": "variation_dry_run", "status": "completed"})
+            executed_actions.append(
+                {"action": "variation_dry_run", "status": "completed"}
+            )
         if live_mode and enable_export:
             if not user_id:
                 raise ValueError("proactive export preview requires --user-id")
@@ -134,7 +137,9 @@ def run_proactive_cycle_stage(
                 variation_preset=variation["presetName"],
             )
             export["result"] = _compact_export_result(export_result)
-            executed_actions.append({"action": "export_draft_preview", "status": "completed"})
+            executed_actions.append(
+                {"action": "export_draft_preview", "status": "completed"}
+            )
         report = {
             "schema": SCHEMA,
             "campaign": campaign_slug,
@@ -161,13 +166,18 @@ def run_proactive_cycle_stage(
             ),
             "variation": variation,
             "export": export,
-            "scheduleIntent": _schedule_intent(enable_schedule=enable_schedule, schedule_mode=schedule_mode),
+            "scheduleIntent": _schedule_intent(
+                enable_schedule=enable_schedule, schedule_mode=schedule_mode
+            ),
             "executedActions": executed_actions,
             "reportPath": str(report_path),
             "pipelineJobId": pipeline_job["id"],
         }
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(sanitize_for_storage(report), indent=2, sort_keys=True), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(sanitize_for_storage(report), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
         factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(report))
         return report
     except Exception as exc:
@@ -175,9 +185,14 @@ def run_proactive_cycle_stage(
         raise
 
 
-def _normalize_generation_mode(generation_mode: str, reference_image_path: Path | None) -> str:
+def _normalize_generation_mode(
+    generation_mode: str, reference_image_path: Path | None
+) -> str:
     normalized = str(generation_mode or "").strip().lower().replace("-", "_")
-    if normalized in {"front_generation", "front_generation_kling", "kling"} or reference_image_path:
+    if (
+        normalized in {"front_generation", "front_generation_kling", "kling"}
+        or reference_image_path
+    ):
         return "front_generation_kling"
     if normalized in {"motion_edit", "existing_asset"}:
         return normalized
@@ -201,7 +216,9 @@ def _budget_status(projected_cost_usd: float, budget_cap_usd: float | None) -> s
 
 
 def _env_kill_switch_active() -> bool:
-    return os.environ.get("CREATOR_OS_PROACTIVE_CYCLE_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get(
+        "CREATOR_OS_PROACTIVE_CYCLE_DISABLED", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _live_guard(
@@ -250,7 +267,11 @@ def _dry_run_report_key(**values: Any) -> str:
 def _report_path(factory: Any, *, campaign: dict[str, Any], report_key: str) -> Path:
     model_slug = factory._model_slug_for_campaign(campaign["id"])
     dirs = factory.campaign_dirs(model_slug, campaign["slug"])
-    return dirs["exports"] / "proactive_cycles" / f"{slugify(report_key)}.proactive_cycle_run.v1.json"
+    return (
+        dirs["exports"]
+        / "proactive_cycles"
+        / f"{slugify(report_key)}.proactive_cycle_run.v1.json"
+    )
 
 
 def _compact_recommendation(recommendation: dict[str, Any]) -> dict[str, Any]:
@@ -289,7 +310,9 @@ def _generation_plan(
 ) -> dict[str, Any]:
     return {
         "mode": mode,
-        "referenceImagePath": str(reference_image_path.expanduser().resolve()) if reference_image_path else None,
+        "referenceImagePath": str(reference_image_path.expanduser().resolve())
+        if reference_image_path
+        else None,
         "paidGenerationRequired": projected_cost_usd > 0,
         "paidGenerationEnabled": enable_paid_generation,
         "projectedCostUsd": round(projected_cost_usd, 4),
@@ -298,7 +321,9 @@ def _generation_plan(
     }
 
 
-def _variation_plan(top_item: dict[str, Any], *, enable_variation: bool) -> dict[str, Any]:
+def _variation_plan(
+    top_item: dict[str, Any], *, enable_variation: bool
+) -> dict[str, Any]:
     return {
         "enabled": enable_variation,
         "dryRunOnly": True,

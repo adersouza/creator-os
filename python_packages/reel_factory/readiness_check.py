@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Warn-only platform readiness aggregation for rendered reel outputs."""
+
 from __future__ import annotations
 
 import argparse
@@ -13,9 +14,8 @@ from typing import Any
 
 from audio_intent import read_audio_intent
 from post_render_acceptance import acceptance_from_readiness
-from safe_zone import PLATFORM_SAFE_ZONES, score_safe_zone
+from safe_zone import score_safe_zone
 from virality_qc import evaluate_output_virality
-
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
     "instagram_reels": {
@@ -69,7 +69,9 @@ def readiness_path(clip_dir: Path) -> Path:
     return clip_dir / "_readiness.json"
 
 
-def load_readiness_by_name(clip_dir: Path, *, platform: str | None = None) -> dict[str, dict[str, Any]]:
+def load_readiness_by_name(
+    clip_dir: Path, *, platform: str | None = None
+) -> dict[str, dict[str, Any]]:
     path = readiness_path(clip_dir)
     if not path.exists():
         return {}
@@ -92,7 +94,9 @@ def load_readiness_by_name(clip_dir: Path, *, platform: str | None = None) -> di
     return out
 
 
-def load_readiness_for_output(output_path: Path, *, platform: str | None = None) -> dict[str, Any] | None:
+def load_readiness_for_output(
+    output_path: Path, *, platform: str | None = None
+) -> dict[str, Any] | None:
     rows = load_readiness_by_name(output_path.parent, platform=platform)
     return rows.get(output_path.name)
 
@@ -168,10 +172,21 @@ def _probe_dimensions(path: Path) -> tuple[int, int] | tuple[None, None]:
     ffprobe = shutil.which("ffprobe") or "ffprobe"
     result = subprocess.run(
         [
-            ffprobe, "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=width,height", "-of", "json", str(path),
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            str(path),
         ],
-        capture_output=True, text=True, timeout=30, check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     try:
         stream = json.loads(result.stdout)["streams"][0]
@@ -214,7 +229,9 @@ def evaluate_output(
     if target_ratio != profile["preferred_ratio"]:
         warnings.append(f"non_preferred_ratio_{target_ratio.replace(':', 'x')}")
 
-    width, height = dimensions if dimensions is not None else _probe_dimensions(output_path)
+    width, height = (
+        dimensions if dimensions is not None else _probe_dimensions(output_path)
+    )
     if width and height and min(width, height) < int(profile["min_resolution_px"]):
         warnings.append("resolution_below_platform_minimum")
 
@@ -227,12 +244,16 @@ def evaluate_output(
     if profile["requires_audio_intent"] and not audio_intent:
         warnings.append("missing_audio_intent")
 
-    if profile["requires_lineage"] and not _source_lineage_exists(root, clip, output_path):
+    if profile["requires_lineage"] and not _source_lineage_exists(
+        root, clip, output_path
+    ):
         warnings.append("missing_generated_asset_lineage")
 
     ai_warnings = list((ai_qc or {}).get("warnings") or [])
     warnings.extend(f"ai_qc:{w}" for w in ai_warnings)
-    if profile["strict_text_review"] and any("text" in w or "watermark" in w for w in ai_warnings):
+    if profile["strict_text_review"] and any(
+        "text" in w or "watermark" in w for w in ai_warnings
+    ):
         warnings.append("tiktok_text_watermark_review")
 
     virality_qc = evaluate_output_virality(output_path, required=require_virality)
@@ -263,13 +284,25 @@ def evaluate_output(
     }
 
 
-def run_readiness(root: Path, *, clip: str | None = None,
-                  platform: str = "instagram_reels",
-                  require_virality: bool = False) -> dict[str, Any]:
+def run_readiness(
+    root: Path,
+    *,
+    clip: str | None = None,
+    platform: str = "instagram_reels",
+    require_virality: bool = False,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     platform = normalize_platform(platform)
     proc = root / "02_processed"
-    clip_dirs = [proc / clip] if clip else [p for p in sorted(proc.iterdir()) if p.is_dir() and not p.name.startswith("_")]
+    clip_dirs = (
+        [proc / clip]
+        if clip
+        else [
+            p
+            for p in sorted(proc.iterdir())
+            if p.is_dir() and not p.name.startswith("_")
+        ]
+    )
     manifest = _manifest_rows(root)
     reports: list[str] = []
     all_records: list[dict[str, Any]] = []
@@ -308,7 +341,9 @@ def run_readiness(root: Path, *, clip: str | None = None,
             "records": records,
         }
         path = readiness_path(clip_dir)
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         reports.append(str(path))
         all_records.extend(records)
     return {
@@ -330,19 +365,23 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
     ap.add_argument("--clip")
-    ap.add_argument("--platform", default="instagram_reels", choices=sorted(PLATFORM_PROFILES))
+    ap.add_argument(
+        "--platform", default="instagram_reels", choices=sorted(PLATFORM_PROFILES)
+    )
     ap.add_argument("--require-virality", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(
-        run_readiness(
-            Path(args.root),
-            clip=args.clip,
-            platform=args.platform,
-            require_virality=args.require_virality,
-        ),
-        indent=2,
-        ensure_ascii=False,
-    ))
+    print(
+        json.dumps(
+            run_readiness(
+                Path(args.root),
+                clip=args.clip,
+                platform=args.platform,
+                require_virality=args.require_virality,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -40,17 +40,15 @@ import json
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
-
 
 # Default mode: catch broken files, not enforce a specific ratio.
 # Higgsfield emits ~3:4 (e.g. 1108×1868, 1244×1660, 828×1108), and the
 # pipeline preserves source dims, so the safe default is "portrait + not
 # tiny". Use --strict-1080 to require IG/TikTok-native 1080×1920.
 STRICT_DIMS = {(1080, 1920)}
-MIN_PORTRAIT_WIDTH = 600    # below this = obviously broken / low-res
+MIN_PORTRAIT_WIDTH = 600  # below this = obviously broken / low-res
 MIN_PORTRAIT_HEIGHT = 800
 MIN_FPS, MAX_FPS = 23.5, 60.0
 MIN_DURATION_S = 1.0
@@ -63,16 +61,16 @@ class QcRecord:
     clip: str
     name: str
     size_bytes: int
-    width: Optional[int] = None
-    height: Optional[int] = None
-    fps: Optional[float] = None
-    duration: Optional[float] = None
-    codec: Optional[str] = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    duration: float | None = None
+    codec: str | None = None
     audio_streams: int = 0
-    major_brand: Optional[str] = None
-    creation_time: Optional[str] = None
-    handler_name: Optional[str] = None
-    faststart: Optional[bool] = None
+    major_brand: str | None = None
+    creation_time: str | None = None
+    handler_name: str | None = None
+    faststart: bool | None = None
     passed: bool = False
     warnings: tuple = ()
     reasons: tuple = ()  # tuple[str, ...] — frozen for determinism
@@ -81,8 +79,11 @@ class QcRecord:
 def _ffprobe_json(path: Path) -> dict:
     """Run ffprobe on a file and return the parsed JSON. Raises on probe failure."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-print_format", "json",
+        "ffprobe",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
         "-show_format",
         "-show_streams",
         str(path),
@@ -93,7 +94,7 @@ def _ffprobe_json(path: Path) -> dict:
     return json.loads(result.stdout)
 
 
-def _parse_fps(rate: str) -> Optional[float]:
+def _parse_fps(rate: str) -> float | None:
     """ffprobe returns frame rates as 'N/D' strings — convert safely."""
     if not rate or rate == "0/0":
         return None
@@ -123,11 +124,15 @@ def _has_faststart(path: Path) -> bool:
     return moov >= 0 and mdat >= 0 and moov < mdat
 
 
-def _metadata_findings(rec: QcRecord, info: dict, video_stream: dict, path: Path) -> tuple[list[str], list[str]]:
+def _metadata_findings(
+    rec: QcRecord, info: dict, video_stream: dict, path: Path
+) -> tuple[list[str], list[str]]:
     fmt_tags = _tags(info.get("format") or {})
     stream_tags = _tags(video_stream)
     rec.major_brand = fmt_tags.get("major_brand")
-    rec.creation_time = stream_tags.get("creation_time") or fmt_tags.get("creation_time")
+    rec.creation_time = stream_tags.get("creation_time") or fmt_tags.get(
+        "creation_time"
+    )
     rec.handler_name = stream_tags.get("handler_name")
     rec.faststart = _has_faststart(path)
 
@@ -146,14 +151,18 @@ def _metadata_findings(rec: QcRecord, info: dict, video_stream: dict, path: Path
             if key.lower() not in {"encoder", "handler_name"}:
                 continue
             text = str(value)
-            if any(marker in text.lower() for marker in ("lavf", "lavc", "ffmpeg", "libav")):
+            if any(
+                marker in text.lower() for marker in ("lavf", "lavc", "ffmpeg", "libav")
+            ):
                 suspicious_values.append(f"{key}={text}")
     if suspicious_values:
         warnings.append(f"suspicious_metadata ({'; '.join(suspicious_values)})")
     return reasons, warnings
 
 
-def probe(path: Path, strict_1080: bool = False, upload_ready: bool = False) -> QcRecord:
+def probe(
+    path: Path, strict_1080: bool = False, upload_ready: bool = False
+) -> QcRecord:
     """Run technical checks on one file and return a QcRecord."""
     rec = QcRecord(
         path=str(path),
@@ -232,14 +241,20 @@ def _audio_mode_for(path: Path, requested: str) -> str:
     return "muxed" if "_audio_" in path.stem else "silent"
 
 
-def probe_with_audio_mode(path: Path, *, strict_1080: bool = False,
-                          audio_mode: str = "silent",
-                          upload_ready: bool = False) -> QcRecord:
+def probe_with_audio_mode(
+    path: Path,
+    *,
+    strict_1080: bool = False,
+    audio_mode: str = "silent",
+    upload_ready: bool = False,
+) -> QcRecord:
     rec = probe(path, strict_1080=strict_1080, upload_ready=upload_ready)
     mode = _audio_mode_for(path, audio_mode)
     reasons = [r for r in rec.reasons if not str(r).startswith("audio_present")]
     if mode == "silent":
-        if rec.audio_streams > 0 and not any(str(r).startswith("audio_present") for r in rec.reasons):
+        if rec.audio_streams > 0 and not any(
+            str(r).startswith("audio_present") for r in rec.reasons
+        ):
             reasons.append(f"audio_present ({rec.audio_streams} stream(s))")
         elif rec.audio_streams > 0:
             reasons.append(f"audio_present ({rec.audio_streams} stream(s))")
@@ -255,13 +270,15 @@ def probe_with_audio_mode(path: Path, *, strict_1080: bool = False,
     return rec
 
 
-def run_qc(proc_dir: Path, *,
-           move_failed: bool = False,
-           strict_1080: bool = False,
-           audio_mode: str = "silent",
-           upload_ready: bool = False,
-           skip_pattern: tuple[str, ...] = ("_failed",)
-           ) -> dict:
+def run_qc(
+    proc_dir: Path,
+    *,
+    move_failed: bool = False,
+    strict_1080: bool = False,
+    audio_mode: str = "silent",
+    upload_ready: bool = False,
+    skip_pattern: tuple[str, ...] = ("_failed",),
+) -> dict:
     """Walk ``proc_dir`` and run QC on every .mp4. Write JSON+CSV reports.
 
     Returns a small summary dict: ``{total, passed, failed, moved}``.
@@ -308,38 +325,66 @@ def run_qc(proc_dir: Path, *,
     csv_path = proc_dir / "_qc_report.csv"
 
     with json_path.open("w") as f:
-        json.dump({
-            "summary": {
-                "total": len(records),
-                "passed": len(passed),
-                "failed": len(failed),
-                "moved": moved,
-                "strict_1080": strict_1080,
-                "audio_mode": audio_mode,
-                "upload_ready": upload_ready,
+        json.dump(
+            {
+                "summary": {
+                    "total": len(records),
+                    "passed": len(passed),
+                    "failed": len(failed),
+                    "moved": moved,
+                    "strict_1080": strict_1080,
+                    "audio_mode": audio_mode,
+                    "upload_ready": upload_ready,
+                },
+                "records": [{**asdict(r), "reasons": list(r.reasons)} for r in records],
             },
-            "records": [
-                {**asdict(r), "reasons": list(r.reasons)} for r in records
-            ],
-        }, f, indent=2)
+            f,
+            indent=2,
+        )
 
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "clip", "name", "passed", "width", "height", "fps", "duration_s",
-            "codec", "audio_streams", "size_kb", "faststart", "major_brand",
-            "creation_time", "handler_name", "warnings", "reasons",
-        ])
+        w.writerow(
+            [
+                "clip",
+                "name",
+                "passed",
+                "width",
+                "height",
+                "fps",
+                "duration_s",
+                "codec",
+                "audio_streams",
+                "size_kb",
+                "faststart",
+                "major_brand",
+                "creation_time",
+                "handler_name",
+                "warnings",
+                "reasons",
+            ]
+        )
         for r in records:
-            w.writerow([
-                r.clip, r.name, r.passed,
-                r.width, r.height, r.fps, r.duration,
-                r.codec, r.audio_streams,
-                round(r.size_bytes / 1024, 1),
-                r.faststart, r.major_brand, r.creation_time, r.handler_name,
-                "; ".join(r.warnings),
-                "; ".join(r.reasons),
-            ])
+            w.writerow(
+                [
+                    r.clip,
+                    r.name,
+                    r.passed,
+                    r.width,
+                    r.height,
+                    r.fps,
+                    r.duration,
+                    r.codec,
+                    r.audio_streams,
+                    round(r.size_bytes / 1024, 1),
+                    r.faststart,
+                    r.major_brand,
+                    r.creation_time,
+                    r.handler_name,
+                    "; ".join(r.warnings),
+                    "; ".join(r.reasons),
+                ]
+            )
 
     return {
         "total": len(records),
@@ -351,7 +396,7 @@ def run_qc(proc_dir: Path, *,
     }
 
 
-def _parse_ssim(stderr: str) -> Optional[float]:
+def _parse_ssim(stderr: str) -> float | None:
     for token in stderr.replace("\n", " ").split():
         if token.startswith("All:"):
             try:
@@ -361,7 +406,7 @@ def _parse_ssim(stderr: str) -> Optional[float]:
     return None
 
 
-def _parse_psnr(stderr: str) -> Optional[float]:
+def _parse_psnr(stderr: str) -> float | None:
     for token in stderr.replace("\n", " ").split():
         if token.startswith("average:"):
             value = token.split(":", 1)[1]
@@ -374,9 +419,9 @@ def _parse_psnr(stderr: str) -> Optional[float]:
     return None
 
 
-def compare_golden(current: Path, golden: Path,
-                   *, ssim_min: float = 0.98,
-                   psnr_min: float = 36.0) -> dict:
+def compare_golden(
+    current: Path, golden: Path, *, ssim_min: float = 0.98, psnr_min: float = 36.0
+) -> dict:
     """Compare two outputs with FFmpeg SSIM/PSNR filters."""
     results: dict[str, object] = {
         "current": str(current),
@@ -386,21 +431,50 @@ def compare_golden(current: Path, golden: Path,
         "passed": False,
     }
     ssim = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-i", str(current), "-i", str(golden),
-         "-lavfi", "ssim", "-f", "null", "-"],
-        capture_output=True, text=True, timeout=90,
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-i",
+            str(current),
+            "-i",
+            str(golden),
+            "-lavfi",
+            "ssim",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
     )
     psnr = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-i", str(current), "-i", str(golden),
-         "-lavfi", "psnr", "-f", "null", "-"],
-        capture_output=True, text=True, timeout=90,
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-i",
+            str(current),
+            "-i",
+            str(golden),
+            "-lavfi",
+            "psnr",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
     )
     results["ssim"] = _parse_ssim(ssim.stderr)
     results["psnr"] = _parse_psnr(psnr.stderr)
     results["passed"] = (
-        ssim.returncode == 0 and psnr.returncode == 0
-        and results["ssim"] is not None and float(results["ssim"]) >= ssim_min
-        and results["psnr"] is not None and float(results["psnr"]) >= psnr_min
+        ssim.returncode == 0
+        and psnr.returncode == 0
+        and results["ssim"] is not None
+        and float(results["ssim"]) >= ssim_min
+        and results["psnr"] is not None
+        and float(results["psnr"]) >= psnr_min
     )
     return results
 
@@ -426,35 +500,64 @@ def compare_golden_dir(proc_dir: Path, golden_dir: Path) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", default=".",
-                    help="project root containing 02_processed/ (default: cwd)")
-    ap.add_argument("--dir", default=None,
-                    help="override: scan this directory directly (skip --root/02_processed)")
-    ap.add_argument("--move-failed", action="store_true",
-                    help="relocate failed files to <dir>/_failed/<clip>/")
-    ap.add_argument("--strict-1080", action="store_true",
-                    help="reject anything that isn't 1080x1920 (default also accepts 720x1280)")
-    ap.add_argument("--audio-mode", choices=["silent", "muxed", "any", "auto"], default="silent",
-                    help="audio QC policy: silent outputs, muxed outputs, any, or auto by filename")
-    ap.add_argument("--upload-ready", action="store_true",
-                    help="also require faststart, creation_time, and clean social-upload metadata")
-    ap.add_argument("--compare-golden", action="store_true",
-                    help="compare outputs against matching filenames in --golden-dir using SSIM/PSNR")
-    ap.add_argument("--golden-dir", default=None,
-                    help="directory containing golden MP4s for --compare-golden")
+    ap.add_argument(
+        "--root",
+        default=".",
+        help="project root containing 02_processed/ (default: cwd)",
+    )
+    ap.add_argument(
+        "--dir",
+        default=None,
+        help="override: scan this directory directly (skip --root/02_processed)",
+    )
+    ap.add_argument(
+        "--move-failed",
+        action="store_true",
+        help="relocate failed files to <dir>/_failed/<clip>/",
+    )
+    ap.add_argument(
+        "--strict-1080",
+        action="store_true",
+        help="reject anything that isn't 1080x1920 (default also accepts 720x1280)",
+    )
+    ap.add_argument(
+        "--audio-mode",
+        choices=["silent", "muxed", "any", "auto"],
+        default="silent",
+        help="audio QC policy: silent outputs, muxed outputs, any, or auto by filename",
+    )
+    ap.add_argument(
+        "--upload-ready",
+        action="store_true",
+        help="also require faststart, creation_time, and clean social-upload metadata",
+    )
+    ap.add_argument(
+        "--compare-golden",
+        action="store_true",
+        help="compare outputs against matching filenames in --golden-dir using SSIM/PSNR",
+    )
+    ap.add_argument(
+        "--golden-dir",
+        default=None,
+        help="directory containing golden MP4s for --compare-golden",
+    )
     args = ap.parse_args()
 
     target = Path(args.dir) if args.dir else Path(args.root) / "02_processed"
 
     try:
-        summary = run_qc(target,
-                         move_failed=args.move_failed,
-                         strict_1080=args.strict_1080,
-                         audio_mode=args.audio_mode,
-                         upload_ready=args.upload_ready)
+        summary = run_qc(
+            target,
+            move_failed=args.move_failed,
+            strict_1080=args.strict_1080,
+            audio_mode=args.audio_mode,
+            upload_ready=args.upload_ready,
+        )
         if args.compare_golden:
             if not args.golden_dir:
-                raise FileNotFoundError("--golden-dir is required with --compare-golden")
+                raise FileNotFoundError(
+                    "--golden-dir is required with --compare-golden"
+                )
             summary["regression"] = compare_golden_dir(target, Path(args.golden_dir))
     except FileNotFoundError as e:
         print(f"error: {e}", file=sys.stderr)

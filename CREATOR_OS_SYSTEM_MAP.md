@@ -71,3 +71,15 @@ ThreadsDashboard
 Creator OS can create, validate, recommend, and export drafts. ThreadsDashboard
 is the only production surface for scheduling and publishing unless the user
 explicitly changes that boundary.
+
+## Contract Source Of Truth
+
+Shared schemas live in ONE hand-edited place: `packages/pipeline_contracts/schemas`.
+Three mirror dirs and the generated TypeScript are produced from it, so several
+runtime paths (including `campaign_factory/control.py`'s required-schema health
+gate) can resolve schemas from their own root.
+
+Editing a schema: change only `packages/pipeline_contracts/schemas/*.schema.json`,
+then run `pnpm sync:contracts` to regenerate every mirror. `pnpm check:contracts`
+(CI `contracts` job) fails on any drift. Never hand-edit a mirror — see
+`AGENTS.md` "Contract Ownership" for the full mirror list.

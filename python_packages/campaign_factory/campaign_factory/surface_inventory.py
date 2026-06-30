@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class SurfaceInventoryRepository:
@@ -33,8 +34,12 @@ class SurfaceInventoryRepository:
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
-        build_surface_inventory = self._build_surface_inventory_for_audit or self.build_surface_inventory
-        built = build_surface_inventory(creator=creator_label, campaign_slug=campaign_slug)
+        build_surface_inventory = (
+            self._build_surface_inventory_for_audit or self.build_surface_inventory
+        )
+        built = build_surface_inventory(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         inventory = built["inventoryBySurface"]
         missing = [
             surface
@@ -61,11 +66,15 @@ class SurfaceInventoryRepository:
             surface: {"total": 0, "scheduleSafe": 0}
             for surface in self._content_surfaces
         }
-        assets = self._surface_report_assets(creator=creator_label, campaign_slug=campaign_slug)
+        assets = self._surface_report_assets(
+            creator=creator_label, campaign_slug=campaign_slug
+        )
         readiness_items = self._build_surface_readiness(assets)
         readiness_by_asset = {item.get("assetId"): item for item in readiness_items}
         for asset in assets:
-            surface = self._normalize_content_surface(asset.get("content_surface") or asset.get("source_content_surface"))
+            surface = self._normalize_content_surface(
+                asset.get("content_surface") or asset.get("source_content_surface")
+            )
             if surface not in inventory:
                 continue
             assets_by_surface[surface].append(asset)

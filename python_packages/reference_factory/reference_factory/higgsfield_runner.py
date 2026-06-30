@@ -6,11 +6,11 @@ import shutil
 import sqlite3
 import subprocess
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 DEFAULT_STACEY_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
 DEFAULT_SOUL_IDS = {
@@ -30,7 +30,14 @@ DEFAULT_VARIATION_CREDITS = 1.0
 DEFAULT_PANEL_VIDEO_CREDITS = DEFAULT_VIDEO_CREDITS
 MIN_REFERENCE_BYTES = 100_000
 DEFAULT_PROMPT_SCORE_THRESHOLD = 72
-BLOCKED_PROVIDER_STATUSES = {"blocked", "moderated", "moderation_blocked", "nsfw", "rejected", "safety_blocked"}
+BLOCKED_PROVIDER_STATUSES = {
+    "blocked",
+    "moderated",
+    "moderation_blocked",
+    "nsfw",
+    "rejected",
+    "safety_blocked",
+}
 FAILED_PROVIDER_STATUSES = {"failed", "error", "cancelled", "canceled", "timeout"}
 
 
@@ -71,7 +78,9 @@ def generate_with_higgsfield(
     min_prompt_score: int | None = DEFAULT_PROMPT_SCORE_THRESHOLD,
     runner: Runner | None = None,
 ) -> dict[str, Any]:
-    pairs = load_prompt_pairs(data_root=data_root, limit=limit, reference_id=reference_id)
+    pairs = load_prompt_pairs(
+        data_root=data_root, limit=limit, reference_id=reference_id
+    )
     scored_pairs = [(pair, score_prompt_pair(pair)) for pair in pairs]
     runnable = [
         pair
@@ -141,7 +150,13 @@ def generate_with_higgsfield(
     ]
     manifest = {
         "schema": "reference_factory.higgsfield_generation.v1",
-        "status": _manifest_status(dry_run=dry_run, runs=runs, blocked=blocked, runnable_count=len(runnable), total_count=len(pairs)),
+        "status": _manifest_status(
+            dry_run=dry_run,
+            runs=runs,
+            blocked=blocked,
+            runnable_count=len(runnable),
+            total_count=len(pairs),
+        ),
         "generatedAt": _now(),
         "soulId": soul_id,
         "soulUuid": soul_uuid,
@@ -151,7 +166,9 @@ def generate_with_higgsfield(
         "variationLayout": variation_layout,
         "variationStrategy": variation_strategy,
         "animateVariationPanels": animate_variation_panels,
-        "variationPanelDir": str(variation_panel_dir.expanduser()) if variation_panel_dir else None,
+        "variationPanelDir": str(variation_panel_dir.expanduser())
+        if variation_panel_dir
+        else None,
         "klingMode": kling_mode,
         "sound": "off",
         "imageCandidates": max(1, image_candidates),
@@ -176,7 +193,14 @@ def generate_with_higgsfield(
     return manifest
 
 
-def _manifest_status(*, dry_run: bool, runs: list[dict[str, Any]], blocked: list[dict[str, Any]], runnable_count: int, total_count: int) -> str:
+def _manifest_status(
+    *,
+    dry_run: bool,
+    runs: list[dict[str, Any]],
+    blocked: list[dict[str, Any]],
+    runnable_count: int,
+    total_count: int,
+) -> str:
     if runnable_count == 0 and total_count > 0:
         return "blocked"
     if dry_run:
@@ -228,11 +252,17 @@ def run_daily_generation(
     )
 
 
-def load_prompt_pairs(*, data_root: Path, limit: int, reference_id: str | None = None) -> list[PromptPair]:
-    return _load_prompt_pairs(data_root=data_root, limit=limit, reference_id=reference_id)
+def load_prompt_pairs(
+    *, data_root: Path, limit: int, reference_id: str | None = None
+) -> list[PromptPair]:
+    return _load_prompt_pairs(
+        data_root=data_root, limit=limit, reference_id=reference_id
+    )
 
 
-def _load_prompt_pairs(*, data_root: Path, limit: int, reference_id: str | None) -> list[PromptPair]:
+def _load_prompt_pairs(
+    *, data_root: Path, limit: int, reference_id: str | None
+) -> list[PromptPair]:
     prompt_dir = data_root / "reference_intake"
     image_prompts = _read_jsonl(prompt_dir / "daily_higgsfield_image_prompts.jsonl")
     video_prompts = _read_jsonl(prompt_dir / "daily_kling_video_prompts.jsonl")
@@ -279,7 +309,9 @@ def _score_image_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
     warnings: list[str] = []
     compiled = _compiled_prompts(prompt)
     if compiled:
-        compiled_score, compiled_reasons, compiled_warnings = _score_compiled_prompts(compiled, needs_video=False)
+        compiled_score, compiled_reasons, compiled_warnings = _score_compiled_prompts(
+            compiled, needs_video=False
+        )
         score += round(compiled_score * 0.55)
         reasons.extend(compiled_reasons)
         warnings.extend(compiled_warnings)
@@ -289,20 +321,41 @@ def _score_image_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
         reasons.append("mainPrompt is valid ImageAt-style JSON")
     else:
         warnings.append("mainPrompt must be valid ImageAt-style JSON")
-    text = " ".join(str(value).lower() for value in (prompt.get("mainPrompt"), card.get("prompt"), prompt.get("negative_prompt"), prompt.get("negativePrompt")) if value)
-    composition = card.get("composition") if isinstance(card.get("composition"), dict) else {}
+    text = " ".join(
+        str(value).lower()
+        for value in (
+            prompt.get("mainPrompt"),
+            card.get("prompt"),
+            prompt.get("negative_prompt"),
+            prompt.get("negativePrompt"),
+        )
+        if value
+    )
+    composition = (
+        card.get("composition") if isinstance(card.get("composition"), dict) else {}
+    )
     clothing = card.get("clothing") if isinstance(card.get("clothing"), dict) else {}
-    environment = card.get("environment") if isinstance(card.get("environment"), dict) else {}
-    constraints = card.get("constraints") if isinstance(card.get("constraints"), dict) else {}
+    environment = (
+        card.get("environment") if isinstance(card.get("environment"), dict) else {}
+    )
+    constraints = (
+        card.get("constraints") if isinstance(card.get("constraints"), dict) else {}
+    )
 
     required_sections = [
         ("subject", card.get("subject")),
         ("composition", composition),
         ("clothing", clothing),
         ("environment", environment),
-        ("lighting_and_camera", card.get("lighting_and_camera") or card.get("lightingAndCamera")),
+        (
+            "lighting_and_camera",
+            card.get("lighting_and_camera") or card.get("lightingAndCamera"),
+        ),
         ("constraints", constraints),
-        ("negative_prompt", card.get("negative_prompt") or prompt.get("negativePrompt")),
+        (
+            "negative_prompt",
+            card.get("negative_prompt") or prompt.get("negativePrompt"),
+        ),
     ]
     for label, value in required_sections:
         if value:
@@ -311,7 +364,9 @@ def _score_image_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
         else:
             warnings.append(f"missing {label}")
 
-    must_keep = _list_from(constraints.get("must_keep")) + _list_from(card.get("must_keep"))
+    must_keep = _list_from(constraints.get("must_keep")) + _list_from(
+        card.get("must_keep")
+    )
     avoid = _list_from(constraints.get("avoid")) + _list_from(card.get("avoid"))
     if len(must_keep) >= 3:
         score += 8
@@ -324,7 +379,18 @@ def _score_image_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
     else:
         warnings.append("avoid list needs identity/platform/model-error blockers")
 
-    visual_terms = ("mirror", "selfie", "phone", "bedroom", "side profile", "leopard", "bodycon", "iphone", "black mirror", "natural daylight")
+    visual_terms = (
+        "mirror",
+        "selfie",
+        "phone",
+        "bedroom",
+        "side profile",
+        "leopard",
+        "bodycon",
+        "iphone",
+        "black mirror",
+        "natural daylight",
+    )
     matches = [term for term in visual_terms if term in text]
     score += min(14, len(matches) * 2)
     if len(matches) >= 5:
@@ -332,7 +398,15 @@ def _score_image_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
     else:
         warnings.append("prompt may be too generic; add source-specific visual anchors")
 
-    if any(term in text for term in ("explicit nudity", "platform-safe", "social-media-safe", "non-explicit")):
+    if any(
+        term in text
+        for term in (
+            "explicit nudity",
+            "platform-safe",
+            "social-media-safe",
+            "non-explicit",
+        )
+    ):
         score += 5
         reasons.append("spicy prompt includes safety/usefulness boundary")
     if card.get("prompt_schema_version") == "imageat_higgsfield.v1":
@@ -350,14 +424,27 @@ def _score_video_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
     warnings: list[str] = []
     compiled = _compiled_prompts(prompt)
     if compiled:
-        compiled_score, compiled_reasons, compiled_warnings = _score_compiled_prompts(compiled, needs_video=True)
+        compiled_score, compiled_reasons, compiled_warnings = _score_compiled_prompts(
+            compiled, needs_video=True
+        )
         score += round(compiled_score * 0.45)
         reasons.extend(compiled_reasons)
         warnings.extend(compiled_warnings)
     text = str(prompt.get("mainPrompt") or "").lower()
     scenes = prompt.get("scenes") if isinstance(prompt.get("scenes"), list) else []
-    directives = prompt.get("motion_directives") if isinstance(prompt.get("motion_directives"), dict) else {}
-    required_directives = ("duration_seconds", "camera_motion", "subject_motion", "must_preserve", "avoid", "fallback_provider")
+    directives = (
+        prompt.get("motion_directives")
+        if isinstance(prompt.get("motion_directives"), dict)
+        else {}
+    )
+    required_directives = (
+        "duration_seconds",
+        "camera_motion",
+        "subject_motion",
+        "must_preserve",
+        "avoid",
+        "fallback_provider",
+    )
     if all(directives.get(key) for key in required_directives):
         score += 25
         reasons.append("motion_directives complete")
@@ -372,7 +459,14 @@ def _score_video_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
         reasons.append("Kling prompt has timestamped motion")
     else:
         warnings.append("Kling prompt needs timestamped motion beats")
-    for term in ("first/reference frame", "preserve", "phone", "mirror", "no zoom", "no face reveal"):
+    for term in (
+        "first/reference frame",
+        "preserve",
+        "phone",
+        "mirror",
+        "no zoom",
+        "no face reveal",
+    ):
         if term in text:
             score += 5
     if "negativePrompt" in prompt or prompt.get("negativePrompt"):
@@ -383,7 +477,9 @@ def _score_video_prompt(prompt: dict[str, Any]) -> tuple[int, list[str], list[st
     return int(max(0, min(100, score))), reasons, warnings
 
 
-def _score_compiled_prompts(compiled: dict[str, Any], *, needs_video: bool) -> tuple[int, list[str], list[str]]:
+def _score_compiled_prompts(
+    compiled: dict[str, Any], *, needs_video: bool
+) -> tuple[int, list[str], list[str]]:
     score = 0
     reasons: list[str] = []
     warnings: list[str] = []
@@ -396,13 +492,19 @@ def _score_compiled_prompts(compiled: dict[str, Any], *, needs_video: bool) -> t
         reasons.append("Grok compiled prose prompts present")
     else:
         warnings.append("missing one or more Grok compiled prose prompts")
-    breakdown = compiled.get("structured_breakdown") if isinstance(compiled.get("structured_breakdown"), dict) else {}
+    breakdown = (
+        compiled.get("structured_breakdown")
+        if isinstance(compiled.get("structured_breakdown"), dict)
+        else {}
+    )
     if breakdown:
         score += 20
         reasons.append("Grok structured_breakdown present")
     else:
         warnings.append("missing Grok structured_breakdown")
-    outfits = breakdown.get("outfit_variations") if isinstance(breakdown, dict) else None
+    outfits = (
+        breakdown.get("outfit_variations") if isinstance(breakdown, dict) else None
+    )
     if isinstance(outfits, list) and len(outfits) == 6:
         score += 14
         reasons.append("Grok outfit_variations has 6 panel outfits")
@@ -420,10 +522,27 @@ def _score_compiled_prompts(compiled: dict[str, Any], *, needs_video: bool) -> t
         reasons.append("Grok confidence_score is acceptable")
     else:
         warnings.append("Grok confidence_score missing or below 70")
-    for term in ("deep cleavage", "pushed-up", "tiny waist", "wide hips", "thick thighs", "round", "ass", "s-curve", "fabric"):
+    for term in (
+        "deep cleavage",
+        "pushed-up",
+        "tiny waist",
+        "wide hips",
+        "thick thighs",
+        "round",
+        "ass",
+        "s-curve",
+        "fabric",
+    ):
         if term in prompt_text:
             score += 2
-    forbidden = ("platform ui", "screenshot", "username", "watermark", "tattoo", "hairstyle")
+    forbidden = (
+        "platform ui",
+        "screenshot",
+        "username",
+        "watermark",
+        "tattoo",
+        "hairstyle",
+    )
     leaked = [term for term in forbidden if term in prompt_text]
     if leaked:
         score -= 35
@@ -440,7 +559,11 @@ def _image_prompt_card(prompt: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                 return parsed, True
         except json.JSONDecodeError:
             pass
-    card = prompt.get("imagePromptJson") if isinstance(prompt.get("imagePromptJson"), dict) else {}
+    card = (
+        prompt.get("imagePromptJson")
+        if isinstance(prompt.get("imagePromptJson"), dict)
+        else {}
+    )
     return card, False
 
 
@@ -487,11 +610,23 @@ def estimate_credits(
     selected_image_provided: bool = False,
     variation_panel_dir_provided: bool = False,
 ) -> float:
-    effective_image_candidates = 1 if variation_grid and variation_strategy == "soul_grid" else max(1, image_candidates)
-    image_credits = 0.0 if selected_image_provided else DEFAULT_IMAGE_CREDITS * effective_image_candidates
+    effective_image_candidates = (
+        1
+        if variation_grid and variation_strategy == "soul_grid"
+        else max(1, image_candidates)
+    )
+    image_credits = (
+        0.0
+        if selected_image_provided
+        else DEFAULT_IMAGE_CREDITS * effective_image_candidates
+    )
     per = image_credits + (0.0 if no_video else DEFAULT_VIDEO_CREDITS)
     if variation_grid and variation_strategy != "soul_grid":
-        variation_count = len(_variation_outfits(variation_layout)) if variation_strategy == "individual" else 1
+        variation_count = (
+            len(_variation_outfits(variation_layout))
+            if variation_strategy == "individual"
+            else 1
+        )
         if not variation_panel_dir_provided:
             per += DEFAULT_VARIATION_CREDITS * variation_count
         if animate_variation_panels and variation_strategy == "individual":
@@ -533,11 +668,17 @@ def _run_pair(
     out_dir.mkdir(parents=True, exist_ok=True)
     image_commands = [
         (
-            _soul_grid_image_command(pair, soul_uuid=soul_uuid, variation_layout=variation_layout, wait=wait)
+            _soul_grid_image_command(
+                pair, soul_uuid=soul_uuid, variation_layout=variation_layout, wait=wait
+            )
             if variation_grid and variation_strategy == "soul_grid"
             else _image_command(pair, soul_uuid=soul_uuid, wait=wait)
         )
-        for _ in range(1 if variation_grid and variation_strategy == "soul_grid" else max(1, image_candidates))
+        for _ in range(
+            1
+            if variation_grid and variation_strategy == "soul_grid"
+            else max(1, image_candidates)
+        )
     ]
     image_cmd = image_commands[0]
 
@@ -548,7 +689,9 @@ def _run_pair(
     video_result: dict[str, Any] | None = None
     variation_result: dict[str, Any] | None = None
     soul_grid_mode = variation_grid and variation_strategy == "soul_grid"
-    soul_grid_suffix = "_soul_grid_" + _safe_name(variation_layout) if soul_grid_mode else ""
+    soul_grid_suffix = (
+        "_soul_grid_" + _safe_name(variation_layout) if soul_grid_mode else ""
+    )
     video_asset = out_dir / f"kling_video{soul_grid_suffix}_result.json"
     status = "dry_run" if dry_run else "generation_failed"
     errors: list[str] = []
@@ -559,9 +702,16 @@ def _run_pair(
     selected_candidate_index = 1
 
     if dry_run:
-        candidate_results = [{"candidateIndex": idx + 1, "command": cmd} for idx, cmd in enumerate(image_commands)]
+        candidate_results = [
+            {"candidateIndex": idx + 1, "command": cmd}
+            for idx, cmd in enumerate(image_commands)
+        ]
         image_result = candidate_results[0]
-        media_ref = str(selected_image) if selected_image else "<generated_higgsfield_image_candidate_1>"
+        media_ref = (
+            str(selected_image)
+            if selected_image
+            else "<generated_higgsfield_image_candidate_1>"
+        )
         if variation_grid:
             if variation_strategy == "soul_grid":
                 variation_result = {
@@ -578,25 +728,36 @@ def _run_pair(
                     dry_run=True,
                 )
                 panel_video_commands = (
-                    _variation_panel_video_commands_from_result(pair, variation_result, kling_mode, wait)
+                    _variation_panel_video_commands_from_result(
+                        pair, variation_result, kling_mode, wait
+                    )
                     if animate_variation_panels
                     else []
                 )
                 if panel_video_commands:
                     variation_result["panelVideoCommands"] = panel_video_commands
             elif variation_strategy == "individual":
-                variation_commands = _individual_variation_commands(pair, media_ref, variation_model, variation_layout, wait)
+                variation_commands = _individual_variation_commands(
+                    pair, media_ref, variation_model, variation_layout, wait
+                )
                 panel_video_commands = (
-                    _variation_panel_video_commands(pair, variation_layout, kling_mode, wait)
+                    _variation_panel_video_commands(
+                        pair, variation_layout, kling_mode, wait
+                    )
                     if animate_variation_panels
                     else []
                 )
-                variation_result = {"strategy": "individual", "panelCommands": variation_commands}
+                variation_result = {
+                    "strategy": "individual",
+                    "panelCommands": variation_commands,
+                }
                 if panel_video_commands:
                     variation_result["panelVideoCommands"] = panel_video_commands
                 variation_cmd = variation_commands[0] if variation_commands else None
             else:
-                variation_cmd = _variation_command(pair, media_ref, variation_model, variation_layout, wait)
+                variation_cmd = _variation_command(
+                    pair, media_ref, variation_model, variation_layout, wait
+                )
                 variation_result = {"command": variation_cmd}
         if not no_video:
             video_cmd = _video_command(pair, media_ref, kling_mode, wait)
@@ -606,7 +767,14 @@ def _run_pair(
             if selected_image:
                 local_image_path = str(selected_image.expanduser())
                 image_result = {"path": local_image_path, "selectedExternal": True}
-                candidate_results = [{"candidateIndex": 1, "result": image_result, "localPath": local_image_path, "selected": True}]
+                candidate_results = [
+                    {
+                        "candidateIndex": 1,
+                        "result": image_result,
+                        "localPath": local_image_path,
+                        "selected": True,
+                    }
+                ]
             else:
                 for idx, cmd in enumerate(image_commands, start=1):
                     image_stem = (
@@ -616,33 +784,48 @@ def _run_pair(
                     )
                     image_asset = out_dir / f"{image_stem}_result.json"
                     if image_asset.exists():
-                        result = _normalize_result(json.loads(image_asset.read_text(encoding="utf-8")))
+                        result = _normalize_result(
+                            json.loads(image_asset.read_text(encoding="utf-8"))
+                        )
                     else:
                         result = _run_json(cmd, runner)
-                        image_asset.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                        image_asset.write_text(
+                            json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8",
+                        )
                     local_path = _materialize_result_asset(result, out_dir / image_stem)
-                    candidate_results.append({
-                        "candidateIndex": idx,
-                        "jobId": _result_id(result),
-                        "resultUrl": _result_url(result),
-                        "localPath": local_path,
-                        "result": result,
-                        "selected": idx == 1,
-                    })
+                    candidate_results.append(
+                        {
+                            "candidateIndex": idx,
+                            "jobId": _result_id(result),
+                            "resultUrl": _result_url(result),
+                            "localPath": local_path,
+                            "result": result,
+                            "selected": idx == 1,
+                        }
+                    )
                 first = candidate_results[0]
-                image_result = first.get("result") if isinstance(first.get("result"), dict) else {}
+                image_result = (
+                    first.get("result") if isinstance(first.get("result"), dict) else {}
+                )
                 local_image_path = str(first.get("localPath") or "") or None
             media_ref = local_image_path or _result_id_or_url(image_result or {})
             if not media_ref:
-                raise RuntimeError("Higgsfield image result did not include a usable media id, URL, or local file")
+                raise RuntimeError(
+                    "Higgsfield image result did not include a usable media id, URL, or local file"
+                )
             if variation_grid:
                 variation_stem = "variation_grid_" + _safe_name(variation_layout)
                 if variation_strategy == "soul_grid":
-                    selected_panel_path = _extract_soul_grid_selected_panel(
-                        Path(local_image_path),
-                        out_dir=out_dir,
-                        variation_layout=variation_layout,
-                    ) if local_image_path else None
+                    selected_panel_path = (
+                        _extract_soul_grid_selected_panel(
+                            Path(local_image_path),
+                            out_dir=out_dir,
+                            variation_layout=variation_layout,
+                        )
+                        if local_image_path
+                        else None
+                    )
                     variation_result = {
                         "schema": "reference_factory.higgsfield_variation_result.v1",
                         "strategy": "soul_grid",
@@ -651,8 +834,12 @@ def _run_pair(
                         "command": image_cmd,
                         "prompt": _soul_grid_prompt_text(pair, variation_layout),
                         "path": local_image_path,
-                        "selectedPanelIndex": _default_soul_grid_selected_panel(variation_layout),
-                        "selectedPanelPath": str(selected_panel_path) if selected_panel_path else None,
+                        "selectedPanelIndex": _default_soul_grid_selected_panel(
+                            variation_layout
+                        ),
+                        "selectedPanelPath": str(selected_panel_path)
+                        if selected_panel_path
+                        else None,
                         "jobId": _result_id(image_result or {}),
                         "resultUrl": _result_url(image_result or {}),
                     }
@@ -661,12 +848,17 @@ def _run_pair(
                         media_ref = str(selected_panel_path)
                 elif variation_panel_dir:
                     try:
-                        variation_result, local_variation_path = _use_existing_variation_panels(
-                            out_dir=out_dir,
-                            panel_dir=variation_panel_dir.expanduser(),
-                            variation_layout=variation_layout,
+                        variation_result, local_variation_path = (
+                            _use_existing_variation_panels(
+                                out_dir=out_dir,
+                                panel_dir=variation_panel_dir.expanduser(),
+                                variation_layout=variation_layout,
+                            )
                         )
-                        if animate_variation_panels and _variation_status(variation_result) == "generated":
+                        if (
+                            animate_variation_panels
+                            and _variation_status(variation_result) == "generated"
+                        ):
                             variation_result = _run_variation_panel_videos(
                                 out_dir=out_dir,
                                 pair=pair,
@@ -679,7 +871,9 @@ def _run_pair(
                             if variation_result.get("panelVideoStatus") != "generated":
                                 errors.append("variation_panel_video_failed")
                         if _variation_status(variation_result) != "generated":
-                            errors.append(f"variation_grid_{_variation_status(variation_result)}")
+                            errors.append(
+                                f"variation_grid_{_variation_status(variation_result)}"
+                            )
                     except Exception as exc:  # noqa: BLE001 - variation should not block video proof
                         errors.append(f"variation_panel_dir_failed: {exc}")
                         variation_result = {
@@ -691,19 +885,28 @@ def _run_pair(
                             "panelDir": str(variation_panel_dir.expanduser()),
                         }
                 elif variation_strategy == "individual":
-                    variation_commands = _individual_variation_commands(pair, media_ref, variation_model, variation_layout, wait)
-                    variation_cmd = variation_commands[0] if variation_commands else None
+                    variation_commands = _individual_variation_commands(
+                        pair, media_ref, variation_model, variation_layout, wait
+                    )
+                    variation_cmd = (
+                        variation_commands[0] if variation_commands else None
+                    )
                     try:
-                        variation_result, local_variation_path = _run_individual_variations(
-                            out_dir=out_dir,
-                            media_ref=media_ref,
-                            pair=pair,
-                            variation_model=variation_model,
-                            variation_layout=variation_layout,
-                            wait=wait,
-                            runner=runner,
+                        variation_result, local_variation_path = (
+                            _run_individual_variations(
+                                out_dir=out_dir,
+                                media_ref=media_ref,
+                                pair=pair,
+                                variation_model=variation_model,
+                                variation_layout=variation_layout,
+                                wait=wait,
+                                runner=runner,
+                            )
                         )
-                        if animate_variation_panels and _variation_status(variation_result) == "generated":
+                        if (
+                            animate_variation_panels
+                            and _variation_status(variation_result) == "generated"
+                        ):
                             variation_result = _run_variation_panel_videos(
                                 out_dir=out_dir,
                                 pair=pair,
@@ -716,7 +919,9 @@ def _run_pair(
                             if variation_result.get("panelVideoStatus") != "generated":
                                 errors.append("variation_panel_video_failed")
                         if _variation_status(variation_result) != "generated":
-                            errors.append(f"variation_grid_{_variation_status(variation_result)}")
+                            errors.append(
+                                f"variation_grid_{_variation_status(variation_result)}"
+                            )
                     except Exception as exc:  # noqa: BLE001 - variation should not block video proof
                         errors.append(f"variation_grid_failed: {exc}")
                         variation_result = {
@@ -728,21 +933,41 @@ def _run_pair(
                         }
                 else:
                     variation_asset = out_dir / f"{variation_stem}_result.json"
-                    variation_cmd = _variation_command(pair, media_ref, variation_model, variation_layout, wait)
+                    variation_cmd = _variation_command(
+                        pair, media_ref, variation_model, variation_layout, wait
+                    )
                     try:
                         if variation_asset.exists():
-                            cached_variation = _normalize_result(json.loads(variation_asset.read_text(encoding="utf-8")))
+                            cached_variation = _normalize_result(
+                                json.loads(variation_asset.read_text(encoding="utf-8"))
+                            )
                             if _variation_result_is_reusable(cached_variation):
                                 variation_result = cached_variation
                             else:
                                 variation_result = _run_json(variation_cmd, runner)
-                                variation_asset.write_text(json.dumps(variation_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                                variation_asset.write_text(
+                                    json.dumps(
+                                        variation_result, indent=2, ensure_ascii=False
+                                    )
+                                    + "\n",
+                                    encoding="utf-8",
+                                )
                         else:
                             variation_result = _run_json(variation_cmd, runner)
-                            variation_asset.write_text(json.dumps(variation_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-                        local_variation_path = _materialize_result_asset(variation_result, out_dir / variation_stem)
+                            variation_asset.write_text(
+                                json.dumps(
+                                    variation_result, indent=2, ensure_ascii=False
+                                )
+                                + "\n",
+                                encoding="utf-8",
+                            )
+                        local_variation_path = _materialize_result_asset(
+                            variation_result, out_dir / variation_stem
+                        )
                         if _variation_status(variation_result) != "generated":
-                            errors.append(f"variation_grid_{_variation_status(variation_result)}")
+                            errors.append(
+                                f"variation_grid_{_variation_status(variation_result)}"
+                            )
                     except Exception as exc:  # noqa: BLE001 - variation should not block video proof
                         errors.append(f"variation_grid_failed: {exc}")
                         variation_result = {
@@ -756,14 +981,22 @@ def _run_pair(
             else:
                 try:
                     if video_asset.exists():
-                        video_result = _normalize_result(json.loads(video_asset.read_text(encoding="utf-8")))
+                        video_result = _normalize_result(
+                            json.loads(video_asset.read_text(encoding="utf-8"))
+                        )
                     else:
                         video_cmd = _video_command(pair, media_ref, kling_mode, wait)
                         video_result = _run_json(video_cmd, runner)
-                        video_asset.write_text(json.dumps(video_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                        video_asset.write_text(
+                            json.dumps(video_result, indent=2, ensure_ascii=False)
+                            + "\n",
+                            encoding="utf-8",
+                        )
                     if video_cmd is None:
                         video_cmd = _video_command(pair, media_ref, kling_mode, wait)
-                    local_video_path = _materialize_result_asset(video_result, out_dir / "kling_video")
+                    local_video_path = _materialize_result_asset(
+                        video_result, out_dir / "kling_video"
+                    )
                     status = "generated"
                 except Exception as exc:  # noqa: BLE001 - returned in manifest for fallback recovery
                     errors.append(f"kling_video_failed: {exc}")
@@ -805,7 +1038,9 @@ def _run_pair(
         ),
     )
     lineage_path = out_dir / "generated_asset_lineage.json"
-    lineage_path.write_text(json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    lineage_path.write_text(
+        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
     campaign_intake = None
     if (
@@ -860,24 +1095,42 @@ def _run_pair(
 
 def _image_command(pair: PromptPair, *, soul_uuid: str, wait: bool) -> list[str]:
     cmd = [
-        "higgsfield", "--json", "generate", "create", DEFAULT_IMAGE_MODEL,
-        "--prompt", _soul_image_prompt_text(pair.image_prompt),
-        "--custom_reference_id", soul_uuid,
-        "--aspect_ratio", "9:16",
-        "--quality", "2k",
+        "higgsfield",
+        "--json",
+        "generate",
+        "create",
+        DEFAULT_IMAGE_MODEL,
+        "--prompt",
+        _soul_image_prompt_text(pair.image_prompt),
+        "--custom_reference_id",
+        soul_uuid,
+        "--aspect_ratio",
+        "9:16",
+        "--quality",
+        "2k",
     ]
     if wait:
         cmd.append("--wait")
     return cmd
 
 
-def _soul_grid_image_command(pair: PromptPair, *, soul_uuid: str, variation_layout: str, wait: bool) -> list[str]:
+def _soul_grid_image_command(
+    pair: PromptPair, *, soul_uuid: str, variation_layout: str, wait: bool
+) -> list[str]:
     cmd = [
-        "higgsfield", "--json", "generate", "create", DEFAULT_IMAGE_MODEL,
-        "--prompt", _soul_grid_prompt_text(pair, variation_layout),
-        "--custom_reference_id", soul_uuid,
-        "--aspect_ratio", DEFAULT_SOUL_GRID_ASPECT_RATIO,
-        "--quality", "2k",
+        "higgsfield",
+        "--json",
+        "generate",
+        "create",
+        DEFAULT_IMAGE_MODEL,
+        "--prompt",
+        _soul_grid_prompt_text(pair, variation_layout),
+        "--custom_reference_id",
+        soul_uuid,
+        "--aspect_ratio",
+        DEFAULT_SOUL_GRID_ASPECT_RATIO,
+        "--quality",
+        "2k",
     ]
     if wait:
         cmd.append("--wait")
@@ -886,7 +1139,10 @@ def _soul_grid_image_command(pair: PromptPair, *, soul_uuid: str, variation_layo
 
 def _soul_image_prompt_text(prompt: dict[str, Any]) -> str:
     compiled = _compiled_prompts(prompt)
-    if isinstance(compiled.get("single_panel_prompt"), str) and compiled["single_panel_prompt"].strip():
+    if (
+        isinstance(compiled.get("single_panel_prompt"), str)
+        and compiled["single_panel_prompt"].strip()
+    ):
         return compiled["single_panel_prompt"].strip()
     return _compiled_single_panel_prompt(prompt)
 
@@ -966,7 +1222,9 @@ def _environment_text(card: dict[str, Any]) -> str:
 
 
 def _lighting_text(card: dict[str, Any]) -> str:
-    text = json.dumps(card.get("lighting_and_camera") or card, ensure_ascii=False).lower()
+    text = json.dumps(
+        card.get("lighting_and_camera") or card, ensure_ascii=False
+    ).lower()
     if "daylight" in text or "natural" in text:
         return "soft natural daylight"
     if "flash" in text:
@@ -997,7 +1255,9 @@ def _positive_prompt_fragment(value: Any) -> str:
     if isinstance(value, str):
         return _provider_positive_text(value)
     if isinstance(value, list):
-        return " ".join(fragment for item in value if (fragment := _positive_prompt_fragment(item)))
+        return " ".join(
+            fragment for item in value if (fragment := _positive_prompt_fragment(item))
+        )
     if isinstance(value, dict):
         fragments = []
         for key, inner in value.items():
@@ -1046,7 +1306,10 @@ def _provider_positive_text(text: str) -> str:
 
 def _soul_grid_prompt_text(pair: PromptPair, variation_layout: str) -> str:
     compiled = _compiled_prompts(pair.image_prompt)
-    if isinstance(compiled.get("soul_id_2x3_prompt"), str) and compiled["soul_id_2x3_prompt"].strip():
+    if (
+        isinstance(compiled.get("soul_id_2x3_prompt"), str)
+        and compiled["soul_id_2x3_prompt"].strip()
+    ):
         return compiled["soul_id_2x3_prompt"].strip()
     card, ok = _image_prompt_card(pair.image_prompt)
     if not ok:
@@ -1091,27 +1354,52 @@ def _soul_grid_base_prompt(prompt: dict[str, Any]) -> str:
     return " ".join(positive_parts).strip()
 
 
-def _variation_command(pair: PromptPair, media_ref: str, variation_model: str, variation_layout: str, wait: bool) -> list[str]:
+def _variation_command(
+    pair: PromptPair,
+    media_ref: str,
+    variation_model: str,
+    variation_layout: str,
+    wait: bool,
+) -> list[str]:
     cmd = [
-        "higgsfield", "--json", "generate", "create", variation_model,
-        "--prompt", _variation_grid_prompt(pair, variation_layout=variation_layout),
-        "--image", media_ref,
-        "--aspect_ratio", "1:1",
+        "higgsfield",
+        "--json",
+        "generate",
+        "create",
+        variation_model,
+        "--prompt",
+        _variation_grid_prompt(pair, variation_layout=variation_layout),
+        "--image",
+        media_ref,
+        "--aspect_ratio",
+        "1:1",
     ]
     if wait:
         cmd.append("--wait")
     return cmd
 
 
-def _video_command(pair: PromptPair, media_ref: str, kling_mode: str, wait: bool) -> list[str]:
+def _video_command(
+    pair: PromptPair, media_ref: str, kling_mode: str, wait: bool
+) -> list[str]:
     cmd = [
-        "higgsfield", "--json", "generate", "create", DEFAULT_VIDEO_MODEL,
-        "--prompt", _kling_video_prompt_text(pair),
-        "--start-image", media_ref,
-        "--aspect_ratio", "9:16",
-        "--duration", str(pair.video_prompt.get("durationSeconds") or 5),
-        "--mode", kling_mode,
-        "--sound", "off",
+        "higgsfield",
+        "--json",
+        "generate",
+        "create",
+        DEFAULT_VIDEO_MODEL,
+        "--prompt",
+        _kling_video_prompt_text(pair),
+        "--start-image",
+        media_ref,
+        "--aspect_ratio",
+        "9:16",
+        "--duration",
+        str(pair.video_prompt.get("durationSeconds") or 5),
+        "--mode",
+        kling_mode,
+        "--sound",
+        "off",
     ]
     if wait:
         cmd.append("--wait")
@@ -1120,7 +1408,10 @@ def _video_command(pair: PromptPair, media_ref: str, kling_mode: str, wait: bool
 
 def _kling_video_prompt_text(pair: PromptPair) -> str:
     compiled = _compiled_prompts(pair.video_prompt)
-    if isinstance(compiled.get("kling_video_prompt"), str) and compiled["kling_video_prompt"].strip():
+    if (
+        isinstance(compiled.get("kling_video_prompt"), str)
+        and compiled["kling_video_prompt"].strip()
+    ):
         prompt = compiled["kling_video_prompt"].strip()
         negative = str(compiled.get("kling_negative_prompt") or "").strip()
         if negative and "negative prompt" not in prompt.lower():
@@ -1136,9 +1427,15 @@ def _kling_video_prompt_text(pair: PromptPair) -> str:
         outfit = "tight bodycon outfit"
         environment = "the same reference setting"
         lighting = "soft realistic phone lighting"
-    directives = pair.video_prompt.get("motion_directives") if isinstance(pair.video_prompt.get("motion_directives"), dict) else {}
+    directives = (
+        pair.video_prompt.get("motion_directives")
+        if isinstance(pair.video_prompt.get("motion_directives"), dict)
+        else {}
+    )
     subject_motion = str(directives.get("subject_motion") or "").strip()
-    camera_motion = str(directives.get("camera_motion") or "subtle natural handheld camera sway").strip()
+    camera_motion = str(
+        directives.get("camera_motion") or "subtle natural handheld camera sway"
+    ).strip()
     motion = (
         "slow rhythmic hip swaying side to side, strong arched back pushing out her round plump ass, "
         "visible glute movement and dress stretch, deep cleavage with natural breast bounce, "
@@ -1177,20 +1474,31 @@ def _campaign_intake(
         "/usr/bin/env",
         f"PYTHONPATH={campaign_factory_root}",
         str(python_path),
-        "-m", "campaign_factory.cli",
+        "-m",
+        "campaign_factory.cli",
         "intake-finished-video",
-        "--input", str(input_path),
-        "--model", model,
-        "--campaign", campaign,
-        "--platform", "instagram",
-        "--goal", "reach",
-        "--source-lineage", str(lineage_path),
+        "--input",
+        str(input_path),
+        "--model",
+        model,
+        "--campaign",
+        campaign,
+        "--platform",
+        "instagram",
+        "--goal",
+        "reach",
+        "--source-lineage",
+        str(lineage_path),
         "--dry-run-export",
     ]
     if creative_plan:
         cmd.extend(["--creative-plan", creative_plan])
     if dry_run:
-        return {"schema": "reference_factory.campaign_intake.v1", "status": "dry_run", "command": cmd}
+        return {
+            "schema": "reference_factory.campaign_intake.v1",
+            "status": "dry_run",
+            "command": cmd,
+        }
     result = runner(cmd)
     return {
         "schema": "reference_factory.campaign_intake.v1",
@@ -1224,7 +1532,9 @@ def _lineage(
     estimated_credits: float,
 ) -> dict[str, Any]:
     prompt_schema_version = _prompt_schema_version(pair.image_prompt)
-    variation_provider = DEFAULT_IMAGE_MODEL if variation_strategy == "soul_grid" else variation_model
+    variation_provider = (
+        DEFAULT_IMAGE_MODEL if variation_strategy == "soul_grid" else variation_model
+    )
     selected_panel_path = (
         (variation_result or {}).get("selectedPanelPath")
         if isinstance(variation_result, dict)
@@ -1236,9 +1546,12 @@ def _lineage(
         "pipelineTraceId": f"trace_higgsfield_{pair.reference_id}_{_result_id(video_result or {}) or _result_id(image_result or {}) or 'pending'}",
         "source": {
             "referenceId": pair.reference_id,
-            "patternCardId": pair.image_prompt.get("sourcePatternId") or pair.video_prompt.get("sourcePatternId"),
+            "patternCardId": pair.image_prompt.get("sourcePatternId")
+            or pair.video_prompt.get("sourcePatternId"),
             "promptId": pair.video_prompt.get("id") or pair.image_prompt.get("id"),
-            "formatType": (pair.image_prompt.get("formatCard") or {}).get("visualFormat"),
+            "formatType": (pair.image_prompt.get("formatCard") or {}).get(
+                "visualFormat"
+            ),
             "promptSchemaVersion": prompt_schema_version,
         },
         "generation": {
@@ -1262,7 +1575,9 @@ def _lineage(
             "selectedImagePath": selected_image_path,
             "cost": {
                 "estimatedCredits": estimated_credits,
-                "actualCredits": _actual_credits_from_candidates(candidate_results, video_result, variation_result),
+                "actualCredits": _actual_credits_from_candidates(
+                    candidate_results, video_result, variation_result
+                ),
                 "currency": "higgsfield_credits",
             },
             "fallback": {
@@ -1274,19 +1589,39 @@ def _lineage(
             "variationGrid": {
                 "provider": variation_provider,
                 "layout": variation_layout,
-                "strategy": (variation_result or {}).get("strategy") if isinstance(variation_result, dict) else variation_strategy,
+                "strategy": (variation_result or {}).get("strategy")
+                if isinstance(variation_result, dict)
+                else variation_strategy,
                 "prompt": variation_prompt,
                 "status": _variation_status(variation_result),
-                "panelVideoStatus": (variation_result or {}).get("panelVideoStatus") if isinstance(variation_result, dict) else None,
+                "panelVideoStatus": (variation_result or {}).get("panelVideoStatus")
+                if isinstance(variation_result, dict)
+                else None,
                 "jobId": _result_id(variation_result or {}),
                 "path": local_variation_path,
-                "selectedPanelIndex": (variation_result or {}).get("selectedPanelIndex") if isinstance(variation_result, dict) else None,
+                "selectedPanelIndex": (variation_result or {}).get("selectedPanelIndex")
+                if isinstance(variation_result, dict)
+                else None,
                 "selectedPanelPath": selected_panel_path,
-                "gridVideoPath": (variation_result or {}).get("gridVideoPath") if isinstance(variation_result, dict) else None,
-                "verticalSequenceVideoPath": (variation_result or {}).get("verticalSequenceVideoPath") if isinstance(variation_result, dict) else None,
-                "animatedGridVideoPath": (variation_result or {}).get("animatedGridVideoPath") if isinstance(variation_result, dict) else None,
-                "panels": (variation_result or {}).get("panels") if isinstance(variation_result, dict) else None,
-                "panelVideos": (variation_result or {}).get("panelVideos") if isinstance(variation_result, dict) else None,
+                "gridVideoPath": (variation_result or {}).get("gridVideoPath")
+                if isinstance(variation_result, dict)
+                else None,
+                "verticalSequenceVideoPath": (variation_result or {}).get(
+                    "verticalSequenceVideoPath"
+                )
+                if isinstance(variation_result, dict)
+                else None,
+                "animatedGridVideoPath": (variation_result or {}).get(
+                    "animatedGridVideoPath"
+                )
+                if isinstance(variation_result, dict)
+                else None,
+                "panels": (variation_result or {}).get("panels")
+                if isinstance(variation_result, dict)
+                else None,
+                "panelVideos": (variation_result or {}).get("panelVideos")
+                if isinstance(variation_result, dict)
+                else None,
             },
         },
         "review": {
@@ -1320,7 +1655,9 @@ def _variation_result_is_reusable(variation_result: dict[str, Any]) -> bool:
     return _variation_status(variation_result) == "generated"
 
 
-def _variation_grid_prompt(pair: PromptPair, *, variation_layout: str = DEFAULT_VARIATION_LAYOUT) -> str:
+def _variation_grid_prompt(
+    pair: PromptPair, *, variation_layout: str = DEFAULT_VARIATION_LAYOUT
+) -> str:
     outfits = _variation_outfits_for_pair(pair, variation_layout)
     return (
         f"Make a {variation_layout} variation of this exact pose and background with these outfits: "
@@ -1340,10 +1677,17 @@ def _individual_variation_commands(
     commands = []
     for outfit in _variation_outfits_for_pair(pair, variation_layout):
         cmd = [
-            "higgsfield", "--json", "generate", "create", variation_model,
-            "--prompt", _variation_panel_prompt(outfit),
-            "--image", media_ref,
-            "--aspect_ratio", "9:16",
+            "higgsfield",
+            "--json",
+            "generate",
+            "create",
+            variation_model,
+            "--prompt",
+            _variation_panel_prompt(outfit),
+            "--image",
+            media_ref,
+            "--aspect_ratio",
+            "9:16",
         ]
         if wait:
             cmd.append("--wait")
@@ -1358,15 +1702,27 @@ def _variation_panel_video_commands(
     wait: bool,
 ) -> list[list[str]]:
     commands = []
-    for idx, outfit in enumerate(_variation_outfits_for_pair(pair, variation_layout), start=1):
+    for idx, outfit in enumerate(
+        _variation_outfits_for_pair(pair, variation_layout), start=1
+    ):
         cmd = [
-            "higgsfield", "--json", "generate", "create", DEFAULT_VIDEO_MODEL,
-            "--prompt", _variation_panel_video_prompt(pair, outfit),
-            "--start-image", f"<variation_panel_{idx}>",
-            "--aspect_ratio", "9:16",
-            "--duration", str(pair.video_prompt.get("durationSeconds") or 5),
-            "--mode", kling_mode,
-            "--sound", "off",
+            "higgsfield",
+            "--json",
+            "generate",
+            "create",
+            DEFAULT_VIDEO_MODEL,
+            "--prompt",
+            _variation_panel_video_prompt(pair, outfit),
+            "--start-image",
+            f"<variation_panel_{idx}>",
+            "--aspect_ratio",
+            "9:16",
+            "--duration",
+            str(pair.video_prompt.get("durationSeconds") or 5),
+            "--mode",
+            kling_mode,
+            "--sound",
+            "off",
         ]
         if wait:
             cmd.append("--wait")
@@ -1380,7 +1736,11 @@ def _variation_panel_video_commands_from_result(
     kling_mode: str,
     wait: bool,
 ) -> list[list[str]]:
-    panels = variation_result.get("panels") if isinstance(variation_result.get("panels"), list) else []
+    panels = (
+        variation_result.get("panels")
+        if isinstance(variation_result.get("panels"), list)
+        else []
+    )
     commands = []
     for panel in panels:
         if not isinstance(panel, dict):
@@ -1388,13 +1748,23 @@ def _variation_panel_video_commands_from_result(
         outfit = str(panel.get("outfit") or f"outfit {len(commands) + 1}")
         image_path = str(panel.get("path") or f"<variation_panel_{len(commands) + 1}>")
         cmd = [
-            "higgsfield", "--json", "generate", "create", DEFAULT_VIDEO_MODEL,
-            "--prompt", _variation_panel_video_prompt(pair, outfit),
-            "--start-image", image_path,
-            "--aspect_ratio", "9:16",
-            "--duration", str(pair.video_prompt.get("durationSeconds") or 5),
-            "--mode", kling_mode,
-            "--sound", "off",
+            "higgsfield",
+            "--json",
+            "generate",
+            "create",
+            DEFAULT_VIDEO_MODEL,
+            "--prompt",
+            _variation_panel_video_prompt(pair, outfit),
+            "--start-image",
+            image_path,
+            "--aspect_ratio",
+            "9:16",
+            "--duration",
+            str(pair.video_prompt.get("durationSeconds") or 5),
+            "--mode",
+            kling_mode,
+            "--sound",
+            "off",
         ]
         if wait:
             cmd.append("--wait")
@@ -1412,8 +1782,14 @@ def _variation_panel_prompt(outfit: str) -> str:
 
 
 def _variation_panel_video_prompt(pair: PromptPair, outfit: str) -> str:
-    directives = pair.video_prompt.get("motion_directives") if isinstance(pair.video_prompt.get("motion_directives"), dict) else {}
-    camera_motion = str(directives.get("camera_motion") or "very slight handheld phone sway")
+    directives = (
+        pair.video_prompt.get("motion_directives")
+        if isinstance(pair.video_prompt.get("motion_directives"), dict)
+        else {}
+    )
+    camera_motion = str(
+        directives.get("camera_motion") or "very slight handheld phone sway"
+    )
     return (
         "Use this image as the exact first frame. Create a short vertical mirror-selfie video with no audio. "
         f"Preserve the same outfit ({outfit}), face hidden by phone, side-profile pose, body crop, room, mirror, lighting, and iPhone realism. "
@@ -1423,7 +1799,9 @@ def _variation_panel_video_prompt(pair: PromptPair, outfit: str) -> str:
     )
 
 
-def _variation_result_from_panel_dir(panel_dir: Path, *, variation_layout: str, dry_run: bool = False) -> dict[str, Any]:
+def _variation_result_from_panel_dir(
+    panel_dir: Path, *, variation_layout: str, dry_run: bool = False
+) -> dict[str, Any]:
     panel_paths = _variation_panel_paths_from_dir(panel_dir, variation_layout)
     outfits = _variation_outfits(variation_layout)
     panels = [
@@ -1452,23 +1830,36 @@ def _use_existing_variation_panels(
     panel_dir: Path,
     variation_layout: str,
 ) -> tuple[dict[str, Any], str | None]:
-    variation_result = _variation_result_from_panel_dir(panel_dir, variation_layout=variation_layout)
+    variation_result = _variation_result_from_panel_dir(
+        panel_dir, variation_layout=variation_layout
+    )
     panel_paths = [Path(str(panel["path"])) for panel in variation_result["panels"]]
-    grid_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_existing_panels.png"
-    grid_video_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_existing_panels.mp4"
-    vertical_sequence_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_existing_panel_sequence.mp4"
+    grid_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_existing_panels.png"
+    )
+    grid_video_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_existing_panels.mp4"
+    )
+    vertical_sequence_path = (
+        out_dir
+        / f"variation_grid_{_safe_name(variation_layout)}_existing_panel_sequence.mp4"
+    )
     _assemble_variation_grid(panel_paths, grid_path, variation_layout)
     _create_variation_grid_video(grid_path, grid_video_path)
     _create_variation_sequence_video(panel_paths, vertical_sequence_path)
-    variation_result.update({
-        "path": str(grid_path),
-        "gridVideoPath": str(grid_video_path),
-        "verticalSequenceVideoPath": str(vertical_sequence_path),
-    })
+    variation_result.update(
+        {
+            "path": str(grid_path),
+            "gridVideoPath": str(grid_video_path),
+            "verticalSequenceVideoPath": str(vertical_sequence_path),
+        }
+    )
     return variation_result, str(grid_path)
 
 
-def _variation_panel_paths_from_dir(panel_dir: Path, variation_layout: str) -> list[Path]:
+def _variation_panel_paths_from_dir(
+    panel_dir: Path, variation_layout: str
+) -> list[Path]:
     expected = len(_variation_outfits(variation_layout))
     if not panel_dir.exists() or not panel_dir.is_dir():
         raise FileNotFoundError(f"variation panel folder not found: {panel_dir}")
@@ -1478,7 +1869,9 @@ def _variation_panel_paths_from_dir(panel_dir: Path, variation_layout: str) -> l
         if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
     )
     if len(paths) != expected:
-        raise ValueError(f"{variation_layout} needs {expected} panel images in {panel_dir}, found {len(paths)}")
+        raise ValueError(
+            f"{variation_layout} needs {expected} panel images in {panel_dir}, found {len(paths)}"
+        )
     return paths
 
 
@@ -1494,40 +1887,61 @@ def _run_individual_variations(
 ) -> tuple[dict[str, Any], str | None]:
     panels: list[dict[str, Any]] = []
     panel_paths: list[Path] = []
-    for idx, outfit in enumerate(_variation_outfits_for_pair(pair, variation_layout), start=1):
+    for idx, outfit in enumerate(
+        _variation_outfits_for_pair(pair, variation_layout), start=1
+    ):
         slug = f"{idx:02d}_{_safe_name(outfit)}"
         result_path = out_dir / f"variation_panel_{slug}_result.json"
         cmd = [
-            "higgsfield", "--json", "generate", "create", variation_model,
-            "--prompt", _variation_panel_prompt(outfit),
-            "--image", media_ref,
-            "--aspect_ratio", "9:16",
+            "higgsfield",
+            "--json",
+            "generate",
+            "create",
+            variation_model,
+            "--prompt",
+            _variation_panel_prompt(outfit),
+            "--image",
+            media_ref,
+            "--aspect_ratio",
+            "9:16",
         ]
         if wait:
             cmd.append("--wait")
 
         if result_path.exists():
-            panel_result = _normalize_result(json.loads(result_path.read_text(encoding="utf-8")))
+            panel_result = _normalize_result(
+                json.loads(result_path.read_text(encoding="utf-8"))
+            )
             if not _variation_result_is_reusable(panel_result):
                 panel_result = _run_json(cmd, runner)
-                result_path.write_text(json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                result_path.write_text(
+                    json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
         else:
             panel_result = _run_json(cmd, runner)
-            result_path.write_text(json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            result_path.write_text(
+                json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
 
-        local_path = _materialize_result_asset(panel_result, out_dir / f"variation_panel_{slug}")
+        local_path = _materialize_result_asset(
+            panel_result, out_dir / f"variation_panel_{slug}"
+        )
         status = _variation_status(panel_result)
         if status == "generated" and local_path:
             panel_paths.append(Path(local_path))
-        panels.append({
-            "index": idx,
-            "outfit": outfit,
-            "command": cmd,
-            "jobId": _result_id(panel_result),
-            "resultUrl": _result_url(panel_result),
-            "path": local_path,
-            "status": status,
-        })
+        panels.append(
+            {
+                "index": idx,
+                "outfit": outfit,
+                "command": cmd,
+                "jobId": _result_id(panel_result),
+                "resultUrl": _result_url(panel_result),
+                "path": local_path,
+                "status": status,
+            }
+        )
 
     if len(panel_paths) != len(_variation_outfits(variation_layout)):
         return {
@@ -1539,10 +1953,16 @@ def _run_individual_variations(
             "error": "not_all_variation_panels_generated",
         }, None
 
-    grid_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_individual.png"
+    grid_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_individual.png"
+    )
     _assemble_variation_grid(panel_paths, grid_path, variation_layout)
-    grid_video_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_individual.mp4"
-    vertical_sequence_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_sequence.mp4"
+    grid_video_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_individual.mp4"
+    )
+    vertical_sequence_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_sequence.mp4"
+    )
     _create_variation_grid_video(grid_path, grid_video_path)
     _create_variation_sequence_video(panel_paths, vertical_sequence_path)
     return {
@@ -1567,7 +1987,11 @@ def _run_variation_panel_videos(
     wait: bool,
     runner: Runner,
 ) -> dict[str, Any]:
-    panels = variation_result.get("panels") if isinstance(variation_result.get("panels"), list) else []
+    panels = (
+        variation_result.get("panels")
+        if isinstance(variation_result.get("panels"), list)
+        else []
+    )
     panel_videos: list[dict[str, Any]] = []
     video_paths: list[Path] = []
     for panel in panels:
@@ -1577,38 +2001,64 @@ def _run_variation_panel_videos(
         outfit = str(panel.get("outfit") or f"outfit {idx}")
         image_path = str(panel.get("path") or "")
         if not image_path:
-            panel_videos.append({"index": idx, "outfit": outfit, "status": "failed", "error": "missing_panel_image_path"})
+            panel_videos.append(
+                {
+                    "index": idx,
+                    "outfit": outfit,
+                    "status": "failed",
+                    "error": "missing_panel_image_path",
+                }
+            )
             continue
         result_path = out_dir / f"variation_panel_video_{idx:02d}_result.json"
         cmd = [
-            "higgsfield", "--json", "generate", "create", DEFAULT_VIDEO_MODEL,
-            "--prompt", _variation_panel_video_prompt(pair, outfit),
-            "--start-image", image_path,
-            "--aspect_ratio", "9:16",
-            "--duration", str(pair.video_prompt.get("durationSeconds") or 5),
-            "--mode", kling_mode,
-            "--sound", "off",
+            "higgsfield",
+            "--json",
+            "generate",
+            "create",
+            DEFAULT_VIDEO_MODEL,
+            "--prompt",
+            _variation_panel_video_prompt(pair, outfit),
+            "--start-image",
+            image_path,
+            "--aspect_ratio",
+            "9:16",
+            "--duration",
+            str(pair.video_prompt.get("durationSeconds") or 5),
+            "--mode",
+            kling_mode,
+            "--sound",
+            "off",
         ]
         if wait:
             cmd.append("--wait")
         if result_path.exists():
-            panel_result = _normalize_result(json.loads(result_path.read_text(encoding="utf-8")))
+            panel_result = _normalize_result(
+                json.loads(result_path.read_text(encoding="utf-8"))
+            )
         else:
             panel_result = _run_json(cmd, runner)
-            result_path.write_text(json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        local_path = _materialize_result_asset(panel_result, out_dir / f"variation_panel_video_{idx:02d}")
+            result_path.write_text(
+                json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        local_path = _materialize_result_asset(
+            panel_result, out_dir / f"variation_panel_video_{idx:02d}"
+        )
         status = "generated" if local_path else "failed"
         if local_path:
             video_paths.append(Path(local_path))
-        panel_videos.append({
-            "index": idx,
-            "outfit": outfit,
-            "command": cmd,
-            "jobId": _result_id(panel_result),
-            "resultUrl": _result_url(panel_result),
-            "path": local_path,
-            "status": status,
-        })
+        panel_videos.append(
+            {
+                "index": idx,
+                "outfit": outfit,
+                "command": cmd,
+                "jobId": _result_id(panel_result),
+                "resultUrl": _result_url(panel_result),
+                "path": local_path,
+                "status": status,
+            }
+        )
 
     out = dict(variation_result)
     out["panelVideos"] = panel_videos
@@ -1618,18 +2068,24 @@ def _run_variation_panel_videos(
         out["panelVideoError"] = "not_all_panel_videos_generated"
         return out
 
-    animated_grid_path = out_dir / f"variation_grid_{_safe_name(variation_layout)}_kling_panels.mp4"
+    animated_grid_path = (
+        out_dir / f"variation_grid_{_safe_name(variation_layout)}_kling_panels.mp4"
+    )
     _assemble_variation_video_grid(video_paths, animated_grid_path, variation_layout)
     out["panelVideoStatus"] = "generated"
     out["animatedGridVideoPath"] = str(animated_grid_path)
     return out
 
 
-def _assemble_variation_grid(panel_paths: list[Path], out_path: Path, variation_layout: str) -> None:
+def _assemble_variation_grid(
+    panel_paths: list[Path], out_path: Path, variation_layout: str
+) -> None:
     columns, rows = (3, 2) if variation_layout == "2x3" else (3, 3)
     expected = columns * rows
     if len(panel_paths) != expected:
-        raise ValueError(f"{variation_layout} needs {expected} panel images, got {len(panel_paths)}")
+        raise ValueError(
+            f"{variation_layout} needs {expected} panel images, got {len(panel_paths)}"
+        )
     inputs: list[str] = []
     filter_parts: list[str] = []
     layout_parts: list[str] = []
@@ -1646,11 +2102,18 @@ def _assemble_variation_grid(panel_paths: list[Path], out_path: Path, variation_
         f"{stack_inputs}xstack=inputs={expected}:layout={'|'.join(layout_parts)}[out]"
     )
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
         *inputs,
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-frames:v", "1",
+        "-filter_complex",
+        ";".join(filter_parts),
+        "-map",
+        "[out]",
+        "-frames:v",
+        "1",
         str(out_path),
     ]
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
@@ -1658,11 +2121,15 @@ def _assemble_variation_grid(panel_paths: list[Path], out_path: Path, variation_
         raise RuntimeError(result.stderr.strip() or "failed to assemble variation grid")
 
 
-def _assemble_variation_video_grid(video_paths: list[Path], out_path: Path, variation_layout: str) -> None:
+def _assemble_variation_video_grid(
+    video_paths: list[Path], out_path: Path, variation_layout: str
+) -> None:
     columns, rows = (3, 2) if variation_layout == "2x3" else (3, 3)
     expected = columns * rows
     if len(video_paths) != expected:
-        raise ValueError(f"{variation_layout} needs {expected} panel videos, got {len(video_paths)}")
+        raise ValueError(
+            f"{variation_layout} needs {expected} panel videos, got {len(video_paths)}"
+        )
     inputs: list[str] = []
     filter_parts: list[str] = []
     layout_parts: list[str] = []
@@ -1679,52 +2146,84 @@ def _assemble_variation_video_grid(video_paths: list[Path], out_path: Path, vari
         f"{stack_inputs}xstack=inputs={expected}:layout={'|'.join(layout_parts)}:fill=black:shortest=1[out]"
     )
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
         *inputs,
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
+        "-filter_complex",
+        ";".join(filter_parts),
+        "-map",
+        "[out]",
         "-an",
-        "-c:v", "libx264",
-        "-preset", "slow",
-        "-crf", "14",
-        "-profile:v", "high",
-        "-movflags", "+faststart",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "14",
+        "-profile:v",
+        "high",
+        "-movflags",
+        "+faststart",
         str(out_path),
     ]
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "failed to assemble variation video grid")
+        raise RuntimeError(
+            result.stderr.strip() or "failed to assemble variation video grid"
+        )
 
 
 def _create_variation_grid_video(grid_path: Path, out_path: Path) -> None:
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-loop", "1",
-        "-framerate", "24",
-        "-i", str(grid_path),
-        "-t", str(DEFAULT_VARIATION_VIDEO_SECONDS),
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-loop",
+        "1",
+        "-framerate",
+        "24",
+        "-i",
+        str(grid_path),
+        "-t",
+        str(DEFAULT_VARIATION_VIDEO_SECONDS),
         "-vf",
         "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,format=yuv420p",
         "-an",
-        "-c:v", "libx264",
-        "-preset", "slow",
-        "-crf", "14",
-        "-profile:v", "high",
-        "-movflags", "+faststart",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "14",
+        "-profile:v",
+        "high",
+        "-movflags",
+        "+faststart",
         str(out_path),
     ]
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "failed to create variation grid video")
+        raise RuntimeError(
+            result.stderr.strip() or "failed to create variation grid video"
+        )
 
 
 def _default_soul_grid_selected_panel(variation_layout: str) -> int:
     return 5 if variation_layout == "2x3" else 5
 
 
-def _extract_soul_grid_selected_panel(grid_path: Path, *, out_dir: Path, variation_layout: str) -> Path:
+def _extract_soul_grid_selected_panel(
+    grid_path: Path, *, out_dir: Path, variation_layout: str
+) -> Path:
     columns, rows = (3, 2) if variation_layout == "2x3" else (3, 3)
-    selected_index = min(_default_soul_grid_selected_panel(variation_layout), columns * rows)
+    selected_index = min(
+        _default_soul_grid_selected_panel(variation_layout), columns * rows
+    )
     width, height = _image_dimensions(grid_path)
     panel_width = width // columns
     panel_height = height // rows
@@ -1740,17 +2239,29 @@ def _extract_soul_grid_selected_panel(grid_path: Path, *, out_dir: Path, variati
         target_height = panel_height
         target_width = round(panel_height * 9 / 16)
         x += max(0, (panel_width - target_width) // 2)
-    out_path = out_dir / f"higgsfield_soul_grid_{_safe_name(variation_layout)}_selected_panel_{selected_index}_9x16.png"
+    out_path = (
+        out_dir
+        / f"higgsfield_soul_grid_{_safe_name(variation_layout)}_selected_panel_{selected_index}_9x16.png"
+    )
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-i", str(grid_path),
-        "-vf", f"crop={target_width}:{target_height}:{x}:{y},scale=1080:1920:flags=lanczos",
-        "-frames:v", "1",
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(grid_path),
+        "-vf",
+        f"crop={target_width}:{target_height}:{x}:{y},scale=1080:1920:flags=lanczos",
+        "-frames:v",
+        "1",
         str(out_path),
     ]
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "failed to crop selected soul-grid panel")
+        raise RuntimeError(
+            result.stderr.strip() or "failed to crop selected soul-grid panel"
+        )
     return out_path
 
 
@@ -1762,7 +2273,9 @@ def _image_dimensions(path: Path) -> tuple[int, int]:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"failed to read image dimensions for {path}")
+        raise RuntimeError(
+            result.stderr.strip() or f"failed to read image dimensions for {path}"
+        )
     width_match = re.search(r"pixelWidth:\s*(\d+)", result.stdout)
     height_match = re.search(r"pixelHeight:\s*(\d+)", result.stdout)
     if not width_match or not height_match:
@@ -1778,15 +2291,25 @@ def _create_variation_sequence_video(panel_paths: list[Path], out_path: Path) ->
     try:
         list_path = temp_dir / "concat.txt"
         segment_paths: list[Path] = []
-        per_panel_seconds = max(1, round(DEFAULT_VARIATION_VIDEO_SECONDS / max(1, len(panel_paths))))
+        per_panel_seconds = max(
+            1, round(DEFAULT_VARIATION_VIDEO_SECONDS / max(1, len(panel_paths)))
+        )
         for idx, path in enumerate(panel_paths, start=1):
             segment = temp_dir / f"segment_{idx:02d}.mp4"
             cmd = [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-loop", "1",
-                "-framerate", "24",
-                "-i", str(path),
-                "-t", str(per_panel_seconds),
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-loop",
+                "1",
+                "-framerate",
+                "24",
+                "-i",
+                str(path),
+                "-t",
+                str(per_panel_seconds),
                 "-vf",
                 (
                     "scale=1120:1992:force_original_aspect_ratio=increase:flags=lanczos,"
@@ -1797,30 +2320,51 @@ def _create_variation_sequence_video(panel_paths: list[Path], out_path: Path) ->
                     "format=yuv420p"
                 ),
                 "-an",
-                "-c:v", "libx264",
-                "-preset", "slow",
-                "-crf", "14",
-                "-profile:v", "high",
-                "-level", "4.2",
-                "-movflags", "+faststart",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "slow",
+                "-crf",
+                "14",
+                "-profile:v",
+                "high",
+                "-level",
+                "4.2",
+                "-movflags",
+                "+faststart",
                 str(segment),
             ]
             result = subprocess.run(cmd, text=True, capture_output=True, check=False)
             if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or "failed to create variation sequence segment")
+                raise RuntimeError(
+                    result.stderr.strip()
+                    or "failed to create variation sequence segment"
+                )
             segment_paths.append(segment)
-        list_path.write_text("".join(f"file '{path}'\n" for path in segment_paths), encoding="utf-8")
+        list_path.write_text(
+            "".join(f"file '{path}'\n" for path in segment_paths), encoding="utf-8"
+        )
         concat_cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(list_path),
-            "-c", "copy",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_path),
+            "-c",
+            "copy",
             str(out_path),
         ]
         result = subprocess.run(concat_cmd, text=True, capture_output=True, check=False)
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "failed to create variation sequence video")
+            raise RuntimeError(
+                result.stderr.strip() or "failed to create variation sequence video"
+            )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1845,7 +2389,16 @@ def _variation_outfits(variation_layout: str) -> list[str]:
 
 def _variation_outfits_for_pair(pair: PromptPair, variation_layout: str) -> list[str]:
     text = json.dumps(pair.image_prompt, ensure_ascii=False).lower()
-    if any(term in text for term in ("pale blue", "strapless", "maxi dress", "stone fireplace", "fireplace")):
+    if any(
+        term in text
+        for term in (
+            "pale blue",
+            "strapless",
+            "maxi dress",
+            "stone fireplace",
+            "fireplace",
+        )
+    ):
         base = [
             "pale blue strapless fitted bodycon dress matching the reference outfit",
             "slightly shorter pale blue strapless fitted dress",
@@ -1882,13 +2435,15 @@ def _lineage_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]
     output = []
     for item in candidates:
         result = item.get("result") if isinstance(item.get("result"), dict) else {}
-        output.append({
-            "candidateIndex": item.get("candidateIndex"),
-            "jobId": item.get("jobId") or _result_id(result),
-            "resultUrl": item.get("resultUrl") or _result_url(result),
-            "localPath": item.get("localPath"),
-            "selected": bool(item.get("selected")),
-        })
+        output.append(
+            {
+                "candidateIndex": item.get("candidateIndex"),
+                "jobId": item.get("jobId") or _result_id(result),
+                "resultUrl": item.get("resultUrl") or _result_url(result),
+                "localPath": item.get("localPath"),
+                "selected": bool(item.get("selected")),
+            }
+        )
     return output
 
 
@@ -1903,7 +2458,9 @@ def _actual_credits(*results: dict[str, Any] | None) -> float | None:
     return round(total, 4) if found else None
 
 
-def _actual_credits_from_candidates(candidates: list[dict[str, Any]], *results: dict[str, Any] | None) -> float | None:
+def _actual_credits_from_candidates(
+    candidates: list[dict[str, Any]], *results: dict[str, Any] | None
+) -> float | None:
     candidate_results = [
         item.get("result")
         for item in candidates
@@ -1935,7 +2492,9 @@ def _run_json(cmd: list[str], runner: Runner) -> dict[str, Any]:
     try:
         parsed = json.loads(result.stdout.strip())
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Higgsfield CLI returned non-JSON output: {result.stdout[:300]}") from exc
+        raise RuntimeError(
+            f"Higgsfield CLI returned non-JSON output: {result.stdout[:300]}"
+        ) from exc
     return _normalize_result(parsed)
 
 
@@ -2050,12 +2609,15 @@ def _suffix_for_url(url: str) -> str:
 
 
 def _safe_name(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)[:120] or "generated"
+    return (
+        "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)[:120]
+        or "generated"
+    )
 
 
 def _day() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

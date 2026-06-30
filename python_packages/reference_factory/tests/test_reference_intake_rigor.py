@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from reference_factory.db import connect
 from reference_factory.prompt_records import (
     find_prompt_record,
@@ -19,7 +18,6 @@ from reference_factory.reference_intake import (
     _canonical_tool,
     _closeness_controls,
     _compose_higgsfield_from_image_json,
-    _compose_higgsfield_main_prompt,
     _compose_kling_main_prompt,
     _find_prompt_record,
     _json_from_model_text,
@@ -42,7 +40,9 @@ def make_conn(tmp_path: Path) -> sqlite3.Connection:
     return connect(tmp_path / "reference_factory.sqlite")
 
 
-def write_reference_file(source_root: Path, account: str = "creator_a", name: str = "mirror_clip.mp4") -> Path:
+def write_reference_file(
+    source_root: Path, account: str = "creator_a", name: str = "mirror_clip.mp4"
+) -> Path:
     account_dir = source_root / account
     account_dir.mkdir(parents=True)
     path = account_dir / name
@@ -91,9 +91,17 @@ def minimal_prompt_analysis(**overrides: object) -> dict[str, object]:
             ],
             "native_style_constraints": ["phone-native", "imperfect natural framing"],
             "copy_risk_notes": ["no copied identity"],
-            "required_changes": ["replace identity", "change outfit color", "remove watermark"],
+            "required_changes": [
+                "replace identity",
+                "change outfit color",
+                "remove watermark",
+            ],
         },
-        "audioVibe": {"energy": "medium", "bpmFeel": "sped-up pop", "moodTags": ["outfit", "mirror"]},
+        "audioVibe": {
+            "energy": "medium",
+            "bpmFeel": "sped-up pop",
+            "moodTags": ["outfit", "mirror"],
+        },
     }
     analysis.update(overrides)
     return analysis
@@ -120,7 +128,9 @@ def test_p1_caption_archetype_regression_does_not_require_hidden_key() -> None:
     assert card["learnedPattern"]["structureNotes"]
 
 
-def test_import_reference_analysis_normalizes_pattern_card_and_exports_prompts(tmp_path: Path) -> None:
+def test_import_reference_analysis_normalizes_pattern_card_and_exports_prompts(
+    tmp_path: Path,
+) -> None:
     source_root = tmp_path / "downloads"
     write_reference_file(source_root)
     conn = make_conn(tmp_path)
@@ -159,7 +169,9 @@ def test_import_reference_analysis_normalizes_pattern_card_and_exports_prompts(t
         include_pending=False,
         creative_plan_id="plan_123",
     )
-    exported = export_video_prompts(conn, data_root=tmp_path / "data", creative_plan_id="plan_123")
+    exported = export_video_prompts(
+        conn, data_root=tmp_path / "data", creative_plan_id="plan_123"
+    )
 
     assert imported["imported"] == 1
     assert [error["error"] for error in imported["errors"]] == [
@@ -169,13 +181,24 @@ def test_import_reference_analysis_normalizes_pattern_card_and_exports_prompts(t
     assert generated["count"] == 2
     assert generated["targetTools"] == ["higgsfield_soul_image", "kling_3_video"]
     assert generated["prompts"][0]["prompt"]["creativePlanId"] == "plan_123"
-    assert Path(exported["dailyHiggsfieldImageJsonlPath"]).read_text(encoding="utf-8").strip()
-    assert Path(exported["dailyKlingVideoJsonlPath"]).read_text(encoding="utf-8").strip()
+    assert (
+        Path(exported["dailyHiggsfieldImageJsonlPath"])
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    assert (
+        Path(exported["dailyKlingVideoJsonlPath"]).read_text(encoding="utf-8").strip()
+    )
     card = conn.execute("SELECT pattern_json FROM viral_pattern_cards").fetchone()
-    assert json.loads(card["pattern_json"])["schema"] == "reference_factory.pattern_card.v1"
+    assert (
+        json.loads(card["pattern_json"])["schema"]
+        == "reference_factory.pattern_card.v1"
+    )
 
 
-def test_import_reference_analysis_rejects_invalid_payload_shape(tmp_path: Path) -> None:
+def test_import_reference_analysis_rejects_invalid_payload_shape(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "bad.json"
     path.write_text(json.dumps({"items": {"not": "a list"}}), encoding="utf-8")
 
@@ -185,7 +208,9 @@ def test_import_reference_analysis_rejects_invalid_payload_shape(tmp_path: Path)
 
 def test_normalize_minimal_analysis_builds_safe_image_and_motion_prompts() -> None:
     analysis = _normalize_analysis({"analysis": minimal_prompt_analysis()})
-    image_card = _build_image_prompt_json_from_analysis(analysis, model_profile="Stacey")
+    image_card = _build_image_prompt_json_from_analysis(
+        analysis, model_profile="Stacey"
+    )
     image_prompt = _compose_higgsfield_from_image_json(
         {
             "subject": "Adult Stacey Soul ID model mirror pose",
@@ -221,12 +246,17 @@ def test_normalize_minimal_analysis_builds_safe_image_and_motion_prompts() -> No
     assert directives["subject_motion"] == "small hip shift"
 
 
-def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(tmp_path: Path) -> None:
+def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(
+    tmp_path: Path,
+) -> None:
     parsed = _json_from_model_text(
-        "Here is the JSON:\n```json\n{\"ok\": true, \"items\": [1]}\n```"
+        'Here is the JSON:\n```json\n{"ok": true, "items": [1]}\n```'
     )
     records_path = tmp_path / "prompts" / "records.jsonl"
-    records = [{"sourceReferenceId": "ref_a", "prompt": "one"}, {"referenceId": "ref_b", "prompt": "two"}]
+    records = [
+        {"sourceReferenceId": "ref_a", "prompt": "one"},
+        {"referenceId": "ref_b", "prompt": "two"},
+    ]
     compiled = _normalize_compiled_prompt_set(
         {
             "soul_id_2x3_prompt": "Create one high-quality 2x3 grid featuring six outfit variations.",
@@ -238,7 +268,11 @@ def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(tmp_path: Pat
                 "body_emphasis": "outfit silhouette",
                 "outfit_variations": ["a", "b", "c", "d", "e", "f"],
                 "motion_directives": "tiny phone sway",
-                    "key_constraints": ["new identity", "clean background", "original decor"],
+                "key_constraints": [
+                    "new identity",
+                    "clean background",
+                    "original decor",
+                ],
             },
             "confidence_score": 82,
         }
@@ -256,9 +290,14 @@ def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(tmp_path: Pat
     assert _read_jsonl_records(tmp_path / "missing.jsonl") == []
 
 
-def test_prompt_record_helpers_are_stable_outside_reference_intake(tmp_path: Path) -> None:
+def test_prompt_record_helpers_are_stable_outside_reference_intake(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "records" / "prompts.jsonl"
-    records = [{"sourceReferenceId": "ref_a", "prompt": "one"}, {"referenceId": "ref_b", "prompt": "two"}]
+    records = [
+        {"sourceReferenceId": "ref_a", "prompt": "one"},
+        {"referenceId": "ref_b", "prompt": "two"},
+    ]
 
     write_jsonl_records(path, records)
     loaded = read_jsonl_records(path)
@@ -306,7 +345,9 @@ def test_queue_export_and_tool_controls_are_stable(tmp_path: Path) -> None:
         media_kinds=["nonsense"],
         prompt_style="minimal",
     )
-    export = export_analysis_queue(conn, data_root=tmp_path / "data", provider_target="gemini", limit=10)
+    export = export_analysis_queue(
+        conn, data_root=tmp_path / "data", provider_target="gemini", limit=10
+    )
 
     assert queued["mediaKinds"] == ["video", "image"]
     assert queued["closenessControls"] == {
@@ -318,4 +359,8 @@ def test_queue_export_and_tool_controls_are_stable(tmp_path: Path) -> None:
     assert _closeness_controls("ig_ofm")["format_closeness"] == "high"
     assert _canonical_tool("soul_id") == "higgsfield_soul_image"
     assert _canonical_tool("kling") == "kling_3_video"
-    assert Path(export["markdownPath"]).read_text(encoding="utf-8").startswith("# Reference Analysis Queue")
+    assert (
+        Path(export["markdownPath"])
+        .read_text(encoding="utf-8")
+        .startswith("# Reference Analysis Queue")
+    )

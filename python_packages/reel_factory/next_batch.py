@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Recommend the next campaign batch from ratings and performance history."""
+
 from __future__ import annotations
 
 import argparse
@@ -41,13 +42,17 @@ def main() -> int:
     args = ap.parse_args()
     plan = campaign_factory_next_batch(args.campaign, count=args.count)
     if plan is None:
-        plan = next_batch_plan(Path(args.root), campaign=args.campaign, count=args.count)
+        plan = next_batch_plan(
+            Path(args.root), campaign=args.campaign, count=args.count
+        )
         plan["source"] = "reel_factory.local_next_batch"
-    print(json.dumps(
-        plan,
-        indent=2,
-        ensure_ascii=False,
-    ))
+    print(
+        json.dumps(
+            plan,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

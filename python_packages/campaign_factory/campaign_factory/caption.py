@@ -4,7 +4,8 @@ import hashlib
 import json
 import re
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .caption_outcome import load_context_json
 from .persistence import json_load
@@ -87,14 +88,24 @@ class CaptionFamilyRepository:
         publishability = (
             self._explain_publishability(parent_asset_id)
             if content_surface == "reel"
-            else {"publishableCandidate": self._surface_handoff_readiness_for_asset(parent).get("canHandoff")}
+            else {
+                "publishableCandidate": self._surface_handoff_readiness_for_asset(
+                    parent
+                ).get("canHandoff")
+            }
         )
         caption_context = load_context_json(parent.get("caption_outcome_context_json"))
         post_caption = self._instagram_post_caption_for_asset(parent, caption_context)
-        base_burned = str(post_caption.get("burned_caption_text") or parent.get("caption") or "").strip()
-        camp_id = parent.get('campaign_id', '')
-        caption_family_id = f"cfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{style}'.encode('utf-8')).hexdigest()[:12]}"
-        caption_bank = parent.get("caption_bank") or caption_context.get("caption_bank") or "unknown_caption_bank"
+        base_burned = str(
+            post_caption.get("burned_caption_text") or parent.get("caption") or ""
+        ).strip()
+        camp_id = parent.get("campaign_id", "")
+        caption_family_id = f"cfam_{hashlib.sha256(f'{camp_id}:{parent_asset_id}:{style}'.encode()).hexdigest()[:12]}"
+        caption_bank = (
+            parent.get("caption_bank")
+            or caption_context.get("caption_bank")
+            or "unknown_caption_bank"
+        )
         caption_source = f"existing_caption_bank:{caption_bank}"
         base_hashtags = self.caption_family_hashtags(post_caption.get("hashtags") or [])
         planned_versions = [
@@ -115,7 +126,12 @@ class CaptionFamilyRepository:
         if not concept:
             blocking.append("parent_reel_not_registered")
         if not publishability.get("publishableCandidate"):
-            blocking.append(str(publishability.get("blockingReason") or "parent_reel_not_publishable"))
+            blocking.append(
+                str(
+                    publishability.get("blockingReason")
+                    or "parent_reel_not_publishable"
+                )
+            )
         if any(not version.get("burnedCaptionText") for version in planned_versions):
             blocking.append("blank_burned_caption")
         if any(not version.get("instagramPostCaption") for version in planned_versions):
@@ -125,8 +141,12 @@ class CaptionFamilyRepository:
             "schema": "campaign_factory.caption_family_plan.v1",
             "creator": creator,
             "parentAssetId": parent_asset_id,
-            "parentReelId": concept.get("parentReelId") if concept else parent.get("parent_reel_id"),
-            "conceptId": concept.get("conceptId") if concept else parent.get("concept_id"),
+            "parentReelId": concept.get("parentReelId")
+            if concept
+            else parent.get("parent_reel_id"),
+            "conceptId": concept.get("conceptId")
+            if concept
+            else parent.get("concept_id"),
             "captionFamilyId": caption_family_id,
             "requestedCaptionVersions": requested,
             "style": style,
@@ -155,7 +175,12 @@ class CaptionFamilyRepository:
             dry_run=True,
         )
         if dry_run or not plan.get("canProceed"):
-            return {**plan, "schema": "campaign_factory.caption_family_create.v1", "createdCaptionVersions": 0, "wouldWrite": False}
+            return {
+                **plan,
+                "schema": "campaign_factory.caption_family_create.v1",
+                "createdCaptionVersions": 0,
+                "wouldWrite": False,
+            }
         parent = self._rendered_asset(parent_asset_id)
         now = self._utc_now()
         self.conn.execute(
@@ -179,7 +204,11 @@ class CaptionFamilyRepository:
                 creator,
                 plan["requestedCaptionVersions"],
                 style,
-                json.dumps({"source": "caption_family_create", "dryRun": False}, ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    {"source": "caption_family_create", "dryRun": False},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -226,7 +255,15 @@ class CaptionFamilyRepository:
                     version["postCaptionStyle"],
                     version["captionAngle"],
                     version["captionSource"],
-                    json.dumps({"wouldRender": False, "wouldExport": False, "wouldSchedule": False}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        {
+                            "wouldRender": False,
+                            "wouldExport": False,
+                            "wouldSchedule": False,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                     now,
                     now,
                 ),
@@ -260,8 +297,12 @@ class CaptionFamilyRepository:
             caption_cta = ""
             hashtags: list[str] = []
         else:
-            burned_caption = CAPTION_FAMILY_BURNED_TEMPLATES[angle].format(base=base_burned).strip()
-            instagram_base = CAPTION_FAMILY_POST_TEMPLATES[angle].format(base=base_burned).strip()
+            burned_caption = (
+                CAPTION_FAMILY_BURNED_TEMPLATES[angle].format(base=base_burned).strip()
+            )
+            instagram_base = (
+                CAPTION_FAMILY_POST_TEMPLATES[angle].format(base=base_burned).strip()
+            )
             caption_cta = CAPTION_FAMILY_CTA_BY_ANGLE[angle]
             hashtags = base_hashtags[:5]
             synthetic = {
@@ -274,18 +315,27 @@ class CaptionFamilyRepository:
                     "post_caption_style": style,
                 },
             }
-            normalized = self._instagram_post_caption_for_asset(synthetic, {"caption_text": burned_caption})
-            instagram_caption = str(normalized.get("instagram_post_caption") or "").strip()
+            normalized = self._instagram_post_caption_for_asset(
+                synthetic, {"caption_text": burned_caption}
+            )
+            instagram_caption = str(
+                normalized.get("instagram_post_caption") or ""
+            ).strip()
             hashtags = list(normalized.get("hashtags") or [])[:5]
         burned_hash = self._text_hash(burned_caption) if burned_caption else ""
         instagram_hash = self._text_hash(instagram_caption) if instagram_caption else ""
-        version_key = ":".join(str(part or "") for part in (caption_family_id, index, burned_hash, instagram_hash, angle))
+        version_key = ":".join(
+            str(part or "")
+            for part in (caption_family_id, index, burned_hash, instagram_hash, angle)
+        )
         return {
             "captionVersionId": f"cver_{hashlib.sha256(version_key.encode('utf-8')).hexdigest()[:12]}",
             "captionFamilyId": caption_family_id,
             "captionFamilyIndex": index,
             "parentAssetId": parent["id"],
-            "parentReelId": concept.get("parentReelId") if concept else parent.get("parent_reel_id"),
+            "parentReelId": concept.get("parentReelId")
+            if concept
+            else parent.get("parent_reel_id"),
             "burnedCaptionText": burned_caption,
             "burnedCaptionHash": burned_hash,
             "instagramPostCaption": instagram_caption,
@@ -313,15 +363,21 @@ class CaptionFamilyRepository:
                 break
         return hashtags
 
-    def caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
+    def caption_version_by_id(
+        self, caption_version_id: str | None
+    ) -> dict[str, Any] | None:
         if not caption_version_id:
             return None
-        row = self.conn.execute("SELECT * FROM caption_versions WHERE id = ?", (caption_version_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM caption_versions WHERE id = ?", (caption_version_id,)
+        ).fetchone()
         if not row:
             return None
         return self.caption_version_payload(row)
 
-    def caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def caption_version_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         if row is None:
             return {}
         data = dict(row)

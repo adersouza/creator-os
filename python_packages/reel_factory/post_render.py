@@ -10,14 +10,29 @@ After all variations for a clip are rendered, this module writes:
 
 Both regenerate idempotently on every full pipeline run.
 """
+
 from __future__ import annotations
-import csv, json, math, shutil, subprocess
+
+import csv
+import json
+import math
+import shutil
+import subprocess
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
-FF = str(_FFMPEG_FULL / "ffmpeg") if (_FFMPEG_FULL / "ffmpeg").exists() else shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = str(_FFMPEG_FULL / "ffprobe") if (_FFMPEG_FULL / "ffprobe").exists() else shutil.which("ffprobe") or "ffprobe"
+FF = (
+    str(_FFMPEG_FULL / "ffmpeg")
+    if (_FFMPEG_FULL / "ffmpeg").exists()
+    else shutil.which("ffmpeg") or "ffmpeg"
+)
+FFPROBE = (
+    str(_FFMPEG_FULL / "ffprobe")
+    if (_FFMPEG_FULL / "ffprobe").exists()
+    else shutil.which("ffprobe") or "ffprobe"
+)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -61,10 +76,23 @@ def _aux_meta_from_filename(mp4: Path) -> dict:
 
 def _probe_duration(mp4: Path) -> float:
     try:
-        out = subprocess.check_output([
-            FFPROBE, "-v", "0", "-show_entries", "format=duration",
-            "-of", "csv=p=0", str(mp4),
-        ], stderr=subprocess.DEVNULL).decode().strip()
+        out = (
+            subprocess.check_output(
+                [
+                    FFPROBE,
+                    "-v",
+                    "0",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "csv=p=0",
+                    str(mp4),
+                ],
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
         return float(out)
     except Exception:
         return 0.0
@@ -87,11 +115,15 @@ def _short_caption(text: str, limit: int = 32) -> str:
     try:
         payload = json.loads(text)
         if isinstance(payload, dict) and isinstance(payload.get("segments"), list):
-            text = " / ".join(str(seg.get("text") or "") for seg in payload["segments"] if isinstance(seg, dict))
+            text = " / ".join(
+                str(seg.get("text") or "")
+                for seg in payload["segments"]
+                if isinstance(seg, dict)
+            )
     except Exception:
         text = text.replace("\n", " / ")
     text = " ".join(text.split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def write_csv_index(out_dir: Path) -> Path | None:
@@ -104,29 +136,39 @@ def write_csv_index(out_dir: Path) -> Path | None:
     csv_path = out_dir / "_index.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["filename", "hook_idx", "recipe", "color",
-                    "caption_text", "size_mb", "duration_sec"])
+        w.writerow(
+            [
+                "filename",
+                "hook_idx",
+                "recipe",
+                "color",
+                "caption_text",
+                "size_mb",
+                "duration_sec",
+            ]
+        )
         for mp4 in mp4s:
             m = meta.get(mp4.name, {})
             aux = _aux_meta_from_filename(mp4)
             size_mb = round(mp4.stat().st_size / 1024 / 1024, 2)
             duration = float(m.get("duration") or _probe_duration(mp4))
-            w.writerow([
-                mp4.name,
-                aux.get("hook_idx", ""),
-                m.get("recipe", ""),
-                aux.get("color", ""),
-                m.get("caption_text", "").replace("\n", " / "),
-                size_mb,
-                round(duration, 2),
-            ])
+            w.writerow(
+                [
+                    mp4.name,
+                    aux.get("hook_idx", ""),
+                    m.get("recipe", ""),
+                    aux.get("color", ""),
+                    m.get("caption_text", "").replace("\n", " / "),
+                    size_mb,
+                    round(duration, 2),
+                ]
+            )
     return csv_path
 
 
-def write_contact_sheet(out_dir: Path,
-                        thumb_w: int = 270,
-                        thumb_h: int = 480,
-                        cols: int = 5) -> Path | None:
+def write_contact_sheet(
+    out_dir: Path, thumb_w: int = 270, thumb_h: int = 480, cols: int = 5
+) -> Path | None:
     """Generate _contact_sheet.png — labeled grid of mid-clip frames for
     every MP4 in out_dir. Frame label = "h<idx> <recipe>" so each cell
     is identifiable without opening the file."""
@@ -147,29 +189,50 @@ def write_contact_sheet(out_dir: Path,
         # e.g. clip_001_h00_v05_hflip_light_xxx.mp4 → recipe = v05_hflip
         parts = mp4.stem.split("_")
         try:
-            h_pos = next(j for j, p in enumerate(parts) if p.startswith("h") and p[1:].isdigit())
+            h_pos = next(
+                j for j, p in enumerate(parts) if p.startswith("h") and p[1:].isdigit()
+            )
             color_pos = next(j for j, p in enumerate(parts) if p in ("light", "dark"))
-            recipe = "_".join(parts[h_pos + 1:color_pos])
+            recipe = "_".join(parts[h_pos + 1 : color_pos])
         except StopIteration:
             recipe = ""
         m = meta.get(mp4.name, {})
         review_state = m.get("review_state", "draft")
         kind = _caption_kind(recipe, str(m.get("caption_text") or ""))
-        caption = "no overlay" if kind == "clean" else _short_caption(str(m.get("caption_text") or ""))
+        caption = (
+            "no overlay"
+            if kind == "clean"
+            else _short_caption(str(m.get("caption_text") or ""))
+        )
         label = (
             f"h{aux.get('hook_idx', '?'):02d} {kind} {recipe}\n{caption or review_state}"
-            if isinstance(aux.get('hook_idx'), int) else mp4.stem[:24]
+            if isinstance(aux.get("hook_idx"), int)
+            else mp4.stem[:24]
         )
 
         frame = tmp_dir / f"frame_{i:03d}.png"
         thumb = tmp_dir / f"cell_{i:03d}.png"
         bar_h = 50
-        subprocess.run([
-            FF, "-hide_banner", "-nostdin", "-loglevel", "error",
-            "-ss", "1.5", "-i", str(mp4), "-frames:v", "1",
-            "-vf", f"scale={thumb_w}:{thumb_h}",
-            "-y", str(frame),
-        ], check=True)
+        subprocess.run(
+            [
+                FF,
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-ss",
+                "1.5",
+                "-i",
+                str(mp4),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={thumb_w}:{thumb_h}",
+                "-y",
+                str(frame),
+            ],
+            check=True,
+        )
         font_path = PROJECT_ROOT / "fonts" / "Onest-Variable.ttf"
         try:
             font = ImageFont.truetype(str(font_path), 18)
@@ -180,7 +243,14 @@ def write_contact_sheet(out_dir: Path,
         canvas.paste(frame_img, (0, bar_h))
         draw = ImageDraw.Draw(canvas)
         bbox = draw.multiline_textbbox((0, 0), label, font=font, spacing=2)
-        draw.multiline_text(((thumb_w - (bbox[2] - bbox[0])) // 2, 8), label, fill=(255, 255, 255), font=font, align="center", spacing=2)
+        draw.multiline_text(
+            ((thumb_w - (bbox[2] - bbox[0])) // 2, 8),
+            label,
+            fill=(255, 255, 255),
+            font=font,
+            align="center",
+            spacing=2,
+        )
         canvas.save(thumb)
         cells.append(thumb)
 
@@ -189,11 +259,24 @@ def write_contact_sheet(out_dir: Path,
     while len(cells) < cols * rows:
         blank = tmp_dir / "blank.png"
         if not blank.exists():
-            subprocess.run([
-                FF, "-hide_banner", "-nostdin", "-loglevel", "error",
-                "-f", "lavfi", "-i", f"color=c=0x111111:s={thumb_w}x{thumb_h+50}:d=1",
-                "-frames:v", "1", "-y", str(blank),
-            ], check=True)
+            subprocess.run(
+                [
+                    FF,
+                    "-hide_banner",
+                    "-nostdin",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    f"color=c=0x111111:s={thumb_w}x{thumb_h + 50}:d=1",
+                    "-frames:v",
+                    "1",
+                    "-y",
+                    str(blank),
+                ],
+                check=True,
+            )
         cells.append(blank)
 
     inputs: list[str] = []
@@ -202,7 +285,7 @@ def write_contact_sheet(out_dir: Path,
 
     rows_fc = []
     for r in range(rows):
-        streams = "".join(f"[{r*cols + c}:v]" for c in range(cols))
+        streams = "".join(f"[{r * cols + c}:v]" for c in range(cols))
         rows_fc.append(f"{streams}hstack=inputs={cols}[r{r}]")
     if rows == 1:
         fc = rows_fc[0] + ";[r0]copy[out]"
@@ -211,10 +294,23 @@ def write_contact_sheet(out_dir: Path,
         fc = ";".join(rows_fc) + ";" + vstack
 
     sheet_path = out_dir / "_contact_sheet.png"
-    subprocess.run([
-        FF, "-hide_banner", "-nostdin", "-loglevel", "error",
-        *inputs, "-filter_complex", fc, "-map", "[out]", "-y", str(sheet_path),
-    ], check=True)
+    subprocess.run(
+        [
+            FF,
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            *inputs,
+            "-filter_complex",
+            fc,
+            "-map",
+            "[out]",
+            "-y",
+            str(sheet_path),
+        ],
+        check=True,
+    )
 
     # Cleanup tmp cells
     for f in tmp_dir.glob("*"):

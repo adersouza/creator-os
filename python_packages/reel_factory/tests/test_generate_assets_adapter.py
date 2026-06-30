@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from generate_assets import HiggsfieldCliAdapter, HiggsfieldCommandError
-
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "higgsfield_adapter"
 
@@ -57,7 +55,9 @@ def test_higgsfield_adapter_classifies_quota_rejection_fixture() -> None:
     payload = _fixture("quota_error.json")
 
     def runner(cmd, capture_output, text, timeout):
-        return FakeCompletedProcess(returncode=1, stdout=payload["stdout"], stderr=payload["stderr"])
+        return FakeCompletedProcess(
+            returncode=1, stdout=payload["stdout"], stderr=payload["stderr"]
+        )
 
     with pytest.raises(HiggsfieldCommandError) as excinfo:
         HiggsfieldCliAdapter(runner=runner).run_json(

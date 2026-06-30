@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic Kling motion prompts for accepted Reel Factory stills."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +8,6 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
-
 
 SceneType = Literal[
     "mirror_selfie",
@@ -84,14 +84,18 @@ def compile_reel_motion_prompt(
 ) -> ReelMotionPrompt:
     normalized = str(scene_type or "").strip().lower().replace("-", "_")
     if normalized not in SCENE_TYPES:
-        raise ValueError(f"unsupported scene_type {scene_type!r}; expected one of {sorted(SCENE_TYPES)}")
+        raise ValueError(
+            f"unsupported scene_type {scene_type!r}; expected one of {sorted(SCENE_TYPES)}"
+        )
     start_image = str(Path(start_image_path).expanduser())
     scene_motion = _MOTION_BY_SCENE[normalized]
     prompt_context = ""
     if captured_higgsfield_prompt:
         trimmed = " ".join(str(captured_higgsfield_prompt).split())
         if trimmed:
-            prompt_context = f" Visual context from the accepted still: {trimmed[:500]}."
+            prompt_context = (
+                f" Visual context from the accepted still: {trimmed[:500]}."
+            )
     return ReelMotionPrompt(
         schema="reel_factory.reel_motion_prompt.v1",
         startImagePath=start_image,

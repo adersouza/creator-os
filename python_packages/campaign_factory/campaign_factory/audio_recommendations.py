@@ -7,8 +7,9 @@ import os
 import re
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import Settings
 from .persistence import json_load, utc_now
@@ -69,7 +70,11 @@ class AudioRecommendationRepository:
         if not catalog_path.exists():
             raise FileNotFoundError(f"audio catalog not found: {catalog_path}")
         payload = json_load(catalog_path.read_text(encoding="utf-8"), {})
-        items = payload.get("items") or payload.get("audio") or payload.get("recommendations")
+        items = (
+            payload.get("items")
+            or payload.get("audio")
+            or payload.get("recommendations")
+        )
         if not isinstance(items, list):
             raise ValueError("audio catalog export must contain an items array")
         now = utc_now()
@@ -88,9 +93,15 @@ class AudioRecommendationRepository:
                 or item.get("sourceAudioId")
                 or item.get("nativeAudioId")
                 or item.get("audioId")
-                or hashlib.sha256(f"{platform}:{title}:{item.get('artistName') or item.get('artist_name') or item.get('artist') or ''}".encode("utf-8")).hexdigest()[:16]
+                or hashlib.sha256(
+                    f"{platform}:{title}:{item.get('artistName') or item.get('artist_name') or item.get('artist') or ''}".encode()
+                ).hexdigest()[:16]
             )
-            native_audio_id = item.get("nativeAudioId") or item.get("audioId") or item.get("platformAudioId")
+            native_audio_id = (
+                item.get("nativeAudioId")
+                or item.get("audioId")
+                or item.get("platformAudioId")
+            )
             row_id = str(source_audio_id or self._new_id("aud"))
             if native_audio_id:
                 existing_audio = self.conn.execute(
@@ -99,7 +110,9 @@ class AudioRecommendationRepository:
                 ).fetchone()
                 if existing_audio:
                     row_id = existing_audio["id"]
-                    source_audio_id = existing_audio["source_audio_id"] or source_audio_id
+                    source_audio_id = (
+                        existing_audio["source_audio_id"] or source_audio_id
+                    )
             review_reasons = item.get("reviewReasons") or []
             raw = dict(item)
             latest_snapshot = self.latest_audio_trend_snapshot_payload(item)
@@ -155,11 +168,18 @@ class AudioRecommendationRepository:
                     row_id,
                     source_audio_id,
                     title,
-                    item.get("artistName") or item.get("artist_name") or item.get("artist"),
+                    item.get("artistName")
+                    or item.get("artist_name")
+                    or item.get("artist"),
                     platform,
                     native_audio_id,
-                    item.get("nativeAudioUrl") or item.get("platformUrl") or item.get("native_audio_url"),
-                    json.dumps(item.get("moodTags") or item.get("vibeTags") or [], ensure_ascii=False),
+                    item.get("nativeAudioUrl")
+                    or item.get("platformUrl")
+                    or item.get("native_audio_url"),
+                    json.dumps(
+                        item.get("moodTags") or item.get("vibeTags") or [],
+                        ensure_ascii=False,
+                    ),
                     json.dumps(item.get("bestContentTypes") or [], ensure_ascii=False),
                     json.dumps(item.get("accountFit") or [], ensure_ascii=False),
                     item.get("trendStatus") or item.get("freshness") or "unknown",
@@ -177,12 +197,21 @@ class AudioRecommendationRepository:
                     item.get("recommendationConfidence"),
                     item.get("performanceLift"),
                     item.get("sourceConfidence"),
-                    json.dumps(sorted({str(source) for source in trend_sources if source}), ensure_ascii=False),
+                    json.dumps(
+                        sorted({str(source) for source in trend_sources if source}),
+                        ensure_ascii=False,
+                    ),
                     1 if item.get("resolved") is True or not review_reasons else 0,
                     json.dumps(review_reasons, ensure_ascii=False),
                     json.dumps(item.get("exampleReels") or [], ensure_ascii=False),
-                    json.dumps(item.get("performanceSummary") or {}, ensure_ascii=False, sort_keys=True),
-                    json.dumps(item.get("fatigue") or {}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        item.get("performanceSummary") or {},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    json.dumps(
+                        item.get("fatigue") or {}, ensure_ascii=False, sort_keys=True
+                    ),
                     json.dumps(raw, ensure_ascii=False, sort_keys=True),
                     now,
                     now,
@@ -196,14 +225,18 @@ class AudioRecommendationRepository:
                     "platform": platform,
                     "nativeAudioId": native_audio_id,
                     "title": title,
-                    "artistName": item.get("artistName") or item.get("artist_name") or item.get("artist"),
+                    "artistName": item.get("artistName")
+                    or item.get("artist_name")
+                    or item.get("artist"),
                 },
             )
             for snapshot in item.get("trendSnapshots") or []:
                 if not isinstance(snapshot, dict):
                     continue
-                observed_at = str(snapshot.get("observedAt") or snapshot.get("observed_at") or now)
-                snapshot_id = f"audtrend_{hashlib.sha256(f'{row_id}:{observed_at}'.encode('utf-8')).hexdigest()[:12]}"
+                observed_at = str(
+                    snapshot.get("observedAt") or snapshot.get("observed_at") or now
+                )
+                snapshot_id = f"audtrend_{hashlib.sha256(f'{row_id}:{observed_at}'.encode()).hexdigest()[:12]}"
                 self.conn.execute(
                     """
                     INSERT INTO audio_trend_snapshots (
@@ -227,9 +260,13 @@ class AudioRecommendationRepository:
                         platform,
                         native_audio_id,
                         observed_at,
-                        snapshot.get("trendStatus") or snapshot.get("trend_status") or item.get("trendStatus") or "unknown",
+                        snapshot.get("trendStatus")
+                        or snapshot.get("trend_status")
+                        or item.get("trendStatus")
+                        or "unknown",
                         snapshot.get("usageCount") or snapshot.get("usage_count"),
-                        snapshot.get("saturationScore") or snapshot.get("saturation_score"),
+                        snapshot.get("saturationScore")
+                        or snapshot.get("saturation_score"),
                         snapshot.get("velocityScore") or snapshot.get("velocity_score"),
                         snapshot.get("source"),
                         snapshot.get("notes"),
@@ -243,7 +280,9 @@ class AudioRecommendationRepository:
                     local_id=snapshot_id,
                     payload={"audioCatalogId": row_id, "observedAt": observed_at},
                 )
-                self._ensure_graph_edge(audio_graph_id, snapshot_graph_id, "audio_memory_to_trend_snapshot")
+                self._ensure_graph_edge(
+                    audio_graph_id, snapshot_graph_id, "audio_memory_to_trend_snapshot"
+                )
                 snapshots_imported += 1
             imported += 1
         self.conn.commit()
@@ -251,7 +290,11 @@ class AudioRecommendationRepository:
             "audio_memory_imported",
             status="success",
             message=f"Audio memory imported: {imported} tracks",
-            metadata={"catalogPath": str(catalog_path), "tracks": imported, "trendSnapshots": snapshots_imported},
+            metadata={
+                "catalogPath": str(catalog_path),
+                "tracks": imported,
+                "trendSnapshots": snapshots_imported,
+            },
         )
         return {
             "schema": "campaign_factory.audio_memory_import.v1",
@@ -260,7 +303,9 @@ class AudioRecommendationRepository:
             "trendSnapshotsImported": snapshots_imported,
         }
 
-    def audio_catalog(self, platform: str | None = None, limit: int = 100) -> dict[str, Any]:
+    def audio_catalog(
+        self, platform: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
         params: list[Any] = []
         sql = "SELECT * FROM audio_catalog"
         if platform:
@@ -269,14 +314,25 @@ class AudioRecommendationRepository:
         sql += " ORDER BY updated_at DESC, title LIMIT ?"
         params.append(max(1, min(limit, 1000)))
         rows = self.conn.execute(sql, params).fetchall()
-        return {"schema": "campaign_factory.audio_catalog.v1", "count": len(rows), "items": [self.audio_catalog_payload(dict(row)) for row in rows]}
+        return {
+            "schema": "campaign_factory.audio_catalog.v1",
+            "count": len(rows),
+            "items": [self.audio_catalog_payload(dict(row)) for row in rows],
+        }
 
-    def audio_memory(self, platform: str | None = None, account: str | None = None, limit: int = 100) -> dict[str, Any]:
+    def audio_memory(
+        self, platform: str | None = None, account: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
         requested_limit = max(1, min(int(limit), 1000))
-        payload = self.audio_catalog(platform=platform, limit=max(requested_limit, min(1000, requested_limit * 10)))
+        payload = self.audio_catalog(
+            platform=platform,
+            limit=max(requested_limit, min(1000, requested_limit * 10)),
+        )
         items = payload["items"]
         for item in items:
-            item["performanceSummary"] = self.audio_performance_summary(item, account=account)
+            item["performanceSummary"] = self.audio_performance_summary(
+                item, account=account
+            )
             item["fatigue"] = self.audio_fatigue_summary(item, account=account)
             score, reasons, components, confidence = self.score_audio_catalog_item_v2(
                 item,
@@ -286,9 +342,17 @@ class AudioRecommendationRepository:
             )
             item["audioMemoryScore"] = score
             item["scoreComponents"] = components
-            item["recommendationConfidence"] = item.get("recommendationConfidence") or confidence
+            item["recommendationConfidence"] = (
+                item.get("recommendationConfidence") or confidence
+            )
             item["rationale"] = ", ".join(reasons)
-        items.sort(key=lambda item: (float(item.get("audioMemoryScore") or 0), int(item.get("usageCount") or 0)), reverse=True)
+        items.sort(
+            key=lambda item: (
+                float(item.get("audioMemoryScore") or 0),
+                int(item.get("usageCount") or 0),
+            ),
+            reverse=True,
+        )
         items = items[:requested_limit]
         return {
             "schema": "campaign_factory.audio_memory.v1",
@@ -311,9 +375,13 @@ class AudioRecommendationRepository:
         visual_signal: dict[str, Any] | None = None,
         limit: int = 3,
     ) -> dict[str, Any]:
-        tags = {self.norm_tag(tag) for tag in (content_tags or []) if self.norm_tag(tag)}
+        tags = {
+            self.norm_tag(tag) for tag in (content_tags or []) if self.norm_tag(tag)
+        }
         tags.update(OFM_AUDIO_CONTEXT_TAGS)
-        accounts = {self.norm_tag(tag) for tag in (account_tags or []) if self.norm_tag(tag)}
+        accounts = {
+            self.norm_tag(tag) for tag in (account_tags or []) if self.norm_tag(tag)
+        }
         if account:
             accounts.add(self.norm_tag(account))
         campaign = self._campaign_by_slug(campaign_slug) if campaign_slug else None
@@ -322,26 +390,52 @@ class AudioRecommendationRepository:
             if rec.get("target_account"):
                 accounts.add(self.norm_tag(rec["target_account"]))
             if rec.get("reference_pattern_id"):
-                ref = self.conn.execute("SELECT * FROM reference_patterns WHERE id = ?", (rec["reference_pattern_id"],)).fetchone()
+                ref = self.conn.execute(
+                    "SELECT * FROM reference_patterns WHERE id = ?",
+                    (rec["reference_pattern_id"],),
+                ).fetchone()
                 if ref:
                     pattern = self._reference_pattern_payload(dict(ref))
-                    tags.update(self.norm_tag(tag) for tag in [pattern.get("visualFormat"), pattern.get("hookType"), pattern.get("captionArchetype")] if self.norm_tag(tag))
+                    tags.update(
+                        self.norm_tag(tag)
+                        for tag in [
+                            pattern.get("visualFormat"),
+                            pattern.get("hookType"),
+                            pattern.get("captionArchetype"),
+                        ]
+                        if self.norm_tag(tag)
+                    )
         platform_key = platform.strip().lower()
         if platform_key in {"instagram", "ig", "instagram_reels"}:
             candidates = [
-                item for item in self.audio_catalog(platform=None, limit=1000)["items"]
+                item
+                for item in self.audio_catalog(platform=None, limit=1000)["items"]
                 if item.get("platform") in {"instagram", "tiktok"}
             ]
         else:
             candidates = self.audio_catalog(platform=platform, limit=1000)["items"]
         scored = []
-        use_contentforge_fit = bool(visual_signal) or os.environ.get("CAMPAIGN_FACTORY_AUDIO_FIT") == "1"
+        use_contentforge_fit = (
+            bool(visual_signal) or os.environ.get("CAMPAIGN_FACTORY_AUDIO_FIT") == "1"
+        )
         for item in candidates:
-            performance = self.audio_performance_summary(item, campaign_id=campaign["id"] if campaign else None, account=account)
-            fatigue = self.audio_fatigue_summary(item, campaign_id=campaign["id"] if campaign else None, account=account)
+            performance = self.audio_performance_summary(
+                item, campaign_id=campaign["id"] if campaign else None, account=account
+            )
+            fatigue = self.audio_fatigue_summary(
+                item, campaign_id=campaign["id"] if campaign else None, account=account
+            )
             item = {**item, "performanceSummary": performance, "fatigue": fatigue}
-            score, reasons, components, confidence = self.score_audio_catalog_item_v2(item, tags, accounts, account=account)
-            audio_fit = self.contentforge_audio_fit_for_item(item, tags, visual_signal=visual_signal) if use_contentforge_fit else None
+            score, reasons, components, confidence = self.score_audio_catalog_item_v2(
+                item, tags, accounts, account=account
+            )
+            audio_fit = (
+                self.contentforge_audio_fit_for_item(
+                    item, tags, visual_signal=visual_signal
+                )
+                if use_contentforge_fit
+                else None
+            )
             if audio_fit:
                 fit_score = audio_fit.get("audioFitScore")
                 if isinstance(fit_score, (int, float)):
@@ -350,23 +444,33 @@ class AudioRecommendationRepository:
                 for warning in audio_fit.get("warnings") or []:
                     if isinstance(warning, dict) and warning.get("code"):
                         reasons.append(f"fit_warning:{warning['code']}")
-            scored.append({
-                **item,
-                "requestedPlatform": platform_key,
-                "matchScore": max(0, round(score, 3)),
-                "audioMemoryScore": max(0, round(score, 3)),
-                "scoreComponents": components,
-                "recommendationConfidence": confidence,
-                "rationale": ", ".join(reasons) or "platform match",
-                "audioFit": audio_fit,
-            })
-        scored.sort(key=lambda item: (-float(item["matchScore"]), -(int(item.get("usageCount") or 0)), item["title"]))
+            scored.append(
+                {
+                    **item,
+                    "requestedPlatform": platform_key,
+                    "matchScore": max(0, round(score, 3)),
+                    "audioMemoryScore": max(0, round(score, 3)),
+                    "scoreComponents": components,
+                    "recommendationConfidence": confidence,
+                    "rationale": ", ".join(reasons) or "platform match",
+                    "audioFit": audio_fit,
+                }
+            )
+        scored.sort(
+            key=lambda item: (
+                -float(item["matchScore"]),
+                -(int(item.get("usageCount") or 0)),
+                item["title"],
+            )
+        )
         recommendations = [
             {**self.audio_catalog_recommendation(item), "selectionRank": index}
-            for index, item in enumerate(scored[:max(1, limit)], start=1)
+            for index, item in enumerate(scored[: max(1, limit)], start=1)
         ]
         for item in recommendations:
-            decision_score, decision_reasons, risk_flags = self.audio_decision_score(item, requested_platform=platform_key)
+            decision_score, decision_reasons, risk_flags = self.audio_decision_score(
+                item, requested_platform=platform_key
+            )
             item["decisionScore"] = round(decision_score, 3)
             item["decisionReasons"] = decision_reasons
             item["riskFlags"] = risk_flags
@@ -415,9 +519,19 @@ class AudioRecommendationRepository:
         )
         decision = recommendations.get("decision") or {}
         selection = None
-        primary = decision.get("primaryAudio") if isinstance(decision.get("primaryAudio"), dict) else None
+        primary = (
+            decision.get("primaryAudio")
+            if isinstance(decision.get("primaryAudio"), dict)
+            else None
+        )
         if select and recommendation_item_id and primary:
-            audio_id = primary.get("catalogAudioId") or primary.get("catalog_audio_id") or primary.get("audioMemoryGraphId") or primary.get("platform_audio_id") or primary.get("audioId")
+            audio_id = (
+                primary.get("catalogAudioId")
+                or primary.get("catalog_audio_id")
+                or primary.get("audioMemoryGraphId")
+                or primary.get("platform_audio_id")
+                or primary.get("audioId")
+            )
             if audio_id:
                 selection = self._select_audio_for_recommendation(
                     recommendation_item_id,
@@ -447,7 +561,9 @@ class AudioRecommendationRepository:
         for item in recommendations:
             if not isinstance(item, dict):
                 continue
-            score, reasons, risks = self.audio_decision_score(item, requested_platform=requested_platform)
+            score, reasons, risks = self.audio_decision_score(
+                item, requested_platform=requested_platform
+            )
             enriched = {
                 **item,
                 "decisionScore": round(score, 3),
@@ -457,9 +573,16 @@ class AudioRecommendationRepository:
                 "whenNotToUse": self.audio_when_not_to_use(item, risks),
             }
             candidates.append(enriched)
-        candidates.sort(key=lambda item: (-float(item.get("decisionScore") or 0), int(item.get("selectionRank") or 999999), str(item.get("audioTitle") or "")))
+        candidates.sort(
+            key=lambda item: (
+                -float(item.get("decisionScore") or 0),
+                int(item.get("selectionRank") or 999999),
+                str(item.get("audioTitle") or ""),
+            )
+        )
         do_not_use = [
-            item for item in candidates
+            item
+            for item in candidates
             if float(item.get("decisionScore") or 0) < 45
             or "stale_trend" in (item.get("riskFlags") or [])
             or "high_fatigue" in (item.get("riskFlags") or [])
@@ -484,18 +607,31 @@ class AudioRecommendationRepository:
             "accountTags": account_tags or [],
         }
 
-    def audio_decision_score(self, item: dict[str, Any], *, requested_platform: str) -> tuple[float, list[str], list[str]]:
+    def audio_decision_score(
+        self, item: dict[str, Any], *, requested_platform: str
+    ) -> tuple[float, list[str], list[str]]:
         score = float(item.get("audioMemoryScore") or item.get("matchScore") or 0)
         reasons: list[str] = []
         risks: list[str] = []
         platform = str(item.get("platform") or "").strip().lower()
         title = str(item.get("audioTitle") or item.get("audio_title") or "")
-        native_id = item.get("platform_audio_id") or item.get("audioId") or item.get("nativeAudioId")
-        native_url = item.get("platform_url") or item.get("platformUrl") or item.get("nativeAudioUrl")
+        native_id = (
+            item.get("platform_audio_id")
+            or item.get("audioId")
+            or item.get("nativeAudioId")
+        )
+        native_url = (
+            item.get("platform_url")
+            or item.get("platformUrl")
+            or item.get("nativeAudioUrl")
+        )
         if platform == "instagram" and (native_id or native_url):
             score += 18
             reasons.append("resolved_instagram_native_audio")
-        elif requested_platform in {"instagram", "ig", "instagram_reels"} and platform == "tiktok":
+        elif (
+            requested_platform in {"instagram", "ig", "instagram_reels"}
+            and platform == "tiktok"
+        ):
             score -= 14
             risks.append("needs_ig_lookup")
             reasons.append("tiktok_cross_platform_trend_signal")
@@ -505,7 +641,9 @@ class AudioRecommendationRepository:
         if self.is_generic_audio_title(title, platform):
             score -= 18
             risks.append("unresolved_or_generic_title")
-        trend = self.norm_tag(item.get("trendStatus") or item.get("freshness") or "unknown")
+        trend = self.norm_tag(
+            item.get("trendStatus") or item.get("freshness") or "unknown"
+        )
         if trend in {"rising", "fresh", "trending", "current"}:
             score += 8
             reasons.append(f"trend:{trend}")
@@ -536,7 +674,11 @@ class AudioRecommendationRepository:
         if isinstance(creator_fit, (int, float)) and creator_fit >= 70:
             score += 7
             reasons.append("ofm_creator_fit")
-        return max(0, min(100, score)), reasons or ["highest_ranked_audio_memory_match"], risks
+        return (
+            max(0, min(100, score)),
+            reasons or ["highest_ranked_audio_memory_match"],
+            risks,
+        )
 
     def audio_decision_confidence(self, primary: dict[str, Any] | None) -> str:
         if not primary:
@@ -545,7 +687,10 @@ class AudioRecommendationRepository:
         risks = set(primary.get("riskFlags") or [])
         if score >= 82 and not risks:
             return "strong"
-        if score >= 68 and not (risks & {"missing_native_locator", "unresolved_or_generic_title", "high_fatigue"}):
+        if score >= 68 and not (
+            risks
+            & {"missing_native_locator", "unresolved_or_generic_title", "high_fatigue"}
+        ):
             return "usable"
         if score >= 50:
             return "directional"
@@ -589,7 +734,11 @@ class AudioRecommendationRepository:
             "audio_catalog",
             row["id"],
             entity_type="audio_memory",
-            payload={"platform": row["platform"], "nativeAudioId": row["native_audio_id"], "title": row["title"]},
+            payload={
+                "platform": row["platform"],
+                "nativeAudioId": row["native_audio_id"],
+                "title": row["title"],
+            },
         )
         return {
             "id": row["id"],
@@ -621,10 +770,16 @@ class AudioRecommendationRepository:
             "trendSources": json_load(row.get("trend_sources_json"), []),
             "resolved": bool(row.get("resolved")),
             "reviewReasons": json_load(row.get("review_reasons_json"), []),
-            "exampleReels": json_load(row.get("example_reels_json"), raw.get("exampleReels") or []),
-            "performanceSummary": json_load(row.get("performance_summary_json"), raw.get("performanceSummary") or {}),
+            "exampleReels": json_load(
+                row.get("example_reels_json"), raw.get("exampleReels") or []
+            ),
+            "performanceSummary": json_load(
+                row.get("performance_summary_json"), raw.get("performanceSummary") or {}
+            ),
             "fatigue": json_load(row.get("fatigue_json"), raw.get("fatigue") or {}),
-            "trendSnapshots": raw.get("trendSnapshots") if isinstance(raw.get("trendSnapshots"), list) else [],
+            "trendSnapshots": raw.get("trendSnapshots")
+            if isinstance(raw.get("trendSnapshots"), list)
+            else [],
             "raw": raw,
             "importedAt": row["imported_at"],
             "updatedAt": row["updated_at"],
@@ -648,12 +803,18 @@ class AudioRecommendationRepository:
             params.extend([account, account])
         rows = [dict(row) for row in self.conn.execute(sql, params).fetchall()]
         if not rows:
-            stored = item.get("performanceSummary") if isinstance(item.get("performanceSummary"), dict) else {}
+            stored = (
+                item.get("performanceSummary")
+                if isinstance(item.get("performanceSummary"), dict)
+                else {}
+            )
             return {
                 "sampleSize": int(stored.get("sampleSize") or 0),
                 "postCount": int(stored.get("postCount") or 0),
                 "avgScore": stored.get("avgScore"),
-                "performanceLift": item.get("performanceLift") if item.get("performanceLift") is not None else stored.get("performanceLift"),
+                "performanceLift": item.get("performanceLift")
+                if item.get("performanceLift") is not None
+                else stored.get("performanceLift"),
                 "source": "catalog" if stored else "none",
             }
         post_count = sum(int(row.get("post_count") or 0) for row in rows)
@@ -691,22 +852,32 @@ class AudioRecommendationRepository:
         row = self.conn.execute(sql, params).fetchone()
         post_count = int(row["post_count"] or 0) if row else 0
         stored = item.get("fatigue") if isinstance(item.get("fatigue"), dict) else {}
-        level = stored.get("level") or ("high" if post_count >= 8 else "medium" if post_count >= 4 else "low")
+        level = stored.get("level") or (
+            "high" if post_count >= 8 else "medium" if post_count >= 4 else "low"
+        )
         return {
             "level": level,
             "recentUses": post_count,
-            "fatigueScore": item.get("fatigueScore") if item.get("fatigueScore") is not None else stored.get("fatigueScore"),
+            "fatigueScore": item.get("fatigueScore")
+            if item.get("fatigueScore") is not None
+            else stored.get("fatigueScore"),
             "source": "performance_rollups" if post_count else "catalog",
         }
 
     def audio_key(self, item: dict[str, Any]) -> str:
         platform = str(item.get("platform") or "instagram").strip().lower()
-        native_id = item.get("nativeAudioId") or item.get("audioId") or item.get("platformAudioId")
+        native_id = (
+            item.get("nativeAudioId")
+            or item.get("audioId")
+            or item.get("platformAudioId")
+        )
         if native_id:
             return f"{platform}:{native_id}"
         return f"{platform}:{self._slugify(str(item.get('title') or item.get('audioTitle') or 'unknown'))}:{self._slugify(str(item.get('artistName') or item.get('artist_name') or ''))}"
 
-    def score_audio_catalog_item(self, item: dict[str, Any], tags: set[str], accounts: set[str]) -> tuple[float, list[str]]:
+    def score_audio_catalog_item(
+        self, item: dict[str, Any], tags: set[str], accounts: set[str]
+    ) -> tuple[float, list[str]]:
         score = 35.0
         reasons = []
         trend = self.norm_tag(item.get("trendStatus") or "unknown")
@@ -716,12 +887,18 @@ class AudioRecommendationRepository:
         elif trend in {"peaked", "fading", "stale", "expired"}:
             score -= 20
             reasons.append(f"trend:{trend}")
-        item_tags = {self.norm_tag(tag) for tag in (item.get("moodTags") or []) + (item.get("bestContentTypes") or [])}
+        item_tags = {
+            self.norm_tag(tag)
+            for tag in (item.get("moodTags") or [])
+            + (item.get("bestContentTypes") or [])
+        }
         overlap = tags & item_tags
         if overlap:
             score += 15 * len(overlap)
             reasons.append(f"tag_match:{'/'.join(sorted(overlap))}")
-        account_overlap = accounts & {self.norm_tag(tag) for tag in item.get("accountFit") or []}
+        account_overlap = accounts & {
+            self.norm_tag(tag) for tag in item.get("accountFit") or []
+        }
         if account_overlap:
             score += 10 * len(account_overlap)
             reasons.append(f"account_match:{'/'.join(sorted(account_overlap))}")
@@ -747,7 +924,9 @@ class AudioRecommendationRepository:
         account_fit_score = self.audio_account_fit_component(item, accounts)
         creator_fit_score = self.audio_creator_fit_component(item, tags)
         fatigue_safety_score = self.audio_fatigue_safety_component(item)
-        locator_score = 100.0 if item.get("nativeAudioId") or item.get("nativeAudioUrl") else 35.0
+        locator_score = (
+            100.0 if item.get("nativeAudioId") or item.get("nativeAudioUrl") else 35.0
+        )
         components = {
             "trend": round(trend_score, 3),
             "velocity": round(velocity_score, 3),
@@ -776,7 +955,11 @@ class AudioRecommendationRepository:
             f"account_fit:{round(account_fit_score)}",
             f"fatigue_safety:{round(fatigue_safety_score)}",
         ]
-        performance = item.get("performanceSummary") if isinstance(item.get("performanceSummary"), dict) else {}
+        performance = (
+            item.get("performanceSummary")
+            if isinstance(item.get("performanceSummary"), dict)
+            else {}
+        )
         if performance.get("sampleSize"):
             reasons.append(f"proof_samples:{performance.get('sampleSize')}")
         if account:
@@ -813,12 +996,25 @@ class AudioRecommendationRepository:
         latest = self.latest_audio_trend_snapshot_payload(item)
         value = latest.get("velocityScore") or latest.get("velocity_score")
         if isinstance(value, (int, float)):
-            return max(0.0, min(100.0, float(value) * 100 if float(value) <= 1 else float(value)))
+            return max(
+                0.0,
+                min(100.0, float(value) * 100 if float(value) <= 1 else float(value)),
+            )
         trend = self.norm_tag(item.get("trendStatus") or "unknown")
-        return {"rising": 82.0, "fresh": 75.0, "trending": 68.0, "current": 58.0, "fading": 20.0}.get(trend, 45.0)
+        return {
+            "rising": 82.0,
+            "fresh": 75.0,
+            "trending": 68.0,
+            "current": 58.0,
+            "fading": 20.0,
+        }.get(trend, 45.0)
 
     def audio_performance_component(self, item: dict[str, Any]) -> float:
-        performance = item.get("performanceSummary") if isinstance(item.get("performanceSummary"), dict) else {}
+        performance = (
+            item.get("performanceSummary")
+            if isinstance(item.get("performanceSummary"), dict)
+            else {}
+        )
         if isinstance(performance.get("avgScore"), (int, float)):
             return max(0.0, min(100.0, float(performance["avgScore"])))
         lift = performance.get("performanceLift")
@@ -828,7 +1024,9 @@ class AudioRecommendationRepository:
             return max(0.0, min(100.0, 50.0 + float(lift)))
         return 50.0
 
-    def audio_account_fit_component(self, item: dict[str, Any], accounts: set[str]) -> float:
+    def audio_account_fit_component(
+        self, item: dict[str, Any], accounts: set[str]
+    ) -> float:
         if isinstance(item.get("accountFitScore"), (int, float)):
             return max(0.0, min(100.0, float(item["accountFitScore"])))
         account_fit = {self.norm_tag(tag) for tag in item.get("accountFit") or []}
@@ -838,12 +1036,16 @@ class AudioRecommendationRepository:
             return 70.0
         return 55.0 if not accounts else 45.0
 
-    def audio_creator_fit_component(self, item: dict[str, Any], tags: set[str]) -> float:
+    def audio_creator_fit_component(
+        self, item: dict[str, Any], tags: set[str]
+    ) -> float:
         if isinstance(item.get("creatorFitScore"), (int, float)):
             return max(0.0, min(100.0, float(item["creatorFitScore"])))
         item_tags = {
             self.norm_tag(tag)
-            for tag in (item.get("moodTags") or []) + (item.get("bestContentTypes") or []) + (item.get("accountFit") or [])
+            for tag in (item.get("moodTags") or [])
+            + (item.get("bestContentTypes") or [])
+            + (item.get("accountFit") or [])
         }
         ofm_overlap = item_tags & OFM_AUDIO_CONTEXT_TAGS
         tag_overlap = item_tags & tags
@@ -855,7 +1057,11 @@ class AudioRecommendationRepository:
 
     def audio_fatigue_safety_component(self, item: dict[str, Any]) -> float:
         fatigue = item.get("fatigue") if isinstance(item.get("fatigue"), dict) else {}
-        raw_score = item.get("fatigueScore") if item.get("fatigueScore") is not None else fatigue.get("fatigueScore")
+        raw_score = (
+            item.get("fatigueScore")
+            if item.get("fatigueScore") is not None
+            else fatigue.get("fatigueScore")
+        )
         if isinstance(raw_score, (int, float)):
             value = float(raw_score)
             return max(0.0, min(100.0, 100.0 - (value * 100 if value <= 1 else value)))
@@ -866,31 +1072,70 @@ class AudioRecommendationRepository:
             return 48.0
         return 82.0
 
-    def audio_recommendation_confidence(self, item: dict[str, Any], components: dict[str, float]) -> str:
-        performance = item.get("performanceSummary") if isinstance(item.get("performanceSummary"), dict) else {}
-        sample_size = int(performance.get("sampleSize") or performance.get("postCount") or 0)
+    def audio_recommendation_confidence(
+        self, item: dict[str, Any], components: dict[str, float]
+    ) -> str:
+        performance = (
+            item.get("performanceSummary")
+            if isinstance(item.get("performanceSummary"), dict)
+            else {}
+        )
+        sample_size = int(
+            performance.get("sampleSize") or performance.get("postCount") or 0
+        )
         source_confidence = item.get("sourceConfidence")
-        source_ok = not isinstance(source_confidence, (int, float)) or float(source_confidence) >= 0.65
-        if sample_size >= 5 and min(components.get("creatorFit", 0), components.get("fatigueSafety", 0)) >= 60 and source_ok:
+        source_ok = (
+            not isinstance(source_confidence, (int, float))
+            or float(source_confidence) >= 0.65
+        )
+        if (
+            sample_size >= 5
+            and min(components.get("creatorFit", 0), components.get("fatigueSafety", 0))
+            >= 60
+            and source_ok
+        ):
             return "strong"
-        if sample_size >= 2 or (components.get("trend", 0) >= 70 and components.get("velocity", 0) >= 60 and components.get("creatorFit", 0) >= 60):
+        if sample_size >= 2 or (
+            components.get("trend", 0) >= 70
+            and components.get("velocity", 0) >= 60
+            and components.get("creatorFit", 0) >= 60
+        ):
             return "usable"
         if components.get("trend", 0) >= 55 or components.get("creatorFit", 0) >= 55:
             return "directional"
         return "weak"
 
-    def latest_audio_trend_snapshot_payload(self, item: dict[str, Any]) -> dict[str, Any]:
-        snapshots = item.get("trendSnapshots") if isinstance(item.get("trendSnapshots"), list) else []
+    def latest_audio_trend_snapshot_payload(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        snapshots = (
+            item.get("trendSnapshots")
+            if isinstance(item.get("trendSnapshots"), list)
+            else []
+        )
         parsed = [snapshot for snapshot in snapshots if isinstance(snapshot, dict)]
         if not parsed:
             raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
             latest = raw.get("latestTrendSnapshot")
             return latest if isinstance(latest, dict) else {}
-        return sorted(parsed, key=lambda snapshot: str(snapshot.get("observedAt") or snapshot.get("observed_at") or ""), reverse=True)[0]
+        return sorted(
+            parsed,
+            key=lambda snapshot: str(
+                snapshot.get("observedAt") or snapshot.get("observed_at") or ""
+            ),
+            reverse=True,
+        )[0]
 
     def audio_memory_trust_summary(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         if not items:
-            return {"count": 0, "strong": 0, "usable": 0, "directional": 0, "weak": 0, "averageScore": None}
+            return {
+                "count": 0,
+                "strong": 0,
+                "usable": 0,
+                "directional": 0,
+                "weak": 0,
+                "averageScore": None,
+            }
         counts = {level: 0 for level in ("strong", "usable", "directional", "weak")}
         scores = []
         for item in items:
@@ -904,7 +1149,13 @@ class AudioRecommendationRepository:
             "averageScore": round(sum(scores) / len(scores), 2) if scores else None,
         }
 
-    def contentforge_audio_fit_for_item(self, item: dict[str, Any], tags: set[str], *, visual_signal: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    def contentforge_audio_fit_for_item(
+        self,
+        item: dict[str, Any],
+        tags: set[str],
+        *,
+        visual_signal: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         module_path = self.settings.contentforge_root / "lib" / "audio-fit.js"
         if not module_path.exists():
             return None
@@ -913,16 +1164,25 @@ class AudioRecommendationRepository:
             "hookTags": sorted(tags),
             "visual": visual_signal if isinstance(visual_signal, dict) else {},
             "audio": {
-                "tags": (item.get("moodTags") or []) + (item.get("bestContentTypes") or []),
+                "tags": (item.get("moodTags") or [])
+                + (item.get("bestContentTypes") or []),
                 "moods": item.get("moodTags") or [],
                 "energy": item.get("energy"),
                 "bpm": item.get("bpm"),
                 "tone": (item.get("moodTags") or [None])[0],
                 "trendSnapshot": {
-                    "velocityScore": ((item.get("raw") or {}).get("latestTrendSnapshot") or {}).get("velocityScore"),
-                    "saturationScore": ((item.get("raw") or {}).get("latestTrendSnapshot") or {}).get("saturationScore"),
-                    "observedAt": ((item.get("raw") or {}).get("latestTrendSnapshot") or {}).get("observedAt"),
-                } if isinstance(item.get("raw"), dict) else None,
+                    "velocityScore": (
+                        (item.get("raw") or {}).get("latestTrendSnapshot") or {}
+                    ).get("velocityScore"),
+                    "saturationScore": (
+                        (item.get("raw") or {}).get("latestTrendSnapshot") or {}
+                    ).get("saturationScore"),
+                    "observedAt": (
+                        (item.get("raw") or {}).get("latestTrendSnapshot") or {}
+                    ).get("observedAt"),
+                }
+                if isinstance(item.get("raw"), dict)
+                else None,
             },
         }
         script = """
@@ -950,7 +1210,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
         return parsed if isinstance(parsed, dict) and parsed.get("available") else None
 
     def audio_catalog_recommendation(self, item: dict[str, Any]) -> dict[str, Any]:
-        audio_fit = item.get("audioFit") if isinstance(item.get("audioFit"), dict) else None
+        audio_fit = (
+            item.get("audioFit") if isinstance(item.get("audioFit"), dict) else None
+        )
         return {
             "source": "campaign_factory.audio_catalog",
             "catalogAudioId": item["id"],
@@ -986,10 +1248,20 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "audioFitComponents": audio_fit.get("components") if audio_fit else {},
             "trendScore": item.get("trendScore"),
             "velocityScore": item.get("velocityScore"),
-            "fatigueScore": (item.get("fatigue") or {}).get("fatigueScore") if isinstance(item.get("fatigue"), dict) else item.get("fatigueScore"),
-            "accountFitScore": (item.get("scoreComponents") or {}).get("accountFit") if isinstance(item.get("scoreComponents"), dict) else item.get("accountFitScore"),
-            "creatorFitScore": (item.get("scoreComponents") or {}).get("creatorFit") if isinstance(item.get("scoreComponents"), dict) else item.get("creatorFitScore"),
-            "performanceLift": (item.get("performanceSummary") or {}).get("performanceLift") if isinstance(item.get("performanceSummary"), dict) else item.get("performanceLift"),
+            "fatigueScore": (item.get("fatigue") or {}).get("fatigueScore")
+            if isinstance(item.get("fatigue"), dict)
+            else item.get("fatigueScore"),
+            "accountFitScore": (item.get("scoreComponents") or {}).get("accountFit")
+            if isinstance(item.get("scoreComponents"), dict)
+            else item.get("accountFitScore"),
+            "creatorFitScore": (item.get("scoreComponents") or {}).get("creatorFit")
+            if isinstance(item.get("scoreComponents"), dict)
+            else item.get("creatorFitScore"),
+            "performanceLift": (item.get("performanceSummary") or {}).get(
+                "performanceLift"
+            )
+            if isinstance(item.get("performanceSummary"), dict)
+            else item.get("performanceLift"),
             "exampleReels": item.get("exampleReels") or [],
             "reviewReasons": item.get("reviewReasons") or [],
             "trendSources": item.get("trendSources") or [],
@@ -998,7 +1270,9 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
             "safeUsageNotes": item.get("safeUsageNotes"),
             "instruction": (
                 f"Find and attach matching native Instagram audio for TikTok trend signal: {item.get('title')}"
-                if item.get("requestedPlatform") in {"instagram", "ig", "instagram_reels"} and item.get("platform") == "tiktok"
+                if item.get("requestedPlatform")
+                in {"instagram", "ig", "instagram_reels"}
+                and item.get("platform") == "tiktok"
                 else f"Attach native {item.get('platform')} audio: {item.get('title')}"
             ),
         }

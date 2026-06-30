@@ -7,11 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import validate_front_generation_plan
-from .core import new_id, reel_factory_python, sanitize_for_storage, sha256_file, slugify
+from .core import (
+    new_id,
+    reel_factory_python,
+    sanitize_for_storage,
+    sha256_file,
+    slugify,
+)
 from .cost_tracker import PROVIDER_PRICING
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
-
 
 SCHEMA = "campaign_factory.front_generation_plan.v1"
 DEFAULT_IMAGE_COST_USD = PROVIDER_PRICING["higgsfield"]["per_generation"]
@@ -80,7 +85,9 @@ def run_front_generation_stage(
             "apply": apply,
             "enablePaidGeneration": enable_paid_generation,
             "budgetCapUsd": budget_cap_usd,
-            "acceptedStillPath": str(accepted_still_path) if accepted_still_path else None,
+            "acceptedStillPath": str(accepted_still_path)
+            if accepted_still_path
+            else None,
             "wait": wait,
             "download": download,
             "enableVariation": enable_variation,
@@ -145,7 +152,9 @@ def run_front_generation_stage(
                     video_path=video_path,
                     video_result=video_result,
                     plan=plan,
-                    accepted_still_path=Path(accepted_still_path).expanduser().resolve(),
+                    accepted_still_path=Path(accepted_still_path)
+                    .expanduser()
+                    .resolve(),
                     estimated_video_cost_usd=estimated_video_cost_usd,
                 )
                 if enable_variation:
@@ -157,7 +166,9 @@ def run_front_generation_stage(
                         dry_run=True,
                     )
             elif enable_variation:
-                raise ValueError("front generation variation requires a downloaded local Kling video; pass --wait --download")
+                raise ValueError(
+                    "front generation variation requires a downloaded local Kling video; pass --wait --download"
+                )
         result = {
             "schema": "campaign_factory.front_generation_stage_run.v1",
             "campaign": campaign_slug,
@@ -249,35 +260,43 @@ def _build_stages(
                 "--estimated-cost-usd",
                 str(estimated_image_cost_usd),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-                *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
+                *_runtime_generation_args(
+                    wait=wait, download=download, dry_run=dry_run
+                ),
             ],
             budget_cap_usd=budget_cap_usd,
         )
-        stages.append({
-            "name": "soul_reference_image",
-            "status": "planned" if dry_run else "submitted",
-            "paid": True,
-            "estimatedCostUsd": estimated_image_cost_usd,
-            "commands": image_result.get("commands") or [],
-            "result": image_result,
-        })
-        stages.append({
-            "name": "still_accept_gate",
-            "status": "waiting_for_review",
-            "paid": False,
-            "estimatedCostUsd": 0,
-            "commands": [],
-            "reason": "Kling or motion-edit waits for an accepted still.",
-        })
-        if animation_mode == "motion_edit":
-            stages.append({
-                "name": "motion_edit",
-                "status": "blocked",
+        stages.append(
+            {
+                "name": "soul_reference_image",
+                "status": "planned" if dry_run else "submitted",
+                "paid": True,
+                "estimatedCostUsd": estimated_image_cost_usd,
+                "commands": image_result.get("commands") or [],
+                "result": image_result,
+            }
+        )
+        stages.append(
+            {
+                "name": "still_accept_gate",
+                "status": "waiting_for_review",
                 "paid": False,
                 "estimatedCostUsd": 0,
                 "commands": [],
-                "reason": "Motion edit requires the accepted still path.",
-            })
+                "reason": "Kling or motion-edit waits for an accepted still.",
+            }
+        )
+        if animation_mode == "motion_edit":
+            stages.append(
+                {
+                    "name": "motion_edit",
+                    "status": "blocked",
+                    "paid": False,
+                    "estimatedCostUsd": 0,
+                    "commands": [],
+                    "reason": "Motion edit requires the accepted still path.",
+                }
+            )
         else:
             video_result = _invoke_generate_assets(
                 factory,
@@ -294,47 +313,57 @@ def _build_stages(
                     "--estimated-cost-usd",
                     str(estimated_video_cost_usd),
                     *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-                    *_runtime_generation_args(wait=wait, download=download, dry_run=True),
+                    *_runtime_generation_args(
+                        wait=wait, download=download, dry_run=True
+                    ),
                 ],
                 budget_cap_usd=budget_cap_usd,
             )
-            stages.append({
-                "name": "kling_video",
-                "status": "planned",
-                "paid": True,
-                "estimatedCostUsd": estimated_video_cost_usd,
-                "commands": video_result.get("commands") or [],
-                "result": video_result,
-            })
+            stages.append(
+                {
+                    "name": "kling_video",
+                    "status": "planned",
+                    "paid": True,
+                    "estimatedCostUsd": estimated_video_cost_usd,
+                    "commands": video_result.get("commands") or [],
+                    "result": video_result,
+                }
+            )
         return stages
 
     accepted_still = Path(accepted_still_path).expanduser().resolve()
     if not accepted_still.exists() or not accepted_still.is_file():
         raise FileNotFoundError(f"accepted still not found: {accepted_still}")
-    stages.append({
-        "name": "soul_reference_image",
-        "status": "skipped",
-        "paid": True,
-        "estimatedCostUsd": 0,
-        "commands": [],
-        "reason": "Accepted still was supplied.",
-    })
-    stages.append({
-        "name": "still_accept_gate",
-        "status": "planned" if dry_run else "submitted",
-        "paid": False,
-        "estimatedCostUsd": 0,
-        "commands": [],
-    })
-    if animation_mode == "motion_edit":
-        stages.append({
-            "name": "motion_edit",
-            "status": "planned",
+    stages.append(
+        {
+            "name": "soul_reference_image",
+            "status": "skipped",
+            "paid": True,
+            "estimatedCostUsd": 0,
+            "commands": [],
+            "reason": "Accepted still was supplied.",
+        }
+    )
+    stages.append(
+        {
+            "name": "still_accept_gate",
+            "status": "planned" if dry_run else "submitted",
             "paid": False,
             "estimatedCostUsd": 0,
             "commands": [],
-            "reason": "Run animation motion-edit separately after this paid still gate.",
-        })
+        }
+    )
+    if animation_mode == "motion_edit":
+        stages.append(
+            {
+                "name": "motion_edit",
+                "status": "planned",
+                "paid": False,
+                "estimatedCostUsd": 0,
+                "commands": [],
+                "reason": "Run animation motion-edit separately after this paid still gate.",
+            }
+        )
     else:
         video_result = _invoke_generate_assets(
             factory,
@@ -351,22 +380,28 @@ def _build_stages(
                 "--estimated-cost-usd",
                 str(estimated_video_cost_usd),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-                *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
+                *_runtime_generation_args(
+                    wait=wait, download=download, dry_run=dry_run
+                ),
             ],
             budget_cap_usd=budget_cap_usd,
         )
-        stages.append({
-            "name": "kling_video",
-            "status": "planned" if dry_run else "submitted",
-            "paid": True,
-            "estimatedCostUsd": estimated_video_cost_usd,
-            "commands": video_result.get("commands") or [],
-            "result": video_result,
-        })
+        stages.append(
+            {
+                "name": "kling_video",
+                "status": "planned" if dry_run else "submitted",
+                "paid": True,
+                "estimatedCostUsd": estimated_video_cost_usd,
+                "commands": video_result.get("commands") or [],
+                "result": video_result,
+            }
+        )
     return stages
 
 
-def _invoke_generate_assets(factory: Any, args: list[str], *, budget_cap_usd: float | None) -> dict[str, Any]:
+def _invoke_generate_assets(
+    factory: Any, args: list[str], *, budget_cap_usd: float | None
+) -> dict[str, Any]:
     cmd = [
         reel_factory_python(factory.settings.reel_factory_root),
         "generate_assets.py",
@@ -389,17 +424,23 @@ def _invoke_generate_assets(factory: Any, args: list[str], *, budget_cap_usd: fl
         env=env,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr[-2000:] or proc.stdout[-2000:] or "generate_assets failed")
+        raise RuntimeError(
+            proc.stderr[-2000:] or proc.stdout[-2000:] or "generate_assets failed"
+        )
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"generate_assets returned invalid JSON: {proc.stdout[-500:]}") from exc
+        raise RuntimeError(
+            f"generate_assets returned invalid JSON: {proc.stdout[-500:]}"
+        ) from exc
     if not isinstance(payload, dict):
         raise RuntimeError("generate_assets returned non-object JSON")
     return payload
 
 
-def _soul_args(*, creator: str | None, soul_id: str | None, soul_name: str | None) -> list[str]:
+def _soul_args(
+    *, creator: str | None, soul_id: str | None, soul_name: str | None
+) -> list[str]:
     args: list[str] = []
     if creator:
         args += ["--creator", creator]
@@ -502,14 +543,24 @@ def _register_kling_rendered_asset(
             str(video_path),
             str(video_path),
             video_path.name,
-            json.dumps(sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
-            json.dumps(sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True),
+            json.dumps(
+                sanitize_for_storage(caption_generation),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            json.dumps(
+                sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True
+            ),
             now,
             now,
         ),
     )
     factory.conn.commit()
-    return dict(factory.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
+        ).fetchone()
+    )
 
 
 def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]:
@@ -518,11 +569,15 @@ def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]
         (campaign_id,),
     ).fetchone()
     if not row:
-        raise ValueError("campaign must have at least one source asset before front-generation registration")
+        raise ValueError(
+            "campaign must have at least one source asset before front-generation registration"
+        )
     return dict(row)
 
 
-def _write_prompt_pack(path: Path, *, scene_type: str, reference_pattern: dict[str, Any] | None = None) -> Path:
+def _write_prompt_pack(
+    path: Path, *, scene_type: str, reference_pattern: dict[str, Any] | None = None
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     scene = scene_type.strip().replace("_", " ") or "room selfie"
     guidance = _learned_prompt_guidance(reference_pattern)
@@ -547,7 +602,9 @@ def _write_prompt_pack(path: Path, *, scene_type: str, reference_pattern: dict[s
     return path
 
 
-def _learned_prompt_guidance(reference_pattern: dict[str, Any] | None) -> dict[str, Any] | None:
+def _learned_prompt_guidance(
+    reference_pattern: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if not isinstance(reference_pattern, dict) or not reference_pattern:
         return None
     prompt_template = reference_pattern.get("promptTemplate")
@@ -568,7 +625,9 @@ def _learned_prompt_guidance(reference_pattern: dict[str, Any] | None) -> dict[s
         },
         "instruction": "Use as structural guidance only; create original media and do not copy a prior post.",
     }
-    return {key: value for key, value in guidance.items() if value not in (None, {}, [])}
+    return {
+        key: value for key, value in guidance.items() if value not in (None, {}, [])
+    }
 
 
 def _learned_prompt_guidance_text(guidance: dict[str, Any] | None) -> str:
@@ -579,7 +638,11 @@ def _learned_prompt_guidance_text(guidance: dict[str, Any] | None) -> str:
         guidance.get("hookType"),
         guidance.get("captionArchetype"),
     ]
-    prompt_pattern = guidance.get("promptPattern") if isinstance(guidance.get("promptPattern"), dict) else {}
+    prompt_pattern = (
+        guidance.get("promptPattern")
+        if isinstance(guidance.get("promptPattern"), dict)
+        else {}
+    )
     parts.extend(str(value) for value in prompt_pattern.values() if value)
     compact = "; ".join(str(part).strip() for part in parts if str(part or "").strip())
     if not compact:

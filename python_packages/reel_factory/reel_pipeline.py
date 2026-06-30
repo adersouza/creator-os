@@ -10,6 +10,7 @@ Usage:
     python reel_pipeline.py --root . --recipes v01_original v05_hflip
     python reel_pipeline.py --root . --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,34 +20,20 @@ import json
 import logging
 import os
 import random
-import shutil
 import shlex
+import shutil
 import sys
 import time
-from dataclasses import dataclass, asdict, field, replace
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import link_campaign_output
-from graph_builder import ENCODER_PROFILES, build_ffmpeg_cmd as build_graph_ffmpeg_cmd
-from graph_builder import build_video_filter as build_graph_video_filter
-from graph_builder import caption_overlay_enable
-from graph_builder import target_dimensions
-from identity_verification import get_identity_provider
-from media_metadata import normalize_media_metadata
-from preflight import check_clip_readiness
-from project_config import load_config
-from placement import (
-    CaptionSegmentPlan, PlacementSummary, mirror_side_band_for_recipe, pick_caption_color,
-    probe_caption_layout, probe_caption_region_luminance, probe_dimensions,
-    probe_duration, probe_source_bitrate, resolve_segment_bands,
+from caption_bank import (
+    caption_static_metadata,
+    load_or_build_caption_bank_store,
 )
-from recipe_loader import load_recipes
-from render_plan import RenderPlan, validate_account_scope
-from variation_engine import get_pack_version, vary_caption_text
-from caption_bank import CaptionBankStore, caption_static_metadata, load_or_build_caption_bank_store
-from discoverability_safety import discoverability_safe_content_contract
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     CAPTION_TOPIC_FIT_VERSION,
@@ -57,6 +44,30 @@ from caption_scene_fit import (
     infer_caption_topic_for_reel,
     topic_caption_banks,
 )
+from discoverability_safety import discoverability_safe_content_contract
+from graph_builder import ENCODER_PROFILES, caption_overlay_enable, target_dimensions
+from graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd
+from graph_builder import build_video_filter as build_graph_video_filter
+from identity_verification import get_identity_provider
+from media_metadata import normalize_media_metadata
+from placement import (
+    CaptionSegmentPlan,
+    PlacementSummary,
+    mirror_side_band_for_recipe,
+    pick_caption_color,
+    probe_caption_layout,
+    probe_caption_region_luminance,
+    probe_dimensions,
+    probe_duration,
+    probe_source_bitrate,
+    resolve_segment_bands,
+)
+from preflight import check_clip_readiness
+from project_config import load_config
+from recipe_loader import load_recipes
+from render_plan import RenderPlan, validate_account_scope
+from variation_engine import get_pack_version, vary_caption_text
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Logging — line-delimited JSON to stdout, easy to grep / pipe to jq
@@ -93,7 +104,11 @@ CREATOR_STYLE_PRESETS = {"auto", "none", "stacey_static_center"}
 def apply_creator_style_preset(args) -> str | None:
     preset = getattr(args, "creator_style_preset", "auto") or "auto"
     if preset == "auto":
-        preset = "stacey_static_center" if args.caption_mix in {"Larissa", "Stacey"} else "none"
+        preset = (
+            "stacey_static_center"
+            if args.caption_mix in {"Larissa", "Stacey"}
+            else "none"
+        )
     if preset == "none":
         return None
     if preset != "stacey_static_center":
@@ -112,7 +127,9 @@ def apply_creator_style_preset(args) -> str | None:
     return preset
 
 
-def resolve_caption_font_policy(requested_font: str | None, caption_style: str) -> tuple[str, dict]:
+def resolve_caption_font_policy(
+    requested_font: str | None, caption_style: str
+) -> tuple[str, dict]:
     """Normalize production captions to the Instagram font family.
 
     Historical recipes and account profiles can still request older fonts.
@@ -146,15 +163,26 @@ def resolve_caption_font_policy(requested_font: str | None, caption_style: str) 
 # Prefer ffmpeg-full when present, but the active caption path only needs
 # regular ffmpeg overlays plus VideoToolbox encoding.
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
-FFMPEG = str(_FFMPEG_FULL / "ffmpeg") if (_FFMPEG_FULL / "ffmpeg").exists() else shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = str(_FFMPEG_FULL / "ffprobe") if (_FFMPEG_FULL / "ffprobe").exists() else shutil.which("ffprobe") or "ffprobe"
+FFMPEG = (
+    str(_FFMPEG_FULL / "ffmpeg")
+    if (_FFMPEG_FULL / "ffmpeg").exists()
+    else shutil.which("ffmpeg") or "ffmpeg"
+)
+FFPROBE = (
+    str(_FFMPEG_FULL / "ffprobe")
+    if (_FFMPEG_FULL / "ffprobe").exists()
+    else shutil.which("ffprobe") or "ffprobe"
+)
 AVCONVERT = shutil.which("avconvert")
 
 
 def reexec_with_homebrew_gi_env_if_needed() -> None:
     """Restart once so optional Pango/PyGObject can find Homebrew dylibs."""
     brew_lib = "/opt/homebrew/lib"
-    if os.environ.get("REEL_FACTORY_GI_ENV_READY") == "1" or not Path(brew_lib).exists():
+    if (
+        os.environ.get("REEL_FACTORY_GI_ENV_READY") == "1"
+        or not Path(brew_lib).exists()
+    ):
         return
     env = dict(os.environ)
     for key in ("DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
@@ -169,26 +197,28 @@ def reexec_with_homebrew_gi_env_if_needed() -> None:
 @dataclass(frozen=True)
 class Recipe:
     name: str
-    trim_head: float = 0.0          # seconds to drop from start
-    trim_tail: float = 0.0          # seconds to drop from end
-    speed: float = 1.0              # 1.05 = 5% faster, 0.95 = 5% slower
-    zoom: float = 1.0               # 1.08 = 8% zoom-in (crop+rescale)
-    tilt_deg: float = 0.0           # subtle fixed rotation before final scale
-    hflip: bool = False             # mirror horizontally
-    reverse: bool = False           # play backwards
+    trim_head: float = 0.0  # seconds to drop from start
+    trim_tail: float = 0.0  # seconds to drop from end
+    speed: float = 1.0  # 1.05 = 5% faster, 0.95 = 5% slower
+    zoom: float = 1.0  # 1.08 = 8% zoom-in (crop+rescale)
+    tilt_deg: float = 0.0  # subtle fixed rotation before final scale
+    hflip: bool = False  # mirror horizontally
+    reverse: bool = False  # play backwards
     eq_contrast: float = 1.0
     eq_saturation: float = 1.0
-    eq_brightness: float = 0.0      # -0.1..0.1 typical
-    burn_caption: bool = True       # set False to skip the PNG caption overlay
-    caption_color: str = "auto"     # "light" / "dark" / "auto" (sampled luminance)
-    caption_style: str = "auto"     # "classic" / "meme" / "ig" / "thin" / "soft" / "bubble" / "auto" (frame busyness)
-    caption_band:  str = "auto"     # "top" / "bottom" / "center" / "left" / "right" / "auto"
-    font: str           = DEFAULT_CAPTION_FONT
-    text_variation: str = "off"     # "off" → preserve original caption exactly; "auto" → slang/case mangle per recipe
+    eq_brightness: float = 0.0  # -0.1..0.1 typical
+    burn_caption: bool = True  # set False to skip the PNG caption overlay
+    caption_color: str = "auto"  # "light" / "dark" / "auto" (sampled luminance)
+    caption_style: str = "auto"  # "classic" / "meme" / "ig" / "thin" / "soft" / "bubble" / "auto" (frame busyness)
+    caption_band: str = (
+        "auto"  # "top" / "bottom" / "center" / "left" / "right" / "auto"
+    )
+    font: str = DEFAULT_CAPTION_FONT
+    text_variation: str = "off"  # "off" → preserve original caption exactly; "auto" → slang/case mangle per recipe
     text_variation_pack: str = "default"
     text_variation_pack_version: str = "default@1"
-    color_preset: str = "none"      # "none" / "bright_pop" / "warm" / "cool" / "cinematic"
-    camera_variation: bool = True   # subtle crop, rotation, color, sharpening, and grain so outputs feel phone-native
+    color_preset: str = "none"  # "none" / "bright_pop" / "warm" / "cool" / "cinematic"
+    camera_variation: bool = True  # subtle crop, rotation, color, sharpening, and grain so outputs feel phone-native
     target_ratios: list[str] | None = None
 
 
@@ -202,28 +232,31 @@ RECIPES_BY_NAME = {r.name: r for r in RECIPES}
 # ASS color format is &HAABBGGRR (alpha-blue-green-red, AA=00 opaque)
 COLORS = {
     "light": {  # white text + thick black stroke (default for dark/mixed bg)
-        "primary":  "&H00FFFFFF",  # white fill
-        "outline":  "&H00000000",  # black stroke
+        "primary": "&H00FFFFFF",  # white fill
+        "outline": "&H00000000",  # black stroke
     },
-    "dark": {   # black text + thick white stroke (for bright/light bg)
-        "primary":  "&H00000000",  # black fill
-        "outline":  "&H00FFFFFF",  # white stroke
+    "dark": {  # black text + thick white stroke (for bright/light bg)
+        "primary": "&H00000000",  # black fill
+        "outline": "&H00FFFFFF",  # white stroke
     },
 }
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Caption discovery — supports .txt (one hook) and .json (multi-hook sidecar)
 # ────────────────────────────────────────────────────────────────────────────
 @dataclass
 class CaptionSet:
-    hooks: list[str | dict]                     # one or more hook variations; dict = timed segments
-    recipe_names: list[str] | None = None       # None = use all RECIPES
-    caption_color: str | None = None            # "light" | "dark" | "auto" | None (recipe default)
+    hooks: list[str | dict]  # one or more hook variations; dict = timed segments
+    recipe_names: list[str] | None = None  # None = use all RECIPES
+    caption_color: str | None = (
+        None  # "light" | "dark" | "auto" | None (recipe default)
+    )
     notes: str = ""
     hook_lineage: dict[int, dict] = field(default_factory=dict)
 
     @classmethod
-    def from_path(cls, path: Path) -> "CaptionSet":
+    def from_path(cls, path: Path) -> CaptionSet:
         if path.suffix == ".txt":
             hook = path.read_text(encoding="utf-8").strip()
             if not hook:
@@ -236,7 +269,9 @@ class CaptionSet:
                 raise ValueError(f"hooks must be a list in {path}")
             lineage = {
                 int(k): v
-                for k, v in (data.get("hookLineage") or data.get("hook_lineage") or {}).items()
+                for k, v in (
+                    data.get("hookLineage") or data.get("hook_lineage") or {}
+                ).items()
                 if str(k).isdigit() and isinstance(v, dict)
             }
             parsed: list[str | dict] = []
@@ -248,17 +283,27 @@ class CaptionSet:
                     parsed.append(h)
                 else:
                     s = str(h).strip()
-                    source_text = str(lineage.get(idx, {}).get("rawSourceCaptionText") or "").strip()
+                    source_text = str(
+                        lineage.get(idx, {}).get("rawSourceCaptionText") or ""
+                    ).strip()
                     if source_text and source_text != s and source_text.startswith(s):
-                        raise ValueError(f"caption hook is a clipped prefix of rawSourceCaptionText in {path}: {s}")
+                        raise ValueError(
+                            f"caption hook is a clipped prefix of rawSourceCaptionText in {path}: {s}"
+                        )
                     if s:
                         parsed.append(s)
             if not parsed:
                 raise ValueError(f"no hooks found in {path}")
             hooks = parsed
             caption_color = data.get("caption_color")
-            if caption_color is not None and caption_color not in {"light", "dark", "auto"}:
-                raise ValueError(f"caption_color must be light, dark, or auto in {path}")
+            if caption_color is not None and caption_color not in {
+                "light",
+                "dark",
+                "auto",
+            }:
+                raise ValueError(
+                    f"caption_color must be light, dark, or auto in {path}"
+                )
             return cls(
                 hooks=hooks,
                 recipe_names=data.get("recipes"),
@@ -267,8 +312,6 @@ class CaptionSet:
                 hook_lineage=lineage,
             )
         raise ValueError(f"unknown caption format: {path}")
-
-
 
 
 def find_caption_for(video: Path, cap_dir: Path) -> CaptionSet | None:
@@ -309,10 +352,16 @@ def _ensure_discoverability_safe_caption(caption: str | dict, *, source: str) ->
     )
 
 
-def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
-                       fonts_dir: Path, src_hash: str = "",
-                       src_w: int = 1080, src_h: int = 1920,
-                       account_scope: str = "local_review") -> str:
+def build_video_filter(
+    recipe: Recipe,
+    src_duration: float,
+    ass_path: Path,
+    fonts_dir: Path,
+    src_hash: str = "",
+    src_w: int = 1080,
+    src_h: int = 1920,
+    account_scope: str = "local_review",
+) -> str:
     plan = RenderPlan(
         src=Path("input.mp4"),
         caption_pngs=[],
@@ -327,17 +376,21 @@ def build_video_filter(recipe: Recipe, src_duration: float, ass_path: Path,
     return build_graph_video_filter(plan)
 
 
-def build_ffmpeg_cmd(src: Path,
-                     caption_pngs: list[tuple[Path, float, float | None]],
-                     recipe: Recipe, out: Path,
-                     duration: float, fonts_dir: Path,
-                     src_hash: str = "",
-                     src_dims: tuple[int, int] = (1080, 1920),
-                     bitrate_mbps: int = 14,
-                     src_bitrate_mbps: int | None = None,
-                     output_profile: str = "mac_h264_videotoolbox",
-                     target_ratio: str = "9:16",
-                     account_scope: str = "local_review") -> list[str]:
+def build_ffmpeg_cmd(
+    src: Path,
+    caption_pngs: list[tuple[Path, float, float | None]],
+    recipe: Recipe,
+    out: Path,
+    duration: float,
+    fonts_dir: Path,
+    src_hash: str = "",
+    src_dims: tuple[int, int] = (1080, 1920),
+    bitrate_mbps: int = 14,
+    src_bitrate_mbps: int | None = None,
+    output_profile: str = "mac_h264_videotoolbox",
+    target_ratio: str = "9:16",
+    account_scope: str = "local_review",
+) -> list[str]:
     plan = RenderPlan(
         src=src,
         caption_pngs=caption_pngs,
@@ -358,50 +411,78 @@ def build_ffmpeg_cmd(src: Path,
 
 def phone_creation_time() -> str:
     """Creation timestamp format used by mobile-authored MP4 metadata."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def build_phone_finalize_cmd(src: Path, out: Path, creation_time: str, ffmpeg: str = FFMPEG) -> list[str]:
+def build_phone_finalize_cmd(
+    src: Path, out: Path, creation_time: str, ffmpeg: str = FFMPEG
+) -> list[str]:
     """Build a stream-copy MP4 finalization command for social upload outputs."""
     return [
         ffmpeg,
-        "-hide_banner", "-y", "-nostdin",
-        "-i", str(src),
-        "-map", "0:v:0",
-        "-c:v", "copy",
+        "-hide_banner",
+        "-y",
+        "-nostdin",
+        "-i",
+        str(src),
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "copy",
         "-an",
-        "-movflags", "+faststart",
-        "-map_metadata", "-1",
-        "-metadata", f"creation_time={creation_time}",
-        "-metadata:s:v:0", f"creation_time={creation_time}",
-        "-metadata:s:v:0", "language=und",
-        "-metadata:s:v:0", "handler_name=Core Media Video",
-        "-color_primaries", "bt709",
-        "-color_trc", "bt709",
-        "-colorspace", "bt709",
-        "-brand", "mp42",
+        "-movflags",
+        "+faststart",
+        "-map_metadata",
+        "-1",
+        "-metadata",
+        f"creation_time={creation_time}",
+        "-metadata:s:v:0",
+        f"creation_time={creation_time}",
+        "-metadata:s:v:0",
+        "language=und",
+        "-metadata:s:v:0",
+        "handler_name=Core Media Video",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-colorspace",
+        "bt709",
+        "-brand",
+        "mp42",
         str(out),
     ]
 
 
-def build_avconvert_finalize_cmd(src: Path, out: Path, avconvert: str = AVCONVERT or "avconvert") -> list[str]:
+def build_avconvert_finalize_cmd(
+    src: Path, out: Path, avconvert: str = AVCONVERT or "avconvert"
+) -> list[str]:
     """Build a macOS AVFoundation passthrough finalizer command."""
     return [
         avconvert,
-        "--source", str(src),
-        "--preset", "PresetPassthrough",
-        "--output", str(out),
+        "--source",
+        str(src),
+        "--preset",
+        "PresetPassthrough",
+        "--output",
+        str(out),
         "--replace",
     ]
 
 
 def normalize_rendered_mp4_metadata(path: Path) -> dict:
     if path.suffix.lower() != ".mp4":
-        return {"metadataNormalized": True, "metadataWarnings": [], "skipped": "non_mp4"}
+        return {
+            "metadataNormalized": True,
+            "metadataWarnings": [],
+            "skipped": "non_mp4",
+        }
     result = normalize_media_metadata(path, dry_run=False)
     if not result.get("metadataNormalized"):
         warnings = result.get("metadataWarnings") or ["metadata_not_normalized"]
-        raise RuntimeError(f"metadata_normalization_failed:{','.join(str(item) for item in warnings)}")
+        raise RuntimeError(
+            f"metadata_normalization_failed:{','.join(str(item) for item in warnings)}"
+        )
     return result
 
 
@@ -414,7 +495,9 @@ def enforce_production_identity_provider(production_render: bool) -> dict:
     provider = get_identity_provider()
     ok, reason = provider.available()
     if not ok or provider.name != "insightface_arcface":
-        raise RuntimeError(f"production_render_identity_provider_unavailable:{provider.name}:{reason}")
+        raise RuntimeError(
+            f"production_render_identity_provider_unavailable:{provider.name}:{reason}"
+        )
     return {"required": True, "provider": provider.name, "providerAvailable": True}
 
 
@@ -433,20 +516,30 @@ def sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def effective_placement_mode_for_caption(caption: str | dict, placement_mode: str) -> str:
+def effective_placement_mode_for_caption(
+    caption: str | dict, placement_mode: str
+) -> str:
     """Timed captions should use segment-aware placement by default."""
     if isinstance(caption, dict) and placement_mode == "source":
         return "segment"
     return placement_mode
 
 
-def compute_job_key(video_hash: str, caption: str | dict, recipe: Recipe,
-                    placement_mode: str = "source",
-                    target_ratio: str = "9:16",
-                    caption_placement_policy: str = "focal-safe",
-                    account_scope: str = "local_review") -> str:
+def compute_job_key(
+    video_hash: str,
+    caption: str | dict,
+    recipe: Recipe,
+    placement_mode: str = "source",
+    target_ratio: str = "9:16",
+    caption_placement_policy: str = "focal-safe",
+    account_scope: str = "local_review",
+) -> str:
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
-    cap_str = json.dumps(caption, sort_keys=True, ensure_ascii=False) if isinstance(caption, dict) else caption
+    cap_str = (
+        json.dumps(caption, sort_keys=True, ensure_ascii=False)
+        if isinstance(caption, dict)
+        else caption
+    )
     cap_h = sha256_str(cap_str)
     rec_params = asdict(recipe)
     if not isinstance(caption, dict):
@@ -480,25 +573,44 @@ def centered_static_caption_band(
     """
     if band not in {"left", "right"}:
         return band
-    decision = summary.metadata.get("captionPlacementDecision") if isinstance(summary.metadata, dict) else None
-    rejected = {str(zone) for zone in (decision or {}).get("rejectedLanes", [])} if isinstance(decision, dict) else set()
-    candidates = [zone for zone in ("top", "center", "bottom") if zone in summary.scores and zone not in rejected]
+    decision = (
+        summary.metadata.get("captionPlacementDecision")
+        if isinstance(summary.metadata, dict)
+        else None
+    )
+    rejected = (
+        {str(zone) for zone in (decision or {}).get("rejectedLanes", [])}
+        if isinstance(decision, dict)
+        else set()
+    )
+    candidates = [
+        zone
+        for zone in ("top", "center", "bottom")
+        if zone in summary.scores and zone not in rejected
+    ]
     if not candidates:
         return "center"
     if diversity_key:
         best_score = min(float(summary.scores[zone]) for zone in candidates)
         eligible = [
-            zone for zone in candidates
+            zone
+            for zone in candidates
             if float(summary.scores[zone]) <= best_score + 12.0
             or float(summary.scores[zone]) <= best_score * 1.35
         ]
-        ranked = sorted(eligible or candidates, key=lambda zone: (summary.scores[zone], zone))
-        start = int(hashlib.sha256(diversity_key.encode("utf-8")).hexdigest()[:8], 16) % len(ranked)
+        ranked = sorted(
+            eligible or candidates, key=lambda zone: (summary.scores[zone], zone)
+        )
+        start = int(
+            hashlib.sha256(diversity_key.encode("utf-8")).hexdigest()[:8], 16
+        ) % len(ranked)
         return ranked[start]
     return min(candidates, key=lambda zone: summary.scores[zone])
 
 
-def timed_caption_band(base_band: str, segment_index: int, summary: PlacementSummary) -> str:
+def timed_caption_band(
+    base_band: str, segment_index: int, summary: PlacementSummary
+) -> str:
     if base_band != "lower_center":
         return base_band
     return "lower_center" if segment_index % 2 == 0 else "lower_center_alt"
@@ -516,13 +628,16 @@ def build_caption_placement_qc_row(
     """Record both the scorer lane and the band actually used by rendering."""
     decision = (
         placement_summary.metadata.get("captionPlacementDecision")
-        if isinstance(placement_summary.metadata, dict) else {}
+        if isinstance(placement_summary.metadata, dict)
+        else {}
     )
     final_band = render_band or scored_lane
     return {
         "schema": "reel_factory.caption_placement_qc_row.v2",
         "sourceClip": source_clip,
-        "captionPlacementPolicy": placement_summary.metadata.get("captionPlacementPolicy", "legacy"),
+        "captionPlacementPolicy": placement_summary.metadata.get(
+            "captionPlacementPolicy", "legacy"
+        ),
         "scoredLane": scored_lane,
         "selectedLane": scored_lane,
         "renderBand": final_band,
@@ -552,9 +667,11 @@ def write_generated_asset_lineage_sidecar(
     sidecar = out_path.with_suffix(out_path.suffix + ".generated_asset_lineage.json")
     payload = {
         "schema": "campaign_factory.generated_asset_lineage.v1",
-        "pipelineTraceId": f"trace_reel_render_{hashlib.sha256(f'{source_hash}:{render_job_key}'.encode('utf-8')).hexdigest()[:16]}",
+        "pipelineTraceId": f"trace_reel_render_{hashlib.sha256(f'{source_hash}:{render_job_key}'.encode()).hexdigest()[:16]}",
         "source": {
-            "sourceLineagePath": str(source_lineage_path) if source_lineage_path else None,
+            "sourceLineagePath": str(source_lineage_path)
+            if source_lineage_path
+            else None,
             "sourceVideoHash": source_hash,
         },
         "generation": {
@@ -567,9 +684,11 @@ def write_generated_asset_lineage_sidecar(
         "review": {
             "humanReviewRequired": True,
         },
-        "createdAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
     }
-    sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    sidecar.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return sidecar
 
 
@@ -583,32 +702,73 @@ def build_caption_outcome_context(
     creator_model: str | None = None,
 ) -> dict:
     lineage = caption_lineage if isinstance(caption_lineage, dict) else {}
-    selected_banks = _text_list(lineage.get("selectedBanks") or lineage.get("selected_banks") or lineage.get("sourceBanks") or lineage.get("source_banks"))
-    caption_hash = _first_text(lineage.get("captionHash"), lineage.get("caption_hash"), sha256_str(caption_text))
-    primary_bank = _first_text(lineage.get("selectedBank"), lineage.get("selected_bank"), selected_banks[0] if selected_banks else None)
+    selected_banks = _text_list(
+        lineage.get("selectedBanks")
+        or lineage.get("selected_banks")
+        or lineage.get("sourceBanks")
+        or lineage.get("source_banks")
+    )
+    caption_hash = _first_text(
+        lineage.get("captionHash"),
+        lineage.get("caption_hash"),
+        sha256_str(caption_text),
+    )
+    primary_bank = _first_text(
+        lineage.get("selectedBank"),
+        lineage.get("selected_bank"),
+        selected_banks[0] if selected_banks else None,
+    )
     return {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": caption_hash,
-        "caption_text": _first_text(lineage.get("rawCaptionText"), lineage.get("raw_caption_text"), caption_text),
+        "caption_text": _first_text(
+            lineage.get("rawCaptionText"), lineage.get("raw_caption_text"), caption_text
+        ),
         "caption_bank": primary_bank,
         "caption_banks": selected_banks or ([primary_bank] if primary_bank else []),
-        "creator_mix": _first_text(lineage.get("selectedMix"), lineage.get("selected_mix")),
-        "creator_model": _first_text(lineage.get("creatorModel"), lineage.get("creator_model"), creator_model),
+        "creator_mix": _first_text(
+            lineage.get("selectedMix"), lineage.get("selected_mix")
+        ),
+        "creator_model": _first_text(
+            lineage.get("creatorModel"), lineage.get("creator_model"), creator_model
+        ),
         "frame_type": _first_text(lineage.get("frameType"), lineage.get("frame_type")),
-        "length_class": _first_text(lineage.get("lengthClass"), lineage.get("length_class")),
-        "format_class": _first_text(lineage.get("formatClass"), lineage.get("format_class")),
-        "caption_fit_version": _first_text(lineage.get("captionFitVersion"), lineage.get("caption_fit_version")),
-        "suitability_decision": _first_text(lineage.get("suitabilityDecision"), lineage.get("suitability_decision")),
-        "suitability_reason": _first_text(lineage.get("suitabilityReason"), lineage.get("suitability_reason")),
-        "captionSceneTags": lineage.get("captionSceneTags") if isinstance(lineage.get("captionSceneTags"), list) else [],
-        "reelSceneTags": lineage.get("reelSceneTags") if isinstance(lineage.get("reelSceneTags"), list) else [],
-        "sceneCompatibilityDecision": _first_text(lineage.get("sceneCompatibilityDecision")),
-        "sceneCompatibilityReason": _first_text(lineage.get("sceneCompatibilityReason")),
+        "length_class": _first_text(
+            lineage.get("lengthClass"), lineage.get("length_class")
+        ),
+        "format_class": _first_text(
+            lineage.get("formatClass"), lineage.get("format_class")
+        ),
+        "caption_fit_version": _first_text(
+            lineage.get("captionFitVersion"), lineage.get("caption_fit_version")
+        ),
+        "suitability_decision": _first_text(
+            lineage.get("suitabilityDecision"), lineage.get("suitability_decision")
+        ),
+        "suitability_reason": _first_text(
+            lineage.get("suitabilityReason"), lineage.get("suitability_reason")
+        ),
+        "captionSceneTags": lineage.get("captionSceneTags")
+        if isinstance(lineage.get("captionSceneTags"), list)
+        else [],
+        "reelSceneTags": lineage.get("reelSceneTags")
+        if isinstance(lineage.get("reelSceneTags"), list)
+        else [],
+        "sceneCompatibilityDecision": _first_text(
+            lineage.get("sceneCompatibilityDecision")
+        ),
+        "sceneCompatibilityReason": _first_text(
+            lineage.get("sceneCompatibilityReason")
+        ),
         "captionSceneFitVersion": _first_text(lineage.get("captionSceneFitVersion")),
         "captionPlacementPolicy": _first_text(lineage.get("captionPlacementPolicy")),
-        "captionPlacementDecision": lineage.get("captionPlacementDecision") if isinstance(lineage.get("captionPlacementDecision"), dict) else None,
+        "captionPlacementDecision": lineage.get("captionPlacementDecision")
+        if isinstance(lineage.get("captionPlacementDecision"), dict)
+        else None,
         "render_recipe": render_recipe,
-        "source_clip": _first_text(lineage.get("sourceClip"), lineage.get("source_clip"), source_clip),
+        "source_clip": _first_text(
+            lineage.get("sourceClip"), lineage.get("source_clip"), source_clip
+        ),
         "rendered_output": rendered_output,
     }
 
@@ -669,17 +829,22 @@ def write_caption_lineage_sidecar(
 ) -> Path | None:
     if not lineage:
         return None
-    payload = _caption_lineage_with_outcome_context(
-        lineage,
-        caption_text=caption_text,
-        caption_hash=caption_hash,
-        render_recipe=render_recipe,
-        source_clip=source_clip,
-        rendered_output=rendered_output or str(out_path),
-        creator_model=creator_model,
-    ) or lineage
+    payload = (
+        _caption_lineage_with_outcome_context(
+            lineage,
+            caption_text=caption_text,
+            caption_hash=caption_hash,
+            render_recipe=render_recipe,
+            source_clip=source_clip,
+            rendered_output=rendered_output or str(out_path),
+            creator_model=creator_model,
+        )
+        or lineage
+    )
     sidecar = out_path.with_suffix(out_path.suffix + ".caption_lineage.json")
-    sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    sidecar.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return sidecar
 
 
@@ -736,23 +901,40 @@ def build_single_job_enqueue_cmd(
     target_ratio: str,
 ) -> list[str]:
     cmd = [
-        sys.executable, "reel_pipeline.py",
-        "--root", str(root),
-        "--only-clip", video_stem,
-        "--recipes", recipe.name,
-        "--only-hook-index", str(hook_idx),
-        "--output-profile", args.output_profile,
-        "--caption-renderer", args.caption_renderer,
-        "--placement-signals", args.placement_signals,
-        "--placement-mode", args.placement_mode,
-        "--caption-placement-policy", args.caption_placement_policy,
-        "--target-ratios", target_ratio,
-        "--color", recipe.caption_color,
-        "--style", recipe.caption_style,
-        "--band", recipe.caption_band,
-        "--font", recipe.font,
-        "--text-variation", recipe.text_variation,
-        "--variation-pack", recipe.text_variation_pack,
+        sys.executable,
+        "reel_pipeline.py",
+        "--root",
+        str(root),
+        "--only-clip",
+        video_stem,
+        "--recipes",
+        recipe.name,
+        "--only-hook-index",
+        str(hook_idx),
+        "--output-profile",
+        args.output_profile,
+        "--caption-renderer",
+        args.caption_renderer,
+        "--placement-signals",
+        args.placement_signals,
+        "--placement-mode",
+        args.placement_mode,
+        "--caption-placement-policy",
+        args.caption_placement_policy,
+        "--target-ratios",
+        target_ratio,
+        "--color",
+        recipe.caption_color,
+        "--style",
+        recipe.caption_style,
+        "--band",
+        recipe.caption_band,
+        "--font",
+        recipe.font,
+        "--text-variation",
+        recipe.text_variation,
+        "--variation-pack",
+        recipe.text_variation_pack,
     ]
     if args.mezzanine:
         cmd.append("--mezzanine")
@@ -766,7 +948,10 @@ def build_single_job_enqueue_cmd(
     if args.strict_preflight:
         cmd.append("--strict-preflight")
     if args.asset_prompt_json:
-        cmd += ["--asset-prompt-json", str(Path(args.asset_prompt_json).expanduser().resolve())]
+        cmd += [
+            "--asset-prompt-json",
+            str(Path(args.asset_prompt_json).expanduser().resolve()),
+        ]
     if getattr(args, "ai_qc", False):
         cmd.append("--ai-qc")
     if getattr(args, "readiness", False):
@@ -781,35 +966,48 @@ from manifest import Manifest
 
 
 # ────────────────────────────────────────────────────────────────────────────
-async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Recipe,
-                      out_dir: Path, fonts_dir: Path, manifest: Manifest,
-                      src_hash: str, duration: float,
-                      auto_color_cache: dict[str, str],
-                      auto_band_cache: dict[str, tuple[str, str, str, PlacementSummary]],
-                      encode_sem: asyncio.Semaphore,
-                      dry_run: bool = False,
-                      src_dims: tuple[int, int] = (1080, 1920),
-                      src_bitrate_mbps: int | None = None,
-                      mezzanine: bool = False,
-                      caption_renderer: str = "pillow",
-                      output_profile: str = "mac_h264_videotoolbox",
-                      placement_signals: str = "basic",
-                      placement_mode: str = "source",
-                      caption_placement_policy: str = "focal-safe",
-                      target_ratio: str = "9:16",
-                      preview: bool = False,
-                      placement_debug: bool = False,
-                      phone_finalize: bool = True,
-                      rerender_all: bool = False,
-                      asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
-                      caption_lineage: dict | None = None,
-                      account_scope: str = "local_review") -> dict:
+async def process_one(
+    src: Path,
+    caption: str | dict,
+    hook_idx: int,
+    recipe: Recipe,
+    out_dir: Path,
+    fonts_dir: Path,
+    manifest: Manifest,
+    src_hash: str,
+    duration: float,
+    auto_color_cache: dict[str, str],
+    auto_band_cache: dict[str, tuple[str, str, str, PlacementSummary]],
+    encode_sem: asyncio.Semaphore,
+    dry_run: bool = False,
+    src_dims: tuple[int, int] = (1080, 1920),
+    src_bitrate_mbps: int | None = None,
+    mezzanine: bool = False,
+    caption_renderer: str = "pillow",
+    output_profile: str = "mac_h264_videotoolbox",
+    placement_signals: str = "basic",
+    placement_mode: str = "source",
+    caption_placement_policy: str = "focal-safe",
+    target_ratio: str = "9:16",
+    preview: bool = False,
+    placement_debug: bool = False,
+    phone_finalize: bool = True,
+    rerender_all: bool = False,
+    asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
+    caption_lineage: dict | None = None,
+    account_scope: str = "local_review",
+) -> dict:
     """Render one (video, caption_variant, recipe) combo."""
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
-    key = compute_job_key(src_hash, caption, recipe, placement_mode=placement_mode,
-                          target_ratio=target_ratio,
-                          caption_placement_policy=caption_placement_policy,
-                          account_scope=account_scope)
+    key = compute_job_key(
+        src_hash,
+        caption,
+        recipe,
+        placement_mode=placement_mode,
+        target_ratio=target_ratio,
+        caption_placement_policy=caption_placement_policy,
+        account_scope=account_scope,
+    )
 
     if not preview and not rerender_all and manifest.has_job(key):
         materialized = manifest.materialize_cached_job(src.stem, key)
@@ -836,7 +1034,8 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     auto_layout = auto_band_cache.get(src_hash)
     if auto_layout is None:
         auto_layout = await probe_caption_layout(
-            src, duration,
+            src,
+            duration,
             placement_signals=placement_signals,
             caption_placement_policy=caption_placement_policy,
             manifest=manifest,
@@ -855,7 +1054,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     else:
         # Side zones are stronger than lane cycling because they use empty
         # composition space. For mirrored recipes, mirror the caption side too.
-        recipe_idx = next((i for i, r in enumerate(RECIPES) if r.name == recipe.name), 0)
+        recipe_idx = next(
+            (i for i, r in enumerate(RECIPES) if r.name == recipe.name), 0
+        )
         if auto_band in {"left", "right"}:
             band = mirror_side_band_for_recipe(auto_band, recipe)
         elif caption_placement_policy != "legacy" and not is_timed_caption:
@@ -865,7 +1066,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             band = [auto_band, "center", opposite][recipe_idx % 3]
     if not is_timed_caption:
         diversity_key = f"{src_hash}|{hook_idx}|{recipe.name}|{caption}"
-        band = centered_static_caption_band(band, _placement_summary, diversity_key=diversity_key)
+        band = centered_static_caption_band(
+            band, _placement_summary, diversity_key=diversity_key
+        )
     style = recipe.caption_style if recipe.caption_style != "auto" else auto_style
 
     requested_font = recipe.font if recipe.font != "auto" else auto_font
@@ -886,7 +1089,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     if isinstance(caption, dict):
         segments = caption["segments"]
         if not segments:
-            log.warning(f"{src.stem} h{hook_idx} {recipe.name}: empty segments list, no caption overlay")
+            log.warning(
+                f"{src.stem} h{hook_idx} {recipe.name}: empty segments list, no caption overlay"
+            )
         seg_plans: list[CaptionSegmentPlan] = []
         for i, seg in enumerate(segments):
             raw = seg["text"]
@@ -900,8 +1105,16 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             start = float(seg.get("start", 0.0))
             end = float(seg["end"]) if "end" in seg else None
             explicit_band = "band" in seg
-            seg_band = str(seg["band"]) if explicit_band else timed_caption_band(band, i, _placement_summary)
-            seg_plans.append(CaptionSegmentPlan(seg_png, start, end, seg_text, seg_band, explicit_band))
+            seg_band = (
+                str(seg["band"])
+                if explicit_band
+                else timed_caption_band(band, i, _placement_summary)
+            )
+            seg_plans.append(
+                CaptionSegmentPlan(
+                    seg_png, start, end, seg_text, seg_band, explicit_band
+                )
+            )
     else:
         text = vary_caption_text(
             caption,
@@ -950,9 +1163,13 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     target_dims = target_dimensions(target_ratio)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    ratio_suffix = "" if target_ratio == "9:16" else f"_{target_ratio.replace(':', 'x')}"
+    ratio_suffix = (
+        "" if target_ratio == "9:16" else f"_{target_ratio.replace(':', 'x')}"
+    )
     ext = ".png" if preview else ".mp4"
-    out_filename = f"{src.stem}_h{hook_idx:02d}_{recipe.name}{ratio_suffix}_{color}_{key[:8]}{ext}"
+    out_filename = (
+        f"{src.stem}_h{hook_idx:02d}_{recipe.name}{ratio_suffix}_{color}_{key[:8]}{ext}"
+    )
     out_path = out_dir / out_filename
     tmp_dir = out_dir / ".tmp" / key[:16]
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -962,22 +1179,42 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
     except Exception:
         pass
 
-    cmd = build_ffmpeg_cmd(src, caption_pngs, recipe, tmp_out_path, duration,
-                            fonts_dir, src_hash=src_hash, src_dims=src_dims,
-                            src_bitrate_mbps=src_bitrate_mbps,
-                            output_profile=output_profile,
-                            target_ratio=target_ratio,
-                            account_scope=account_scope)
-    mezz_out_path = out_dir / f"{src.stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
-    mezz_tmp_path = tmp_dir / mezz_out_path.name
-    mezz_cmd = build_ffmpeg_cmd(
-        src, caption_pngs, recipe, mezz_tmp_path, duration,
-        fonts_dir, src_hash=src_hash, src_dims=src_dims,
+    cmd = build_ffmpeg_cmd(
+        src,
+        caption_pngs,
+        recipe,
+        tmp_out_path,
+        duration,
+        fonts_dir,
+        src_hash=src_hash,
+        src_dims=src_dims,
         src_bitrate_mbps=src_bitrate_mbps,
-        output_profile="prores_lt",
+        output_profile=output_profile,
         target_ratio=target_ratio,
         account_scope=account_scope,
-    ) if mezzanine else None
+    )
+    mezz_out_path = (
+        out_dir / f"{src.stem}_h{hook_idx:02d}_{recipe.name}_{color}_{key[:8]}_mezz.mov"
+    )
+    mezz_tmp_path = tmp_dir / mezz_out_path.name
+    mezz_cmd = (
+        build_ffmpeg_cmd(
+            src,
+            caption_pngs,
+            recipe,
+            mezz_tmp_path,
+            duration,
+            fonts_dir,
+            src_hash=src_hash,
+            src_dims=src_dims,
+            src_bitrate_mbps=src_bitrate_mbps,
+            output_profile="prores_lt",
+            target_ratio=target_ratio,
+            account_scope=account_scope,
+        )
+        if mezzanine
+        else None
+    )
 
     if dry_run:
         log.info(f"DRY {src.stem} h{hook_idx} {recipe.name} [{color}] → {out_filename}")
@@ -988,11 +1225,13 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
 
     caption_for_manifest = (
         json.dumps(caption, sort_keys=True, ensure_ascii=False)
-        if isinstance(caption, dict) else caption
+        if isinstance(caption, dict)
+        else caption
     )
 
     # Render each caption segment to a transparent 1080x1920 PNG via PIL+Pilmoji.
     from caption_render import render_caption_png
+
     try:
         for seg in seg_plans:
             render_caption_png(
@@ -1020,7 +1259,13 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         except OSError:
             pass
         manifest.add_failure(
-            src.stem, recipe, caption_for_manifest, out_path, key, duration, msg,
+            src.stem,
+            recipe,
+            caption_for_manifest,
+            out_path,
+            key,
+            duration,
+            msg,
             encoder=output_profile,
             target_ratio=target_ratio,
         )
@@ -1031,18 +1276,20 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         preview_dir.mkdir(parents=True, exist_ok=True)
         preview_path = preview_dir / out_filename
         mid_t = max(0.05, min(duration - 0.05, duration * 0.5))
-        vf = build_graph_video_filter(RenderPlan(
-            src=src,
-            caption_pngs=[],
-            recipe=recipe,
-            out=preview_path,
-            duration=duration,
-            fonts_dir=fonts_dir,
-            src_hash=src_hash,
-            src_dims=src_dims,
-            target_ratio=target_ratio,
-            account_scope=account_scope,
-        ))
+        vf = build_graph_video_filter(
+            RenderPlan(
+                src=src,
+                caption_pngs=[],
+                recipe=recipe,
+                out=preview_path,
+                duration=duration,
+                fonts_dir=fonts_dir,
+                src_hash=src_hash,
+                src_dims=src_dims,
+                target_ratio=target_ratio,
+                account_scope=account_scope,
+            )
+        )
         fc_parts = [f"[0:v]{vf}[vs0]"]
         inputs = ["-ss", f"{mid_t:.3f}", "-i", str(src)]
         for i, (png_path, _, _) in enumerate(caption_pngs):
@@ -1059,9 +1306,18 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             )
         fc_parts.append("[vsf]format=rgba[v]")
         p = await asyncio.create_subprocess_exec(
-            FFMPEG, "-hide_banner", "-y", "-nostdin",
-            *inputs, "-filter_complex", ";".join(fc_parts),
-            "-map", "[v]", "-frames:v", "1", str(preview_path),
+            FFMPEG,
+            "-hide_banner",
+            "-y",
+            "-nostdin",
+            *inputs,
+            "-filter_complex",
+            ";".join(fc_parts),
+            "-map",
+            "[v]",
+            "-frames:v",
+            "1",
+            str(preview_path),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -1075,11 +1331,13 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         caption_hash = sha256_str(caption_for_manifest)
         placement_decision = (
             _placement_summary.metadata.get("captionPlacementDecision")
-            if isinstance(_placement_summary.metadata, dict) else {}
+            if isinstance(_placement_summary.metadata, dict)
+            else {}
         )
         placement_policy = (
             _placement_summary.metadata.get("captionPlacementPolicy")
-            if isinstance(_placement_summary.metadata, dict) else None
+            if isinstance(_placement_summary.metadata, dict)
+            else None
         ) or ("legacy" if caption_placement_policy == "legacy" else "focal_safe_v1")
         write_caption_lineage_sidecar(
             preview_path,
@@ -1087,8 +1345,15 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 **(caption_lineage or {}),
                 "captionPlacementPolicy": placement_policy,
                 "captionPlacementDecision": {
-                    **(placement_decision if isinstance(placement_decision, dict) else {}),
-                    "selectedLane": ",".join(dict.fromkeys([seg.band for seg in seg_plans])) or band,
+                    **(
+                        placement_decision
+                        if isinstance(placement_decision, dict)
+                        else {}
+                    ),
+                    "selectedLane": ",".join(
+                        dict.fromkeys([seg.band for seg in seg_plans])
+                    )
+                    or band,
                 },
             },
             caption_text=caption_for_manifest,
@@ -1122,7 +1387,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 ffmpeg_cmd=cmd,
                 started_at=attempt_started,
                 ended_at=int(time.time()),
-                error_message=last_err.decode(errors="replace") if p.returncode != 0 else None,
+                error_message=last_err.decode(errors="replace")
+                if p.returncode != 0
+                else None,
             )
             if p.returncode == 0:
                 break
@@ -1134,13 +1401,16 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         if p.returncode != 0:
             elapsed = time.time() - t0
             msg = last_err.decode(errors="replace")[-2000:]
-            log.error(
-                f"FAIL {src.stem} h{hook_idx} {recipe.name}: "
-                f"{msg[-500:]}"
-            )
+            log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg[-500:]}")
             manifest.add_failure(
-                src.stem, recipe, caption_for_manifest, out_path, key, duration,
-                msg, render_time_sec=round(elapsed, 3),
+                src.stem,
+                recipe,
+                caption_for_manifest,
+                out_path,
+                key,
+                duration,
+                msg,
+                render_time_sec=round(elapsed, 3),
                 encoder=output_profile,
                 target_ratio=target_ratio,
             )
@@ -1156,8 +1426,14 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             msg = "ffmpeg reported success but temp output was missing or empty"
             log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
             manifest.add_failure(
-                src.stem, recipe, caption_for_manifest, out_path, key, duration,
-                msg, render_time_sec=round(elapsed, 3),
+                src.stem,
+                recipe,
+                caption_for_manifest,
+                out_path,
+                key,
+                duration,
+                msg,
+                render_time_sec=round(elapsed, 3),
                 encoder=output_profile,
                 target_ratio=target_ratio,
             )
@@ -1202,7 +1478,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 ffmpeg_cmd=finalize_cmd,
                 started_at=finalize_started,
                 ended_at=int(time.time()),
-                error_message=finalize_err.decode(errors="replace") if not finalize_ok else None,
+                error_message=finalize_err.decode(errors="replace")
+                if not finalize_ok
+                else None,
             )
             if finalize_ok:
                 final_tmp_path = finalized_tmp_path
@@ -1217,7 +1495,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                         avconvert_tmp_path.unlink(missing_ok=True)
                     except Exception:
                         pass
-                    avconvert_cmd = build_avconvert_finalize_cmd(finalized_tmp_path, avconvert_tmp_path)
+                    avconvert_cmd = build_avconvert_finalize_cmd(
+                        finalized_tmp_path, avconvert_tmp_path
+                    )
                     avconvert_started = int(time.time())
                     p_avconvert = await asyncio.create_subprocess_exec(
                         *avconvert_cmd,
@@ -1240,7 +1520,9 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                         ffmpeg_cmd=avconvert_cmd,
                         started_at=avconvert_started,
                         ended_at=int(time.time()),
-                        error_message=avconvert_err.decode(errors="replace") if not avconvert_ok else None,
+                        error_message=avconvert_err.decode(errors="replace")
+                        if not avconvert_ok
+                        else None,
                     )
                     if avconvert_ok:
                         final_tmp_path = avconvert_tmp_path
@@ -1249,11 +1531,21 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                         except Exception:
                             pass
                     else:
-                        msg = avconvert_err.decode(errors="replace")[-500:] or "missing avconvert temp output"
-                        log.warning(f"avconvert finalize failed {src.stem} h{hook_idx} {recipe.name}; using ffmpeg phone output: {msg}")
+                        msg = (
+                            avconvert_err.decode(errors="replace")[-500:]
+                            or "missing avconvert temp output"
+                        )
+                        log.warning(
+                            f"avconvert finalize failed {src.stem} h{hook_idx} {recipe.name}; using ffmpeg phone output: {msg}"
+                        )
             else:
-                msg = finalize_err.decode(errors="replace")[-500:] or "missing finalized temp output"
-                log.warning(f"phone finalize failed {src.stem} h{hook_idx} {recipe.name}; using encoded output: {msg}")
+                msg = (
+                    finalize_err.decode(errors="replace")[-500:]
+                    or "missing finalized temp output"
+                )
+                log.warning(
+                    f"phone finalize failed {src.stem} h{hook_idx} {recipe.name}; using encoded output: {msg}"
+                )
 
         final_tmp_path.replace(out_path)
         try:
@@ -1262,8 +1554,14 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
             msg = str(e)
             log.error(f"FAIL {src.stem} h{hook_idx} {recipe.name}: {msg}")
             manifest.add_failure(
-                src.stem, recipe, caption_for_manifest, out_path, key, duration,
-                msg, render_time_sec=round(elapsed, 3),
+                src.stem,
+                recipe,
+                caption_for_manifest,
+                out_path,
+                key,
+                duration,
+                msg,
+                render_time_sec=round(elapsed, 3),
                 encoder=output_profile,
                 target_ratio=target_ratio,
             )
@@ -1318,14 +1616,27 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
                 ffmpeg_cmd=mezz_cmd,
                 started_at=mezz_started,
                 ended_at=int(time.time()),
-                error_message=mezz_err.decode(errors="replace") if p_mezz.returncode != 0 else None,
+                error_message=mezz_err.decode(errors="replace")
+                if p_mezz.returncode != 0
+                else None,
             )
-            if p_mezz.returncode == 0 and mezz_tmp_path.exists() and mezz_tmp_path.stat().st_size > 0:
+            if (
+                p_mezz.returncode == 0
+                and mezz_tmp_path.exists()
+                and mezz_tmp_path.stat().st_size > 0
+            ):
                 mezz_tmp_path.replace(mezz_out_path)
-                log.info(f"mezzanine {src.stem} h{hook_idx} {recipe.name} → {mezz_out_path.name}")
+                log.info(
+                    f"mezzanine {src.stem} h{hook_idx} {recipe.name} → {mezz_out_path.name}"
+                )
             else:
-                msg = mezz_err.decode(errors="replace")[-500:] or "missing mezzanine temp output"
-                log.warning(f"mezzanine failed {src.stem} h{hook_idx} {recipe.name}: {msg}")
+                msg = (
+                    mezz_err.decode(errors="replace")[-500:]
+                    or "missing mezzanine temp output"
+                )
+                log.warning(
+                    f"mezzanine failed {src.stem} h{hook_idx} {recipe.name}: {msg}"
+                )
 
         log.info(
             f"done {src.stem} h{hook_idx} {recipe.name} [{color}] "
@@ -1343,14 +1654,20 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
         pass
 
     caption_position = ",".join(dict.fromkeys([seg.band for seg in seg_plans])) or band
-    generation_id = caption.get("generationId") or caption.get("generation_id") if isinstance(caption, dict) else None
+    generation_id = (
+        caption.get("generationId") or caption.get("generation_id")
+        if isinstance(caption, dict)
+        else None
+    )
     placement_decision = (
         _placement_summary.metadata.get("captionPlacementDecision")
-        if isinstance(_placement_summary.metadata, dict) else {}
+        if isinstance(_placement_summary.metadata, dict)
+        else {}
     )
     placement_policy = (
         _placement_summary.metadata.get("captionPlacementPolicy")
-        if isinstance(_placement_summary.metadata, dict) else None
+        if isinstance(_placement_summary.metadata, dict)
+        else None
     ) or ("legacy" if caption_placement_policy == "legacy" else "focal_safe_v1")
     placement_lineage = {
         **(caption_lineage or {}),
@@ -1411,8 +1728,7 @@ async def process_one(src: Path, caption: str | dict, hook_idx: int, recipe: Rec
 # ────────────────────────────────────────────────────────────────────────────
 # Discovery + main
 # ────────────────────────────────────────────────────────────────────────────
-def discover_pairs(raw_dir: Path, cap_dir: Path
-                   ) -> list[tuple[Path, CaptionSet]]:
+def discover_pairs(raw_dir: Path, cap_dir: Path) -> list[tuple[Path, CaptionSet]]:
     pairs: list[tuple[Path, CaptionSet]] = []
     for video in sorted(raw_dir.glob("*.mp4")):
         cap_set = find_caption_for(video, cap_dir)
@@ -1444,7 +1760,8 @@ def caption_set_from_bank_selection(
     topic_banks = topic_caption_banks(caption_topic)
     if topic_banks and not caption_banks:
         selected = [
-            item for item in selected
+            item
+            for item in selected
             if set(item.get("selected_banks") or []) & set(topic_banks)
         ]
     if not selected:
@@ -1474,21 +1791,32 @@ def caption_set_from_bank_selection(
                 selected_mix=selected_mix,
                 selected_banks=item.get("selected_banks") or [],
             ),
-            **({
-                "captionTopic": caption_topic,
-                "captionTopicBanks": topic_banks,
-                "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
-            } if topic_banks else {}),
+            **(
+                {
+                    "captionTopic": caption_topic,
+                    "captionTopicBanks": topic_banks,
+                    "captionTopicFitVersion": CAPTION_TOPIC_FIT_VERSION,
+                }
+                if topic_banks
+                else {}
+            ),
         }
         for idx, item in enumerate(selected)
     }
     notes = (
-        f"caption_mix={caption_mix}" if caption_mix
+        f"caption_mix={caption_mix}"
+        if caption_mix
         else f"caption_banks={','.join(caption_banks or [])}"
     )
     if topic_banks:
         notes = f"{notes}; caption_topic={caption_topic}"
-    return CaptionSet(hooks=hooks, recipe_names=None, caption_color=None, notes=notes, hook_lineage=lineage)
+    return CaptionSet(
+        hooks=hooks,
+        recipe_names=None,
+        caption_color=None,
+        notes=notes,
+        hook_lineage=lineage,
+    )
 
 
 STATIC_ALLOWED_LENGTHS = {
@@ -1536,9 +1864,13 @@ def classify_frame_type_for_caption_fit(
     return "unknown"
 
 
-def _caption_sort_key_for_fit(index: int, hook: str | dict, lineage: dict) -> tuple[int, int, int]:
+def _caption_sort_key_for_fit(
+    index: int, hook: str | dict, lineage: dict
+) -> tuple[int, int, int]:
     metadata = caption_static_metadata(
-        json.dumps(hook, sort_keys=True, ensure_ascii=False) if isinstance(hook, dict) else str(hook)
+        json.dumps(hook, sort_keys=True, ensure_ascii=False)
+        if isinstance(hook, dict)
+        else str(hook)
     )
     length_rank = {"very_short": 0, "short": 1, "medium": 2, "long": 3}
     return (
@@ -1583,7 +1915,11 @@ def apply_caption_fit_to_caption_set(
     diagnostics: list[dict] = []
     if fit_mode == "off":
         for idx, hook in enumerate(cap_set.hooks):
-            text = json.dumps(hook, sort_keys=True, ensure_ascii=False) if isinstance(hook, dict) else str(hook)
+            text = (
+                json.dumps(hook, sort_keys=True, ensure_ascii=False)
+                if isinstance(hook, dict)
+                else str(hook)
+            )
             lineage = dict(cap_set.hook_lineage.get(idx) or {})
             meta = caption_static_metadata(text)
             scene = evaluate_scene_compatibility(
@@ -1592,31 +1928,45 @@ def apply_caption_fit_to_caption_set(
                 reel_scene_tags=reel_scene_tags,
                 scene_fit_mode="off",
             )
-            diagnostics.append({
-                "caption": text,
-                "bank": (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [None])[0],
-                "length_class": lineage.get("lengthClass") or meta["length_class"],
-                "format_class": lineage.get("formatClass") or meta["format_class"],
-                "frame_type": frame_type,
-                "captionFitVersion": CAPTION_FIT_VERSION,
-                "suitabilityDecision": "fit_disabled",
-                "reason": "caption fit disabled",
-                "captionSceneTags": scene.caption_scene_tags,
-                "reelSceneTags": scene.reel_scene_tags,
-                "sceneCompatibilityDecision": scene.decision,
-                "sceneCompatibilityReason": scene.reason,
-                "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
-            })
+            diagnostics.append(
+                {
+                    "caption": text,
+                    "bank": (
+                        lineage.get("selectedBanks")
+                        or lineage.get("sourceBanks")
+                        or [None]
+                    )[0],
+                    "length_class": lineage.get("lengthClass") or meta["length_class"],
+                    "format_class": lineage.get("formatClass") or meta["format_class"],
+                    "frame_type": frame_type,
+                    "captionFitVersion": CAPTION_FIT_VERSION,
+                    "suitabilityDecision": "fit_disabled",
+                    "reason": "caption fit disabled",
+                    "captionSceneTags": scene.caption_scene_tags,
+                    "reelSceneTags": scene.reel_scene_tags,
+                    "sceneCompatibilityDecision": scene.decision,
+                    "sceneCompatibilityReason": scene.reason,
+                    "captionSceneFitVersion": CAPTION_SCENE_FIT_VERSION,
+                }
+            )
         return cap_set, diagnostics
 
-    allowed_lengths = STATIC_ALLOWED_LENGTHS.get(frame_type, STATIC_ALLOWED_LENGTHS["unknown"])
-    fallback_lengths = STATIC_FALLBACK_LENGTHS.get(frame_type, STATIC_FALLBACK_LENGTHS["unknown"])
+    allowed_lengths = STATIC_ALLOWED_LENGTHS.get(
+        frame_type, STATIC_ALLOWED_LENGTHS["unknown"]
+    )
+    fallback_lengths = STATIC_FALLBACK_LENGTHS.get(
+        frame_type, STATIC_FALLBACK_LENGTHS["unknown"]
+    )
     topic_banks = topic_caption_banks(caption_topic)
     allowed: list[tuple[int, str | dict, dict]] = []
     fallback: list[tuple[int, str | dict, dict]] = []
 
     for idx, hook in enumerate(cap_set.hooks):
-        text = json.dumps(hook, sort_keys=True, ensure_ascii=False) if isinstance(hook, dict) else str(hook)
+        text = (
+            json.dumps(hook, sort_keys=True, ensure_ascii=False)
+            if isinstance(hook, dict)
+            else str(hook)
+        )
         lineage = dict(cap_set.hook_lineage.get(idx) or {})
         meta = caption_static_metadata(text)
         length_class = lineage.get("lengthClass") or meta["length_class"]
@@ -1624,7 +1974,9 @@ def apply_caption_fit_to_caption_set(
         bank = (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [None])[0]
         selected_banks = {
             str(bank_name)
-            for bank_name in (lineage.get("selectedBanks") or lineage.get("sourceBanks") or [])
+            for bank_name in (
+                lineage.get("selectedBanks") or lineage.get("sourceBanks") or []
+            )
         }
         topic_allowed = not topic_banks or bool(selected_banks & set(topic_banks))
         readable = length_class in allowed_lengths
@@ -1637,7 +1989,8 @@ def apply_caption_fit_to_caption_set(
         decision = "allowed" if readable else "skipped"
         reason = (
             f"{length_class} static caption allowed for {frame_type}"
-            if readable else f"{length_class} static caption too long for {frame_type}"
+            if readable
+            else f"{length_class} static caption too long for {frame_type}"
         )
         topic_decision = "fit_disabled"
         topic_reason = "caption topic fit disabled"
@@ -1645,7 +1998,8 @@ def apply_caption_fit_to_caption_set(
             topic_decision = "allowed" if topic_allowed else "blocked"
             topic_reason = (
                 f"caption banks match {caption_topic}"
-                if topic_allowed else f"caption topic {caption_topic} requires one of "
+                if topic_allowed
+                else f"caption topic {caption_topic} requires one of "
                 f"{','.join(topic_banks)}; got {','.join(sorted(selected_banks)) or 'unknown'}"
             )
             if not topic_allowed:
@@ -1708,7 +2062,9 @@ def apply_caption_fit_to_caption_set(
             idx, hook, lineage = item
             if lineage.get("lengthClass") not in fallback_lengths:
                 continue
-            fallback_reason = f"fallback shortest available caption after static fit for {frame_type}"
+            fallback_reason = (
+                f"fallback shortest available caption after static fit for {frame_type}"
+            )
             lineage = {
                 **lineage,
                 "suitabilityDecision": "fallback_short",
@@ -1716,7 +2072,11 @@ def apply_caption_fit_to_caption_set(
             }
             selected.append((idx, hook, lineage))
             for row in diagnostics:
-                if row["caption"] == (json.dumps(hook, sort_keys=True, ensure_ascii=False) if isinstance(hook, dict) else str(hook)):
+                if row["caption"] == (
+                    json.dumps(hook, sort_keys=True, ensure_ascii=False)
+                    if isinstance(hook, dict)
+                    else str(hook)
+                ):
                     row["suitabilityDecision"] = "fallback_short"
                     row["reason"] = fallback_reason
                     break
@@ -1730,22 +2090,25 @@ def apply_caption_fit_to_caption_set(
         for row_idx, row in enumerate(diagnostics):
             if row_idx not in kept_indices and row["suitabilityDecision"] == "allowed":
                 row["suitabilityDecision"] = "downweighted"
-                row["reason"] = f"readable for {frame_type}, but not selected by weighted sample"
+                row["reason"] = (
+                    f"readable for {frame_type}, but not selected by weighted sample"
+                )
 
     hooks = [hook for _, hook, _ in selected]
-    lineage = {new_idx: item_lineage for new_idx, (_, _, item_lineage) in enumerate(selected)}
+    lineage = {
+        new_idx: item_lineage for new_idx, (_, _, item_lineage) in enumerate(selected)
+    }
     return CaptionSet(
         hooks=hooks,
         recipe_names=cap_set.recipe_names,
         caption_color=cap_set.caption_color,
         notes=f"{cap_set.notes}; caption_fit={fit_mode}; frame_type={frame_type}"
-              + (f"; caption_topic={caption_topic}" if caption_topic else ""),
+        + (f"; caption_topic={caption_topic}" if caption_topic else ""),
         hook_lineage=lineage,
     ), diagnostics
 
 
-def select_recipes(cap_set: CaptionSet,
-                   override: list[str] | None) -> list[Recipe]:
+def select_recipes(cap_set: CaptionSet, override: list[str] | None) -> list[Recipe]:
     if override:
         unknown = [n for n in override if n not in RECIPES_BY_NAME]
         if unknown:
@@ -1827,25 +2190,39 @@ def reconcile_interrupted_temp_outputs(proc_dir: Path, manifest: Manifest) -> in
 
 async def amain(args):
     root = Path(args.root).resolve()
-    raw_dir   = root / "00_source_videos"
-    cap_dir   = root / "01_captions"
-    proc_dir  = root / "02_processed"
+    raw_dir = root / "00_source_videos"
+    cap_dir = root / "01_captions"
+    proc_dir = root / "02_processed"
     fonts_dir = root / "fonts"
     audio_dir = root / "03_audio_library"
     manifest_path = root / "manifest.json"
     config = load_config(root)
     if getattr(args, "_defaults_applied", False) is False:
-        args.workers = args.workers if args.workers != 3 else int(config.get("workers", args.workers))
-        args.caption_renderer = args.caption_renderer or config.get("caption_renderer", "pillow")
-        args.placement_mode = args.placement_mode or config.get("placement_mode", "source")
-        args.output_profile = args.output_profile or config.get("output_profile", "mac_h264_videotoolbox")
+        args.workers = (
+            args.workers
+            if args.workers != 3
+            else int(config.get("workers", args.workers))
+        )
+        args.caption_renderer = args.caption_renderer or config.get(
+            "caption_renderer", "pillow"
+        )
+        args.placement_mode = args.placement_mode or config.get(
+            "placement_mode", "source"
+        )
+        args.output_profile = args.output_profile or config.get(
+            "output_profile", "mac_h264_videotoolbox"
+        )
 
     for d in (raw_dir, cap_dir, proc_dir, fonts_dir, audio_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     manifest = Manifest(manifest_path)
     reconcile_interrupted_temp_outputs(proc_dir, manifest)
-    asset_prompt_info = load_asset_prompt_set(Path(args.asset_prompt_json)) if args.asset_prompt_json else None
+    asset_prompt_info = (
+        load_asset_prompt_set(Path(args.asset_prompt_json))
+        if args.asset_prompt_json
+        else None
+    )
 
     # ── Load per-account profile (if --account set) ────────────────────
     account: dict = {}
@@ -1862,15 +2239,23 @@ async def amain(args):
         else:
             log.warning(f"account profile not found: {acc_path}")
     try:
-        account_scope = validate_account_scope(args.account, production_render=bool(getattr(args, "production_render", False)))
+        account_scope = validate_account_scope(
+            args.account,
+            production_render=bool(getattr(args, "production_render", False)),
+        )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     try:
-        identity_provider_check = enforce_production_identity_provider(bool(getattr(args, "production_render", False)))
+        identity_provider_check = enforce_production_identity_provider(
+            bool(getattr(args, "production_render", False))
+        )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
     if identity_provider_check.get("required"):
-        log.info("identity_provider_check " + json.dumps(identity_provider_check, ensure_ascii=False))
+        log.info(
+            "identity_provider_check "
+            + json.dumps(identity_provider_check, ensure_ascii=False)
+        )
 
     if args.caption_mix or args.caption_banks:
         try:
@@ -1891,7 +2276,9 @@ async def amain(args):
     else:
         pairs = discover_pairs(raw_dir, cap_dir)
     if args.only_clip:
-        pairs = [(video, cap_set) for video, cap_set in pairs if video.stem == args.only_clip]
+        pairs = [
+            (video, cap_set) for video, cap_set in pairs if video.stem == args.only_clip
+        ]
     log.info(f"discovered {len(pairs)} (video, caption) pairs")
 
     auto_color_cache: dict[str, str] = {}
@@ -1914,7 +2301,9 @@ async def amain(args):
         for warning in warnings:
             log.warning(f"preflight {video.stem}: {warning.code}: {warning.message}")
         if args.strict_preflight and warnings:
-            log.error(f"strict preflight blocked {video.stem}: {len(warnings)} warning(s)")
+            log.error(
+                f"strict preflight blocked {video.stem}: {len(warnings)} warning(s)"
+            )
             continue
 
         src_hash = sha256_file(video)
@@ -1945,7 +2334,8 @@ async def amain(args):
             log.info(f"prewarm color for {video.stem}: → {auto_color_cache[src_hash]}")
         if src_hash not in auto_band_cache:
             band_, style_, font_, placement_summary = await probe_caption_layout(
-                video, duration,
+                video,
+                duration,
                 placement_debug=args.placement_debug,
                 placement_signals=args.placement_signals,
                 caption_placement_policy=args.caption_placement_policy,
@@ -1972,7 +2362,9 @@ async def amain(args):
             )
             placement_qc_rows.append(qc_row)
             if args.caption_placement_qc or args.placement_debug:
-                log.info("caption_placement_qc " + json.dumps(qc_row, ensure_ascii=False))
+                log.info(
+                    "caption_placement_qc " + json.dumps(qc_row, ensure_ascii=False)
+                )
             log.info(
                 f"prewarm layout for {video.stem}: "
                 f"band→{band_} style→{style_} font→{font_}"
@@ -1990,11 +2382,13 @@ async def amain(args):
             prompt_text = ""
             if asset_prompt_info:
                 prompt_set, _prompt_source_path = asset_prompt_info
-                prompt_text = "\n".join([
-                    prompt_set.higgsfieldGridPrompt,
-                    prompt_set.klingMotionPrompt,
-                    prompt_set.notes,
-                ])
+                prompt_text = "\n".join(
+                    [
+                        prompt_set.higgsfieldGridPrompt,
+                        prompt_set.klingMotionPrompt,
+                        prompt_set.notes,
+                    ]
+                )
             reel_scene_tags = classify_reel_scene_tags(
                 frame_type=frame_type,
                 video_stem=video.stem,
@@ -2032,12 +2426,14 @@ async def amain(args):
 
         # Per-clip color override from sidecar JSON, account profile, or CLI
         forced_color = args.color or cap_set.caption_color
-        if not forced_color and account.get("color_scheme") and account["color_scheme"] != "auto":
+        if (
+            not forced_color
+            and account.get("color_scheme")
+            and account["color_scheme"] != "auto"
+        ):
             forced_color = account["color_scheme"]
         if forced_color:
-            recipes = [
-                replace(r, caption_color=forced_color) for r in recipes
-            ]
+            recipes = [replace(r, caption_color=forced_color) for r in recipes]
         if args.style:
             recipes = [replace(r, caption_style=args.style) for r in recipes]
         if args.band:
@@ -2065,20 +2461,26 @@ async def amain(args):
         hooks_pool: list[tuple[int, str | dict]] = list(enumerate(video_cap_set.hooks))
         recipes_pool: list[Recipe] = list(recipes)
         if args.only_hook_index is not None:
-            hooks_pool = [item for item in hooks_pool if item[0] == args.only_hook_index]
+            hooks_pool = [
+                item for item in hooks_pool if item[0] == args.only_hook_index
+            ]
 
         if args.max_recipes is not None and args.max_recipes < len(recipes_pool):
             if args.hook_select == "first":
-                recipes_pool = recipes_pool[:args.max_recipes]
+                recipes_pool = recipes_pool[: args.max_recipes]
             else:
                 recipes_pool = sorted(
                     rng.sample(recipes_pool, args.max_recipes),
                     key=lambda r: [rr.name for rr in recipes].index(r.name),
                 )
 
-        if not bank_caption_mode and args.max_hooks is not None and args.max_hooks < len(hooks_pool):
+        if (
+            not bank_caption_mode
+            and args.max_hooks is not None
+            and args.max_hooks < len(hooks_pool)
+        ):
             if args.hook_select == "first":
-                hooks_pool = hooks_pool[:args.max_hooks]
+                hooks_pool = hooks_pool[: args.max_hooks]
             else:
                 hooks_pool = sorted(
                     rng.sample(hooks_pool, args.max_hooks),
@@ -2095,7 +2497,7 @@ async def amain(args):
                 recipe_order=recipes,
             )
 
-        if (args.max_hooks or args.max_recipes or args.per_clip):
+        if args.max_hooks or args.max_recipes or args.per_clip:
             log.info(
                 f"sample {video.stem}: {len(hooks_pool)} hooks × "
                 f"{len(recipes_pool)} recipes = "
@@ -2105,10 +2507,16 @@ async def amain(args):
 
         for hook_idx, hook in hooks_pool:
             for recipe in recipes_pool:
-                target_ratios = recipe.target_ratios or args.target_ratios or config.get("target_ratios", ["9:16"])
+                target_ratios = (
+                    recipe.target_ratios
+                    or args.target_ratios
+                    or config.get("target_ratios", ["9:16"])
+                )
                 for target_ratio in target_ratios:
                     key = compute_job_key(
-                        src_hash, hook, recipe,
+                        src_hash,
+                        hook,
+                        recipe,
                         placement_mode=args.placement_mode,
                         target_ratio=target_ratio,
                         caption_placement_policy=args.caption_placement_policy,
@@ -2116,13 +2524,20 @@ async def amain(args):
                     )
                     if key in queued_keys:
                         duplicate_jobs += 1
-                        log.info(f"skip {video.stem} h{hook_idx} {recipe.name} {target_ratio} (duplicate in this run)")
-                        if queued_keys[key] != video.stem and not args.dry_run and not args.preview:
+                        log.info(
+                            f"skip {video.stem} h{hook_idx} {recipe.name} {target_ratio} (duplicate in this run)"
+                        )
+                        if (
+                            queued_keys[key] != video.stem
+                            and not args.dry_run
+                            and not args.preview
+                        ):
                             duplicate_aliases.append((video.stem, key))
                         continue
                     queued_keys[key] = video.stem
                     if args.enqueue_only:
                         from render_queue import get_queue
+
                         queue = get_queue(root, args.queue_backend)
                         cmd = build_single_job_enqueue_cmd(
                             root=root,
@@ -2134,38 +2549,58 @@ async def amain(args):
                         )
                         queue.enqueue(job_key=key, command=cmd, cwd=root)
                         continue
-                    tasks.append(process_one(
-                        video, hook, hook_idx, recipe,
-                        out_dir, fonts_dir, manifest,
-                        src_hash, duration,
-                        auto_color_cache, auto_band_cache, encode_sem, args.dry_run,
-                        src_dims=src_dims_cache[src_hash],
-                        src_bitrate_mbps=src_bitrate_cache.get(src_hash),
-                        mezzanine=args.mezzanine,
-                        caption_renderer=args.caption_renderer,
-                        output_profile=args.output_profile,
-                        placement_signals=args.placement_signals,
-                        placement_mode=args.placement_mode,
-                        caption_placement_policy=args.caption_placement_policy,
-                        target_ratio=target_ratio,
-                        preview=args.preview,
-                        placement_debug=args.placement_debug,
-                        phone_finalize=args.phone_finalize,
-                        rerender_all=args.rerender_all,
-                        asset_prompt_info=asset_prompt_info,
-                        caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
-                        account_scope=account_scope,
-                    ))
+                    tasks.append(
+                        process_one(
+                            video,
+                            hook,
+                            hook_idx,
+                            recipe,
+                            out_dir,
+                            fonts_dir,
+                            manifest,
+                            src_hash,
+                            duration,
+                            auto_color_cache,
+                            auto_band_cache,
+                            encode_sem,
+                            args.dry_run,
+                            src_dims=src_dims_cache[src_hash],
+                            src_bitrate_mbps=src_bitrate_cache.get(src_hash),
+                            mezzanine=args.mezzanine,
+                            caption_renderer=args.caption_renderer,
+                            output_profile=args.output_profile,
+                            placement_signals=args.placement_signals,
+                            placement_mode=args.placement_mode,
+                            caption_placement_policy=args.caption_placement_policy,
+                            target_ratio=target_ratio,
+                            preview=args.preview,
+                            placement_debug=args.placement_debug,
+                            phone_finalize=args.phone_finalize,
+                            rerender_all=args.rerender_all,
+                            asset_prompt_info=asset_prompt_info,
+                            caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
+                            account_scope=account_scope,
+                        )
+                    )
 
     if duplicate_jobs:
         log.info(f"deduped {duplicate_jobs} duplicate render task(s) before launch")
     if args.caption_placement_qc:
         qc_path = root / "caption_placement_qc.json"
-        qc_path.write_text(json.dumps({
-            "schema": "reel_factory.caption_placement_qc_report.v1",
-            "captionPlacementPolicy": "focal_safe_v1" if args.caption_placement_policy != "legacy" else "legacy",
-            "rows": placement_qc_rows,
-        }, indent=2, ensure_ascii=False), encoding="utf-8")
+        qc_path.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.caption_placement_qc_report.v1",
+                    "captionPlacementPolicy": "focal_safe_v1"
+                    if args.caption_placement_policy != "legacy"
+                    else "legacy",
+                    "rows": placement_qc_rows,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         log.info(f"caption placement qc report → {qc_path}")
     log.info(f"queued {len(tasks)} render tasks")
     results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
@@ -2187,19 +2622,24 @@ async def amain(args):
                         asset_generation_id=getattr(args, "asset_generation_id", None),
                     )
                 except Exception as e:
-                    log.warning(f"campaign output link failed for {result.get('out')}: {e}")
+                    log.warning(
+                        f"campaign output link failed for {result.get('out')}: {e}"
+                    )
 
         # Per-clip summary artifacts: CSV index + contact sheet PNG.
         try:
             from post_render import summarize_clip_outputs
+
             for video, _ in pairs:
                 clip_out = proc_dir / video.stem
                 if clip_out.exists() and any(clip_out.glob("*.mp4")):
                     info = summarize_clip_outputs(clip_out)
-                    log.info(f"summarize {video.stem}: csv+sheet for "
-                             f"{info['count']} outputs")
+                    log.info(
+                        f"summarize {video.stem}: csv+sheet for {info['count']} outputs"
+                    )
                     try:
                         from sscd_check import audit_clip_dir
+
                         novelty = audit_clip_dir(clip_out)
                         if novelty:
                             (clip_out / "_similarity.json").write_text(
@@ -2214,6 +2654,7 @@ async def amain(args):
         if args.mux_audio:
             try:
                 from audio_mux import mux_root
+
                 mux_summary = mux_root(root, audio_tag=args.audio_tag, seed=args.seed)
                 log.info(f"audio mux: {json.dumps(mux_summary)}")
             except Exception as e:
@@ -2221,21 +2662,29 @@ async def amain(args):
         if args.ai_qc:
             try:
                 from ai_visual_qc import run_ai_qc
+
                 for video, _ in pairs:
                     clip_out = proc_dir / video.stem
                     if clip_out.exists() and any(clip_out.glob("*.mp4")):
                         qc_summary = run_ai_qc(root, clip=video.stem)
-                        log.info(f"ai_qc {video.stem}: {json.dumps(qc_summary.get('summary', {}))}")
+                        log.info(
+                            f"ai_qc {video.stem}: {json.dumps(qc_summary.get('summary', {}))}"
+                        )
             except Exception as e:
                 log.warning(f"ai visual qc failed: {e}")
         if args.readiness:
             try:
                 from readiness_check import run_readiness
+
                 for video, _ in pairs:
                     clip_out = proc_dir / video.stem
                     if clip_out.exists() and any(clip_out.glob("*.mp4")):
-                        ready_summary = run_readiness(root, clip=video.stem, platform="instagram_reels")
-                        log.info(f"readiness {video.stem}: {json.dumps(ready_summary.get('summary', {}))}")
+                        ready_summary = run_readiness(
+                            root, clip=video.stem, platform="instagram_reels"
+                        )
+                        log.info(
+                            f"readiness {video.stem}: {json.dumps(ready_summary.get('summary', {}))}"
+                        )
             except Exception as e:
                 log.warning(f"readiness check failed: {e}")
 
@@ -2253,6 +2702,7 @@ async def amain(args):
     if getattr(args, "qc", False) and not args.dry_run:
         try:
             from qc_check import run_qc
+
             qc_summary = run_qc(proc_dir, move_failed=True)
             log.info(f"qc: {json.dumps(qc_summary)}")
         except Exception as e:
@@ -2264,120 +2714,298 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--root", default=".",
-                    help="project root containing 00_source_videos/, 01_captions/, etc.")
-    ap.add_argument("--recipes", nargs="*", default=None,
-                    help="restrict to these recipe names (e.g. v01_original v05_hflip)")
-    ap.add_argument("--color", choices=["light", "dark", "auto"], default=None,
-                    help="force caption color across all recipes (overrides sidecar + recipe defaults)")
-    ap.add_argument("--style", choices=["classic", "meme", "ig", "thin", "soft", "bubble", "auto"], default=None,
-                    help="force caption style across all recipes (overrides recipe defaults)")
-    ap.add_argument("--font", default=None,
-                    help="force caption font family: 'Instagram Sans Condensed' or 'Instagram Sans Condensed Bold' (bold is used only for meme style)")
-    ap.add_argument("--band", choices=["top", "center", "bottom", "left", "right", "auto"], default=None,
-                    help="force caption placement band across all recipes")
-    ap.add_argument("--text-variation", choices=["off", "auto"], default="off",
-                    help="caption text rewrite mode: off preserves exact text; auto applies deterministic slang/case variants")
-    ap.add_argument("--variation-pack", default="default",
-                    help="named text variation pack to use with --text-variation auto (default: default)")
-    ap.add_argument("--pack-render", action="store_true",
-                    help="operator preset for rendering a deterministic multi-variant reel pack")
-    ap.add_argument("--account", default=None,
-                    help="apply preferences from accounts/<NAME>.json — biases auto-pick "
-                         "of font/style/color toward that account's voice")
-    ap.add_argument("--production-render", action="store_true",
-                    help="require an explicit --account scope so production variants are account-aware")
-    ap.add_argument("--caption-mix", choices=["Larissa", "Stacey", "Lola"], default=None,
-                    help="select hooks from a creator-weighted caption bank mix")
-    ap.add_argument("--creator-style-preset", choices=sorted(CREATOR_STYLE_PRESETS), default="auto",
-                    help="creator/account visual defaults; auto centers Stacey/Larissa static-style captions")
-    ap.add_argument("--caption-banks", nargs="+", default=None,
-                    help="select hooks from explicit caption bank names instead of a creator mix")
-    ap.add_argument("--caption-fit", choices=["auto", "off"], default="auto",
-                    help="fit caption-bank hooks to the detected frame type before rendering (default: auto)")
-    ap.add_argument("--caption-scene-fit", choices=["auto", "off"], default="auto",
-                    help="block obvious scene/location caption mismatches for caption-bank hooks (default: auto)")
-    ap.add_argument("--caption-topic", choices=["auto", "off", *CAPTION_TOPIC_ORDER], default="auto",
-                    help="fit caption-bank hooks to source-specific topic cues before rendering (default: auto)")
-    ap.add_argument("--campaign", default=None,
-                    help="link rendered outputs to a Campaign Factory campaign")
-    ap.add_argument("--asset-generation-id", default=None,
-                    help="link rendered outputs to an existing Campaign Factory asset generation")
-    ap.add_argument("--watch", action="store_true",
-                    help="watch 00_source_videos/ for new clips and auto-process")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print commands without encoding")
-    ap.add_argument("--preview", action="store_true",
-                    help="render caption preview PNGs instead of full videos")
-    ap.add_argument("--rerender-all", action="store_true",
-                    help="ignore cached successful jobs and render selected outputs again")
-    ap.add_argument("--strict-preflight", action="store_true",
-                    help="block clips that produce preflight warnings")
-    ap.add_argument("--workers", type=int, default=3, metavar="N",
-                    help="max concurrent ffmpeg encodes (default: 3)")
-    ap.add_argument("--mezzanine", action="store_true",
-                    help="also export ProRes LT .mov mezzanine files beside social MP4s")
-    ap.add_argument("--output-profile",
-                    choices=[name for name, profile in ENCODER_PROFILES.items() if profile.runnable and name != "prores_lt"],
-                    default="mac_h264_videotoolbox",
-                    help="primary MP4 encoder profile (default: mac_h264_videotoolbox)")
-    ap.add_argument("--phone-finalize", dest="phone_finalize", action="store_true", default=True,
-                    help="stream-copy final MP4 with mobile-style metadata and faststart (default)")
-    ap.add_argument("--no-phone-finalize", dest="phone_finalize", action="store_false",
-                    help="skip final MP4 metadata/finalization remux")
-    ap.add_argument("--caption-renderer", choices=["pillow", "pango"], default="pillow",
-                    help="caption rasterizer; pango is experimental and falls back to Pillow")
-    ap.add_argument("--placement-debug", action="store_true",
-                    help="log top/center/bottom caption lane scores during source analysis")
-    ap.add_argument("--placement-signals", choices=["basic", "pose"], default="basic",
-                    help="placement analysis signals: basic or pose (optional MediaPipe)")
-    ap.add_argument("--placement-mode", choices=["source", "segment"], default="source",
-                    help="caption placement mode: source-level stable placement; timed captions auto-use segment placement")
-    ap.add_argument("--caption-placement-policy", choices=["focal-safe", "legacy"], default="focal-safe",
-                    help="caption placement policy: focal-safe avoids face/body focal zones; legacy preserves old lane behavior")
-    ap.add_argument("--caption-placement-qc", action="store_true",
-                    help="write caption_placement_qc.json with lane scores and placement reasons")
-    ap.add_argument("--target-ratios", nargs="+", choices=["9:16", "4:5"], default=["9:16"],
-                    help="output aspect ratios to render (default: 9:16)")
+    ap.add_argument(
+        "--root",
+        default=".",
+        help="project root containing 00_source_videos/, 01_captions/, etc.",
+    )
+    ap.add_argument(
+        "--recipes",
+        nargs="*",
+        default=None,
+        help="restrict to these recipe names (e.g. v01_original v05_hflip)",
+    )
+    ap.add_argument(
+        "--color",
+        choices=["light", "dark", "auto"],
+        default=None,
+        help="force caption color across all recipes (overrides sidecar + recipe defaults)",
+    )
+    ap.add_argument(
+        "--style",
+        choices=["classic", "meme", "ig", "thin", "soft", "bubble", "auto"],
+        default=None,
+        help="force caption style across all recipes (overrides recipe defaults)",
+    )
+    ap.add_argument(
+        "--font",
+        default=None,
+        help="force caption font family: 'Instagram Sans Condensed' or 'Instagram Sans Condensed Bold' (bold is used only for meme style)",
+    )
+    ap.add_argument(
+        "--band",
+        choices=["top", "center", "bottom", "left", "right", "auto"],
+        default=None,
+        help="force caption placement band across all recipes",
+    )
+    ap.add_argument(
+        "--text-variation",
+        choices=["off", "auto"],
+        default="off",
+        help="caption text rewrite mode: off preserves exact text; auto applies deterministic slang/case variants",
+    )
+    ap.add_argument(
+        "--variation-pack",
+        default="default",
+        help="named text variation pack to use with --text-variation auto (default: default)",
+    )
+    ap.add_argument(
+        "--pack-render",
+        action="store_true",
+        help="operator preset for rendering a deterministic multi-variant reel pack",
+    )
+    ap.add_argument(
+        "--account",
+        default=None,
+        help="apply preferences from accounts/<NAME>.json — biases auto-pick "
+        "of font/style/color toward that account's voice",
+    )
+    ap.add_argument(
+        "--production-render",
+        action="store_true",
+        help="require an explicit --account scope so production variants are account-aware",
+    )
+    ap.add_argument(
+        "--caption-mix",
+        choices=["Larissa", "Stacey", "Lola"],
+        default=None,
+        help="select hooks from a creator-weighted caption bank mix",
+    )
+    ap.add_argument(
+        "--creator-style-preset",
+        choices=sorted(CREATOR_STYLE_PRESETS),
+        default="auto",
+        help="creator/account visual defaults; auto centers Stacey/Larissa static-style captions",
+    )
+    ap.add_argument(
+        "--caption-banks",
+        nargs="+",
+        default=None,
+        help="select hooks from explicit caption bank names instead of a creator mix",
+    )
+    ap.add_argument(
+        "--caption-fit",
+        choices=["auto", "off"],
+        default="auto",
+        help="fit caption-bank hooks to the detected frame type before rendering (default: auto)",
+    )
+    ap.add_argument(
+        "--caption-scene-fit",
+        choices=["auto", "off"],
+        default="auto",
+        help="block obvious scene/location caption mismatches for caption-bank hooks (default: auto)",
+    )
+    ap.add_argument(
+        "--caption-topic",
+        choices=["auto", "off", *CAPTION_TOPIC_ORDER],
+        default="auto",
+        help="fit caption-bank hooks to source-specific topic cues before rendering (default: auto)",
+    )
+    ap.add_argument(
+        "--campaign",
+        default=None,
+        help="link rendered outputs to a Campaign Factory campaign",
+    )
+    ap.add_argument(
+        "--asset-generation-id",
+        default=None,
+        help="link rendered outputs to an existing Campaign Factory asset generation",
+    )
+    ap.add_argument(
+        "--watch",
+        action="store_true",
+        help="watch 00_source_videos/ for new clips and auto-process",
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="print commands without encoding"
+    )
+    ap.add_argument(
+        "--preview",
+        action="store_true",
+        help="render caption preview PNGs instead of full videos",
+    )
+    ap.add_argument(
+        "--rerender-all",
+        action="store_true",
+        help="ignore cached successful jobs and render selected outputs again",
+    )
+    ap.add_argument(
+        "--strict-preflight",
+        action="store_true",
+        help="block clips that produce preflight warnings",
+    )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=3,
+        metavar="N",
+        help="max concurrent ffmpeg encodes (default: 3)",
+    )
+    ap.add_argument(
+        "--mezzanine",
+        action="store_true",
+        help="also export ProRes LT .mov mezzanine files beside social MP4s",
+    )
+    ap.add_argument(
+        "--output-profile",
+        choices=[
+            name
+            for name, profile in ENCODER_PROFILES.items()
+            if profile.runnable and name != "prores_lt"
+        ],
+        default="mac_h264_videotoolbox",
+        help="primary MP4 encoder profile (default: mac_h264_videotoolbox)",
+    )
+    ap.add_argument(
+        "--phone-finalize",
+        dest="phone_finalize",
+        action="store_true",
+        default=True,
+        help="stream-copy final MP4 with mobile-style metadata and faststart (default)",
+    )
+    ap.add_argument(
+        "--no-phone-finalize",
+        dest="phone_finalize",
+        action="store_false",
+        help="skip final MP4 metadata/finalization remux",
+    )
+    ap.add_argument(
+        "--caption-renderer",
+        choices=["pillow", "pango"],
+        default="pillow",
+        help="caption rasterizer; pango is experimental and falls back to Pillow",
+    )
+    ap.add_argument(
+        "--placement-debug",
+        action="store_true",
+        help="log top/center/bottom caption lane scores during source analysis",
+    )
+    ap.add_argument(
+        "--placement-signals",
+        choices=["basic", "pose"],
+        default="basic",
+        help="placement analysis signals: basic or pose (optional MediaPipe)",
+    )
+    ap.add_argument(
+        "--placement-mode",
+        choices=["source", "segment"],
+        default="source",
+        help="caption placement mode: source-level stable placement; timed captions auto-use segment placement",
+    )
+    ap.add_argument(
+        "--caption-placement-policy",
+        choices=["focal-safe", "legacy"],
+        default="focal-safe",
+        help="caption placement policy: focal-safe avoids face/body focal zones; legacy preserves old lane behavior",
+    )
+    ap.add_argument(
+        "--caption-placement-qc",
+        action="store_true",
+        help="write caption_placement_qc.json with lane scores and placement reasons",
+    )
+    ap.add_argument(
+        "--target-ratios",
+        nargs="+",
+        choices=["9:16", "4:5"],
+        default=["9:16"],
+        help="output aspect ratios to render (default: 9:16)",
+    )
 
     # ── Sampling controls (cap how many videos come back per run) ─────────
-    ap.add_argument("--max-hooks", type=int, default=None, metavar="N",
-                    help="cap hooks per clip (default: use all)")
-    ap.add_argument("--max-recipes", type=int, default=None, metavar="M",
-                    help="cap recipes per clip (default: use all)")
-    ap.add_argument("--per-clip", type=int, default=None, metavar="K",
-                    help="overall cap on outputs per clip "
-                         "(reduces hooks first, keeps recipes)")
-    ap.add_argument("--hook-select", choices=["first", "random"], default="random",
-                    help="how to pick hooks/recipes when limited "
-                         "(default: random with --seed for reproducibility)")
-    ap.add_argument("--seed", type=int, default=42, metavar="N",
-                    help="RNG seed for random selection (default: 42 — bump it for fresh picks)")
-    ap.add_argument("--only-hook-index", type=int, default=None,
-                    help=argparse.SUPPRESS)
-    ap.add_argument("--only-clip", default=None,
-                    help=argparse.SUPPRESS)
+    ap.add_argument(
+        "--max-hooks",
+        type=int,
+        default=None,
+        metavar="N",
+        help="cap hooks per clip (default: use all)",
+    )
+    ap.add_argument(
+        "--max-recipes",
+        type=int,
+        default=None,
+        metavar="M",
+        help="cap recipes per clip (default: use all)",
+    )
+    ap.add_argument(
+        "--per-clip",
+        type=int,
+        default=None,
+        metavar="K",
+        help="overall cap on outputs per clip (reduces hooks first, keeps recipes)",
+    )
+    ap.add_argument(
+        "--hook-select",
+        choices=["first", "random"],
+        default="random",
+        help="how to pick hooks/recipes when limited "
+        "(default: random with --seed for reproducibility)",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        metavar="N",
+        help="RNG seed for random selection (default: 42 — bump it for fresh picks)",
+    )
+    ap.add_argument("--only-hook-index", type=int, default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--only-clip", default=None, help=argparse.SUPPRESS)
 
     # ── Quality control ───────────────────────────────────────────────────
-    ap.add_argument("--qc", action="store_true",
-                    help="run technical QC pass on outputs after rendering "
-                         "(ffprobe: dims, fps, codec, audio absent, file size)")
-    ap.add_argument("--qc-only", action="store_true",
-                    help="skip rendering, only run QC on existing outputs")
-    ap.add_argument("--mux-audio", action="store_true",
-                    help="after rendering, create separate audio-muxed derivatives")
-    ap.add_argument("--audio-tag", default=None,
-                    help="audio library tag used with --mux-audio")
-    ap.add_argument("--enqueue-only", action="store_true",
-                    help="enqueue render commands into render_queue.sqlite instead of running locally")
-    ap.add_argument("--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite",
-                    help="queue backend for --enqueue-only (rq uses the Redis-compatible backend)")
-    ap.add_argument("--asset-prompt-json", default=None,
-                    help="Optional clean Grok prompt JSON to validate and write as generated asset lineage sidecars.")
-    ap.add_argument("--ai-qc", action="store_true",
-                    help="run heuristic AI visual QA on rendered outputs after rendering")
-    ap.add_argument("--readiness", action="store_true",
-                    help="run warn-only platform readiness aggregation after rendering")
+    ap.add_argument(
+        "--qc",
+        action="store_true",
+        help="run technical QC pass on outputs after rendering "
+        "(ffprobe: dims, fps, codec, audio absent, file size)",
+    )
+    ap.add_argument(
+        "--qc-only",
+        action="store_true",
+        help="skip rendering, only run QC on existing outputs",
+    )
+    ap.add_argument(
+        "--mux-audio",
+        action="store_true",
+        help="after rendering, create separate audio-muxed derivatives",
+    )
+    ap.add_argument(
+        "--audio-tag", default=None, help="audio library tag used with --mux-audio"
+    )
+    ap.add_argument(
+        "--enqueue-only",
+        action="store_true",
+        help="enqueue render commands into render_queue.sqlite instead of running locally",
+    )
+    ap.add_argument(
+        "--queue-backend",
+        choices=["sqlite", "redis", "rq"],
+        default="sqlite",
+        help="queue backend for --enqueue-only (rq uses the Redis-compatible backend)",
+    )
+    ap.add_argument(
+        "--asset-prompt-json",
+        default=None,
+        help="Optional clean Grok prompt JSON to validate and write as generated asset lineage sidecars.",
+    )
+    ap.add_argument(
+        "--ai-qc",
+        action="store_true",
+        help="run heuristic AI visual QA on rendered outputs after rendering",
+    )
+    ap.add_argument(
+        "--readiness",
+        action="store_true",
+        help="run warn-only platform readiness aggregation after rendering",
+    )
 
     args = ap.parse_args()
     if args.pack_render:
@@ -2412,8 +3040,9 @@ def run_watch_mode(args) -> None:
     Press Ctrl-C to stop.
     """
     import threading
-    from watchdog.observers import Observer
+
     from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
 
     root = Path(args.root).resolve()
     raw_dir = root / "00_source_videos"
@@ -2433,7 +3062,9 @@ def run_watch_mode(args) -> None:
     def schedule(path: str):
         if path in pending:
             pending[path].cancel()
-        t = threading.Timer(debounce_secs, lambda: (pending.pop(path, None), kick_pipeline()))
+        t = threading.Timer(
+            debounce_secs, lambda: (pending.pop(path, None), kick_pipeline())
+        )
         t.daemon = True
         t.start()
         pending[path] = t

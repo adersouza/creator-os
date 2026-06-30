@@ -1,11 +1,11 @@
 """Audio intent sidecars for approved social outputs."""
+
 from __future__ import annotations
 
 import json
 import time
 from pathlib import Path
 from typing import Any
-
 
 AUDIO_INTENT_MODES = {
     "native_trending_audio",
@@ -31,11 +31,18 @@ def read_audio_intent(output_path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def write_audio_intent(output_path: Path, *, mode: str, platform: str | None = None,
-                       notes: str | None = None,
-                       audio_selection: dict[str, Any] | None = None) -> Path:
+def write_audio_intent(
+    output_path: Path,
+    *,
+    mode: str,
+    platform: str | None = None,
+    notes: str | None = None,
+    audio_selection: dict[str, Any] | None = None,
+) -> Path:
     if mode not in AUDIO_INTENT_MODES:
-        raise ValueError(f"audio intent mode must be one of {sorted(AUDIO_INTENT_MODES)}")
+        raise ValueError(
+            f"audio intent mode must be one of {sorted(AUDIO_INTENT_MODES)}"
+        )
     payload = {
         "schema": "reel_factory.audio_intent.v1",
         "mode": mode,

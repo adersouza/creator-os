@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import date as Date, datetime, timedelta
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import date as Date
+from datetime import datetime, timedelta
+from typing import Any
 
 from .persistence import json_load
 
@@ -55,7 +57,12 @@ class SurfaceRequirementsRepository:
                     "instagramAccountId": req.get("external_id"),
                     "username": req.get("handle"),
                     "surfaceStatus": {
-                        surface: {"needed": False, "scheduled": False, "completed": False, "blockedReason": ""}
+                        surface: {
+                            "needed": False,
+                            "scheduled": False,
+                            "completed": False,
+                            "blockedReason": "",
+                        }
                         for surface in self._content_surfaces
                     },
                 },
@@ -64,11 +71,21 @@ class SurfaceRequirementsRepository:
             if surface not in self._content_surfaces:
                 continue
             active_today = self.requirement_active_on_date(req, target_date)
-            scheduled = self.surface_scheduled_for_account(account_id, req.get("external_id"), surface, target_date)
-            completed = self.surface_completed_for_account(account_id, req.get("external_id"), surface, target_date)
+            scheduled = self.surface_scheduled_for_account(
+                account_id, req.get("external_id"), surface, target_date
+            )
+            completed = self.surface_completed_for_account(
+                account_id, req.get("external_id"), surface, target_date
+            )
             needed = active_today and not scheduled and not completed
             blocked = ""
-            if needed and self._multi_surface_inventory_audit(creator=creator_label)["inventoryBySurface"][surface]["scheduleSafe"] == 0:
+            if (
+                needed
+                and self._multi_surface_inventory_audit(creator=creator_label)[
+                    "inventoryBySurface"
+                ][surface]["scheduleSafe"]
+                == 0
+            ):
                 blocked = "inventory_missing"
             account["surfaceStatus"][surface] = {
                 "needed": bool(needed),
@@ -128,7 +145,9 @@ class SurfaceRequirementsRepository:
             "date": target_date.isoformat(),
             "accountId": account_row.get("id") if account_row else account_id,
             "account": account_row.get("handle") if account_row else account_id,
-            "instagramAccountId": account_row.get("external_id") if account_row else None,
+            "instagramAccountId": account_row.get("external_id")
+            if account_row
+            else None,
             "surfaceRequirementsTracked": list(self._content_surfaces),
             "obligations": obligations,
             "surfaceStatus": surface_status,
@@ -179,18 +198,24 @@ class SurfaceRequirementsRepository:
                 self.content_obligation_for_requirement(req, target_date)
                 for req in sorted(
                     by_account[account_id],
-                    key=lambda item: self._normalize_content_surface(item.get("content_surface")),
+                    key=lambda item: self._normalize_content_surface(
+                        item.get("content_surface")
+                    ),
                 )
             ]
             account_row = self.account_row_for_requirement_account(account_id)
             for obligation in obligations:
                 self.add_obligation_to_totals(totals, obligation)
-            accounts.append({
-                "accountId": account_row.get("id") if account_row else account_id,
-                "account": account_row.get("handle") if account_row else account_id,
-                "instagramAccountId": account_row.get("external_id") if account_row else None,
-                "obligations": obligations,
-            })
+            accounts.append(
+                {
+                    "accountId": account_row.get("id") if account_row else account_id,
+                    "account": account_row.get("handle") if account_row else account_id,
+                    "instagramAccountId": account_row.get("external_id")
+                    if account_row
+                    else None,
+                    "obligations": obligations,
+                }
+            )
         return {
             "schema": "campaign_factory.creator_content_needs.v1",
             "creator": creator_label,
@@ -247,7 +272,12 @@ class SurfaceRequirementsRepository:
     ) -> dict[str, Any]:
         creator_label = self._creator_label(creator)
         needs = self.creator_content_needs(creator=creator_label, date=date)
-        inventory = self._build_surface_inventory(creator=creator_label).get("inventoryBySurface") or {}
+        inventory = (
+            self._build_surface_inventory(creator=creator_label).get(
+                "inventoryBySurface"
+            )
+            or {}
+        )
         return {
             "creator": creator_label,
             "date": datetime.fromisoformat(date).date().isoformat(),
@@ -282,7 +312,9 @@ class SurfaceRequirementsRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def account_row_for_requirement_account(self, account_id: str) -> dict[str, Any] | None:
+    def account_row_for_requirement_account(
+        self, account_id: str
+    ) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
             SELECT * FROM accounts
@@ -293,7 +325,9 @@ class SurfaceRequirementsRepository:
         ).fetchone()
         return dict(row) if row else None
 
-    def content_obligation_for_requirement(self, requirement: dict[str, Any], target_date: Date) -> dict[str, Any]:
+    def content_obligation_for_requirement(
+        self, requirement: dict[str, Any], target_date: Date
+    ) -> dict[str, Any]:
         surface = self._normalize_content_surface(requirement.get("content_surface"))
         required = self.required_content_count(requirement, target_date)
         completed = self.surface_completed_count(
@@ -310,7 +344,9 @@ class SurfaceRequirementsRepository:
         )
         remaining = max(0, required - completed - scheduled)
         return {
-            "account": requirement.get("handle") or requirement.get("external_id") or requirement["account_id"],
+            "account": requirement.get("handle")
+            or requirement.get("external_id")
+            or requirement["account_id"],
             "accountId": requirement["account_id"],
             "instagramAccountId": requirement.get("external_id"),
             "surface": surface,
@@ -325,14 +361,21 @@ class SurfaceRequirementsRepository:
             "blockedReason": "",
         }
 
-    def required_content_count(self, requirement: dict[str, Any], target_date: Date) -> int:
+    def required_content_count(
+        self, requirement: dict[str, Any], target_date: Date
+    ) -> int:
         if not self.requirement_active_on_date(requirement, target_date):
             return 0
         cadence = str(requirement.get("cadence") or "daily").strip().lower()
         per_day = re.fullmatch(r"(\d+)[_-]per[_-]day", cadence)
         if per_day:
             return max(0, int(per_day.group(1)))
-        if cadence in {"every_other_day", "alternate_days", "every_2_days", "every-other-day"}:
+        if cadence in {
+            "every_other_day",
+            "alternate_days",
+            "every_2_days",
+            "every-other-day",
+        }:
             if target_date.toordinal() % 2:
                 return 0
         try:
@@ -352,7 +395,9 @@ class SurfaceRequirementsRepository:
             for surface in self._content_surfaces
         }
 
-    def add_obligation_to_totals(self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]) -> None:
+    def add_obligation_to_totals(
+        self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]
+    ) -> None:
         surface = obligation["surface"]
         if surface not in totals:
             return
@@ -363,11 +408,16 @@ class SurfaceRequirementsRepository:
         if obligation.get("needed"):
             totals[surface]["accountsNeeding"] += 1
 
-    def requirement_active_on_date(self, requirement: dict[str, Any], target_date: Date) -> bool:
+    def requirement_active_on_date(
+        self, requirement: dict[str, Any], target_date: Date
+    ) -> bool:
         allowed_days = json_load(requirement.get("allowed_days"), [])
         if isinstance(allowed_days, list) and allowed_days:
             normalized_days = {int(day) for day in allowed_days if str(day).isdigit()}
-            if target_date.weekday() not in normalized_days and ((target_date.weekday() + 1) % 7) not in normalized_days:
+            if (
+                target_date.weekday() not in normalized_days
+                and ((target_date.weekday() + 1) % 7) not in normalized_days
+            ):
                 return False
         cadence = str(requirement.get("cadence") or "daily").lower()
         if cadence in {"daily", "every_day"}:
@@ -376,7 +426,13 @@ class SurfaceRequirementsRepository:
             return True
         return True
 
-    def surface_scheduled_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Date) -> int:
+    def surface_scheduled_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Date,
+    ) -> int:
         start = f"{target_date.isoformat()}T00:00:00"
         end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
         row = self.conn.execute(
@@ -390,7 +446,13 @@ class SurfaceRequirementsRepository:
         ).fetchone()
         return int(row["count"] or 0) if row else 0
 
-    def surface_completed_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Date) -> int:
+    def surface_completed_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Date,
+    ) -> int:
         start = f"{target_date.isoformat()}T00:00:00"
         end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
         row = self.conn.execute(
@@ -426,7 +488,13 @@ class SurfaceRequirementsRepository:
         ).fetchone()
         return str(row["published_at"]) if row and row["published_at"] else None
 
-    def surface_scheduled_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Date) -> bool:
+    def surface_scheduled_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Date,
+    ) -> bool:
         start = f"{target_date.isoformat()}T00:00:00"
         end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
         row = self.conn.execute(
@@ -441,7 +509,13 @@ class SurfaceRequirementsRepository:
         ).fetchone()
         return bool(row)
 
-    def surface_completed_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: Date) -> bool:
+    def surface_completed_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: Date,
+    ) -> bool:
         start = f"{target_date.isoformat()}T00:00:00"
         end = f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00"
         row = self.conn.execute(

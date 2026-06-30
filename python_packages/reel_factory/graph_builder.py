@@ -1,8 +1,8 @@
 """FFmpeg graph construction for reel renders."""
+
 from __future__ import annotations
 
 import random
-
 from dataclasses import dataclass
 
 from render_plan import RenderPlan
@@ -91,7 +91,9 @@ def caption_overlay_enable(start: float, end: float | None) -> str:
     return f"gte(t\\,{start:.3f})*lt(t\\,{end:.3f})"
 
 
-def _camera_variation_pre_scale(recipe_name: str, src_hash: str, account_scope: str = "local_review") -> list[str]:
+def _camera_variation_pre_scale(
+    recipe_name: str, src_hash: str, account_scope: str = "local_review"
+) -> list[str]:
     scope = (account_scope or "local_review").strip() or "local_review"
     rng = random.Random(f"camera|{recipe_name}|{src_hash}|{scope}")
     chain: list[str] = []
@@ -101,8 +103,7 @@ def _camera_variation_pre_scale(recipe_name: str, src_hash: str, account_scope: 
     crop_x = rng.uniform(0, 1 - crop_w)
     crop_y = rng.uniform(0, 1 - crop_h)
     chain.append(
-        f"crop=iw*{crop_w:.4f}:ih*{crop_h:.4f}"
-        f":iw*{crop_x:.4f}:ih*{crop_y:.4f}"
+        f"crop=iw*{crop_w:.4f}:ih*{crop_h:.4f}:iw*{crop_x:.4f}:ih*{crop_y:.4f}"
     )
 
     rot_deg = rng.uniform(0.2, 0.5) * (1 if rng.random() > 0.5 else -1)
@@ -160,7 +161,9 @@ def build_video_filter(plan: RenderPlan) -> str:
         chain.append(f"crop=iw*{inv:.4f}:ih*{inv:.4f}")
 
     if recipe.camera_variation:
-        chain.extend(_camera_variation_pre_scale(recipe.name, plan.src_hash, plan.account_scope))
+        chain.extend(
+            _camera_variation_pre_scale(recipe.name, plan.src_hash, plan.account_scope)
+        )
 
     src_w, src_h = plan.src_dims
     target_w, target_h = target_dimensions(plan.target_ratio)
@@ -175,7 +178,11 @@ def build_video_filter(plan: RenderPlan) -> str:
 
     if recipe.color_preset != "none":
         chain.extend(COLOR_PRESETS.get(recipe.color_preset, COLOR_PRESETS["none"]))
-    if (recipe.eq_contrast, recipe.eq_saturation, recipe.eq_brightness) != (1.0, 1.0, 0.0):
+    if (recipe.eq_contrast, recipe.eq_saturation, recipe.eq_brightness) != (
+        1.0,
+        1.0,
+        0.0,
+    ):
         chain.append(
             f"eq=contrast={recipe.eq_contrast}"
             f":saturation={recipe.eq_saturation}"
@@ -190,47 +197,77 @@ def _encode_args(plan: RenderPlan, target_mbps: int) -> tuple[str, list[str]]:
     if profile not in ENCODER_PROFILES:
         raise ValueError(f"unknown output profile: {profile}")
     if not ENCODER_PROFILES[profile].runnable:
-        raise ValueError(f"output profile requires a platform-specific graph: {profile}")
+        raise ValueError(
+            f"output profile requires a platform-specific graph: {profile}"
+        )
 
     if profile == "prores_lt":
         return "yuv422p10le", [
-            "-c:v", "prores_ks",
-            "-profile:v", "1",
-            "-pix_fmt", "yuv422p10le",
-            "-vendor", "apl0",
+            "-c:v",
+            "prores_ks",
+            "-profile:v",
+            "1",
+            "-pix_fmt",
+            "yuv422p10le",
+            "-vendor",
+            "apl0",
         ]
 
     if profile == "cpu_h264_x264":
         return "yuv420p", [
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
-            "-profile:v", "high",
-            "-level", "4.2",
-            "-movflags", "+faststart",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-profile:v",
+            "high",
+            "-level",
+            "4.2",
+            "-movflags",
+            "+faststart",
         ]
 
     if profile == "linux_nvenc":
         return "yuv420p", [
-            "-c:v", "h264_nvenc",
-            "-preset", "p5",
-            "-profile:v", "high",
-            "-b:v", f"{target_mbps}M",
-            "-maxrate", f"{target_mbps + 2}M",
-            "-bufsize", f"{target_mbps * 2}M",
-            "-movflags", "+faststart",
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p5",
+            "-profile:v",
+            "high",
+            "-b:v",
+            f"{target_mbps}M",
+            "-maxrate",
+            f"{target_mbps + 2}M",
+            "-bufsize",
+            f"{target_mbps * 2}M",
+            "-movflags",
+            "+faststart",
         ]
 
     return "yuv420p", [
-        "-c:v", "h264_videotoolbox",
-        "-profile:v", "high", "-level", "4.2",
-        "-b:v", f"{target_mbps}M",
-        "-maxrate", f"{target_mbps + 2}M",
-        "-bufsize", f"{target_mbps * 2}M",
-        "-realtime", "0",
-        "-allow_sw", "0",
-        "-coder", "cabac",
-        "-movflags", "+faststart",
+        "-c:v",
+        "h264_videotoolbox",
+        "-profile:v",
+        "high",
+        "-level",
+        "4.2",
+        "-b:v",
+        f"{target_mbps}M",
+        "-maxrate",
+        f"{target_mbps + 2}M",
+        "-bufsize",
+        f"{target_mbps * 2}M",
+        "-realtime",
+        "0",
+        "-allow_sw",
+        "0",
+        "-coder",
+        "cabac",
+        "-movflags",
+        "+faststart",
     ]
 
 
@@ -266,16 +303,25 @@ def build_ffmpeg_cmd(plan: RenderPlan, ffmpeg: str) -> list[str]:
         inputs = ["-i", str(plan.src)]
 
     return [
-        ffmpeg, "-hide_banner", "-y", "-nostdin",
+        ffmpeg,
+        "-hide_banner",
+        "-y",
+        "-nostdin",
         *inputs,
-        "-filter_complex", fc,
-        "-map", "[v]",
+        "-filter_complex",
+        fc,
+        "-map",
+        "[v]",
         "-an",
         *encode_args,
-        "-color_primaries", "bt709",
-        "-color_trc", "bt709",
-        "-colorspace", "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-colorspace",
+        "bt709",
         "-shortest",
-        "-map_metadata", "-1",
+        "-map_metadata",
+        "-1",
         str(plan.out),
     ]

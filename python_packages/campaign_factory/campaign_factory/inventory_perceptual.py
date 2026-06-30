@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .caption_outcome import load_context_json
 from .persistence import json_load, utc_now
@@ -92,12 +93,18 @@ class InventoryPerceptualRepository:
         metadata = json_load(asset.get("metadata_json"), {})
         if not isinstance(metadata, dict):
             metadata = {}
-        existing_fingerprint = metadata.get("perceptualFingerprint") or metadata.get("perceptual_fingerprint")
-        existing_cluster = metadata.get("perceptualClusterId") or metadata.get("perceptual_cluster_id")
+        existing_fingerprint = metadata.get("perceptualFingerprint") or metadata.get(
+            "perceptual_fingerprint"
+        )
+        existing_cluster = metadata.get("perceptualClusterId") or metadata.get(
+            "perceptual_cluster_id"
+        )
         if existing_fingerprint and existing_cluster:
             return asset
 
-        media_path = Path(str(asset.get("campaign_path") or asset.get("output_path") or ""))
+        media_path = Path(
+            str(asset.get("campaign_path") or asset.get("output_path") or "")
+        )
         result = self._compute_pdq_fingerprint(media_path)
         perceptual_meta = {
             "algorithm": result.get("algorithm") or "pdq_v1",
@@ -108,7 +115,9 @@ class InventoryPerceptualRepository:
             "detail": result.get("detail"),
         }
         updated = dict(metadata)
-        updated["perceptual"] = {key: value for key, value in perceptual_meta.items() if value is not None}
+        updated["perceptual"] = {
+            key: value for key, value in perceptual_meta.items() if value is not None
+        }
         if result.get("status") == "available" and result.get("fingerprint"):
             fingerprint = str(result["fingerprint"])
             cluster_id = self.pdq_cluster_id_for_fingerprint(
@@ -116,22 +125,34 @@ class InventoryPerceptualRepository:
                 rendered_asset_id=str(asset["id"]),
                 fingerprint=fingerprint,
             )
-            updated.update({
-                "perceptualFingerprint": fingerprint,
-                "perceptual_fingerprint": fingerprint,
-                "perceptualClusterId": cluster_id,
-                "perceptual_cluster_id": cluster_id,
-            })
+            updated.update(
+                {
+                    "perceptualFingerprint": fingerprint,
+                    "perceptual_fingerprint": fingerprint,
+                    "perceptualClusterId": cluster_id,
+                    "perceptual_cluster_id": cluster_id,
+                }
+            )
         if updated == metadata:
             return asset
         now = utc_now()
         self.conn.execute(
             "UPDATE rendered_assets SET metadata_json = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(self._sanitize_for_storage(updated), ensure_ascii=False, sort_keys=True), now, rendered_asset_id),
+            (
+                json.dumps(
+                    self._sanitize_for_storage(updated),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                now,
+                rendered_asset_id,
+            ),
         )
         if commit:
             self.conn.commit()
-        refreshed = self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)).fetchone()
+        refreshed = self.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_asset_id,)
+        ).fetchone()
         return dict(refreshed or asset)
 
     def pdq_cluster_id_for_fingerprint(
@@ -150,9 +171,13 @@ class InventoryPerceptualRepository:
             metadata = json_load(row["metadata_json"], {})
             if not isinstance(metadata, dict):
                 continue
-            other = metadata.get("perceptualFingerprint") or metadata.get("perceptual_fingerprint")
+            other = metadata.get("perceptualFingerprint") or metadata.get(
+                "perceptual_fingerprint"
+            )
             distance = self._pdq_hamming_distance(fingerprint, str(other or ""))
             if distance is not None and distance <= 40:
-                cluster = metadata.get("perceptualClusterId") or metadata.get("perceptual_cluster_id")
+                cluster = metadata.get("perceptualClusterId") or metadata.get(
+                    "perceptual_cluster_id"
+                )
                 return str(cluster or f"pdq:{str(other)[:16]}")
         return fallback

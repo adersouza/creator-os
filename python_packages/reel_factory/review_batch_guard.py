@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fail-closed guard for Reel Factory review batches."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from audio_intent import read_audio_intent
-
 
 FOCAL_SAFE = {"focal-safe", "focal_safe_v1"}
 LANES = {"top", "center", "bottom"}
@@ -92,17 +92,27 @@ def _evidence_paths_match_rows(
     return True
 
 
-def _contentforge_files_match_rows(payload: dict[str, Any], *, manifest_path: Path, audit_path: Path, rows: list[Any]) -> bool:
+def _contentforge_files_match_rows(
+    payload: dict[str, Any], *, manifest_path: Path, audit_path: Path, rows: list[Any]
+) -> bool:
     values: list[Any] = []
     if isinstance(payload.get("variantFiles"), list):
         values.extend(payload["variantFiles"])
     file_results = payload.get("fileResults")
     if isinstance(file_results, list):
-        values.extend(result.get("outputPath") for result in file_results if isinstance(result, dict))
-    return _evidence_paths_match_rows(rows=rows, manifest_path=manifest_path, values=values, base_path=audit_path)
+        values.extend(
+            result.get("outputPath")
+            for result in file_results
+            if isinstance(result, dict)
+        )
+    return _evidence_paths_match_rows(
+        rows=rows, manifest_path=manifest_path, values=values, base_path=audit_path
+    )
 
 
-def _readiness_records_match_rows(readiness: dict[str, Any], *, manifest_path: Path, rows: list[Any]) -> bool:
+def _readiness_records_match_rows(
+    readiness: dict[str, Any], *, manifest_path: Path, rows: list[Any]
+) -> bool:
     records = readiness.get("records")
     if not isinstance(records, list):
         return False
@@ -115,7 +125,14 @@ def _readiness_records_match_rows(readiness: dict[str, Any], *, manifest_path: P
         rows=rows,
         manifest_path=manifest_path,
         values=values,
-        base_path=_readiness_path(Path(str((_load_json(manifest_path) or {}).get("outputDir") or manifest_path.parent))),
+        base_path=_readiness_path(
+            Path(
+                str(
+                    (_load_json(manifest_path) or {}).get("outputDir")
+                    or manifest_path.parent
+                )
+            )
+        ),
     )
 
 
@@ -123,7 +140,9 @@ def _lineage_path(output: Path) -> Path:
     return output.with_suffix(output.suffix + ".generated_asset_lineage.json")
 
 
-def _valid_caption_placement_decision(decision: Any, *, selected_band: str | None) -> bool:
+def _valid_caption_placement_decision(
+    decision: Any, *, selected_band: str | None
+) -> bool:
     if not isinstance(decision, dict):
         return False
     lane = str(decision.get("selectedLane") or "")
@@ -152,7 +171,9 @@ def _contentforge_path(manifest_path: Path, manifest: dict[str, Any]) -> Path | 
     return path if path.is_absolute() else manifest_path.parent / path
 
 
-def _hash_paths(manifest_path: Path, manifest: dict[str, Any], rows: list[Any]) -> dict[str, str]:
+def _hash_paths(
+    manifest_path: Path, manifest: dict[str, Any], rows: list[Any]
+) -> dict[str, str]:
     output_dir = Path(str(manifest.get("outputDir") or manifest_path.parent))
     paths: list[Path] = [manifest_path, _readiness_path(output_dir)]
     contentforge_path = _contentforge_path(manifest_path, manifest)
@@ -163,13 +184,19 @@ def _hash_paths(manifest_path: Path, manifest: dict[str, Any], rows: list[Any]) 
             continue
         output = Path(str(row.get("output") or ""))
         overlay = Path(str(row.get("overlayPng") or ""))
-        paths.extend([
-            output,
-            overlay,
-            output.with_suffix(output.suffix + ".audio_intent.json"),
-            _lineage_path(output),
-        ])
-    return {str(path.resolve()): _sha256(path.resolve()) for path in dict.fromkeys(paths) if path.exists()}
+        paths.extend(
+            [
+                output,
+                overlay,
+                output.with_suffix(output.suffix + ".audio_intent.json"),
+                _lineage_path(output),
+            ]
+        )
+    return {
+        str(path.resolve()): _sha256(path.resolve())
+        for path in dict.fromkeys(paths)
+        if path.exists()
+    }
 
 
 def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
@@ -177,7 +204,11 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     blocking: list[str] = []
     if not manifest:
-        return {"schema": "reel_factory.review_batch_guard.v1", "status": "blocked", "blockingReasons": ["missing_or_invalid_manifest"]}
+        return {
+            "schema": "reel_factory.review_batch_guard.v1",
+            "status": "blocked",
+            "blockingReasons": ["missing_or_invalid_manifest"],
+        }
 
     rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
     output_dir = Path(str(manifest.get("outputDir") or manifest_path.parent))
@@ -187,9 +218,17 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
         blocking.append("background_plate_enabled")
     if str(manifest.get("font") or "").lower().find("instagram sans condensed") < 0:
         blocking.append("font_not_instagram_sans_condensed")
-    if manifest.get("renderer") != "reel_factory.caption_render" or manifest.get("style") != "ig":
+    if (
+        manifest.get("renderer") != "reel_factory.caption_render"
+        or manifest.get("style") != "ig"
+    ):
         blocking.append("not_reel_factory_instagram_renderer")
-    if str((manifest.get("captionSelection") or {}).get("source") or "").lower().find("caption bank") < 0:
+    if (
+        str((manifest.get("captionSelection") or {}).get("source") or "")
+        .lower()
+        .find("caption bank")
+        < 0
+    ):
         blocking.append("not_from_caption_bank")
     if str(manifest.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
         blocking.append("caption_placement_not_focal_safe")
@@ -209,20 +248,34 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
             blocking.append("contentforge_audit_count_mismatch")
         elif int(contentforge.get("httpOk") or 0) != len(rows):
             blocking.append("contentforge_audit_count_mismatch")
-        elif int((contentforge.get("verdictCounts") or {}).get("pass") or 0) != len(rows):
+        elif int((contentforge.get("verdictCounts") or {}).get("pass") or 0) != len(
+            rows
+        ):
             blocking.append("contentforge_audit_count_mismatch")
         elif not _contentforge_passed(contentforge):
             blocking.append("contentforge_audit_not_passing")
-        elif not _contentforge_files_match_rows(contentforge, manifest_path=manifest_path, audit_path=contentforge_path, rows=rows):
+        elif not _contentforge_files_match_rows(
+            contentforge,
+            manifest_path=manifest_path,
+            audit_path=contentforge_path,
+            rows=rows,
+        ):
             blocking.append("contentforge_audit_file_mismatch")
 
     readiness = _load_json(_readiness_path(output_dir))
     summary = (readiness or {}).get("summary") or {}
     if not readiness:
         blocking.append("missing_readiness_report")
-    elif summary.get("total") != len(rows) or summary.get("ready") != len(rows) or summary.get("warn") or summary.get("not_ready"):
+    elif (
+        summary.get("total") != len(rows)
+        or summary.get("ready") != len(rows)
+        or summary.get("warn")
+        or summary.get("not_ready")
+    ):
         blocking.append("readiness_not_all_ready")
-    elif not _readiness_records_match_rows(readiness, manifest_path=manifest_path, rows=rows):
+    elif not _readiness_records_match_rows(
+        readiness, manifest_path=manifest_path, rows=rows
+    ):
         blocking.append("readiness_file_mismatch")
 
     for row in rows:
@@ -232,16 +285,30 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
             blocking.append("missing_output")
         if not overlay.exists():
             blocking.append("missing_overlay")
-        if not row.get("captionText") or not row.get("captionHash") or not row.get("sourceBanks"):
+        if (
+            not row.get("captionText")
+            or not row.get("captionHash")
+            or not row.get("sourceBanks")
+        ):
             blocking.append("caption_bank_lineage_missing")
-        if not row.get("selectedBand") or str(row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
+        if (
+            not row.get("selectedBand")
+            or str(row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE
+        ):
             blocking.append("caption_placement_not_focal_safe")
         if not read_audio_intent(output):
             blocking.append("missing_audio_intent")
         lineage = _load_json(_lineage_path(output))
         if not lineage:
             blocking.append("missing_generated_asset_lineage")
-        elif str(lineage.get("captionPlacementPolicy") or row.get("captionPlacementPolicy") or "") not in FOCAL_SAFE:
+        elif (
+            str(
+                lineage.get("captionPlacementPolicy")
+                or row.get("captionPlacementPolicy")
+                or ""
+            )
+            not in FOCAL_SAFE
+        ):
             blocking.append("caption_placement_not_focal_safe")
         elif not _valid_caption_placement_decision(
             lineage.get("captionPlacementDecision"),
@@ -259,14 +326,20 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
     }
 
 
-def promote_review_batch(manifest_path: str | Path, *, package_path: str | Path | None = None) -> dict[str, Any]:
+def promote_review_batch(
+    manifest_path: str | Path, *, package_path: str | Path | None = None
+) -> dict[str, Any]:
     manifest_path = Path(manifest_path).resolve()
     guard = validate_review_batch(manifest_path)
     if guard["status"] != "ready":
         return guard
     manifest = _load_json(manifest_path) or {}
     rows = manifest.get("rows") if isinstance(manifest.get("rows"), list) else []
-    output_path = Path(package_path).resolve() if package_path else manifest_path.with_suffix(".review_package.json")
+    output_path = (
+        Path(package_path).resolve()
+        if package_path
+        else manifest_path.with_suffix(".review_package.json")
+    )
     package = {
         "schema": "reel_factory.review_batch_package.v1",
         "manifestPath": str(manifest_path),
@@ -277,17 +350,26 @@ def promote_review_batch(manifest_path: str | Path, *, package_path: str | Path 
         "fileSha256": _hash_paths(manifest_path, manifest, rows),
         "rows": rows,
     }
-    output_path.write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {**guard, "packagePath": str(output_path)}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest")
-    parser.add_argument("--write-package", nargs="?", const="", help="write a review package only if the guard passes")
+    parser.add_argument(
+        "--write-package",
+        nargs="?",
+        const="",
+        help="write a review package only if the guard passes",
+    )
     args = parser.parse_args()
     if args.write_package is not None:
-        result = promote_review_batch(args.manifest, package_path=args.write_package or None)
+        result = promote_review_batch(
+            args.manifest, package_path=args.write_package or None
+        )
     else:
         result = validate_review_batch(args.manifest)
     print(json.dumps(result, indent=2))

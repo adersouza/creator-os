@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Budget preflight for paid Higgsfield generation calls."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,15 +11,13 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-
 SCHEMA = "reel_factory.higgsfield_cost_preflight.v1"
 
 
 class BalanceProvider(Protocol):
     name: str
 
-    def balance(self) -> tuple[float | None, str | None]:
-        ...
+    def balance(self) -> tuple[float | None, str | None]: ...
 
 
 @dataclass
@@ -33,7 +32,9 @@ class CliBalanceProvider:
             [cli, "account", "status", "--json"],
             [cli, "balance", "--json"],
         ):
-            proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(
+                cmd, check=False, capture_output=True, text=True, timeout=30
+            )
             if proc.returncode != 0:
                 continue
             try:
@@ -64,8 +65,12 @@ def _parse_balance(payload: Any) -> float | None:
         payload.get("balance_usd"),
         payload.get("creditsUsd"),
         payload.get("credits_usd"),
-        (payload.get("account") or {}).get("balance") if isinstance(payload.get("account"), dict) else None,
-        (payload.get("billing") or {}).get("balanceUsd") if isinstance(payload.get("billing"), dict) else None,
+        (payload.get("account") or {}).get("balance")
+        if isinstance(payload.get("account"), dict)
+        else None,
+        (payload.get("billing") or {}).get("balanceUsd")
+        if isinstance(payload.get("billing"), dict)
+        else None,
     ]
     for candidate in candidates:
         parsed = _parse_float(candidate)
@@ -118,7 +123,11 @@ def check_higgsfield_cost_preflight(
         blocking_reasons.append(balance_error or "balance_unavailable")
     elif minimum_balance is not None and balance < minimum_balance:
         blocking_reasons.append("minimum_balance_not_met")
-    if estimated_cost_usd is not None and daily_budget is not None and estimated_cost_usd > daily_budget:
+    if (
+        estimated_cost_usd is not None
+        and daily_budget is not None
+        and estimated_cost_usd > daily_budget
+    ):
         blocking_reasons.append("estimated_cost_exceeds_daily_budget")
     if allow_unbudgeted_local_test:
         blocking_reasons = []

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from pathlib import Path
 from typing import Any
+
+from repurposer.pipeline import VariantPipeline
 
 from pipeline_contracts import validate_variant_assignment
 
 from .adapters.contentforge import audit_variation_batch
-from repurposer.pipeline import VariantPipeline
 
 CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
     "campaign_factory_audit.v1.7",
@@ -30,7 +32,10 @@ def run_variation_stage(
     selected_ids = set(rendered_asset_ids or [])
     campaign = factory.campaign_by_slug(campaign_slug)
     model_slug = factory._model_slug_for_campaign(campaign["id"])
-    output_dir = factory.campaign_dirs(model_slug, campaign_slug)["exports"] / "variation_assignments"
+    output_dir = (
+        factory.campaign_dirs(model_slug, campaign_slug)["exports"]
+        / "variation_assignments"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[dict[str, Any]] = []
@@ -48,8 +53,13 @@ def run_variation_stage(
                 preset_name=preset_name,
                 output_dir=output_dir,
             )
-            path = output_dir / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.preview.v1.json"
-            path.write_text(json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8")
+            path = (
+                output_dir
+                / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.preview.v1.json"
+            )
+            path.write_text(
+                json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
+            )
         else:
             pipeline = VariantPipeline(
                 Path(asset["filePath"]),
@@ -65,26 +75,36 @@ def run_variation_stage(
                 master_asset_id=asset["renderedAssetId"],
                 write_manifest=False,
             )
-            variant_paths = [Path(item["variant_path"]) for item in assignment["assignments"]]
-            report_path = output_dir / f"{_safe_slug(asset['renderedAssetId'])}.perceptual_audit.v1.json"
+            variant_paths = [
+                Path(item["variant_path"]) for item in assignment["assignments"]
+            ]
+            report_path = (
+                output_dir
+                / f"{_safe_slug(asset['renderedAssetId'])}.perceptual_audit.v1.json"
+            )
             try:
                 audit = audit_variation_batch(
                     contentforge_root=factory.settings.contentforge_root,
                     source_path=Path(asset["filePath"]),
                     variant_paths=variant_paths,
-                    contentforge_base_url=contentforge_base_url or factory.settings.contentforge_base_url,
+                    contentforge_base_url=contentforge_base_url
+                    or factory.settings.contentforge_base_url,
                     report_path=report_path,
                 )
                 readiness = audit.get("readinessSummary") or {}
                 verdicts = audit.get("verdicts") or {}
-                blocking_codes = [str(code) for code in readiness.get("blockingCodes") or []]
+                blocking_codes = [
+                    str(code) for code in readiness.get("blockingCodes") or []
+                ]
                 if (
                     audit.get("contractVersion") not in CAMPAIGN_FACTORY_AUDIT_CONTRACTS
                     or readiness.get("uploadReady") is not True
                     or verdicts.get("pdq") != "pass"
                     or verdicts.get("sscd") != "pass"
                 ):
-                    detail = ", ".join(blocking_codes) or "perceptual_detector_gate_failed"
+                    detail = (
+                        ", ".join(blocking_codes) or "perceptual_detector_gate_failed"
+                    )
                     raise RuntimeError(f"variation perceptual gate blocked: {detail}")
                 audit_lineage = {
                     "contract_version": audit["contractVersion"],
@@ -97,19 +117,23 @@ def run_variation_stage(
                 for item in assignment["assignments"]:
                     item.setdefault("lineage", {})["perceptual_audit"] = audit_lineage
                 validate_variant_assignment(assignment)
-                path.write_text(json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8")
+                path.write_text(
+                    json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
+                )
             except Exception:
                 for variant_path in variant_paths:
                     variant_path.unlink(missing_ok=True)
                 path.unlink(missing_ok=True)
                 raise
         validate_variant_assignment(assignment)
-        results.append({
-            "renderedAssetId": asset["renderedAssetId"],
-            "assignmentPath": str(path),
-            "assignmentCount": len(assignment["assignments"]),
-            "dryRun": dry_run,
-        })
+        results.append(
+            {
+                "renderedAssetId": asset["renderedAssetId"],
+                "assignmentPath": str(path),
+                "assignmentCount": len(assignment["assignments"]),
+                "dryRun": dry_run,
+            }
+        )
 
     return {
         "schema": "campaign_factory.variation_stage_run.v1",
@@ -121,19 +145,30 @@ def run_variation_stage(
     }
 
 
-def load_variant_assignment_index(factory: Any, *, campaign_slug: str) -> dict[str, dict[str, Any]]:
+def load_variant_assignment_index(
+    factory: Any, *, campaign_slug: str
+) -> dict[str, dict[str, Any]]:
     campaign = factory.campaign_by_slug(campaign_slug)
     model_slug = factory._model_slug_for_campaign(campaign["id"])
-    assignment_dir = factory.campaign_dirs(model_slug, campaign_slug)["exports"] / "variation_assignments"
+    assignment_dir = (
+        factory.campaign_dirs(model_slug, campaign_slug)["exports"]
+        / "variation_assignments"
+    )
     index: dict[str, dict[str, Any]] = {}
     for path in sorted(assignment_dir.glob("*.variant_assignment.v1.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         validate_variant_assignment(payload)
         by_account: dict[str, Any] = {}
         for assignment in payload["assignments"]:
-            by_account[_account_key(assignment.get("account_id"), assignment.get("instagram_account_id"))] = assignment
+            by_account[
+                _account_key(
+                    assignment.get("account_id"), assignment.get("instagram_account_id")
+                )
+            ] = assignment
             by_account[_account_key(assignment.get("account_id"), None)] = assignment
-            by_account[_account_key(None, assignment.get("instagram_account_id"))] = assignment
+            by_account[_account_key(None, assignment.get("instagram_account_id"))] = (
+                assignment
+            )
         index[payload["master_asset_id"]] = {
             "path": str(path),
             "payload": payload,
@@ -160,26 +195,32 @@ def variant_for_destination(
     )
 
 
-def _account_targets_for_asset(factory: Any, asset: dict[str, Any]) -> list[dict[str, Any]]:
+def _account_targets_for_asset(
+    factory: Any, asset: dict[str, Any]
+) -> list[dict[str, Any]]:
     from .adapters.threadsdash import _draft_destinations_for_asset
 
     destinations = _draft_destinations_for_asset(factory, asset)
     targets: list[dict[str, Any]] = []
     seen: set[str] = set()
     for destination in destinations:
-        account_id = destination.get("accountId") or destination.get("instagramAccountId")
+        account_id = destination.get("accountId") or destination.get(
+            "instagramAccountId"
+        )
         if not account_id:
             continue
         key = _account_key(str(account_id), destination.get("instagramAccountId"))
         if key in seen:
             continue
         seen.add(key)
-        targets.append({
-            "account_id": str(account_id),
-            "instagram_account_id": destination.get("instagramAccountId"),
-            "preset_name": destination.get("variationPreset") or "ig_subtle",
-            "persona": destination.get("reasonCode"),
-        })
+        targets.append(
+            {
+                "account_id": str(account_id),
+                "instagram_account_id": destination.get("instagramAccountId"),
+                "preset_name": destination.get("variationPreset") or "ig_subtle",
+                "persona": destination.get("reasonCode"),
+            }
+        )
     return targets
 
 
@@ -194,26 +235,30 @@ def _dry_run_assignment(
     assignments = []
     for account in accounts:
         account_id = account["account_id"]
-        variant_asset_id = f"{_safe_slug(asset['renderedAssetId'])}_{_safe_slug(account_id)}"
-        assignments.append({
-            "account_id": account_id,
-            "instagram_account_id": account.get("instagram_account_id"),
-            "persona": account.get("persona"),
-            "variant_asset_id": variant_asset_id,
-            "variant_path": str(output_dir / f"{variant_asset_id}_variant.mp4"),
-            "parent_master_asset_id": asset["renderedAssetId"],
-            "preset_name": account.get("preset_name") or preset_name,
-            "distinctness_scores": {
-                "master_ssim": 0.0,
-                "sibling_max_ssim": 0.0,
-                "threshold": 0.85,
-            },
-            "lineage": {
-                "mode": "zero_cost_variation_dry_run",
-                "paid_generation": False,
-                "micro_enabled": False,
-            },
-        })
+        variant_asset_id = (
+            f"{_safe_slug(asset['renderedAssetId'])}_{_safe_slug(account_id)}"
+        )
+        assignments.append(
+            {
+                "account_id": account_id,
+                "instagram_account_id": account.get("instagram_account_id"),
+                "persona": account.get("persona"),
+                "variant_asset_id": variant_asset_id,
+                "variant_path": str(output_dir / f"{variant_asset_id}_variant.mp4"),
+                "parent_master_asset_id": asset["renderedAssetId"],
+                "preset_name": account.get("preset_name") or preset_name,
+                "distinctness_scores": {
+                    "master_ssim": 0.0,
+                    "sibling_max_ssim": 0.0,
+                    "threshold": 0.85,
+                },
+                "lineage": {
+                    "mode": "zero_cost_variation_dry_run",
+                    "paid_generation": False,
+                    "micro_enabled": False,
+                },
+            }
+        )
     return {
         "schema": "campaign_factory.variant_assignment.v1",
         "campaign_slug": campaign_slug,
@@ -238,6 +283,6 @@ def _safe_slug(value: str) -> str:
 
 
 def _utc_now() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

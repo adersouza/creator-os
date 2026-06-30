@@ -3,27 +3,46 @@
 This module is intentionally small and dependency-free so it can run before
 rendering, during CI, or as a local audit of caption banks.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 DISCOVERABILITY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("url", re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)),
-    ("dm", re.compile(r"\b(?:dm|dms|direct message|direct messages|message me|message you|send me|inbox me)\b", re.IGNORECASE)),
-    ("link", re.compile(r"\b(?:link in bio|bio link|click (?:the )?link|tap (?:the )?link|check (?:the )?link|my link)\b", re.IGNORECASE)),
+    (
+        "dm",
+        re.compile(
+            r"\b(?:dm|dms|direct message|direct messages|message me|message you|send me|inbox me)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "link",
+        re.compile(
+            r"\b(?:link in bio|bio link|click (?:the )?link|tap (?:the )?link|check (?:the )?link|my link)\b",
+            re.IGNORECASE,
+        ),
+    ),
     ("onlyfans", re.compile(r"\b(?:onlyfans|only fans|fansly)\b", re.IGNORECASE)),
     ("of", re.compile(r"\bOF\b")),
     ("snapchat", re.compile(r"\b(?:snapchat|snap me|snap)\b", re.IGNORECASE)),
     ("telegram", re.compile(r"\btelegram\b", re.IGNORECASE)),
     ("whatsapp", re.compile(r"\bwhats ?app\b", re.IGNORECASE)),
-    ("subscribe", re.compile(r"\b(?:subscribe here|join my page|join my private|premium page)\b", re.IGNORECASE)),
+    (
+        "subscribe",
+        re.compile(
+            r"\b(?:subscribe here|join my page|join my private|premium page)\b",
+            re.IGNORECASE,
+        ),
+    ),
     ("linktree", re.compile(r"\b(?:linktree|beacons\.ai|beacons)\b", re.IGNORECASE)),
 )
 
@@ -66,8 +85,7 @@ def discoverability_safe_content_contract(*values: Any) -> dict[str, Any]:
         "discoverabilitySafe": not blocked_terms,
         "blockedTerms": blocked_terms,
         "blockedReason": (
-            "unsafe_dm_link_or_off_platform_language"
-            if blocked_terms else ""
+            "unsafe_dm_link_or_off_platform_language" if blocked_terms else ""
         ),
         "wouldWrite": False,
     }
@@ -169,10 +187,16 @@ def _hook_text(value: Any) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit Reel Factory caption sources for discoverability-unsafe text.")
+    parser = argparse.ArgumentParser(
+        description="Audit Reel Factory caption sources for discoverability-unsafe text."
+    )
     parser.add_argument("--root", default=".", help="Reel Factory repository root")
     parser.add_argument("--json", action="store_true", help="Print JSON output")
-    parser.add_argument("--fail-on-risk", action="store_true", help="Exit non-zero when risky entries are found")
+    parser.add_argument(
+        "--fail-on-risk",
+        action="store_true",
+        help="Exit non-zero when risky entries are found",
+    )
     args = parser.parse_args()
 
     report = audit_caption_sources(Path(args.root))

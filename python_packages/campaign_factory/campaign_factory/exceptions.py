@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import Any, Callable
-
+from collections.abc import Callable
+from typing import Any
 
 EXCEPTION_STATUSES = {"open", "snoozed", "resolved"}
 EXCEPTION_SEVERITIES = {"low", "medium", "high", "critical"}
@@ -76,7 +76,11 @@ class ExceptionRepository:
                 recommendation_item_id,
                 campaign_id,
                 account_id,
-                json.dumps(self._sanitize_for_storage(payload or {}), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(payload or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 now,
             ),
@@ -85,7 +89,12 @@ class ExceptionRepository:
             "trust_exception",
             local_table="trust_exceptions",
             local_id=exception_id,
-            payload={"reasonCode": reason_code, "severity": severity, "campaignId": campaign_id, "accountId": account_id},
+            payload={
+                "reasonCode": reason_code,
+                "severity": severity,
+                "campaignId": campaign_id,
+                "accountId": account_id,
+            },
         )
         self._ensure_graph_edge(
             entity_graph_id,
@@ -110,12 +119,16 @@ class ExceptionRepository:
         return self.exception(exception_id)
 
     def exception(self, exception_id: str) -> dict[str, Any]:
-        row = self.conn.execute("SELECT * FROM trust_exceptions WHERE id = ?", (exception_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM trust_exceptions WHERE id = ?", (exception_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"exception not found: {exception_id}")
         return self.exception_payload(dict(row))
 
-    def exceptions(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
+    def exceptions(
+        self, campaign_slug: str | None = None, *, status: str = "open"
+    ) -> dict[str, Any]:
         params: list[Any] = []
         where = []
         if campaign_slug:
@@ -124,7 +137,9 @@ class ExceptionRepository:
             params.append(campaign["id"])
         if status and status != "all":
             if status not in EXCEPTION_STATUSES:
-                raise ValueError(f"exception status must be one of {sorted(EXCEPTION_STATUSES)}")
+                raise ValueError(
+                    f"exception status must be one of {sorted(EXCEPTION_STATUSES)}"
+                )
             where.append("status = ?")
             params.append(status)
         sql = "SELECT * FROM trust_exceptions"
@@ -173,14 +188,26 @@ class ExceptionRepository:
             "SELECT COUNT(*) FROM pipeline_jobs WHERE campaign_id = ? AND status = 'failed'",
             (campaign["id"],),
         ).fetchone()[0]
-        open_exceptions = [dict(row) for row in exception_rows if row["status"] in {"open", "snoozed"}]
-        severity_counts = {severity: 0 for severity in ("critical", "high", "medium", "low")}
+        open_exceptions = [
+            dict(row) for row in exception_rows if row["status"] in {"open", "snoozed"}
+        ]
+        severity_counts = {
+            severity: 0 for severity in ("critical", "high", "medium", "low")
+        }
         for row in open_exceptions:
-            severity = row.get("severity") if row.get("severity") in severity_counts else "medium"
+            severity = (
+                row.get("severity")
+                if row.get("severity") in severity_counts
+                else "medium"
+            )
             severity_counts[severity] += 1
         account_confidence_counts = {level: 0 for level in ("high", "medium", "low")}
         for row in account_rows:
-            confidence = row["confidence"] if row["confidence"] in account_confidence_counts else "low"
+            confidence = (
+                row["confidence"]
+                if row["confidence"] in account_confidence_counts
+                else "low"
+            )
             account_confidence_counts[confidence] += 1
         recommended_action = "ready_for_level_2_execution"
         if severity_counts["critical"] or severity_counts["high"]:
@@ -210,14 +237,18 @@ class ExceptionRepository:
             "accountMemory": {
                 "accountCount": len(account_rows),
                 "confidenceCounts": account_confidence_counts,
-                "totalSamples": sum(int(row["sample_size"] or 0) for row in account_rows),
+                "totalSamples": sum(
+                    int(row["sample_size"] or 0) for row in account_rows
+                ),
             },
             "exceptions": {
                 "openCount": len(open_exceptions),
                 "severityCounts": severity_counts,
             },
             "recommendations": {
-                "statusCounts": {row["status"]: int(row["count"]) for row in lifecycle_rows},
+                "statusCounts": {
+                    row["status"]: int(row["count"]) for row in lifecycle_rows
+                },
                 "acceptedWaitingExecution": int(accepted_waiting),
                 "proof": self._recommendation_proof_summary(campaign["id"]),
             },
@@ -236,7 +267,11 @@ class ExceptionRepository:
         return self.update_exception_status(
             exception_id,
             "resolved",
-            resolution={"resolution": resolution, "operator": operator, "resolvedAt": self._utc_now()},
+            resolution={
+                "resolution": resolution,
+                "operator": operator,
+                "resolvedAt": self._utc_now(),
+            },
         )
 
     def snooze_exception(
@@ -251,7 +286,11 @@ class ExceptionRepository:
             exception_id,
             "snoozed",
             snoozed_until=until,
-            resolution={"reason": reason, "operator": operator, "snoozedAt": self._utc_now()},
+            resolution={
+                "reason": reason,
+                "operator": operator,
+                "snoozedAt": self._utc_now(),
+            },
         )
 
     def reopen_exception(
@@ -264,7 +303,11 @@ class ExceptionRepository:
         return self.update_exception_status(
             exception_id,
             "open",
-            resolution={"reason": reason, "operator": operator, "reopenedAt": self._utc_now()},
+            resolution={
+                "reason": reason,
+                "operator": operator,
+                "reopenedAt": self._utc_now(),
+            },
         )
 
     def update_exception_status(
@@ -276,7 +319,9 @@ class ExceptionRepository:
         snoozed_until: str | None = None,
     ) -> dict[str, Any]:
         if status not in EXCEPTION_STATUSES:
-            raise ValueError(f"exception status must be one of {sorted(EXCEPTION_STATUSES)}")
+            raise ValueError(
+                f"exception status must be one of {sorted(EXCEPTION_STATUSES)}"
+            )
         now = self._utc_now()
         resolved_at = now if status == "resolved" else None
         cursor = self.conn.execute(
@@ -287,7 +332,11 @@ class ExceptionRepository:
             """,
             (
                 status,
-                json.dumps(self._sanitize_for_storage(resolution or {}), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(resolution or {}),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 snoozed_until if status == "snoozed" else None,
                 resolved_at,
                 now,
@@ -334,61 +383,78 @@ class ExceptionRepository:
                 continue
             reason = str(account.get("blockedReason") or "")
             if str(account.get("state") or "") == "blocked" and reason:
-                exceptions.append(self.exception_queue_item(
-                    severity="high",
-                    system="account_health",
-                    account=account.get("accountId"),
-                    asset="",
-                    reason=reason,
-                    next_action="resolve_account_blocker",
-                ))
+                exceptions.append(
+                    self.exception_queue_item(
+                        severity="high",
+                        system="account_health",
+                        account=account.get("accountId"),
+                        asset="",
+                        reason=reason,
+                        next_action="resolve_account_blocker",
+                    )
+                )
         for creator in daily.get("creators") or []:
             if not isinstance(creator, dict):
                 continue
             shortfall = int(creator.get("inventoryShortfall") or 0)
             if shortfall > 0:
-                exceptions.append(self.exception_queue_item(
-                    severity="critical",
-                    system="inventory",
-                    account="",
-                    asset="",
-                    reason="inventory_shortfall",
-                    next_action="create_or_import_schedule_safe_inventory",
-                    count=shortfall,
-                ))
-            for surface, row in (creator.get("surfaceShortfalls") or {}).items():
-                if isinstance(row, dict) and int(row.get("shortfall") or 0) > 0:
-                    exceptions.append(self.exception_queue_item(
-                        severity="high",
-                        system="surface_inventory",
+                exceptions.append(
+                    self.exception_queue_item(
+                        severity="critical",
+                        system="inventory",
                         account="",
                         asset="",
-                        reason=f"{self._normalize_content_surface(surface)}_inventory_shortfall",
-                        next_action="fill_surface_inventory_buffer",
-                        count=int(row.get("shortfall") or 0),
-                    ))
+                        reason="inventory_shortfall",
+                        next_action="create_or_import_schedule_safe_inventory",
+                        count=shortfall,
+                    )
+                )
+            for surface, row in (creator.get("surfaceShortfalls") or {}).items():
+                if isinstance(row, dict) and int(row.get("shortfall") or 0) > 0:
+                    exceptions.append(
+                        self.exception_queue_item(
+                            severity="high",
+                            system="surface_inventory",
+                            account="",
+                            asset="",
+                            reason=f"{self._normalize_content_surface(surface)}_inventory_shortfall",
+                            next_action="fill_surface_inventory_buffer",
+                            count=int(row.get("shortfall") or 0),
+                        )
+                    )
         for blocker in readiness.get("blockers") or []:
-            exceptions.append(self.exception_queue_item(
-                severity=self.exception_severity_for_reason(str(blocker)),
-                system="execution_readiness",
-                account="",
-                asset="",
-                reason=str(blocker),
-                next_action=self.exception_next_action(str(blocker)),
-            ))
-        for source, system in ((publishability_report or {}, "publishability"), (surface_readiness_report or {}, "surface_readiness")):
+            exceptions.append(
+                self.exception_queue_item(
+                    severity=self.exception_severity_for_reason(str(blocker)),
+                    system="execution_readiness",
+                    account="",
+                    asset="",
+                    reason=str(blocker),
+                    next_action=self.exception_next_action(str(blocker)),
+                )
+            )
+        for source, system in (
+            (publishability_report or {}, "publishability"),
+            (surface_readiness_report or {}, "surface_readiness"),
+        ):
             for item in source.get("assets") or source.get("items") or []:
                 if not isinstance(item, dict):
                     continue
-                for reason in item.get("blockingReasons") or item.get("failureReasons") or []:
-                    exceptions.append(self.exception_queue_item(
-                        severity=self.exception_severity_for_reason(str(reason)),
-                        system=system,
-                        account=item.get("accountId") or "",
-                        asset=item.get("assetId") or item.get("renderedAssetId") or "",
-                        reason=str(reason),
-                        next_action=self.exception_next_action(str(reason)),
-                    ))
+                for reason in (
+                    item.get("blockingReasons") or item.get("failureReasons") or []
+                ):
+                    exceptions.append(
+                        self.exception_queue_item(
+                            severity=self.exception_severity_for_reason(str(reason)),
+                            system=system,
+                            account=item.get("accountId") or "",
+                            asset=item.get("assetId")
+                            or item.get("renderedAssetId")
+                            or "",
+                            reason=str(reason),
+                            next_action=self.exception_next_action(str(reason)),
+                        )
+                    )
         return {
             "schema": "creator_os.exception_queue_report.v1",
             "exceptionCount": len(exceptions),
@@ -414,7 +480,9 @@ class ExceptionRepository:
             "bySeverity": dict(sorted(by_severity.items())),
             "bySystem": dict(sorted(by_system.items())),
             "byOwner": dict(sorted(by_owner.items())),
-            "largestQueue": max(by_system.items(), key=lambda item: item[1])[0] if by_system else "",
+            "largestQueue": max(by_system.items(), key=lambda item: item[1])[0]
+            if by_system
+            else "",
             "wouldWrite": False,
         }
 
@@ -443,30 +511,43 @@ class ExceptionRepository:
         grouped: dict[str, dict[str, Any]] = {}
         for item in report.get("exceptions") or []:
             owner = str(item.get("owner") or "operator")
-            row = grouped.setdefault(owner, {
-                "owner": owner,
-                "exceptionCount": 0,
-                "critical": 0,
-                "high": 0,
-                "medium": 0,
-                "low": 0,
-                "estimatedResolutionMinutes": 0,
-                "blockingAccounts": 0,
-                "blockingInventory": 0,
-                "nextActions": [],
-                "wouldWrite": False,
-            })
+            row = grouped.setdefault(
+                owner,
+                {
+                    "owner": owner,
+                    "exceptionCount": 0,
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "estimatedResolutionMinutes": 0,
+                    "blockingAccounts": 0,
+                    "blockingInventory": 0,
+                    "nextActions": [],
+                    "wouldWrite": False,
+                },
+            )
             severity = str(item.get("severity") or "low")
             row["exceptionCount"] += 1
             if severity in {"critical", "high", "medium", "low"}:
                 row[severity] += 1
-            row["estimatedResolutionMinutes"] += int(item.get("estimatedResolutionMinutes") or 0)
+            row["estimatedResolutionMinutes"] += int(
+                item.get("estimatedResolutionMinutes") or 0
+            )
             row["blockingAccounts"] += int(item.get("blockingAccounts") or 0)
             row["blockingInventory"] += int(item.get("blockingInventory") or 0)
             action = str(item.get("nextAction") or "")
             if action and action not in row["nextActions"]:
                 row["nextActions"].append(action)
-        owners = sorted(grouped.values(), key=lambda row: (-int(row["critical"]), -int(row["high"]), -int(row["exceptionCount"]), row["owner"]))
+        owners = sorted(
+            grouped.values(),
+            key=lambda row: (
+                -int(row["critical"]),
+                -int(row["high"]),
+                -int(row["exceptionCount"]),
+                row["owner"],
+            ),
+        )
         return {
             "schema": "creator_os.exception_queue_owner_report.v1",
             "owners": owners,
@@ -489,7 +570,9 @@ class ExceptionRepository:
         blocking_accounts = 1 if account else 0
         blocking_inventory = int(count or 0) if "inventory" in category else 0
         payload = {
-            "exceptionId": self._verification_id("exception", severity, system, account, asset, reason, count or 0),
+            "exceptionId": self._verification_id(
+                "exception", severity, system, account, asset, reason, count or 0
+            ),
             "severity": severity,
             "owner": owner,
             "system": system,
@@ -501,7 +584,9 @@ class ExceptionRepository:
             "reason": reason,
             "nextAction": next_action,
             "repairable": self.exception_repairable(reason),
-            "estimatedResolutionMinutes": self.exception_resolution_minutes(reason, count=count),
+            "estimatedResolutionMinutes": self.exception_resolution_minutes(
+                reason, count=count
+            ),
             "blockingAccounts": blocking_accounts,
             "blockingInventory": blocking_inventory,
             "wouldWrite": False,
@@ -512,9 +597,21 @@ class ExceptionRepository:
 
     def exception_severity_for_reason(self, reason: str) -> str:
         lowered = reason.lower()
-        if any(token in lowered for token in ("missed_dispatch", "handoff", "publishability", "embedded_audio", "inventory_shortfall")):
+        if any(
+            token in lowered
+            for token in (
+                "missed_dispatch",
+                "handoff",
+                "publishability",
+                "embedded_audio",
+                "inventory_shortfall",
+            )
+        ):
             return "critical"
-        if any(token in lowered for token in ("caption", "restriction", "account", "quarantine")):
+        if any(
+            token in lowered
+            for token in ("caption", "restriction", "account", "quarantine")
+        ):
             return "high"
         if any(token in lowered for token in ("duplicate", "cooldown", "readiness")):
             return "medium"
@@ -540,7 +637,12 @@ class ExceptionRepository:
         lowered = f"{system} {reason}".lower()
         if "inventory" in lowered:
             return "inventory"
-        if "discoverability" in lowered or "caption" in lowered or "dm" in lowered or "link" in lowered:
+        if (
+            "discoverability" in lowered
+            or "caption" in lowered
+            or "dm" in lowered
+            or "link" in lowered
+        ):
             return "discoverability"
         if "publishability" in lowered or "handoff" in lowered or "metadata" in lowered:
             return "publishability"
@@ -571,7 +673,9 @@ class ExceptionRepository:
             return False
         return True
 
-    def exception_resolution_minutes(self, reason: str, *, count: int | None = None) -> int:
+    def exception_resolution_minutes(
+        self, reason: str, *, count: int | None = None
+    ) -> int:
         lowered = reason.lower()
         base = 10
         if "inventory" in lowered:
@@ -587,5 +691,7 @@ class ExceptionRepository:
         return base + min(120, max(0, int(count or 0)) // 10)
 
     def _verification_id(self, prefix: str, *parts: Any) -> str:
-        digest = hashlib.sha256(":".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256(
+            ":".join(str(part or "") for part in parts).encode("utf-8")
+        ).hexdigest()[:16]
         return f"{prefix}_{digest}"

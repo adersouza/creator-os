@@ -5,8 +5,9 @@ import shutil
 import sqlite3
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
@@ -60,8 +61,12 @@ class ReelExecutionRepository:
         self._ensure_graph_edge = ensure_graph_edge
         self._graph_id_for = graph_id_for
         self._discoverability_generation_gate = discoverability_generation_gate
-        self._capture_discoverability_gate_rejection_evidence = capture_discoverability_gate_rejection_evidence
-        self._suggest_simple_instagram_post_caption = suggest_simple_instagram_post_caption
+        self._capture_discoverability_gate_rejection_evidence = (
+            capture_discoverability_gate_rejection_evidence
+        )
+        self._suggest_simple_instagram_post_caption = (
+            suggest_simple_instagram_post_caption
+        )
 
     def prepare_reel_inputs(
         self,
@@ -96,7 +101,9 @@ class ReelExecutionRepository:
                 if source.get("media_type") == "video"
             ]
             if not sources:
-                raise ValueError("no video sources available for reel input preparation")
+                raise ValueError(
+                    "no video sources available for reel input preparation"
+                )
             raw_dir = self.settings.reel_factory_root / "00_source_videos"
             cap_dir = self.settings.reel_factory_root / "01_captions"
             raw_dir.mkdir(parents=True, exist_ok=True)
@@ -116,7 +123,9 @@ class ReelExecutionRepository:
                 next_num += 1
                 src_path = Path(source["stored_path"])
                 source_hooks = self.rotate_hooks_for_source(hooks, source_index)
-                generation_gate = self._discoverability_generation_gate({"hook": source_hooks})
+                generation_gate = self._discoverability_generation_gate(
+                    {"hook": source_hooks}
+                )
                 if not generation_gate["canProceed"]:
                     capture = self._capture_discoverability_gate_rejection_evidence(
                         gate_result=generation_gate,
@@ -139,7 +148,10 @@ class ReelExecutionRepository:
                     self.conn.commit()
                     self._finish_pipeline_job(
                         pipeline_job["id"],
-                        {"preparedCount": len(prepared), "blockedAt": "discoverability_generation_gate"},
+                        {
+                            "preparedCount": len(prepared),
+                            "blockedAt": "discoverability_generation_gate",
+                        },
                     )
                     return {
                         "campaign": campaign,
@@ -198,13 +210,25 @@ class ReelExecutionRepository:
                     },
                 )
                 self._ensure_graph_edge(
-                    self._graph_id_for("source_assets", source["id"], entity_type="source_asset"),
+                    self._graph_id_for(
+                        "source_assets", source["id"], entity_type="source_asset"
+                    ),
                     render_graph_id,
                     "source_asset_to_render_job",
                     evidence={"clip": clip_stem, "pipelineJobId": pipeline_job["id"]},
                 )
-                prepared.append(dict(self.conn.execute("SELECT * FROM render_jobs WHERE id = ?", (job_id,)).fetchone()))
-            result = {"campaign": campaign, "prepared": prepared, "reusedExisting": reused_existing}
+                prepared.append(
+                    dict(
+                        self.conn.execute(
+                            "SELECT * FROM render_jobs WHERE id = ?", (job_id,)
+                        ).fetchone()
+                    )
+                )
+            result = {
+                "campaign": campaign,
+                "prepared": prepared,
+                "reusedExisting": reused_existing,
+            }
             self._record_event(
                 "reel_inputs_prepared",
                 campaign_id=campaign["id"],
@@ -225,7 +249,11 @@ class ReelExecutionRepository:
             self.conn.commit()
             self._finish_pipeline_job(
                 pipeline_job["id"],
-                {"preparedCount": len(prepared), "reusedExistingCount": len(reused_existing), "sourceCount": len(sources)},
+                {
+                    "preparedCount": len(prepared),
+                    "reusedExistingCount": len(reused_existing),
+                    "sourceCount": len(sources),
+                },
             )
             result["pipelineJobId"] = pipeline_job["id"]
             return result
@@ -241,13 +269,17 @@ class ReelExecutionRepository:
             self._fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
 
-    def rotate_hooks_for_source(self, hooks: list[str | dict[str, Any]], source_index: int) -> list[str | dict[str, Any]]:
+    def rotate_hooks_for_source(
+        self, hooks: list[str | dict[str, Any]], source_index: int
+    ) -> list[str | dict[str, Any]]:
         if len(hooks) <= 1:
             return list(hooks)
         offset = source_index % len(hooks)
         return [*hooks[offset:], *hooks[:offset]]
 
-    def reel_sidecar_hooks(self, hooks: list[str | dict[str, Any]]) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
+    def reel_sidecar_hooks(
+        self, hooks: list[str | dict[str, Any]]
+    ) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
         render_hooks: list[str | dict[str, Any]] = []
         hook_metadata: list[dict[str, Any]] = []
         for idx, hook in enumerate(hooks):
@@ -346,7 +378,9 @@ class ReelExecutionRepository:
                     cmd.append("--caption-placement-qc")
                 if max_outputs_per_clip is not None:
                     cmd.extend(["--per-clip", str(max(1, int(max_outputs_per_clip)))])
-                cmd.append("--phone-finalize" if phone_finalize else "--no-phone-finalize")
+                cmd.append(
+                    "--phone-finalize" if phone_finalize else "--no-phone-finalize"
+                )
                 if dry_run:
                     cmd.append("--dry-run")
                 if rerender_all:
@@ -369,7 +403,11 @@ class ReelExecutionRepository:
                     capture_output=True,
                     check=False,
                 )
-                status = job["status"] if dry_run and result.returncode == 0 else ("rendered" if result.returncode == 0 else "failed")
+                status = (
+                    job["status"]
+                    if dry_run and result.returncode == 0
+                    else ("rendered" if result.returncode == 0 else "failed")
+                )
                 error = result.stderr[-2000:] or None
                 now = self._utc_now()
                 self.conn.execute(
@@ -377,26 +415,36 @@ class ReelExecutionRepository:
                     (status, error, now, job["id"]),
                 )
                 self._record_event(
-                    "reel_render_completed" if result.returncode == 0 else "reel_render_failed",
+                    "reel_render_completed"
+                    if result.returncode == 0
+                    else "reel_render_failed",
                     campaign_id=campaign["id"],
                     source_asset_id=job["source_asset_id"],
                     render_job_id=job["id"],
                     pipeline_job_id=pipeline_job["id"],
                     status="success" if result.returncode == 0 else "failure",
                     message=f"{'Completed' if result.returncode == 0 else 'Failed'} reel render for {job['reel_clip_stem']}",
-                    metadata={"clip": job["reel_clip_stem"], "returncode": result.returncode, "stderr": error},
+                    metadata={
+                        "clip": job["reel_clip_stem"],
+                        "returncode": result.returncode,
+                        "stderr": error,
+                    },
                     commit=False,
                 )
-                runs.append({
-                    "renderJobId": job["id"],
-                    "clip": job["reel_clip_stem"],
-                    "command": cmd,
-                    "returncode": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                })
+                runs.append(
+                    {
+                        "renderJobId": job["id"],
+                        "clip": job["reel_clip_stem"],
+                        "command": cmd,
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    }
+                )
             self.conn.commit()
-            returncode = next((run["returncode"] for run in runs if run["returncode"] != 0), 0)
+            returncode = next(
+                (run["returncode"] for run in runs if run["returncode"] != 0), 0
+            )
             result_payload = {
                 "campaign": campaign,
                 "returncode": returncode,
@@ -438,7 +486,9 @@ class ReelExecutionRepository:
 
     def sync_reel_outputs(self, *, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
-        pipeline_job = self._create_pipeline_job("sync_reel", campaign["id"], {"campaign": campaign_slug})
+        pipeline_job = self._create_pipeline_job(
+            "sync_reel", campaign["id"], {"campaign": campaign_slug}
+        )
         self._start_pipeline_job(pipeline_job["id"])
         model_slug = self.model_slug_for_campaign(campaign["id"])
         dirs = self._campaign_dirs(model_slug, campaign["slug"])
@@ -446,7 +496,9 @@ class ReelExecutionRepository:
         reel_conn: sqlite3.Connection | None = None
         try:
             if not manifest_db.exists():
-                raise FileNotFoundError(f"reel_factory manifest not found: {manifest_db}")
+                raise FileNotFoundError(
+                    f"reel_factory manifest not found: {manifest_db}"
+                )
             reel_conn = sqlite3.connect(manifest_db)
             reel_conn.row_factory = sqlite3.Row
             variation_cols = {
@@ -454,7 +506,9 @@ class ReelExecutionRepository:
                 for row in reel_conn.execute("PRAGMA table_info(variations)").fetchall()
             }
             clip_col = "video_id" if "video_id" in variation_cols else "clip"
-            jobs = self.conn.execute("SELECT * FROM render_jobs WHERE campaign_id = ?", (campaign["id"],)).fetchall()
+            jobs = self.conn.execute(
+                "SELECT * FROM render_jobs WHERE campaign_id = ?", (campaign["id"],)
+            ).fetchall()
             synced = []
             new_synced = 0
             for job in jobs:
@@ -473,7 +527,11 @@ class ReelExecutionRepository:
                         continue
                     digest = self._sha256_file(output_path)
                     params = json_load(row["recipe_params_json"], {})
-                    reel_lineage = params.get("_lineage") if isinstance(params.get("_lineage"), dict) else {}
+                    reel_lineage = (
+                        params.get("_lineage")
+                        if isinstance(params.get("_lineage"), dict)
+                        else {}
+                    )
                     existing = self.conn.execute(
                         "SELECT * FROM rendered_assets WHERE campaign_id = ? AND content_hash = ?",
                         (campaign["id"], digest),
@@ -485,7 +543,11 @@ class ReelExecutionRepository:
                             caption_text=str(row["caption_text"] or "").strip(),
                             recipe=str(row["recipe"] or ""),
                             output_path=str(output_path),
-                            rendered_path=str(existing["campaign_path"] or existing["output_path"] or output_path),
+                            rendered_path=str(
+                                existing["campaign_path"]
+                                or existing["output_path"]
+                                or output_path
+                            ),
                             creator_model=model_slug,
                             lineage=reel_lineage,
                         )
@@ -501,8 +563,12 @@ class ReelExecutionRepository:
                     rendered_id = self._new_id("asset")
                     now = self._utc_now()
                     caption_text = str(row["caption_text"] or "").strip()
-                    caption_hash_value = self._text_hash(caption_text) if caption_text else None
-                    caption_generation = self.caption_generation_for_clip(job["reel_clip_stem"])
+                    caption_hash_value = (
+                        self._text_hash(caption_text) if caption_text else None
+                    )
+                    caption_generation = self.caption_generation_for_clip(
+                        job["reel_clip_stem"]
+                    )
                     lineage = {**caption_generation, **reel_lineage}
                     caption_context = self.caption_outcome_context_for_reel_output(
                         clip_stem=job["reel_clip_stem"],
@@ -515,7 +581,9 @@ class ReelExecutionRepository:
                         lineage=lineage,
                     )
                     if caption_generation.get("audioIntent") is None:
-                        audio_intent = self.audio_intent_from_reference_recommendations(caption_generation, now=now)
+                        audio_intent = self.audio_intent_from_reference_recommendations(
+                            caption_generation, now=now
+                        )
                         if audio_intent:
                             caption_generation["audioIntent"] = audio_intent
                     if caption_text:
@@ -525,13 +593,17 @@ class ReelExecutionRepository:
                             burned_caption=caption_text,
                         )
                         caption_context["instagram_post_caption"] = post_caption
-                        caption_context["instagram_post_caption_hash"] = self._text_hash(post_caption)
+                        caption_context["instagram_post_caption_hash"] = (
+                            self._text_hash(post_caption)
+                        )
                         caption_context["burned_caption_text"] = caption_text
                         caption_context["burned_caption_hash"] = caption_hash_value
                         caption_generation["instagramPostCaption"] = {
                             "instagram_post_caption": post_caption,
                             "instagramPostCaption": post_caption,
-                            "instagram_post_caption_hash": self._text_hash(post_caption),
+                            "instagram_post_caption_hash": self._text_hash(
+                                post_caption
+                            ),
                             "post_caption_style": "simple_native",
                             "hashtags": [],
                         }
@@ -548,21 +620,52 @@ class ReelExecutionRepository:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            rendered_id, campaign["id"], job["source_asset_id"], job["id"], digest, str(output_path), str(dest), dest.name,
-                            caption_text, caption_hash_value, caption_context.get("caption_bank"),
-                            json.dumps(caption_context.get("caption_banks") or [], ensure_ascii=False, sort_keys=True),
-                            caption_context.get("creator_mix"), caption_context.get("creator_model"),
-                            caption_context.get("frame_type"), caption_context.get("length_class"),
-                            caption_context.get("format_class"), caption_context.get("caption_fit_version"),
-                            caption_context.get("suitability_decision"), caption_context.get("suitability_reason"),
+                            rendered_id,
+                            campaign["id"],
+                            job["source_asset_id"],
+                            job["id"],
+                            digest,
+                            str(output_path),
+                            str(dest),
+                            dest.name,
+                            caption_text,
+                            caption_hash_value,
+                            caption_context.get("caption_bank"),
+                            json.dumps(
+                                caption_context.get("caption_banks") or [],
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                            caption_context.get("creator_mix"),
+                            caption_context.get("creator_model"),
+                            caption_context.get("frame_type"),
+                            caption_context.get("length_class"),
+                            caption_context.get("format_class"),
+                            caption_context.get("caption_fit_version"),
+                            caption_context.get("suitability_decision"),
+                            caption_context.get("suitability_reason"),
                             caption_context.get("source_clip"),
-                            json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-                            json.dumps(self._sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
-                            row["recipe"], params.get("_target_ratio") or self.ratio_from_filename(dest.name),
-                            row["review_state"] or "draft", now, now,
+                            json.dumps(
+                                caption_context, ensure_ascii=False, sort_keys=True
+                            ),
+                            json.dumps(
+                                self._sanitize_for_storage(caption_generation),
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                            row["recipe"],
+                            params.get("_target_ratio")
+                            or self.ratio_from_filename(dest.name),
+                            row["review_state"] or "draft",
+                            now,
+                            now,
                         ),
                     )
-                    synced_asset = dict(self.conn.execute("SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)).fetchone())
+                    synced_asset = dict(
+                        self.conn.execute(
+                            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
+                        ).fetchone()
+                    )
                     rendered_graph_id = self._ensure_graph_node(
                         "rendered_asset",
                         local_table="rendered_assets",
@@ -577,16 +680,28 @@ class ReelExecutionRepository:
                         },
                     )
                     self._ensure_graph_edge(
-                        self._graph_id_for("render_jobs", job["id"], entity_type="render_job"),
+                        self._graph_id_for(
+                            "render_jobs", job["id"], entity_type="render_job"
+                        ),
                         rendered_graph_id,
                         "render_job_to_rendered_asset",
-                        evidence={"jobKey": row["job_key"], "pipelineJobId": pipeline_job["id"]},
+                        evidence={
+                            "jobKey": row["job_key"],
+                            "pipelineJobId": pipeline_job["id"],
+                        },
                     )
                     self._ensure_graph_edge(
-                        self._graph_id_for("source_assets", job["source_asset_id"], entity_type="source_asset"),
+                        self._graph_id_for(
+                            "source_assets",
+                            job["source_asset_id"],
+                            entity_type="source_asset",
+                        ),
                         rendered_graph_id,
                         "source_asset_to_rendered_asset",
-                        evidence={"recipe": row["recipe"], "pipelineJobId": pipeline_job["id"]},
+                        evidence={
+                            "recipe": row["recipe"],
+                            "pipelineJobId": pipeline_job["id"],
+                        },
                     )
                     synced.append(synced_asset)
                     new_synced += 1
@@ -599,12 +714,24 @@ class ReelExecutionRepository:
                         pipeline_job_id=pipeline_job["id"],
                         status="success",
                         message=f"Rendered asset synced: {dest.name}",
-                        metadata={"filename": dest.name, "contentHash": digest, "recipe": row["recipe"], "outputPath": str(output_path)},
+                        metadata={
+                            "filename": dest.name,
+                            "contentHash": digest,
+                            "recipe": row["recipe"],
+                            "outputPath": str(output_path),
+                        },
                         commit=False,
                     )
-            result = {"campaign": campaign, "synced": synced, "pipelineJobId": pipeline_job["id"]}
+            result = {
+                "campaign": campaign,
+                "synced": synced,
+                "pipelineJobId": pipeline_job["id"],
+            }
             self.conn.commit()
-            self._finish_pipeline_job(pipeline_job["id"], {"syncedCount": len(synced), "newSyncedCount": new_synced})
+            self._finish_pipeline_job(
+                pipeline_job["id"],
+                {"syncedCount": len(synced), "newSyncedCount": new_synced},
+            )
             return result
         except Exception as exc:
             self._record_event(
@@ -646,21 +773,37 @@ class ReelExecutionRepository:
             return {}
         if not isinstance(payload, dict):
             return {}
-        hook_metadata = payload.get("hook_metadata") if isinstance(payload.get("hook_metadata"), list) else []
+        hook_metadata = (
+            payload.get("hook_metadata")
+            if isinstance(payload.get("hook_metadata"), list)
+            else []
+        )
         generation = payload.get("generation")
         if not isinstance(generation, dict):
             generation_payload = {}
         else:
             generation_payload = {
-                "generationId": generation.get("generation_id") or generation.get("generationId"),
+                "generationId": generation.get("generation_id")
+                or generation.get("generationId"),
                 "model": generation.get("model"),
                 "backend": generation.get("backend"),
-                "createdAt": generation.get("created_at") or generation.get("createdAt"),
-                "promptHash": generation.get("prompt_hash") or generation.get("promptHash"),
-                "captionHashes": generation.get("caption_hashes") or generation.get("captionHashes") or [],
+                "createdAt": generation.get("created_at")
+                or generation.get("createdAt"),
+                "promptHash": generation.get("prompt_hash")
+                or generation.get("promptHash"),
+                "captionHashes": generation.get("caption_hashes")
+                or generation.get("captionHashes")
+                or [],
                 "quality": generation.get("quality") or [],
             }
-        reference_meta = next((item for item in hook_metadata if isinstance(item, dict) and item.get("referenceClusterKey")), None)
+        reference_meta = next(
+            (
+                item
+                for item in hook_metadata
+                if isinstance(item, dict) and item.get("referenceClusterKey")
+            ),
+            None,
+        )
         if reference_meta:
             generation_payload["referencePattern"] = {
                 "clusterKey": reference_meta.get("referenceClusterKey"),
@@ -668,7 +811,9 @@ class ReelExecutionRepository:
                 "hookType": reference_meta.get("hookType"),
                 "captionArchetype": reference_meta.get("captionArchetype"),
             }
-            generation_payload["audioRecommendations"] = reference_meta.get("audioRecommendations") or {}
+            generation_payload["audioRecommendations"] = (
+                reference_meta.get("audioRecommendations") or {}
+            )
         return generation_payload
 
     def caption_outcome_context_for_reel_output(
@@ -699,11 +844,17 @@ class ReelExecutionRepository:
             or "focal_safe_v1"
         )
         placement_decision = context.get("captionPlacementDecision")
-        if isinstance(lineage_placement_decision, dict) and lineage_placement_decision.get("status") in {"passed", "failed"}:
+        if isinstance(
+            lineage_placement_decision, dict
+        ) and lineage_placement_decision.get("status") in {"passed", "failed"}:
             placement_decision = lineage_placement_decision
-        elif not isinstance(placement_decision, dict) or not placement_decision.get("status"):
+        elif not isinstance(placement_decision, dict) or not placement_decision.get(
+            "status"
+        ):
             placement_decision = lineage_placement_decision
-        if not isinstance(placement_decision, dict) or not placement_decision.get("status"):
+        if not isinstance(placement_decision, dict) or not placement_decision.get(
+            "status"
+        ):
             placement_decision = {
                 "status": "pending",
                 "selectedLane": self.caption_lane_from_render_recipe(recipe),
@@ -714,21 +865,27 @@ class ReelExecutionRepository:
                 **placement_decision,
                 "selectedLane": self.caption_lane_from_render_recipe(recipe),
             }
-        context.update({
-            "caption_bank": context.get("caption_bank") or "reel_factory_reference",
-            "caption_banks": context.get("caption_banks") or ["reel_factory_reference"],
-            "creator_mix": context.get("creator_mix") or creator_model,
-            "creator_model": context.get("creator_model") or creator_model,
-            "frame_type": context.get("frame_type") or "selfie_video",
-            "length_class": context.get("length_class") or "short",
-            "format_class": context.get("format_class") or "reel",
-            "caption_fit_version": context.get("caption_fit_version") or "reel_factory_sync_v1",
-            "suitability_decision": context.get("suitability_decision") or "allowed",
-            "suitability_reason": context.get("suitability_reason") or "synced from Reel Factory output",
-            "reel_clip_stem": clip_stem,
-            "captionPlacementPolicy": placement_policy,
-            "captionPlacementDecision": placement_decision,
-        })
+        context.update(
+            {
+                "caption_bank": context.get("caption_bank") or "reel_factory_reference",
+                "caption_banks": context.get("caption_banks")
+                or ["reel_factory_reference"],
+                "creator_mix": context.get("creator_mix") or creator_model,
+                "creator_model": context.get("creator_model") or creator_model,
+                "frame_type": context.get("frame_type") or "selfie_video",
+                "length_class": context.get("length_class") or "short",
+                "format_class": context.get("format_class") or "reel",
+                "caption_fit_version": context.get("caption_fit_version")
+                or "reel_factory_sync_v1",
+                "suitability_decision": context.get("suitability_decision")
+                or "allowed",
+                "suitability_reason": context.get("suitability_reason")
+                or "synced from Reel Factory output",
+                "reel_clip_stem": clip_stem,
+                "captionPlacementPolicy": placement_policy,
+                "captionPlacementDecision": placement_decision,
+            }
+        )
         return context
 
     def lineage_first_present(self, lineage: dict[str, Any] | None, key: str) -> Any:
@@ -746,7 +903,9 @@ class ReelExecutionRepository:
                 return candidate.get(key)
         return None
 
-    def lineage_placement_decision(self, lineage: dict[str, Any] | None) -> dict[str, Any] | None:
+    def lineage_placement_decision(
+        self, lineage: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         if not isinstance(lineage, dict):
             return None
         decisions: list[dict[str, Any]] = []
@@ -775,11 +934,22 @@ class ReelExecutionRepository:
             return "bottom"
         return "center"
 
-    def audio_intent_from_reference_recommendations(self, payload: dict[str, Any], *, now: str) -> dict[str, Any]:
-        recommendations = (payload.get("audioRecommendations") or {}).get("recommendations")
+    def audio_intent_from_reference_recommendations(
+        self, payload: dict[str, Any], *, now: str
+    ) -> dict[str, Any]:
+        recommendations = (payload.get("audioRecommendations") or {}).get(
+            "recommendations"
+        )
         if not isinstance(recommendations, list):
             recommendations = []
-        selected = next((item for item in recommendations if isinstance(item, dict) and str(item.get("audioId") or "").strip()), None)
+        selected = next(
+            (
+                item
+                for item in recommendations
+                if isinstance(item, dict) and str(item.get("audioId") or "").strip()
+            ),
+            None,
+        )
         if not selected:
             return {
                 "schema": "pipeline.audio_intent.v1",
@@ -791,8 +961,12 @@ class ReelExecutionRepository:
                 "operator_selection": {},
             }
         audio_id = str(selected.get("audioId") or "").strip()
-        audio_title = str(selected.get("audioTitle") or selected.get("title") or "").strip()
-        artist = str(selected.get("artistName") or selected.get("artist_name") or "").strip()
+        audio_title = str(
+            selected.get("audioTitle") or selected.get("title") or ""
+        ).strip()
+        artist = str(
+            selected.get("artistName") or selected.get("artist_name") or ""
+        ).strip()
         return {
             "schema": "pipeline.audio_intent.v1",
             "mode": "native_platform_audio",
@@ -810,7 +984,10 @@ class ReelExecutionRepository:
                 "artist_name": artist,
                 "source": "reference_audio_recommendations",
                 "selection_source": "reference_audio_recommendations",
-                "selected_reason": str(selected.get("instruction") or "reference pattern audio recommendation").strip(),
+                "selected_reason": str(
+                    selected.get("instruction")
+                    or "reference pattern audio recommendation"
+                ).strip(),
                 "selected_at": now,
                 "attached_at": now,
             },
@@ -838,7 +1015,11 @@ class ReelExecutionRepository:
         existing_generation = json_load(asset.get("caption_generation_json"), {})
         if not isinstance(existing_generation, dict):
             existing_generation = {}
-        existing_decision = existing_context.get("captionPlacementDecision") if isinstance(existing_context, dict) else {}
+        existing_decision = (
+            existing_context.get("captionPlacementDecision")
+            if isinstance(existing_context, dict)
+            else {}
+        )
         if (
             asset.get("caption_hash")
             and existing_context
@@ -848,9 +1029,15 @@ class ReelExecutionRepository:
         ):
             return False
         now = self._utc_now()
-        caption_hash_value = asset.get("caption_hash") or (self._text_hash(caption_text) if caption_text else None)
+        caption_hash_value = asset.get("caption_hash") or (
+            self._text_hash(caption_text) if caption_text else None
+        )
         reel_lineage = lineage if isinstance(lineage, dict) else {}
-        caption_generation = {**self.caption_generation_for_clip(clip_stem), **reel_lineage, **existing_generation}
+        caption_generation = {
+            **self.caption_generation_for_clip(clip_stem),
+            **reel_lineage,
+            **existing_generation,
+        }
         caption_context = self.caption_outcome_context_for_reel_output(
             clip_stem=clip_stem,
             caption_text=caption_text or str(asset.get("caption") or "").strip(),
@@ -862,7 +1049,9 @@ class ReelExecutionRepository:
             lineage={**caption_generation, **existing_context},
         )
         if not isinstance(caption_generation.get("audioIntent"), dict):
-            audio_intent = self.audio_intent_from_reference_recommendations(caption_generation, now=now)
+            audio_intent = self.audio_intent_from_reference_recommendations(
+                caption_generation, now=now
+            )
             if audio_intent:
                 caption_generation["audioIntent"] = audio_intent
         burned_caption = caption_text or str(asset.get("caption") or "").strip()
@@ -873,7 +1062,9 @@ class ReelExecutionRepository:
                 burned_caption=burned_caption,
             )
             caption_context["instagram_post_caption"] = post_caption
-            caption_context["instagram_post_caption_hash"] = self._text_hash(post_caption)
+            caption_context["instagram_post_caption_hash"] = self._text_hash(
+                post_caption
+            )
             caption_context["burned_caption_text"] = burned_caption
             caption_context["burned_caption_hash"] = caption_hash_value
             caption_generation["instagramPostCaption"] = {
@@ -910,7 +1101,11 @@ class ReelExecutionRepository:
                 burned_caption,
                 caption_hash_value,
                 caption_context.get("caption_bank"),
-                json.dumps(caption_context.get("caption_banks") or [], ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    caption_context.get("caption_banks") or [],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 caption_context.get("creator_mix"),
                 caption_context.get("creator_model"),
                 caption_context.get("frame_type"),
@@ -921,7 +1116,11 @@ class ReelExecutionRepository:
                 caption_context.get("suitability_reason"),
                 caption_context.get("source_clip"),
                 json.dumps(caption_context, ensure_ascii=False, sort_keys=True),
-                json.dumps(self._sanitize_for_storage(caption_generation), ensure_ascii=False, sort_keys=True),
+                json.dumps(
+                    self._sanitize_for_storage(caption_generation),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
                 now,
                 asset["id"],
             ),

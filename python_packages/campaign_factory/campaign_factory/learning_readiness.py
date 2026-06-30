@@ -58,7 +58,9 @@ def closed_loop_learning_status(
             hours_by_post.setdefault(str(row["post_id"]), set()).add(hour)
     posts_with_1h = sum(1 for hours in hours_by_post.values() if 1 in hours)
     posts_with_24h = sum(1 for hours in hours_by_post.values() if 24 in hours)
-    posts_with_both = sum(1 for hours in hours_by_post.values() if {1, 24}.issubset(hours))
+    posts_with_both = sum(
+        1 for hours in hours_by_post.values() if {1, 24}.issubset(hours)
+    )
     remaining = max(0, min_posts_with_1h_and_24h - posts_with_both)
     ready = remaining == 0
     return {

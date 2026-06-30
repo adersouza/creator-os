@@ -9,11 +9,13 @@ from generate_assets import AssetGenerationPlan, dry_run_video_asset
 def test_video_dry_run_builds_single_kling_command(tmp_path: Path) -> None:
     prompt = tmp_path / "prompt.json"
     prompt.write_text(
-        json.dumps({
-            "higgsfieldGridPrompt": "Create a realistic vertical social photo with natural lighting and coherent phone framing.",
-            "klingMotionPrompt": "Use the accepted start image for a short realistic phone video with subtle motion and stable framing.",
-            "notes": "test prompt",
-        }),
+        json.dumps(
+            {
+                "higgsfieldGridPrompt": "Create a realistic vertical social photo with natural lighting and coherent phone framing.",
+                "klingMotionPrompt": "Use the accepted start image for a short realistic phone video with subtle motion and stable framing.",
+                "notes": "test prompt",
+            }
+        ),
         encoding="utf-8",
     )
     start_image = tmp_path / "accepted.png"

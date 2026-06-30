@@ -1,4 +1,5 @@
 """Caption lane scoring for auto placement."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -30,7 +31,14 @@ def score_lanes(
     normalized_policy = "legacy" if placement_policy == "legacy" else "focal-safe"
     scores = {lane: 0.0 for lane in LANES}
     components = {
-        lane: {"busyness": 0.0, "face": 0.0, "focal": 0.0, "motion": 0.0, "pose": 0.0, "safe_area": 0.0}
+        lane: {
+            "busyness": 0.0,
+            "face": 0.0,
+            "focal": 0.0,
+            "motion": 0.0,
+            "pose": 0.0,
+            "safe_area": 0.0,
+        }
         for lane in LANES
     }
     sample_count = max(
@@ -82,7 +90,11 @@ def score_lanes(
             scores[lane] += penalty
             components[lane]["pose"] = penalty
 
-    if normalized_policy == "focal-safe" and focal_samples and not has_body_specific_signal:
+    if (
+        normalized_policy == "focal-safe"
+        and focal_samples
+        and not has_body_specific_signal
+    ):
         scores["top"] += 30.0
         components["top"]["safe_area"] += 30.0
     scores["center"] += center_penalty
@@ -101,9 +113,13 @@ def score_lanes(
         f"(top={scores['top']:.1f}, center={scores['center']:.1f}, bottom={scores['bottom']:.1f})"
     )
     if normalized_policy == "focal-safe" and rejected_lanes:
-        reason = f"{lane} selected; rejected {', '.join(rejected_lanes)} for focal overlap"
+        reason = (
+            f"{lane} selected; rejected {', '.join(rejected_lanes)} for focal overlap"
+        )
     metadata: dict[str, Any] = {
-        "captionPlacementPolicy": "focal_safe_v1" if normalized_policy == "focal-safe" else "legacy",
+        "captionPlacementPolicy": "focal_safe_v1"
+        if normalized_policy == "focal-safe"
+        else "legacy",
         "captionPlacementDecision": {
             "status": "passed",
             "selectedLane": lane,
@@ -111,7 +127,10 @@ def score_lanes(
             "reason": reason,
             "scores": {key: round(value, 3) for key, value in scores.items()},
             "components": {
-                key: {component: round(value, 3) for component, value in lane_components.items()}
+                key: {
+                    component: round(value, 3)
+                    for component, value in lane_components.items()
+                }
                 for key, lane_components in components.items()
             },
             "sampleCount": sample_count,

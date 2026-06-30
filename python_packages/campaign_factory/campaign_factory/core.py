@@ -1,32 +1,25 @@
 from __future__ import annotations
 
-import json
 import math
-import os
 import re
-import shutil
-import socket
 import sqlite3
 import subprocess
 import sys
-import time
+import time  # noqa: F401 -- tests monkeypatch campaign_factory.core.time.sleep
 import uuid
 import zlib
-from datetime import datetime, time as datetime_time, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
-from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
 from .contentforge_visual_qc import ContentForgeVisualQCRepository
-from .creative_planning import CREATIVE_PLAN_STATUSES, DEFAULT_STYLE_LANES
 from .db import connect, init_db
 from .fresh_reel_production import FreshReelProductionRepository
 from .multi_blocker_unlock import MultiBlockerUnlockRepository
 from .perceptual import compute_pdq_fingerprint, pdq_hamming_distance
-from .persistence import json_load, row_to_dict, utc_now
+from .persistence import json_load, utc_now
 from .services import CoreServices
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
@@ -54,7 +47,13 @@ RECOMMENDATION_STATUS_TRANSITIONS = {
 }
 RECOMMENDATION_MEASUREMENT_VERSION = "recommendation_measurement.v1"
 RECOMMENDATION_MEASUREMENT_THRESHOLD = 5
-RECOMMENDATION_EXECUTION_STATUSES = {"not_started", "running", "completed", "blocked", "failed"}
+RECOMMENDATION_EXECUTION_STATUSES = {
+    "not_started",
+    "running",
+    "completed",
+    "blocked",
+    "failed",
+}
 AUTONOMY_LEVELS = {"level_1", "level_2", "level_3"}
 DEFAULT_AUTONOMY_LEVEL = "level_2"
 EXCEPTION_STATUSES = {"open", "snoozed", "resolved"}
@@ -81,8 +80,18 @@ RECOMMENDATION_ELIGIBILITY_STATES = {
 WARMING_STAGES = {"day_0_3", "day_4_7", "week_2", "week_3_4", "mature", "unknown"}
 CREATIVE_RISK_BLOCK_THRESHOLD = 51
 CREATIVE_RISK_CAUTION_THRESHOLD = 21
-CONTENTFORGE_VARIANT_PRESETS = {"caption_safe", "caption_safe_v2", "strong_safe", "subtle", "balanced", "strong"}
-CONTENTFORGE_VARIANT_PACK_SCHEMAS = {"contentforge.variant_pack.v1", "contentforge.variant_pack.v2"}
+CONTENTFORGE_VARIANT_PRESETS = {
+    "caption_safe",
+    "caption_safe_v2",
+    "strong_safe",
+    "subtle",
+    "balanced",
+    "strong",
+}
+CONTENTFORGE_VARIANT_PACK_SCHEMAS = {
+    "contentforge.variant_pack.v1",
+    "contentforge.variant_pack.v2",
+}
 CONTENT_SURFACES = ("reel", "story", "feed_single", "feed_carousel")
 CONTENT_SURFACE_ALIASES = {
     "regular_reel": "reel",
@@ -137,7 +146,14 @@ STORY_STYLES = {
     "high_quality",
     "raw_phone",
 }
-STORY_NATIVE_PROOF_STYLES = {"amateur", "casual", "casual_selfie", "selfie", "mirror", "raw_phone"}
+STORY_NATIVE_PROOF_STYLES = {
+    "amateur",
+    "casual",
+    "casual_selfie",
+    "selfie",
+    "mirror",
+    "raw_phone",
+}
 DEFAULT_STORY_MIX = {
     "casual_selfie": 30,
     "reel_teaser": 25,
@@ -243,17 +259,36 @@ def probe_image_shape(path: Path) -> dict[str, Any]:
                 continue
             if index + 2 > len(data):
                 break
-            segment_length = int.from_bytes(data[index:index + 2], "big")
+            segment_length = int.from_bytes(data[index : index + 2], "big")
             if segment_length < 2:
                 break
-            if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+            if marker in {
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            }:
                 if index + 7 <= len(data):
-                    height = int.from_bytes(data[index + 3:index + 5], "big")
-                    width = int.from_bytes(data[index + 5:index + 7], "big")
+                    height = int.from_bytes(data[index + 3 : index + 5], "big")
+                    width = int.from_bytes(data[index + 5 : index + 7], "big")
                     return _image_shape_payload(width, height)
                 break
             index += segment_length
-    if len(data) >= 30 and data[:4] == b"RIFF" and data[8:12] == b"WEBP" and data[12:16] == b"VP8X":
+    if (
+        len(data) >= 30
+        and data[:4] == b"RIFF"
+        and data[8:12] == b"WEBP"
+        and data[12:16] == b"VP8X"
+    ):
         width = int.from_bytes(data[24:27], "little") + 1
         height = int.from_bytes(data[27:30], "little") + 1
         return _image_shape_payload(width, height)
@@ -271,9 +306,9 @@ def read_png_rgb_pixels(path: Path, *, max_pixels: int = 3_000_000) -> dict[str,
     width = height = color_type = bit_depth = None
     idat = bytearray()
     while offset + 8 <= len(data):
-        length = int.from_bytes(data[offset:offset + 4], "big")
-        kind = data[offset + 4:offset + 8]
-        payload = data[offset + 8:offset + 8 + length]
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        kind = data[offset + 4 : offset + 8]
+        payload = data[offset + 8 : offset + 8 + length]
         offset += 12 + length
         if kind == b"IHDR" and len(payload) >= 13:
             width = int.from_bytes(payload[0:4], "big")
@@ -302,27 +337,33 @@ def read_png_rgb_pixels(path: Path, *, max_pixels: int = 3_000_000) -> dict[str,
             return {"ok": False, "error": "png_truncated"}
         filter_type = raw[cursor]
         cursor += 1
-        row = bytearray(raw[cursor:cursor + stride])
+        row = bytearray(raw[cursor : cursor + stride])
         cursor += stride
         if len(row) != stride:
             return {"ok": False, "error": "png_truncated"}
         recon = _png_unfilter_row(row, previous, filter_type, channels)
         previous = recon
-        rows.append([
-            (recon[index], recon[index + 1], recon[index + 2])
-            for index in range(0, len(recon), channels)
-        ])
+        rows.append(
+            [
+                (recon[index], recon[index + 1], recon[index + 2])
+                for index in range(0, len(recon), channels)
+            ]
+        )
     return {"ok": True, "width": width, "height": height, "pixels": rows}
 
 
-def _png_unfilter_row(row: bytearray, previous: bytearray, filter_type: int, bpp: int) -> bytearray:
+def _png_unfilter_row(
+    row: bytearray, previous: bytearray, filter_type: int, bpp: int
+) -> bytearray:
     recon = bytearray(row)
     if filter_type == 0:
         return recon
     for index in range(len(recon)):
         left = recon[index - bpp] if index >= bpp else 0
         up = previous[index] if index < len(previous) else 0
-        up_left = previous[index - bpp] if index >= bpp and index - bpp < len(previous) else 0
+        up_left = (
+            previous[index - bpp] if index >= bpp and index - bpp < len(previous) else 0
+        )
         if filter_type == 1:
             recon[index] = (recon[index] + left) & 0xFF
         elif filter_type == 2:
@@ -424,7 +465,11 @@ def probe_video_shape(path: Path) -> dict[str, Any]:
     effective_width, effective_height = width, height
     if abs(rotation) in {90, 270}:
         effective_width, effective_height = height, width
-    aspect_ratio = (effective_width / effective_height) if effective_width and effective_height else None
+    aspect_ratio = (
+        (effective_width / effective_height)
+        if effective_width and effective_height
+        else None
+    )
     return {
         "width": width,
         "height": height,
@@ -461,20 +506,42 @@ def probe_video_metadata(path: Path) -> dict[str, Any]:
     streams = parsed.get("streams") if isinstance(parsed, dict) else []
     if not isinstance(streams, list) or not streams:
         return {"ok": False, "error": "no_streams"}
-    video_stream = next((stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "video"), None)
+    video_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "video"
+        ),
+        None,
+    )
     if not video_stream:
         return {"ok": False, "error": "no_video_stream"}
-    audio_stream = next((stream for stream in streams if isinstance(stream, dict) and stream.get("codec_type") == "audio"), None)
+    audio_stream = next(
+        (
+            stream
+            for stream in streams
+            if isinstance(stream, dict) and stream.get("codec_type") == "audio"
+        ),
+        None,
+    )
     shape = probe_video_shape(path)
     fmt = parsed.get("format") if isinstance(parsed, dict) else {}
     duration = None
     try:
-        duration = float((fmt or {}).get("duration")) if (fmt or {}).get("duration") is not None else None
+        duration = (
+            float((fmt or {}).get("duration"))
+            if (fmt or {}).get("duration") is not None
+            else None
+        )
     except (TypeError, ValueError):
         duration = None
     bitrate = None
     try:
-        bitrate = int((fmt or {}).get("bit_rate")) if (fmt or {}).get("bit_rate") is not None else None
+        bitrate = (
+            int((fmt or {}).get("bit_rate"))
+            if (fmt or {}).get("bit_rate") is not None
+            else None
+        )
     except (TypeError, ValueError):
         bitrate = None
     return {
@@ -514,7 +581,19 @@ def _normalize_distribution_surface(value: str | None) -> str:
         "carousel_album": "feed_carousel",
     }
     normalized = aliases.get(normalized, normalized)
-    return normalized if normalized in {"regular_reel", "trial_reel", "story", "story_cta", "feed_single", "feed_carousel"} else "regular_reel"
+    return (
+        normalized
+        if normalized
+        in {
+            "regular_reel",
+            "trial_reel",
+            "story",
+            "story_cta",
+            "feed_single",
+            "feed_carousel",
+        }
+        else "regular_reel"
+    )
 
 
 def _normalize_schedule_mode(value: str | None) -> str:
@@ -522,7 +601,16 @@ def _normalize_schedule_mode(value: str | None) -> str:
     return normalized if normalized in {"draft", "preview", "live"} else "draft"
 
 
-SECRET_KEY_PARTS = ("secret", "service_role", "serviceRole", "token", "apikey", "api_key", "password", "key")
+SECRET_KEY_PARTS = (
+    "secret",
+    "service_role",
+    "serviceRole",
+    "token",
+    "apikey",
+    "api_key",
+    "password",
+    "key",
+)
 
 
 def sanitize_for_storage(value: Any) -> Any:
@@ -561,27 +649,45 @@ class CampaignFactory:
             media_type_for_path=media_type_for_path,
             sha256_file=sha256_file,
             probe_image_shape=probe_image_shape,
-            probe_video_shape=lambda *args, **kwargs: probe_video_shape(*args, **kwargs),
-            probe_video_metadata=lambda *args, **kwargs: probe_video_metadata(*args, **kwargs),
+            probe_video_shape=lambda *args, **kwargs: probe_video_shape(
+                *args, **kwargs
+            ),
+            probe_video_metadata=lambda *args, **kwargs: probe_video_metadata(
+                *args, **kwargs
+            ),
             read_png_rgb_pixels=read_png_rgb_pixels,
             ratio_label_from_shape=ratio_label_from_shape,
-            dashboard_rendered_asset=lambda *args, **kwargs: self._dashboard_rendered_asset(*args, **kwargs),
-            audio_recommendations_for_asset=lambda *args, **kwargs: self._audio_recommendations_for_asset(*args, **kwargs),
-            generated_asset_lineage=lambda *args, **kwargs: self._generated_asset_lineage(*args, **kwargs),
+            dashboard_rendered_asset=lambda *args, **kwargs: (
+                self._dashboard_rendered_asset(*args, **kwargs)
+            ),
+            audio_recommendations_for_asset=lambda *args, **kwargs: (
+                self._audio_recommendations_for_asset(*args, **kwargs)
+            ),
+            generated_asset_lineage=lambda *args, **kwargs: (
+                self._generated_asset_lineage(*args, **kwargs)
+            ),
             prepare_reel_inputs=self.prepare_reel_inputs,
             reel_factory_python=reel_factory_python,
             make_batch=lambda *args, **kwargs: self.make_batch(*args, **kwargs),
-            load_source_lineage=lambda *args, **kwargs: self._load_source_lineage(*args, **kwargs),
+            load_source_lineage=lambda *args, **kwargs: self._load_source_lineage(
+                *args, **kwargs
+            ),
             discoverability_generation_gate=self.discoverability_generation_gate,
             discoverability_pre_render_gate=self.discoverability_pre_render_gate,
             discoverability_safe_content_contract=self.discoverability_safe_content_contract,
-            capture_discoverability_gate_rejection_evidence=lambda *args, **kwargs: self._capture_discoverability_gate_rejection_evidence(*args, **kwargs),
+            capture_discoverability_gate_rejection_evidence=lambda *args, **kwargs: (
+                self._capture_discoverability_gate_rejection_evidence(*args, **kwargs)
+            ),
             reference_hook_fallbacks=SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
             normalize_content_surface=normalize_content_surface,
             urlopen=lambda *args, **kwargs: urlopen(*args, **kwargs),
             concept_for_parent_asset=self._concept_for_parent_asset,
             explain_publishability=self.explain_publishability,
-            capture_publishability_rejection_evidence_from_result=lambda *args, **kwargs: self._capture_publishability_rejection_evidence_from_result(*args, **kwargs),
+            capture_publishability_rejection_evidence_from_result=lambda *args, **kwargs: (
+                self._capture_publishability_rejection_evidence_from_result(
+                    *args, **kwargs
+                )
+            ),
             distribution_plan_payload=self._distribution_plan_payload,
             verification_id=self._verification_id,
             caption_lineage_sidecar=self._caption_lineage_sidecar,
@@ -599,19 +705,31 @@ class CampaignFactory:
             recommend_audio=self.recommend_audio,
             select_audio_for_recommendation=self.select_audio_for_recommendation,
             surface_handoff_readiness_for_asset=self._surface_handoff_readiness_for_asset,
-            audio_selection_for_asset=lambda *args, **kwargs: self._audio_selection_for_asset(*args, **kwargs),
+            audio_selection_for_asset=lambda *args, **kwargs: (
+                self._audio_selection_for_asset(*args, **kwargs)
+            ),
             surface_report_assets=self._surface_report_assets,
-            build_surface_readiness=lambda *args, **kwargs: self._build_surface_readiness(*args, **kwargs),
+            build_surface_readiness=lambda *args, **kwargs: (
+                self._build_surface_readiness(*args, **kwargs)
+            ),
             asset_matches_creator=self._asset_matches_creator,
             latest_audit_for_asset=self._latest_audit_for_asset,
-            content_trust_status_blockers=lambda *args, **kwargs: self._content_trust_status_blockers(*args, **kwargs),
-            compute_pdq_fingerprint=lambda *args, **kwargs: compute_pdq_fingerprint(*args, **kwargs),
+            content_trust_status_blockers=lambda *args, **kwargs: (
+                self._content_trust_status_blockers(*args, **kwargs)
+            ),
+            compute_pdq_fingerprint=lambda *args, **kwargs: compute_pdq_fingerprint(
+                *args, **kwargs
+            ),
             pdq_hamming_distance=lambda left, right: pdq_hamming_distance(left, right),
             surface_draft_proof=self.surface_draft_proof,
             asset_components=self._asset_components,
             instagram_post_caption_for_asset=self._instagram_post_caption_for_asset,
-            register_variant_asset=lambda *args, **kwargs: self.register_variant_asset(*args, **kwargs),
-            suggest_simple_instagram_post_caption=lambda *args, **kwargs: self._suggest_simple_instagram_post_caption(*args, **kwargs),
+            register_variant_asset=lambda *args, **kwargs: self.register_variant_asset(
+                *args, **kwargs
+            ),
+            suggest_simple_instagram_post_caption=lambda *args, **kwargs: (
+                self._suggest_simple_instagram_post_caption(*args, **kwargs)
+            ),
             text_hash=self._text_hash,
             variant_lineage_for_asset=self._variant_lineage_for_asset,
             story_quality_gate_for_asset=self._story_quality_gate_for_asset,
@@ -619,28 +737,70 @@ class CampaignFactory:
             story_intent_value=self._story_intent_value,
             ranking=lambda *args, **kwargs: self.ranking(*args, **kwargs),
             dashboard=lambda *args, **kwargs: self.dashboard(*args, **kwargs),
-            creator_os_account_health_report=lambda *args, **kwargs: self.creator_os_account_health_report(*args, **kwargs),
-            creator_os_account_health_decision=lambda *args, **kwargs: self._creator_os_account_health_decision(*args, **kwargs),
-            creator_os_tier_posting_guidance=lambda *args, **kwargs: self._creator_os_tier_posting_guidance(*args, **kwargs),
-            creator_os_account_tier_summary=lambda *args, **kwargs: self._creator_os_account_tier_summary(*args, **kwargs),
-            creator_os_account_health_summary=lambda *args, **kwargs: self._creator_os_account_health_summary(*args, **kwargs),
-            creator_os_winner_recommendations=lambda *args, **kwargs: self._creator_os_winner_recommendations(*args, **kwargs),
-            creator_os_recommended_inventory=lambda *args, **kwargs: self._creator_os_recommended_inventory(*args, **kwargs),
-            recommendation_explainability=lambda *args, **kwargs: self._recommendation_explainability(*args, **kwargs),
-            build_creative_performance_analysis=lambda *args, **kwargs: self._build_creative_performance_analysis(*args, **kwargs),
-            build_creative_knowledge_base=lambda *args, **kwargs: self._build_creative_knowledge_base(*args, **kwargs),
-            creative_knowledge_rows=lambda *args, **kwargs: self._creative_knowledge_rows(*args, **kwargs),
-            creative_knowledge_result=lambda *args, **kwargs: self._creative_knowledge_result(*args, **kwargs),
-            creative_knowledge_score_weights=lambda *args, **kwargs: self._creative_knowledge_score_weights(*args, **kwargs),
-            creative_result_group=lambda *args, **kwargs: self._creative_result_group(*args, **kwargs),
-            creative_knowledge_results_for_report=lambda *args, **kwargs: self._creative_knowledge_results_for_report(*args, **kwargs),
-            creative_dimension_label=lambda *args, **kwargs: self._creative_dimension_label(*args, **kwargs),
-            learning_confidence_classification=lambda *args, **kwargs: self._learning_confidence_classification(*args, **kwargs),
-            creative_fatigue_signals=lambda *args, **kwargs: self._creative_fatigue_signals(*args, **kwargs),
-            creative_surface_rows=lambda *args, **kwargs: self._creative_surface_rows(*args, **kwargs),
-            recommendation_quality_bucket=lambda *args, **kwargs: self._recommendation_quality_bucket(*args, **kwargs),
+            creator_os_account_health_report=lambda *args, **kwargs: (
+                self.creator_os_account_health_report(*args, **kwargs)
+            ),
+            creator_os_account_health_decision=lambda *args, **kwargs: (
+                self._creator_os_account_health_decision(*args, **kwargs)
+            ),
+            creator_os_tier_posting_guidance=lambda *args, **kwargs: (
+                self._creator_os_tier_posting_guidance(*args, **kwargs)
+            ),
+            creator_os_account_tier_summary=lambda *args, **kwargs: (
+                self._creator_os_account_tier_summary(*args, **kwargs)
+            ),
+            creator_os_account_health_summary=lambda *args, **kwargs: (
+                self._creator_os_account_health_summary(*args, **kwargs)
+            ),
+            creator_os_winner_recommendations=lambda *args, **kwargs: (
+                self._creator_os_winner_recommendations(*args, **kwargs)
+            ),
+            creator_os_recommended_inventory=lambda *args, **kwargs: (
+                self._creator_os_recommended_inventory(*args, **kwargs)
+            ),
+            recommendation_explainability=lambda *args, **kwargs: (
+                self._recommendation_explainability(*args, **kwargs)
+            ),
+            build_creative_performance_analysis=lambda *args, **kwargs: (
+                self._build_creative_performance_analysis(*args, **kwargs)
+            ),
+            build_creative_knowledge_base=lambda *args, **kwargs: (
+                self._build_creative_knowledge_base(*args, **kwargs)
+            ),
+            creative_knowledge_rows=lambda *args, **kwargs: (
+                self._creative_knowledge_rows(*args, **kwargs)
+            ),
+            creative_knowledge_result=lambda *args, **kwargs: (
+                self._creative_knowledge_result(*args, **kwargs)
+            ),
+            creative_knowledge_score_weights=lambda *args, **kwargs: (
+                self._creative_knowledge_score_weights(*args, **kwargs)
+            ),
+            creative_result_group=lambda *args, **kwargs: self._creative_result_group(
+                *args, **kwargs
+            ),
+            creative_knowledge_results_for_report=lambda *args, **kwargs: (
+                self._creative_knowledge_results_for_report(*args, **kwargs)
+            ),
+            creative_dimension_label=lambda *args, **kwargs: (
+                self._creative_dimension_label(*args, **kwargs)
+            ),
+            learning_confidence_classification=lambda *args, **kwargs: (
+                self._learning_confidence_classification(*args, **kwargs)
+            ),
+            creative_fatigue_signals=lambda *args, **kwargs: (
+                self._creative_fatigue_signals(*args, **kwargs)
+            ),
+            creative_surface_rows=lambda *args, **kwargs: self._creative_surface_rows(
+                *args, **kwargs
+            ),
+            recommendation_quality_bucket=lambda *args, **kwargs: (
+                self._recommendation_quality_bucket(*args, **kwargs)
+            ),
             creator_os_daily_plan=self.creator_os_daily_plan,
-            creator_os_execution_readiness=lambda *args, **kwargs: self.creator_os_execution_readiness(*args, **kwargs),
+            creator_os_execution_readiness=lambda *args, **kwargs: (
+                self.creator_os_execution_readiness(*args, **kwargs)
+            ),
             inventory_slo_report=self.inventory_slo_report,
             exception_queue_priority_report=self.exception_queue_priority_report,
             parent_factory_autopilot_plan=self.parent_factory_autopilot_plan,
@@ -650,7 +810,9 @@ class CampaignFactory:
             exception_queue_report=self.exception_queue_report,
             reel_factory_parent_metrics=self._reel_factory_parent_metrics,
             parent_factory_production_scorecard=self.parent_factory_production_scorecard,
-            build_surface_inventory=lambda *args, **kwargs: self._build_surface_inventory(*args, **kwargs),
+            build_surface_inventory=lambda *args, **kwargs: (
+                self._build_surface_inventory(*args, **kwargs)
+            ),
             surface_readiness_scorecard=self.surface_readiness_scorecard,
             certification_asset_for_surface=self._certification_asset_for_surface,
             latest_proof_run_for_asset=self._latest_proof_run_for_asset,
@@ -679,7 +841,9 @@ class CampaignFactory:
             autonomy_levels=AUTONOMY_LEVELS,
             default_autonomy_level=DEFAULT_AUTONOMY_LEVEL,
             recommendation_proof_summary=self._recommendation_proof_summary,
-            multi_blocker_inventory_unlock_report=lambda *args, **kwargs: self.multi_blocker_inventory_unlock_report(*args, **kwargs),
+            multi_blocker_inventory_unlock_report=lambda *args, **kwargs: (
+                self.multi_blocker_inventory_unlock_report(*args, **kwargs)
+            ),
             multi_blocker_repair_minutes=self.MULTI_BLOCKER_REPAIR_MINUTES,
             account_trust_states=ACCOUNT_TRUST_STATES,
             recommendation_eligibility_states=RECOMMENDATION_ELIGIBILITY_STATES,
@@ -839,11 +1003,19 @@ class CampaignFactory:
     def update_creative_plan_status(self, *, name: str, status: str) -> dict[str, Any]:
         return self.services.update_creative_plan_status(name=name, status=status)
 
-    def sync_creative_plan_progress(self, *, name: str, prompt_export_path: Path) -> dict[str, Any]:
-        return self.services.sync_creative_plan_progress(name=name, prompt_export_path=prompt_export_path)
+    def sync_creative_plan_progress(
+        self, *, name: str, prompt_export_path: Path
+    ) -> dict[str, Any]:
+        return self.services.sync_creative_plan_progress(
+            name=name, prompt_export_path=prompt_export_path
+        )
 
-    def creative_plan_for_campaign(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.services.creative_plan_for_campaign(campaign_slug, dashboard=dashboard)
+    def creative_plan_for_campaign(
+        self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        return self.services.creative_plan_for_campaign(
+            campaign_slug, dashboard=dashboard
+        )
 
     def _record_creative_plan_event(
         self,
@@ -864,7 +1036,9 @@ class CampaignFactory:
             commit=commit,
         )
 
-    def _creative_plan_payload(self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _creative_plan_payload(
+        self, row: dict[str, Any], *, dashboard: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.creative_plan_payload(row, dashboard=dashboard)
 
     def _source_prompt_creative_plan_id(self, source: dict[str, Any]) -> str | None:
@@ -876,25 +1050,40 @@ class CampaignFactory:
     def event_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.event_payload(row)
 
-    def events_for_campaign(self, campaign_slug: str, limit: int = 200) -> list[dict[str, Any]]:
+    def events_for_campaign(
+        self, campaign_slug: str, limit: int = 200
+    ) -> list[dict[str, Any]]:
         return self.services.events_for_campaign(campaign_slug, limit=limit)
 
-    def events_for_asset(self, rendered_asset_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    def events_for_asset(
+        self, rendered_asset_id: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         return self.services.events_for_asset(rendered_asset_id, limit=limit)
 
-    def create_pipeline_job(self, job_type: str, campaign_id: str | None, input_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_pipeline_job(
+        self,
+        job_type: str,
+        campaign_id: str | None,
+        input_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return self.services.create_pipeline_job(job_type, campaign_id, input_payload)
 
     def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
         return self.services.start_pipeline_job(job_id)
 
-    def finish_pipeline_job(self, job_id: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def finish_pipeline_job(
+        self, job_id: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.finish_pipeline_job(job_id, result_payload)
 
-    def fail_pipeline_job(self, job_id: str, error: str, result_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def fail_pipeline_job(
+        self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.fail_pipeline_job(job_id, error, result_payload)
 
-    def set_pipeline_job_campaign(self, job_id: str, campaign_id: str) -> dict[str, Any]:
+    def set_pipeline_job_campaign(
+        self, job_id: str, campaign_id: str
+    ) -> dict[str, Any]:
         return self.services.set_pipeline_job_campaign(job_id, campaign_id)
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
@@ -915,7 +1104,9 @@ class CampaignFactory:
     def rebuild_account_memory(self, campaign_slug: str) -> dict[str, Any]:
         return self.services.rebuild_account_memory(campaign_slug)
 
-    def account_memory(self, campaign_slug: str, account: str | None = None) -> dict[str, Any]:
+    def account_memory(
+        self, campaign_slug: str, account: str | None = None
+    ) -> dict[str, Any]:
         return self.services.account_memory_report(campaign_slug, account=account)
 
     def create_exception(
@@ -944,7 +1135,9 @@ class CampaignFactory:
     def exception(self, exception_id: str) -> dict[str, Any]:
         return self.services.exception(exception_id)
 
-    def exceptions(self, campaign_slug: str | None = None, *, status: str = "open") -> dict[str, Any]:
+    def exceptions(
+        self, campaign_slug: str | None = None, *, status: str = "open"
+    ) -> dict[str, Any]:
         return self.services.exceptions_report(campaign_slug, status=status)
 
     def trust_summary(self, campaign_slug: str) -> dict[str, Any]:
@@ -972,7 +1165,9 @@ class CampaignFactory:
         account: str | None = None,
         window_days: int = 30,
     ) -> dict[str, Any]:
-        return self.services.rebuild_recommendation_accuracy(campaign_slug, account=account, window_days=window_days)
+        return self.services.rebuild_recommendation_accuracy(
+            campaign_slug, account=account, window_days=window_days
+        )
 
     def _recommendation_proof_summary(self, campaign_id: str) -> dict[str, Any]:
         return self.services.recommendation_proof_summary(campaign_id)
@@ -984,10 +1179,16 @@ class CampaignFactory:
         account: str | None = None,
         commit: bool = True,
     ) -> list[dict[str, Any]]:
-        return self.services.rebuild_recommendation_accuracy_observations(campaign_id, account=account, commit=commit)
+        return self.services.rebuild_recommendation_accuracy_observations(
+            campaign_id, account=account, commit=commit
+        )
 
-    def _upsert_recommendation_accuracy_observation(self, row: dict[str, Any], *, commit: bool = False) -> dict[str, Any]:
-        return self.services.upsert_recommendation_accuracy_observation(row, commit=commit)
+    def _upsert_recommendation_accuracy_observation(
+        self, row: dict[str, Any], *, commit: bool = False
+    ) -> dict[str, Any]:
+        return self.services.upsert_recommendation_accuracy_observation(
+            row, commit=commit
+        )
 
     def _recommendation_accuracy_observations(
         self,
@@ -1039,7 +1240,9 @@ class CampaignFactory:
     def _accuracy_segment(self, observations: list[dict[str, Any]]) -> dict[str, Any]:
         return self.services.accuracy_segment(observations)
 
-    def _accuracy_grouped(self, observations: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    def _accuracy_grouped(
+        self, observations: list[dict[str, Any]], key: str
+    ) -> list[dict[str, Any]]:
         return self.services.accuracy_grouped(observations, key)
 
     def _recommendation_accuracy_drift(
@@ -1057,35 +1260,72 @@ class CampaignFactory:
             drop_threshold=drop_threshold,
         )
 
-    def _recommendation_trust_score(self, observations: list[dict[str, Any]], drift: list[dict[str, Any]]) -> int:
+    def _recommendation_trust_score(
+        self, observations: list[dict[str, Any]], drift: list[dict[str, Any]]
+    ) -> int:
         return self.services.recommendation_trust_score(observations, drift)
 
     def _recommendation_trust_confidence(self, measured_count: int) -> str:
         return self.services.recommendation_trust_confidence(measured_count)
 
-    def _recommendation_confidence_bucket(self, confidence: str, data_quality_level: str) -> str:
-        return self.services.recommendation_confidence_bucket(confidence, data_quality_level)
+    def _recommendation_confidence_bucket(
+        self, confidence: str, data_quality_level: str
+    ) -> str:
+        return self.services.recommendation_confidence_bucket(
+            confidence, data_quality_level
+        )
 
-    def _recommendation_audio_selection(self, recommendation_item_id: str) -> dict[str, Any]:
+    def _recommendation_audio_selection(
+        self, recommendation_item_id: str
+    ) -> dict[str, Any]:
         return self.services.recommendation_audio_selection(recommendation_item_id)
 
-    def _recommendation_audio_match_status(self, output: dict[str, Any], selection: dict[str, Any]) -> str:
+    def _recommendation_audio_match_status(
+        self, output: dict[str, Any], selection: dict[str, Any]
+    ) -> str:
         return self.services.recommendation_audio_match_status(output, selection)
 
-    def _recommendation_outcome_snapshot_ids(self, outcome: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
+    def _recommendation_outcome_snapshot_ids(
+        self, outcome: dict[str, Any], evidence: dict[str, Any]
+    ) -> list[str]:
         return self.services.recommendation_outcome_snapshot_ids(outcome, evidence)
 
     def _parse_datetime(self, value: Any) -> datetime | None:
         return self.services.parse_datetime(value)
 
-    def resolve_exception(self, exception_id: str, *, resolution: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self.services.resolve_exception(exception_id, resolution=resolution, operator=operator)
+    def resolve_exception(
+        self,
+        exception_id: str,
+        *,
+        resolution: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.services.resolve_exception(
+            exception_id, resolution=resolution, operator=operator
+        )
 
-    def snooze_exception(self, exception_id: str, *, until: str | None = None, reason: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self.services.snooze_exception(exception_id, until=until, reason=reason, operator=operator)
+    def snooze_exception(
+        self,
+        exception_id: str,
+        *,
+        until: str | None = None,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.services.snooze_exception(
+            exception_id, until=until, reason=reason, operator=operator
+        )
 
-    def reopen_exception(self, exception_id: str, *, reason: str | None = None, operator: str | None = None) -> dict[str, Any]:
-        return self.services.reopen_exception(exception_id, reason=reason, operator=operator)
+    def reopen_exception(
+        self,
+        exception_id: str,
+        *,
+        reason: str | None = None,
+        operator: str | None = None,
+    ) -> dict[str, Any]:
+        return self.services.reopen_exception(
+            exception_id, reason=reason, operator=operator
+        )
 
     def _update_exception_status(
         self,
@@ -1105,10 +1345,14 @@ class CampaignFactory:
     def _exception_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.exception_payload(row)
 
-    def jobs_for_campaign(self, campaign_slug: str, limit: int = 100) -> list[dict[str, Any]]:
+    def jobs_for_campaign(
+        self, campaign_slug: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         return self.services.jobs_for_campaign(campaign_slug, limit=limit)
 
-    def import_reference_bank(self, bank_path: Path, prompt_pack_path: Path | None = None) -> dict[str, Any]:
+    def import_reference_bank(
+        self, bank_path: Path, prompt_pack_path: Path | None = None
+    ) -> dict[str, Any]:
         return self.services.import_reference_bank(bank_path, prompt_pack_path)
 
     def import_audio_catalog(self, catalog_path: Path) -> dict[str, Any]:
@@ -1117,11 +1361,17 @@ class CampaignFactory:
     def import_audio_memory(self, catalog_path: Path) -> dict[str, Any]:
         return self.services.import_audio_memory(catalog_path)
 
-    def audio_catalog(self, platform: str | None = None, limit: int = 100) -> dict[str, Any]:
+    def audio_catalog(
+        self, platform: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
         return self.services.audio_catalog(platform=platform, limit=limit)
 
-    def audio_memory(self, platform: str | None = None, account: str | None = None, limit: int = 100) -> dict[str, Any]:
-        return self.services.audio_memory(platform=platform, account=account, limit=limit)
+    def audio_memory(
+        self, platform: str | None = None, account: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
+        return self.services.audio_memory(
+            platform=platform, account=account, limit=limit
+        )
 
     def recommend_audio(
         self,
@@ -1188,8 +1438,12 @@ class CampaignFactory:
             account_tags=account_tags,
         )
 
-    def _audio_decision_score(self, item: dict[str, Any], *, requested_platform: str) -> tuple[float, list[str], list[str]]:
-        return self.services.audio_decision_score(item, requested_platform=requested_platform)
+    def _audio_decision_score(
+        self, item: dict[str, Any], *, requested_platform: str
+    ) -> tuple[float, list[str], list[str]]:
+        return self.services.audio_decision_score(
+            item, requested_platform=requested_platform
+        )
 
     def _audio_decision_confidence(self, primary: dict[str, Any] | None) -> str:
         return self.services.audio_decision_confidence(primary)
@@ -1206,7 +1460,9 @@ class CampaignFactory:
     def _is_generic_audio_title(self, title: str, platform: str | None = None) -> bool:
         return self.services.is_generic_audio_title(title, platform)
 
-    def _reference_prompt_pack_by_cluster(self, prompt_pack_path: Path | None) -> dict[str, dict[str, Any]]:
+    def _reference_prompt_pack_by_cluster(
+        self, prompt_pack_path: Path | None
+    ) -> dict[str, dict[str, Any]]:
         return self.services.reference_prompt_pack_by_cluster(prompt_pack_path)
 
     def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
@@ -1225,7 +1481,9 @@ class CampaignFactory:
         campaign_id: str | None = None,
         account: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.audio_performance_summary(item, campaign_id=campaign_id, account=account)
+        return self.services.audio_performance_summary(
+            item, campaign_id=campaign_id, account=account
+        )
 
     def _audio_fatigue_summary(
         self,
@@ -1234,7 +1492,9 @@ class CampaignFactory:
         campaign_id: str | None = None,
         account: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.audio_fatigue_summary(item, campaign_id=campaign_id, account=account)
+        return self.services.audio_fatigue_summary(
+            item, campaign_id=campaign_id, account=account
+        )
 
     def _audio_key(self, item: dict[str, Any]) -> str:
         return self.services.audio_key(item)
@@ -1303,7 +1563,9 @@ class CampaignFactory:
         operator: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.select_audio_for_recommendation(recommendation_item_id, audio_id, operator=operator, notes=notes)
+        return self.services.select_audio_for_recommendation(
+            recommendation_item_id, audio_id, operator=operator, notes=notes
+        )
 
     def verify_audio_for_post(
         self,
@@ -1313,9 +1575,13 @@ class CampaignFactory:
         proof_note: str | None = None,
         operator: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.verify_audio_for_post(post_id, proof_url=proof_url, proof_note=proof_note, operator=operator)
+        return self.services.verify_audio_for_post(
+            post_id, proof_url=proof_url, proof_note=proof_note, operator=operator
+        )
 
-    def _audio_catalog_row(self, audio_id: str, *, allow_locator: bool = False) -> dict[str, Any]:
+    def _audio_catalog_row(
+        self, audio_id: str, *, allow_locator: bool = False
+    ) -> dict[str, Any]:
         return self.services.audio_catalog_row(audio_id, allow_locator=allow_locator)
 
     def _audio_selection_payload(self, selection_id: str) -> dict[str, Any]:
@@ -1342,16 +1608,28 @@ class CampaignFactory:
             campaign_id=campaign_id,
         )
 
-    def _resolve_audio_exception_for_recommendation(self, recommendation_item_id: str, *, operator: str | None, proof_url: str | None) -> None:
-        return self.services.resolve_audio_exception_for_recommendation(recommendation_item_id, operator=operator, proof_url=proof_url)
+    def _resolve_audio_exception_for_recommendation(
+        self,
+        recommendation_item_id: str,
+        *,
+        operator: str | None,
+        proof_url: str | None,
+    ) -> None:
+        return self.services.resolve_audio_exception_for_recommendation(
+            recommendation_item_id, operator=operator, proof_url=proof_url
+        )
 
-    def record_audio_performance_snapshot(self, snapshot: dict[str, Any], *, commit: bool = True) -> dict[str, Any] | None:
+    def record_audio_performance_snapshot(
+        self, snapshot: dict[str, Any], *, commit: bool = True
+    ) -> dict[str, Any] | None:
         return self.services.record_audio_performance_snapshot(snapshot, commit=commit)
 
     def _performance_snapshot_score(self, snapshot: dict[str, Any]) -> float:
         return self.services.performance_snapshot_score(snapshot)
 
-    def _score_audio_catalog_item(self, item: dict[str, Any], tags: set[str], accounts: set[str]) -> tuple[float, list[str]]:
+    def _score_audio_catalog_item(
+        self, item: dict[str, Any], tags: set[str], accounts: set[str]
+    ) -> tuple[float, list[str]]:
         return self.services.score_audio_catalog_item(item, tags, accounts)
 
     def _score_audio_catalog_item_v2(
@@ -1362,7 +1640,9 @@ class CampaignFactory:
         *,
         account: str | None = None,
     ) -> tuple[float, list[str], dict[str, float], str]:
-        return self.services.score_audio_catalog_item_v2(item, tags, accounts, account=account)
+        return self.services.score_audio_catalog_item_v2(
+            item, tags, accounts, account=account
+        )
 
     def _audio_trend_component(self, item: dict[str, Any]) -> float:
         return self.services.audio_trend_component(item)
@@ -1373,26 +1653,44 @@ class CampaignFactory:
     def _audio_performance_component(self, item: dict[str, Any]) -> float:
         return self.services.audio_performance_component(item)
 
-    def _audio_account_fit_component(self, item: dict[str, Any], accounts: set[str]) -> float:
+    def _audio_account_fit_component(
+        self, item: dict[str, Any], accounts: set[str]
+    ) -> float:
         return self.services.audio_account_fit_component(item, accounts)
 
-    def _audio_creator_fit_component(self, item: dict[str, Any], tags: set[str]) -> float:
+    def _audio_creator_fit_component(
+        self, item: dict[str, Any], tags: set[str]
+    ) -> float:
         return self.services.audio_creator_fit_component(item, tags)
 
     def _audio_fatigue_safety_component(self, item: dict[str, Any]) -> float:
         return self.services.audio_fatigue_safety_component(item)
 
-    def _audio_recommendation_confidence(self, item: dict[str, Any], components: dict[str, float]) -> str:
+    def _audio_recommendation_confidence(
+        self, item: dict[str, Any], components: dict[str, float]
+    ) -> str:
         return self.services.audio_recommendation_confidence(item, components)
 
-    def _latest_audio_trend_snapshot_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+    def _latest_audio_trend_snapshot_payload(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.latest_audio_trend_snapshot_payload(item)
 
-    def _audio_memory_trust_summary(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+    def _audio_memory_trust_summary(
+        self, items: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.audio_memory_trust_summary(items)
 
-    def _contentforge_audio_fit_for_item(self, item: dict[str, Any], tags: set[str], *, visual_signal: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.services.contentforge_audio_fit_for_item(item, tags, visual_signal=visual_signal)
+    def _contentforge_audio_fit_for_item(
+        self,
+        item: dict[str, Any],
+        tags: set[str],
+        *,
+        visual_signal: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        return self.services.contentforge_audio_fit_for_item(
+            item, tags, visual_signal=visual_signal
+        )
 
     def _audio_catalog_recommendation(self, item: dict[str, Any]) -> dict[str, Any]:
         return self.services.audio_catalog_recommendation(item)
@@ -1443,26 +1741,50 @@ class CampaignFactory:
             force_new=force_new,
         )
 
-    def active_reference_pattern_for_campaign(self, campaign_id: str) -> dict[str, Any] | None:
+    def active_reference_pattern_for_campaign(
+        self, campaign_id: str
+    ) -> dict[str, Any] | None:
         return self.services.active_reference_pattern_for_campaign(campaign_id)
 
-    def reference_hooks(self, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+    def reference_hooks(
+        self, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
         return self.services.reference_hooks(pattern, count=count)
 
     def _reference_hook_is_schedule_safe(self, text: str) -> bool:
         return self.services.reference_hook_is_schedule_safe(text)
 
-    def finished_video_hooks(self, format_type: str, pattern: dict[str, Any], count: int = 5) -> list[dict[str, Any]]:
+    def finished_video_hooks(
+        self, format_type: str, pattern: dict[str, Any], count: int = 5
+    ) -> list[dict[str, Any]]:
         return self.services.finished_video_hooks(format_type, pattern, count=count)
 
-    def upsert_model(self, slug: str, name: str | None = None, notes: str | None = None) -> dict[str, Any]:
+    def upsert_model(
+        self, slug: str, name: str | None = None, notes: str | None = None
+    ) -> dict[str, Any]:
         return self.services.upsert_model(slug, name=name, notes=notes)
 
-    def upsert_campaign(self, slug: str, model_slug: str, name: str | None = None, platform: str = "instagram") -> dict[str, Any]:
-        return self.services.upsert_campaign(slug, model_slug, name=name, platform=platform)
+    def upsert_campaign(
+        self,
+        slug: str,
+        model_slug: str,
+        name: str | None = None,
+        platform: str = "instagram",
+    ) -> dict[str, Any]:
+        return self.services.upsert_campaign(
+            slug, model_slug, name=name, platform=platform
+        )
 
-    def upsert_account(self, handle: str, platform: str = "instagram", external_id: str | None = None, model_id: str | None = None) -> dict[str, Any]:
-        return self.services.upsert_account(handle, platform=platform, external_id=external_id, model_id=model_id)
+    def upsert_account(
+        self,
+        handle: str,
+        platform: str = "instagram",
+        external_id: str | None = None,
+        model_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.services.upsert_account(
+            handle, platform=platform, external_id=external_id, model_id=model_id
+        )
 
     def upsert_model_account_profile(
         self,
@@ -1557,10 +1879,14 @@ class CampaignFactory:
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
         return self.services.distribution_plan(plan_id)
 
-    def distribution_plans_for_asset(self, rendered_asset_id: str) -> list[dict[str, Any]]:
+    def distribution_plans_for_asset(
+        self, rendered_asset_id: str
+    ) -> list[dict[str, Any]]:
         return self.services.distribution_plans_for_asset(rendered_asset_id)
 
-    def distribution_plans_for_campaign(self, campaign_slug: str) -> list[dict[str, Any]]:
+    def distribution_plans_for_campaign(
+        self, campaign_slug: str
+    ) -> list[dict[str, Any]]:
         return self.services.distribution_plans_for_campaign(campaign_slug)
 
     def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
@@ -1866,7 +2192,9 @@ class CampaignFactory:
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.creator_surface_summary(creator=creator, date=date, generated_at=generated_at)
+        return self.services.creator_surface_summary(
+            creator=creator, date=date, generated_at=generated_at
+        )
 
     def account_surface_summary(
         self,
@@ -1890,7 +2218,9 @@ class CampaignFactory:
         date: str | None = None,
         generated_at: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.creator_surface_gap_report(creator=creator, date=date, generated_at=generated_at)
+        return self.services.creator_surface_gap_report(
+            creator=creator, date=date, generated_at=generated_at
+        )
 
     def story_inventory_report(
         self,
@@ -1898,7 +2228,9 @@ class CampaignFactory:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.story_inventory_report(creator=creator, campaign_slug=campaign_slug)
+        return self.services.story_inventory_report(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def story_intent_report(
         self,
@@ -1906,7 +2238,9 @@ class CampaignFactory:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.story_intent_report(creator=creator, campaign_slug=campaign_slug)
+        return self.services.story_intent_report(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def story_mix_plan(self, *, creator: str) -> dict[str, Any]:
         return self.services.story_mix_plan(creator=creator)
@@ -1914,8 +2248,12 @@ class CampaignFactory:
     def story_calendar_plan(self, *, creator: str) -> dict[str, Any]:
         return self.services.story_calendar_plan(creator=creator)
 
-    def story_intent_summary(self, *, creator: str, campaign_slug: str | None = None) -> dict[str, Any]:
-        return self.services.story_intent_summary(creator=creator, campaign_slug=campaign_slug)
+    def story_intent_summary(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> dict[str, Any]:
+        return self.services.story_intent_summary(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _story_metadata_payload(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.services.story_metadata_payload(asset)
@@ -1941,7 +2279,9 @@ class CampaignFactory:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.story_quality_report(creator=creator, campaign_slug=campaign_slug)
+        return self.services.story_quality_report(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _story_quality_gate_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.services.story_quality_gate_for_asset(asset)
@@ -1952,19 +2292,37 @@ class CampaignFactory:
     def _bounded_score(self, value: Any, *, default: int) -> int:
         return self.services.bounded_score(value, default=default)
 
-    def _story_black_bar_check(self, media_path: Path, *, media_type: str) -> dict[str, Any]:
+    def _story_black_bar_check(
+        self, media_path: Path, *, media_type: str
+    ) -> dict[str, Any]:
         return self.services.story_black_bar_check(media_path, media_type=media_type)
 
-    def _story_no_text_check(self, media_path: Path, *, media_type: str, quality: dict[str, Any]) -> dict[str, Any]:
-        return self.services.story_no_text_check(media_path, media_type=media_type, quality=quality)
+    def _story_no_text_check(
+        self, media_path: Path, *, media_type: str, quality: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.services.story_no_text_check(
+            media_path, media_type=media_type, quality=quality
+        )
 
-    def _story_ocr_frame_paths(self, media_path: Path, *, media_type: str) -> list[Path]:
+    def _story_ocr_frame_paths(
+        self, media_path: Path, *, media_type: str
+    ) -> list[Path]:
         return self.services.story_ocr_frame_paths(media_path, media_type=media_type)
 
-    def _story_ocr_detect_text(self, image_path: Path, *, frame_index: int) -> list[dict[str, Any]]:
+    def _story_ocr_detect_text(
+        self, image_path: Path, *, frame_index: int
+    ) -> list[dict[str, Any]]:
         return self.services.story_ocr_detect_text(image_path, frame_index=frame_index)
 
-    def _pixel_region_black(self, rows: list[list[tuple[int, int, int]]], *, x0: int, x1: int, y0: int, y1: int) -> bool:
+    def _pixel_region_black(
+        self,
+        rows: list[list[tuple[int, int, int]]],
+        *,
+        x0: int,
+        x1: int,
+        y0: int,
+        y1: int,
+    ) -> bool:
         return self.services.pixel_region_black(rows, x0=x0, x1=x1, y0=y0, y1=y1)
 
     def story_gap_report(
@@ -1982,7 +2340,9 @@ class CampaignFactory:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        return self.services.account_story_status(account_id=account_id, creator=creator, date=date)
+        return self.services.account_story_status(
+            account_id=account_id, creator=creator, date=date
+        )
 
     def creator_story_summary(
         self,
@@ -2196,7 +2556,9 @@ class CampaignFactory:
         creator: str | None = None,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.inventory_yield_analysis(creator=creator, campaign_slug=campaign_slug)
+        return self.services.inventory_yield_analysis(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def inventory_buffer_policy_plan(
         self,
@@ -2339,9 +2701,13 @@ class CampaignFactory:
     def schedule_safe_production_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.services.schedule_safe_production_master_report(**kwargs)
 
-    FRESH_REEL_PARENT_YIELD_EVIDENCE = FreshReelProductionRepository.FRESH_REEL_PARENT_YIELD_EVIDENCE
+    FRESH_REEL_PARENT_YIELD_EVIDENCE = (
+        FreshReelProductionRepository.FRESH_REEL_PARENT_YIELD_EVIDENCE
+    )
     FRESH_REEL_STAGE_YIELDS = FreshReelProductionRepository.FRESH_REEL_STAGE_YIELDS
-    FRESH_REEL_GATES_TO_VERIFY = FreshReelProductionRepository.FRESH_REEL_GATES_TO_VERIFY
+    FRESH_REEL_GATES_TO_VERIFY = (
+        FreshReelProductionRepository.FRESH_REEL_GATES_TO_VERIFY
+    )
 
     def fresh_schedule_safe_production_plan(
         self,
@@ -2373,9 +2739,15 @@ class CampaignFactory:
     def fresh_reel_production_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.services.fresh_reel_production_master_report(**kwargs)
 
-    CONTENTFORGE_VISUAL_QC_CATEGORIES = ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_CATEGORIES
-    CONTENTFORGE_VISUAL_QC_MINUTES = ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_MINUTES
-    CONTENTFORGE_VISUAL_QC_REPAIRABLE = ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_REPAIRABLE
+    CONTENTFORGE_VISUAL_QC_CATEGORIES = (
+        ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_CATEGORIES
+    )
+    CONTENTFORGE_VISUAL_QC_MINUTES = (
+        ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_MINUTES
+    )
+    CONTENTFORGE_VISUAL_QC_REPAIRABLE = (
+        ContentForgeVisualQCRepository.CONTENTFORGE_VISUAL_QC_REPAIRABLE
+    )
 
     def contentforge_visual_qc_failure_report(
         self,
@@ -2408,9 +2780,15 @@ class CampaignFactory:
     def contentforge_visual_qc_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.services.contentforge_visual_qc_master_report(**kwargs)
 
-    MULTI_BLOCKER_REPAIR_CLASSES = MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_CLASSES
-    MULTI_BLOCKER_REPAIR_MINUTES = MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_MINUTES
-    MULTI_BLOCKER_REPAIR_DIFFICULTY = MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_DIFFICULTY
+    MULTI_BLOCKER_REPAIR_CLASSES = (
+        MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_CLASSES
+    )
+    MULTI_BLOCKER_REPAIR_MINUTES = (
+        MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_MINUTES
+    )
+    MULTI_BLOCKER_REPAIR_DIFFICULTY = (
+        MultiBlockerUnlockRepository.MULTI_BLOCKER_REPAIR_DIFFICULTY
+    )
 
     def multi_blocker_inventory_unlock_report(
         self,
@@ -2487,13 +2865,17 @@ class CampaignFactory:
     def operator_review_efficiency_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.services.operator_review_efficiency_report(**kwargs)
 
-    def operator_review_minimum_certification_path(self, **kwargs: Any) -> dict[str, Any]:
+    def operator_review_minimum_certification_path(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
         return self.services.operator_review_minimum_certification_path(**kwargs)
 
     def operator_review_master_report(self, **kwargs: Any) -> dict[str, Any]:
         return self.services.operator_review_master_report(**kwargs)
 
-    def _operator_review_execution_order(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _operator_review_execution_order(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.operator_review_execution_order(rows)
 
     def _operator_review_batch_priority(self, repair_classes: list[str]) -> int:
@@ -2530,13 +2912,19 @@ class CampaignFactory:
             required_inventory=required_inventory,
         )
 
-    def _operator_review_highest_roi_batch_type(self, rows: list[dict[str, Any]]) -> str:
+    def _operator_review_highest_roi_batch_type(
+        self, rows: list[dict[str, Any]]
+    ) -> str:
         return self.services.operator_review_highest_roi_batch_type(rows)
 
-    def _operator_review_lowest_risk_batch_type(self, rows: list[dict[str, Any]]) -> str:
+    def _operator_review_lowest_risk_batch_type(
+        self, rows: list[dict[str, Any]]
+    ) -> str:
         return self.services.operator_review_lowest_risk_batch_type(rows)
 
-    def _operator_review_batch_order_labels(self, rows: list[dict[str, Any]]) -> list[str]:
+    def _operator_review_batch_order_labels(
+        self, rows: list[dict[str, Any]]
+    ) -> list[str]:
         return self.services.operator_review_batch_order_labels(rows)
 
     def _operator_review_candidate_eligible(self, asset: dict[str, Any]) -> bool:
@@ -2567,16 +2955,26 @@ class CampaignFactory:
             required_inventory=required_inventory,
         )
 
-    def _multi_blocker_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
-        return self.services.multi_blocker_assets_unlocked(blocked_assets, repair_classes)
+    def _multi_blocker_assets_unlocked(
+        self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]
+    ) -> int:
+        return self.services.multi_blocker_assets_unlocked(
+            blocked_assets, repair_classes
+        )
 
-    def _multi_blocker_estimated_minutes(self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]) -> int:
-        return self.services.multi_blocker_estimated_minutes(blocked_assets, repair_classes)
+    def _multi_blocker_estimated_minutes(
+        self, blocked_assets: list[dict[str, Any]], repair_classes: list[str]
+    ) -> int:
+        return self.services.multi_blocker_estimated_minutes(
+            blocked_assets, repair_classes
+        )
 
     def _multi_blocker_combo_difficulty(self, repair_classes: list[str]) -> str:
         return self.services.multi_blocker_combo_difficulty(repair_classes)
 
-    def _multi_blocker_best_combo(self, combo_rows: list[dict[str, Any]], size: int) -> dict[str, Any]:
+    def _multi_blocker_best_combo(
+        self, combo_rows: list[dict[str, Any]], size: int
+    ) -> dict[str, Any]:
         return self.services.multi_blocker_best_combo(combo_rows, size)
 
     def _multi_blocker_minimal_fix_set(
@@ -2592,7 +2990,9 @@ class CampaignFactory:
             required_inventory=required_inventory,
         )
 
-    def _contentforge_visual_qc_failure_for_asset(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+    def _contentforge_visual_qc_failure_for_asset(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
         return self.services.contentforge_visual_qc_failure_for_asset(asset, surface)
 
     def _contentforge_visual_qc_failure_category(
@@ -2602,7 +3002,9 @@ class CampaignFactory:
         readiness: dict[str, Any],
         publishability: dict[str, Any],
     ) -> str:
-        return self.services.contentforge_visual_qc_failure_category(asset, blockers, readiness, publishability)
+        return self.services.contentforge_visual_qc_failure_category(
+            asset, blockers, readiness, publishability
+        )
 
     def _contentforge_non_visual_gates_pass(
         self,
@@ -2618,13 +3020,21 @@ class CampaignFactory:
             non_visual_blockers,
         )
 
-    def _contentforge_visual_qc_category_rows(self, failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _contentforge_visual_qc_category_rows(
+        self, failures: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.contentforge_visual_qc_category_rows(failures)
 
-    def _contentforge_visual_qc_recovered_inventory(self, failures: list[dict[str, Any]], categories: list[str]) -> int:
-        return self.services.contentforge_visual_qc_recovered_inventory(failures, categories)
+    def _contentforge_visual_qc_recovered_inventory(
+        self, failures: list[dict[str, Any]], categories: list[str]
+    ) -> int:
+        return self.services.contentforge_visual_qc_recovered_inventory(
+            failures, categories
+        )
 
-    def _contentforge_visual_qc_answer(self, top: dict[str, Any], total_failures: int) -> str:
+    def _contentforge_visual_qc_answer(
+        self, top: dict[str, Any], total_failures: int
+    ) -> str:
         return self.services.contentforge_visual_qc_answer(top, total_failures)
 
     def _schedule_safe_production_assets(
@@ -2645,19 +3055,27 @@ class CampaignFactory:
     def _schedule_safe_asset_created_at(self, asset: dict[str, Any]) -> datetime:
         return self.services.schedule_safe_asset_created_at(asset)
 
-    def _schedule_safe_production_waterfall_rows(self, assets: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:
+    def _schedule_safe_production_waterfall_rows(
+        self, assets: list[dict[str, Any]], surface: str
+    ) -> list[dict[str, Any]]:
         return self.services.schedule_safe_production_waterfall_rows(assets, surface)
 
     def _schedule_safe_is_variant_asset(self, asset: dict[str, Any]) -> bool:
         return self.services.schedule_safe_is_variant_asset(asset)
 
-    def _schedule_safe_related_count(self, table: str, column: str, asset_ids: set[str]) -> int:
+    def _schedule_safe_related_count(
+        self, table: str, column: str, asset_ids: set[str]
+    ) -> int:
         return self.services.schedule_safe_related_count(table, column, asset_ids)
 
-    def _schedule_safe_production_variant_checks(self, asset: dict[str, Any], surface: str) -> dict[str, Any]:
+    def _schedule_safe_production_variant_checks(
+        self, asset: dict[str, Any], surface: str
+    ) -> dict[str, Any]:
         return self.services.schedule_safe_production_variant_checks(asset, surface)
 
-    def _schedule_safe_production_largest_loss(self, waterfall: list[dict[str, Any]]) -> dict[str, Any]:
+    def _schedule_safe_production_largest_loss(
+        self, waterfall: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.schedule_safe_production_largest_loss(waterfall)
 
     def _schedule_safe_production_capacity(
@@ -2673,11 +3091,19 @@ class CampaignFactory:
             required_for_25=required_for_25,
         )
 
-    def _schedule_safe_required_parents_per_day(self, produced_per_day: float, produced: int, parent_count: int) -> int:
-        return self.services.schedule_safe_required_parents_per_day(produced_per_day, produced, parent_count)
+    def _schedule_safe_required_parents_per_day(
+        self, produced_per_day: float, produced: int, parent_count: int
+    ) -> int:
+        return self.services.schedule_safe_required_parents_per_day(
+            produced_per_day, produced, parent_count
+        )
 
-    def _schedule_safe_required_variants_per_day(self, produced_per_day: float, produced: int, variant_count: int) -> int:
-        return self.services.schedule_safe_required_variants_per_day(produced_per_day, produced, variant_count)
+    def _schedule_safe_required_variants_per_day(
+        self, produced_per_day: float, produced: int, variant_count: int
+    ) -> int:
+        return self.services.schedule_safe_required_variants_per_day(
+            produced_per_day, produced, variant_count
+        )
 
     def _schedule_safe_production_summary_key(self, stage: str) -> str:
         return self.services.schedule_safe_production_summary_key(stage)
@@ -2731,19 +3157,29 @@ class CampaignFactory:
             batch_target=batch_target,
         )
 
-    def _inventory_recovery_blocked_asset(self, readiness: dict[str, Any]) -> dict[str, Any]:
+    def _inventory_recovery_blocked_asset(
+        self, readiness: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.inventory_recovery_blocked_asset(readiness)
 
     def _inventory_recovery_class_for_blocker(self, reason: str) -> str:
         return self.services.inventory_recovery_class_for_blocker(reason)
 
-    def _inventory_recovery_class_rows(self, blocked_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _inventory_recovery_class_rows(
+        self, blocked_assets: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.inventory_recovery_class_rows(blocked_assets)
 
-    def _inventory_recovery_assets_unlocked(self, blocked_assets: list[dict[str, Any]], repaired_classes: list[str]) -> int:
-        return self.services.inventory_recovery_assets_unlocked(blocked_assets, repaired_classes)
+    def _inventory_recovery_assets_unlocked(
+        self, blocked_assets: list[dict[str, Any]], repaired_classes: list[str]
+    ) -> int:
+        return self.services.inventory_recovery_assets_unlocked(
+            blocked_assets, repaired_classes
+        )
 
-    def _inventory_recovery_priorities(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _inventory_recovery_priorities(
+        self, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.inventory_recovery_priorities(rows)
 
     def inventory_factory_readiness_report(
@@ -2787,14 +3223,20 @@ class CampaignFactory:
             lookback_days=lookback_days,
         )
 
-    def reel_factory_yield_analysis(self, *, metrics: dict[str, int] | None = None) -> dict[str, Any]:
+    def reel_factory_yield_analysis(
+        self, *, metrics: dict[str, int] | None = None
+    ) -> dict[str, Any]:
         return self.services.reel_factory_yield_analysis(metrics=metrics)
 
     def reel_factory_failure_analysis(self) -> dict[str, Any]:
         return self.services.reel_factory_failure_analysis()
 
-    def reel_factory_capacity_model(self, *, required_parents_per_day: int = 53) -> dict[str, Any]:
-        return self.services.reel_factory_capacity_model(required_parents_per_day=required_parents_per_day)
+    def reel_factory_capacity_model(
+        self, *, required_parents_per_day: int = 53
+    ) -> dict[str, Any]:
+        return self.services.reel_factory_capacity_model(
+            required_parents_per_day=required_parents_per_day
+        )
 
     def reel_factory_200_account_readiness(self) -> dict[str, Any]:
         return self.services.reel_factory_200_account_readiness()
@@ -2802,34 +3244,60 @@ class CampaignFactory:
     def reel_factory_master_report(self) -> dict[str, Any]:
         return self.services.reel_factory_master_report()
 
-    def parent_factory_yield_waterfall(self, *, required_parents_per_day: int = 53) -> dict[str, Any]:
-        return self.services.parent_factory_yield_waterfall(required_parents_per_day=required_parents_per_day)
+    def parent_factory_yield_waterfall(
+        self, *, required_parents_per_day: int = 53
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_yield_waterfall(
+            required_parents_per_day=required_parents_per_day
+        )
 
-    def parent_factory_loss_analysis(self, *, required_parents_per_day: int = 53) -> dict[str, Any]:
-        return self.services.parent_factory_loss_analysis(required_parents_per_day=required_parents_per_day)
+    def parent_factory_loss_analysis(
+        self, *, required_parents_per_day: int = 53
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_loss_analysis(
+            required_parents_per_day=required_parents_per_day
+        )
 
-    def parent_factory_rejection_report(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
+    def parent_factory_rejection_report(
+        self, *, waterfall: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.parent_factory_rejection_report(waterfall=waterfall)
 
-    def parent_factory_discoverability_loss_analysis(self, *, waterfall: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.services.parent_factory_discoverability_loss_analysis(waterfall=waterfall)
+    def parent_factory_discoverability_loss_analysis(
+        self, *, waterfall: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_discoverability_loss_analysis(
+            waterfall=waterfall
+        )
 
     def parent_factory_quality_gate_analysis(self) -> dict[str, Any]:
         return self.services.parent_factory_quality_gate_analysis()
 
-    def parent_factory_optimization_plan(self, *, required_parents_per_day: int = 53) -> dict[str, Any]:
-        return self.services.parent_factory_optimization_plan(required_parents_per_day=required_parents_per_day)
+    def parent_factory_optimization_plan(
+        self, *, required_parents_per_day: int = 53
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_optimization_plan(
+            required_parents_per_day=required_parents_per_day
+        )
 
-    def parent_factory_master_optimization_report(self, *, required_parents_per_day: int = 53) -> dict[str, Any]:
-        return self.services.parent_factory_master_optimization_report(required_parents_per_day=required_parents_per_day)
+    def parent_factory_master_optimization_report(
+        self, *, required_parents_per_day: int = 53
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_master_optimization_report(
+            required_parents_per_day=required_parents_per_day
+        )
 
     def discoverability_intake_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.services.discoverability_intake_gate(payload)
 
-    def discoverability_generation_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def discoverability_generation_gate(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.discoverability_generation_gate(payload)
 
-    def discoverability_pre_render_gate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def discoverability_pre_render_gate(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.discoverability_pre_render_gate(payload)
 
     def discoverability_violation_origin_map(self) -> dict[str, Any]:
@@ -2966,7 +3434,9 @@ class CampaignFactory:
             override_reason=override_reason,
         )
 
-    def _expire_inventory_reservations(self, *, now: str | None = None, commit: bool = True) -> int:
+    def _expire_inventory_reservations(
+        self, *, now: str | None = None, commit: bool = True
+    ) -> int:
         return self.services.expire_inventory_reservations(now=now, commit=commit)
 
     def release_inventory_reservation(
@@ -2975,15 +3445,25 @@ class CampaignFactory:
         *,
         status: str = "released",
     ) -> dict[str, Any]:
-        return self.services.release_inventory_reservation(reservation_id, status=status)
+        return self.services.release_inventory_reservation(
+            reservation_id, status=status
+        )
 
-    def _asset_uniqueness_values(self, asset: dict[str, Any], *, metadata: dict[str, Any] | None = None) -> dict[str, str]:
+    def _asset_uniqueness_values(
+        self, asset: dict[str, Any], *, metadata: dict[str, Any] | None = None
+    ) -> dict[str, str]:
         return self.services.asset_uniqueness_values(asset, metadata=metadata)
 
-    def ensure_rendered_asset_perceptual_metadata(self, rendered_asset_id: str, *, commit: bool = True) -> dict[str, Any]:
-        return self.services.ensure_rendered_asset_perceptual_metadata(rendered_asset_id, commit=commit)
+    def ensure_rendered_asset_perceptual_metadata(
+        self, rendered_asset_id: str, *, commit: bool = True
+    ) -> dict[str, Any]:
+        return self.services.ensure_rendered_asset_perceptual_metadata(
+            rendered_asset_id, commit=commit
+        )
 
-    def _pdq_cluster_id_for_fingerprint(self, *, campaign_id: str, rendered_asset_id: str, fingerprint: str) -> str:
+    def _pdq_cluster_id_for_fingerprint(
+        self, *, campaign_id: str, rendered_asset_id: str, fingerprint: str
+    ) -> str:
         return self.services.pdq_cluster_id_for_fingerprint(
             campaign_id=campaign_id,
             rendered_asset_id=rendered_asset_id,
@@ -3013,7 +3493,9 @@ class CampaignFactory:
         *,
         content_surface: str | None = None,
     ) -> dict[str, int]:
-        return self.services.reservation_adjusted_inventory(readiness_rows, content_surface=content_surface)
+        return self.services.reservation_adjusted_inventory(
+            readiness_rows, content_surface=content_surface
+        )
 
     def creator_os_live_account_acceptance(
         self,
@@ -3071,7 +3553,9 @@ class CampaignFactory:
     def _live_acceptance_restricted_scheduled(self, report: dict[str, Any]) -> int:
         return self.services.live_acceptance_restricted_scheduled(report)
 
-    def _live_acceptance_surface_contract_violations(self, report: dict[str, Any]) -> int:
+    def _live_acceptance_surface_contract_violations(
+        self, report: dict[str, Any]
+    ) -> int:
         return self.services.live_acceptance_surface_contract_violations(report)
 
     def _live_acceptance_metrics_imported(self) -> bool:
@@ -3110,19 +3594,35 @@ class CampaignFactory:
     def discoverability_prevention_scorecard(self) -> dict[str, Any]:
         return self.services.discoverability_prevention_scorecard()
 
-    def story_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
-        return self.services.story_certification_proof(rendered_asset_id=rendered_asset_id)
+    def story_certification_proof(
+        self, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any]:
+        return self.services.story_certification_proof(
+            rendered_asset_id=rendered_asset_id
+        )
 
-    def carousel_certification_proof(self, *, rendered_asset_id: str | None = None) -> dict[str, Any]:
-        return self.services.carousel_certification_proof(rendered_asset_id=rendered_asset_id)
+    def carousel_certification_proof(
+        self, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any]:
+        return self.services.carousel_certification_proof(
+            rendered_asset_id=rendered_asset_id
+        )
 
-    def _certification_asset_for_surface(self, surface: str, *, rendered_asset_id: str | None = None) -> dict[str, Any] | None:
-        return self.services.certification_asset_for_surface(surface, rendered_asset_id=rendered_asset_id)
+    def _certification_asset_for_surface(
+        self, surface: str, *, rendered_asset_id: str | None = None
+    ) -> dict[str, Any] | None:
+        return self.services.certification_asset_for_surface(
+            surface, rendered_asset_id=rendered_asset_id
+        )
 
-    def _latest_proof_run_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def _latest_proof_run_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.services.latest_proof_run_for_asset(rendered_asset_id)
 
-    def _latest_surface_metric_for_asset(self, rendered_asset_id: str, surface: str) -> dict[str, Any] | None:
+    def _latest_surface_metric_for_asset(
+        self, rendered_asset_id: str, surface: str
+    ) -> dict[str, Any] | None:
         return self.services.latest_surface_metric_for_asset(rendered_asset_id, surface)
 
     def _empty_surface_certification_audit(self, surface: str) -> dict[str, Any]:
@@ -3189,10 +3689,16 @@ class CampaignFactory:
     def _inventory_health(self, *, current: int, minimum: int) -> str:
         return self.services.inventory_health(current=current, minimum=minimum)
 
-    def _inventory_stage_counts(self, *, creator: str | None = None, campaign_slug: str | None = None) -> dict[str, int]:
-        return self.services.inventory_stage_counts(creator=creator, campaign_slug=campaign_slug)
+    def _inventory_stage_counts(
+        self, *, creator: str | None = None, campaign_slug: str | None = None
+    ) -> dict[str, int]:
+        return self.services.inventory_stage_counts(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
-    def _inventory_count_related(self, table: str, column: str, asset_ids: set[str]) -> int:
+    def _inventory_count_related(
+        self, table: str, column: str, asset_ids: set[str]
+    ) -> int:
         return self.services.inventory_count_related(table, column, asset_ids)
 
     def _inventory_limiting_stage(self, counts: dict[str, int]) -> str:
@@ -3207,8 +3713,12 @@ class CampaignFactory:
     def _score_fraction(self, numerator: Any, denominator: Any) -> float:
         return self.services.score_fraction(numerator, denominator)
 
-    def _road_to_accounts_payload(self, *, accounts: int, production: dict[str, Any]) -> dict[str, Any]:
-        return self.services.road_to_accounts_payload(accounts=accounts, production=production)
+    def _road_to_accounts_payload(
+        self, *, accounts: int, production: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.services.road_to_accounts_payload(
+            accounts=accounts, production=production
+        )
 
     def _reel_factory_parent_metrics(self) -> dict[str, int]:
         return self.services.reel_factory_parent_metrics()
@@ -3225,13 +3735,19 @@ class CampaignFactory:
     def _reel_factory_intake_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
         return self.services.reel_factory_intake_metrics(metrics)
 
-    def _reel_factory_parent_creation_metrics(self, metrics: dict[str, int]) -> dict[str, Any]:
+    def _reel_factory_parent_creation_metrics(
+        self, metrics: dict[str, int]
+    ) -> dict[str, Any]:
         return self.services.reel_factory_parent_creation_metrics(metrics)
 
-    def _reel_factory_quality_gate_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
+    def _reel_factory_quality_gate_metrics(
+        self, yield_report: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.reel_factory_quality_gate_metrics(yield_report)
 
-    def _reel_factory_operational_readiness_metrics(self, yield_report: dict[str, Any]) -> dict[str, Any]:
+    def _reel_factory_operational_readiness_metrics(
+        self, yield_report: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.reel_factory_operational_readiness_metrics(yield_report)
 
     def _reel_factory_human_cost(self, metrics: dict[str, int]) -> dict[str, Any]:
@@ -3243,13 +3759,17 @@ class CampaignFactory:
     def _parent_factory_stage_order(self) -> list[str]:
         return self.services.parent_factory_stage_order()
 
-    def _parent_factory_detailed_stage_counts(self, metrics: dict[str, int]) -> dict[str, int]:
+    def _parent_factory_detailed_stage_counts(
+        self, metrics: dict[str, int]
+    ) -> dict[str, int]:
         return self.services.parent_factory_detailed_stage_counts(metrics)
 
     def _parent_factory_highest_roi(self, reasons: list[dict[str, Any]]) -> str:
         return self.services.parent_factory_highest_roi(reasons)
 
-    def _parent_factory_top_fixes(self, reasons: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _parent_factory_top_fixes(
+        self, reasons: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.parent_factory_top_fixes(reasons)
 
     def _parent_factory_observed_discoverability_terms(self) -> list[dict[str, str]]:
@@ -3267,16 +3787,26 @@ class CampaignFactory:
     def _discoverability_prevention_stage(self, category: str) -> str:
         return self.services.discoverability_prevention_stage(category)
 
-    def _parent_factory_human_bottleneck(self, *, required: int, rejection: dict[str, Any]) -> dict[str, Any]:
-        return self.services.parent_factory_human_bottleneck(required=required, rejection=rejection)
+    def _parent_factory_human_bottleneck(
+        self, *, required: int, rejection: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.services.parent_factory_human_bottleneck(
+            required=required, rejection=rejection
+        )
 
-    def _parent_factory_yield_explanation(self, waterfall: dict[str, Any], loss: dict[str, Any]) -> str:
+    def _parent_factory_yield_explanation(
+        self, waterfall: dict[str, Any], loss: dict[str, Any]
+    ) -> str:
         return self.services.parent_factory_yield_explanation(waterfall, loss)
 
-    def _discoverability_gate_fields(self, payload: dict[str, Any], allowed_fields: set[str]) -> list[tuple[str, str]]:
+    def _discoverability_gate_fields(
+        self, payload: dict[str, Any], allowed_fields: set[str]
+    ) -> list[tuple[str, str]]:
         return self.services.discoverability_gate_fields(payload, allowed_fields)
 
-    def _discoverability_gate_result(self, gate: str, fields: list[tuple[str, str]]) -> dict[str, Any]:
+    def _discoverability_gate_result(
+        self, gate: str, fields: list[tuple[str, str]]
+    ) -> dict[str, Any]:
         return self.services.discoverability_gate_result(gate, fields)
 
     def _discoverability_origin_stage(self, source_field: str, reason: str) -> str:
@@ -3285,13 +3815,17 @@ class CampaignFactory:
     def _post_discoverability_downstream_confidence(self) -> dict[str, Any]:
         return self.services.post_discoverability_downstream_confidence()
 
-    def _wilson_lower_bound(self, *, successes: int, trials: int, z: float = 1.96) -> float:
+    def _wilson_lower_bound(
+        self, *, successes: int, trials: int, z: float = 1.96
+    ) -> float:
         return self.services.wilson_lower_bound(successes=successes, trials=trials, z=z)
 
     def _secondary_loss_reason(self, stage: str, loss_count: int) -> str:
         return self.services.secondary_loss_reason(stage, loss_count)
 
-    def _parent_factory_trial_loss_buckets(self, waterfall: dict[str, Any]) -> dict[str, int]:
+    def _parent_factory_trial_loss_buckets(
+        self, waterfall: dict[str, Any]
+    ) -> dict[str, int]:
         return self.services.parent_factory_trial_loss_buckets(waterfall)
 
     def _parent_factory_trial_stage_repairable(self, stage: str) -> bool:
@@ -3300,7 +3834,9 @@ class CampaignFactory:
     def _post_gate_fresh_batch_candidates(self) -> list[dict[str, str]]:
         return self.services.post_gate_fresh_batch_candidates()
 
-    def _post_gate_blocked_candidate_evidence(self, sandbox: CampaignFactory, result: dict[str, Any]) -> dict[str, Any] | None:
+    def _post_gate_blocked_candidate_evidence(
+        self, sandbox: CampaignFactory, result: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.post_gate_blocked_candidate_evidence(sandbox, result)
 
     def _exception_queue_item(
@@ -3339,7 +3875,9 @@ class CampaignFactory:
     def _exception_repairable(self, reason: str) -> bool:
         return self.services.exception_repairable(reason)
 
-    def _exception_resolution_minutes(self, reason: str, *, count: int | None = None) -> int:
+    def _exception_resolution_minutes(
+        self, reason: str, *, count: int | None = None
+    ) -> int:
         return self.services.exception_resolution_minutes(reason, count=count)
 
     def _inventory_repair_actions(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3371,17 +3909,31 @@ class CampaignFactory:
     def _largest_project_files(self) -> list[dict[str, Any]]:
         return self.services.largest_project_files()
 
-    def decision_ledger_by_creator(self, *, creator: str, **kwargs: Any) -> dict[str, Any]:
+    def decision_ledger_by_creator(
+        self, *, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
         return self.services.decision_ledger_by_creator(creator=creator, **kwargs)
 
-    def decision_ledger_by_account(self, *, account_id: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.services.decision_ledger_by_account(account_id=account_id, creator=creator, **kwargs)
+    def decision_ledger_by_account(
+        self, *, account_id: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.services.decision_ledger_by_account(
+            account_id=account_id, creator=creator, **kwargs
+        )
 
-    def decision_ledger_by_surface(self, *, surface: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.services.decision_ledger_by_surface(surface=surface, creator=creator, **kwargs)
+    def decision_ledger_by_surface(
+        self, *, surface: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.services.decision_ledger_by_surface(
+            surface=surface, creator=creator, **kwargs
+        )
 
-    def decision_ledger_by_decision_type(self, *, decision_type: str, creator: str, **kwargs: Any) -> dict[str, Any]:
-        return self.services.decision_ledger_by_decision_type(decision_type=decision_type, creator=creator, **kwargs)
+    def decision_ledger_by_decision_type(
+        self, *, decision_type: str, creator: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.services.decision_ledger_by_decision_type(
+            decision_type=decision_type, creator=creator, **kwargs
+        )
 
     def _query_decision_ledger(
         self,
@@ -3422,10 +3974,12 @@ class CampaignFactory:
         date: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        return self.services.decision_ledger.decision_entries_from_account_content_needs(
-            creator=creator,
-            date=date,
-            timestamp=timestamp,
+        return (
+            self.services.decision_ledger.decision_entries_from_account_content_needs(
+                creator=creator,
+                date=date,
+                timestamp=timestamp,
+            )
         )
 
     def _decision_entries_from_daily_plan_accounts(
@@ -3448,10 +4002,12 @@ class CampaignFactory:
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        return self.services.decision_ledger.decision_entries_from_winner_expansion_report(
-            report=report,
-            creator=creator,
-            timestamp=timestamp,
+        return (
+            self.services.decision_ledger.decision_entries_from_winner_expansion_report(
+                report=report,
+                creator=creator,
+                timestamp=timestamp,
+            )
         )
 
     def _decision_entries_from_variant_inventory_plan(
@@ -3461,10 +4017,12 @@ class CampaignFactory:
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        return self.services.decision_ledger.decision_entries_from_variant_inventory_plan(
-            plan=plan,
-            creator=creator,
-            timestamp=timestamp,
+        return (
+            self.services.decision_ledger.decision_entries_from_variant_inventory_plan(
+                plan=plan,
+                creator=creator,
+                timestamp=timestamp,
+            )
         )
 
     def _decision_entries_from_winner_expansion_plan(
@@ -3474,10 +4032,12 @@ class CampaignFactory:
         creator: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        return self.services.decision_ledger.decision_entries_from_winner_expansion_plan(
-            plan=plan,
-            creator=creator,
-            timestamp=timestamp,
+        return (
+            self.services.decision_ledger.decision_entries_from_winner_expansion_plan(
+                plan=plan,
+                creator=creator,
+                timestamp=timestamp,
+            )
         )
 
     def _manager_decision_entry(
@@ -3513,7 +4073,9 @@ class CampaignFactory:
             context_snapshot=context_snapshot,
         )
 
-    def _dedupe_manager_decisions(self, decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _dedupe_manager_decisions(
+        self, decisions: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.decision_ledger.dedupe_manager_decisions(decisions)
 
     def _manager_decision_types_supported(self) -> list[str]:
@@ -3528,14 +4090,24 @@ class CampaignFactory:
     def _story_goal_for_intent(self, intent: str) -> str:
         return self.services.decision_ledger.story_goal_for_intent(intent)
 
-    def _creator_os_local_schedule_safe_assets(self, creator: str) -> list[dict[str, Any]]:
+    def _creator_os_local_schedule_safe_assets(
+        self, creator: str
+    ) -> list[dict[str, Any]]:
         return self.services.creator_os_local_schedule_safe_assets(creator)
 
-    def _creator_os_target_date(self, *, date: str | None = None, generated_at: str | None = None) -> str:
-        return self.services.creator_os_target_date(date=date, generated_at=generated_at)
+    def _creator_os_target_date(
+        self, *, date: str | None = None, generated_at: str | None = None
+    ) -> str:
+        return self.services.creator_os_target_date(
+            date=date, generated_at=generated_at
+        )
 
-    def _creator_os_account_surface_status(self, account: dict[str, Any], *, reel_needed: bool) -> dict[str, dict[str, Any]]:
-        return self.services.creator_os_account_surface_status(account, reel_needed=reel_needed)
+    def _creator_os_account_surface_status(
+        self, account: dict[str, Any], *, reel_needed: bool
+    ) -> dict[str, dict[str, Any]]:
+        return self.services.creator_os_account_surface_status(
+            account, reel_needed=reel_needed
+        )
 
     def _creator_os_surface_summary_for_creator(
         self,
@@ -3554,11 +4126,17 @@ class CampaignFactory:
             draft_items=draft_items,
         )
 
-    def _creator_os_gap_blocking_reason(self, reason: str, blockers: list[str], item: dict[str, Any]) -> str:
+    def _creator_os_gap_blocking_reason(
+        self, reason: str, blockers: list[str], item: dict[str, Any]
+    ) -> str:
         return self.services.creator_os_gap_blocking_reason(reason, blockers, item)
 
-    def _recommended_story_intent_for_date(self, target_date: str, *, creator: str | None = None) -> str:
-        return self.services.recommended_story_intent_for_date(target_date, creator=creator)
+    def _recommended_story_intent_for_date(
+        self, target_date: str, *, creator: str | None = None
+    ) -> str:
+        return self.services.recommended_story_intent_for_date(
+            target_date, creator=creator
+        )
 
     def _recommended_story_style_for_intent(self, intent: str) -> str:
         return self.services.recommended_story_style_for_intent(intent)
@@ -3566,10 +4144,14 @@ class CampaignFactory:
     def _creator_label(self, value: Any) -> str:
         return self.services.creator_label(value)
 
-    def _creator_os_draft_items(self, planner_inputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _creator_os_draft_items(
+        self, planner_inputs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.creator_os_draft_items(planner_inputs)
 
-    def _creator_os_draft_has_instagram_post_caption(self, draft: dict[str, Any]) -> bool:
+    def _creator_os_draft_has_instagram_post_caption(
+        self, draft: dict[str, Any]
+    ) -> bool:
         return self.services.creator_os_draft_has_instagram_post_caption(draft)
 
     def _creator_os_draft_exclusion_reason(self, draft: dict[str, Any]) -> str:
@@ -3578,19 +4160,33 @@ class CampaignFactory:
     def _truthy(self, value: Any) -> bool:
         return self.services.truthy(value)
 
-    def _creator_os_draft_exclusion_counts(self, creator: str, draft_items: list[dict[str, Any]]) -> dict[str, int]:
+    def _creator_os_draft_exclusion_counts(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> dict[str, int]:
         return self.services.creator_os_draft_exclusion_counts(creator, draft_items)
 
-    def _creator_os_schedule_safe_drafts(self, creator: str, draft_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _creator_os_schedule_safe_drafts(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.creator_os_schedule_safe_drafts(creator, draft_items)
 
-    def _creator_os_execution_account_health_blockers(self, account_health: dict[str, Any]) -> list[str]:
-        return self.services.creator_os_execution_account_health_blockers(account_health)
+    def _creator_os_execution_account_health_blockers(
+        self, account_health: dict[str, Any]
+    ) -> list[str]:
+        return self.services.creator_os_execution_account_health_blockers(
+            account_health
+        )
 
-    def _creator_os_execution_account_health_warnings(self, account_health: dict[str, Any]) -> list[str]:
-        return self.services.creator_os_execution_account_health_warnings(account_health)
+    def _creator_os_execution_account_health_warnings(
+        self, account_health: dict[str, Any]
+    ) -> list[str]:
+        return self.services.creator_os_execution_account_health_warnings(
+            account_health
+        )
 
-    def _creator_os_execution_draft_blockers(self, creator: str, draft_items: list[dict[str, Any]]) -> list[str]:
+    def _creator_os_execution_draft_blockers(
+        self, creator: str, draft_items: list[dict[str, Any]]
+    ) -> list[str]:
         return self.services.creator_os_execution_draft_blockers(creator, draft_items)
 
     def _creator_os_explicit_false(self, item: dict[str, Any], *keys: str) -> bool:
@@ -3602,18 +4198,28 @@ class CampaignFactory:
         planner_inputs: list[dict[str, Any]],
         draft_items: list[dict[str, Any]],
     ) -> dict[str, int]:
-        return self.services.creator_os_inventory_for_creator(creator, planner_inputs, draft_items)
+        return self.services.creator_os_inventory_for_creator(
+            creator, planner_inputs, draft_items
+        )
 
-    def _creator_os_blocked_account_breakdown(self, blocked_accounts: list[dict[str, Any]]) -> dict[str, int]:
+    def _creator_os_blocked_account_breakdown(
+        self, blocked_accounts: list[dict[str, Any]]
+    ) -> dict[str, int]:
         return self.services.creator_os_blocked_account_breakdown(blocked_accounts)
 
-    def _creator_os_account_tier_summary(self, accounts: list[dict[str, Any]], *, key: str = "accountTier") -> dict[str, int]:
+    def _creator_os_account_tier_summary(
+        self, accounts: list[dict[str, Any]], *, key: str = "accountTier"
+    ) -> dict[str, int]:
         return self.services.creator_os_account_tier_summary(accounts, key=key)
 
-    def _creator_os_account_health_decision(self, account: dict[str, Any], *, missed: list[dict[str, Any]]) -> dict[str, Any]:
+    def _creator_os_account_health_decision(
+        self, account: dict[str, Any], *, missed: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.creator_os_account_health_decision(account, missed=missed)
 
-    def _creator_os_account_health_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def _creator_os_account_health_summary(
+        self, rows: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.creator_os_account_health_summary(rows)
 
     def _creator_os_account_trust_state(self, account: dict[str, Any]) -> str:
@@ -3628,8 +4234,12 @@ class CampaignFactory:
     def _creator_os_maturity_score(self, account: dict[str, Any]) -> int:
         return self.services.creator_os_maturity_score(account)
 
-    def _creator_os_warming_stage(self, account: dict[str, Any], *, maturity_score: int) -> str:
-        return self.services.creator_os_warming_stage(account, maturity_score=maturity_score)
+    def _creator_os_warming_stage(
+        self, account: dict[str, Any], *, maturity_score: int
+    ) -> str:
+        return self.services.creator_os_warming_stage(
+            account, maturity_score=maturity_score
+        )
 
     def _creator_os_creative_risk(self, account: dict[str, Any]) -> dict[str, Any]:
         return self.services.creator_os_creative_risk(account)
@@ -3637,17 +4247,31 @@ class CampaignFactory:
     def _creator_os_similarity_budget(self, account: dict[str, Any]) -> dict[str, Any]:
         return self.services.creator_os_similarity_budget(account)
 
-    def _creator_os_account_tier_from_health(self, account: dict[str, Any], *, trust_state: str, maturity_score: int) -> str:
-        return self.services.creator_os_account_tier_from_health(account, trust_state=trust_state, maturity_score=maturity_score)
+    def _creator_os_account_tier_from_health(
+        self, account: dict[str, Any], *, trust_state: str, maturity_score: int
+    ) -> str:
+        return self.services.creator_os_account_tier_from_health(
+            account, trust_state=trust_state, maturity_score=maturity_score
+        )
 
-    def _creator_os_cadence_overrides(self, account: dict[str, Any], *, warming_stage: str, maturity_score: int) -> dict[str, Any]:
-        return self.services.creator_os_cadence_overrides(account, warming_stage=warming_stage, maturity_score=maturity_score)
+    def _creator_os_cadence_overrides(
+        self, account: dict[str, Any], *, warming_stage: str, maturity_score: int
+    ) -> dict[str, Any]:
+        return self.services.creator_os_cadence_overrides(
+            account, warming_stage=warming_stage, maturity_score=maturity_score
+        )
 
-    def _creator_os_account_over_cadence(self, account: dict[str, Any], guidance: dict[str, Any]) -> bool:
+    def _creator_os_account_over_cadence(
+        self, account: dict[str, Any], guidance: dict[str, Any]
+    ) -> bool:
         return self.services.creator_os_account_over_cadence(account, guidance)
 
-    def _creator_os_account_tier(self, account: dict[str, Any], *, state: str, blocked_reason: str) -> str:
-        return self.services.creator_os_account_tier(account, state=state, blocked_reason=blocked_reason)
+    def _creator_os_account_tier(
+        self, account: dict[str, Any], *, state: str, blocked_reason: str
+    ) -> str:
+        return self.services.creator_os_account_tier(
+            account, state=state, blocked_reason=blocked_reason
+        )
 
     def _creator_os_numeric(self, value: Any) -> float:
         return self.services.creator_os_numeric(value)
@@ -3677,11 +4301,17 @@ class CampaignFactory:
     def _creator_os_winner_action(self, value: Any) -> str:
         return self.services.creator_os_winner_action(value)
 
-    def _creator_os_best_rollup_family(self, variant_metrics_rollup: dict[str, Any]) -> dict[str, Any] | None:
+    def _creator_os_best_rollup_family(
+        self, variant_metrics_rollup: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.creator_os_best_rollup_family(variant_metrics_rollup)
 
-    def _creator_os_recommended_inventory(self, *, creator: str, limit: int = 5) -> list[dict[str, Any]]:
-        return self.services.creator_os_recommended_inventory(creator=creator, limit=limit)
+    def _creator_os_recommended_inventory(
+        self, *, creator: str, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        return self.services.creator_os_recommended_inventory(
+            creator=creator, limit=limit
+        )
 
     def _creator_os_lineage_posting_window(self, pattern: dict[str, Any]) -> str:
         return self.services.creator_os_lineage_posting_window(pattern)
@@ -3701,17 +4331,31 @@ class CampaignFactory:
             variant_inventory_plan=variant_inventory_plan,
         )
 
-    def _recommended_inventory_creator_row(self, daily_plan: dict[str, Any], creator: str) -> dict[str, Any]:
+    def _recommended_inventory_creator_row(
+        self, daily_plan: dict[str, Any], creator: str
+    ) -> dict[str, Any]:
         return self.services.recommended_inventory_creator_row(daily_plan, creator)
 
-    def _recommended_inventory_existing_by_parent(self, variant_inventory_plan: dict[str, Any] | None) -> dict[str, int]:
-        return self.services.recommended_inventory_existing_by_parent(variant_inventory_plan)
+    def _recommended_inventory_existing_by_parent(
+        self, variant_inventory_plan: dict[str, Any] | None
+    ) -> dict[str, int]:
+        return self.services.recommended_inventory_existing_by_parent(
+            variant_inventory_plan
+        )
 
-    def _recommended_inventory_variant_batch(self, parent_asset_id: str, variant_inventory_plan: dict[str, Any]) -> dict[str, Any]:
-        return self.services.recommended_inventory_variant_batch(parent_asset_id, variant_inventory_plan)
+    def _recommended_inventory_variant_batch(
+        self, parent_asset_id: str, variant_inventory_plan: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self.services.recommended_inventory_variant_batch(
+            parent_asset_id, variant_inventory_plan
+        )
 
-    def _recommended_inventory_action(self, *, surface: str, story_intent: Any = None) -> str:
-        return self.services.recommended_inventory_action(surface=surface, story_intent=story_intent)
+    def _recommended_inventory_action(
+        self, *, surface: str, story_intent: Any = None
+    ) -> str:
+        return self.services.recommended_inventory_action(
+            surface=surface, story_intent=story_intent
+        )
 
     def _creator_os_manager_decision(
         self,
@@ -3732,16 +4376,22 @@ class CampaignFactory:
             winner_recommendations=winner_recommendations,
         )
 
-    def _creator_os_blocked_reason(self, account: dict[str, Any], missed: list[dict[str, Any]]) -> str:
+    def _creator_os_blocked_reason(
+        self, account: dict[str, Any], missed: list[dict[str, Any]]
+    ) -> str:
         return self.services.creator_os_blocked_reason(account, missed)
 
-    def _creator_os_account_state(self, account: dict[str, Any], blocked_reason: str) -> str:
+    def _creator_os_account_state(
+        self, account: dict[str, Any], blocked_reason: str
+    ) -> str:
         return self.services.creator_os_account_state(account, blocked_reason)
 
     def _creator_os_post_time(self, value: Any) -> str:
         return self.services.creator_os_post_time(value)
 
-    def _creator_os_recommended_post_count(self, state: str, needs_post_today: bool) -> int:
+    def _creator_os_recommended_post_count(
+        self, state: str, needs_post_today: bool
+    ) -> int:
         return self.services.creator_os_recommended_post_count(state, needs_post_today)
 
     def winner_expansion_plan(
@@ -3863,8 +4513,12 @@ class CampaignFactory:
             min_followers=min_followers,
         )
 
-    def _winner_memory_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.services.winner_memory_rows(creator=creator, campaign_slug=campaign_slug)
+    def _winner_memory_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.services.winner_memory_rows(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _winner_memory_item(
         self,
@@ -3912,7 +4566,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_knowledge_base(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def _build_creative_knowledge_base(
         self,
@@ -3922,7 +4581,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.build_creative_knowledge_base(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.build_creative_knowledge_base(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def tribev2_reel_analysis(
         self,
@@ -3964,7 +4628,9 @@ class CampaignFactory:
             blind_mode=blind_mode,
         )
 
-    def _tribev2_review_both_bucket(self, ranked: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    def _tribev2_review_both_bucket(
+        self, ranked: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
         return self.services.tribev2_review_both_bucket(ranked, limit)
 
     def _tribev2_review_item(
@@ -3999,10 +4665,14 @@ class CampaignFactory:
             contact_sheet=contact_sheet,
         )
 
-    def _tribev2_holdout_bucket_rows(self, ranked: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    def _tribev2_holdout_bucket_rows(
+        self, ranked: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
         return self.services.tribev2_holdout_bucket_rows(ranked)
 
-    def _tribev2_holdout_bucket_summary(self, name: str, rows: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+    def _tribev2_holdout_bucket_summary(
+        self, name: str, rows: list[dict[str, Any]], *, limit: int
+    ) -> dict[str, Any]:
         return self.services.tribev2_holdout_bucket_summary(name, rows, limit=limit)
 
     def _tribev2_average_metrics(self, rows: list[dict[str, Any]]) -> dict[str, float]:
@@ -4036,8 +4706,12 @@ class CampaignFactory:
             show_tribe_score=show_tribe_score,
         )
 
-    def _write_tribev2_holdout_contact_sheet(self, buckets: dict[str, Any], *, creator: str) -> str:
-        return self.services.write_tribev2_holdout_contact_sheet(buckets, creator=creator)
+    def _write_tribev2_holdout_contact_sheet(
+        self, buckets: dict[str, Any], *, creator: str
+    ) -> str:
+        return self.services.write_tribev2_holdout_contact_sheet(
+            buckets, creator=creator
+        )
 
     def _tribev2_contact_sheet_cards(
         self,
@@ -4057,11 +4731,17 @@ class CampaignFactory:
     def _tribev2_contact_sheet_html(self, *, title: str, body: str) -> str:
         return self.services.tribev2_contact_sheet_html(title=title, body=body)
 
-    def _tribev2_extract_thumbnail(self, preview_path: str, output_dir: Path, item: dict[str, Any]) -> str:
+    def _tribev2_extract_thumbnail(
+        self, preview_path: str, output_dir: Path, item: dict[str, Any]
+    ) -> str:
         return self.services.tribev2_extract_thumbnail(preview_path, output_dir, item)
 
-    def _tribev2_reel_analysis_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.services.tribev2_reel_analysis_rows(creator=creator, campaign_slug=campaign_slug)
+    def _tribev2_reel_analysis_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.services.tribev2_reel_analysis_rows(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _tribev2_score_for_snapshot(self, row: dict[str, Any]) -> dict[str, Any] | None:
         return self.services.tribev2_score_for_snapshot(row)
@@ -4072,10 +4752,14 @@ class CampaignFactory:
     def _tribev2_bucket_summary(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
         return self.services.tribev2_bucket_summary(rows)
 
-    def _tribev2_bucket_lift(self, top: dict[str, Any], bottom: dict[str, Any]) -> dict[str, Any]:
+    def _tribev2_bucket_lift(
+        self, top: dict[str, Any], bottom: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.tribev2_bucket_lift(top, bottom)
 
-    def _tribev2_metric_quality(self, rows: list[dict[str, Any]], metric_fields: list[str]) -> dict[str, Any]:
+    def _tribev2_metric_quality(
+        self, rows: list[dict[str, Any]], metric_fields: list[str]
+    ) -> dict[str, Any]:
         return self.services.tribev2_metric_quality(rows, metric_fields)
 
     def _tribev2_signal_summary(
@@ -4091,8 +4775,12 @@ class CampaignFactory:
             metric_quality=metric_quality,
         )
 
-    def _tribev2_confidence_level(self, sample_size: int, statistically_interesting: bool) -> str:
-        return self.services.tribev2_confidence_level(sample_size, statistically_interesting)
+    def _tribev2_confidence_level(
+        self, sample_size: int, statistically_interesting: bool
+    ) -> str:
+        return self.services.tribev2_confidence_level(
+            sample_size, statistically_interesting
+        )
 
     def creative_pattern_report(
         self,
@@ -4102,7 +4790,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_pattern_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_pattern_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_caption_report(
         self,
@@ -4112,7 +4805,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_caption_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_caption_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_audio_report(
         self,
@@ -4122,7 +4820,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_audio_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_audio_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_surface_report(
         self,
@@ -4132,7 +4835,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_surface_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_surface_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_account_tier_report(
         self,
@@ -4142,7 +4850,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_account_tier_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_account_tier_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_window_report(
         self,
@@ -4152,7 +4865,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_window_report(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_window_report(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creative_performance_analysis(
         self,
@@ -4162,7 +4880,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creative_performance_analysis(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creative_performance_analysis(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def creator_learning_summary(
         self,
@@ -4172,7 +4895,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.creator_learning_summary(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.creator_learning_summary(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def next_content_recommendations(
         self,
@@ -4182,7 +4910,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.next_content_recommendations(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.next_content_recommendations(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def _build_creative_performance_analysis(
         self,
@@ -4192,19 +4925,38 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 10,
     ) -> dict[str, Any]:
-        return self.services.build_creative_performance_analysis(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.build_creative_performance_analysis(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
-    def _creative_performance_baseline(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+    def _creative_performance_baseline(
+        self, results: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.creative_performance_baseline(results)
 
-    def _creative_performance_assessment(self, group: dict[str, Any], baseline: dict[str, Any], *, dimension: str) -> dict[str, Any]:
-        return self.services.creative_performance_assessment(group, baseline, dimension=dimension)
+    def _creative_performance_assessment(
+        self, group: dict[str, Any], baseline: dict[str, Any], *, dimension: str
+    ) -> dict[str, Any]:
+        return self.services.creative_performance_assessment(
+            group, baseline, dimension=dimension
+        )
 
-    def _creative_more_recommendations(self, best: list[dict[str, Any]], confidence: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        return self.services.creative_more_recommendations(best, confidence, limit=limit)
+    def _creative_more_recommendations(
+        self, best: list[dict[str, Any]], confidence: str, *, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        return self.services.creative_more_recommendations(
+            best, confidence, limit=limit
+        )
 
-    def _creative_less_recommendations(self, weak: list[dict[str, Any]], confidence: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        return self.services.creative_less_recommendations(weak, confidence, limit=limit)
+    def _creative_less_recommendations(
+        self, weak: list[dict[str, Any]], confidence: str, *, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        return self.services.creative_less_recommendations(
+            weak, confidence, limit=limit
+        )
 
     def creative_learning_confidence_model(
         self,
@@ -4213,7 +4965,11 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         minimum_sample_size: int = 3,
     ) -> dict[str, Any]:
-        return self.services.creative_learning_confidence_model(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size)
+        return self.services.creative_learning_confidence_model(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+        )
 
     def creative_fatigue_report(
         self,
@@ -4222,7 +4978,9 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        return self.services.creative_fatigue_report(creator=creator, campaign_slug=campaign_slug, limit=limit)
+        return self.services.creative_fatigue_report(
+            creator=creator, campaign_slug=campaign_slug, limit=limit
+        )
 
     def creative_surface_comparison_report(
         self,
@@ -4231,7 +4989,9 @@ class CampaignFactory:
         campaign_slug: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        return self.services.creative_surface_comparison_report(creator=creator, campaign_slug=campaign_slug, limit=limit)
+        return self.services.creative_surface_comparison_report(
+            creator=creator, campaign_slug=campaign_slug, limit=limit
+        )
 
     def recommendation_quality_audit(
         self,
@@ -4241,7 +5001,12 @@ class CampaignFactory:
         minimum_sample_size: int = 3,
         limit: int = 20,
     ) -> dict[str, Any]:
-        return self.services.recommendation_quality_audit(creator=creator, campaign_slug=campaign_slug, minimum_sample_size=minimum_sample_size, limit=limit)
+        return self.services.recommendation_quality_audit(
+            creator=creator,
+            campaign_slug=campaign_slug,
+            minimum_sample_size=minimum_sample_size,
+            limit=limit,
+        )
 
     def _recommendation_explainability(
         self,
@@ -4250,36 +5015,54 @@ class CampaignFactory:
         item: dict[str, Any] | None = None,
         confidence: Any = None,
     ) -> dict[str, Any]:
-        return self.services.recommendation_explainability(recommendation, item=item, confidence=confidence)
+        return self.services.recommendation_explainability(
+            recommendation, item=item, confidence=confidence
+        )
 
     def _confidence_score(self, confidence: Any) -> int:
         return self.services.confidence_score(confidence)
 
-    def _learning_confidence_classification(self, results: list[dict[str, Any]]) -> dict[str, Any]:
+    def _learning_confidence_classification(
+        self, results: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.learning_confidence_classification(results)
 
-    def _creative_fatigue_signals(self, results: list[dict[str, Any]], *, field: str, fatigue_type: str) -> list[dict[str, Any]]:
-        return self.services.creative_fatigue_signals(results, field=field, fatigue_type=fatigue_type)
+    def _creative_fatigue_signals(
+        self, results: list[dict[str, Any]], *, field: str, fatigue_type: str
+    ) -> list[dict[str, Any]]:
+        return self.services.creative_fatigue_signals(
+            results, field=field, fatigue_type=fatigue_type
+        )
 
-    def _metric_decline_pct(self, early: list[dict[str, Any]], recent: list[dict[str, Any]], metric: str) -> float:
+    def _metric_decline_pct(
+        self, early: list[dict[str, Any]], recent: list[dict[str, Any]], metric: str
+    ) -> float:
         return self.services.metric_decline_pct(early, recent, metric)
 
-    def _engagement_decline_pct(self, early: list[dict[str, Any]], recent: list[dict[str, Any]]) -> float:
+    def _engagement_decline_pct(
+        self, early: list[dict[str, Any]], recent: list[dict[str, Any]]
+    ) -> float:
         return self.services.engagement_decline_pct(early, recent)
 
     def _avg_result_metric(self, items: list[dict[str, Any]], metric: str) -> float:
         return self.services.avg_result_metric(items, metric)
 
-    def _creative_surface_rows(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _creative_surface_rows(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.creative_surface_rows(items)
 
     def _recommendation_quality_bucket(self, explainability: dict[str, Any]) -> str:
         return self.services.recommendation_quality_bucket(explainability)
 
-    def _surface_from_pattern(self, item: dict[str, Any], lineage: dict[str, Any]) -> str:
+    def _surface_from_pattern(
+        self, item: dict[str, Any], lineage: dict[str, Any]
+    ) -> str:
         return self.services.surface_from_pattern(item, lineage)
 
-    def _first_lineage_value(self, lineage: dict[str, Any], key: str, *, fallback: str = "") -> str:
+    def _first_lineage_value(
+        self, lineage: dict[str, Any], key: str, *, fallback: str = ""
+    ) -> str:
         return self.services.first_lineage_value(lineage, key, fallback=fallback)
 
     def _creative_analysis_confidence(self, sample_size: int) -> str:
@@ -4291,11 +5074,19 @@ class CampaignFactory:
     def _creative_pattern_priority(self, dimension: str) -> int:
         return self.services.creative_pattern_priority(dimension)
 
-    def _creative_knowledge_results_for_report(self, kb: dict[str, Any], creator: str, campaign_slug: str | None) -> list[dict[str, Any]]:
-        return self.services.creative_knowledge_results_for_report(kb, creator, campaign_slug)
+    def _creative_knowledge_results_for_report(
+        self, kb: dict[str, Any], creator: str, campaign_slug: str | None
+    ) -> list[dict[str, Any]]:
+        return self.services.creative_knowledge_results_for_report(
+            kb, creator, campaign_slug
+        )
 
-    def _creative_knowledge_rows(self, *, creator: str, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.services.creative_knowledge_rows(creator=creator, campaign_slug=campaign_slug)
+    def _creative_knowledge_rows(
+        self, *, creator: str, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.services.creative_knowledge_rows(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _creative_knowledge_result(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.creative_knowledge_result(row)
@@ -4306,25 +5097,37 @@ class CampaignFactory:
     def _creative_knowledge_score(self, metrics: dict[str, Any]) -> float:
         return self.services.creative_knowledge_score(metrics)
 
-    def _creative_result_group(self, results: list[dict[str, Any]], key_field: str, *, limit: int = 10) -> list[dict[str, Any]]:
+    def _creative_result_group(
+        self, results: list[dict[str, Any]], key_field: str, *, limit: int = 10
+    ) -> list[dict[str, Any]]:
         return self.services.creative_result_group(results, key_field, limit=limit)
 
-    def _creative_result_lineage(self, items: list[dict[str, Any]]) -> dict[str, list[str]]:
+    def _creative_result_lineage(
+        self, items: list[dict[str, Any]]
+    ) -> dict[str, list[str]]:
         return self.services.creative_result_lineage(items)
 
-    def _winner_variant_candidate(self, variant_payload: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
+    def _winner_variant_candidate(
+        self, variant_payload: dict[str, Any], rendered: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.winner_variant_candidate(variant_payload, rendered)
 
-    def _winner_variant_candidate_decision(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    def _winner_variant_candidate_decision(
+        self, candidate: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.winner_variant_candidate_decision(candidate)
 
     def _latest_variant_audit_result(self, variant_asset_id: str) -> dict[str, Any]:
         return self.services.latest_variant_audit_result(variant_asset_id)
 
-    def _contentforge_result_from_operations(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+    def _contentforge_result_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.contentforge_result_from_operations(operations)
 
-    def _operation_family_from_operations(self, operations: list[dict[str, Any]]) -> str | None:
+    def _operation_family_from_operations(
+        self, operations: list[dict[str, Any]]
+    ) -> str | None:
         return self.services.operation_family_from_operations(operations)
 
     def _score_value(self, value: Any) -> int:
@@ -4349,7 +5152,9 @@ class CampaignFactory:
             parent_reel_id=parent_reel_id,
         )
 
-    def _caption_version_by_id(self, caption_version_id: str | None) -> dict[str, Any] | None:
+    def _caption_version_by_id(
+        self, caption_version_id: str | None
+    ) -> dict[str, Any] | None:
         return self.services.caption_version_by_id(caption_version_id)
 
     def _concept_for_parent_asset(self, parent_asset_id: str) -> dict[str, Any] | None:
@@ -4358,22 +5163,34 @@ class CampaignFactory:
     def _variant_lineage_for_asset(self, rendered_asset_id: str) -> dict[str, Any]:
         return self.services.variant_lineage_for_asset(rendered_asset_id)
 
-    def _concept_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def _concept_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.concept_payload(row)
 
-    def _variant_family_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def _variant_family_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.variant_family_payload(row)
 
-    def _caption_version_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def _caption_version_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.caption_version_payload(row)
 
-    def _variant_asset_payload(self, row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    def _variant_asset_payload(
+        self, row: sqlite3.Row | dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.variant_lineage_asset_payload(row)
 
-    def _variant_usage_payload(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def _variant_usage_payload(
+        self, row: sqlite3.Row | dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.variant_usage_payload(row)
 
-    def _variant_rollup_group(self, snapshots: list[dict[str, Any]], key: str, output_key: str) -> list[dict[str, Any]]:
+    def _variant_rollup_group(
+        self, snapshots: list[dict[str, Any]], key: str, output_key: str
+    ) -> list[dict[str, Any]]:
         return self.services.variant_rollup_group(snapshots, key, output_key)
 
     def audit_report(self, audit_report_id: str) -> dict[str, Any]:
@@ -4398,10 +5215,14 @@ class CampaignFactory:
             force_new=force_new,
         )
 
-    def _rotate_hooks_for_source(self, hooks: list[str | dict[str, Any]], source_index: int) -> list[str | dict[str, Any]]:
+    def _rotate_hooks_for_source(
+        self, hooks: list[str | dict[str, Any]], source_index: int
+    ) -> list[str | dict[str, Any]]:
         return self.services.rotate_hooks_for_source(hooks, source_index)
 
-    def _reel_sidecar_hooks(self, hooks: list[str | dict[str, Any]]) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
+    def _reel_sidecar_hooks(
+        self, hooks: list[str | dict[str, Any]]
+    ) -> tuple[list[str | dict[str, Any]], list[dict[str, Any]]]:
         return self.services.reel_sidecar_hooks(hooks)
 
     def _next_reel_clip_number(self, raw_dir: Path) -> int:
@@ -4474,14 +5295,20 @@ class CampaignFactory:
     def _lineage_first_present(self, lineage: dict[str, Any] | None, key: str) -> Any:
         return self.services.lineage_first_present(lineage, key)
 
-    def _lineage_placement_decision(self, lineage: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _lineage_placement_decision(
+        self, lineage: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.services.lineage_placement_decision(lineage)
 
     def _caption_lane_from_render_recipe(self, recipe: str | None) -> str:
         return self.services.caption_lane_from_render_recipe(recipe)
 
-    def _audio_intent_from_reference_recommendations(self, payload: dict[str, Any], *, now: str) -> dict[str, Any]:
-        return self.services.audio_intent_from_reference_recommendations(payload, now=now)
+    def _audio_intent_from_reference_recommendations(
+        self, payload: dict[str, Any], *, now: str
+    ) -> dict[str, Any]:
+        return self.services.audio_intent_from_reference_recommendations(
+            payload, now=now
+        )
 
     def _backfill_synced_reel_output_lineage(
         self,
@@ -4683,8 +5510,12 @@ class CampaignFactory:
             target_ratio=target_ratio,
         )
 
-    def _surface_registration_component(self, path: Path, *, surface: str, target_ratio: str | None) -> dict[str, Any]:
-        return self.services.surface_registration_component(path, surface=surface, target_ratio=target_ratio)
+    def _surface_registration_component(
+        self, path: Path, *, surface: str, target_ratio: str | None
+    ) -> dict[str, Any]:
+        return self.services.surface_registration_component(
+            path, surface=surface, target_ratio=target_ratio
+        )
 
     def _story_source_blockers(self, components: list[dict[str, Any]]) -> list[str]:
         return self.services.story_source_blockers(components)
@@ -4792,7 +5623,9 @@ class CampaignFactory:
     def _archive_existing_content_duplicate(self, digest: str) -> dict[str, Any] | None:
         return self.services.archive_existing_content_duplicate(digest)
 
-    def _archive_recent_publish_duplicate(self, digest: str, recent_cutoff: datetime) -> dict[str, Any] | None:
+    def _archive_recent_publish_duplicate(
+        self, digest: str, recent_cutoff: datetime
+    ) -> dict[str, Any] | None:
         return self.services.archive_recent_publish_duplicate(digest, recent_cutoff)
 
     def archive_candidate_quality_report(
@@ -4808,10 +5641,14 @@ class CampaignFactory:
             exclude_indices=exclude_indices,
         )
 
-    def _archive_crop_severity(self, probe: dict[str, Any]) -> tuple[str, int, float | None]:
+    def _archive_crop_severity(
+        self, probe: dict[str, Any]
+    ) -> tuple[str, int, float | None]:
         return self.services.archive_crop_severity(probe)
 
-    def _archive_visual_quality_score(self, probe: dict[str, Any], warnings: list[Any], crop_score: int) -> int:
+    def _archive_visual_quality_score(
+        self, probe: dict[str, Any], warnings: list[Any], crop_score: int
+    ) -> int:
         return self.services.archive_visual_quality_score(probe, warnings, crop_score)
 
     def _archive_duplicate_confidence(self, item: dict[str, Any]) -> str:
@@ -4849,16 +5686,24 @@ class CampaignFactory:
     def _campaign_source_media_summary(self, campaign_id: str) -> dict[str, int]:
         return self.services.campaign_source_media_summary(campaign_id)
 
-    def _formats_for_batch(self, selected_format: str, source_mix: dict[str, int]) -> list[str]:
+    def _formats_for_batch(
+        self, selected_format: str, source_mix: dict[str, int]
+    ) -> list[str]:
         return self.services.formats_for_batch(selected_format, source_mix)
 
     def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
         return self.services.batch_summary(campaign_slug)
 
-    def daily_production_counters(self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.services.daily_production_counters(campaign_slug, dashboard=dashboard)
+    def daily_production_counters(
+        self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self.services.daily_production_counters(
+            campaign_slug, dashboard=dashboard
+        )
 
-    def _variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _variant_pack_groups(
+        self, rendered: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.variant_pack_groups(rendered)
 
     def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
@@ -4870,10 +5715,14 @@ class CampaignFactory:
     def audio_workflow_summary(self, rendered: list[dict[str, Any]]) -> dict[str, Any]:
         return self.services.audio_workflow_summary(rendered)
 
-    def _dashboard_audio_intent_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+    def _dashboard_audio_intent_for_asset(
+        self, asset: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.dashboard_audio_intent_for_asset(asset)
 
-    def _audio_task_for_dashboard_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
+    def _audio_task_for_dashboard_intent(
+        self, intent: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.audio_task_for_dashboard_intent(intent)
 
     def distribution_summary(self, campaign_slug: str) -> dict[str, Any]:
@@ -4885,7 +5734,9 @@ class CampaignFactory:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.multi_surface_inventory_audit(creator=creator, campaign_slug=campaign_slug)
+        return self.services.multi_surface_inventory_audit(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def account_surface_obligations_plan(
         self,
@@ -4893,7 +5744,9 @@ class CampaignFactory:
         creator: str,
         date: str,
     ) -> dict[str, Any]:
-        return self.services.account_surface_obligations_plan(creator=creator, date=date)
+        return self.services.account_surface_obligations_plan(
+            creator=creator, date=date
+        )
 
     def account_content_needs(
         self,
@@ -4902,7 +5755,9 @@ class CampaignFactory:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        return self.services.account_content_needs(account_id=account_id, creator=creator, date=date)
+        return self.services.account_content_needs(
+            account_id=account_id, creator=creator, date=date
+        )
 
     def account_surface_status(
         self,
@@ -4911,7 +5766,9 @@ class CampaignFactory:
         creator: str | None = None,
         date: str,
     ) -> dict[str, Any]:
-        return self.services.account_surface_status(account_id=account_id, creator=creator, date=date)
+        return self.services.account_surface_status(
+            account_id=account_id, creator=creator, date=date
+        )
 
     def creator_content_needs(
         self,
@@ -4997,20 +5854,34 @@ class CampaignFactory:
     def _carousel_integrity_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.services.carousel_integrity_for_asset(asset)
 
-    def _carousel_component_signature(self, components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _carousel_component_signature(
+        self, components: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.carousel_component_signature(components)
 
     def _carousel_media_item_signature(self, media_items: Any) -> list[dict[str, Any]]:
         return self.services.carousel_media_item_signature(media_items)
 
-    def _carousel_signature_payload(self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _carousel_signature_payload(
+        self, signature: list[dict[str, Any]], *, extra: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.carousel_signature_payload(signature, extra=extra)
 
-    def _carousel_boundary_result(self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
+    def _carousel_boundary_result(
+        self, boundary: str, before: list[dict[str, Any]], after: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.carousel_boundary_result(boundary, before, after)
 
-    def _carousel_meta_child_payload_preview(self, *, asset: dict[str, Any], draft: dict[str, Any], components: list[dict[str, Any]]) -> dict[str, Any]:
-        return self.services.carousel_meta_child_payload_preview(asset=asset, draft=draft, components=components)
+    def _carousel_meta_child_payload_preview(
+        self,
+        *,
+        asset: dict[str, Any],
+        draft: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.services.carousel_meta_child_payload_preview(
+            asset=asset, draft=draft, components=components
+        )
 
     def _build_surface_inventory(
         self,
@@ -5018,7 +5889,9 @@ class CampaignFactory:
         creator: str,
         campaign_slug: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.build_surface_inventory(creator=creator, campaign_slug=campaign_slug)
+        return self.services.build_surface_inventory(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
     def _build_surface_status(
         self,
@@ -5028,13 +5901,21 @@ class CampaignFactory:
     ) -> dict[str, Any]:
         return self.services.build_surface_status(creator=creator, date=date)
 
-    def _build_surface_readiness(self, assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _build_surface_readiness(
+        self, assets: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.build_surface_readiness(assets)
 
-    def _surface_report_assets(self, *, creator: str | None = None, campaign_slug: str | None = None) -> list[dict[str, Any]]:
-        return self.services.surface_report_assets(creator=creator, campaign_slug=campaign_slug)
+    def _surface_report_assets(
+        self, *, creator: str | None = None, campaign_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.services.surface_report_assets(
+            creator=creator, campaign_slug=campaign_slug
+        )
 
-    def _requires_operator_visual_review_for_handoff(self, asset: dict[str, Any]) -> bool:
+    def _requires_operator_visual_review_for_handoff(
+        self, asset: dict[str, Any]
+    ) -> bool:
         return self.services.requires_operator_visual_review_for_handoff(asset)
 
     def _content_trust_status_blockers(
@@ -5043,25 +5924,35 @@ class CampaignFactory:
         latest_audit: dict[str, Any] | None,
         caption_context: dict[str, Any] | None,
     ) -> tuple[list[str], dict[str, str]]:
-        return self.services.content_trust_status_blockers(asset, latest_audit, caption_context)
+        return self.services.content_trust_status_blockers(
+            asset, latest_audit, caption_context
+        )
 
     def _asset_matches_creator(self, asset: dict[str, Any], creator: str) -> bool:
         return self.services.asset_matches_creator(asset, creator)
 
-    def _surface_handoff_readiness_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
+    def _surface_handoff_readiness_for_asset(
+        self, asset: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.surface_handoff_readiness_for_asset(asset)
 
-    def _surface_draft_payload_for_readiness(self, readiness: dict[str, Any]) -> dict[str, Any]:
+    def _surface_draft_payload_for_readiness(
+        self, readiness: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.surface_draft_payload_for_readiness(readiness)
 
-    def _latest_distribution_plan_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def _latest_distribution_plan_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.services.latest_distribution_plan_for_asset(rendered_asset_id)
 
     def _asset_components(self, rendered_asset_id: str) -> list[dict[str, Any]]:
         return self.services.asset_components(rendered_asset_id)
 
     def _ig_media_type_for_surface(self, surface: str, media_type: str) -> str:
-        return self.services.surface_handoff_ig_media_type_for_surface(surface, media_type)
+        return self.services.surface_handoff_ig_media_type_for_surface(
+            surface, media_type
+        )
 
     def _aspect_ratio_safe(self, ratio: Any, surface: str) -> bool:
         return self.services.surface_handoff_aspect_ratio_safe(ratio, surface)
@@ -5075,31 +5966,61 @@ class CampaignFactory:
         creator: str | None = None,
         account_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.services.account_content_requirement_rows(creator=creator, account_id=account_id)
+        return self.services.account_content_requirement_rows(
+            creator=creator, account_id=account_id
+        )
 
-    def _account_row_for_requirement_account(self, account_id: str) -> dict[str, Any] | None:
+    def _account_row_for_requirement_account(
+        self, account_id: str
+    ) -> dict[str, Any] | None:
         return self.services.account_row_for_requirement_account(account_id)
 
-    def _content_obligation_for_requirement(self, requirement: dict[str, Any], target_date: datetime.date) -> dict[str, Any]:
-        return self.services.content_obligation_for_requirement(requirement, target_date)
+    def _content_obligation_for_requirement(
+        self, requirement: dict[str, Any], target_date: datetime.date
+    ) -> dict[str, Any]:
+        return self.services.content_obligation_for_requirement(
+            requirement, target_date
+        )
 
-    def _required_content_count(self, requirement: dict[str, Any], target_date: datetime.date) -> int:
+    def _required_content_count(
+        self, requirement: dict[str, Any], target_date: datetime.date
+    ) -> int:
         return self.services.required_content_count(requirement, target_date)
 
     def _empty_surface_totals(self) -> dict[str, dict[str, int]]:
         return self.services.empty_surface_totals()
 
-    def _add_obligation_to_totals(self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]) -> None:
+    def _add_obligation_to_totals(
+        self, totals: dict[str, dict[str, int]], obligation: dict[str, Any]
+    ) -> None:
         self.services.add_obligation_to_totals(totals, obligation)
 
-    def _requirement_active_on_date(self, requirement: dict[str, Any], target_date: datetime.date) -> bool:
+    def _requirement_active_on_date(
+        self, requirement: dict[str, Any], target_date: datetime.date
+    ) -> bool:
         return self.services.requirement_active_on_date(requirement, target_date)
 
-    def _surface_scheduled_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> int:
-        return self.services.surface_scheduled_count(account_id, instagram_account_id, surface, target_date)
+    def _surface_scheduled_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: datetime.date,
+    ) -> int:
+        return self.services.surface_scheduled_count(
+            account_id, instagram_account_id, surface, target_date
+        )
 
-    def _surface_completed_count(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> int:
-        return self.services.surface_completed_count(account_id, instagram_account_id, surface, target_date)
+    def _surface_completed_count(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: datetime.date,
+    ) -> int:
+        return self.services.surface_completed_count(
+            account_id, instagram_account_id, surface, target_date
+        )
 
     def _last_surface_posted_at(
         self,
@@ -5116,19 +6037,39 @@ class CampaignFactory:
             before_date=before_date,
         )
 
-    def _surface_scheduled_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> bool:
-        return self.services.surface_scheduled_for_account(account_id, instagram_account_id, surface, target_date)
+    def _surface_scheduled_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: datetime.date,
+    ) -> bool:
+        return self.services.surface_scheduled_for_account(
+            account_id, instagram_account_id, surface, target_date
+        )
 
-    def _surface_completed_for_account(self, account_id: str, instagram_account_id: str | None, surface: str, target_date: datetime.date) -> bool:
-        return self.services.surface_completed_for_account(account_id, instagram_account_id, surface, target_date)
+    def _surface_completed_for_account(
+        self,
+        account_id: str,
+        instagram_account_id: str | None,
+        surface: str,
+        target_date: datetime.date,
+    ) -> bool:
+        return self.services.surface_completed_for_account(
+            account_id, instagram_account_id, surface, target_date
+        )
 
-    def _default_dashboard_campaign(self, campaigns: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _default_dashboard_campaign(
+        self, campaigns: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         return self.services.default_dashboard_campaign(campaigns)
 
     def campaign_health(self, campaign_slug: str) -> dict[str, Any]:
         return self.services.campaign_health(campaign_slug)
 
-    def _unresolved_failed_jobs(self, jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _unresolved_failed_jobs(
+        self, jobs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.campaign_overview.unresolved_failed_jobs(jobs)
 
     def asset_detail(self, rendered_asset_id: str) -> dict[str, Any]:
@@ -5167,21 +6108,33 @@ class CampaignFactory:
         account: str | None = None,
         persist: bool = False,
     ) -> dict[str, Any]:
-        return self.services.recommend_next_batch(campaign_slug, count=count, account=account, persist=persist)
+        return self.services.recommend_next_batch(
+            campaign_slug, count=count, account=account, persist=persist
+        )
 
-    def recommendation_runs(self, campaign_slug: str, *, limit: int = 10) -> dict[str, Any]:
+    def recommendation_runs(
+        self, campaign_slug: str, *, limit: int = 10
+    ) -> dict[str, Any]:
         return self.services.recommendation_runs(campaign_slug, limit=limit)
 
     def _top_reference_pattern(self) -> dict[str, Any] | None:
         return self.services.top_reference_pattern()
 
-    def _ranked_reference_patterns_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
+    def _ranked_reference_patterns_for_campaign(
+        self, campaign_id: str
+    ) -> list[dict[str, Any]]:
         return self.services.ranked_reference_patterns_for_campaign(campaign_id)
 
-    def _ranked_variation_presets_for_campaign(self, campaign_id: str, *, account: str | None = None) -> list[dict[str, Any]]:
-        return self.services.ranked_variation_presets_for_campaign(campaign_id, account=account)
+    def _ranked_variation_presets_for_campaign(
+        self, campaign_id: str, *, account: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.services.ranked_variation_presets_for_campaign(
+            campaign_id, account=account
+        )
 
-    def _compact_recommendation_rankings(self, rankings: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
+    def _compact_recommendation_rankings(
+        self, rankings: list[dict[str, Any]], *, limit: int = 5
+    ) -> list[dict[str, Any]]:
         return self.services.compact_recommendation_rankings(rankings, limit=limit)
 
     def _recommendation_reference_pattern_evidence(
@@ -5189,17 +6142,25 @@ class CampaignFactory:
         rankings: list[dict[str, Any]],
         selected_pattern: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        return self.services.recommendation_reference_pattern_evidence(rankings, selected_pattern)
+        return self.services.recommendation_reference_pattern_evidence(
+            rankings, selected_pattern
+        )
 
     def _recommendation_variation_preset_evidence(
         self,
         rankings: list[dict[str, Any]],
         selected_preset: str | None,
     ) -> dict[str, Any]:
-        return self.services.recommendation_variation_preset_evidence(rankings, selected_preset)
+        return self.services.recommendation_variation_preset_evidence(
+            rankings, selected_preset
+        )
 
-    def _latest_recommendation_trust_context(self, campaign_id: str, *, account: str | None) -> dict[str, Any]:
-        return self.services.latest_recommendation_trust_context(campaign_id, account=account)
+    def _latest_recommendation_trust_context(
+        self, campaign_id: str, *, account: str | None
+    ) -> dict[str, Any]:
+        return self.services.latest_recommendation_trust_context(
+            campaign_id, account=account
+        )
 
     def _apply_recommendation_trust(
         self,
@@ -5209,7 +6170,12 @@ class CampaignFactory:
         confidence_reason: str,
         recommendation_trust: dict[str, Any],
     ) -> tuple[int, str, str, list[str]]:
-        return self.services.apply_recommendation_trust(score=score, confidence=confidence, confidence_reason=confidence_reason, recommendation_trust=recommendation_trust)
+        return self.services.apply_recommendation_trust(
+            score=score,
+            confidence=confidence,
+            confidence_reason=confidence_reason,
+            recommendation_trust=recommendation_trust,
+        )
 
     def _recommendation_item_payload(
         self,
@@ -5229,7 +6195,22 @@ class CampaignFactory:
         persist: bool,
         run_id: str,
     ) -> dict[str, Any]:
-        return self.services.recommendation_item_payload(campaign=campaign, campaign_graph_id=campaign_graph_id, run_graph_id=run_graph_id, rank=rank, account=account, candidate=candidate, asset=asset, reference_pattern=reference_pattern, reference_pattern_graph_id=reference_pattern_graph_id, reference_pattern_rankings=reference_pattern_rankings, variation_preset_rankings=variation_preset_rankings, recommendation_trust=recommendation_trust, persist=persist, run_id=run_id)
+        return self.services.recommendation_item_payload(
+            campaign=campaign,
+            campaign_graph_id=campaign_graph_id,
+            run_graph_id=run_graph_id,
+            rank=rank,
+            account=account,
+            candidate=candidate,
+            asset=asset,
+            reference_pattern=reference_pattern,
+            reference_pattern_graph_id=reference_pattern_graph_id,
+            reference_pattern_rankings=reference_pattern_rankings,
+            variation_preset_rankings=variation_preset_rankings,
+            recommendation_trust=recommendation_trust,
+            persist=persist,
+            run_id=run_id,
+        )
 
     def _reference_only_recommendation_item(
         self,
@@ -5246,7 +6227,19 @@ class CampaignFactory:
         persist: bool,
         run_id: str,
     ) -> dict[str, Any] | None:
-        return self.services.reference_only_recommendation_item(campaign=campaign, campaign_graph_id=campaign_graph_id, run_graph_id=run_graph_id, account=account, reference_pattern=reference_pattern, reference_pattern_graph_id=reference_pattern_graph_id, reference_pattern_rankings=reference_pattern_rankings, variation_preset_rankings=variation_preset_rankings, recommendation_trust=recommendation_trust, persist=persist, run_id=run_id)
+        return self.services.reference_only_recommendation_item(
+            campaign=campaign,
+            campaign_graph_id=campaign_graph_id,
+            run_graph_id=run_graph_id,
+            account=account,
+            reference_pattern=reference_pattern,
+            reference_pattern_graph_id=reference_pattern_graph_id,
+            reference_pattern_rankings=reference_pattern_rankings,
+            variation_preset_rankings=variation_preset_rankings,
+            recommendation_trust=recommendation_trust,
+            persist=persist,
+            run_id=run_id,
+        )
 
     def _write_recommendation_graph_edges(
         self,
@@ -5258,7 +6251,14 @@ class CampaignFactory:
         rendered_graph_id: str | None,
         reference_pattern_graph_id: str | None,
     ) -> None:
-        return self.services.write_recommendation_graph_edges(performance_graph_id=performance_graph_id, recommendation_input_graph_id=recommendation_input_graph_id, run_graph_id=run_graph_id, item_graph_id=item_graph_id, rendered_graph_id=rendered_graph_id, reference_pattern_graph_id=reference_pattern_graph_id)
+        return self.services.write_recommendation_graph_edges(
+            performance_graph_id=performance_graph_id,
+            recommendation_input_graph_id=recommendation_input_graph_id,
+            run_graph_id=run_graph_id,
+            item_graph_id=item_graph_id,
+            rendered_graph_id=rendered_graph_id,
+            reference_pattern_graph_id=reference_pattern_graph_id,
+        )
 
     def _write_audio_recommendation_graph_edges(
         self,
@@ -5269,12 +6269,22 @@ class CampaignFactory:
         audio_recommendations: dict[str, Any],
         campaign_id: str | None = None,
     ) -> None:
-        return self.services.write_audio_recommendation_graph_edges(recommendation_item_id=recommendation_item_id, recommendation_graph_id=recommendation_graph_id, reference_pattern_graph_id=reference_pattern_graph_id, audio_recommendations=audio_recommendations, campaign_id=campaign_id)
+        return self.services.write_audio_recommendation_graph_edges(
+            recommendation_item_id=recommendation_item_id,
+            recommendation_graph_id=recommendation_graph_id,
+            reference_pattern_graph_id=reference_pattern_graph_id,
+            audio_recommendations=audio_recommendations,
+            campaign_id=campaign_id,
+        )
 
-    def _stored_recommendation_item_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _stored_recommendation_item_payload(
+        self, row: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.stored_recommendation_item_payload(row)
 
-    def _exceptions_for_recommendation(self, recommendation_item_id: str) -> list[dict[str, Any]]:
+    def _exceptions_for_recommendation(
+        self, recommendation_item_id: str
+    ) -> list[dict[str, Any]]:
         return self.services.exceptions_for_recommendation(recommendation_item_id)
 
     def recommendation_item(self, recommendation_item_id: str) -> dict[str, Any]:
@@ -5289,7 +6299,13 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.accept_recommendation_item(recommendation_item_id, operator=operator, notes=notes, admin_override=admin_override, override_reason=override_reason)
+        return self.services.accept_recommendation_item(
+            recommendation_item_id,
+            operator=operator,
+            notes=notes,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def reject_recommendation_item(
         self,
@@ -5301,7 +6317,14 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.reject_recommendation_item(recommendation_item_id, reason=reason, operator=operator, notes=notes, admin_override=admin_override, override_reason=override_reason)
+        return self.services.reject_recommendation_item(
+            recommendation_item_id,
+            reason=reason,
+            operator=operator,
+            notes=notes,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def link_recommendation_item(
         self,
@@ -5316,7 +6339,17 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.link_recommendation_item(recommendation_item_id, source_asset_id=source_asset_id, render_job_id=render_job_id, rendered_asset_id=rendered_asset_id, post_id=post_id, performance_snapshot_id=performance_snapshot_id, evidence=evidence, admin_override=admin_override, override_reason=override_reason)
+        return self.services.link_recommendation_item(
+            recommendation_item_id,
+            source_asset_id=source_asset_id,
+            render_job_id=render_job_id,
+            rendered_asset_id=rendered_asset_id,
+            post_id=post_id,
+            performance_snapshot_id=performance_snapshot_id,
+            evidence=evidence,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def measure_recommendation_item(
         self,
@@ -5326,7 +6359,12 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.measure_recommendation_item(recommendation_item_id, performance_snapshot_id=performance_snapshot_id, admin_override=admin_override, override_reason=override_reason)
+        return self.services.measure_recommendation_item(
+            recommendation_item_id,
+            performance_snapshot_id=performance_snapshot_id,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def execute_accepted_recommendation(
         self,
@@ -5338,7 +6376,14 @@ class CampaignFactory:
         run_audit: bool = True,
         contentforge_base_url: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.execute_accepted_recommendation(recommendation_item_id, mode=mode, force=force, dry_run_render=dry_run_render, run_audit=run_audit, contentforge_base_url=contentforge_base_url)
+        return self.services.execute_accepted_recommendation(
+            recommendation_item_id,
+            mode=mode,
+            force=force,
+            dry_run_render=dry_run_render,
+            run_audit=run_audit,
+            contentforge_base_url=contentforge_base_url,
+        )
 
     def _compact_execution_result(self, result: dict[str, Any]) -> dict[str, Any]:
         return self.services.compact_execution_result(result)
@@ -5350,7 +6395,9 @@ class CampaignFactory:
         *,
         commit: bool = True,
     ) -> list[dict[str, Any]]:
-        return self.services.create_trust_exceptions_for_recommendation(row, asset, commit=commit)
+        return self.services.create_trust_exceptions_for_recommendation(
+            row, asset, commit=commit
+        )
 
     def _asset_has_final_audio_proof(self, asset: dict[str, Any]) -> bool:
         return self.services.asset_has_final_audio_proof(asset)
@@ -5376,7 +6423,19 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
-        return self.services.update_recommendation_lifecycle(recommendation_item_id, status=status, decision=decision, outcome=outcome, baseline=baseline, measurement_version=measurement_version, timestamp_column=timestamp_column, event_type=event_type, message=message, admin_override=admin_override, override_reason=override_reason)
+        return self.services.update_recommendation_lifecycle(
+            recommendation_item_id,
+            status=status,
+            decision=decision,
+            outcome=outcome,
+            baseline=baseline,
+            measurement_version=measurement_version,
+            timestamp_column=timestamp_column,
+            event_type=event_type,
+            message=message,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def _validate_recommendation_transition(
         self,
@@ -5386,7 +6445,12 @@ class CampaignFactory:
         admin_override: bool = False,
         override_reason: str | None = None,
     ) -> None:
-        return self.services.validate_recommendation_transition(current_status, next_status, admin_override=admin_override, override_reason=override_reason)
+        return self.services.validate_recommendation_transition(
+            current_status,
+            next_status,
+            admin_override=admin_override,
+            override_reason=override_reason,
+        )
 
     def _recommendation_baseline_payload(
         self,
@@ -5395,9 +6459,13 @@ class CampaignFactory:
         baseline_score: int | None,
         threshold: int,
     ) -> dict[str, Any]:
-        return self.services.recommendation_baseline_payload(baseline_summary, baseline_score=baseline_score, threshold=threshold)
+        return self.services.recommendation_baseline_payload(
+            baseline_summary, baseline_score=baseline_score, threshold=threshold
+        )
 
-    def _recommendation_performance_rows(self, row: dict[str, Any]) -> list[sqlite3.Row]:
+    def _recommendation_performance_rows(
+        self, row: dict[str, Any]
+    ) -> list[sqlite3.Row]:
         return self.services.recommendation_performance_rows(row)
 
     def _best_asset_history_score(self, asset: dict[str, Any]) -> int | None:
@@ -5406,7 +6474,9 @@ class CampaignFactory:
     def _reference_pattern_score(self, pattern: dict[str, Any] | None) -> int:
         return self.services.reference_pattern_score(pattern)
 
-    def _recommendation_account_score(self, asset: dict[str, Any], account: str | None) -> int:
+    def _recommendation_account_score(
+        self, asset: dict[str, Any], account: str | None
+    ) -> int:
         return self.services.recommendation_account_score(asset, account)
 
     def _recommendation_account_fit_evidence(
@@ -5415,18 +6485,26 @@ class CampaignFactory:
         asset: dict[str, Any],
         account: str | None,
     ) -> dict[str, Any]:
-        return self.services.recommendation_account_fit_evidence(campaign_id, asset, account)
+        return self.services.recommendation_account_fit_evidence(
+            campaign_id, asset, account
+        )
 
-    def _account_memory_for(self, campaign_id: str, account_id: str | None) -> dict[str, Any] | None:
+    def _account_memory_for(
+        self, campaign_id: str, account_id: str | None
+    ) -> dict[str, Any] | None:
         return self.services.account_memory_for(campaign_id, account_id)
 
     def _operational_recommendation_score(self, asset: dict[str, Any]) -> int:
         return self.services.operational_recommendation_score(asset)
 
-    def _recommendation_confidence(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> tuple[str, str]:
+    def _recommendation_confidence(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> tuple[str, str]:
         return self.services.recommendation_confidence(asset, pattern)
 
-    def _recommendation_data_quality(self, asset: dict[str, Any], pattern: dict[str, Any] | None) -> dict[str, Any]:
+    def _recommendation_data_quality(
+        self, asset: dict[str, Any], pattern: dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.recommendation_data_quality(asset, pattern)
 
     def _recommendation_reasons(
@@ -5441,24 +6519,41 @@ class CampaignFactory:
         candidate: dict[str, Any],
         reference_pattern: dict[str, Any] | None,
     ) -> list[str]:
-        return self.services.recommendation_reasons(performance_score=performance_score, reference_score=reference_score, audit_score=audit_score, account_score=account_score, novelty_score=novelty_score, operational_score=operational_score, candidate=candidate, reference_pattern=reference_pattern)
+        return self.services.recommendation_reasons(
+            performance_score=performance_score,
+            reference_score=reference_score,
+            audit_score=audit_score,
+            account_score=account_score,
+            novelty_score=novelty_score,
+            operational_score=operational_score,
+            candidate=candidate,
+            reference_pattern=reference_pattern,
+        )
 
     def _asset_target_account(self, asset: dict[str, Any]) -> str | None:
         return self.services.asset_target_account(asset)
 
-    def _recommendation_reference_summary(self, pattern: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recommendation_reference_summary(
+        self, pattern: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.services.recommendation_reference_summary(pattern)
 
     def _first_suggested_recipe(self, pattern: dict[str, Any] | None) -> str | None:
         return self.services.first_suggested_recipe(pattern)
 
-    def _hook_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def _hook_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         return self.services.hook_guidance(pattern, asset)
 
-    def _caption_guidance(self, pattern: dict[str, Any] | None, asset: dict[str, Any]) -> str:
+    def _caption_guidance(
+        self, pattern: dict[str, Any] | None, asset: dict[str, Any]
+    ) -> str:
         return self.services.caption_guidance(pattern, asset)
 
-    def campaign_readiness(self, campaign_slug: str, *, user_id: str | None = None) -> dict[str, Any]:
+    def campaign_readiness(
+        self, campaign_slug: str, *, user_id: str | None = None
+    ) -> dict[str, Any]:
         return self.services.campaign_readiness(campaign_slug, user_id=user_id)
 
     def lifecycle_report(
@@ -5502,7 +6597,9 @@ class CampaignFactory:
     def _creator_os_lifecycle_bucket(self, row: dict[str, Any]) -> str:
         return self.services.creator_os_lifecycle_bucket(row)
 
-    def _lifecycle_snapshots_by_asset(self, campaign_id: str) -> dict[str, list[dict[str, Any]]]:
+    def _lifecycle_snapshots_by_asset(
+        self, campaign_id: str
+    ) -> dict[str, list[dict[str, Any]]]:
         return self.services.lifecycle_snapshots_by_asset(campaign_id)
 
     def _lifecycle_threadsdash_indexes(
@@ -5512,7 +6609,9 @@ class CampaignFactory:
         user_id: str | None,
         include_threadsdash: str,
         threadsdash_posts: list[dict[str, Any]] | None,
-    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    ) -> tuple[
+        dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]], dict[str, Any]
+    ]:
         return self.services.lifecycle_threadsdash_indexes(
             campaign_slug=campaign_slug,
             user_id=user_id,
@@ -5565,10 +6664,14 @@ class CampaignFactory:
     def _lifecycle_blocking_reason(self, blocking: list[Any]) -> str:
         return self.services.lifecycle_blocking_reason(blocking)
 
-    def _lifecycle_media_validation_issue(self, *, asset: dict[str, Any], post: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _lifecycle_media_validation_issue(
+        self, *, asset: dict[str, Any], post: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.services.lifecycle_media_validation_issue(asset=asset, post=post)
 
-    def _latest_lifecycle_post(self, posts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _latest_lifecycle_post(
+        self, posts: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         return self.services.latest_lifecycle_post(posts)
 
     def _lifecycle_snapshot_has_metrics(self, snapshot: dict[str, Any]) -> bool:
@@ -5588,7 +6691,9 @@ class CampaignFactory:
         post: dict[str, Any] | None,
         snapshot: dict[str, Any] | None,
     ) -> str | None:
-        return self.services.lifecycle_last_state_change(asset=asset, plan=plan, post=post, snapshot=snapshot)
+        return self.services.lifecycle_last_state_change(
+            asset=asset, plan=plan, post=post, snapshot=snapshot
+        )
 
     def _parse_lifecycle_time(self, value: Any) -> datetime | None:
         return self.services.parse_lifecycle_time(value)
@@ -5619,13 +6724,19 @@ class CampaignFactory:
     def _canonical_lifecycle_context(self, value: Any) -> Any:
         return self.services.canonical_lifecycle_context(value)
 
-    def _compact_lifecycle_post(self, post: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _compact_lifecycle_post(
+        self, post: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.services.compact_lifecycle_post(post)
 
-    def _compact_lifecycle_snapshot(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _compact_lifecycle_snapshot(
+        self, snapshot: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
         return self.services.compact_lifecycle_snapshot(snapshot)
 
-    def account_plan(self, campaign_slug: str, *, user_id: str, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    def account_plan(
+        self, campaign_slug: str, *, user_id: str, usage: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.services.account_plan(campaign_slug, user_id=user_id, usage=usage)
 
     def ranking(self, campaign_slug: str) -> dict[str, Any]:
@@ -5646,7 +6757,9 @@ class CampaignFactory:
     def _dashboard_rendered_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         return self.services.dashboard_rendered_asset(asset)
 
-    def _generated_asset_lineage(self, source_prompt: dict[str, Any], reference_pattern: dict[str, Any] | None) -> dict[str, Any]:
+    def _generated_asset_lineage(
+        self, source_prompt: dict[str, Any], reference_pattern: dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.generated_asset_lineage(source_prompt, reference_pattern)
 
     def _audio_recommendations_for_asset(
@@ -5716,20 +6829,43 @@ class CampaignFactory:
             account_baselines=account_baselines,
         )
 
-    def _account_fatigue_from_pattern_stats(self, pattern_stats: list[dict[str, Any]]) -> dict[str, Any]:
+    def _account_fatigue_from_pattern_stats(
+        self, pattern_stats: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.account_fatigue_from_pattern_stats(pattern_stats)
 
-    def _account_recommendation_outcomes(self, campaign_id: str, account_id: str, updated_at: str) -> dict[str, Any]:
-        return self.services.account_recommendation_outcomes(campaign_id, account_id, updated_at)
+    def _account_recommendation_outcomes(
+        self, campaign_id: str, account_id: str, updated_at: str
+    ) -> dict[str, Any]:
+        return self.services.account_recommendation_outcomes(
+            campaign_id, account_id, updated_at
+        )
 
-    def _account_memory_confidence(self, sample_size: int, outcomes: dict[str, Any]) -> str:
+    def _account_memory_confidence(
+        self, sample_size: int, outcomes: dict[str, Any]
+    ) -> str:
         return self.services.account_memory_confidence(sample_size, outcomes)
 
-    def _group_performance(self, snapshots: list[dict[str, Any]], key: str, *, account_baselines: dict[str, float] | None = None) -> dict[str, Any]:
-        return self.services.group_performance(snapshots, key, account_baselines=account_baselines)
+    def _group_performance(
+        self,
+        snapshots: list[dict[str, Any]],
+        key: str,
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        return self.services.group_performance(
+            snapshots, key, account_baselines=account_baselines
+        )
 
-    def _aggregate_performance(self, snapshots: list[dict[str, Any]], *, account_baselines: dict[str, float] | None = None) -> dict[str, Any]:
-        return self.services.aggregate_performance(snapshots, account_baselines=account_baselines)
+    def _aggregate_performance(
+        self,
+        snapshots: list[dict[str, Any]],
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        return self.services.aggregate_performance(
+            snapshots, account_baselines=account_baselines
+        )
 
     def _performance_metric_contract(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.performance_metric_contract(row)
@@ -5737,22 +6873,37 @@ class CampaignFactory:
     def _default_performance_metric_names(self, surface: str) -> list[str]:
         return self.services.default_performance_metric_names(surface)
 
-    def _performance_leaderboards(self, snapshots: list[dict[str, Any]], *, account_baselines: dict[str, float] | None = None) -> dict[str, list[dict[str, Any]]]:
-        return self.services.performance_leaderboards(snapshots, account_baselines=account_baselines)
+    def _performance_leaderboards(
+        self,
+        snapshots: list[dict[str, Any]],
+        *,
+        account_baselines: dict[str, float] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        return self.services.performance_leaderboards(
+            snapshots, account_baselines=account_baselines
+        )
 
-    def _caption_outcome_manual_review(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    def _caption_outcome_manual_review(
+        self, snapshots: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return self.services.caption_outcome_manual_review(snapshots)
 
     def _has_caption_outcome_context(self, snapshot: dict[str, Any]) -> bool:
         return self.services.has_caption_outcome_context(snapshot)
 
-    def _caption_outcome_snapshot_with_placement(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+    def _caption_outcome_snapshot_with_placement(
+        self, snapshot: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.caption_outcome_snapshot_with_placement(snapshot)
 
-    def _caption_outcome_group(self, snapshots: list[dict[str, Any]], source_key: str, output_key: str) -> list[dict[str, Any]]:
+    def _caption_outcome_group(
+        self, snapshots: list[dict[str, Any]], source_key: str, output_key: str
+    ) -> list[dict[str, Any]]:
         return self.services.caption_outcome_group(snapshots, source_key, output_key)
 
-    def _caption_outcome_contexts_for_group(self, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _caption_outcome_contexts_for_group(
+        self, snapshots: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return self.services.caption_outcome_contexts_for_group(snapshots)
 
     def _add_leaderboard_snapshot(
@@ -5771,7 +6922,9 @@ class CampaignFactory:
         limit: int = 20,
         account_baselines: dict[str, float] | None = None,
     ) -> list[dict[str, Any]]:
-        return self.services.rank_leaderboard_entries(items, limit=limit, account_baselines=account_baselines)
+        return self.services.rank_leaderboard_entries(
+            items, limit=limit, account_baselines=account_baselines
+        )
 
     def _performance_recommendation_label(self, summary: dict[str, Any]) -> str:
         return self.services.performance_recommendation_label(summary)
@@ -5785,37 +6938,59 @@ class CampaignFactory:
     def _performance_snapshot_dimensions(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.performance_snapshot_dimensions(row)
 
-    def _performance_hook_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_hook_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_hook_dimension(campaign_meta)
 
-    def _performance_audio_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_audio_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_audio_dimension(campaign_meta)
 
-    def _performance_reference_format_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_reference_format_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_reference_format_dimension(campaign_meta)
 
-    def _performance_prompt_pattern_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_prompt_pattern_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_prompt_pattern_dimension(campaign_meta)
 
-    def _performance_pattern_card_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_pattern_card_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_pattern_card_dimension(campaign_meta)
 
-    def _performance_model_account_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_model_account_dimension(
+        self, campaign_meta: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_model_account_dimension(campaign_meta, row)
 
-    def _performance_caption_formula_dimension(self, campaign_meta: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_caption_formula_dimension(
+        self, campaign_meta: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_caption_formula_dimension(campaign_meta)
 
-    def _performance_variation_preset_dimension(self, campaign_meta: dict[str, Any], row: dict[str, Any]) -> dict[str, Any] | None:
+    def _performance_variation_preset_dimension(
+        self, campaign_meta: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.performance_variation_preset_dimension(campaign_meta, row)
 
-    def _performance_score(self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]) -> int | None:
-        return self.services.performance_score(source=source, caption=caption, recipe=recipe)
+    def _performance_score(
+        self, *, source: dict[str, Any], caption: dict[str, Any], recipe: dict[str, Any]
+    ) -> int | None:
+        return self.services.performance_score(
+            source=source, caption=caption, recipe=recipe
+        )
 
     def _audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         return self.services.audit_report_payload(row)
 
-    def _local_export_readiness(self, asset: dict[str, Any], latest_audit: dict[str, Any] | None) -> dict[str, Any]:
+    def _local_export_readiness(
+        self, asset: dict[str, Any], latest_audit: dict[str, Any] | None
+    ) -> dict[str, Any]:
         return self.services.local_export_readiness(asset, latest_audit)
 
     def explain_publishability(
@@ -5829,8 +7004,12 @@ class CampaignFactory:
             distribution_plan_id=distribution_plan_id,
         )
 
-    def capture_publishability_rejection_evidence(self, rendered_asset_id: str) -> dict[str, Any]:
-        return self.services.capture_publishability_rejection_evidence(rendered_asset_id)
+    def capture_publishability_rejection_evidence(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any]:
+        return self.services.capture_publishability_rejection_evidence(
+            rendered_asset_id
+        )
 
     def _capture_publishability_rejection_evidence_from_result(
         self,
@@ -5927,7 +7106,9 @@ class CampaignFactory:
     def _latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         return self.services.latest_audit_for_asset(rendered_asset_id)
 
-    def _active_quarantine_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
+    def _active_quarantine_for_asset(
+        self, rendered_asset_id: str
+    ) -> dict[str, Any] | None:
         return self.services.active_quarantine_for_asset(rendered_asset_id)
 
     def _normalize_seconds(self, value: Any) -> float | None:
@@ -5939,19 +7120,29 @@ class CampaignFactory:
     def _normalize_audio_segment(self, payload: Any) -> dict[str, Any] | None:
         return self.services.normalize_audio_segment(payload)
 
-    def _audio_segment_for_asset(self, audio_intent: dict[str, Any]) -> dict[str, Any] | None:
+    def _audio_segment_for_asset(
+        self, audio_intent: dict[str, Any]
+    ) -> dict[str, Any] | None:
         return self.services.audio_segment_for_asset(audio_intent)
 
     def _normalize_cover_frame(self, payload: Any) -> dict[str, Any] | None:
         return self.services.normalize_cover_frame(payload)
 
-    def _cover_frame_for_asset(self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None) -> dict[str, Any] | None:
-        return self.services.cover_frame_for_asset(asset, caption_context=caption_context)
+    def _cover_frame_for_asset(
+        self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        return self.services.cover_frame_for_asset(
+            asset, caption_context=caption_context
+        )
 
-    def _audio_selection_for_asset(self, asset: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    def _audio_selection_for_asset(
+        self, asset: dict[str, Any]
+    ) -> tuple[dict[str, Any], str | None]:
         return self.services.audio_selection_for_asset(asset)
 
-    def _audio_intent_is_attached(self, audio_intent: dict[str, Any], audio_id: str | None) -> bool:
+    def _audio_intent_is_attached(
+        self, audio_intent: dict[str, Any], audio_id: str | None
+    ) -> bool:
         return self.services.audio_intent_is_attached(audio_intent, audio_id)
 
     def _audio_intent_claims_embedded_media(self, audio_intent: dict[str, Any]) -> bool:
@@ -5969,7 +7160,9 @@ class CampaignFactory:
     def discoverability_safe_content_contract(self, *values: Any) -> dict[str, Any]:
         return self.services.discoverability_safe_content_contract(*values)
 
-    def _reel_caption_account_safety_violations(self, *values: Any) -> list[dict[str, str]]:
+    def _reel_caption_account_safety_violations(
+        self, *values: Any
+    ) -> list[dict[str, str]]:
         return list(self.discoverability_safe_content_contract(*values)["blockedTerms"])
 
     def _publishability_discoverability_fields(
@@ -5987,7 +7180,9 @@ class CampaignFactory:
             post_caption=post_caption,
         )
 
-    def _discoverability_evidence_for_fields(self, fields: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    def _discoverability_evidence_for_fields(
+        self, fields: list[tuple[str, str]]
+    ) -> list[dict[str, Any]]:
         return self.services.discoverability_evidence_for_fields(fields)
 
     def _instagram_post_caption_for_asset(
@@ -6003,7 +7198,9 @@ class CampaignFactory:
             distribution_plan=distribution_plan,
         )
 
-    def _instagram_post_caption_quality(self, post_caption: dict[str, Any]) -> dict[str, Any]:
+    def _instagram_post_caption_quality(
+        self, post_caption: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.services.instagram_post_caption_quality(post_caption)
 
     def caption_quality_repair_plan(
@@ -6024,7 +7221,9 @@ class CampaignFactory:
     def _caption_quality_recovery_class(self, quality_reasons: list[str]) -> str:
         return self.services.caption_quality_recovery_class(quality_reasons)
 
-    def _suggest_simple_instagram_post_caption(self, *, asset_id: str, current_caption: str, burned_caption: str) -> str:
+    def _suggest_simple_instagram_post_caption(
+        self, *, asset_id: str, current_caption: str, burned_caption: str
+    ) -> str:
         return self.services.suggest_simple_instagram_post_caption(
             asset_id=asset_id,
             current_caption=current_caption,

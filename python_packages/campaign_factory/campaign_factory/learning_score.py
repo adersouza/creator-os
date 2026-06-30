@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
@@ -17,7 +17,9 @@ EXPLORATION_MIN_EFFECTIVE_TRIALS = 5.0
 def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float]:
     rewards: dict[str, list[float]] = {}
     for snapshot in latest_snapshots_by_post(snapshots):
-        account = str(snapshot.get("instagramAccountId") or snapshot.get("accountId") or "").strip()
+        account = str(
+            snapshot.get("instagramAccountId") or snapshot.get("accountId") or ""
+        ).strip()
         if not account:
             continue
         reward = snapshot_reward(snapshot)
@@ -55,23 +57,42 @@ def aggregate_performance(
             if isinstance(value, (int, float)):
                 totals[key] += value
     count = len(latest)
-    averages = {key: (value / count if count else None) for key, value in totals.items()}
-    engagement_total = totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
+    averages = {
+        key: (value / count if count else None) for key, value in totals.items()
+    }
+    engagement_total = (
+        totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
+    )
     exposure_total = totals["impressions"] or totals["reach"] or totals["views"]
     rates = {
-        "engagementRate": (engagement_total / exposure_total if exposure_total else None),
+        "engagementRate": (
+            engagement_total / exposure_total if exposure_total else None
+        ),
         "saveRate": (totals["saves"] / exposure_total if exposure_total else None),
         "shareRate": (totals["shares"] / exposure_total if exposure_total else None),
-        "viewThroughRate": (totals["views"] / totals["impressions"] if totals["impressions"] else None),
+        "viewThroughRate": (
+            totals["views"] / totals["impressions"] if totals["impressions"] else None
+        ),
     }
-    learning = learning_summary(latest, account_baselines=account_baselines or {}, reference_now=reference_now)
-    return {"count": count, "totals": totals, "averages": averages, "rates": rates, "latest": latest[0] if latest else None, "learning": learning}
+    learning = learning_summary(
+        latest, account_baselines=account_baselines or {}, reference_now=reference_now
+    )
+    return {
+        "count": count,
+        "totals": totals,
+        "averages": averages,
+        "rates": rates,
+        "latest": latest[0] if latest else None,
+        "learning": learning,
+    }
 
 
 def performance_score(summary: dict[str, Any]) -> int | None:
     if not summary.get("count"):
         return None
-    learning = summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
+    learning = (
+        summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
+    )
     score = learning.get("score")
     if isinstance(score, (int, float)):
         return int(max(0, min(100, round(score))))
@@ -81,7 +102,9 @@ def performance_score(summary: dict[str, Any]) -> int | None:
 def performance_planning_score(summary: dict[str, Any]) -> int | None:
     if not summary.get("count"):
         return None
-    learning = summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
+    learning = (
+        summary.get("learning") if isinstance(summary.get("learning"), dict) else {}
+    )
     bandit = learning.get("bandit") if isinstance(learning.get("bandit"), dict) else {}
     score = bandit.get("planningScore")
     if isinstance(score, (int, float)):
@@ -106,7 +129,14 @@ def learning_summary(
             "recencyHalfLifeDays": RECENCY_HALF_LIFE_DAYS,
             "defaultRewardBaseline": DEFAULT_REWARD_BASELINE,
         }
-    now = reference_now or max((_parse_time(snapshot.get("snapshotAt")) for snapshot in snapshots), default=None) or datetime.now(timezone.utc)
+    now = (
+        reference_now
+        or max(
+            (_parse_time(snapshot.get("snapshotAt")) for snapshot in snapshots),
+            default=None,
+        )
+        or datetime.now(UTC)
+    )
     weighted_total = 0.0
     weight_total = 0.0
     measured = 0
@@ -119,7 +149,9 @@ def learning_summary(
         if reward is None:
             unmeasured += 1
             continue
-        account = str(snapshot.get("instagramAccountId") or snapshot.get("accountId") or "").strip()
+        account = str(
+            snapshot.get("instagramAccountId") or snapshot.get("accountId") or ""
+        ).strip()
         baseline = account_baselines.get(account)
         if baseline is None:
             baseline = DEFAULT_REWARD_BASELINE
@@ -150,9 +182,13 @@ def learning_summary(
             "baselineSourceCounts": baseline_source_counts,
         }
     weighted_mean = weighted_total / weight_total
-    shrunk = ((PRIOR_STRENGTH * PRIOR_RELATIVE_REWARD) + (weight_total * weighted_mean)) / (PRIOR_STRENGTH + weight_total)
+    shrunk = (
+        (PRIOR_STRENGTH * PRIOR_RELATIVE_REWARD) + (weight_total * weighted_mean)
+    ) / (PRIOR_STRENGTH + weight_total)
     score = 50 + ((shrunk - 1.0) * 30)
-    bandit = bandit_summary(beat_weight=beat_weight, miss_weight=miss_weight, effective_trials=weight_total)
+    bandit = bandit_summary(
+        beat_weight=beat_weight, miss_weight=miss_weight, effective_trials=weight_total
+    )
     return {
         "status": "measured",
         "scoringVersion": "account_normalized_decay_shrinkage.v1",
@@ -171,15 +207,21 @@ def learning_summary(
     }
 
 
-def bandit_summary(*, beat_weight: float, miss_weight: float, effective_trials: float) -> dict[str, Any]:
+def bandit_summary(
+    *, beat_weight: float, miss_weight: float, effective_trials: float
+) -> dict[str, Any]:
     alpha = 1.0 + max(0.0, beat_weight)
     beta = 1.0 + max(0.0, miss_weight)
     posterior_mean = alpha / (alpha + beta)
-    exploration_priority = "explore" if effective_trials < EXPLORATION_MIN_EFFECTIVE_TRIALS else "exploit"
+    exploration_priority = (
+        "explore" if effective_trials < EXPLORATION_MIN_EFFECTIVE_TRIALS else "exploit"
+    )
     # Deterministic Thompson-ready planning score: posterior expectation plus a
     # bounded cold-start floor. The random sampler can be introduced later
     # without changing stored arm statistics.
-    exploration_bonus = EXPLORATION_FLOOR * max(0.0, 1.0 - min(1.0, effective_trials / EXPLORATION_MIN_EFFECTIVE_TRIALS))
+    exploration_bonus = EXPLORATION_FLOOR * max(
+        0.0, 1.0 - min(1.0, effective_trials / EXPLORATION_MIN_EFFECTIVE_TRIALS)
+    )
     planning_score = min(1.0, posterior_mean + exploration_bonus) * 100.0
     return {
         "algorithm": "beta_bernoulli_decayed_v1",
@@ -207,10 +249,17 @@ def latest_snapshots_by_post(snapshots: list[dict[str, Any]]) -> list[dict[str, 
 
 def snapshot_reward(snapshot: dict[str, Any]) -> float | None:
     metrics = snapshot.get("metrics") or {}
-    exposure = _number(metrics.get("reach")) or _number(metrics.get("impressions")) or _number(metrics.get("views"))
+    exposure = (
+        _number(metrics.get("reach"))
+        or _number(metrics.get("impressions"))
+        or _number(metrics.get("views"))
+    )
     if not exposure or exposure <= 0:
         return None
-    engagement = sum(_number(metrics.get(key)) or 0.0 for key in ("likes", "comments", "shares", "saves"))
+    engagement = sum(
+        _number(metrics.get(key)) or 0.0
+        for key in ("likes", "comments", "shares", "saves")
+    )
     engagement_rate = engagement / exposure
     return math.log1p(exposure) * engagement_rate
 
@@ -224,7 +273,9 @@ def recency_weight(value: Any, *, now: datetime) -> float:
 
 
 def _sort_time(snapshot: dict[str, Any]) -> datetime:
-    return _parse_time(snapshot.get("snapshotAt") or snapshot.get("createdAt")) or datetime.min.replace(tzinfo=timezone.utc)
+    return _parse_time(
+        snapshot.get("snapshotAt") or snapshot.get("createdAt")
+    ) or datetime.min.replace(tzinfo=UTC)
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -235,7 +286,7 @@ def _parse_time(value: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
