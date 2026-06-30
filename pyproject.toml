@@ -38,8 +38,22 @@ pythonpath = [
 [dependency-groups]
 dev = [
     "import-linter>=2.11",
+    "mypy>=1.11,<2",
     "ruff>=0.8,<1",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+# Lenient adoption across a large, mostly-untyped codebase: catch real type
+# errors (bad calls, attr typos) without demanding annotations everywhere.
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = false
+exclude = "(^|/)(\\.venv|\\.uv-cache|node_modules|graphify-out|tests)/"
+# CI gates only the type-clean packages (`pnpm typecheck:py`). Typing backlog as
+# of adoption: campaign_factory ~581, reference_factory ~149, reel_factory ~119
+# (mostly union-attr / None-safety). Graduate a package into the CI gate once it
+# reaches zero — run `uv run mypy <path>` locally to chip away.
 
 [tool.ruff]
 target-version = "py311"
