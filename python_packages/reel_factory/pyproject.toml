@@ -39,6 +39,7 @@ build-backend = "setuptools.build_meta"
 packages = ["experiments"]
 py-modules = [
   "ai_visual_qc",
+  "anatomy_qc",
   "analysis_reports",
   "asset_prompt_contract",
   "approval_board",

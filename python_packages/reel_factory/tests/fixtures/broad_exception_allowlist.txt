@@ -2,6 +2,8 @@
 ai_visual_qc.py:_duration:109
 ai_visual_qc.py:_ocr_text:153
 ai_visual_qc.py:_ocr_text:157
+anatomy_qc.py:assess_anatomy:85
+anatomy_qc.py:assess_anatomy:96
 audio_mux.py:audio_stream_count:44
 audio_mux.py:_audio_meta:71
 audio_mux.py:mux_root:201
