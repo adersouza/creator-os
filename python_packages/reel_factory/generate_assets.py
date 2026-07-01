@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from anatomy_qc import assess_image_qc, is_image_postable
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import (
     connect,
@@ -1083,6 +1084,39 @@ def create_assets(
     }
 
 
+def generated_image_qc(
+    local_paths: dict[str, str], *, root: Path | str, required: bool = False
+) -> dict[str, Any]:
+    image_items = [
+        (key, Path(value))
+        for key, value in sorted(local_paths.items())
+        if key == "image" or key.startswith("variation_")
+    ]
+    if not image_items:
+        return {
+            "schema": "reel_factory.generated_image_qc.v1",
+            "status": "failed" if required else "skipped",
+            "reason": "no_downloaded_images",
+            "results": [],
+        }
+    results = []
+    for key, path in image_items:
+        assessment = assess_image_qc(path, root=root)
+        results.append(
+            {
+                "key": key,
+                "path": str(path),
+                "postable": is_image_postable(assessment),
+                **assessment,
+            }
+        )
+    return {
+        "schema": "reel_factory.generated_image_qc.v1",
+        "status": "passed" if all(row["postable"] for row in results) else "failed",
+        "results": results,
+    }
+
+
 def create_image_asset(
     plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
 ) -> dict[str, Any]:
@@ -1217,8 +1251,26 @@ def create_image_asset(
             "count": len([k for k in local_paths if k.startswith("variation_")]),
         }
     )
+    qc = generated_image_qc(local_paths, root=plan.source_dir.parent, required=download)
+    payload["review"]["generatedImageQc"] = qc
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if qc["status"] == "failed":
+        payload["generation"]["status"] = "image_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_image_qc",
+            "reason": "generated image failed anatomy/exposure QC",
+        }
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"],
+        }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1355,8 +1407,26 @@ def create_direct_reference_image_asset(
         status="image_completed",
     )
     payload["generation"]["costPreflight"] = cost_preflight
+    qc = generated_image_qc(local_paths, root=plan.source_dir.parent, required=download)
+    payload["review"]["generatedImageQc"] = qc
     path = direct_reference_lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if qc["status"] == "failed":
+        payload["generation"]["status"] = "image_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_image_qc",
+            "reason": "generated image failed anatomy/exposure QC",
+        }
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"],
+        }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"ok": True, "path": str(path), "lineage": payload, "campaign_record": None}
 

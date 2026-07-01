@@ -1,9 +1,13 @@
-.PHONY: dev test verify sync format install
+.PHONY: dev test verify sync format install reel-models
 
 install:
 	pnpm install
 	uv sync --all-extras --all-packages
 	git config core.hooksPath scripts/hooks
+
+reel-models:
+	uv sync --package reel-factory --extra vision --extra ai --inexact
+	uv run --package reel-factory --extra vision --extra ai python python_packages/reel_factory/fetch_models.py
 
 dev-web:
 	pnpm run dev

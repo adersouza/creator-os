@@ -19,7 +19,7 @@ dependencies = [
 dev = ["pytest>=8,<9", "playwright>=1.49,<2", "mypy>=1.11,<2"]
 vision = ["opencv-python>=4.9,<5", "mediapipe>=0.10,<1"]
 identity = ["insightface>=0.7,<1", "onnxruntime>=1.18,<2", "opencv-python>=4.9,<5"]
-ai = ["sentence-transformers>=3,<6", "mlx-whisper>=0.4,<1", "einops>=0.8,<1", "timm>=1,<2", "torchvision>=0.18,<1"]
+ai = ["sentence-transformers>=3,<6", "mlx-whisper>=0.4,<1", "einops>=0.8,<1", "timm>=1,<2", "torch>=2,<3", "torchvision>=0.18,<1"]
 pango = ["pycairo>=1.26,<2", "PyGObject>=3.46,<4"]
 queue = ["redis>=5,<6", "rq>=1.16,<3"]
 
