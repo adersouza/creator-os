@@ -1,8 +1,8 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
-  "source_hash": "883554a649da3e6a066dd7858780f9fdbae1e445e22094e12860660149b0505a",
-  "updated_at": 1782874000,
+  "source_hash": "c185f516c8564ed72bc3fb6e78a330c005e0b265f9b0a45e09bd07ba2d54f446",
+  "updated_at": 1782880000,
   "banks": {
     "shared_girl_next_door": [
       {
@@ -3540,6 +3540,134 @@
             "source_index": 94
           }
         ]
+      },
+      {
+        "caption_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
+        "text": "\"you're so pretty\"\ni know, now what",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 7,
+        "char_count": 35,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b53879005277289b44c50c3313cd43f847eab07888a315fa79d1f85b255d8757",
+        "text": "comment 🍒 if you'd text me first\n(you won't)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 44,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "0fe71e58890dc94826d3e52e3517cf62e46dd7f22d3f5cc5685c0a6a788e7434",
+        "text": "tell me i'm annoying\ni'll take it as a compliment",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ad710fa243afd9ffe390fb91aa227cca7203bad6abec562ee2d70d222f2c195a",
+        "text": "i stalk my own page too\nfr what an amazing person",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "6e655dc7585f602a56646b4c304ecc8ae7f0a10f4c189680b2263885e9cf72dd",
+        "text": "say something mean\ni dare you\ni'll just find it hot",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 51,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "63fd7ce352b907e8dbe38c10820c2bff9ca07c73cf5314242ef41753f40750d0",
+        "text": "drop a ❤️ if you're single\ndrop two if you're lying",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a1a8a09d3eaa65ec09294b35ab22ea5be2ff1ef1a286bba521c0ad5d52377894",
+        "text": "be honest in the comments:\nwould you survive a week with me",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 59,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "d46c6fcc97a561fc3c3f873245a473d16f29bebdb932b416b86450fed0e6013f",
+        "text": "i'm not for everyone\ncomment if you're not everyone",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ],
     "choice_poll": [
@@ -4052,6 +4180,134 @@
             "source_index": 110
           }
         ]
+      },
+      {
+        "caption_hash": "4852b5460af9f105a1a7536f96561a6e1525a0f40b07878f5b50a542f8d1f00c",
+        "text": "you can only pick one:\n1. me\n2. a girl who texts back\n3. sleep\n(you picked wrong)",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 18,
+        "char_count": 81,
+        "line_count": 5,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "9b1f0557f8e871bfe3924e1f78cec925834417ac28302f63c9ebad83ec628487",
+        "text": "men choose any 3:\n1. loyal\n2. funny\n3. rich\n4. mine\n5. all of the above",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 71,
+        "line_count": 6,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2631a693e6505a1a1a1d604ae8e2daf1ef5314928c1e5b903a4b1e12e604367e",
+        "text": "pick your poison:\n1. clingy\n2. distant\n3. me (somehow both)",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 59,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "75c7309865502916f6ae921b7ee5d57b95afb07f71b180e6ff45b3823f389d32",
+        "text": "2 truths 1 lie:\ni'm 5'4\ni can't cook\ni'm thinking about you rn",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 62,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fb0b865c38d0a623e822bc7b3bdb18ca8095d6b9dcc8b7e33e735d1173d0f26",
+        "text": "rank these:\n1. my eyes\n2. my smile\n3. the thing you're actually looking at",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 74,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ab0519b90376f8b3fca510d5051dfb99c05278e0fd0fb44293c55624414c23f9",
+        "text": "choose wisely:\n1. good morning texts\n2. good night texts\n3. me showing up unannounced",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 85,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "1053ff822ee674c952dac4da8b005701fa5689347b9c2388f04df409fedb18f2",
+        "text": "you get one:\n1. a girl who cooks\n2. a girl who's fun\n3. a girl who's both but a little crazy",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 22,
+        "char_count": 92,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "8dc9c525dcf8c2ed9b2b95fd873340005588f1591f804b3e94e6e409501b5330",
+        "text": "pick 2, be honest:\n1. pretty\n2. loyal\n3. low maintenance\n4. mine",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 64,
+        "line_count": 5,
+        "length_class": "medium",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ],
     "coded_fill_ins": [
@@ -4809,6 +5065,134 @@
             "source_index": 140
           }
         ]
+      },
+      {
+        "caption_hash": "b79f3acae6ae246cc5dcb40e0cebd8ed4e6f4230f9ac69870bfb011ccbbfb0a9",
+        "text": "Fill in the blanks:\n_iss 💋\n_ed 🛏\n_ug 🤗\n_ips 👄\n_ame 🎮\n_ute 🥰",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 59,
+        "line_count": 7,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5814c98809ed8aa55a515e647dd74307f4050d63379446569791206931fdb7fa",
+        "text": "read it and swap O with I:\ncome give me a koss",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 46,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "432b22aa70ca0d6a20ff98703146f68efc69234c5358a4858bc178324fbf3e4d",
+        "text": "be a good boy and decode this:\nMSDBTCM",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 38,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "87a35b0f0a929a61fcc2f0819363b4dff015ac960b451aa7ce1612cf447d324a",
+        "text": "only freaks can decode this:\nif you L my V I'll K your N",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 56,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e0dcefb35150063e60cbec0ab788c35c24aeaa3b0434a1978aa421b295e9a3e7",
+        "text": "What I really want:\nTrouble (without Tr)\nAttention (without Atten)\nYou (keep it all)",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 84,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7948d935538271ed984dbb5762b0325fc74c22956644c1526b8e8d444c5feee2",
+        "text": "POV I'm your gamer gf\nswap the H and C in 'chill'\nthen text me",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 62,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "15d2f62415456f48c6536a08ae3aac1c8aaa209462b7464f09122feff63d996c",
+        "text": "if you F my H I'll K your N\ncomment 🍒 if you get it",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "6bebf53ab76d86c960595ce6893c15ae5d89a04ba599322d34f4e64f58f8973f",
+        "text": "spell it out:\nB - E - M - I - N - E\nnow do the same with your number",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 68,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ],
     "read_backwards_puzzle": [
@@ -5399,6 +5783,134 @@
             "source_index": 54
           }
         ]
+      },
+      {
+        "caption_hash": "d81413f4ee6dca896ed1aea8b5fcf8528aff98beb3101cb5929a69b580732658",
+        "text": "read this backwards:\nem txet ,epyt ym er'uoy fi",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 47,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fdc658531a9ca0ecd1db133ce0aaf7908ea060f0a236a2d672045d2222893f0",
+        "text": "if you can read this backwards then i'm yours:\nsruoy m'i neht",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 61,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2befe1703cda2a05c925d25a3850be22a53fd1a087ca347df8ac30e459062cb1",
+        "text": "read bottom to top:\nnow text me\nif you figured it out\nyou passed",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 64,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "76398eb56cd59b13b4b6afe1c5b3eab5415e14ee4a92c645864b1a0094197b4e",
+        "text": "only smart boys can read this:\nrevo emoc dna yob doog a eb",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 58,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2895fe5a38dad7aec8f3854d6926250298ac7115528080d3f2f1f527834736ee",
+        "text": "say it backwards:\nem ssik",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 5,
+        "char_count": 25,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e05855da02f62edc0c68ce893b255a3b4aa7ad0b747ac37e24d5fb8ee5033708",
+        "text": "read every third word:\ni really do want you to come over later and stay",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 71,
+        "line_count": 2,
+        "length_class": "long",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "57a5fa92b0b51ce39906176a7df299f238b2edc28e65b681805b91cd45afc5ad",
+        "text": "be a good boy and read this backwards:\nthginot em ot kaeps",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 58,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "626698626e441bee62abe2d63a80c07e3978bef51329cd21a4455246efec6a05",
+        "text": "read this or you can't have me:\nemoh emoc",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 41,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ],
     "boyfriend_bait": [
@@ -6251,6 +6763,134 @@
             "source_index": 16
           }
         ]
+      },
+      {
+        "caption_hash": "f48b3ad50bd43d0b5a853d1a9818199a3454ca4a6fb3ca026c7ac93a13fdd477",
+        "text": "never dating a man who\nfalls asleep before me\nwho's gonna guard the room",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 72,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e9f585c8520dab0c12c75afd8808bca20de38d1dc3fccfb2cb79d9da4b8909c2",
+        "text": "i'm not high maintenance\ni'm just worth the effort my pretty boy",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 64,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b454e950828fd64131634001a4c33a40cbe30a0c9fbd98cb4fb575e05cd54e39",
+        "text": "3 reasons to text me first:\n1. i won't\n2. i'm shy\n3. i'm literally right here",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 77,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "07de11d62c1de3ba2f9361007000b9a0250ae27447ee45cdb4c18d49d0bafc24",
+        "text": "i don't chase\ni attract\nand somehow i attracted you all the way here",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 68,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "3e14f95cc0aca6f6ab4f16232f977800c53aad2a18eca07297f756f2e6353194",
+        "text": "green flag: he lets me win the argument\nred flag: he thinks he was winning",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 74,
+        "line_count": 2,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "84091ab6f2a752b959d9f35c5c33802929c9fef8f00865462ba2d478c6b1719a",
+        "text": "i'm the type to ruin your sleep schedule\nand your standards for everyone else",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 77,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b43dd5fb949c5f8b242166f6147bfb732eef0949a3f8017fba81bad8c7113bb1",
+        "text": "single because i keep scaring them off\nby being the whole package",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 65,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7a2ba7a55c0b95cefc1e565768a87b61390eb7f1c8e5c3cd7c6af8a0612a7e76",
+        "text": "my love language is you texting back\nbefore i start overthinking it",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 67,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ],
     "body_attention": [
@@ -13484,6 +14124,646 @@
         "source_file": "01_captions/clip_001.json",
         "source_clip": "clip_001",
         "source_index": 154
+      },
+      {
+        "caption_hash": "b79f3acae6ae246cc5dcb40e0cebd8ed4e6f4230f9ac69870bfb011ccbbfb0a9",
+        "text": "Fill in the blanks:\n_iss 💋\n_ed 🛏\n_ug 🤗\n_ips 👄\n_ame 🎮\n_ute 🥰",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 59,
+        "line_count": 7,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5814c98809ed8aa55a515e647dd74307f4050d63379446569791206931fdb7fa",
+        "text": "read it and swap O with I:\ncome give me a koss",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 46,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "432b22aa70ca0d6a20ff98703146f68efc69234c5358a4858bc178324fbf3e4d",
+        "text": "be a good boy and decode this:\nMSDBTCM",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 38,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "87a35b0f0a929a61fcc2f0819363b4dff015ac960b451aa7ce1612cf447d324a",
+        "text": "only freaks can decode this:\nif you L my V I'll K your N",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 56,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e0dcefb35150063e60cbec0ab788c35c24aeaa3b0434a1978aa421b295e9a3e7",
+        "text": "What I really want:\nTrouble (without Tr)\nAttention (without Atten)\nYou (keep it all)",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 84,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7948d935538271ed984dbb5762b0325fc74c22956644c1526b8e8d444c5feee2",
+        "text": "POV I'm your gamer gf\nswap the H and C in 'chill'\nthen text me",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 62,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "15d2f62415456f48c6536a08ae3aac1c8aaa209462b7464f09122feff63d996c",
+        "text": "if you F my H I'll K your N\ncomment 🍒 if you get it",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "6bebf53ab76d86c960595ce6893c15ae5d89a04ba599322d34f4e64f58f8973f",
+        "text": "spell it out:\nB - E - M - I - N - E\nnow do the same with your number",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 68,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "f48b3ad50bd43d0b5a853d1a9818199a3454ca4a6fb3ca026c7ac93a13fdd477",
+        "text": "never dating a man who\nfalls asleep before me\nwho's gonna guard the room",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 72,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e9f585c8520dab0c12c75afd8808bca20de38d1dc3fccfb2cb79d9da4b8909c2",
+        "text": "i'm not high maintenance\ni'm just worth the effort my pretty boy",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 64,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b454e950828fd64131634001a4c33a40cbe30a0c9fbd98cb4fb575e05cd54e39",
+        "text": "3 reasons to text me first:\n1. i won't\n2. i'm shy\n3. i'm literally right here",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 77,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "07de11d62c1de3ba2f9361007000b9a0250ae27447ee45cdb4c18d49d0bafc24",
+        "text": "i don't chase\ni attract\nand somehow i attracted you all the way here",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 68,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "3e14f95cc0aca6f6ab4f16232f977800c53aad2a18eca07297f756f2e6353194",
+        "text": "green flag: he lets me win the argument\nred flag: he thinks he was winning",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 74,
+        "line_count": 2,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "84091ab6f2a752b959d9f35c5c33802929c9fef8f00865462ba2d478c6b1719a",
+        "text": "i'm the type to ruin your sleep schedule\nand your standards for everyone else",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 77,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b43dd5fb949c5f8b242166f6147bfb732eef0949a3f8017fba81bad8c7113bb1",
+        "text": "single because i keep scaring them off\nby being the whole package",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 65,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7a2ba7a55c0b95cefc1e565768a87b61390eb7f1c8e5c3cd7c6af8a0612a7e76",
+        "text": "my love language is you texting back\nbefore i start overthinking it",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 67,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "d81413f4ee6dca896ed1aea8b5fcf8528aff98beb3101cb5929a69b580732658",
+        "text": "read this backwards:\nem txet ,epyt ym er'uoy fi",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 47,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fdc658531a9ca0ecd1db133ce0aaf7908ea060f0a236a2d672045d2222893f0",
+        "text": "if you can read this backwards then i'm yours:\nsruoy m'i neht",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 61,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2befe1703cda2a05c925d25a3850be22a53fd1a087ca347df8ac30e459062cb1",
+        "text": "read bottom to top:\nnow text me\nif you figured it out\nyou passed",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 64,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "76398eb56cd59b13b4b6afe1c5b3eab5415e14ee4a92c645864b1a0094197b4e",
+        "text": "only smart boys can read this:\nrevo emoc dna yob doog a eb",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 58,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2895fe5a38dad7aec8f3854d6926250298ac7115528080d3f2f1f527834736ee",
+        "text": "say it backwards:\nem ssik",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 5,
+        "char_count": 25,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e05855da02f62edc0c68ce893b255a3b4aa7ad0b747ac37e24d5fb8ee5033708",
+        "text": "read every third word:\ni really do want you to come over later and stay",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 71,
+        "line_count": 2,
+        "length_class": "long",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "57a5fa92b0b51ce39906176a7df299f238b2edc28e65b681805b91cd45afc5ad",
+        "text": "be a good boy and read this backwards:\nthginot em ot kaeps",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 58,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "puzzle",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "626698626e441bee62abe2d63a80c07e3978bef51329cd21a4455246efec6a05",
+        "text": "read this or you can't have me:\nemoh emoc",
+        "banks": [
+          "read_backwards_puzzle",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 41,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4852b5460af9f105a1a7536f96561a6e1525a0f40b07878f5b50a542f8d1f00c",
+        "text": "you can only pick one:\n1. me\n2. a girl who texts back\n3. sleep\n(you picked wrong)",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 18,
+        "char_count": 81,
+        "line_count": 5,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "9b1f0557f8e871bfe3924e1f78cec925834417ac28302f63c9ebad83ec628487",
+        "text": "men choose any 3:\n1. loyal\n2. funny\n3. rich\n4. mine\n5. all of the above",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 71,
+        "line_count": 6,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2631a693e6505a1a1a1d604ae8e2daf1ef5314928c1e5b903a4b1e12e604367e",
+        "text": "pick your poison:\n1. clingy\n2. distant\n3. me (somehow both)",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 59,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "75c7309865502916f6ae921b7ee5d57b95afb07f71b180e6ff45b3823f389d32",
+        "text": "2 truths 1 lie:\ni'm 5'4\ni can't cook\ni'm thinking about you rn",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 62,
+        "line_count": 4,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fb0b865c38d0a623e822bc7b3bdb18ca8095d6b9dcc8b7e33e735d1173d0f26",
+        "text": "rank these:\n1. my eyes\n2. my smile\n3. the thing you're actually looking at",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 74,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ab0519b90376f8b3fca510d5051dfb99c05278e0fd0fb44293c55624414c23f9",
+        "text": "choose wisely:\n1. good morning texts\n2. good night texts\n3. me showing up unannounced",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 85,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "1053ff822ee674c952dac4da8b005701fa5689347b9c2388f04df409fedb18f2",
+        "text": "you get one:\n1. a girl who cooks\n2. a girl who's fun\n3. a girl who's both but a little crazy",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 22,
+        "char_count": 92,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "8dc9c525dcf8c2ed9b2b95fd873340005588f1591f804b3e94e6e409501b5330",
+        "text": "pick 2, be honest:\n1. pretty\n2. loyal\n3. low maintenance\n4. mine",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 64,
+        "line_count": 5,
+        "length_class": "medium",
+        "format_class": "numbered_list",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a66441d078dcca6c47071ccb94f65151c4beadba505d7e9e05a8622e36f509dc",
+        "text": "\"you're so pretty\"\ni know, now what",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 7,
+        "char_count": 35,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b53879005277289b44c50c3313cd43f847eab07888a315fa79d1f85b255d8757",
+        "text": "comment 🍒 if you'd text me first\n(you won't)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 44,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "0fe71e58890dc94826d3e52e3517cf62e46dd7f22d3f5cc5685c0a6a788e7434",
+        "text": "tell me i'm annoying\ni'll take it as a compliment",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ad710fa243afd9ffe390fb91aa227cca7203bad6abec562ee2d70d222f2c195a",
+        "text": "i stalk my own page too\nfr what an amazing person",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "6e655dc7585f602a56646b4c304ecc8ae7f0a10f4c189680b2263885e9cf72dd",
+        "text": "say something mean\ni dare you\ni'll just find it hot",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 51,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "63fd7ce352b907e8dbe38c10820c2bff9ca07c73cf5314242ef41753f40750d0",
+        "text": "drop a ❤️ if you're single\ndrop two if you're lying",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a1a8a09d3eaa65ec09294b35ab22ea5be2ff1ef1a286bba521c0ad5d52377894",
+        "text": "be honest in the comments:\nwould you survive a week with me",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 59,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "d46c6fcc97a561fc3c3f873245a473d16f29bebdb932b416b86450fed0e6013f",
+        "text": "i'm not for everyone\ncomment if you're not everyone",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "generated_variation",
+        "source_file": "authored_2026-07-01",
+        "source_index": 0
       }
     ]
   }
