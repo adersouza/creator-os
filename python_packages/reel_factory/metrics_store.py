@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -41,9 +43,11 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
             saves INTEGER,
             manual_score REAL,
             notes TEXT,
+            soul_id TEXT,
             imported_at INTEGER NOT NULL
         )
     """)
+    _ensure_columns(conn, "publish_metrics", {"soul_id": "TEXT"})
     ensure_intelligence_schema(conn)
 
 
@@ -74,12 +78,20 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 if filename:
                     ignored.append(filename)
                 continue
+            output_row = conn.execute(
+                "SELECT output_path, job_key, caption_text, recipe, review_state FROM variations WHERE output_path LIKE ? LIMIT 1",
+                (f"%/{filename}",),
+            ).fetchone()
+            output_path = output_row["output_path"] if output_row else None
+            soul_id = _resolve_metrics_soul_id(
+                Path(root), conn, filename, output_path=output_path
+            )
             conn.execute(
                 """
                 INSERT INTO publish_metrics (
                     filename, platform, account, uploaded_at, views, likes,
-                    comments, shares, saves, manual_score, notes, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    comments, shares, saves, manual_score, notes, soul_id, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET
                     platform = excluded.platform,
                     account = excluded.account,
@@ -91,6 +103,7 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     saves = excluded.saves,
                     manual_score = excluded.manual_score,
                     notes = excluded.notes,
+                    soul_id = excluded.soul_id,
                     imported_at = excluded.imported_at
                 """,
                 (
@@ -105,13 +118,10 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     _int(row.get("saves")),
                     _float(row.get("manual_score") or row.get("score")),
                     _text(row.get("notes")),
+                    soul_id,
                     int(time.time()),
                 ),
             )
-            output_row = conn.execute(
-                "SELECT output_path, job_key, caption_text, recipe, review_state FROM variations WHERE output_path LIKE ? LIMIT 1",
-                (f"%/{filename}",),
-            ).fetchone()
             if output_row:
                 now = int(time.time())
                 conn.execute(
@@ -229,11 +239,15 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
             posted_at = _text(
                 row.get("posted_at") or row.get("uploaded_at") or row.get("date")
             )
+            soul_id = _resolve_metrics_soul_id(
+                Path(root), conn, filename, output_path=output_path
+            )
             outcome_id = f"outcome_{slugify(filename)}_{slugify(platform or 'platform')}_{slugify(account or 'account')}_{slugify(posted_at or 'unknown')}"
             payload = (
                 outcome_id,
                 filename,
                 output_path,
+                soul_id,
                 variation["job_key"] if variation else None,
                 campaign_output["campaign_output_id"] if campaign_output else None,
                 campaign_output["campaign_id"] if campaign_output else None,
@@ -260,14 +274,15 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
             conn.execute(
                 """
                 INSERT INTO reel_outcomes (
-                    outcome_id, filename, output_path, job_key, campaign_output_id,
+                    outcome_id, filename, output_path, soul_id, job_key, campaign_output_id,
                     campaign_id, asset_generation_id, prompt_run_id, source_reference_id,
                     platform, account, posted_at, views, likes, comments, shares, saves,
                     watch_time, retention_rate, profile_visits, follows, manual_score,
                     source_url, notes, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename, platform, account, posted_at) DO UPDATE SET
                     output_path=excluded.output_path,
+                    soul_id=excluded.soul_id,
                     job_key=excluded.job_key,
                     campaign_output_id=excluded.campaign_output_id,
                     campaign_id=excluded.campaign_id,
@@ -295,8 +310,8 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 """
                 INSERT INTO publish_metrics (
                     filename, platform, account, uploaded_at, views, likes,
-                    comments, shares, saves, manual_score, notes, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    comments, shares, saves, manual_score, notes, soul_id, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET
                     platform=excluded.platform,
                     account=excluded.account,
@@ -308,6 +323,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     saves=excluded.saves,
                     manual_score=excluded.manual_score,
                     notes=excluded.notes,
+                    soul_id=excluded.soul_id,
                     imported_at=excluded.imported_at
                 """,
                 (
@@ -322,6 +338,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     _int(row.get("saves")),
                     _float(row.get("manual_score") or row.get("score")),
                     _text(row.get("notes")),
+                    soul_id,
                     int(time.time()),
                 ),
             )
@@ -538,6 +555,226 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
     }
 
 
+def soul_metrics_report(root: Path, *, by_account: bool = False) -> dict[str, Any]:
+    db_path = Path(root) / "manifest.sqlite"
+    if not db_path.exists():
+        return {"rows": [], "unattributed_count": 0}
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    ensure_metrics_schema(conn)
+    select_account = "account, " if by_account else ""
+    group_account = ", account" if by_account else ""
+    rows = conn.execute(f"""
+        SELECT
+            {select_account}COALESCE(soul_id, 'unattributed') AS soul_id,
+            COUNT(*) AS post_count,
+            SUM(COALESCE(views, 0)) AS total_views,
+            SUM(COALESCE(likes, 0)) AS total_likes,
+            SUM(COALESCE(comments, 0)) AS total_comments,
+            SUM(COALESCE(shares, 0)) AS total_shares,
+            SUM(COALESCE(saves, 0)) AS total_saves,
+            AVG(views) AS mean_views,
+            AVG(likes) AS mean_likes,
+            AVG(comments) AS mean_comments,
+            AVG(shares) AS mean_shares,
+            AVG(saves) AS mean_saves
+        FROM publish_metrics
+        GROUP BY COALESCE(soul_id, 'unattributed'){group_account}
+    """).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        engagements = sum(
+            int(row[f"total_{metric}"] or 0)
+            for metric in ("likes", "comments", "shares", "saves")
+        )
+        total_views = int(row["total_views"] or 0)
+        item = {
+            "soul_id": row["soul_id"],
+            "post_count": int(row["post_count"] or 0),
+            "total_views": total_views,
+            "mean_views": _round(row["mean_views"]),
+            "total_likes": int(row["total_likes"] or 0),
+            "mean_likes": _round(row["mean_likes"]),
+            "total_comments": int(row["total_comments"] or 0),
+            "mean_comments": _round(row["mean_comments"]),
+            "total_shares": int(row["total_shares"] or 0),
+            "mean_shares": _round(row["mean_shares"]),
+            "total_saves": int(row["total_saves"] or 0),
+            "mean_saves": _round(row["mean_saves"]),
+            "total_engagements": engagements,
+            "engagement_rate": round(engagements / total_views, 4)
+            if total_views
+            else 0.0,
+        }
+        if by_account:
+            item["account"] = row["account"]
+        out.append(item)
+    out.sort(
+        key=lambda item: (item["mean_views"] or 0, item["total_engagements"]),
+        reverse=True,
+    )
+    return {
+        "rows": out,
+        "unattributed_count": sum(
+            item["post_count"] for item in out if item["soul_id"] == "unattributed"
+        ),
+    }
+
+
+def _resolve_metrics_soul_id(
+    root: Path,
+    conn: sqlite3.Connection,
+    filename: str,
+    *,
+    output_path: str | None = None,
+) -> str | None:
+    rendered = _resolve_rendered_path(root, conn, filename, output_path=output_path)
+    if rendered:
+        caption_lineage = _load_json(
+            rendered.with_suffix(rendered.suffix + ".caption_lineage.json")
+        )
+        source_stem = _text(
+            _lineage_value(caption_lineage or {}, "source_clip", "sourceClip")
+        )
+        if not source_stem:
+            source_stem = _source_stem_from_rendered(rendered.stem)
+        soul_id = _soul_id_from_source_stem(root, source_stem)
+        if soul_id:
+            return soul_id
+    # ponytail: slot identity is a last-resort campaign/account hint, not the
+    # true variant on shared-account Stacey/Stacey1 tests.
+    return _soul_id_from_posting_slot(conn, rendered)
+
+
+def _resolve_rendered_path(
+    root: Path,
+    conn: sqlite3.Connection,
+    filename: str,
+    *,
+    output_path: str | None = None,
+) -> Path | None:
+    if output_path:
+        return _project_path(root, output_path)
+    row = conn.execute(
+        "SELECT output_path FROM variations WHERE output_path LIKE ? LIMIT 1",
+        (f"%/{filename}",),
+    ).fetchone()
+    if row and row["output_path"]:
+        return _project_path(root, row["output_path"])
+    row = conn.execute(
+        "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
+        (f"%/{filename}", filename),
+    ).fetchone()
+    if row and row["output_path"]:
+        return _project_path(root, row["output_path"])
+    direct = _project_path(root, filename)
+    return direct if direct.exists() else None
+
+
+def _soul_id_from_source_stem(root: Path, source_stem: str | None) -> str | None:
+    if not source_stem:
+        return None
+    source_dir = root / "00_source_videos"
+    for suffix in ("generated_asset_lineage", "direct_reference_lineage"):
+        path = source_dir / f"{source_stem}.{suffix}.json"
+        lineage = _load_json(path)
+        soul_id = _text(_lineage_value(lineage or {}, "soulId", "soul_id"))
+        if soul_id:
+            return soul_id
+    return None
+
+
+def _soul_id_from_posting_slot(
+    conn: sqlite3.Connection, rendered: Path | None
+) -> str | None:
+    if not rendered:
+        return None
+    try:
+        row = conn.execute(
+            """
+            SELECT soul_id FROM posting_slots
+            WHERE rendered_output_path=? AND soul_id IS NOT NULL
+            ORDER BY updated_at DESC LIMIT 1
+            """,
+            (str(rendered.resolve()),),
+        ).fetchone()
+        if row and row["soul_id"]:
+            return row["soul_id"]
+        if rendered.exists():
+            fp = _sha256_file(rendered)
+            row = conn.execute(
+                """
+                SELECT soul_id FROM posting_slots
+                WHERE content_fingerprint=? AND soul_id IS NOT NULL
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (fp,),
+            ).fetchone()
+            if row and row["soul_id"]:
+                return row["soul_id"]
+    except sqlite3.OperationalError:
+        return None
+    return None
+
+
+def _source_stem_from_rendered(stem: str) -> str | None:
+    match = re.match(r"^(.+?)_h\d+_v.+?_[^_]+_[A-Za-z0-9]{6,}$", stem)
+    if match:
+        return match.group(1)
+    if "_h" in stem:
+        return stem.split("_h", 1)[0]
+    return None
+
+
+def _lineage_value(lineage: dict[str, Any], *keys: str) -> Any:
+    stack = [lineage]
+    while stack:
+        obj = stack.pop()
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            if key in obj and obj[key] not in (None, ""):
+                return obj[key]
+        stack.extend(v for v in obj.values() if isinstance(v, dict))
+    return None
+
+
+def _load_json(path: Path) -> dict[str, Any] | None:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _project_path(root: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else root / path
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def _hook_idx(filename: str) -> int:
     for part in Path(filename).stem.split("_"):
         if part.startswith("h") and part[1:].isdigit():
@@ -547,6 +784,10 @@ def _hook_idx(filename: str) -> int:
 
 def _avg(values: list[int]) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
+
+
+def _round(value: Any) -> float | None:
+    return round(float(value), 2) if value is not None else None
 
 
 def _int(value: str | None) -> int | None:
@@ -575,6 +816,8 @@ def main() -> None:
     import_out.add_argument("csv")
     import_old = sub.add_parser("import")
     import_old.add_argument("csv")
+    soul_report = sub.add_parser("soul-report")
+    soul_report.add_argument("--by-account", action="store_true")
     sub.add_parser("outcomes-summary")
     args = parser.parse_args()
     root = Path(args.root).resolve()
@@ -582,6 +825,10 @@ def main() -> None:
         result = import_outcomes_csv(root, Path(args.csv).resolve())
     elif args.cmd == "outcomes-summary":
         result = outcomes_summary(root)
+    elif args.cmd == "soul-report":
+        result = soul_metrics_report(root, by_account=args.by_account)
+        _print_soul_report(result["rows"], by_account=args.by_account)
+        return
     elif args.cmd == "import":
         result = import_metrics_csv(root, Path(args.csv).resolve())
     elif args.csv:
@@ -589,6 +836,22 @@ def main() -> None:
     else:
         parser.error("provide --csv or a subcommand")
     print(result)
+
+
+def _print_soul_report(rows: list[dict[str, Any]], *, by_account: bool) -> None:
+    headers = ["account"] if by_account else []
+    headers += ["soul_id", "posts", "mean_views", "eng_rate", "engagements"]
+    print("\t".join(headers))
+    for row in rows:
+        values = [str(row.get("account") or "")] if by_account else []
+        values += [
+            str(row["soul_id"]),
+            str(row["post_count"]),
+            str(row["mean_views"] or 0),
+            f"{row['engagement_rate']:.2%}",
+            str(row["total_engagements"]),
+        ]
+        print("\t".join(values))
 
 
 if __name__ == "__main__":

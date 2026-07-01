@@ -67,6 +67,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         asset_generation_id TEXT,
         prompt_run_id TEXT,
         source_reference_id TEXT,
+        soul_id TEXT,
         platform TEXT,
         account TEXT,
         posted_at TEXT,
@@ -239,6 +240,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
             "campaign_id": "TEXT",
             "prompt_run_id": "TEXT",
             "source_reference_id": "TEXT",
+            "soul_id": "TEXT",
         },
     )
     conn.commit()

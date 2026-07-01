@@ -258,6 +258,7 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         saves INTEGER,
         manual_score REAL,
         notes TEXT,
+        soul_id TEXT,
         imported_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);

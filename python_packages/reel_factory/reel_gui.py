@@ -50,6 +50,7 @@ from metrics_store import (
     metrics_leaderboard,
     metrics_summary,
     outcomes_summary,
+    soul_metrics_report,
 )  # noqa
 from manifest import Manifest  # noqa
 from project_config import load_config, save_config  # noqa
@@ -2429,6 +2430,11 @@ def get_metrics_summary():
 @app.get("/api/metrics/leaderboard")
 def get_metrics_leaderboard():
     return metrics_leaderboard(ROOT)
+
+
+@app.get("/api/metrics/soul-report")
+def get_soul_metrics_report(by_account: bool = False):
+    return soul_metrics_report(ROOT, by_account=by_account)
 
 
 @app.post("/api/metrics/import")
