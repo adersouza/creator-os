@@ -616,6 +616,60 @@ def timed_caption_band(
     return "lower_center" if segment_index % 2 == 0 else "lower_center_alt"
 
 
+# Sub-band ladder: finer vertical stops inside each scored lane so
+# similar-composition clips don't all snap to the same y (owner: "all in the
+# exact same spot"). Each sub-band lists the scored lanes it physically sits
+# inside; it's only offered when NONE of those lanes were rejected by the
+# scorer, so variety never nudges text onto the subject.
+_SUBBAND_SUPPORT = {
+    "top": ("top",),
+    "center": ("center",),
+    "lower_center": ("center", "bottom"),
+    "lower_center_alt": ("center", "bottom"),
+    "bottom": ("bottom",),
+}
+_LANE_SUBBANDS = {
+    "top": ("top",),
+    "center": ("center", "lower_center"),
+    "bottom": ("bottom", "lower_center_alt"),
+}
+
+
+def vary_band_within_lane(
+    band: str, summary: PlacementSummary, *, diversity_key: str
+) -> str:
+    """Jitter a static caption vertically within its scored lane, per clip.
+
+    Picks among sub-bands inside the winning lane, skipping any whose supporting
+    lanes the scorer rejected. Deterministic per clip via diversity_key. Bands
+    outside the ladder (left/right/lower_center/explicit presets) pass through.
+    """
+    options = _LANE_SUBBANDS.get(band)
+    if not options:
+        return band
+    decision = (
+        summary.metadata.get("captionPlacementDecision")
+        if isinstance(summary.metadata, dict)
+        else None
+    )
+    rejected = (
+        {str(zone) for zone in (decision or {}).get("rejectedLanes", [])}
+        if isinstance(decision, dict)
+        else set()
+    )
+    eligible = [
+        sub
+        for sub in options
+        if not any(lane in rejected for lane in _SUBBAND_SUPPORT[sub])
+    ]
+    if len(eligible) <= 1:
+        return eligible[0] if eligible else band
+    idx = int(hashlib.sha256(diversity_key.encode("utf-8")).hexdigest()[:8], 16) % len(
+        eligible
+    )
+    return eligible[idx]
+
+
 def build_caption_placement_qc_row(
     *,
     source_clip: str,
@@ -1092,6 +1146,9 @@ async def process_one(
     if not is_timed_caption:
         diversity_key = f"{src_hash}|{hook_idx}|{recipe.name}|{caption}"
         band = centered_static_caption_band(
+            band, _placement_summary, diversity_key=diversity_key
+        )
+        band = vary_band_within_lane(
             band, _placement_summary, diversity_key=diversity_key
         )
     style = recipe.caption_style if recipe.caption_style != "auto" else auto_style

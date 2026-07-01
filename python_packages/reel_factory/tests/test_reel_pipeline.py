@@ -44,6 +44,7 @@ from reel_pipeline import (
     reconcile_interrupted_temp_outputs,
     source_lineage_path_for,
     timed_caption_band,
+    vary_band_within_lane,
     write_caption_lineage_sidecar,
     write_generated_asset_lineage_sidecar,
     write_required_similarity_audit,
@@ -957,6 +958,47 @@ class ReelPipelineTests(unittest.TestCase):
         }
 
         self.assertEqual(bands, {"top", "center", "bottom"})
+
+    def _subband_summary(self, lane, rejected):
+        return PlacementSummary(
+            lane,
+            {"top": 5.0, "center": 8.0, "bottom": 6.0},
+            3,
+            f"{lane} lowest",
+            {"captionPlacementDecision": {"rejectedLanes": rejected}},
+        )
+
+    def test_vary_band_jitters_within_lane_when_adjacent_clear(self):
+        summary = self._subband_summary("bottom", [])
+        bands = {
+            vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
+            for i in range(24)
+        }
+        # bottom lane offers bottom + lower_center_alt for per-clip variety
+        self.assertEqual(bands, {"bottom", "lower_center_alt"})
+
+    def test_vary_band_skips_subband_when_supporting_lane_rejected(self):
+        # center rejected → lower_center_alt (needs center+bottom) unavailable,
+        # so a bottom-lane caption never drifts up into the subject.
+        summary = self._subband_summary("bottom", ["center"])
+        bands = {
+            vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
+            for i in range(24)
+        }
+        self.assertEqual(bands, {"bottom"})
+
+    def test_vary_band_passes_through_unladdered_bands(self):
+        summary = self._subband_summary("bottom", [])
+        for band in ("left", "right", "lower_center", "lower_center_alt"):
+            self.assertEqual(
+                vary_band_within_lane(band, summary, diversity_key="x"), band
+            )
+
+    def test_vary_band_is_deterministic(self):
+        summary = self._subband_summary("center", [])
+        first = vary_band_within_lane("center", summary, diversity_key="stable")
+        again = vary_band_within_lane("center", summary, diversity_key="stable")
+        self.assertEqual(first, again)
 
     def test_job_key_changes_when_recipe_changes(self):
         a = compute_job_key("video", "caption", Recipe("v01_original"))
