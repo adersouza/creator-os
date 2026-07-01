@@ -21,10 +21,19 @@ from intelligence_store import (
 
 DEFAULT_CREATORS = {
     "Stacey": {
+        "soul_id": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        "default_settings": {
+            "image_model": "text2image_soul_v2",
+            "video_model": "kling3_0",
+            "accepted_soul_ids": ["d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"],
+        },
+    },
+    "Stacey1": {
         "soul_id": "5828d958-91dd-4d6d-8909-934503f47644",
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["5828d958-91dd-4d6d-8909-934503f47644"],
         },
     },
     "Larissa": {
@@ -32,6 +41,7 @@ DEFAULT_CREATORS = {
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["44326567-b12c-410c-95b7-31891bb0629b"],
         },
     },
     "Lola": {
@@ -39,6 +49,7 @@ DEFAULT_CREATORS = {
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["4c86c548-7aa5-4ad1-bc03-b94aa4ce8385"],
         },
     },
 }

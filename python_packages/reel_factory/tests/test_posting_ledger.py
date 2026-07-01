@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from audio_intent import write_audio_intent
+from campaign_store import connect as connect_campaign_store
 from manifest import Manifest
 from posting_ledger import (
     assign_approved_reels,
@@ -13,6 +14,10 @@ from posting_ledger import (
     review_queue,
     transition_slot,
 )
+
+STACEY_SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+STACEY1_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
+LARISSA_SOUL_ID = "44326567-b12c-410c-95b7-31891bb0629b"
 
 
 class PostingLedgerTests(unittest.TestCase):
@@ -68,7 +73,7 @@ class PostingLedgerTests(unittest.TestCase):
                 video_b.suffix + ".generated_asset_lineage.json"
             )
             lineage = {
-                "source": {"sourceReferenceId": "ref_a"},
+                "source": {"sourceReferenceId": "ref_a", "soulName": "Stacey"},
                 "generation": {"klingJobId": "kling_1"},
             }
             lineage_a.write_text(json.dumps(lineage), encoding="utf-8")
@@ -134,6 +139,7 @@ class PostingLedgerTests(unittest.TestCase):
                 "source": {
                     "sourceReferenceId": "ref_same",
                     "sourceFamilyId": "family_same",
+                    "soulName": "Stacey",
                 },
                 "generation": {"klingJobId": "kling_1"},
             }
@@ -141,6 +147,7 @@ class PostingLedgerTests(unittest.TestCase):
                 "source": {
                     "sourceReferenceId": "ref_same",
                     "sourceFamilyId": "family_same",
+                    "soulName": "Stacey",
                 },
                 "generation": {"klingJobId": "kling_2"},
             }
@@ -203,7 +210,10 @@ class PostingLedgerTests(unittest.TestCase):
                 video.suffix + ".generated_asset_lineage.json"
             )
             lineage_path.write_text(
-                json.dumps({"source": {"sourceReferenceId": "ref_a"}}), encoding="utf-8"
+                json.dumps(
+                    {"source": {"sourceReferenceId": "ref_a", "soulName": "Stacey"}}
+                ),
+                encoding="utf-8",
             )
             approved = {
                 "items": [
@@ -215,7 +225,10 @@ class PostingLedgerTests(unittest.TestCase):
                             "asset_generation_id": "asset_a",
                         },
                         "generated_asset_lineage": {
-                            "source": {"sourceReferenceId": "ref_a"}
+                            "source": {
+                                "sourceReferenceId": "ref_a",
+                                "soulName": "Stacey",
+                            }
                         },
                     }
                 ]
@@ -296,6 +309,266 @@ class PostingLedgerTests(unittest.TestCase):
                 .fetchone()["c"]
             )
             self.assertGreaterEqual(events, 4)
+
+    def test_assignment_accepts_two_soul_stacey_account(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[
+                    {
+                        "handle": "stacey_a",
+                        "accepted_soul_ids": [STACEY_SOUL_ID, STACEY1_SOUL_ID],
+                    }
+                ],
+                start_date="2026-06-03",
+                days=1,
+            )
+            video_a = root / "stacey.mp4"
+            video_b = root / "stacey1.mp4"
+            video_a.write_bytes(b"stacey soul")
+            video_b.write_bytes(b"stacey1 soul")
+            lineage_a = {"source": {"soulId": STACEY_SOUL_ID, "soulName": "Stacey"}}
+            lineage_b = {"source": {"soulId": STACEY1_SOUL_ID, "soulName": "Stacey1"}}
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(video_a),
+                                "generated_asset_lineage": lineage_a,
+                            },
+                            {
+                                "output_path": str(video_b),
+                                "generated_asset_lineage": lineage_b,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
+
+            self.assertEqual(assigned["assigned"], 2)
+            self.assertEqual(assigned["conflicts"], [])
+
+    def test_identity_mismatch_does_not_consume_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            plan = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[
+                    {
+                        "handle": "stacey_a",
+                        "accepted_soul_ids": [STACEY_SOUL_ID, STACEY1_SOUL_ID],
+                    }
+                ],
+                start_date="2026-06-03",
+                days=1,
+            )
+            wrong = root / "wrong.mp4"
+            correct = root / "correct.mp4"
+            wrong.write_bytes(b"larissa in stacey slot")
+            correct.write_bytes(b"stacey in stacey slot")
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(wrong),
+                                "generated_asset_lineage": {
+                                    "source": {
+                                        "soulId": LARISSA_SOUL_ID,
+                                        "soulName": "Larissa",
+                                    }
+                                },
+                            },
+                            {
+                                "output_path": str(correct),
+                                "generated_asset_lineage": {
+                                    "source": {
+                                        "soulId": STACEY_SOUL_ID,
+                                        "soulName": "Stacey",
+                                    }
+                                },
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
+
+            self.assertEqual(assigned["assigned"], 1)
+            self.assertEqual(
+                assigned["assignments"][0]["posting_slot_id"],
+                plan["slots"][0]["posting_slot_id"],
+            )
+            self.assertEqual(
+                assigned["conflicts"][0]["reasons"],
+                ["creator_identity_mismatch_for_slot"],
+            )
+
+    def test_name_only_identity_matches_case_insensitively_and_rejects_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            match = root / "match.mp4"
+            mismatch = root / "mismatch.mp4"
+            match.write_bytes(b"name match")
+            mismatch.write_bytes(b"name mismatch")
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(match),
+                                "creator": "sTaCeY",
+                                "generated_asset_lineage": {
+                                    "source": {"sourceReferenceId": "ref_match"}
+                                },
+                            },
+                            {
+                                "output_path": str(mismatch),
+                                "creator": "Larissa",
+                                "generated_asset_lineage": {
+                                    "source": {"sourceReferenceId": "ref_mismatch"}
+                                },
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
+
+            self.assertEqual(assigned["assigned"], 1)
+            reasons = [
+                reason
+                for conflict in assigned["conflicts"]
+                for reason in conflict["reasons"]
+            ]
+            self.assertIn("creator_identity_mismatch_for_slot", reasons)
+
+    def test_assignment_rejects_item_without_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            video = root / "no_identity.mp4"
+            video.write_bytes(b"no identity")
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(video),
+                                "generated_asset_lineage": {
+                                    "source": {"sourceReferenceId": "ref_no_identity"}
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=approved_path
+            )
+
+            self.assertEqual(assigned["assigned"], 0)
+            self.assertEqual(
+                assigned["conflicts"][0]["reasons"],
+                ["creator_identity_unverifiable_for_slot"],
+            )
+
+    def test_campaign_store_reseed_corrects_stacey_soul_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = connect_campaign_store(root)
+            conn.execute(
+                "UPDATE creators SET soul_id=? WHERE name='Stacey'",
+                (STACEY1_SOUL_ID,),
+            )
+            conn.commit()
+            conn.close()
+
+            conn = connect_campaign_store(root)
+            row = conn.execute(
+                "SELECT soul_id FROM creators WHERE name='Stacey'"
+            ).fetchone()
+
+            self.assertEqual(row["soul_id"], STACEY_SOUL_ID)
+
+    def test_empty_slots_do_not_crash_identity_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            video = root / "orphan.mp4"
+            video.write_bytes(b"orphan")
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(video),
+                                "generated_asset_lineage": {
+                                    "source": {
+                                        "soulId": STACEY_SOUL_ID,
+                                        "soulName": "Stacey",
+                                    }
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_empty", approved_export=approved_path
+            )
+
+            self.assertEqual(assigned["assigned"], 0)
+            self.assertEqual(
+                assigned["conflicts"][0]["reasons"], ["no_available_planned_slot"]
+            )
 
 
 if __name__ == "__main__":

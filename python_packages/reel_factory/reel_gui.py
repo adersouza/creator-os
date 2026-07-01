@@ -2621,6 +2621,8 @@ def posting_ledger_plan_api(body: dict = Body(...)):
         start_date=str(body.get("start_date") or time.strftime("%Y-%m-%d")),
         days=int(body.get("days") or 7),
         platform=str(body.get("platform") or "ig"),
+        soul_id=body.get("soul_id") or body.get("soulId"),
+        accepted_soul_ids=body.get("accepted_soul_ids") or body.get("acceptedSoulIds"),
         dry_run=bool(body.get("dry_run", False)),
     )
 

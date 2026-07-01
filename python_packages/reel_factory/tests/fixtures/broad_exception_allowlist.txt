@@ -9,7 +9,7 @@ anatomy_qc.py:assess_image_qc:186
 audio_mux.py:audio_stream_count:44
 audio_mux.py:_audio_meta:71
 audio_mux.py:mux_root:201
-campaign_store.py:get_asset_generation:639
+campaign_store.py:get_asset_generation:650
 caption_bank.py:build:329
 caption_bank.py:_history_captions:680
 caption_bank.py:_history_captions:691
@@ -84,9 +84,9 @@ reel_gui.py:import_reel_url_api:1561
 reel_gui.py:higgsfield_capabilities_api:1782
 reel_gui.py:asset_fanout_panels_api:2173
 reel_gui.py:asset_fanout_panels_api:2208
-reel_gui.py:list_accounts:2848
-reel_gui.py:runner:2935
-reel_gui.py:runner:2938
+reel_gui.py:list_accounts:2850
+reel_gui.py:runner:2937
+reel_gui.py:runner:2940
 reel_pipeline.py:process_one:1263
 reel_pipeline.py:process_one:1333
 reel_pipeline.py:process_one:1339
