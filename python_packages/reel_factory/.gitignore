@@ -34,7 +34,7 @@ render_queue.sqlite
 render_queue.sqlite-*
 04_exports/
 output/
-models/
+models/*
 # ship the face-detect model — placement silently dumps captions on faces without it
 !models/face_detection_yunet_2023mar.onnx
 !models/human_segmentation_pphumanseg_2023mar.onnx
