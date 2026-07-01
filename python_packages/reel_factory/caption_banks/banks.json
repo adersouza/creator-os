@@ -1,7 +1,7 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
-  "source_hash": "5a01968f2358b7919f732e2a8cc31fe5cf16462c244008c5f0cb441cce959c06",
+  "source_hash": "8ed57ecfcd1a167cbc992bf5f3e32671bcb0260735c73578ccab700ca83f98b3",
   "updated_at": 1782885000,
   "banks": {
     "shared_girl_next_door": [
@@ -4115,6 +4115,38 @@
         "format_class": "multiline",
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "be6b5d259d63e385d3dc7fe116983749e1df53440741035f6bf13ce77741bb78",
+        "text": "when you finish but the video\nis still playing 😳",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
+        "text": "\"get something your size!\" 😏",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 28,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
         "source_index": 0
       }
     ],
@@ -16171,6 +16203,38 @@
         "format_class": "numbered_list",
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "be6b5d259d63e385d3dc7fe116983749e1df53440741035f6bf13ce77741bb78",
+        "text": "when you finish but the video\nis still playing 😳",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
+        "text": "\"get something your size!\" 😏",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 28,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
         "source_index": 0
       }
     ]
