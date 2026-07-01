@@ -185,7 +185,7 @@ no divide-by-zero.
 
 ## TIER 2 — Make it actually intelligent (feed the loop real signal)
 
-### 2.1 Make reference_factory SEE the pixels  ·  HIGH · M (×parts) · [ ]
+### 2.1 Make reference_factory SEE the pixels  ·  HIGH · M (×parts) · [x]
 **Branch:** `codex/reference-vision-dna`
 **Why:** `reference_intake.py:2182` `_pattern_card_from_local` **fabricates** winner DNA: `subjectAction` is the
 hardcoded string `"confident selfie-style pose or subtle expression shift"`, `cameraStyle` is fixed, `hookType`
@@ -201,6 +201,7 @@ common case (visual-first, no-caption reel) is mislabeled `visual_reference`.
 3. Classify `visualFormat` from frame embeddings / a small VLM tagger (or nearest-medoid vote over the existing
    DINOv2 clusters) instead of caption keywords.
 **Note:** VLM/vision passes may cost tokens — keep them behind the existing analysis flags, no unauthorized paid runs.
+**Status:** Implemented in PR #330 with local frame pixel analysis and ffmpeg scene-cut detection; paid/VLM semantic enrichment remains behind explicit provider paths.
 
 ### 2.2 Un-silo the real vision path into the production learning join  ·  HIGH · M · [ ]
 **Branch:** `codex/unsilo-vision-analyses`
@@ -339,10 +340,10 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 0.1 restore virality_select — PR #324 merged 2026-07-01
 - [x] 1.1 wire winner-DNA into prompts — PR #325
 - [x] 1.2 engagement-rate reward — PR #326
-- [ ] 1.3 bridge metrics stores
-- [ ] 1.4 caption approvedWeights
-- [ ] 1.5 next-batch bandit
-- [ ] 2.1 reference vision DNA
+- [x] 1.3 bridge metrics stores — PR #327
+- [x] 1.4 caption approvedWeights — PR #328
+- [x] 1.5 next-batch bandit — PR #329
+- [x] 2.1 reference vision DNA — PR #330
 - [ ] 2.2 un-silo vision analyses
 - [ ] 2.3 enrich winnerDNA schema
 - [ ] 2.4 contentforge capture decision
