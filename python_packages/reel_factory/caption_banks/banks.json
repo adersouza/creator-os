@@ -1,8 +1,8 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
-  "source_hash": "568090839318cb87a3acf4c8815c4b11941472d22b668b69c48ac0478bd9e47c",
-  "updated_at": 1782882000,
+  "source_hash": "211f940349ad4d0193191be4bc02875d479c4c299a22cc3864c2c3adcbcdaec2",
+  "updated_at": 1782884000,
   "banks": {
     "shared_girl_next_door": [
       {
@@ -2730,6 +2730,22 @@
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "laylaxxwalker+screenshots",
         "source_index": 0
+      },
+      {
+        "caption_hash": "24dd6558d7a4befe57305dfc7728f38b79e514fbb6d0a6066f3a8d565fc15968",
+        "text": "congrats! you just found a girl\nwho sends pics once you've followed\n(try me) 💗",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 78,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
       }
     ],
     "comment_bait": [
@@ -3892,6 +3908,166 @@
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "laylaxxwalker+screenshots",
         "source_index": 0
+      },
+      {
+        "caption_hash": "7bb58354109d7f69b351245196ccbd68f39d1811eaf0b7a9b5ddc88e19958b84",
+        "text": "10 signs you're an attractive guy\n(most men fail #3)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 52,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "058d0f69c0f18534d9771ec5f8466d8fa1f13ff02222653c3692b0049e7ebdce",
+        "text": "3 slightly gross facts about girls\nthat no one talks about 🤭",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 60,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
+        "text": "\"I don't like geek girls\"\nokay?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 6,
+        "char_count": 31,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "aa383bc23da2177fa6fcd5c9c49dcd42ec275e366a98542d6e3299634ef03a9d",
+        "text": "Use my face as a target\nI dare you 🎯",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 36,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "cba2d2dc773aaafe78793fb895855ce86ef71d52278c0c1826ee43b8d9a75bfb",
+        "text": "some people say I'm ugly 🥲\nleave a like if you like me,\nit'll make my day ❤️",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 76,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
+        "text": "ur VERY handsome btw",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 20,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "14eb9f0267afd433d671eca710e7d48fafa2960624d2de212171b8ca15bd5271",
+        "text": "99% of men can't find\nall 8 cats in this pic",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 44,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a44a7353fb1cfbff6cfdf5ee017c9604298c8bc2abc6b2f3e668730b76feb72a",
+        "text": "POV: your favorite distraction",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 30,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "63fce2021ca87a57ddddbbd85d22ab5a34c02a8c41ff6edf215a6b91b1442a2a",
+        "text": "\"no way that's what you're\nwearing to his house\" 🙂",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 50,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "c4b52953779c99145a5e33d815f724d465c721eea3f9a3b411241327b03e40fd",
+        "text": "would you actually say \"hey\"\nor just keep scrolling",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
       }
     ],
     "choice_poll": [
@@ -4531,6 +4707,22 @@
         "format_class": "numbered_list",
         "source_type": "generated_variation",
         "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "110feb7f0c0a5981939fb74ec8b5955c0c97680d7dbc20993b88bc6baae4d4d1",
+        "text": "you only get one:\n$75 / $50 / $1 / $99\n...or me for free",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 56,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
         "source_index": 0
       }
     ],
@@ -5496,6 +5688,22 @@
         "format_class": "coded",
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2629addbac8370caa72020fa96584b9503ca046db30f197d42c127d7a609fbfd",
+        "text": "a boy in my class once typed\n55378008 on a calculator,\nturned it upside down and said:\nthat's you",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 19,
+        "char_count": 97,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
         "source_index": 0
       }
     ],
@@ -7194,6 +7402,54 @@
         "format_class": "multiline",
         "source_type": "generated_variation",
         "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a33062b14a5401ba94cbe81e7566c8648f92d897336daeabb25b97f9a157136d",
+        "text": "hiring a boyfriend:\n- must be older than me\n- must like my flaws\n- needs to be taller than me (I'm 5'4)\n- 🍑 eater (most important)",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 23,
+        "char_count": 130,
+        "line_count": 5,
+        "length_class": "long",
+        "format_class": "paragraph",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ab44f8b73a4639b71028f7878e9e17ac007349e3125a3b2ad97c2bf2c7d44792",
+        "text": "I like older men 😘\nare you the one? 👀",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 37,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "fbee206d1d5c73b3a8a74ae6e8f6084b8a6148d54976f6213e90e52c1a2875af",
+        "text": "if you have a crush on me,\npls go for it...\nyou literally have no competition",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 77,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
         "source_index": 0
       }
     ],
@@ -15371,6 +15627,262 @@
         "format_class": "multiline",
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "2629addbac8370caa72020fa96584b9503ca046db30f197d42c127d7a609fbfd",
+        "text": "a boy in my class once typed\n55378008 on a calculator,\nturned it upside down and said:\nthat's you",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 19,
+        "char_count": 97,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7bb58354109d7f69b351245196ccbd68f39d1811eaf0b7a9b5ddc88e19958b84",
+        "text": "10 signs you're an attractive guy\n(most men fail #3)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 52,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "058d0f69c0f18534d9771ec5f8466d8fa1f13ff02222653c3692b0049e7ebdce",
+        "text": "3 slightly gross facts about girls\nthat no one talks about 🤭",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 60,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "331669b72ffbeb9d15299bb16fe80a4b5a542cd0f1f6c57de1d7ed5df34d84cc",
+        "text": "\"I don't like geek girls\"\nokay?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 6,
+        "char_count": 31,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "aa383bc23da2177fa6fcd5c9c49dcd42ec275e366a98542d6e3299634ef03a9d",
+        "text": "Use my face as a target\nI dare you 🎯",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 36,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "cba2d2dc773aaafe78793fb895855ce86ef71d52278c0c1826ee43b8d9a75bfb",
+        "text": "some people say I'm ugly 🥲\nleave a like if you like me,\nit'll make my day ❤️",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 76,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "89a5fca68ce5868ab48c1ad91b651163e8606f5dfcb660a75c55191fec10c18e",
+        "text": "ur VERY handsome btw",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 20,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "14eb9f0267afd433d671eca710e7d48fafa2960624d2de212171b8ca15bd5271",
+        "text": "99% of men can't find\nall 8 cats in this pic",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 44,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a44a7353fb1cfbff6cfdf5ee017c9604298c8bc2abc6b2f3e668730b76feb72a",
+        "text": "POV: your favorite distraction",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 30,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "63fce2021ca87a57ddddbbd85d22ab5a34c02a8c41ff6edf215a6b91b1442a2a",
+        "text": "\"no way that's what you're\nwearing to his house\" 🙂",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 50,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "c4b52953779c99145a5e33d815f724d465c721eea3f9a3b411241327b03e40fd",
+        "text": "would you actually say \"hey\"\nor just keep scrolling",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 51,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a33062b14a5401ba94cbe81e7566c8648f92d897336daeabb25b97f9a157136d",
+        "text": "hiring a boyfriend:\n- must be older than me\n- must like my flaws\n- needs to be taller than me (I'm 5'4)\n- 🍑 eater (most important)",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 23,
+        "char_count": 130,
+        "line_count": 5,
+        "length_class": "long",
+        "format_class": "paragraph",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ab44f8b73a4639b71028f7878e9e17ac007349e3125a3b2ad97c2bf2c7d44792",
+        "text": "I like older men 😘\nare you the one? 👀",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 37,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "fbee206d1d5c73b3a8a74ae6e8f6084b8a6148d54976f6213e90e52c1a2875af",
+        "text": "if you have a crush on me,\npls go for it...\nyou literally have no competition",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 77,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "110feb7f0c0a5981939fb74ec8b5955c0c97680d7dbc20993b88bc6baae4d4d1",
+        "text": "you only get one:\n$75 / $50 / $1 / $99\n...or me for free",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 56,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "24dd6558d7a4befe57305dfc7728f38b79e514fbb6d0a6066f3a8d565fc15968",
+        "text": "congrats! you just found a girl\nwho sends pics once you've followed\n(try me) 💗",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 78,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep",
         "source_index": 0
       }
     ]
