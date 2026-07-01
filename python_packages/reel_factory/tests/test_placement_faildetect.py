@@ -6,7 +6,10 @@ import logging
 import placement
 
 
-def test_face_detection_available_true_when_deps_present():
+def test_face_detection_available_true_when_deps_present(monkeypatch, tmp_path):
+    model = tmp_path / "face_detection_yunet_2023mar.onnx"
+    model.write_bytes(b"present")
+    monkeypatch.setattr(placement, "_YUNET_MODEL_PATH", model)
     ok, reason = placement.face_detection_available()
     assert ok, f"expected face detection available in test env, got: {reason}"
     assert reason == ""
