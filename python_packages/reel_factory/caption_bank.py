@@ -54,12 +54,18 @@ def default_mixes() -> dict[str, dict[str, int]]:
             "choice_poll": 5,
         },
         "Stacey": {
-            "shared_girl_next_door": 30,
-            "boyfriend_bait": 20,
-            "bedroom_mirror": 20,
-            "comment_bait": 15,
-            "dm_follow_bait": 10,
-            "choice_poll": 5,
+            # Weighted from real posted-view outcomes (2026-06-30): cipher/acronym
+            # fill-ins (42K/27K/12K), toxic-relatable boyfriend bait (30K), and
+            # backwards-decode puzzles (11.5K) are the top drivers. winner_bank
+            # holds the promoted proven-archetype captions (age-coded excluded).
+            "winner_bank": 20,
+            "coded_fill_ins": 18,
+            "boyfriend_bait": 15,
+            "read_backwards_puzzle": 13,
+            "shared_girl_next_door": 10,
+            "comment_bait": 10,
+            "choice_poll": 7,
+            "bedroom_mirror": 7,
         },
         "Lola": {
             "shared_girl_next_door": 25,

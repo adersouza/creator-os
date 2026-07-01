@@ -6,9 +6,9 @@ audio_mux.py:audio_stream_count:44
 audio_mux.py:_audio_meta:71
 audio_mux.py:mux_root:201
 campaign_store.py:get_asset_generation:639
-caption_bank.py:build:323
-caption_bank.py:_history_captions:674
-caption_bank.py:_history_captions:685
+caption_bank.py:build:329
+caption_bank.py:_history_captions:680
+caption_bank.py:_history_captions:691
 caption_render.py:render_caption_png:296
 discoverability_safety.py:audit_caption_sources:103
 embedding_index.py:text_for_path:30
