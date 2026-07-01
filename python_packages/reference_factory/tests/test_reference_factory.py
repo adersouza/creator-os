@@ -2492,6 +2492,176 @@ def test_pattern_analyzer_labels_top_posts_and_exports_cards(tmp_path: Path) -> 
     )
 
 
+def test_pattern_analyzer_prefers_stored_vision_analysis(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind,
+          size_bytes, mtime, path_hash, created_at, updated_at
+        )
+        VALUES (
+          'ref_vision', '/examples/account_a/plain_reference.mp4',
+          'account_a', 'plain_reference.mp4', '.mp4', 'video', 100,
+          'now', 'hash_vision', 'now', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO public_posts (
+          id, owner_username, short_code, url, caption, product_type, post_type,
+          video_view_count, video_play_count, likes_count, comments_count,
+          match_type, reference_id, local_path, raw_json, imported_at
+        )
+        VALUES (
+          'post_vision', 'account_a', 'VISION1', 'https://instagram.com/p/VISION1/',
+          'look at this', 'clips', 'Video', 1000, 1500, 100, 8,
+          'exact_media_id', 'ref_vision', '/examples/account_a/plain_reference.mp4',
+          '{}', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO viral_pattern_cards (
+          id, reference_id, platform, status, pattern_json, created_at, updated_at
+        )
+        VALUES (?, 'ref_vision', 'instagram', 'pattern_ready', ?, 'now', 'now')
+        """,
+        (
+            "vision_card",
+            json.dumps(
+                {
+                    "formatType": "walking_clip",
+                    "hookType": "visual_curiosity",
+                    "subjectAction": "slow hallway walk into frame",
+                    "setting": "bright hallway",
+                    "shotSequence": ["walk in", "pause on look"],
+                    "cameraStyle": {"movement": "handheld follow"},
+                    "winnerDna": {"persona": "glam_walk"},
+                }
+            ),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_video_analyses (
+          id, reference_id, provider, status, signals_json, analysis_json, created_at, updated_at
+        )
+        VALUES (?, 'ref_vision', 'local', 'pattern_ready', '{}', ?, 'now', 'now')
+        """,
+        (
+            "vision_analysis",
+            json.dumps(
+                {
+                    "winningFormatCard": {"visualFormat": "walking_clip"},
+                    "recreation_blueprint": {
+                        "format_type": "walking_clip",
+                        "motion_beats": [{"subject_motion": "walk in"}],
+                    },
+                }
+            ),
+        ),
+    )
+
+    analyzed = analyze_patterns(conn, limit=1, provider="heuristic")
+    row = conn.execute(
+        "SELECT visual_format, hook_type, pattern_json FROM reference_patterns"
+    ).fetchone()
+    pattern = json.loads(row["pattern_json"])
+
+    assert analyzed["analyzed"] == 1
+    assert row["visual_format"] == "walking_clip"
+    assert row["hook_type"] == "visual_curiosity"
+    assert pattern["winnerDna"]["visionSource"] == "reference_video_analysis"
+    assert pattern["winnerDna"]["subjectAction"] == "slow hallway walk into frame"
+    assert pattern["winnerDna"]["recreationBlueprint"]["format_type"] == "walking_clip"
+
+
+def test_learning_summary_uses_vision_analysis_for_existing_pattern_rows(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind,
+          size_bytes, mtime, path_hash, created_at, updated_at
+        )
+        VALUES (
+          'ref_stale', '/examples/account_a/plain_reference.mp4',
+          'account_a', 'plain_reference.mp4', '.mp4', 'video', 100,
+          'now', 'hash_stale', 'now', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO public_posts (
+          id, owner_username, short_code, url, caption, product_type, post_type,
+          video_view_count, video_play_count, likes_count, comments_count,
+          match_type, reference_id, local_path, raw_json, imported_at
+        )
+        VALUES (
+          'post_stale', 'account_a', 'STALE1', 'https://instagram.com/p/STALE1/',
+          'plain caption', 'clips', 'Video', 1000, 1500, 100, 8,
+          'exact_media_id', 'ref_stale', '/examples/account_a/plain_reference.mp4',
+          '{}', 'now'
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_patterns (
+          id, reference_id, public_post_id, rank, provider, analyzer_version,
+          suggested_label, visual_format, hook_type, caption_archetype,
+          quality_score, pattern_json, created_at, updated_at
+        )
+        VALUES (
+          'pattern_stale', 'ref_stale', 'post_stale', 1, 'heuristic', 'test',
+          'gold', 'caption_led_visual', 'direct_response', 'short_meme_caption',
+          80, ?, 'now', 'now'
+        )
+        """,
+        (
+            json.dumps(
+                {
+                    "visualFormat": "caption_led_visual",
+                    "hookType": "direct_response",
+                    "captionArchetype": "short_meme_caption",
+                    "winnerDna": {"visualStructure": "caption_led_visual"},
+                }
+            ),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO viral_pattern_cards (
+          id, reference_id, platform, status, pattern_json, created_at, updated_at
+        )
+        VALUES (?, 'ref_stale', 'instagram', 'pattern_ready', ?, 'now', 'now')
+        """,
+        (
+            "vision_card_stale",
+            json.dumps(
+                {
+                    "formatType": "mirror_selfie",
+                    "hookType": "viewer_insert",
+                    "subjectAction": "mirror pose with phone held low",
+                }
+            ),
+        ),
+    )
+
+    summary = learning_summary(conn, limit=1)
+    cluster = summary["topClusters"][0]
+
+    assert cluster["visualFormat"] == "mirror_selfie"
+    assert cluster["hookType"] == "viewer_insert"
+    assert cluster["winnerDna"]["visualStructure"] == "mirror_selfie"
+
+
 def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) -> None:
     conn = make_conn(tmp_path)
     for idx, (media_id, account) in enumerate(

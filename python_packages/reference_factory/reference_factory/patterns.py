@@ -302,10 +302,47 @@ def _pattern_source_rows(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "probe": dict(probe) if probe else None,
                 "captionPattern": dict(caption) if caption else None,
                 "reviewLabel": dict(label) if label else None,
+                "visionAnalysis": vision_context_for_reference(conn, reference_id),
                 "rawJson": raw_json,
             }
         )
     return rows
+
+
+def vision_context_for_reference(
+    conn: Connection, reference_id: str | None
+) -> dict[str, Any] | None:
+    if not reference_id:
+        return None
+    pattern = conn.execute(
+        """
+        SELECT pattern_json
+        FROM viral_pattern_cards
+        WHERE reference_id = ?
+        ORDER BY CASE status WHEN 'pattern_ready' THEN 0 ELSE 1 END, updated_at DESC
+        LIMIT 1
+        """,
+        (reference_id,),
+    ).fetchone()
+    analysis = conn.execute(
+        """
+        SELECT provider, signals_json, analysis_json
+        FROM reference_video_analyses
+        WHERE reference_id = ?
+        ORDER BY CASE status WHEN 'pattern_ready' THEN 0 WHEN 'analyzed' THEN 1 ELSE 2 END,
+                 updated_at DESC
+        LIMIT 1
+        """,
+        (reference_id,),
+    ).fetchone()
+    if not pattern and not analysis:
+        return None
+    return {
+        "patternCard": json_load(pattern["pattern_json"], {}) if pattern else {},
+        "analysis": json_load(analysis["analysis_json"], {}) if analysis else {},
+        "signals": json_load(analysis["signals_json"], {}) if analysis else {},
+        "provider": analysis["provider"] if analysis else None,
+    }
 
 
 def _pattern_rows(conn: Connection, limit: int) -> list[Any]:
@@ -356,7 +393,7 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
     suggested_label = _suggested_label(item, quality_score)
     first_line = _first_line(caption_text)
     audio_signal = extract_audio_signal(raw_json, item.get("productType"))
-    return {
+    pattern = {
         "schema": "reference_factory.reference_pattern.v1",
         "analyzerVersion": ANALYZER_VERSION,
         "provider": "heuristic",
@@ -427,6 +464,172 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             item, quality_score, caption_archetype, visual_format, review_tags
         ),
     }
+    return apply_vision_pattern_overrides(pattern, item.get("visionAnalysis"))
+
+
+def apply_vision_pattern_overrides(
+    pattern: dict[str, Any], vision: dict[str, Any] | None
+) -> dict[str, Any]:
+    if not isinstance(vision, dict):
+        return pattern
+    card = (
+        vision.get("patternCard") if isinstance(vision.get("patternCard"), dict) else {}
+    )
+    analysis = (
+        vision.get("analysis") if isinstance(vision.get("analysis"), dict) else {}
+    )
+    if not card and not analysis:
+        return pattern
+
+    visual_format = _vision_visual_format(card, analysis)
+    hook_type = _first_nonempty(card.get("hookType"), analysis.get("hookType"))
+    if visual_format:
+        pattern["visualFormat"] = visual_format
+        pattern["promptPattern"] = _prompt_pattern(
+            visual_format,
+            str(hook_type or pattern.get("hookType") or "pov"),
+            str(pattern.get("captionArchetype") or "captionless_visual"),
+        )
+        reference_use = pattern.setdefault("referenceUse", {})
+        reference_use["whatToLearn"] = _what_to_learn(
+            visual_format,
+            str(hook_type or pattern.get("hookType") or "pov"),
+            str(pattern.get("captionArchetype") or "captionless_visual"),
+        )
+    if hook_type:
+        pattern["hookType"] = str(hook_type)
+
+    winner_dna = dict(pattern.get("winnerDna") or {})
+    winner_dna.update(_vision_winner_dna(card, analysis, vision, pattern))
+    pattern["winnerDna"] = winner_dna
+
+    reasons = list(pattern.get("reasons") or [])
+    if visual_format and "vision-derived visual format" not in reasons:
+        reasons.append("vision-derived visual format")
+    if card or analysis:
+        reasons.append("vision analysis merged into production pattern")
+    pattern["reasons"] = reasons
+    return pattern
+
+
+def _vision_visual_format(card: dict[str, Any], analysis: dict[str, Any]) -> str | None:
+    format_card = (
+        analysis.get("winningFormatCard")
+        if isinstance(analysis.get("winningFormatCard"), dict)
+        else {}
+    )
+    blueprint = _vision_blueprint(analysis)
+    return _first_nonempty(
+        card.get("visualFormat"),
+        card.get("formatType"),
+        format_card.get("visualFormat"),
+        analysis.get("visualFormat"),
+        analysis.get("contentFormat"),
+        blueprint.get("format_type"),
+        blueprint.get("formatType"),
+    )
+
+
+def _vision_winner_dna(
+    card: dict[str, Any],
+    analysis: dict[str, Any],
+    vision: dict[str, Any],
+    pattern: dict[str, Any],
+) -> dict[str, Any]:
+    supplied = card.get("winnerDna") or analysis.get("winnerDna")
+    dna = dict(supplied) if isinstance(supplied, dict) else {}
+    blueprint = _vision_blueprint(analysis)
+    format_card = (
+        analysis.get("winningFormatCard")
+        if isinstance(analysis.get("winningFormatCard"), dict)
+        else {}
+    )
+    visual_format = str(pattern.get("visualFormat") or "other")
+    hook_type = str(pattern.get("hookType") or card.get("hookType") or "pov")
+    dna.update(
+        {
+            "visionSource": "reference_video_analysis",
+            "visionProvider": vision.get("provider"),
+            "visualStructure": visual_format,
+            "hookType": hook_type,
+            "subjectAction": _first_nonempty(
+                card.get("subjectAction"),
+                (analysis.get("subject") or {}).get("action")
+                if isinstance(analysis.get("subject"), dict)
+                else None,
+                format_card.get("poseAction"),
+            ),
+            "setting": _first_nonempty(
+                card.get("setting"),
+                (analysis.get("setting") or {}).get("location")
+                if isinstance(analysis.get("setting"), dict)
+                else None,
+                format_card.get("setting"),
+            ),
+            "shotSequence": _first_list(
+                card.get("shotSequence"), analysis.get("shotSequence")
+            ),
+            "cameraStyle": _first_dict(
+                card.get("cameraStyle"),
+                analysis.get("camera"),
+                format_card.get("camera"),
+            ),
+            "textOverlayStyle": _first_dict(
+                card.get("textOverlayStyle"),
+                analysis.get("textOverlay"),
+                format_card.get("textOverlay"),
+            ),
+            "pacing": _first_dict(
+                card.get("pacing"),
+                analysis.get("visualPacing"),
+                format_card.get("pacing"),
+            ),
+            "audioVibe": _first_dict(
+                card.get("audioVibe"),
+                analysis.get("audioVibe"),
+                format_card.get("audioVibe"),
+            ),
+            "recreationBlueprint": blueprint,
+        }
+    )
+    return {key: value for key, value in dna.items() if value not in (None, "", [], {})}
+
+
+def _vision_blueprint(analysis: dict[str, Any]) -> dict[str, Any]:
+    for key in ("recreation_blueprint", "recreationBlueprint", "blueprint"):
+        value = analysis.get(key)
+        if isinstance(value, dict):
+            return value
+    raw = analysis.get("raw") if isinstance(analysis.get("raw"), dict) else {}
+    for key in ("recreation_blueprint", "recreationBlueprint", "blueprint"):
+        value = raw.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _first_nonempty(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _first_list(*values: Any) -> list[Any]:
+    for value in values:
+        if isinstance(value, list) and value:
+            return value
+    return []
+
+
+def _first_dict(*values: Any) -> dict[str, Any]:
+    for value in values:
+        if isinstance(value, dict) and value:
+            return value
+    return {}
 
 
 def _resolve_provider(provider: str) -> str:

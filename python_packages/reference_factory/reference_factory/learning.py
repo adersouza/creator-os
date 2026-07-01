@@ -20,7 +20,7 @@ from .embeddings import (
     build_embedding_clusters,
 )
 from .identity import stable_id
-from .patterns import analyze_patterns
+from .patterns import analyze_patterns, apply_vision_pattern_overrides
 from .timeutil import now_iso
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
@@ -149,10 +149,29 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
         """
         SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
                pp.video_play_count, pp.video_view_count, pp.likes_count, pp.comments_count,
-               pp.match_type, pp.raw_json, pp.product_type, sf.path AS local_path, sf.account, sf.file_name
+               pp.match_type, pp.raw_json, pp.product_type, sf.path AS local_path, sf.account, sf.file_name,
+               vpc.pattern_json AS vision_pattern_json,
+               rva.provider AS vision_provider,
+               rva.signals_json AS vision_signals_json,
+               rva.analysis_json AS vision_analysis_json
         FROM reference_patterns rp
         LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
         LEFT JOIN source_files sf ON sf.reference_id = rp.reference_id
+        LEFT JOIN viral_pattern_cards vpc ON vpc.id = (
+          SELECT id
+          FROM viral_pattern_cards
+          WHERE reference_id = rp.reference_id
+          ORDER BY CASE status WHEN 'pattern_ready' THEN 0 ELSE 1 END, updated_at DESC
+          LIMIT 1
+        )
+        LEFT JOIN reference_video_analyses rva ON rva.id = (
+          SELECT id
+          FROM reference_video_analyses
+          WHERE reference_id = rp.reference_id
+          ORDER BY CASE status WHEN 'pattern_ready' THEN 0 WHEN 'analyzed' THEN 1 ELSE 2 END,
+                   updated_at DESC
+          LIMIT 1
+        )
         ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
         LIMIT ?
         """,
@@ -160,7 +179,15 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
     ).fetchall()
     cards = []
     for row in rows:
-        pattern = json_load(row["pattern_json"], {})
+        pattern = apply_vision_pattern_overrides(
+            json_load(row["pattern_json"], {}),
+            {
+                "patternCard": json_load(row["vision_pattern_json"], {}),
+                "analysis": json_load(row["vision_analysis_json"], {}),
+                "signals": json_load(row["vision_signals_json"], {}),
+                "provider": row["vision_provider"],
+            },
+        )
         raw_json = json_load(row["raw_json"], {})
         cards.append(
             {
@@ -187,8 +214,8 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 ),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
-                "visualFormat": row["visual_format"],
-                "hookType": row["hook_type"],
+                "visualFormat": pattern.get("visualFormat") or row["visual_format"],
+                "hookType": pattern.get("hookType") or row["hook_type"],
                 "captionArchetype": row["caption_archetype"],
                 "performanceClass": pattern.get("performanceClass") or "unproven",
                 "winnerDna": pattern.get("winnerDna") or {},
