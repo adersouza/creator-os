@@ -37,6 +37,7 @@ output/
 models/
 # ship the face-detect model — placement silently dumps captions on faces without it
 !models/face_detection_yunet_2023mar.onnx
+!models/human_segmentation_pphumanseg_2023mar.onnx
 identity_references/
 graphify-out/
 .tmp_*/

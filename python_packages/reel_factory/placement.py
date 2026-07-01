@@ -263,6 +263,72 @@ def _warn_if_blind() -> None:
         )
 
 
+_PPHUMANSEG_MODEL_PATH = (
+    Path(__file__).parent / "models" / "human_segmentation_pphumanseg_2023mar.onnx"
+)
+_SEG_NET = None
+_SEG_NET_TRIED = False
+
+
+def _seg_net():
+    """Lazy-load PP-HumanSeg (cv2.dnn). None if cv2/model unavailable."""
+    global _SEG_NET, _SEG_NET_TRIED
+    if _SEG_NET_TRIED:
+        return _SEG_NET
+    _SEG_NET_TRIED = True
+    if not _PPHUMANSEG_MODEL_PATH.exists():
+        return None
+    try:
+        import cv2  # type: ignore
+
+        _SEG_NET = cv2.dnn.readNet(str(_PPHUMANSEG_MODEL_PATH))
+    except Exception:  # cv2 missing / model unreadable -> skip seg signal
+        _SEG_NET = None
+    return _SEG_NET
+
+
+def _person_head_coverage_from_frame(
+    frame_path: Path,
+) -> tuple[float, float, float] | None:
+    """Per-band coverage of the SUBJECT'S HEAD region (top ~1/3 of the person
+    silhouette) from PP-HumanSeg. Complements YuNet face detection — catches
+    heads at off-angles YuNet misses — WITHOUT penalizing the torso/cleavage
+    hook zone (only the head slice of the mask is used). None if unavailable.
+    """
+    net = _seg_net()
+    if net is None:
+        return None
+    try:
+        import cv2  # type: ignore
+        import numpy as np
+
+        img = cv2.imread(str(frame_path))
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        blob = cv2.dnn.blobFromImage(
+            img, 1 / 255.0, (192, 192), (127, 127, 127), swapRB=True
+        )
+        net.setInput(blob)
+        out = net.forward()
+        mask = cv2.resize(
+            out[0].argmax(0).astype("uint8"), (w, h), interpolation=cv2.INTER_NEAREST
+        )
+        rows = np.where(mask.any(1))[0]
+        if len(rows) == 0:
+            return None
+        top, bot = int(rows[0]), int(rows[-1])
+        head_end = top + int((bot - top) * 0.32)  # head/hair slice
+        head = np.zeros_like(mask)
+        head[top:head_end] = mask[top:head_end]
+        third = h // 3
+        return tuple(
+            float(head[i * third : (i + 1) * third].mean() * 100.0) for i in range(3)
+        )  # type: ignore[return-value]
+    except Exception:
+        return None
+
+
 def _detect_face_band(frame_path: Path) -> str | None:
     """Run OpenCV YuNet face detection on a single frame. Returns the OUTER
     band ("top" or "bottom") with the lowest face-area coverage, or None if
@@ -665,6 +731,9 @@ def _score_placement_from_frames(
     face_samples = [
         c for f in frames if (c := _face_coverage_from_frame(f)) is not None
     ]
+    head_samples = [
+        c for f in frames if (c := _person_head_coverage_from_frame(f)) is not None
+    ]
     focal_samples = [
         c for f in frames if (c := _focal_coverage_from_frame(f)) is not None
     ]
@@ -713,6 +782,7 @@ def _score_placement_from_frames(
     summary = score_lanes(
         stddev_samples=std_samples,
         face_samples=face_samples,
+        head_samples=head_samples,
         focal_samples=focal_samples,
         motion_samples=motion_samples,
         pose_samples=pose_samples,

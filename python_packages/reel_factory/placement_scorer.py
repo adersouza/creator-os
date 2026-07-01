@@ -21,6 +21,7 @@ def score_lanes(
     *,
     stddev_samples: list[tuple[float, float, float]],
     face_samples: list[tuple[float, float, float]] | None = None,
+    head_samples: list[tuple[float, float, float]] | None = None,
     focal_samples: list[tuple[float, float, float]] | None = None,
     motion_samples: list[tuple[float, float, float]] | None = None,
     pose_samples: list[tuple[float, float, float]] | None = None,
@@ -34,6 +35,7 @@ def score_lanes(
         lane: {
             "busyness": 0.0,
             "face": 0.0,
+            "head": 0.0,
             "focal": 0.0,
             "motion": 0.0,
             "pose": 0.0,
@@ -62,7 +64,17 @@ def score_lanes(
             scores[lane] += penalty
             components[lane]["face"] = penalty
 
-    has_body_specific_signal = bool(face_samples or pose_samples)
+    if head_samples:
+        max_head = max(max(sample) for sample in head_samples) or 1.0
+        for lane, value in zip(LANES, _max3(head_samples), strict=True):
+            # PP-HumanSeg head slice: robust head/hair blocker for angles YuNet
+            # misses. Below face weight so YuNet stays primary; union-aggregated.
+            weight = 110.0 if normalized_policy == "focal-safe" else 55.0
+            penalty = (value / max_head) * weight
+            scores[lane] += penalty
+            components[lane]["head"] = penalty
+
+    has_body_specific_signal = bool(face_samples or head_samples or pose_samples)
     if normalized_policy == "focal-safe" and focal_samples:
         max_focal = max(max(sample) for sample in focal_samples) or 1.0
         for lane, value in zip(LANES, _mean3(focal_samples), strict=True):
@@ -106,7 +118,12 @@ def score_lanes(
             if candidate == lane:
                 continue
             c = components[candidate]
-            if c["face"] >= 70.0 or c["focal"] >= 70.0 or c["pose"] >= 65.0:
+            if (
+                c["face"] >= 70.0
+                or c["head"] >= 60.0
+                or c["focal"] >= 70.0
+                or c["pose"] >= 65.0
+            ):
                 rejected_lanes.append(candidate)
     reason = (
         f"{lane} lane lowest "
