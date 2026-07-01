@@ -49,9 +49,11 @@ overnight_grid_worker.py:next_clip_stem:488
 placement.py:probe_caption_region_luminance:128
 placement.py:probe_caption_region_luminance:134
 placement.py:_extract_probe_frame:180
-placement.py:probe_caption_layout_for_window:758
-placement.py:probe_caption_layout:929
-placement.py:probe_caption_layout:937
+placement.py:_seg_net:285
+placement.py:_person_head_coverage_from_frame:328
+placement.py:probe_caption_layout_for_window:863
+placement.py:probe_caption_layout:1036
+placement.py:probe_caption_layout:1044
 post_render.py:_read_caption_meta:46
 post_render.py:_probe_duration:97
 post_render.py:_caption_kind:107
