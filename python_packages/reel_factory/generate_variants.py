@@ -24,7 +24,69 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
+
+
+def autocrop_reference(
+    src: str,
+    dst: str | None = None,
+    *,
+    threshold: int = 28,
+    bottom_trim: float = 0.0,
+    sample_step: int = 4,
+) -> dict[str, Any]:
+    """Trim black bars/bezel off a reference screenshot before it goes to Higgsfield.
+
+    A row/column is "border" when its BRIGHTEST sampled pixel is below `threshold`
+    (photo edges always contain a bright pixel; letterbox/pillarbox/bezel don't).
+    This reliably removes the pillarbox + phone-bezel that made Higgsfield render
+    fake app UI.
+
+    `bottom_trim` (0..0.3) is cut off the bottom FIRST, for video-player overlays
+    (0:01 timer / mute icon) that sit ON the photo and cannot be brightness-detected
+    -- caller passes it for video-post screenshots. ponytail: overlay position
+    varies, so this stays an explicit knob, not an auto-guess.
+    """
+    from PIL import Image  # lazy: keep the pure-text functions PIL-free
+
+    im = Image.open(src).convert("RGB")
+    w, h = im.size
+    if bottom_trim:
+        im = im.crop((0, 0, w, int(h * (1 - min(max(bottom_trim, 0.0), 0.3)))))
+        w, h = im.size
+    px = im.convert("L").load()
+    ys = range(0, h, sample_step)
+    xs = range(0, w, sample_step)
+
+    def col_ok(x: int) -> bool:
+        return max(px[x, y] for y in ys) >= threshold
+
+    def row_ok(y: int) -> bool:
+        return max(px[x, y] for x in xs) >= threshold
+
+    x0 = 0
+    while x0 < w - 1 and not col_ok(x0):
+        x0 += 1
+    x1 = w - 1
+    while x1 > x0 and not col_ok(x1):
+        x1 -= 1
+    y0 = 0
+    while y0 < h - 1 and not row_ok(y0):
+        y0 += 1
+    y1 = h - 1
+    while y1 > y0 and not row_ok(y1):
+        y1 -= 1
+    clean = im.crop((x0, y0, x1 + 1, y1 + 1))
+    out = Path(dst) if dst else Path(src).with_name(Path(src).stem + "_clean.jpg")
+    clean.save(out, quality=95)
+    return {
+        "path": str(out),
+        "bbox": [x0, y0, x1 + 1, y1 + 1],
+        "size": list(clean.size),
+        "trimmed_px": [w - clean.size[0], h - clean.size[1]],
+    }
+
 
 # Phrases the reference-pass enhancer injects that must go before reuse.
 # Identity descriptors fight the Soul; UI/screenshot words render fake app chrome
@@ -219,8 +281,28 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--reference-media-id", help="Higgsfield media_id of the UI-free crop."
     )
+    ap.add_argument(
+        "--autocrop", help="Path to a reference screenshot to trim (black bars/bezel)."
+    )
+    ap.add_argument(
+        "--bottom-trim",
+        type=float,
+        default=0.0,
+        help="Fraction to cut off the bottom first (video UI overlays). e.g. 0.06.",
+    )
+    ap.add_argument("--out", help="Output path for --autocrop.")
     ap.add_argument("--demo", action="store_true", help="Run the self-check and exit.")
     args = ap.parse_args(argv)
+    if args.autocrop:
+        print(
+            json.dumps(
+                autocrop_reference(
+                    args.autocrop, args.out, bottom_trim=args.bottom_trim
+                ),
+                indent=2,
+            )
+        )
+        return 0
     if args.demo or not args.captured_prompt:
         _demo()
         return 0

@@ -125,7 +125,10 @@ Stacey/Stacey1 stills. Do NOT re-derive this each session.
 
 1. **Crop the reference UI-free first** — status bar AND bottom nav. Leftover
    chrome makes Higgsfield render fake app UI (see "Higgsfield UI Artifact
-   Salvage").
+   Salvage"). For a media-centric screenshot (black bars / phone bezel around the
+   photo), `reel_factory/generate_variants.py autocrop_reference()` trims them by
+   brightness; pass `bottom_trim` for a video timer/mute overlay sitting on the
+   photo. A full profile screenshot must first be cropped to the post region.
 2. **Pass 1 — reference-conditioned:** Soul V2 (`model soul_2`) with `medias`
    role `image` (the crop) + the creator `soul_id`. A reference image ALWAYS
    force-enhances; `enhance_prompt` is not toggleable on Soul 2.0. Higgsfield
