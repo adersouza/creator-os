@@ -4,6 +4,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -1951,8 +1952,12 @@ def _local_video_analysis(
         str(value or "") for value in (job.get("file_name"), job.get("account"), source)
     ).lower()
     format_type = _classify_reference_format(job, {"summary": filename_text})
-    energy = _energy_from_probe(probe)
-    scene_cuts = _scene_cut_guesses(probe.get("durationSeconds"))
+    frame_analysis = _analyze_reference_frame_pixels(frames, probe)
+    format_type = _format_from_local_frame_analysis(format_type, probe, frame_analysis)
+    energy = str(frame_analysis.get("energy") or _energy_from_probe(probe))
+    scene_cuts = _detect_scene_cuts(
+        source, duration=probe.get("durationSeconds"), ffmpeg=ffmpeg
+    )
     ocr_text = _sidecar_text(source)
     pattern = _pattern_card_from_local(
         job,
@@ -1962,6 +1967,8 @@ def _local_video_analysis(
         format_type=format_type,
         energy=energy,
         ocr_text=ocr_text,
+        frame_analysis=frame_analysis,
+        scene_cuts=scene_cuts,
     )
     analysis_id = stable_id(
         "reference_video_analysis",
@@ -1979,8 +1986,15 @@ def _local_video_analysis(
         "media": probe,
         "signals": {
             "frameSamples": frames,
+            "framePixelAnalysis": frame_analysis,
             "sceneCuts": scene_cuts,
-            "motion": {"energy": energy, "method": "duration_resolution_heuristic"},
+            "motion": {
+                "energy": energy,
+                "method": frame_analysis.get("method")
+                if frame_analysis.get("status") == "analyzed"
+                else "duration_resolution_heuristic",
+                "meanFrameDelta": frame_analysis.get("meanFrameDelta"),
+            },
             "ocrText": ocr_text,
             "audioPresence": {"hasAudio": probe.get("hasAudio")},
             "transcript": _sidecar_text(source.with_suffix(".transcript.txt")),
@@ -2179,6 +2193,158 @@ def _extract_reference_frames(
     return frames
 
 
+def _detect_scene_cuts(
+    source: Path, *, duration: float | None, ffmpeg: str
+) -> list[float]:
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-i",
+        str(source),
+        "-vf",
+        "select='gt(scene,0.35)',showinfo",
+        "-f",
+        "null",
+        "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return _scene_cut_guesses(duration)
+    cuts = {0.0}
+    for match in re.finditer(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr):
+        cut = round(float(match.group(1)), 2)
+        if cut > 0 and (not duration or cut < duration):
+            cuts.add(cut)
+    return sorted(cuts) or _scene_cut_guesses(duration)
+
+
+def _analyze_reference_frame_pixels(
+    frame_samples: list[dict[str, Any]], probe: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        from PIL import Image, ImageStat
+    except ImportError:
+        return {
+            "status": "unavailable",
+            "method": "local_frame_pixel_analysis_v1",
+            "reason": "Pillow is not installed for reference_factory local analysis.",
+        }
+
+    frames: list[dict[str, Any]] = []
+    small_frames = []
+    for sample in frame_samples:
+        path = Path(str(sample.get("path") or ""))
+        if not path.exists():
+            continue
+        try:
+            with Image.open(path) as img:
+                rgb = img.convert("RGB")
+                small = rgb.resize((64, 64))
+                stat = ImageStat.Stat(small)
+                means = [value / 255.0 for value in stat.mean]
+                extrema = small.getextrema()
+                luminance = 0.2126 * means[0] + 0.7152 * means[1] + 0.0722 * means[2]
+                contrast = sum((high - low) / 255.0 for low, high in extrema) / 3.0
+                max_channel = max(means)
+                saturation = (
+                    (max_channel - min(means)) / max(max_channel, 0.001)
+                    if max_channel
+                    else 0.0
+                )
+                frames.append(
+                    {
+                        "timeSec": sample.get("timeSec"),
+                        "role": sample.get("role"),
+                        "brightness": round(luminance, 4),
+                        "contrast": round(contrast, 4),
+                        "saturation": round(saturation, 4),
+                    }
+                )
+                small_frames.append(small.tobytes())
+        except (OSError, ValueError):
+            continue
+
+    if not frames:
+        return {
+            "status": "unavailable",
+            "method": "local_frame_pixel_analysis_v1",
+            "reason": "No extracted frames could be decoded.",
+        }
+
+    deltas = []
+    for prev, cur in zip(small_frames, small_frames[1:]):
+        if not prev or not cur:
+            continue
+        diff = sum(abs(a - b) for a, b in zip(prev, cur))
+        deltas.append(diff / (len(prev) * 255.0))
+    mean_delta = sum(deltas) / len(deltas) if deltas else 0.0
+    avg_brightness = sum(frame["brightness"] for frame in frames) / len(frames)
+    avg_contrast = sum(frame["contrast"] for frame in frames) / len(frames)
+    avg_saturation = sum(frame["saturation"] for frame in frames) / len(frames)
+    width = int(probe.get("width") or 0)
+    height = int(probe.get("height") or 0)
+    vertical = bool(width and height and height / max(width, 1) >= 1.45)
+    if mean_delta >= 0.18:
+        energy = "high"
+        movement = "noticeable motion or scene changes between sampled frames"
+    elif mean_delta >= 0.07:
+        energy = "medium"
+        movement = "moderate handheld motion or pose change"
+    else:
+        energy = "low"
+        movement = "locked-off or near-static composition"
+    lighting = (
+        "bright"
+        if avg_brightness >= 0.62
+        else "dim"
+        if avg_brightness <= 0.34
+        else "balanced"
+    )
+    color = "colorful" if avg_saturation >= 0.38 else "neutral-toned"
+    framing = "vertical phone-native" if vertical else "non-vertical or cropped"
+    shot_sequence = [
+        f"{frame['role']} at {frame['timeSec']}s: {lighting} {color} frame, contrast {frame['contrast']:.2f}"
+        for frame in frames[:3]
+    ]
+    return {
+        "status": "analyzed",
+        "method": "local_frame_pixel_analysis_v1",
+        "frameCount": len(frames),
+        "averageBrightness": round(avg_brightness, 4),
+        "averageContrast": round(avg_contrast, 4),
+        "averageSaturation": round(avg_saturation, 4),
+        "meanFrameDelta": round(mean_delta, 4),
+        "energy": energy,
+        "movement": movement,
+        "framing": framing,
+        "lighting": lighting,
+        "colorPalette": color,
+        "subjectCount": "unknown_without_vlm",
+        "wardrobe": "unknown_without_vlm",
+        "setting": f"{lighting} {color} source-inspired setting",
+        "subjectAction": f"{movement}; preserve source pose/action without copying identity",
+        "shotSequence": shot_sequence,
+        "frames": frames,
+    }
+
+
+def _format_from_local_frame_analysis(
+    fallback: str, probe: dict[str, Any], frame_analysis: dict[str, Any]
+) -> str:
+    if frame_analysis.get("status") != "analyzed":
+        return fallback
+    width = int(probe.get("width") or 0)
+    height = int(probe.get("height") or 0)
+    vertical = bool(width and height and height / max(width, 1) >= 1.45)
+    if not vertical:
+        return fallback
+    if frame_analysis.get("energy") == "high":
+        return "walking_clip"
+    if fallback == "visual_reference":
+        return "short_vertical_visual_hook"
+    return fallback
+
+
 def _pattern_card_from_local(
     job: dict[str, Any],
     *,
@@ -2188,9 +2354,16 @@ def _pattern_card_from_local(
     format_type: str,
     energy: str,
     ocr_text: str,
+    frame_analysis: dict[str, Any],
+    scene_cuts: list[float],
 ) -> dict[str, Any]:
     reference_id = job["reference_id"]
     hook_type = "relationship" if _contains_relationship_terms(job, ocr_text) else "pov"
+    local_analyzed = frame_analysis.get("status") == "analyzed"
+    shot_sequence = frame_analysis.get("shotSequence") if local_analyzed else None
+    camera_movement = (
+        frame_analysis.get("movement") if local_analyzed else "subtle handheld"
+    )
     return {
         "schema": PATTERN_CARD_SCHEMA,
         "id": stable_id("viral_pattern_card", reference_id, format_type, hook_type),
@@ -2204,20 +2377,39 @@ def _pattern_card_from_local(
         },
         "formatType": format_type,
         "hookType": hook_type,
-        "visualPattern": f"{format_type.replace('_', ' ')} reference with phone-native composition and short-form overlay language.",
-        "shotSequence": _shot_sequence_for(format_type, probe),
+        "visualPattern": (
+            f"{format_type.replace('_', ' ')} reference measured from {len(frame_samples)} sampled frames; "
+            f"{frame_analysis.get('lighting', 'unknown')} lighting, "
+            f"{frame_analysis.get('colorPalette', 'unknown')} palette."
+            if local_analyzed
+            else f"{format_type.replace('_', ' ')} reference with phone-native composition and short-form overlay language."
+        ),
+        "setting": frame_analysis.get("setting")
+        if local_analyzed
+        else "source-inspired but original setting",
+        "shotSequence": shot_sequence or _shot_sequence_for(format_type, probe),
         "cameraStyle": {
-            "framing": "vertical 9:16",
-            "movement": "subtle handheld",
+            "framing": frame_analysis.get("framing", "vertical 9:16"),
+            "movement": camera_movement,
             "angle": "phone-native",
         },
-        "subjectAction": "confident selfie-style pose or subtle expression shift",
+        "subjectAction": frame_analysis.get(
+            "subjectAction", "creator-style pose or expression shift"
+        ),
+        "subject": {
+            "count": frame_analysis.get("subjectCount", "unknown_without_vlm"),
+            "wardrobe": frame_analysis.get("wardrobe", "unknown_without_vlm"),
+        },
         "textOverlayStyle": {
             "placement": "safe top or lower third",
             "fontStyle": "white text with dark stroke",
             "detectedText": ocr_text,
         },
-        "pacing": {"energy": energy, "cutRhythm": "single shot or light jump cuts"},
+        "pacing": {
+            "energy": energy,
+            "cutRhythm": "scene-change cuts" if len(scene_cuts) > 1 else "single shot",
+            "sceneCuts": scene_cuts,
+        },
         "audioVibe": {"energy": energy, "moodTags": ["glam", "relationship", "ai_ofm"]},
         "ctaPattern": "curiosity-first soft CTA",
         "reuseRisk": "medium",
@@ -2229,7 +2421,7 @@ def _pattern_card_from_local(
         ],
         "viralityMetrics": {},
         "qualityWarnings": [
-            "Local analysis is heuristic; use Gemini/VLM analysis for high-confidence shot and camera details."
+            "Local pixel analysis does not identify exact wardrobe, identity, or subject count; use Gemini/VLM analysis for semantic details."
         ],
     }
 

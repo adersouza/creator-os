@@ -2075,6 +2075,14 @@ def test_reference_local_analysis_creates_pattern_card_and_export(
     assert analysis["patternCard"]["schema"] == "reference_factory.pattern_card.v1"
     assert analysis["patternCard"]["formatType"] in {"mirror_selfie", "selfie_video"}
     assert analysis["signals"]["frameSamples"]
+    assert analysis["signals"]["framePixelAnalysis"]["method"] == (
+        "local_frame_pixel_analysis_v1"
+    )
+    assert analysis["signals"]["motion"]["method"] == "local_frame_pixel_analysis_v1"
+    assert analysis["patternCard"]["subjectAction"] != (
+        "confident selfie-style pose or subtle expression shift"
+    )
+    assert analysis["patternCard"]["pacing"]["sceneCuts"]
 
 
 def test_public_prompt_card_handles_shared_choice_caption_archetype() -> None:
