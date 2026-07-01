@@ -44,6 +44,19 @@ _PROMPT = (
     "unpostable; minor = subtle/arguable; none = clean."
 )
 
+_IMAGE_QC_PROMPT = (
+    "You are a postability QC gate for AI-generated photos of ONE adult person. "
+    "Check two things only. anatomy: physical impossibilities like extra/missing "
+    "limbs, fused fingers, impossible joints, warped face/eyes/teeth. exposure: "
+    "block visible nipples, areola, genitals, explicit sexual contact, or explicit "
+    "sexual fluids. Allow bikini, lingerie, cleavage, implied sexy posing, and skin "
+    "exposure when nipples/genitals are not visible. Reply with ONLY JSON, no prose: "
+    '{"anatomy": {"plausible": true|false, "severity": "none"|"minor"|"severe", '
+    '"defects": ["short phrase", ...]}, "exposure": {"safe": true|false, '
+    '"severity": "none"|"minor"|"severe", "issues": ["short phrase", ...]}}. '
+    "severe means unpostable."
+)
+
 # (frames, instruction) -> raw model text. Injectable so tests never spend.
 VisionCall = Callable[[list[Path], str], str]
 
@@ -137,8 +150,96 @@ def filter_plausible(
     return kept, rejected
 
 
+def assess_image_qc(
+    image_path: Path | str,
+    *,
+    root: Path | str = ".",
+    model: str = DEFAULT_MODEL,
+    vision_call: VisionCall | None = None,
+) -> dict[str, Any]:
+    """One generated-still gate: anatomy + explicit exposure. Fail-closed."""
+    image_path = Path(image_path)
+    if not image_path.exists():
+        return {
+            "available": True,
+            "anatomy": {
+                "plausible": False,
+                "severity": "severe",
+                "defects": ["missing file"],
+            },
+            "exposure": {"safe": False, "severity": "severe", "issues": []},
+            "error": "file not found",
+        }
+    if vision_call is None:
+        try:
+            vision_call = _grok_vision(Path(root), model)
+        except Exception as exc:
+            return {
+                "available": False,
+                "anatomy": {"plausible": None, "severity": None, "defects": []},
+                "exposure": {"safe": None, "severity": None, "issues": []},
+                "error": str(exc),
+            }
+    try:
+        raw = vision_call([image_path], _IMAGE_QC_PROMPT)
+        data = json.loads(strip_json_fence(raw))
+    except Exception as exc:
+        return {
+            "available": False,
+            "anatomy": {"plausible": None, "severity": None, "defects": []},
+            "exposure": {"safe": None, "severity": None, "issues": []},
+            "error": f"vision call/parse failed: {exc}",
+        }
+    anatomy = data.get("anatomy") or {}
+    exposure = data.get("exposure") or {}
+    return {
+        "available": True,
+        "anatomy": {
+            "plausible": bool(anatomy.get("plausible")),
+            "severity": str(anatomy.get("severity") or "severe"),
+            "defects": [str(d) for d in (anatomy.get("defects") or [])],
+        },
+        "exposure": {
+            "safe": bool(exposure.get("safe")),
+            "severity": str(exposure.get("severity") or "severe"),
+            "issues": [str(i) for i in (exposure.get("issues") or [])],
+        },
+    }
+
+
+def is_image_postable(assessment: dict[str, Any]) -> bool:
+    if not assessment.get("available"):
+        return False
+    anatomy = assessment.get("anatomy") or {}
+    exposure = assessment.get("exposure") or {}
+    return (
+        bool(anatomy.get("plausible"))
+        and anatomy.get("severity") != "severe"
+        and bool(exposure.get("safe"))
+        and exposure.get("severity") != "severe"
+    )
+
+
+def filter_postable(
+    paths: list[Path | str],
+    root: Path | str = ".",
+    *,
+    vision_call: VisionCall | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    kept: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for p in paths:
+        a = assess_image_qc(p, root=root, vision_call=vision_call)
+        (kept if is_image_postable(a) else rejected).append({"path": str(p), **a})
+    return kept, rejected
+
+
 def _demo() -> None:
     clean = lambda f, i: '{"plausible": true, "severity": "none", "defects": []}'
+    clean_image = lambda f, i: (
+        '{"anatomy": {"plausible": true, "severity": "none", "defects": []}, '
+        '"exposure": {"safe": true, "severity": "none", "issues": []}}'
+    )
     broken = lambda f, i: (
         '```json\n{"plausible": false, "severity": "severe", '
         '"defects": ["butt on wrong side", "6 fingers"]}\n```'
@@ -163,6 +264,9 @@ def _demo() -> None:
     kept, rej = filter_plausible([here, here], vision_call=broken)
     assert len(kept) == 0 and len(rej) == 2, (kept, rej)
 
+    image_qc = assess_image_qc(here, vision_call=clean_image)
+    assert is_image_postable(image_qc), image_qc
+
     print("anatomy_qc self-check OK")
 
 
@@ -176,10 +280,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo or not args.image:
         _demo()
         return 0
-    result = assess_anatomy(args.image, root=args.root, model=args.model)
+    result = assess_image_qc(args.image, root=args.root, model=args.model)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     # exit 0 = postable, 1 = reject/unverifiable (fail-closed)
-    return 0 if is_postable(result) else 1
+    return 0 if is_image_postable(result) else 1
 
 
 if __name__ == "__main__":

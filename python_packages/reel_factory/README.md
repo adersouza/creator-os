@@ -298,14 +298,17 @@ This installs the `vision` + `ai` extras and downloads ignored model files into
 `python_packages/reel_factory/models/`: YuNet face detection, PP-HumanSeg, and
 Meta SSCD. Render runs fail loud if required placement or SSCD models are absent.
 
-Generated stills must pass anatomy QC before they enter ranking or render review:
+Generated stills must pass anatomy + exposure QC before they enter ranking or
+render review. The Higgsfield image-generation paths run this gate automatically
+for downloaded stills:
 
 ```bash
 python3 anatomy_qc.py --image path/to/generated.png --root .
 ```
 
-Exit `0` means pass; exit `1` means reject or unverifiable. This gate catches
-anatomy/defect failures only. It does not check nudity or exposure.
+Exit `0` means pass; exit `1` means reject or unverifiable. The gate fail-closes
+on provider/key errors, anatomy defects, and explicit exposure such as visible
+nipples/genitals. Bikini, lingerie, cleavage, and implied sexy posing are allowed.
 
 It writes `02_processed/clip_001/_ai_qc.json` with non-blocking warnings for
 blur/low detail, abrupt frame jumps, likely text/watermarks, and face-count
