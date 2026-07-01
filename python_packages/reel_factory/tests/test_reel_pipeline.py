@@ -46,6 +46,7 @@ from reel_pipeline import (
     timed_caption_band,
     write_caption_lineage_sidecar,
     write_generated_asset_lineage_sidecar,
+    write_required_similarity_audit,
 )
 from render_plan import RenderPlan
 
@@ -1569,6 +1570,44 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
             self.assertEqual(data["render"]["renderJobKey"], "job")
             self.assertTrue(data["review"]["humanReviewRequired"])
+
+    def test_required_similarity_audit_writes_sidecar_and_blocks_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.mp4"
+            out_dir = root / "02_processed" / "source"
+            out_dir.mkdir(parents=True)
+            source.write_bytes(b"source")
+
+            rows = [
+                {
+                    "filename": "rendered.mp4",
+                    "status": "pass",
+                    "max_similarity": 0.25,
+                    "verdict": "PASS (distinct content)",
+                }
+            ]
+            self.assertEqual(
+                write_required_similarity_audit(
+                    source, out_dir, audit_func=lambda _s, _o: rows
+                ),
+                rows,
+            )
+            sidecar = json.loads((out_dir / "_similarity.json").read_text())
+            self.assertEqual(sidecar[0]["status"], "pass")
+
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(
+                    source,
+                    out_dir,
+                    audit_func=lambda _s, _o: [
+                        {
+                            "filename": "copy.mp4",
+                            "status": "fail",
+                            "verdict": "FAIL (copy detected)",
+                        }
+                    ],
+                )
 
     def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
         with tempfile.TemporaryDirectory() as tmp:

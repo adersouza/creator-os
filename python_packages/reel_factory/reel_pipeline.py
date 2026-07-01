@@ -891,6 +891,31 @@ def ensure_source_asset_lineage(
     return path
 
 
+def write_required_similarity_audit(
+    source_video: Path, clip_out: Path, audit_func=None
+):
+    """Run real SSCD similarity and fail loud on copy-detection failures."""
+    if audit_func is None:
+        from sscd_video import audit_video_dir
+
+        audit_func = audit_video_dir
+    rows = audit_func(source_video, clip_out)
+    if rows:
+        (clip_out / "_similarity.json").write_text(
+            json.dumps(rows, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    failed = [
+        row
+        for row in rows
+        if row.get("status") == "fail" or str(row.get("verdict", "")).startswith("FAIL")
+    ]
+    if failed:
+        names = ", ".join(str(row.get("filename")) for row in failed[:5])
+        raise RuntimeError(f"SSCD copy gate failed for {clip_out.name}: {names}")
+    return rows
+
+
 def build_single_job_enqueue_cmd(
     *,
     root: Path,
@@ -2626,31 +2651,22 @@ async def amain(args):
                         f"campaign output link failed for {result.get('out')}: {e}"
                     )
 
-        # Per-clip summary artifacts: CSV index + contact sheet PNG.
-        try:
-            from post_render import summarize_clip_outputs
+        # Per-clip summary artifacts: CSV/contact sheet are best-effort. SSCD is not.
+        for video, _ in pairs:
+            clip_out = proc_dir / video.stem
+            if not (clip_out.exists() and any(clip_out.glob("*.mp4"))):
+                continue
+            try:
+                from post_render import summarize_clip_outputs
 
-            for video, _ in pairs:
-                clip_out = proc_dir / video.stem
-                if clip_out.exists() and any(clip_out.glob("*.mp4")):
-                    info = summarize_clip_outputs(clip_out)
-                    log.info(
-                        f"summarize {video.stem}: csv+sheet for {info['count']} outputs"
-                    )
-                    try:
-                        from sscd_check import audit_clip_dir
-
-                        novelty = audit_clip_dir(clip_out)
-                        if novelty:
-                            (clip_out / "_similarity.json").write_text(
-                                json.dumps(novelty, indent=2, ensure_ascii=False),
-                                encoding="utf-8",
-                            )
-                            log.info(f"similarity {video.stem}: {len(novelty)} rows")
-                    except Exception as e:
-                        log.warning(f"similarity audit failed for {video.stem}: {e}")
-        except Exception as e:
-            log.warning(f"post-render summary failed: {e}")
+                info = summarize_clip_outputs(clip_out)
+                log.info(
+                    f"summarize {video.stem}: csv+sheet for {info['count']} outputs"
+                )
+            except Exception as e:
+                log.warning(f"post-render summary failed for {video.stem}: {e}")
+            similarity = write_required_similarity_audit(video, clip_out)
+            log.info(f"sscd similarity {video.stem}: {len(similarity)} rows")
         if args.mux_audio:
             try:
                 from audio_mux import mux_root

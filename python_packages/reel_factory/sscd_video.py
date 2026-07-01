@@ -144,12 +144,11 @@ def cross_similarity(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
     return float(sims.mean()), float(sims.max())
 
 
-def main(source: str, out_dir: str) -> None:
+def audit_video_dir(source: str | Path, out_dir: str | Path) -> list[dict]:
     src = Path(source)
     od = Path(out_dir)
     if not src.exists() or not od.is_dir():
-        print("missing src or dir")
-        sys.exit(1)
+        raise FileNotFoundError("missing source video or output dir")
 
     with tempfile.TemporaryDirectory() as td_str:
         td = Path(td_str)
@@ -157,46 +156,70 @@ def main(source: str, out_dir: str) -> None:
         src_emb = embed_many(src_frames)
 
         videos = sorted(od.glob("*.mp4"))
-        print(f"\nbaseline source: {src.name}  ({len(src_frames)} frames)")
-        print(f"variant dir: {od}\n")
-        print(f"{'recipe':<22} {'mean':>7}  {'max':>7}  {'verdict':<26}")
-        print("-" * 70)
-
         rows = []
         for v in videos:
-            try:
-                v_frames = extract_frames(v, td)
-                v_emb = embed_many(v_frames)
-            except Exception as e:
-                print(f"{v.name}: error {e}")
-                continue
+            v_frames = extract_frames(v, td)
+            v_emb = embed_many(v_frames)
             mean_s, max_s = cross_similarity(src_emb, v_emb)
             # Verdict based on MAX cosine similarity — Meta flags on the
             # closest-matching frame pair, not the average.
             if max_s >= 0.75:
+                status = "fail"
                 verdict = "FAIL (copy detected)"
             elif max_s >= 0.50:
+                status = "warn"
                 verdict = "WARN (modified copy)"
             else:
+                status = "pass"
                 verdict = "PASS (distinct content)"
             recipe = recipe_from_name(v.name)
-            rows.append((recipe, mean_s, max_s, verdict))
-            print(f"{recipe:<22} {mean_s:>7.4f}  {max_s:>7.4f}  {verdict:<26}")
-
-        print("-" * 70)
-        passes = sum(1 for r in rows if r[3].startswith("PASS"))
-        warns = sum(1 for r in rows if r[3].startswith("WARN"))
-        fails = sum(1 for r in rows if r[3].startswith("FAIL"))
-        avgs = [r[2] for r in rows]
-        print("\nResults vs source:")
-        print(f"  PASS (distinct):   {passes}/{len(rows)}")
-        print(f"  WARN (modified):   {warns}/{len(rows)}")
-        print(f"  FAIL (copy):       {fails}/{len(rows)}")
-        if avgs:
-            print(
-                f"  max-sim summary:   mean={sum(avgs) / len(avgs):.4f}  "
-                f"min={min(avgs):.4f}  max={max(avgs):.4f}"
+            rows.append(
+                {
+                    "schema": "reel_factory.sscd_similarity_row.v1",
+                    "filename": v.name,
+                    "recipe": recipe,
+                    "mean_similarity": round(mean_s, 6),
+                    "max_similarity": round(max_s, 6),
+                    "status": status,
+                    "verdict": verdict,
+                }
             )
+        return rows
+
+
+def main(source: str, out_dir: str) -> None:
+    src = Path(source)
+    od = Path(out_dir)
+    try:
+        rows = audit_video_dir(src, od)
+    except FileNotFoundError:
+        print("missing src or dir")
+        sys.exit(1)
+
+    print(f"\nbaseline source: {src.name}  ({len(SAMPLE_PCTS)} frames)")
+    print(f"variant dir: {od}\n")
+    print(f"{'recipe':<22} {'mean':>7}  {'max':>7}  {'verdict':<26}")
+    print("-" * 70)
+    for row in rows:
+        print(
+            f"{row['recipe']:<22} {row['mean_similarity']:>7.4f}  "
+            f"{row['max_similarity']:>7.4f}  {row['verdict']:<26}"
+        )
+
+    print("-" * 70)
+    passes = sum(1 for r in rows if r["status"] == "pass")
+    warns = sum(1 for r in rows if r["status"] == "warn")
+    fails = sum(1 for r in rows if r["status"] == "fail")
+    avgs = [r["max_similarity"] for r in rows]
+    print("\nResults vs source:")
+    print(f"  PASS (distinct):   {passes}/{len(rows)}")
+    print(f"  WARN (modified):   {warns}/{len(rows)}")
+    print(f"  FAIL (copy):       {fails}/{len(rows)}")
+    if avgs:
+        print(
+            f"  max-sim summary:   mean={sum(avgs) / len(avgs):.4f}  "
+            f"min={min(avgs):.4f}  max={max(avgs):.4f}"
+        )
 
 
 if __name__ == "__main__":

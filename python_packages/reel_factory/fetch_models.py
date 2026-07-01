@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Fetch the OpenCV Zoo models caption placement needs.
+"""Fetch the local models Reel Factory gates need.
 
 The models are NOT committed — repo CI blocks runtime-artifact binaries (hygiene /
-secret-scan). Placement fails loud without them (see placement._warn_if_blind);
-run this once after checkout:
+secret-scan). Placement and SSCD fail loud without them; run this once after
+checkout:
 
     python fetch_models.py
 
-Idempotent — skips models already present. Source is OpenCV Zoo (same trusted
-origin used across the project).
+Idempotent — skips models already present. Sources are OpenCV Zoo and Meta's
+public SSCD model.
 """
 
 from __future__ import annotations
@@ -24,6 +24,10 @@ MODELS = {
     "human_segmentation_pphumanseg_2023mar.onnx": (
         f"{_BASE}/human_segmentation_pphumanseg/"
         "human_segmentation_pphumanseg_2023mar.onnx"
+    ),
+    "sscd_disc_mixup.torchscript.pt": (
+        "https://dl.fbaipublicfiles.com/sscd-copy-detection/"
+        "sscd_disc_mixup.torchscript.pt"
     ),
 }
 DEST = Path(__file__).parent / "models"
