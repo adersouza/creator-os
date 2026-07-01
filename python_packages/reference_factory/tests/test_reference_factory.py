@@ -2556,9 +2556,27 @@ def test_pattern_analyzer_prefers_stored_vision_analysis(tmp_path: Path) -> None
             json.dumps(
                 {
                     "winningFormatCard": {"visualFormat": "walking_clip"},
+                    "subject": {
+                        "pose": "three-quarter lean toward camera",
+                        "wardrobe": "fitted red mini dress silhouette",
+                    },
+                    "setting": {
+                        "location": "bright hallway",
+                        "lighting": "soft window light from camera left",
+                    },
                     "recreation_blueprint": {
                         "format_type": "walking_clip",
-                        "motion_beats": [{"subject_motion": "walk in"}],
+                        "first_frame": {
+                            "crop": "mid-thigh vertical crop",
+                            "body_angle": "three-quarter angle",
+                            "camera_distance": "medium",
+                        },
+                        "motion_beats": [
+                            {
+                                "time_range": "0.0-1.0s",
+                                "subject_motion": "walk in",
+                            }
+                        ],
                     },
                 }
             ),
@@ -2576,7 +2594,16 @@ def test_pattern_analyzer_prefers_stored_vision_analysis(tmp_path: Path) -> None
     assert row["hook_type"] == "visual_curiosity"
     assert pattern["winnerDna"]["visionSource"] == "reference_video_analysis"
     assert pattern["winnerDna"]["subjectAction"] == "slow hallway walk into frame"
+    assert pattern["winnerDna"]["outfit"] == "fitted red mini dress silhouette"
+    assert pattern["winnerDna"]["pose"] == "three-quarter lean toward camera"
+    assert pattern["winnerDna"]["lighting"] == "soft window light from camera left"
+    assert (
+        pattern["winnerDna"]["firstFrameGeometry"]["crop"] == "mid-thigh vertical crop"
+    )
+    assert pattern["winnerDna"]["motionBeats"][0]["subject_motion"] == "walk in"
     assert pattern["winnerDna"]["recreationBlueprint"]["format_type"] == "walking_clip"
+    assert "fitted red mini dress silhouette" in pattern["promptPattern"]["visualBrief"]
+    assert "winner_dna:firstFrameGeometry" in pattern["referenceUse"]["whatToLearn"]
 
 
 def test_learning_summary_uses_vision_analysis_for_existing_pattern_rows(
@@ -2660,6 +2687,15 @@ def test_learning_summary_uses_vision_analysis_for_existing_pattern_rows(
     assert cluster["visualFormat"] == "mirror_selfie"
     assert cluster["hookType"] == "viewer_insert"
     assert cluster["winnerDna"]["visualStructure"] == "mirror_selfie"
+    assert (
+        cluster["winnerDna"]["topReferenceDna"]["pose"]
+        == "mirror pose with phone held low"
+    )
+    assert "mirror pose with phone held low" in cluster["promptTemplate"]["visualBrief"]
+    assert (
+        cluster["higgsfieldJsonTemplate"]["source_winner_dna"]["pose"]
+        == "mirror pose with phone held low"
+    )
 
 
 def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) -> None:
