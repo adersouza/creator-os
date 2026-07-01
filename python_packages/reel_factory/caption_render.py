@@ -40,6 +40,7 @@ FONT_FILE = {
 CANVAS_W, CANVAS_H = 1080, 1920
 MAX_TEXT_W = 960
 REELS_SAFE_TEXT_W = 600
+CAPTION_LEGIBILITY_SHRINK_FLOOR = 0.55
 
 
 def _resolve_font_path(font_family: str, fonts_dir: Path) -> Path:
@@ -203,23 +204,29 @@ def _layout_text(
         0.68,
         0.62,
         0.56,
-        0.50,
-        0.44,
-        0.38,
     )
     max_lines = 5 if max_width < 700 * scale else 6
+    last: tuple[ImageFont.FreeTypeFont, list[str]] | None = None
     for shrink in shrink_steps:
+        if shrink < CAPTION_LEGIBILITY_SHRINK_FLOOR:
+            continue
         font = _font_for_lines(font_path, explicit_lines, scale=scale * shrink)
         lines = _wrap_lines(text, font, max_width=max_width)
         font = _font_for_lines(font_path, max(1, len(lines)), scale=scale * shrink)
         lines = _wrap_lines(text, font, max_width=max_width)
+        last = (font, lines)
         if (
             lines
             and len(lines) <= max_lines
             and max(_text_width(draw, line, font) for line in lines) <= max_width
         ):
             return font, lines
-    return font, lines
+    line_count = len(last[1]) if last else 0
+    raise ValueError(
+        "caption_unrenderable_at_legible_size:"
+        f" lines={line_count} max_lines={max_lines}"
+        f" min_shrink={CAPTION_LEGIBILITY_SHRINK_FLOOR}"
+    )
 
 
 def _contains_emoji_like(text: str) -> bool:
