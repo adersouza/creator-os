@@ -1,8 +1,8 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
-  "source_hash": "c185f516c8564ed72bc3fb6e78a330c005e0b265f9b0a45e09bd07ba2d54f446",
-  "updated_at": 1782880000,
+  "source_hash": "568090839318cb87a3acf4c8815c4b11941472d22b668b69c48ac0478bd9e47c",
+  "updated_at": 1782882000,
   "banks": {
     "shared_girl_next_door": [
       {
@@ -2682,6 +2682,54 @@
             "source_index": 127
           }
         ]
+      },
+      {
+        "caption_hash": "c739a37d870fd80f33ce11fba3eeb3e446be1bac7ad3352cc4dbd6ee0df57242",
+        "text": "Let's make a deal:\nlike this + say good morning\nand I'll message you if I like you 😊",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 84,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "009bb22b36378a1c5d916c5192d3262d0c22dc9a838cbe2cab6fa7cfa84776b7",
+        "text": "give me a like and comment your city\nI'll tell you if we'd match",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 64,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ec8dd906c89274ad2dc3625e8671658400661ef75f35351eec03888edaac5cf3",
+        "text": "share this with one person\nand screenshot who you'd send me to",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 62,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
       }
     ],
     "comment_bait": [
@@ -3667,6 +3715,182 @@
         "format_class": "multiline",
         "source_type": "generated_variation",
         "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "1621f5dd3b5dfdf6b8ea8b6c9e64949503ebed24420582090dcd01bad051c29e",
+        "text": "Your face would look even\nbetter between my legs",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a8e4848becf0f9f734a8e6fd526da4c18db6a32384ee1ea92dd9b3783689e9c4",
+        "text": "No botox, no cosmetic procedures.\nAm I cute enough to get\nyour attention like this? 🥲",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 85,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
+        "text": "We are just friends",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 19,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fdf003c6df879c1da7a201cbd330c12fa23402934530af9f2386e7f9e0e8836",
+        "text": "Apparently 1 in 1000 men\nare into slim girls with giant 🍑\nDrop a like if you're one of them",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 19,
+        "char_count": 91,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7f9f84badec738458a54bd59f6a3a0abf2f9b24f4e2d9750677a982a961f0dde",
+        "text": "Older man who is just scrolling,\nI have a question for you...\nDo I look good?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 77,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "301f5172082100de363594975e0bf5eb049d2b219043c994dbc549cf8f878007",
+        "text": "New study confirms men find women\nmore attractive with less makeup\n\ndo you agree?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 81,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "f45034ca8f000f680cc85019d13405cc3946eb6575ebaa37799a85d8c6a46d56",
+        "text": "to the older man who stopped scrolling...\nbe honest, do I look good?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 68,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e2c8d97b4697613bbf41750d30929959f96ddc2a5cb9fa3b8aac34c241773e2d",
+        "text": "older men in my comments,\nwould you take me seriously?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 54,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a75ff252cb6c24d0650188d70fa57e64d4bb868df6df8f53d0b92aac5327fdea",
+        "text": "new study says the quiet girls\nare the wildest\n\ntrue or false?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 62,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "77de881ffd2941da72d772cc8df0fb7f8efb1eb4b4e0fade66f9f22246cc3f6a",
+        "text": "hot take: a good morning text\nbeats flowers\n\nmen, do you agree?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 63,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "8151e59c549168e85eaef5e0e6b0c47a87fa0d639ab66f168557ac0a0721b0f4",
+        "text": "they say I'm too much\nis there even such a thing?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
         "source_index": 0
       }
     ],
@@ -5192,6 +5416,86 @@
         "format_class": "multiline",
         "source_type": "generated_variation",
         "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "25333b6f07dadb0bf34387141a4f867942e547f8ca17bac808373eadcc8f06fa",
+        "text": "Sough Rex doesn't ruin a friendship\nunless you let it",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 53,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "240219383c10b40540561eae071aa1c98035da2d54a26ea95d62060e401a1c8a",
+        "text": "I want you to ghilk me\nbut replace:\nH with O\nK with E\nJ with D\nG with R",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 20,
+        "char_count": 71,
+        "line_count": 6,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "cb57cdd13437611635966cb774e94791bc2b31852ebba237a3cd1473c2612a85",
+        "text": "careful...\nI turn a Funday Night\ninto a Nunday Fight",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 52,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "0cd0d8aa78b529c47b1bdbd2c99ab1565a9112015043c043c089614d475843e8",
+        "text": "you + me = Mad Bove?\nnow read it again",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 38,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4c75d769432302047a1bf9b198a60b9dc66e06e8446ee329a7f3ff52ee318000",
+        "text": "I want you to kold me\nbut replace:\nk with h",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 43,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
         "source_index": 0
       }
     ],
@@ -14763,6 +15067,310 @@
         "format_class": "multiline",
         "source_type": "generated_variation",
         "source_file": "authored_2026-07-01",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "25333b6f07dadb0bf34387141a4f867942e547f8ca17bac808373eadcc8f06fa",
+        "text": "Sough Rex doesn't ruin a friendship\nunless you let it",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 53,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "240219383c10b40540561eae071aa1c98035da2d54a26ea95d62060e401a1c8a",
+        "text": "I want you to ghilk me\nbut replace:\nH with O\nK with E\nJ with D\nG with R",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 20,
+        "char_count": 71,
+        "line_count": 6,
+        "length_class": "long",
+        "format_class": "coded",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "cb57cdd13437611635966cb774e94791bc2b31852ebba237a3cd1473c2612a85",
+        "text": "careful...\nI turn a Funday Night\ninto a Nunday Fight",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 52,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "0cd0d8aa78b529c47b1bdbd2c99ab1565a9112015043c043c089614d475843e8",
+        "text": "you + me = Mad Bove?\nnow read it again",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 8,
+        "char_count": 38,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4c75d769432302047a1bf9b198a60b9dc66e06e8446ee329a7f3ff52ee318000",
+        "text": "I want you to kold me\nbut replace:\nk with h",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 43,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "1621f5dd3b5dfdf6b8ea8b6c9e64949503ebed24420582090dcd01bad051c29e",
+        "text": "Your face would look even\nbetter between my legs",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a8e4848becf0f9f734a8e6fd526da4c18db6a32384ee1ea92dd9b3783689e9c4",
+        "text": "No botox, no cosmetic procedures.\nAm I cute enough to get\nyour attention like this? 🥲",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 15,
+        "char_count": 85,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "94b8a59e7b301691f9c0d513187ad314ebf1bb075cc06df5f2acd1f6023cc378",
+        "text": "We are just friends",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 19,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "5fdf003c6df879c1da7a201cbd330c12fa23402934530af9f2386e7f9e0e8836",
+        "text": "Apparently 1 in 1000 men\nare into slim girls with giant 🍑\nDrop a like if you're one of them",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 19,
+        "char_count": 91,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "7f9f84badec738458a54bd59f6a3a0abf2f9b24f4e2d9750677a982a961f0dde",
+        "text": "Older man who is just scrolling,\nI have a question for you...\nDo I look good?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 77,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "301f5172082100de363594975e0bf5eb049d2b219043c994dbc549cf8f878007",
+        "text": "New study confirms men find women\nmore attractive with less makeup\n\ndo you agree?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 81,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "f45034ca8f000f680cc85019d13405cc3946eb6575ebaa37799a85d8c6a46d56",
+        "text": "to the older man who stopped scrolling...\nbe honest, do I look good?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 13,
+        "char_count": 68,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "e2c8d97b4697613bbf41750d30929959f96ddc2a5cb9fa3b8aac34c241773e2d",
+        "text": "older men in my comments,\nwould you take me seriously?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 10,
+        "char_count": 54,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "a75ff252cb6c24d0650188d70fa57e64d4bb868df6df8f53d0b92aac5327fdea",
+        "text": "new study says the quiet girls\nare the wildest\n\ntrue or false?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 62,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "77de881ffd2941da72d772cc8df0fb7f8efb1eb4b4e0fade66f9f22246cc3f6a",
+        "text": "hot take: a good morning text\nbeats flowers\n\nmen, do you agree?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 63,
+        "line_count": 3,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "8151e59c549168e85eaef5e0e6b0c47a87fa0d639ab66f168557ac0a0721b0f4",
+        "text": "they say I'm too much\nis there even such a thing?",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 11,
+        "char_count": 49,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "c739a37d870fd80f33ce11fba3eeb3e446be1bac7ad3352cc4dbd6ee0df57242",
+        "text": "Let's make a deal:\nlike this + say good morning\nand I'll message you if I like you 😊",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 17,
+        "char_count": 84,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "009bb22b36378a1c5d916c5192d3262d0c22dc9a838cbe2cab6fa7cfa84776b7",
+        "text": "give me a like and comment your city\nI'll tell you if we'd match",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 64,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "ec8dd906c89274ad2dc3625e8671658400661ef75f35351eec03888edaac5cf3",
+        "text": "share this with one person\nand screenshot who you'd send me to",
+        "banks": [
+          "dm_follow_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 62,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "laylaxxwalker+screenshots",
         "source_index": 0
       }
     ]
