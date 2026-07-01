@@ -203,7 +203,7 @@ common case (visual-first, no-caption reel) is mislabeled `visual_reference`.
 **Note:** VLM/vision passes may cost tokens — keep them behind the existing analysis flags, no unauthorized paid runs.
 **Status:** Implemented in PR #330 with local frame pixel analysis and ffmpeg scene-cut detection; paid/VLM semantic enrichment remains behind explicit provider paths.
 
-### 2.2 Un-silo the real vision path into the production learning join  ·  HIGH · M · [ ]
+### 2.2 Un-silo the real vision path into the production learning join  ·  HIGH · M · [x]
 **Branch:** `codex/unsilo-vision-analyses`
 **Why:** `patterns._pattern_source_rows` (`patterns.py:255`) and `learning._pattern_cards` (`learning.py:147`)
 join only `public_posts`/`caption_patterns`/`video_probes`/`source_files` — never `reference_video_analyses`
@@ -212,6 +212,7 @@ So even when an operator runs the good vision analysis, it never reaches the clu
 `campaign_reference_bank.json` that Campaign Factory consumes.
 **Do:** left-join `viral_pattern_cards` / `reference_video_analyses` into the pattern-card builders; prefer
 vision-derived `visualFormat` / `winnerDna` over the text heuristic when present.
+**Status:** Implemented in PR #331.
 
 ### 2.3 Enrich the winnerDNA schema so it can drive generation  ·  HIGH · M · [ ]
 **Branch:** `codex/winnerdna-schema-enrich`
@@ -344,7 +345,7 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 1.4 caption approvedWeights — PR #328
 - [x] 1.5 next-batch bandit — PR #329
 - [x] 2.1 reference vision DNA — PR #330
-- [ ] 2.2 un-silo vision analyses
+- [x] 2.2 un-silo vision analyses — PR #331
 - [ ] 2.3 enrich winnerDNA schema
 - [ ] 2.4 contentforge capture decision
 - [x] 3.1 per-soul metrics — PR #323 merged 2026-07-01
