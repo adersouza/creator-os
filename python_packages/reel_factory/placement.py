@@ -239,7 +239,7 @@ def face_detection_available() -> tuple[bool, str]:
     except ImportError:
         return False, "OpenCV (cv2) not installed — run: uv sync --extra vision"
     if not _YUNET_MODEL_PATH.exists():
-        return False, f"YuNet model missing at {_YUNET_MODEL_PATH}"
+        return False, "YuNet model missing — run: python fetch_models.py"
     return True, ""
 
 
