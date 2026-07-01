@@ -153,7 +153,7 @@ caption_hash (via caption lineage sidecars) and writes `performance.json` `appro
 `_weighted_bank_item` biases toward proven captions. Use the **rate-based** score from 1.2. Depends on 1.3.
 **Status:** Implemented in PR #328.
 
-### 1.5 Replace next-batch recipe round-robin with an engagement bandit  ·  HIGH · M · [ ]
+### 1.5 Replace next-batch recipe round-robin with an engagement bandit  ·  HIGH · M · [x]
 **Branch:** `codex/campaign-factory-bandit`
 **Why:** `campaign_store.next_batch_plan` exploits only — `recipe_hint = best_recipes[idx % len(best_recipes)]`
 (campaign_store.py:1012) round-robins the top-3 recipes by mean score. No exploration; a recipe that starts
@@ -178,6 +178,7 @@ weak or is new never gets sampled back.
 **Tests:** deterministic w/ seed; cold-start falls back; a batch isn't 100% one recipe (exploration); a clearly
 higher-rate recipe wins more across a seed sweep (convergence); rate clamp when engagements>views; zero-view/zero-post
 no divide-by-zero.
+**Status:** Implemented in PR #329.
 **Sequence:** after 1.2 (shares the rate reward).
 
 ---

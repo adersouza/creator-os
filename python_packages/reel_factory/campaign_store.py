@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sqlite3
 import time
@@ -63,6 +64,8 @@ VALID_RETRY_HELPERS = {
     "more_body_emphasis",
     "more_cleavage",
 }
+
+DEFAULT_RECIPE_HINTS = ("v01_original", "v09_caption_bg")
 
 RETRY_HELPER_DIRECTIONS = {
     "fix_pose": (
@@ -959,16 +962,124 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
     }
 
 
-def next_batch_plan(
-    root: Path, *, campaign: str, count: int = 20, persist: bool = False
+def _default_recipe_names(root: Path) -> list[str]:
+    path = Path(root).resolve() / "recipes" / "default.json"
+    if not path.exists():
+        path = Path(__file__).resolve().parent / "recipes" / "default.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return list(DEFAULT_RECIPE_HINTS)
+    recipes = [
+        item.get("name")
+        for item in data
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    ]
+    return recipes or list(DEFAULT_RECIPE_HINTS)
+
+
+def _engagement_rate_reward(row: sqlite3.Row) -> float:
+    views = max(float(row["views"] or 0), 1.0)
+    engagements = sum(
+        float(row[metric] or 0) for metric in ("likes", "comments", "shares", "saves")
+    )
+    return max(0.0, min(1.0, engagements / views))
+
+
+def _recipe_bandit_state(
+    conn: sqlite3.Connection, root: Path, *, campaign_id: str
 ) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT co.recipe, m.views, m.likes, m.comments, m.shares, m.saves
+        FROM campaign_outputs co
+        JOIN publish_metrics m
+          ON m.filename = co.metrics_filename
+          OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+        WHERE co.campaign_id=? AND co.recipe IS NOT NULL
+        """,
+        (campaign_id,),
+    ).fetchall()
+    recipes = {
+        str(row["recipe"])
+        for row in conn.execute(
+            """
+            SELECT DISTINCT recipe
+            FROM campaign_outputs
+            WHERE campaign_id=? AND recipe IS NOT NULL AND recipe != ''
+            """,
+            (campaign_id,),
+        ).fetchall()
+    }
+    recipes.update(_default_recipe_names(root))
+    rewards: dict[str, list[float]] = {recipe: [] for recipe in recipes}
+    for row in rows:
+        rewards.setdefault(str(row["recipe"]), []).append(_engagement_rate_reward(row))
+    arms = []
+    for recipe in sorted(rewards):
+        rates = rewards[recipe]
+        alpha = 1.0 + sum(rates)
+        beta = 1.0 + sum(1.0 - rate for rate in rates)
+        arms.append(
+            {
+                "recipe": recipe,
+                "alpha": round(alpha, 6),
+                "beta": round(beta, 6),
+                "post_count": len(rates),
+                "mean_reward": round(sum(rates) / len(rates), 6) if rates else None,
+            }
+        )
+    return {
+        "mode": "thompson_beta_engagement_rate",
+        "metric_posts": len(rows),
+        "arms": arms,
+    }
+
+
+def _draw_recipe_from_bandit(
+    state: dict[str, Any], rng: random.Random
+) -> tuple[str, dict[str, Any]]:
+    samples = {
+        arm["recipe"]: rng.betavariate(float(arm["alpha"]), float(arm["beta"]))
+        for arm in state["arms"]
+    }
+    chosen = max(sorted(samples), key=lambda recipe: samples[recipe])
+    chosen_arm = next(arm for arm in state["arms"] if arm["recipe"] == chosen)
+    metadata = {
+        "mode": state["mode"],
+        "chosen_recipe": chosen,
+        "chosen_alpha": chosen_arm["alpha"],
+        "chosen_beta": chosen_arm["beta"],
+        "chosen_post_count": chosen_arm["post_count"],
+        "sampled_theta": round(samples[chosen], 6),
+        "samples": {recipe: round(theta, 6) for recipe, theta in samples.items()},
+        "arms": state["arms"],
+    }
+    return chosen, metadata
+
+
+def next_batch_plan(
+    root: Path,
+    *,
+    campaign: str,
+    count: int = 20,
+    persist: bool = False,
+    rng: random.Random | None = None,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    if rng is None:
+        rng = random.Random(seed)
     board = campaign_leaderboard(root, campaign=campaign)
     reject_labels = {item["label"] for item in board["worst_failure_patterns"]}
-    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or [
-        "v01_original",
-        "v09_caption_bg",
-    ]
+    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or list(
+        DEFAULT_RECIPE_HINTS
+    )
     conn = connect(root)
+    campaign_row = campaign_by_name(conn, campaign)
+    bandit_state = _recipe_bandit_state(
+        conn, root, campaign_id=campaign_row["campaign_id"]
+    )
+    use_bandit = bool(bandit_state["metric_posts"] and bandit_state["arms"])
     total_outcomes = int(
         conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0
     )
@@ -1006,11 +1117,22 @@ def next_batch_plan(
             retry_focus = "less_smile"
         elif "not_sexy_enough" in reject_labels:
             retry_focus = "more_body_emphasis"
+        if use_bandit:
+            recipe_hint, recipe_bandit = _draw_recipe_from_bandit(bandit_state, rng)
+        else:
+            recipe_hint = best_recipes[idx % len(best_recipes)]
+            recipe_bandit = {
+                "mode": "cold_start_round_robin",
+                "chosen_recipe": recipe_hint,
+                "arms": bandit_state["arms"],
+                "metric_posts": bandit_state["metric_posts"],
+            }
         ideas.append(
             {
                 "index": idx,
                 "campaign": campaign,
-                "recipe_hint": best_recipes[idx % len(best_recipes)],
+                "recipe_hint": recipe_hint,
+                "recipe_bandit": recipe_bandit,
                 "prompt_focus": retry_focus,
                 "avoid_labels": sorted(reject_labels),
                 "winner_dna_focus": winner_dna_focus,
@@ -1022,9 +1144,11 @@ def next_batch_plan(
             }
         )
     plan = {
-        "schema": "campaign_factory.next_batch.v1",
+        "schema": "campaign_factory.next_batch.v2",
         "campaign": campaign,
         "count": count,
+        "recipe_bandit": bandit_state
+        | {"active": use_bandit, "fallback_recipes": best_recipes},
         "ideas": ideas,
     }
     if persist:
