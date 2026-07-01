@@ -1,7 +1,7 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
-  "source_hash": "8ed57ecfcd1a167cbc992bf5f3e32671bcb0260735c73578ccab700ca83f98b3",
+  "source_hash": "3856f22159d7a299c09f64f27f08a7f8dd847f800cf4676a3300871af8cca8bb",
   "updated_at": 1782885000,
   "banks": {
     "shared_girl_next_door": [
@@ -2687,8 +2687,7 @@
         "caption_hash": "c739a37d870fd80f33ce11fba3eeb3e446be1bac7ad3352cc4dbd6ee0df57242",
         "text": "Let's make a deal:\nlike this + say good morning\nand I'll message you if I like you 😊",
         "banks": [
-          "dm_follow_bait",
-          "winner_bank"
+          "dm_follow_bait"
         ],
         "word_count": 17,
         "char_count": 84,
@@ -2719,8 +2718,7 @@
         "caption_hash": "ec8dd906c89274ad2dc3625e8671658400661ef75f35351eec03888edaac5cf3",
         "text": "share this with one person\nand screenshot who you'd send me to",
         "banks": [
-          "dm_follow_bait",
-          "winner_bank"
+          "dm_follow_bait"
         ],
         "word_count": 12,
         "char_count": 62,
@@ -15758,22 +15756,6 @@
         "source_index": 0
       },
       {
-        "caption_hash": "c739a37d870fd80f33ce11fba3eeb3e446be1bac7ad3352cc4dbd6ee0df57242",
-        "text": "Let's make a deal:\nlike this + say good morning\nand I'll message you if I like you 😊",
-        "banks": [
-          "dm_follow_bait",
-          "winner_bank"
-        ],
-        "word_count": 17,
-        "char_count": 84,
-        "line_count": 3,
-        "length_class": "long",
-        "format_class": "multiline",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "laylaxxwalker+screenshots",
-        "source_index": 0
-      },
-      {
         "caption_hash": "009bb22b36378a1c5d916c5192d3262d0c22dc9a838cbe2cab6fa7cfa84776b7",
         "text": "give me a like and comment your city\nI'll tell you if we'd match",
         "banks": [
@@ -15782,22 +15764,6 @@
         ],
         "word_count": 14,
         "char_count": 64,
-        "line_count": 2,
-        "length_class": "medium",
-        "format_class": "multiline",
-        "source_type": "scraped_ig_2026-07-01",
-        "source_file": "laylaxxwalker+screenshots",
-        "source_index": 0
-      },
-      {
-        "caption_hash": "ec8dd906c89274ad2dc3625e8671658400661ef75f35351eec03888edaac5cf3",
-        "text": "share this with one person\nand screenshot who you'd send me to",
-        "banks": [
-          "dm_follow_bait",
-          "winner_bank"
-        ],
-        "word_count": 12,
-        "char_count": 62,
         "line_count": 2,
         "length_class": "medium",
         "format_class": "multiline",
