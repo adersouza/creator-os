@@ -909,25 +909,43 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
             ).fetchall()
         ]
 
-    combo_rows = conn.execute(
+    combo_source_rows = conn.execute(
         """
-        SELECT creator, scene, COUNT(*) AS sample_size, AVG(score) AS avg_winner_score
-        FROM (
-            SELECT f.creator, f.scene, o.views, o.likes, o.comments, o.shares, o.saves, o.manual_score,
-                   CASE
-                     WHEN o.manual_score IS NOT NULL THEN o.manual_score
-                     ELSE (COALESCE(o.views,0) + COALESCE(o.likes,0) * 3 + COALESCE(o.comments,0) * 8 + COALESCE(o.shares,0) * 15 + COALESCE(o.saves,0) * 12)
-                   END AS score
-            FROM reel_features f
-            JOIN reel_outcomes o ON o.output_path = f.output_path OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
-            WHERE f.creator IS NOT NULL AND f.creator != 'unknown' AND f.scene IS NOT NULL AND f.scene != 'unknown'
-        )
-        GROUP BY creator, scene
-        ORDER BY avg_winner_score DESC, sample_size DESC
-        LIMIT ?
+        SELECT f.creator, f.scene, o.views, o.likes, o.comments, o.shares, o.saves, o.manual_score
+        FROM reel_features f
+        JOIN reel_outcomes o ON o.output_path = f.output_path OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
+        WHERE f.creator IS NOT NULL AND f.creator != 'unknown' AND f.scene IS NOT NULL AND f.scene != 'unknown'
         """,
-        (limit,),
     ).fetchall()
+    combo_groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in combo_source_rows:
+        key = (str(row["creator"]), str(row["scene"]))
+        group = combo_groups.setdefault(
+            key,
+            {
+                "creator": row["creator"],
+                "scene": row["scene"],
+                "sample_size": 0,
+                "score": 0.0,
+            },
+        )
+        group["sample_size"] += 1
+        group["score"] += winner_score(row)
+    combo_rows = sorted(
+        (
+            {
+                "creator": group["creator"],
+                "scene": group["scene"],
+                "sample_size": group["sample_size"],
+                "avg_winner_score": round(
+                    group["score"] / max(group["sample_size"], 1), 2
+                ),
+            }
+            for group in combo_groups.values()
+        ),
+        key=lambda row: (row["avg_winner_score"], row["sample_size"]),
+        reverse=True,
+    )[:limit]
     costs = cost_analytics(root)
     matched_sample_size = int(rows[0]["sample_size"] or 0) if rows else 0
     quality = data_quality_from_connection(
@@ -950,7 +968,7 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
         "top_poses": top_for("pose"),
         "top_motions": top_for("motion"),
         "top_outfits": top_for("outfit"),
-        "best_creator_scene_combinations": [dict(row) for row in combo_rows],
+        "best_creator_scene_combinations": combo_rows,
         "worst_rejection_patterns": [dict(row) for row in rejection_rows],
         "costs": costs["by_entity_type"],
         "best_roi_assets": costs["assets"][:20],

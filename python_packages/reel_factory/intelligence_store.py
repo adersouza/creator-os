@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -41,6 +42,14 @@ POSITIVE_REASONS = {
 }
 DECISIONS = {"approve", "reject", "maybe", "unreviewed"}
 LOW_DATA_OUTCOME_THRESHOLD = 50
+WINNER_SCORE_REACH_WEIGHT = 10.0
+WINNER_SCORE_RATE_WEIGHT = 100.0
+WINNER_SCORE_ENGAGEMENT_WEIGHTS = {
+    "likes": 1.0,
+    "comments": 3.0,
+    "shares": 5.0,
+    "saves": 4.0,
+}
 
 
 def db_path(root: Path) -> Path:
@@ -283,20 +292,34 @@ def validate_review(
     return decision, primary_reason, secondary_reasons
 
 
-def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
-    get = (
+def _row_get(row: sqlite3.Row | dict[str, Any]):
+    return (
         row.get
         if isinstance(row, dict)
         else lambda k, default=None: row[k] if k in row.keys() else default
     )
+
+
+def weighted_engagement_rate(row: sqlite3.Row | dict[str, Any]) -> float:
+    get = _row_get(row)
+    views = max(float(get("views") or 0), 1.0)
+    weighted_engagement = sum(
+        float(get(metric) or 0) * weight
+        for metric, weight in WINNER_SCORE_ENGAGEMENT_WEIGHTS.items()
+    )
+    return weighted_engagement / views
+
+
+def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
+    get = _row_get(row)
     if get("manual_score") is not None:
         return float(get("manual_score") or 0)
-    views = float(get("views") or 0)
-    likes = float(get("likes") or 0)
-    comments = float(get("comments") or 0)
-    shares = float(get("shares") or 0)
-    saves = float(get("saves") or 0)
-    return views + likes * 3 + comments * 8 + shares * 15 + saves * 12
+    views = max(float(get("views") or 0), 1.0)
+    reach = math.log10(views)
+    return (
+        WINNER_SCORE_REACH_WEIGHT * reach
+        + WINNER_SCORE_RATE_WEIGHT * weighted_engagement_rate(row)
+    )
 
 
 def confidence_for_sample_size(

@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from intelligence_store import winner_score
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -264,14 +266,10 @@ def _performance_component(performance: dict[str, Any]) -> int:
         or performance.get("averages")
         or performance
     )
-    views = float(metrics.get("views") or 0)
-    shares = float(metrics.get("shares") or 0)
-    saves = float(metrics.get("saves") or 0)
-    likes = float(metrics.get("likes") or 0)
-    signal = views + shares * 25 + saves * 20 + likes * 2
+    signal = winner_score(metrics)
     if signal <= 0:
         return 45
-    return int(max(35, min(100, 50 + signal / 100)))
+    return int(max(35, min(100, 50 + signal)))
 
 
 def _rank_reasons(quality_score: int, perf_score: int, warnings: set[str]) -> list[str]:
