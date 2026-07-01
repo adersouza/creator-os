@@ -392,6 +392,43 @@ class ReelPipelineTests(unittest.TestCase):
             any(row["suitabilityDecision"] == "skipped" for row in diagnostics)
         )
 
+    def test_caption_fit_rejects_paragraph_that_cannot_render_legibly(self):
+        long_paragraph = "\n".join(
+            [
+                "3 different ways a guy would ask me out",
+                "Smooth: " + "very specific romantic setup " * 6,
+                "Nervous: " + "awkward cute overthinking line " * 6,
+                "Playful: " + "teasing challenge with extra words " * 6,
+            ]
+        )
+        cap_set = CaptionSet(
+            hooks=["short readable hook", long_paragraph],
+            hook_lineage={
+                0: {
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                    "selectedBankWeight": 1,
+                },
+                1: {
+                    "lengthClass": "long",
+                    "formatClass": "paragraph",
+                    "selectedBankWeight": 100,
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            max_hooks=2,
+            seed=1,
+            fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, ["short readable hook"])
+        self.assertEqual(diagnostics[1]["suitabilityDecision"], "unrenderable")
+        self.assertIn("legible render capacity", diagnostics[1]["reason"])
+
     def test_caption_fit_off_preserves_old_selection(self):
         cap_set = CaptionSet(
             hooks=["wife or girlfriend", "long caption " * 12],

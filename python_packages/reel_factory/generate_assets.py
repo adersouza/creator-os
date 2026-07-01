@@ -23,6 +23,7 @@ from campaign_store import (
 )
 from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from identity_verification import verify_identity
 from PIL import Image
 
 IMAGE_MODEL = "text2image_soul_v2"
@@ -858,6 +859,7 @@ def _cost_preflight_for_plan(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+        root=plan.source_dir.parent,
     )
 
 
@@ -1085,7 +1087,13 @@ def create_assets(
 
 
 def generated_image_qc(
-    local_paths: dict[str, str], *, root: Path | str, required: bool = False
+    local_paths: dict[str, str],
+    *,
+    root: Path | str,
+    required: bool = False,
+    creator: str | None = None,
+    identity_provider: Any | None = None,
+    vision_call=None,
 ) -> dict[str, Any]:
     image_items = [
         (key, Path(value))
@@ -1101,12 +1109,30 @@ def generated_image_qc(
         }
     results = []
     for key, path in image_items:
-        assessment = assess_image_qc(path, root=root)
+        assessment = assess_image_qc(path, root=root, vision_call=vision_call)
+        identity = (
+            verify_identity(
+                path, creator=creator, root=root, provider=identity_provider
+            )
+            if creator
+            else {
+                "schema": "reel_factory.identity_verification.v1",
+                "creator": "",
+                "status": "unavailable",
+                "score": 0.0,
+                "threshold": 0.42,
+                "provider": "unavailable",
+                "referenceSetId": "",
+                "failureReason": "creator_missing",
+            }
+        )
+        identity_postable = identity.get("status") == "passed"
         results.append(
             {
                 "key": key,
                 "path": str(path),
-                "postable": is_image_postable(assessment),
+                "postable": is_image_postable(assessment) and identity_postable,
+                "identityVerification": identity,
                 **assessment,
             }
         )
@@ -1251,7 +1277,12 @@ def create_image_asset(
             "count": len([k for k in local_paths if k.startswith("variation_")]),
         }
     )
-    qc = generated_image_qc(local_paths, root=plan.source_dir.parent, required=download)
+    qc = generated_image_qc(
+        local_paths,
+        root=plan.source_dir.parent,
+        required=download,
+        creator=plan.creator or plan.soul_name,
+    )
     payload["review"]["generatedImageQc"] = qc
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1407,7 +1438,12 @@ def create_direct_reference_image_asset(
         status="image_completed",
     )
     payload["generation"]["costPreflight"] = cost_preflight
-    qc = generated_image_qc(local_paths, root=plan.source_dir.parent, required=download)
+    qc = generated_image_qc(
+        local_paths,
+        root=plan.source_dir.parent,
+        required=download,
+        creator=plan.creator or plan.soul_name,
+    )
     payload["review"]["generatedImageQc"] = qc
     path = direct_reference_lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)

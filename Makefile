@@ -6,8 +6,8 @@ install:
 	git config core.hooksPath scripts/hooks
 
 reel-models:
-	uv sync --package reel-factory --extra vision --extra ai --inexact
-	uv run --package reel-factory --extra vision --extra ai python python_packages/reel_factory/fetch_models.py
+	uv sync --package reel-factory --extra vision --extra ai --extra identity --inexact
+	uv run --package reel-factory --extra vision --extra ai --extra identity python python_packages/reel_factory/fetch_models.py
 
 dev-web:
 	pnpm run dev

@@ -68,6 +68,38 @@ class CaptionRenderTests(unittest.TestCase):
             self.assertLessEqual(bbox[2] - bbox[0], 360)
             self.assertLessEqual(bbox[3], 960 - safe_bottom)
 
+    def test_unrenderable_caption_does_not_shrink_below_legible_floor(self):
+        try:
+            from caption_render import render_caption_png
+        except ModuleNotFoundError as e:
+            if e.name == "pilmoji":
+                self.skipTest("pilmoji is not installed in this interpreter")
+            raise
+
+        text = "\n".join(
+            [
+                "3 different ways a guy would ask me out",
+                "Smooth: " + "very specific romantic setup " * 6,
+                "Nervous: " + "awkward cute overthinking line " * 6,
+                "Playful: " + "teasing challenge with extra words " * 6,
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                ValueError, "caption_unrenderable_at_legible_size"
+            ):
+                render_caption_png(
+                    text,
+                    font_family="Onest",
+                    fonts_dir=Path("fonts"),
+                    color_scheme="light",
+                    band="bottom",
+                    style="classic",
+                    out_path=Path(tmp) / "caption.png",
+                    canvas_w=540,
+                    canvas_h=960,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

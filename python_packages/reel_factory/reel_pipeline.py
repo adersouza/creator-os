@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import shlex
@@ -34,6 +35,7 @@ from caption_bank import (
     caption_static_metadata,
     load_or_build_caption_bank_store,
 )
+from caption_render import CAPTION_LEGIBILITY_SHRINK_FLOOR
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     CAPTION_TOPIC_FIT_VERSION,
@@ -1910,6 +1912,8 @@ STATIC_ALLOWED_LENGTHS = {
     "unknown": {"very_short", "short", "medium"},
 }
 CAPTION_FIT_VERSION = "v1"
+CAPTION_LEGIBLE_MAX_LINES = 5
+CAPTION_LEGIBLE_CHARS_PER_LINE = 30
 STATIC_FALLBACK_LENGTHS = {
     "closeup": {"very_short", "short", "medium", "long"},
     "halfbody": {"very_short", "short", "medium"},
@@ -1918,6 +1922,32 @@ STATIC_FALLBACK_LENGTHS = {
     "gym_body": {"very_short", "short", "medium"},
     "unknown": {"very_short", "short", "medium"},
 }
+
+
+def _caption_legibility_capacity(
+    hook: str | dict, *, format_class: str
+) -> tuple[bool, str, int]:
+    text = caption_text_for_scene(hook)
+    lines = text.splitlines() or [text]
+    estimated_lines = sum(
+        max(1, math.ceil(len(line.strip()) / CAPTION_LEGIBLE_CHARS_PER_LINE))
+        for line in lines
+        if line.strip()
+    )
+    estimated_lines = max(1, estimated_lines)
+    if estimated_lines <= CAPTION_LEGIBLE_MAX_LINES:
+        return (
+            True,
+            f"estimated {estimated_lines} lines fits legible render capacity",
+            estimated_lines,
+        )
+    return (
+        False,
+        "caption exceeds legible render capacity "
+        f"({estimated_lines}>{CAPTION_LEGIBLE_MAX_LINES} lines at "
+        f"{CAPTION_LEGIBILITY_SHRINK_FLOOR:.2f}x floor)",
+        estimated_lines,
+    )
 
 
 def classify_frame_type_for_caption_fit(
@@ -2061,19 +2091,25 @@ def apply_caption_fit_to_caption_set(
             )
         }
         topic_allowed = not topic_banks or bool(selected_banks & set(topic_banks))
-        readable = length_class in allowed_lengths
+        renderable, render_reason, estimated_render_lines = (
+            _caption_legibility_capacity(hook, format_class=format_class)
+        )
+        readable = length_class in allowed_lengths and renderable
         scene = evaluate_scene_compatibility(
             caption_text=caption_text_for_scene(hook),
             caption_lineage=lineage,
             reel_scene_tags=reel_scene_tags,
             scene_fit_mode=scene_fit_mode,
         )
-        decision = "allowed" if readable else "skipped"
-        reason = (
-            f"{length_class} static caption allowed for {frame_type}"
-            if readable
-            else f"{length_class} static caption too long for {frame_type}"
-        )
+        if readable:
+            decision = "allowed"
+            reason = f"{length_class} static caption allowed for {frame_type}"
+        elif not renderable:
+            decision = "unrenderable"
+            reason = render_reason
+        else:
+            decision = "skipped"
+            reason = f"{length_class} static caption too long for {frame_type}"
         topic_decision = "fit_disabled"
         topic_reason = "caption topic fit disabled"
         if topic_banks:
@@ -2096,6 +2132,8 @@ def apply_caption_fit_to_caption_set(
             "captionFitVersion": CAPTION_FIT_VERSION,
             "suitabilityDecision": decision,
             "reason": reason,
+            "estimatedRenderLines": estimated_render_lines,
+            "renderLegibilityFloor": CAPTION_LEGIBILITY_SHRINK_FLOOR,
             "captionSceneTags": scene.caption_scene_tags,
             "reelSceneTags": scene.reel_scene_tags,
             "sceneCompatibilityDecision": scene.decision,
@@ -2119,6 +2157,8 @@ def apply_caption_fit_to_caption_set(
             "captionFitVersion": CAPTION_FIT_VERSION,
             "suitabilityDecision": decision,
             "suitabilityReason": reason,
+            "estimatedRenderLines": estimated_render_lines,
+            "renderLegibilityFloor": CAPTION_LEGIBILITY_SHRINK_FLOOR,
             "captionSceneTags": scene.caption_scene_tags,
             "reelSceneTags": scene.reel_scene_tags,
             "sceneCompatibilityDecision": scene.decision,
@@ -2133,7 +2173,7 @@ def apply_caption_fit_to_caption_set(
         scene_allowed = scene.decision in {"allowed", "unknown_allowed", "fit_disabled"}
         if topic_allowed and readable and scene_allowed:
             allowed.append((idx, hook, enriched_lineage))
-        elif topic_allowed and scene_allowed:
+        elif topic_allowed and renderable and scene_allowed:
             fallback.append((idx, hook, enriched_lineage))
 
     target = max_hooks if max_hooks is not None else len(cap_set.hooks)
