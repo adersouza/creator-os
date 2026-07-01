@@ -375,6 +375,7 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
 
             self.assertEqual(result["imported"], 1)
             self.assertEqual(result["skipped"], [])
+            self.assertEqual(result["captionWeights"]["updated"], 1)
             self.assertEqual(outcome["views"], 100)
             self.assertEqual(outcome["soul_id"], STACEY_SOUL)
             self.assertEqual(legacy["likes"], 12)

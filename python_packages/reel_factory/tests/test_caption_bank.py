@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from campaign_store import ensure_campaign_schema
 from caption_bank import (
     ACTIVE_BANKS,
     CaptionBankStore,
@@ -14,11 +15,13 @@ from caption_bank import (
     caption_static_metadata,
     default_mixes,
     load_or_build_caption_bank_store,
+    refresh_caption_weights,
 )
 from discoverability_safety import (
     audit_caption_sources,
     discoverability_safe_content_contract,
 )
+from intelligence_store import ensure_intelligence_schema
 
 
 class CaptionBankTests(unittest.TestCase):
@@ -146,6 +149,91 @@ class CaptionBankTests(unittest.TestCase):
             [item["caption_hash"] for item in first],
             [item["caption_hash"] for item in second],
         )
+
+    def test_refresh_caption_weights_writes_outcome_approved_weights(self):
+        root = self._root_with_sources()
+        CaptionBankStore.build(root).write(root)
+        high = root / "high.mp4"
+        low = root / "low.mp4"
+        high.write_bytes(b"high")
+        low.write_bytes(b"low")
+        high_hash = caption_hash("best hook")
+        low_hash = caption_hash("flat hook")
+        high.with_suffix(high.suffix + ".caption_lineage.json").write_text(
+            json.dumps({"captionOutcomeContext": {"captionHash": high_hash}}),
+            encoding="utf-8",
+        )
+        low.with_suffix(low.suffix + ".caption_lineage.json").write_text(
+            json.dumps({"captionHash": low_hash}),
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(root / "manifest.sqlite")
+        conn.row_factory = sqlite3.Row
+        ensure_campaign_schema(conn)
+        ensure_intelligence_schema(conn)
+        now = 1
+        conn.executemany(
+            """
+            INSERT INTO campaign_outputs (
+                campaign_output_id, output_path, caption_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("co_high", str(high), "best hook", now, now),
+                ("co_low", str(low), "flat hook", now, now),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO reel_outcomes (
+                outcome_id, filename, output_path, platform, account, posted_at,
+                views, likes, comments, shares, saves, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "out_high",
+                    high.name,
+                    str(high),
+                    "ig",
+                    "stacey",
+                    "2026-07-01",
+                    100,
+                    30,
+                    5,
+                    5,
+                    5,
+                    now,
+                ),
+                (
+                    "out_low",
+                    low.name,
+                    str(low),
+                    "ig",
+                    "stacey",
+                    "2026-07-01",
+                    1000,
+                    1,
+                    0,
+                    0,
+                    0,
+                    now,
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        result = refresh_caption_weights(root)
+        performance = json.loads(
+            (root / "caption_banks" / "performance.json").read_text(encoding="utf-8")
+        )
+        weights = performance["approvedWeights"]["captionHashes"]
+
+        self.assertEqual(result["updated"], 2)
+        self.assertEqual(result["unresolved"], 0)
+        self.assertGreater(weights[high_hash], weights[low_hash])
+        self.assertEqual(performance["captions"][high_hash]["sampleCount"], 1)
 
     def test_caption_static_metadata_classifies_length_and_format(self):
         short = caption_static_metadata("wife or girlfriend")

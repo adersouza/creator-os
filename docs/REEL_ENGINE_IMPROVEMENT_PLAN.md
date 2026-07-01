@@ -143,7 +143,7 @@ same synced metrics into `reel_outcomes` and calls `refresh_winner_dna`. One syn
 No publish/paid actions — read synced data only.
 **Status:** Implemented in PR #327.
 
-### 1.4 Write caption `approvedWeights` from outcomes  ·  HIGH · M · [ ]
+### 1.4 Write caption `approvedWeights` from outcomes  ·  HIGH · M · [x]
 **Branch:** `codex/caption-weights-from-outcomes`
 **Why:** captions are the #1 engagement lever, yet `caption_bank.py:579` `_weighted_bank_item` falls back
 to `rng.choice(items)` (uniform random) because **nothing ever writes** `performance.approvedWeights.captionHashes`
@@ -151,6 +151,7 @@ to `rng.choice(items)` (uniform random) because **nothing ever writes** `perform
 **Do:** add a `refresh_caption_weights` job (mirror `refresh_winner_dna`) that joins `reel_outcomes` →
 caption_hash (via caption lineage sidecars) and writes `performance.json` `approvedWeights`, so
 `_weighted_bank_item` biases toward proven captions. Use the **rate-based** score from 1.2. Depends on 1.3.
+**Status:** Implemented in PR #328.
 
 ### 1.5 Replace next-batch recipe round-robin with an engagement bandit  ·  HIGH · M · [ ]
 **Branch:** `codex/campaign-factory-bandit`
