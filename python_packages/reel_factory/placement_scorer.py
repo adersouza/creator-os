@@ -56,7 +56,7 @@ def score_lanes(
 
     if face_samples:
         max_face = max(max(sample) for sample in face_samples) or 1.0
-        for lane, value in zip(LANES, _mean3(face_samples), strict=True):
+        for lane, value in zip(LANES, _max3(face_samples), strict=True):
             weight = 180.0 if normalized_policy == "focal-safe" else 90.0
             penalty = (value / max_face) * weight
             scores[lane] += penalty
@@ -84,7 +84,7 @@ def score_lanes(
 
     if pose_samples:
         max_pose = max(max(sample) for sample in pose_samples) or 1.0
-        for lane, value in zip(LANES, _mean3(pose_samples), strict=True):
+        for lane, value in zip(LANES, _max3(pose_samples), strict=True):
             weight = 90.0 if normalized_policy == "focal-safe" else 42.0
             penalty = (value / max_pose) * weight
             scores[lane] += penalty
@@ -153,4 +153,20 @@ def _mean3(samples: list[tuple[float, float, float]]) -> tuple[float, float, flo
         sum(sample[0] for sample in samples) / n,
         sum(sample[1] for sample in samples) / n,
         sum(sample[2] for sample in samples) / n,
+    )
+
+
+def _max3(samples: list[tuple[float, float, float]]) -> tuple[float, float, float]:
+    """Per-lane worst-case coverage across all frames (whole-clip subject union).
+
+    Hard blockers (face, pose) use this so a static caption is penalized in any
+    lane the subject enters on ANY frame, not just on average — the subject moves
+    in motion clips, the caption doesn't. Soft signals stay averaged.
+    """
+    if not samples:
+        return 0.0, 0.0, 0.0
+    return (
+        max(sample[0] for sample in samples),
+        max(sample[1] for sample in samples),
+        max(sample[2] for sample in samples),
     )

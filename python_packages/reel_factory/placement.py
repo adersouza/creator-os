@@ -918,7 +918,9 @@ async def probe_caption_layout(
     """
     frames: list[Path] = []
     try:
-        frames = await _extract_probe_frames(path, src_duration, count=5)
+        # 12 frames (was 5): the whole-clip subject union needs enough coverage
+        # to catch the subject moving into a lane on motion clips (see _max3).
+        frames = await _extract_probe_frames(path, src_duration, count=12)
         summary, std_samples = _score_placement_from_frames(
             frames,
             placement_signals=placement_signals,

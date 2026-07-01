@@ -50,8 +50,8 @@ placement.py:probe_caption_region_luminance:128
 placement.py:probe_caption_region_luminance:134
 placement.py:_extract_probe_frame:180
 placement.py:probe_caption_layout_for_window:793
-placement.py:probe_caption_layout:964
-placement.py:probe_caption_layout:972
+placement.py:probe_caption_layout:966
+placement.py:probe_caption_layout:974
 post_render.py:_read_caption_meta:46
 post_render.py:_probe_duration:97
 post_render.py:_caption_kind:107
