@@ -550,6 +550,39 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(diagnostics[0]["sceneCompatibilityDecision"], "allowed")
         self.assertEqual(diagnostics[1]["sceneCompatibilityDecision"], "blocked")
 
+    def test_caption_scene_fit_allows_bedroom_caption_for_unknown_reel(self):
+        # unknown reel scene = undetected, NOT incompatible: bedroom/coded winners
+        # must survive instead of falling back to generic captions (finding #2).
+        cap_set = CaptionSet(
+            hooks=["ngl it's kinda sad\nI'm not in your room rn", "pick me up?"],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["bedroom_mirror"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
+                1: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        _fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["unknown"],
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(
+            diagnostics[0]["sceneCompatibilityDecision"], "unknown_allowed"
+        )
+
     def test_caption_scene_fit_off_preserves_old_scene_mismatch_selection(self):
         cap_set = CaptionSet(
             hooks=[
