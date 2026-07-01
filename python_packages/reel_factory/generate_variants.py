@@ -31,14 +31,19 @@ from typing import Any
 # (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Nouns like "woman" are
 # kept — only the offending adjective/phrase is removed.
 _STRIP_PATTERNS = (
-    # identity: ethnicity / age
+    # identity: ethnicity / age. NOTE "white" is deliberately NOT here -- it is a
+    # common object color ("white lounge chairs", "blue and white sky").
     r"\byoung\b",
-    r"\b(?:caucasian|asian|latina|hispanic|white|middle[- ]eastern)\b",
+    r"\b(?:caucasian|latina|hispanic|middle[- ]eastern)\b",
+    # age clause incl. the "(she) appears to be in her early 20s" lead-in
+    r"\b(?:she )?appears to be(?: in her[^,.]*)?",
     r"\b(?:likely |estimated to be )?in her (?:early |mid-?|late )?(?:teens|twenties|20s|thirties|30s)\b",
     r"\bestimated to be[^,.]*",
     r"\b\d+[- ]year-old\b",
-    # identity: hair -- any run of hair adjectives (length/style/color) + "hair"
-    r"\b(?:with |her )?(?:(?:long|short|shoulder-length|medium-length|wavy|straight|curly|damp|slightly|dark|light|jet|platinum|brown|blonde?|black|red|auburn|brunette|ginger)[,\s]+){1,4}hair\b[^,.]*",
+    # identity: hair -- adjective run (commas allowed) + "hair", plus an OPTIONAL
+    # trailing hair-styling clause (parted/framing/...). Bounded to styling words
+    # so it never runs into scene text ("...hair, posing on a beach" keeps beach).
+    r"\b(?:with |her )?(?:(?:long|short|shoulder-length|medium-length|wavy|straight|curly|damp|slightly|dark|light|jet|platinum|brown|blonde?|black|red|auburn|brunette|ginger)[,\s]+)+hair\b(?:\s*,?\s*(?:parted|framing|frames|pulled|tied|swept)[^,.]*(?:,\s*framing[^,.]*)?)?",
     r"\bhair (?:parted|framing|frames|tied|pulled)[^,.]*",
     # identity: face marks (strip the whole "she has/wears ..." clause)
     r"\bshe (?:has|wears|sports) (?:a )?(?:small )?(?:hoop )?nose (?:ring|stud|piercing)\b[^,.]*",
@@ -60,6 +65,7 @@ _STRIP_PATTERNS = (
     r"\binterface\b",
     r"\bwatermark\b",
     r"\bicons?\b",
+    r"\b(?:shot |taken |captured )?(?:on |with )?a (?:smart)?phone(?: camera)?\b",
     r"\b(?:smart)?phone\b",
     r"\biphone\b",
     r"\bstory\b",
@@ -103,6 +109,7 @@ def clean_prompt(captured: str) -> str:
     text = re.sub(r"\s{2,}", " ", text)  # collapse double spaces
     text = re.sub(r"\s+([,.])", r"\1", text)  # space-before-punct
     text = re.sub(r",\s*\.", ".", text)  # ", ." -> "."
+    text = re.sub(r"\.\s*,", ".", text)  # ". ," -> "."
     text = re.sub(r"(?:^|(?<=\. ))\s*,\s*", "", text)  # leading comma in a clause
     text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "a woman ", text)
     return text.strip(" ,.\n") + ("." if text.strip(" ,.\n") else "")
