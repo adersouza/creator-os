@@ -5,8 +5,8 @@ from pathlib import Path
 
 from ai_visual_qc import record_from_scores
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
-from generate_assets import generated_image_qc
-from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from generate_assets import generated_image_qc, generated_image_qc_failure_reason
+from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
 from identity_verification import build_reference_set, identity_health, verify_identity
 from media_metadata import normalize_media_metadata
@@ -158,6 +158,39 @@ def test_generated_image_qc_gates_identity_with_injected_provider(
     )
 
 
+def test_generated_image_qc_names_identity_reference_seeding_remedy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    image = tmp_path / "still.png"
+    _write_image(image)
+    monkeypatch.setattr(
+        "generate_assets.assess_image_qc",
+        lambda *args, **kwargs: {
+            "available": True,
+            "anatomy": {"plausible": True, "severity": "none", "defects": []},
+            "exposure": {"safe": True, "severity": "none", "issues": []},
+        },
+    )
+
+    result = generated_image_qc(
+        {"image": str(image)},
+        root=tmp_path,
+        required=True,
+        creator="Stacey",
+        identity_provider=FakeIdentityProvider([1.0, 0.0]),
+    )
+
+    failure = result["results"][0]["identityVerification"]["failureReason"]
+    assert result["status"] == "failed"
+    assert (
+        failure == "no identity reference set for Stacey - run identity-reference-build"
+    )
+    assert generated_image_qc_failure_reason(result) == (
+        "generated image failed identity QC: "
+        "no identity reference set for Stacey - run identity-reference-build"
+    )
+
+
 def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:
     record = record_from_scores("x.mp4", "/tmp/x.mp4", {"opencv_available": 0})
 
@@ -241,6 +274,10 @@ def test_higgsfield_cost_preflight_allows_default_policy(
     assert result["balanceChecked"] is True
 
 
+def test_higgsfield_balance_parser_accepts_account_status_credits() -> None:
+    assert _parse_balance({"email": "hidden@example.test", "credits": 506.53}) == 506.53
+
+
 def test_higgsfield_cost_preflight_env_policy_overrides_config(monkeypatch) -> None:
     monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "100")
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "3")
@@ -315,6 +352,28 @@ def test_higgsfield_cost_preflight_blocks_under_minimum_balance(
 
     assert result["allowed"] is False
     assert "minimum_balance_not_met" in result["blockingReasons"]
+
+
+def test_higgsfield_cost_preflight_blocks_when_balance_unreadable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=2,
+        provider=FakeBalanceProvider(None, "higgsfield_balance_unavailable"),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["balanceChecked"] is False
+    assert "higgsfield_balance_unavailable" in result["blockingReasons"]
 
 
 def test_metadata_normalization_reports_missing_exiftool_without_spoofing(

@@ -117,6 +117,12 @@ def _reference_set_path(root: Path, creator: str) -> Path:
     return root / "identity_references" / f"{slug}.json"
 
 
+def _identity_reference_failure_reason(error: str, creator: str) -> str:
+    if error == "reference_set_missing":
+        return f"no identity reference set for {creator} - run identity-reference-build"
+    return error
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -340,7 +346,12 @@ def verify_identity(
     if not ok:
         return {**base, "failureReason": reason}
     if reference_error:
-        return {**base, "failureReason": reference_error}
+        return {
+            **base,
+            "failureReason": _identity_reference_failure_reason(
+                reference_error, creator
+            ),
+        }
     frame = _media_frame_for_embedding(path)
     if not frame.exists():
         return {**base, "failureReason": "frame_extract_failed"}

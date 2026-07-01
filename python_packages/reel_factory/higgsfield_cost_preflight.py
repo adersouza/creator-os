@@ -31,22 +31,22 @@ class CliBalanceProvider:
         cli = shutil.which("higgsfield")
         if not cli:
             return None, "higgsfield_cli_unavailable"
-        for cmd in (
+        proc = subprocess.run(
             [cli, "account", "status", "--json"],
-            [cli, "balance", "--json"],
-        ):
-            proc = subprocess.run(
-                cmd, check=False, capture_output=True, text=True, timeout=30
-            )
-            if proc.returncode != 0:
-                continue
-            try:
-                payload = json.loads(proc.stdout or "{}")
-            except json.JSONDecodeError:
-                continue
-            parsed = _parse_balance(payload)
-            if parsed is not None:
-                return parsed, None
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            return None, "higgsfield_balance_unavailable"
+        try:
+            payload = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError:
+            return None, "higgsfield_balance_unavailable"
+        parsed = _parse_balance(payload)
+        if parsed is not None:
+            return parsed, None
         return None, "higgsfield_balance_unavailable"
 
 
@@ -68,10 +68,17 @@ def _parse_balance(payload: Any) -> float | None:
         payload.get("balance_usd"),
         payload.get("creditsUsd"),
         payload.get("credits_usd"),
+        payload.get("credits"),
         (payload.get("account") or {}).get("balance")
         if isinstance(payload.get("account"), dict)
         else None,
+        (payload.get("account") or {}).get("credits")
+        if isinstance(payload.get("account"), dict)
+        else None,
         (payload.get("billing") or {}).get("balanceUsd")
+        if isinstance(payload.get("billing"), dict)
+        else None,
+        (payload.get("billing") or {}).get("credits")
         if isinstance(payload.get("billing"), dict)
         else None,
     ]
