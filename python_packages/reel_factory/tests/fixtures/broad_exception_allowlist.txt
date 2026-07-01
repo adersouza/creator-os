@@ -33,11 +33,11 @@ generate_assets.py:_soul_id_for_direct_plan:624
 generate_assets.py:_soul_id_for_direct_plan:629
 generate_assets.py:detect_grid_status:675
 generate_assets.py:single_image_layout_status:695
-generate_prompts.py:video_duration:154
-generate_prompts.py:frame_is_visible:169
-generate_prompts.py:_safe_fragment:291
-generate_prompts.py:generate_prompt:1676
-generate_prompts.py:generate_prompt:1699
+generate_prompts.py:video_duration:157
+generate_prompts.py:frame_is_visible:172
+generate_prompts.py:_safe_fragment:294
+generate_prompts.py:generate_prompt:1712
+generate_prompts.py:generate_prompt:1735
 grid_crop.py:next_clip_stem:732
 hook_tools.py:<module>:21
 hook_tools.py:read_hook_library:126
