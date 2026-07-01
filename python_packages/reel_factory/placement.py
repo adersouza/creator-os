@@ -229,6 +229,39 @@ _YUNET_MODEL_PATH = (
     Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
 )
 
+_FACE_BLIND_WARNED = False
+
+
+def face_detection_available() -> tuple[bool, str]:
+    """Whether YuNet face detection can actually run: (ok, reason_if_not)."""
+    try:
+        import cv2  # noqa: F401  # type: ignore
+    except ImportError:
+        return False, "OpenCV (cv2) not installed — run: uv sync --extra vision"
+    if not _YUNET_MODEL_PATH.exists():
+        return False, f"YuNet model missing at {_YUNET_MODEL_PATH}"
+    return True, ""
+
+
+def _warn_if_blind() -> None:
+    """Loud one-time warning if focal-safe placement can't see faces.
+
+    The silent-fallback version of this shipped captions onto subjects' faces
+    when cv2 / the YuNet model were absent. Fail loud instead.
+    """
+    global _FACE_BLIND_WARNED
+    if _FACE_BLIND_WARNED:
+        return
+    ok, reason = face_detection_available()
+    if not ok:
+        _FACE_BLIND_WARNED = True
+        log.warning(
+            "CAPTION PLACEMENT DEGRADED: face detection unavailable (%s). "
+            "focal-safe placement is running BLIND and may put captions on "
+            "faces. Fix before rendering for publish.",
+            reason,
+        )
+
 
 def _detect_face_band(frame_path: Path) -> str | None:
     """Run OpenCV YuNet face detection on a single frame. Returns the OUTER
@@ -623,6 +656,8 @@ def _score_placement_from_frames(
     src_hash: str | None = None,
     cache_pose: bool = False,
 ) -> tuple[PlacementSummary, list[tuple[float, float, float]]]:
+    if caption_placement_policy != "legacy":
+        _warn_if_blind()
     std_samples = [s for f in frames if (s := _band_stddev_from_frame(f)) is not None]
     if not std_samples:
         return score_lanes(stddev_samples=[]), []
