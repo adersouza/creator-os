@@ -539,13 +539,16 @@ def refresh_outcomes_from_performance_sync(
     conn.commit()
     source.close()
 
+    from caption_bank import refresh_caption_weights
     from winner_dna import refresh_winner_dna
 
     winner_dna = refresh_winner_dna(Path(root))
+    caption_weights = refresh_caption_weights(Path(root))
     return {
         "imported": imported,
         "skipped": skipped,
         "winnerDna": winner_dna,
+        "captionWeights": caption_weights,
     }
 
 

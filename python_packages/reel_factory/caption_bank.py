@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from intelligence_store import winner_score
+
 ACTIVE_BANKS = [
     "shared_girl_next_door",
     "dm_follow_bait",
@@ -714,12 +716,133 @@ Default mixes target hot adult girl-next-door, mirror selfie, bedroom selfie, an
 """
 
 
+def refresh_caption_weights(root: Path) -> dict[str, Any]:
+    root = Path(root).resolve()
+    db_path = root / "manifest.sqlite"
+    if not db_path.exists():
+        return {"updated": 0, "unresolved": 0, "performancePath": None}
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT o.*, co.caption_text
+            FROM reel_outcomes o
+            LEFT JOIN campaign_outputs co
+              ON co.output_path = o.output_path
+              OR co.metrics_filename = o.filename
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return {"updated": 0, "unresolved": 0, "performancePath": None}
+    conn.close()
+
+    buckets: dict[str, list[tuple[float, sqlite3.Row]]] = {}
+    unresolved = 0
+    for row in rows:
+        h = _caption_hash_for_outcome(root, row)
+        if not h:
+            unresolved += 1
+            continue
+        buckets.setdefault(h, []).append((winner_score(row), row))
+
+    payload = _load_caption_performance_payload(root)
+    captions = payload.setdefault("captions", {})
+    weights: dict[str, float] = {}
+    for h, samples in buckets.items():
+        scores = [score for score, _ in samples]
+        sample_rows = [row for _, row in samples]
+        avg_score = sum(scores) / len(scores)
+        weights[h] = round(max(0.05, avg_score), 4)
+        captions[h] = {
+            "sampleCount": len(samples),
+            "avgWinnerScore": round(avg_score, 4),
+            "totalViews": sum(int(row["views"] or 0) for row in sample_rows),
+            "totalLikes": sum(int(row["likes"] or 0) for row in sample_rows),
+            "totalComments": sum(int(row["comments"] or 0) for row in sample_rows),
+            "totalShares": sum(int(row["shares"] or 0) for row in sample_rows),
+            "totalSaves": sum(int(row["saves"] or 0) for row in sample_rows),
+            "lastOutcomeAt": max(str(row["posted_at"] or "") for row in sample_rows),
+            "source": "reel_outcomes",
+        }
+    payload["updated_at"] = int(time.time())
+    payload["notes"] = (
+        "Auto-refreshed from reel_outcomes using shared rate-based winner_score."
+    )
+    payload["approvedWeights"] = {"captionHashes": weights}
+
+    base = root / "caption_banks"
+    base.mkdir(parents=True, exist_ok=True)
+    path = base / "performance.json"
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {
+        "updated": len(weights),
+        "unresolved": unresolved,
+        "performancePath": str(path),
+    }
+
+
+def _caption_hash_for_outcome(root: Path, row: sqlite3.Row) -> str | None:
+    output_path = row["output_path"]
+    if output_path:
+        rendered = Path(output_path)
+        if not rendered.is_absolute():
+            rendered = root / rendered
+        lineage = _load_json(
+            rendered.with_suffix(rendered.suffix + ".caption_lineage.json")
+        )
+        h = _lineage_value(lineage or {}, "captionHash", "caption_hash")
+        if h:
+            return str(h)
+    caption_text = row["caption_text"]
+    return caption_hash(caption_text) if caption_text else None
+
+
+def _load_caption_performance_payload(root: Path) -> dict[str, Any]:
+    path = root / "caption_banks" / "performance.json"
+    if not path.exists():
+        return empty_performance_payload()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return empty_performance_payload()
+    return payload if isinstance(payload, dict) else empty_performance_payload()
+
+
+def _load_json(path: Path) -> dict[str, Any] | None:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _lineage_value(lineage: dict[str, Any], *keys: str) -> Any:
+    stack = [lineage]
+    while stack:
+        obj = stack.pop()
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            if key in obj and obj[key] not in (None, ""):
+                return obj[key]
+        stack.extend(v for v in obj.values() if isinstance(v, dict))
+    return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--refresh-weights", action="store_true")
     args = ap.parse_args()
     root = Path(args.root).resolve()
+    if args.refresh_weights:
+        print(json.dumps(refresh_caption_weights(root), indent=2, ensure_ascii=False))
+        return
     store = CaptionBankStore.build(root)
     if args.write:
         store.write(root)
