@@ -1143,6 +1143,29 @@ def generated_image_qc(
     }
 
 
+def generated_image_qc_failure_reason(qc: dict[str, Any]) -> str:
+    for row in qc.get("results") or []:
+        if not isinstance(row, dict) or row.get("postable"):
+            continue
+        identity = row.get("identityVerification")
+        if isinstance(identity, dict) and identity.get("status") != "passed":
+            reason = identity.get("failureReason") or "identity verification failed"
+            return f"generated image failed identity QC: {reason}"
+        exposure = row.get("exposure")
+        if isinstance(exposure, dict) and not exposure.get("safe", True):
+            issues = exposure.get("issues") or []
+            return "generated image failed exposure QC" + (
+                f": {', '.join(str(item) for item in issues)}" if issues else ""
+            )
+        anatomy = row.get("anatomy")
+        if isinstance(anatomy, dict) and not anatomy.get("plausible", True):
+            defects = anatomy.get("defects") or []
+            return "generated image failed anatomy QC" + (
+                f": {', '.join(str(item) for item in defects)}" if defects else ""
+            )
+    return "generated image failed anatomy/exposure/identity QC"
+
+
 def create_image_asset(
     plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
 ) -> dict[str, Any]:
@@ -1290,7 +1313,7 @@ def create_image_asset(
         payload["generation"]["status"] = "image_qc_rejected"
         payload["generation"]["failure"] = {
             "stage": "generated_image_qc",
-            "reason": "generated image failed anatomy/exposure QC",
+            "reason": generated_image_qc_failure_reason(qc),
         }
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1451,7 +1474,7 @@ def create_direct_reference_image_asset(
         payload["generation"]["status"] = "image_qc_rejected"
         payload["generation"]["failure"] = {
             "stage": "generated_image_qc",
-            "reason": "generated image failed anatomy/exposure QC",
+            "reason": generated_image_qc_failure_reason(qc),
         }
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"

@@ -13,7 +13,7 @@ campaign_store.py:get_asset_generation:639
 caption_bank.py:build:329
 caption_bank.py:_history_captions:680
 caption_bank.py:_history_captions:691
-caption_render.py:render_caption_png:303
+caption_render.py:render_caption_png:329
 discoverability_safety.py:audit_caption_sources:103
 embedding_index.py:text_for_path:30
 embedding_index.py:text_for_path:40
@@ -42,7 +42,7 @@ grid_crop.py:next_clip_stem:732
 hook_tools.py:<module>:21
 hook_tools.py:read_hook_library:126
 identity_verification.py:get_identity_provider:95
-identity_verification.py:_load_reference_embeddings:165
+identity_verification.py:_load_reference_embeddings:171
 manifest.py:_import_json:183
 manifest.py:materialize_cached_job:258
 manifest.py:get_analysis:731
