@@ -10,9 +10,11 @@ from metrics_store import (
     ensure_metrics_schema,
     import_metrics_csv,
     import_outcomes_csv,
+    refresh_outcomes_from_performance_sync,
     soul_metrics_report,
 )
 from reel_pipeline import Recipe
+from winner_dna import upsert_reel_feature
 
 STACEY_SOUL = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 STACEY1_SOUL = "5828d958-91dd-4d6d-8909-934503f47644"
@@ -233,6 +235,151 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
             self.assertEqual(rows[STACEY1_SOUL]["post_count"], 1)
             self.assertEqual(rows["unattributed"]["post_count"], 1)
             self.assertEqual(report["unattributed_count"], 1)
+
+    def test_refresh_outcomes_bridges_synced_performance_and_winner_dna(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "reel_factory"
+            root.mkdir()
+            out = self._variation(root, source_stem="e2e_lacebody")
+            self._caption_lineage(out, "e2e_lacebody")
+            self._source_lineage(root, "e2e_lacebody", STACEY_SOUL)
+            upsert_reel_feature(
+                root,
+                out,
+                features={
+                    "scene": "bedroom",
+                    "camera": "tripod",
+                    "pose": "standing",
+                    "motion": "hair_flip",
+                    "outfit": "black_dress",
+                    "creator": "stacey",
+                    "grid_source": 0,
+                    "caption_style": "short_direct",
+                    "hook_type": "curiosity",
+                    "body_style": "hourglass",
+                },
+            )
+            campaign_db = Path(tmp) / "campaign_factory.sqlite"
+            source = sqlite3.connect(campaign_db)
+            source.executescript("""
+                CREATE TABLE performance_snapshots (
+                    id TEXT PRIMARY KEY,
+                    campaign_id TEXT,
+                    rendered_asset_id TEXT,
+                    post_id TEXT,
+                    platform TEXT,
+                    account_id TEXT,
+                    instagram_account_id TEXT,
+                    permalink TEXT,
+                    published_at TEXT,
+                    snapshot_at TEXT,
+                    views INTEGER,
+                    likes INTEGER,
+                    comments INTEGER,
+                    shares INTEGER,
+                    saves INTEGER,
+                    watch_time_seconds REAL,
+                    metrics_eligible INTEGER,
+                    created_at TEXT
+                );
+                CREATE TABLE rendered_assets (
+                    id TEXT PRIMARY KEY,
+                    output_path TEXT,
+                    filename TEXT,
+                    caption TEXT,
+                    recipe TEXT,
+                    review_state TEXT
+                );
+            """)
+            source.execute(
+                "INSERT INTO rendered_assets VALUES (?, ?, ?, ?, ?, ?)",
+                ("asset_1", str(out), out.name, "hook", "v01_original", "approved"),
+            )
+            source.execute(
+                """
+                INSERT INTO performance_snapshots (
+                    id, campaign_id, rendered_asset_id, post_id, platform, account_id,
+                    instagram_account_id, permalink, published_at, snapshot_at, views,
+                    likes, comments, shares, saves, watch_time_seconds,
+                    metrics_eligible, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "perf_old",
+                    "may",
+                    "asset_1",
+                    "post_1",
+                    "instagram",
+                    "acct",
+                    "@stacey",
+                    "https://example.test/p/1",
+                    "2026-07-01",
+                    "2026-07-01T00:00:00Z",
+                    10,
+                    1,
+                    0,
+                    0,
+                    0,
+                    1.0,
+                    1,
+                    "2026-07-01T00:00:00Z",
+                ),
+            )
+            source.execute(
+                """
+                INSERT INTO performance_snapshots (
+                    id, campaign_id, rendered_asset_id, post_id, platform, account_id,
+                    instagram_account_id, permalink, published_at, snapshot_at, views,
+                    likes, comments, shares, saves, watch_time_seconds,
+                    metrics_eligible, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "perf_new",
+                    "may",
+                    "asset_1",
+                    "post_1",
+                    "instagram",
+                    "acct",
+                    "@stacey",
+                    "https://example.test/p/1",
+                    "2026-07-01",
+                    "2026-07-02T00:00:00Z",
+                    100,
+                    12,
+                    3,
+                    4,
+                    5,
+                    2.5,
+                    1,
+                    "2026-07-02T00:00:00Z",
+                ),
+            )
+            source.commit()
+            source.close()
+
+            result = refresh_outcomes_from_performance_sync(
+                root, campaign_factory_db=campaign_db, campaign="may"
+            )
+            conn = sqlite3.connect(root / "manifest.sqlite")
+            conn.row_factory = sqlite3.Row
+            outcome = conn.execute(
+                "SELECT * FROM reel_outcomes WHERE filename=?", (out.name,)
+            ).fetchone()
+            legacy = conn.execute(
+                "SELECT * FROM publish_metrics WHERE filename=?", (out.name,)
+            ).fetchone()
+            dna = conn.execute(
+                "SELECT * FROM winner_dna WHERE feature_key='scene'"
+            ).fetchone()
+
+            self.assertEqual(result["imported"], 1)
+            self.assertEqual(result["skipped"], [])
+            self.assertEqual(outcome["views"], 100)
+            self.assertEqual(outcome["soul_id"], STACEY_SOUL)
+            self.assertEqual(legacy["likes"], 12)
+            self.assertEqual(legacy["soul_id"], STACEY_SOUL)
+            self.assertEqual(dna["feature_value"], "bedroom")
 
 
 if __name__ == "__main__":

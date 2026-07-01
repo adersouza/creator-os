@@ -132,7 +132,7 @@ high-rate/low-reach reel can outrank a low-rate/viral reel.
 **Sequence:** land this **before or with** the bandit (1.5) and before per-soul reporting (2.x) so they
 optimize the right objective.
 
-### 1.3 Bridge the two metrics stores (one sync feeds winner DNA)  ·  HIGH · M · [ ]
+### 1.3 Bridge the two metrics stores (one sync feeds winner DNA)  ·  HIGH · M · [x]
 **Branch:** `codex/bridge-metrics-stores`
 **Why:** `scripts/sync_threadsdash_performance.py` writes synced metrics into **campaign_factory's** DB,
 but `campaign_store.next_batch_plan` reads `reel_outcomes` + `winner_dna` (`campaign_store.py:972-983`),
@@ -141,6 +141,7 @@ generation is a hand-fed CSV silo; the two never reconcile.
 **Do:** add a bridge step (extend `sync-performance` or a new `refresh-outcomes` command) that writes the
 same synced metrics into `reel_outcomes` and calls `refresh_winner_dna`. One sync populates both stores.
 No publish/paid actions — read synced data only.
+**Status:** Implemented in PR #327.
 
 ### 1.4 Write caption `approvedWeights` from outcomes  ·  HIGH · M · [ ]
 **Branch:** `codex/caption-weights-from-outcomes`

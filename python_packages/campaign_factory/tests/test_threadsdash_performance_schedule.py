@@ -72,5 +72,44 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch):
             "service-role",
             "--limit",
             "250",
-        ]
+        ],
+        [
+            "uv",
+            "run",
+            "--directory",
+            str(module.DEFAULT_REEL_FACTORY_ROOT),
+            "python",
+            "metrics_store.py",
+            "--root",
+            str(module.DEFAULT_REEL_FACTORY_ROOT),
+            "refresh-outcomes",
+            "--campaign-factory-db",
+            str(module.DEFAULT_CAMPAIGN_FACTORY_DB),
+            "--campaign",
+            "may",
+        ],
     ]
+
+
+def test_sync_threadsdash_performance_skips_bridge_when_sync_fails(monkeypatch):
+    module = load_sync_module()
+    calls: list[list[str]] = []
+
+    def fake_run(command, check):
+        calls.append(list(command))
+        assert check is False
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module.main(
+        env={
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGN": "may",
+            "THREADSDASH_USER_ID": "user_1",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+        }
+    )
+
+    assert result == 1
+    assert len(calls) == 1
