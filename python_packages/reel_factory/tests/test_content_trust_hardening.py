@@ -216,7 +216,9 @@ class FakeBalanceProvider:
         return self._balance, self._reason
 
 
-def test_higgsfield_cost_preflight_blocks_missing_policy(monkeypatch) -> None:
+def test_higgsfield_cost_preflight_allows_default_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
     for key in (
         "HIGGSFIELD_DAILY_BUDGET_USD",
         "HIGGSFIELD_RUN_MAX_ASSETS",
@@ -225,15 +227,21 @@ def test_higgsfield_cost_preflight_blocks_missing_policy(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
     result = check_higgsfield_cost_preflight(
-        asset_count=1, provider=FakeBalanceProvider(25.0)
+        asset_count=1,
+        estimated_cost_usd=8,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
     )
 
-    assert result["allowed"] is False
-    assert "budget_policy_missing" in result["blockingReasons"]
+    assert result["allowed"] is True
+    assert result["blockingReasons"] == []
+    assert result["budgetPolicy"]["dailyBudgetUsd"] == 10.0
+    assert result["budgetPolicy"]["perRunMaxAssets"] == 2
+    assert result["budgetPolicy"]["minimumBalanceUsd"] == 5.0
     assert result["balanceChecked"] is True
 
 
-def test_higgsfield_cost_preflight_allows_with_policy(monkeypatch) -> None:
+def test_higgsfield_cost_preflight_env_policy_overrides_config(monkeypatch) -> None:
     monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "100")
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "3")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "5")
@@ -244,6 +252,69 @@ def test_higgsfield_cost_preflight_allows_with_policy(monkeypatch) -> None:
 
     assert result["allowed"] is True
     assert result["blockingReasons"] == []
+
+
+def test_higgsfield_cost_preflight_blocks_over_default_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=12,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
+
+
+def test_higgsfield_cost_preflight_blocks_over_asset_limit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=3,
+        estimated_cost_usd=8,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "run_asset_limit_exceeded" in result["blockingReasons"]
+
+
+def test_higgsfield_cost_preflight_blocks_under_minimum_balance(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=2,
+        provider=FakeBalanceProvider(4.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "minimum_balance_not_met" in result["blockingReasons"]
 
 
 def test_metadata_normalization_reports_missing_exiftool_without_spoofing(

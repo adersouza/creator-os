@@ -9,7 +9,10 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
+
+from project_config import load_config
 
 SCHEMA = "reel_factory.higgsfield_cost_preflight.v1"
 
@@ -84,12 +87,15 @@ def _env_float(name: str) -> float | None:
 
 
 def _env_int(name: str) -> int | None:
+    return _parse_int(os.environ.get(name))
+
+
+def _parse_int(value: Any) -> int | None:
     try:
-        value = os.environ.get(name)
         if value is None or value == "":
             return None
         return int(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -99,11 +105,19 @@ def check_higgsfield_cost_preflight(
     estimated_cost_usd: float | None = None,
     provider: BalanceProvider | None = None,
     allow_unbudgeted_local_test: bool = False,
+    root: str | Path = ".",
 ) -> dict[str, Any]:
     provider = provider or CliBalanceProvider()
+    config = load_config(Path(root))
     daily_budget = _env_float("HIGGSFIELD_DAILY_BUDGET_USD")
+    if daily_budget is None:
+        daily_budget = _parse_float(config.get("dailyBudgetUsd"))
     max_assets = _env_int("HIGGSFIELD_RUN_MAX_ASSETS")
+    if max_assets is None:
+        max_assets = _parse_int(config.get("perRunMaxAssets"))
     minimum_balance = _env_float("HIGGSFIELD_MIN_BALANCE_USD")
+    if minimum_balance is None:
+        minimum_balance = _parse_float(config.get("minimumBalanceUsd"))
     missing = [
         name
         for name, value in (

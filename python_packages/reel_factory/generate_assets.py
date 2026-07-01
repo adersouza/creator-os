@@ -859,6 +859,7 @@ def _cost_preflight_for_plan(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+        root=plan.source_dir.parent,
     )
 
 
