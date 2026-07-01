@@ -27,6 +27,25 @@ def test_clean_strips_identity_and_ui_keeps_scene_and_outfit() -> None:
     assert "beach" in cleaned  # scene kept
 
 
+def test_clean_keeps_object_colors_and_leaves_no_debris() -> None:
+    # regression: "white" is an object color, not just ethnicity; "shot on a
+    # smartphone" and "she appears to be in her 20s" must not leave dangling stubs.
+    src = (
+        "A close-up selfie of a young Caucasian woman with long dark brown hair, "
+        "she appears to be in her early 20s, wearing a bikini, stacked white lounge "
+        "chairs and a blue and white sky behind, shot on a smartphone."
+    )
+    cleaned = clean_prompt(src)
+    low = cleaned.lower()
+    assert "white lounge chairs" in low  # object color survives
+    assert "blue and white sky" in low
+    assert "caucasian" not in low and "dark brown hair" not in low
+    assert "appears to be" not in low
+    assert "shot on a," not in low and "on a smartphone" not in low
+    assert "  " not in cleaned  # no double spaces
+    assert ", ," not in cleaned and ". ," not in cleaned  # no punctuation debris
+
+
 def test_sexy_variant_is_append_only_cleavage() -> None:
     sexy = sexy_variant("a woman on a beach in a bikini", include_butt=False)
     assert sexy.startswith("a woman on a beach in a bikini")
