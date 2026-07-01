@@ -5,7 +5,7 @@ failures=0
 scanner_ran=0
 
 tracked_sensitive='(^|/)(\.env($|\.)|\.mcp\.json$|.*\.sqlite($|-shm$|-wal$)|.*\.db$)'
-if git ls-files | grep -E "$tracked_sensitive" >/tmp/creator-os-sensitive-files.$$; then
+if git ls-files | grep -E "$tracked_sensitive" | grep -v -E '(^|/)\.env\.example$' >/tmp/creator-os-sensitive-files.$$; then
   echo "Tracked sensitive/runtime files are not allowed:" >&2
   sed 's/^/  /' /tmp/creator-os-sensitive-files.$$ >&2
   failures=1
