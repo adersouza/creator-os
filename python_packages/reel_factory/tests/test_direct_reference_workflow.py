@@ -33,6 +33,16 @@ QC_FAIL_EXPOSURE = {
     "anatomy": {"plausible": True, "severity": "none", "defects": []},
     "exposure": {"safe": False, "severity": "severe", "issues": ["visible nipple"]},
 }
+IDENTITY_PASS = {
+    "schema": "reel_factory.identity_verification.v1",
+    "creator": "Stacey",
+    "status": "passed",
+    "score": 0.99,
+    "threshold": 0.42,
+    "provider": "fake_identity",
+    "referenceSetId": "stacey_refs",
+    "failureReason": "",
+}
 
 
 class DirectReferenceWorkflowTests(unittest.TestCase):
@@ -110,6 +120,7 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                 patch("generate_assets._run_json", return_value=raw_image),
                 patch("generate_assets.download_result", side_effect=fake_download),
                 patch("generate_assets.assess_image_qc", return_value=QC_PASS),
+                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
             ):
                 result = create_direct_reference_image_asset(
                     plan, wait=True, download=True
@@ -135,6 +146,12 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                 lineage["generation"]["promptPolicy"]["capturedPromptReused"], False
             )
             self.assertEqual(lineage["review"]["generatedImageQc"]["status"], "passed")
+            self.assertEqual(
+                lineage["review"]["generatedImageQc"]["results"][0][
+                    "identityVerification"
+                ]["status"],
+                "passed",
+            )
             self.assertEqual(
                 lineage["generation"]["promptPolicy"]["policy"], "reference_image_only"
             )
@@ -182,6 +199,7 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                 patch("generate_assets._run_json", return_value=raw_image),
                 patch("generate_assets.download_result", side_effect=fake_download),
                 patch("generate_assets.assess_image_qc", return_value=QC_FAIL_EXPOSURE),
+                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
             ):
                 result = create_direct_reference_image_asset(
                     plan, wait=True, download=True

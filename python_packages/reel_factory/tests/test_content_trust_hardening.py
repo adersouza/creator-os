@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ai_visual_qc import record_from_scores
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
+from generate_assets import generated_image_qc
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
 from identity_verification import build_reference_set, identity_health, verify_identity
@@ -115,6 +116,46 @@ def test_identity_reference_build_fails_closed_when_provider_missing(
     assert result["status"] == "failed"
     assert result["failureReason"] == "fake_unavailable"
     assert not (tmp_path / "identity_references" / "stacey.json").exists()
+
+
+def test_generated_image_qc_gates_identity_with_injected_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    image = tmp_path / "still.png"
+    _write_image(image)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+    monkeypatch.setattr(
+        "generate_assets.assess_image_qc",
+        lambda *args, **kwargs: {
+            "available": True,
+            "anatomy": {"plausible": True, "severity": "none", "defects": []},
+            "exposure": {"safe": True, "severity": "none", "issues": []},
+        },
+    )
+
+    passed = generated_image_qc(
+        {"image": str(image)},
+        root=tmp_path,
+        required=True,
+        creator="Stacey",
+        identity_provider=FakeIdentityProvider([1.0, 0.0]),
+    )
+    failed = generated_image_qc(
+        {"image": str(image)},
+        root=tmp_path,
+        required=True,
+        creator="Stacey",
+        identity_provider=FakeIdentityProvider([0.0, 1.0]),
+    )
+
+    assert passed["status"] == "passed"
+    assert passed["results"][0]["identityVerification"]["status"] == "passed"
+    assert failed["status"] == "failed"
+    assert failed["results"][0]["postable"] is False
+    assert (
+        failed["results"][0]["identityVerification"]["failureReason"]
+        == "identity_similarity_below_threshold"
+    )
 
 
 def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:

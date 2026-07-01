@@ -28,6 +28,7 @@ HEALTH_SCHEMA = "reel_factory.identity_health.v1"
 DEFAULT_THRESHOLD = 0.42
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
+IDENTITY_MODEL_ROOT = Path(__file__).resolve().parent / "models" / "insightface"
 
 
 class IdentityProvider(Protocol):
@@ -56,7 +57,15 @@ class InsightFaceIdentityProvider:
     def __init__(self) -> None:
         from insightface.app import FaceAnalysis  # type: ignore
 
-        self._app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        model_dir = IDENTITY_MODEL_ROOT / "models" / "buffalo_l"
+        if not any(model_dir.glob("*.onnx")):
+            raise FileNotFoundError(f"identity_model_missing:{model_dir}")
+        self._app = FaceAnalysis(
+            name="buffalo_l",
+            root=str(IDENTITY_MODEL_ROOT),
+            allowed_modules=("detection", "recognition"),
+            providers=["CPUExecutionProvider"],
+        )
         self._app.prepare(ctx_id=-1, det_size=(640, 640))
 
     def available(self) -> tuple[bool, str]:

@@ -294,13 +294,24 @@ Fetch local runtime models before render/QC work:
 make reel-models
 ```
 
-This installs the `vision` + `ai` extras and downloads ignored model files into
-`python_packages/reel_factory/models/`: YuNet face detection, PP-HumanSeg, and
-Meta SSCD. Render runs fail loud if required placement or SSCD models are absent.
+This installs the `vision` + `ai` + `identity` extras and downloads ignored
+model files into `python_packages/reel_factory/models/`: YuNet face detection,
+PP-HumanSeg, Meta SSCD, and InsightFace buffalo_l. Render/QC runs fail loud if
+required placement, SSCD, or identity models are absent.
+
+Seed a local per-creator identity reference set from approved stills before
+generation QC:
+
+```bash
+python3 identity_verification.py identity-reference-build --creator Stacey --input-dir path/to/approved_refs --root .
+```
+
+This writes ignored JSON under `identity_references/<creator>.json`.
 
 Generated stills must pass anatomy + exposure QC before they enter ranking or
-render review. The Higgsfield image-generation paths run this gate automatically
-for downloaded stills:
+render review, and must pass ArcFace identity verification when a creator is
+provided. The Higgsfield image-generation paths run this gate automatically for
+downloaded stills:
 
 ```bash
 python3 anatomy_qc.py --image path/to/generated.png --root .

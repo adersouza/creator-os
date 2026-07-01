@@ -207,7 +207,7 @@ make install
 #    Note: pulls all extras, including Apple-only reel_factory deps
 #    (mlx-whisper, PyGObject). On non-macOS, install without --all-extras.
 
-# 1b. Fetch ignored Reel Factory runtime models for placement + SSCD gates
+# 1b. Fetch ignored Reel Factory runtime models for placement, SSCD, and identity gates
 make reel-models
 
 # 2. Configure
