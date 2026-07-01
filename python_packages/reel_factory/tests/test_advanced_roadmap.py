@@ -2231,6 +2231,32 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     {"views": 0, "likes": 5, "comments": 0, "shares": 0, "saves": 0}
                 ),
             )
+            self.assertGreater(
+                winner_score(
+                    {
+                        "views": 100,
+                        "likes": 40,
+                        "comments": 8,
+                        "shares": 3,
+                        "saves": 2,
+                    }
+                ),
+                winner_score(
+                    {
+                        "views": 100000,
+                        "likes": 100,
+                        "comments": 5,
+                        "shares": 1,
+                        "saves": 1,
+                    }
+                ),
+            )
+            self.assertEqual(
+                winner_score(
+                    {"manual_score": 7, "views": 100000, "likes": 0, "shares": 0}
+                ),
+                7,
+            )
             refresh_winner_dna(root)
             board = winner_dna_leaderboard(root)
             costs = cost_analytics(root)

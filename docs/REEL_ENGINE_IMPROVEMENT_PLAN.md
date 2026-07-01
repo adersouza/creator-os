@@ -119,7 +119,7 @@ prompts" does not exist as code.
 becomes an input to generation, not a report. Confidence-gate it (respect `data_quality` / `low_data_warning`
 already on the plan — don't over-steer on tiny samples).
 
-### 1.2 Fix the reward signal: engagement-RATE, not raw view-count  ·  HIGH · S–M · [ ]
+### 1.2 Fix the reward signal: engagement-RATE, not raw view-count  ·  HIGH · S–M · [x]
 **Branch:** `codex/engagement-rate-reward`
 **Why:** `intelligence_store.py:299` `winner_score = views + likes*3 + comments*8 + shares*15 + saves*12`,
 duplicated in `winner_dna.py:919` and `caption_generation_log.py:271`. With views in the tens of thousands
@@ -335,7 +335,7 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 ## Status log
 - [x] 0.1 restore virality_select — PR #324 merged 2026-07-01
 - [x] 1.1 wire winner-DNA into prompts — PR #325
-- [ ] 1.2 engagement-rate reward
+- [x] 1.2 engagement-rate reward — PR #326
 - [ ] 1.3 bridge metrics stores
 - [ ] 1.4 caption approvedWeights
 - [ ] 1.5 next-batch bandit
