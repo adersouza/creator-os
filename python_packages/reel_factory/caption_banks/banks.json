@@ -1,8 +1,13 @@
 {
   "schema": "reel_factory.caption_banks.v1",
   "version": "caption_banks_v1",
+<<<<<<< Updated upstream
   "source_hash": "211f940349ad4d0193191be4bc02875d479c4c299a22cc3864c2c3adcbcdaec2",
   "updated_at": 1782884000,
+=======
+  "source_hash": "8ed57ecfcd1a167cbc992bf5f3e32671bcb0260735c73578ccab700ca83f98b3",
+  "updated_at": 1782885000,
+>>>>>>> Stashed changes
   "banks": {
     "shared_girl_next_door": [
       {
@@ -4068,6 +4073,89 @@
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "ig_reel_sweep",
         "source_index": 0
+<<<<<<< Updated upstream
+=======
+      },
+      {
+        "caption_hash": "4d33f5dec9d4f3d7d8a8380b130ce5dabf8cd0f58830cc6c313eeb3c559d6deb",
+        "text": "rate me 1-10\n(be honest)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 6,
+        "char_count": 24,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
+        "text": "men, stop doing this:",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 21,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "08d3e4da2b9371cd27f3b4b72caccb8db6502d2c03a59647c3f30c763fc210d6",
+        "text": "my ex said I'm not attractive\n...I'll let you be the judge 😔",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 60,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "be6b5d259d63e385d3dc7fe116983749e1df53440741035f6bf13ce77741bb78",
+        "text": "when you finish but the video\nis still playing 😳",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
+        "text": "\"get something your size!\" 😏",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 28,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+>>>>>>> Stashed changes
       }
     ],
     "choice_poll": [
@@ -15884,6 +15972,185 @@
         "source_type": "scraped_ig_2026-07-01",
         "source_file": "ig_reel_sweep",
         "source_index": 0
+<<<<<<< Updated upstream
+=======
+      },
+      {
+        "caption_hash": "64e6f9008708ae200f758b25a4caf6ba80cd4640644dade29a048ed59f951d46",
+        "text": "what you miss isn't romance...\nit's just a woman who checks on you\nand stays close 💙",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 16,
+        "char_count": 84,
+        "line_count": 3,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "18bacd995424d929fbb835ee7ca2f81ea2723afa053a117d02e475af993753c1",
+        "text": "a good man shouldn't have to\nspend every day alone.\nI'd cook something simple\nand stay for the stories 💙",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 19,
+        "char_count": 104,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "55126914e9272ca5a53b3f8fb251b1408d5de245c003da18548ec6c7d374e8f5",
+        "text": "I know an empty house can feel\nlouder at night.\nI'd bring a soft smile,\nwarm company, and no games",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 20,
+        "char_count": 98,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "be32e500987b2b243c18c09b86abfdef21cb79e3c4f0e9a6200d2bf7c850bf13",
+        "text": "probably nobody asked how\nyour day went today 😔\nI'd pour you a coffee, pull up a chair,\nand actually listen 💙",
+        "banks": [
+          "boyfriend_bait",
+          "winner_bank"
+        ],
+        "word_count": 20,
+        "char_count": 109,
+        "line_count": 4,
+        "length_class": "long",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4d33f5dec9d4f3d7d8a8380b130ce5dabf8cd0f58830cc6c313eeb3c559d6deb",
+        "text": "rate me 1-10\n(be honest)",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 6,
+        "char_count": 24,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "b97d8c977bd639c7e04722193612def7d68d76dfb254761f42ae04050b3dffbc",
+        "text": "men, stop doing this:",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 21,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "08d3e4da2b9371cd27f3b4b72caccb8db6502d2c03a59647c3f30c763fc210d6",
+        "text": "my ex said I'm not attractive\n...I'll let you be the judge 😔",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 60,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "84c2b6249d4e3c1e6013edfc4a9a756795313a225e45d02725595db57f1391d8",
+        "text": "fill in the blank and be honest:\nyou're my type of ______",
+        "banks": [
+          "coded_fill_ins",
+          "winner_bank"
+        ],
+        "word_count": 12,
+        "char_count": 57,
+        "line_count": 2,
+        "length_class": "medium",
+        "format_class": "coded",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "1c4dc7282a475db3a6a53309e3227ab483130d3035a10318461044b435f8a413",
+        "text": "you can just pick 2:\n1. loyal\n2. pretty\n3. low drama\n4. mine",
+        "banks": [
+          "choice_poll",
+          "winner_bank"
+        ],
+        "word_count": 14,
+        "char_count": 60,
+        "line_count": 5,
+        "length_class": "medium",
+        "format_class": "numbered_list",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_2",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "be6b5d259d63e385d3dc7fe116983749e1df53440741035f6bf13ce77741bb78",
+        "text": "when you finish but the video\nis still playing 😳",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 9,
+        "char_count": 48,
+        "line_count": 2,
+        "length_class": "short",
+        "format_class": "multiline",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+      },
+      {
+        "caption_hash": "4d91d36802f645095f833f9f481f31cd78280384bea9826d78fcb8cab3dcb822",
+        "text": "\"get something your size!\" 😏",
+        "banks": [
+          "comment_bait",
+          "winner_bank"
+        ],
+        "word_count": 4,
+        "char_count": 28,
+        "line_count": 1,
+        "length_class": "very_short",
+        "format_class": "single_line",
+        "source_type": "scraped_ig_2026-07-01",
+        "source_file": "ig_reel_sweep_3",
+        "source_index": 0
+>>>>>>> Stashed changes
       }
     ]
   }
