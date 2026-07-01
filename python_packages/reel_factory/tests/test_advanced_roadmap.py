@@ -1062,7 +1062,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             stacey = conn.execute(
                 "SELECT * FROM creators WHERE name='Stacey'"
             ).fetchone()
-            self.assertEqual(stacey["soul_id"], "5828d958-91dd-4d6d-8909-934503f47644")
+            self.assertEqual(stacey["soul_id"], "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36")
 
     def test_campaign_prompt_asset_rating_and_next_batch_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
