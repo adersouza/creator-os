@@ -352,6 +352,203 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     return {"imported": imported, "ignored": ignored}
 
 
+def refresh_outcomes_from_performance_sync(
+    root: Path,
+    *,
+    campaign_factory_db: Path,
+    campaign: str | None = None,
+) -> dict[str, Any]:
+    """Bridge synced Campaign Factory performance facts into Reel Factory learning tables."""
+    db_path = Path(root) / "manifest.sqlite"
+    source_db = Path(campaign_factory_db)
+    if not source_db.exists():
+        raise FileNotFoundError(f"campaign factory DB not found: {source_db}")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    ensure_metrics_schema(conn)
+    ensure_campaign_schema(conn)
+    ensure_intelligence_schema(conn)
+
+    source = sqlite3.connect(source_db)
+    source.row_factory = sqlite3.Row
+    where = ["p.metrics_eligible = 1"]
+    params: list[Any] = []
+    if campaign:
+        where.append("p.campaign_id = ?")
+        params.append(campaign)
+    where_sql = " AND ".join(where)
+    rows = source.execute(
+        f"""
+        SELECT p.*, ra.output_path AS rendered_output_path,
+               ra.filename AS rendered_filename,
+               ra.caption AS rendered_caption,
+               ra.recipe AS rendered_recipe,
+               ra.review_state AS rendered_review_state
+        FROM performance_snapshots p
+        JOIN (
+            SELECT post_id, MAX(snapshot_at) AS snapshot_at
+            FROM performance_snapshots p
+            WHERE {where_sql}
+            GROUP BY post_id
+        ) latest
+          ON latest.post_id = p.post_id AND latest.snapshot_at = p.snapshot_at
+        LEFT JOIN rendered_assets ra ON ra.id = p.rendered_asset_id
+        WHERE {where_sql}
+        ORDER BY p.snapshot_at DESC, p.created_at DESC
+        """,
+        (*params, *params),
+    ).fetchall()
+
+    imported = 0
+    skipped: list[dict[str, Any]] = []
+    now = int(time.time())
+    for row in rows:
+        output_path = _text(row["rendered_output_path"])
+        filename = _text(row["rendered_filename"]) or (
+            Path(output_path).name if output_path else None
+        )
+        if not filename or not output_path:
+            skipped.append(
+                {
+                    "performanceSnapshotId": row["id"],
+                    "postId": row["post_id"],
+                    "reason": "missing_rendered_output_path",
+                }
+            )
+            continue
+        output_path = str(_project_path(Path(root), output_path).resolve())
+        campaign_output = conn.execute(
+            "SELECT * FROM campaign_outputs WHERE output_path=? OR metrics_filename=? LIMIT 1",
+            (output_path, filename),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO campaign_outputs (
+                campaign_output_id, campaign_id, output_path, caption_text, recipe,
+                review_state, metrics_filename, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(output_path) DO UPDATE SET
+                campaign_id=COALESCE(campaign_outputs.campaign_id, excluded.campaign_id),
+                caption_text=COALESCE(campaign_outputs.caption_text, excluded.caption_text),
+                recipe=COALESCE(campaign_outputs.recipe, excluded.recipe),
+                review_state=COALESCE(campaign_outputs.review_state, excluded.review_state),
+                metrics_filename=excluded.metrics_filename,
+                updated_at=excluded.updated_at
+            """,
+            (
+                (campaign_output["campaign_output_id"] if campaign_output else None)
+                or f"out_{slugify(Path(output_path).stem)}",
+                row["campaign_id"],
+                output_path,
+                _text(row["rendered_caption"]) or _text(row["caption_text"]),
+                _text(row["rendered_recipe"]) or _text(row["recipe"]),
+                _text(row["rendered_review_state"]),
+                filename,
+                now,
+                now,
+            ),
+        )
+        campaign_output = conn.execute(
+            "SELECT * FROM campaign_outputs WHERE output_path=? LIMIT 1", (output_path,)
+        ).fetchone()
+        soul_id = _resolve_metrics_soul_id(
+            Path(root), conn, filename, output_path=output_path
+        )
+        platform = _text(row["platform"]) or "instagram_reels"
+        account = _text(row["instagram_account_id"]) or _text(row["account_id"])
+        posted_at = _text(row["published_at"]) or _text(row["snapshot_at"])
+        outcome_id = f"outcome_{slugify(filename)}_{slugify(platform or 'platform')}_{slugify(account or 'account')}_{slugify(posted_at or 'unknown')}"
+        conn.execute(
+            """
+            INSERT INTO reel_outcomes (
+                outcome_id, filename, output_path, soul_id, campaign_output_id,
+                campaign_id, platform, account, posted_at, views, likes, comments,
+                shares, saves, watch_time, source_url, notes, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filename, platform, account, posted_at) DO UPDATE SET
+                output_path=excluded.output_path,
+                soul_id=excluded.soul_id,
+                campaign_output_id=excluded.campaign_output_id,
+                campaign_id=excluded.campaign_id,
+                views=excluded.views,
+                likes=excluded.likes,
+                comments=excluded.comments,
+                shares=excluded.shares,
+                saves=excluded.saves,
+                watch_time=excluded.watch_time,
+                source_url=excluded.source_url,
+                notes=excluded.notes,
+                imported_at=excluded.imported_at
+            """,
+            (
+                outcome_id,
+                filename,
+                output_path,
+                soul_id,
+                campaign_output["campaign_output_id"] if campaign_output else None,
+                row["campaign_id"],
+                platform,
+                account,
+                posted_at,
+                _int_from_any(row["views"]),
+                _int_from_any(row["likes"]),
+                _int_from_any(row["comments"]),
+                _int_from_any(row["shares"]),
+                _int_from_any(row["saves"]),
+                _float_from_any(row["watch_time_seconds"]),
+                _text(row["permalink"]),
+                f"threadsdash performance snapshot {row['id']}",
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO publish_metrics (
+                filename, platform, account, uploaded_at, views, likes, comments,
+                shares, saves, notes, soul_id, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+                platform=excluded.platform,
+                account=excluded.account,
+                uploaded_at=excluded.uploaded_at,
+                views=excluded.views,
+                likes=excluded.likes,
+                comments=excluded.comments,
+                shares=excluded.shares,
+                saves=excluded.saves,
+                notes=excluded.notes,
+                soul_id=excluded.soul_id,
+                imported_at=excluded.imported_at
+            """,
+            (
+                filename,
+                platform,
+                account,
+                posted_at,
+                _int_from_any(row["views"]),
+                _int_from_any(row["likes"]),
+                _int_from_any(row["comments"]),
+                _int_from_any(row["shares"]),
+                _int_from_any(row["saves"]),
+                f"threadsdash performance snapshot {row['id']}",
+                soul_id,
+                now,
+            ),
+        )
+        imported += 1
+    conn.commit()
+    source.close()
+
+    from winner_dna import refresh_winner_dna
+
+    winner_dna = refresh_winner_dna(Path(root))
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "winnerDna": winner_dna,
+    }
+
+
 def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
@@ -802,6 +999,18 @@ def _float(value: str | None) -> float | None:
     return float(str(value).replace(",", ""))
 
 
+def _int_from_any(value: Any) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    return int(float(str(value).replace(",", "")))
+
+
+def _float_from_any(value: Any) -> float | None:
+    if value is None or str(value).strip() == "":
+        return None
+    return float(str(value).replace(",", ""))
+
+
 def _text(value: str | None) -> str | None:
     value = "" if value is None else str(value).strip()
     return value or None
@@ -818,6 +1027,9 @@ def main() -> None:
     import_old.add_argument("csv")
     soul_report = sub.add_parser("soul-report")
     soul_report.add_argument("--by-account", action="store_true")
+    refresh_out = sub.add_parser("refresh-outcomes")
+    refresh_out.add_argument("--campaign-factory-db", required=True)
+    refresh_out.add_argument("--campaign")
     sub.add_parser("outcomes-summary")
     args = parser.parse_args()
     root = Path(args.root).resolve()
@@ -829,6 +1041,12 @@ def main() -> None:
         result = soul_metrics_report(root, by_account=args.by_account)
         _print_soul_report(result["rows"], by_account=args.by_account)
         return
+    elif args.cmd == "refresh-outcomes":
+        result = refresh_outcomes_from_performance_sync(
+            root,
+            campaign_factory_db=Path(args.campaign_factory_db).resolve(),
+            campaign=args.campaign,
+        )
     elif args.cmd == "import":
         result = import_metrics_csv(root, Path(args.csv).resolve())
     elif args.csv:
