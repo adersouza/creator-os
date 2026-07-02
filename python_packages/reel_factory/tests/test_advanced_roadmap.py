@@ -3583,7 +3583,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             side_effect=reel_gui.subprocess.TimeoutExpired(["cmd"], 1),
         ):
             with self.assertRaises(HTTPException) as raised:
-                reel_gui._run_request_subprocess(["cmd"], timeout_seconds=1)
+                reel_gui._run_reel_pipeline_subprocess([], timeout_seconds=1)
 
         self.assertEqual(raised.exception.status_code, 504)
 
