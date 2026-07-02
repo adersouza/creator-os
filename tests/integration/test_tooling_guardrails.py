@@ -90,7 +90,7 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     assert jobs["sbom"]["permissions"]["attestations"] == "write"
     assert jobs["sbom"]["permissions"]["id-token"] == "write"
     assert any(
-        step.get("uses") == "actions/attest-build-provenance@v4.1.0"
+            step.get("uses") == "actions/attest-build-provenance@v4.1.1"
         for step in jobs["sbom"]["steps"]
     )
 
