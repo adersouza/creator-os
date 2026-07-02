@@ -2401,7 +2401,11 @@ def main() -> int:
     ap.add_argument("--budget-override-ledger-error", action="store_true")
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
-    ap.add_argument("--download", action="store_true")
+    ap.add_argument(
+        "--download",
+        action="store_true",
+        help="download created assets now; generated-video QC runs only on local downloaded video",
+    )
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 

@@ -719,31 +719,31 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
     rows = conn.execute("""
         SELECT
             v.recipe,
-            m.filename,
-            m.views,
-            m.likes,
-            m.comments,
-            m.shares,
-            m.saves,
-            m.manual_score
+            o.filename,
+            o.views,
+            o.likes,
+            o.comments,
+            o.shares,
+            o.saves,
+            o.manual_score
         FROM variations v
         LEFT JOIN campaign_outputs co ON co.output_path = v.output_path
-        JOIN publish_metrics m
-          ON m.campaign_output_id = co.campaign_output_id
+        JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
           OR (
-              m.campaign_output_id IS NULL
-              AND m.job_key IS NOT NULL
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
               AND v.job_key IS NOT NULL
-              AND m.job_key = v.job_key
+              AND o.job_key = v.job_key
           )
           OR (
-              m.campaign_output_id IS NULL
-              AND (m.job_key IS NULL OR v.job_key IS NULL)
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR v.job_key IS NULL)
               AND (
-                  m.filename = v.filename
+                  o.filename = v.filename
                   OR (
                       (v.filename IS NULL OR v.filename = '')
-                      AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                      AND substr(v.output_path, length(v.output_path) - length(o.filename) + 1) = o.filename
                   )
               )
           )
@@ -809,31 +809,31 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
         SELECT
             v.recipe,
             v.caption_text,
-            m.filename,
-            m.views,
-            m.likes,
-            m.comments,
-            m.shares,
-            m.saves,
-            m.manual_score
+            o.filename,
+            o.views,
+            o.likes,
+            o.comments,
+            o.shares,
+            o.saves,
+            o.manual_score
         FROM variations v
         LEFT JOIN campaign_outputs co ON co.output_path = v.output_path
-        JOIN publish_metrics m
-          ON m.campaign_output_id = co.campaign_output_id
+        JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
           OR (
-              m.campaign_output_id IS NULL
-              AND m.job_key IS NOT NULL
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
               AND v.job_key IS NOT NULL
-              AND m.job_key = v.job_key
+              AND o.job_key = v.job_key
           )
           OR (
-              m.campaign_output_id IS NULL
-              AND (m.job_key IS NULL OR v.job_key IS NULL)
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR v.job_key IS NULL)
               AND (
-                  m.filename = v.filename
+                  o.filename = v.filename
                   OR (
                       (v.filename IS NULL OR v.filename = '')
-                      AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                      AND substr(v.output_path, length(v.output_path) - length(o.filename) + 1) = o.filename
                   )
               )
           )
