@@ -738,6 +738,12 @@ def refresh_caption_weights(root: Path) -> dict[str, Any]:
         conn.close()
         return {"updated": 0, "unresolved": 0, "performancePath": None}
     conn.close()
+    if not rows:
+        return {
+            "updated": 0,
+            "unresolved": 0,
+            "performancePath": str(root / "caption_banks" / "performance.json"),
+        }
 
     buckets: dict[str, list[tuple[float, sqlite3.Row]]] = {}
     unresolved = 0

@@ -235,6 +235,30 @@ class CaptionBankTests(unittest.TestCase):
         self.assertGreater(weights[high_hash], weights[low_hash])
         self.assertEqual(performance["captions"][high_hash]["sampleCount"], 1)
 
+    def test_refresh_caption_weights_preserves_existing_weights_without_outcomes(self):
+        root = self._root_with_sources()
+        banks = root / "caption_banks"
+        banks.mkdir(parents=True, exist_ok=True)
+        performance_path = banks / "performance.json"
+        existing = {
+            "schema": "reel_factory.caption_performance.v1",
+            "updated_at": 1782874000,
+            "notes": "existing real weights",
+            "approvedWeights": {"captionHashes": {"known": 123.0}},
+            "captions": {},
+        }
+        performance_path.write_text(json.dumps(existing), encoding="utf-8")
+        conn = sqlite3.connect(root / "manifest.sqlite")
+        conn.row_factory = sqlite3.Row
+        ensure_intelligence_schema(conn)
+        conn.close()
+
+        result = refresh_caption_weights(root)
+        performance = json.loads(performance_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(performance, existing)
+
     def test_caption_static_metadata_classifies_length_and_format(self):
         short = caption_static_metadata("wife or girlfriend")
         numbered = caption_static_metadata(
