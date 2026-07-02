@@ -79,6 +79,8 @@ from reference_factory.public_metrics import (
 from reference_factory.reference_intake import (
     _grok_prompt_builder,
     _json_from_model_text,
+    _store_pattern_and_analysis,
+    _validate_prompt_contract,
     analyze_reference_local,
     compile_prompts_with_grok_api,
     export_video_analyses,
@@ -99,6 +101,8 @@ from reference_factory.review import (
 from reference_factory.scan import classify_file, scan_source
 from reference_factory.server import create_app
 from reference_factory.tiktok_archive import import_tiktok_archive
+
+from pipeline_contracts import ContractValidationError
 
 GOOD_IMAGE_PROMPT_JSON = {
     "promptMode": "structured_json",
@@ -618,6 +622,100 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     )
     assert json.loads(higgsfield_line)["creativePlanId"] == "cplan_1"
     assert "prompt" not in json.loads(higgsfield_line)
+
+
+def test_prompt_contract_validation_blocks_missing_required_field() -> None:
+    image_prompt = {
+        "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+        "tool": "higgsfield_soul_image",
+        "status": "prompt_ready",
+        "sourceReferenceId": "ref_1",
+        "sourcePatternId": "pattern_1",
+        "modelProfile": "model_a",
+        "mainPrompt": "Create a safe first frame.",
+        "negativePrompt": "watermark",
+        "closenessControls": {"identity_copy_risk": "blocked"},
+    }
+    kling_prompt = {
+        "schema": "reference_factory.kling_3_video_prompt.v1",
+        "tool": "kling_3_video",
+        "status": "prompt_ready",
+        "sourceReferenceId": "ref_1",
+        "sourcePatternId": "pattern_1",
+        "modelProfile": "model_a",
+        "firstFrameInstruction": "Use generated image.",
+        "mainPrompt": "Subtle motion.",
+        "negativePrompt": "watermark",
+        "closenessControls": {"identity_copy_risk": "blocked"},
+    }
+
+    _validate_prompt_contract("higgsfield_soul_image", image_prompt)
+    _validate_prompt_contract("kling_3_video", kling_prompt)
+    invalid = dict(image_prompt)
+    invalid.pop("mainPrompt")
+
+    with pytest.raises(ContractValidationError):
+        _validate_prompt_contract("higgsfield_soul_image", invalid)
+
+
+def test_pattern_and_video_analysis_contract_validation_blocks_write(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    pattern = {
+        "schema": "reference_factory.pattern_card.v1",
+        "id": "pattern_1",
+        "platform": "instagram",
+        "source": {"referenceId": "ref_1"},
+        "formatType": "mirror_selfie",
+        "hookType": "pov",
+        "visualPattern": "mirror selfie opening beat",
+        "shotSequence": ["open on mirror selfie"],
+        "cameraStyle": {"framing": "vertical"},
+        "subjectAction": "poses naturally",
+        "textOverlayStyle": {},
+        "pacing": {},
+        "audioVibe": {},
+        "reuseRisk": "medium",
+        "copyRiskNotes": ["replace identity"],
+        "transformationInstructions": ["change scene details"],
+    }
+    analysis = {
+        "schema": "reference_factory.video_analysis.v1",
+        "id": "analysis_1",
+        "referenceId": "ref_1",
+        "provider": "local",
+        "status": "pattern_ready",
+        "media": {},
+        "signals": {},
+        "patternCard": pattern,
+    }
+    job = {
+        "id": "job_1",
+        "reference_id": "ref_1",
+        "source_platform": "instagram",
+    }
+
+    _store_pattern_and_analysis(
+        conn,
+        job=job,
+        analysis=analysis,
+        provider="local",
+        timestamp="2026-07-02T00:00:00Z",
+    )
+    invalid = dict(analysis)
+    invalid_pattern = dict(pattern)
+    invalid_pattern.pop("visualPattern")
+    invalid["patternCard"] = invalid_pattern
+
+    with pytest.raises(ContractValidationError):
+        _store_pattern_and_analysis(
+            conn,
+            job=job,
+            analysis=invalid,
+            provider="local",
+            timestamp="2026-07-02T00:00:01Z",
+        )
 
 
 def test_reference_intake_imports_analysis_before_prompt_generation(

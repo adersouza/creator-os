@@ -15,6 +15,13 @@ from typing import Any
 
 from pipeline_contracts.llm_resilience import urlopen_json_with_retry
 
+from pipeline_contracts import (
+    validate_higgsfield_soul_image_prompt,
+    validate_kling_3_video_prompt,
+    validate_pattern_card,
+    validate_video_analysis,
+)
+
 from .db import json_dump, json_load
 from .identity import stable_id
 from .prompt_records import (
@@ -1127,6 +1134,8 @@ def export_video_prompts(
     image_jsonl_path = output_dir / "daily_higgsfield_image_prompts.jsonl"
     kling_jsonl_path = output_dir / "daily_kling_video_prompts.jsonl"
     review_path = output_dir / "daily_prompt_review.md"
+    for prompt in prompts:
+        _validate_prompt_contract(prompt["targetTool"], prompt["prompt"])
     json_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -2031,6 +2040,9 @@ def _store_pattern_and_analysis(
         or stable_id("viral_pattern_card", job["reference_id"], provider)
     )
     pattern["id"] = pattern_id
+    analysis["patternCard"] = pattern
+    validate_pattern_card(pattern)
+    validate_video_analysis(analysis)
     conn.execute(
         """
         INSERT INTO viral_pattern_cards (
@@ -3077,6 +3089,15 @@ def _kling_prompt(
             else []
         ),
     }
+
+
+def _validate_prompt_contract(target_tool: str, prompt: dict[str, Any]) -> None:
+    tool = _canonical_tool(target_tool)
+    if tool == "higgsfield_soul_image":
+        validate_higgsfield_soul_image_prompt(prompt)
+        return
+    if tool == "kling_3_video":
+        validate_kling_3_video_prompt(prompt)
 
 
 def _canonical_tool(target_tool: object) -> str:

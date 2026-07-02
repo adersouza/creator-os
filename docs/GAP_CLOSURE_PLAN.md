@@ -217,7 +217,9 @@ The `variations` table has no filename column, so the scan is unindexable as-is.
 **Tests:** legacy DB (no column) migrates + backfills; exact-match hit skips LIKE (assert via query
 plan or call spy); joins return identical rows pre/post on a fixture.
 
-### 1.4 Enforce the four reference_factory contracts (finish RELIABILITY 4.1)  ·  MED-HIGH · M · [ ]
+### 1.4 Enforce the four reference_factory contracts (finish RELIABILITY 4.1)  ·  MED-HIGH · M · [x]
+
+**Status:** Reference Factory now validates pattern cards, video analyses, and both prompt payload contracts before writes/exports; focused contract tests pass.
 
 **Branch:** `codex/reference-contract-enforcement`
 
@@ -317,12 +319,12 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 
 - [x] 0.1 reel_factory download verify — shared download_result now uses timeouted streaming, content-type/min-size checks, atomic rename, and no partial files; focused truncated/timeout tests passed.
 - [x] 0.2 render-pack async + idempotency — render-pack now enqueues by default with deterministic idempotency, keeps sync behind sync=1, and the client polls/disables through the existing job helper; focused async/sync tests and JS syntax check passed.
-- [ ] 0.3 ranked audio reaches mux by default (+ track_id recorded for attribution)
-- [ ] 0.4 spend edge cases: image-on-video-fail ledgers; budget preflight fail-closed on ledger error
-- [ ] 1.1 cross-campaign stuck-job discovery (`--campaign` optional, `--stuck-hours`, health view)
-- [ ] 1.2 shared sqlite opener sweep + grep-guard test
-- [ ] 1.3 filename join key (column + backfill + index, exact-first) + once-per-connection cost DDL
-- [ ] 1.4 reference_factory contract enforcement (pattern_card, video_analysis, both prompt contracts)
+- [x] 0.3 ranked audio reaches mux by default — mux selection now honors manual override, ranked provider tracks, then fallback audio, with selected track metadata persisted.
+- [x] 0.4 spend edge cases — reference image spend is recorded on image success even if video fails, and unreadable cost ledgers fail closed unless explicitly overridden.
+- [x] 1.1 cross-campaign stuck-job discovery — jobs can scan all campaigns with stuck-hour detection, and Reel GUI health surfaces failed/stuck counts.
+- [x] 1.2 shared sqlite opener sweep — Reel Factory DB openers now use the shared timeout/WAL/busy-timeout helper with a bare-connect guard.
+- [x] 1.3 filename join key — variations filename is migrated/backfilled/indexed, lookups are exact-first, and cost schema setup runs once per connection.
+- [x] 1.4 reference_factory contract enforcement — pattern cards, video analyses, and both prompt contracts validate before producer writes/exports.
 - [ ] 1.5 import metrics to reference record (columns + sidecar backfill)
 - [ ] 2.1 launcher onboarding fix (explicit dev-auth env in `.command`)
 - [ ] 2.2 CF cost tile from ledger + loading skeleton
