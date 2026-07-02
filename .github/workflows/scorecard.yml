@@ -1,11 +1,9 @@
 name: OpenSSF Scorecard
 
 on:
-  pull_request:
   push:
     branches:
       - main
-      - "codex/**"
   schedule:
     - cron: "17 9 * * 1"
   workflow_dispatch:
@@ -16,10 +14,15 @@ permissions:
   security-events: write
   id-token: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   scorecard:
     name: Scorecard report
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:

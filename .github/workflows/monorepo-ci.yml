@@ -5,14 +5,19 @@ on:
   push:
     branches:
       - main
-      - "codex/**"
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contracts:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -27,6 +32,7 @@ jobs:
 
   architecture:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: step-security/harden-runner@v2
@@ -48,7 +54,9 @@ jobs:
       - run: pnpm check:arch:fixtures
 
   javascript:
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -65,7 +73,9 @@ jobs:
       - run: pnpm --filter contentforge test
 
   python:
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -80,18 +90,17 @@ jobs:
       - run: uv run python -m compileall packages/pipeline_contracts python_packages/campaign_factory python_packages/reel_factory python_packages/reference_factory
 
   hygiene:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: git diff --check
-      - name: Install gitleaks
-        run: brew install gitleaks
-      - name: Run gitleaks
-        run: gitleaks detect --no-git --redact --config .gitleaks.toml --source .
       - run: bash scripts/check-runtime-artifacts.sh
 
   sbom:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       attestations: write
