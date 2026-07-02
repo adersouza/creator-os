@@ -283,6 +283,116 @@ def recover_stalled(
     return len(candidates)
 
 
+def campaign_factory_db_path(root: Path) -> Path:
+    env = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env:
+        return Path(env)
+    return (
+        Path(root).expanduser().resolve().parent
+        / "campaign_factory"
+        / "campaign_factory.sqlite"
+    )
+
+
+def record_rejection_evidence(
+    asset: dict[str, Any],
+    reason: str | None,
+    db_path: Path,
+    *,
+    now: int | None = None,
+) -> bool:
+    """Persist the operator's reject decision as training signal.
+
+    Best effort: the campaign factory DB may not exist on a fresh machine;
+    the decision itself is already recorded in asset_pipeline_state.
+    """
+    if not db_path.exists():
+        return False
+    ts = now_epoch() if now is None else now
+    created_at = datetime.fromtimestamp(ts, UTC).isoformat()
+    asset_id = str(asset["asset_id"])
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            has_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_rejection_evidence'"
+            ).fetchone()
+            if not has_table:
+                return False
+            rendered = conn.execute(
+                "SELECT 1 FROM rendered_assets WHERE id = ?", (asset_id,)
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO asset_rejection_evidence
+                (id, rendered_asset_id, source_asset_id, campaign_id, content_surface,
+                 failed_stage, failure_category, matched_text, source_field,
+                 policy_version, repairable, evidence_json, created_at, updated_at)
+                VALUES (?, ?, NULL, NULL, 'reel', 'human_approval',
+                        'operator_rejected', ?, 'approval_reason', 'inbox.v1', 0, ?, ?, ?)
+                ON CONFLICT(rendered_asset_id, failed_stage, failure_category,
+                            matched_text, source_field, policy_version)
+                DO UPDATE SET evidence_json = excluded.evidence_json,
+                              updated_at = excluded.updated_at
+                """,
+                (
+                    f"rejectev-inbox-{asset_id}-{ts}",
+                    asset_id if rendered else None,
+                    reason or "",
+                    json.dumps(
+                        {
+                            "assetId": asset_id,
+                            "campaign": asset.get("campaign"),
+                            "runId": asset.get("run_id"),
+                            "lineagePath": asset.get("lineage_path"),
+                            "rankScore": asset.get("rank_score"),
+                            "reason": reason or "",
+                        },
+                        sort_keys=True,
+                    ),
+                    created_at,
+                    created_at,
+                ),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+APPROVAL_DECISIONS = {"approved", "rejected", "regenerate"}
+
+
+def decide(
+    root: Path,
+    asset_id: str,
+    decision: str,
+    *,
+    reason: str | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    if decision not in APPROVAL_DECISIONS:
+        raise ValueError(f"unknown decision: {decision}")
+    conn = open_manifest(Path(root))
+    try:
+        asset = advance(conn, asset_id, decision, reason=reason, now=now)
+    finally:
+        conn.close()
+    evidence_recorded = False
+    if decision == "rejected":
+        evidence_recorded = record_rejection_evidence(
+            asset, reason, campaign_factory_db_path(Path(root)), now=now
+        )
+    return {
+        "schema": "creator_os.reel_factory.orchestrator_decision.v1",
+        "asset": asset,
+        "decision": decision,
+        "rejectionEvidenceRecorded": evidence_recorded,
+    }
+
+
 def load_config(root: Path) -> dict[str, Any]:
     config_path = (
         Path(root).expanduser().resolve() / "project_data" / "orchestrator.toml"
@@ -399,7 +509,7 @@ def tick(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "tick"):
+    for name in ("init", "tick", "decide"):
         command = sub.add_parser(name)
         command.add_argument(
             "--root",
@@ -407,6 +517,12 @@ def main(argv: list[str] | None = None) -> int:
             default=Path(__file__).resolve().parents[1],
             help="Reel Factory root containing manifest.sqlite and project_data/",
         )
+        if name == "decide":
+            command.add_argument("--asset-id", required=True)
+            command.add_argument(
+                "--decision", required=True, choices=sorted(APPROVAL_DECISIONS)
+            )
+            command.add_argument("--reason", default=None)
     args = parser.parse_args(argv)
     if args.cmd == "init":
         with open_manifest(args.root):
@@ -415,6 +531,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "tick":
         print(json.dumps(tick(args.root), indent=2, sort_keys=True))
+        return 0
+    if args.cmd == "decide":
+        try:
+            result = decide(
+                args.root, args.asset_id, args.decision, reason=args.reason
+            )
+        except ValueError as exc:
+            print(json.dumps({"error": str(exc)}))
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     raise AssertionError(args.cmd)
 
