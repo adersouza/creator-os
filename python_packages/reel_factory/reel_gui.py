@@ -150,6 +150,7 @@ ASSET_JOBS: dict[str, dict[str, Any]] = {}
 ASSET_IDEMPOTENCY: dict[str, str] = {}
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
 STEM_RE = re.compile(r"^clip_\d{3,}$")
+CLI_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,80}$")
 
 for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -332,6 +333,12 @@ def _safe_stem(stem: str) -> str:
     if not STEM_RE.fullmatch(stem):
         raise HTTPException(400, "invalid clip id")
     return stem
+
+
+def _safe_cli_token(value: str, field: str) -> str:
+    if not CLI_TOKEN_RE.fullmatch(value):
+        raise HTTPException(400, f"invalid {field}")
+    return value
 
 
 def _grid_layout_dimensions(value: Any) -> tuple[int | None, int | None]:
@@ -2638,11 +2645,41 @@ def asset_download_video_api(body: dict = Body(...)):
 
 
 @app.post("/api/campaigns/{campaign}/render-pack")
-def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
+def campaign_render_pack_api(campaign: str, body: dict = Body(...), sync: int = 0):
+    queued_body = dict(body)
+    queued_body["_campaign"] = campaign
+    if not sync:
+        queued_body.setdefault(
+            "idempotency_key", _render_pack_idempotency_key(campaign, queued_body)
+        )
+        return _enqueue_asset_job(
+            "render_pack", queued_body, _campaign_render_pack_sync
+        )
+    return _campaign_render_pack_sync(queued_body)
+
+
+def _render_pack_idempotency_key(campaign: str, body: dict[str, Any]) -> str:
+    payload = {
+        "campaign": campaign,
+        "stem": body.get("stem"),
+        "asset_generation_id": body.get("asset_generation_id"),
+        "asset_prompt_json": body.get("asset_prompt_json"),
+        "recipes": body.get("recipes"),
+        "max_hooks": body.get("max_hooks"),
+        "target_ratios": body.get("target_ratios"),
+        "workers": body.get("workers"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _campaign_render_pack_sync(body: dict[str, Any]) -> dict[str, Any]:
+    campaign = str(body.get("_campaign") or "")
     stem = body.get("stem")
     if not stem:
         raise HTTPException(400, "stem is required")
-    campaign = _safe_stem(str(campaign))
+    campaign = _safe_cli_token(str(campaign), "campaign")
     args = [
         "--root",
         str(ROOT),
@@ -2654,7 +2691,10 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         "--readiness",
     ]
     if body.get("asset_generation_id"):
-        args += ["--asset-generation-id", _safe_stem(str(body["asset_generation_id"]))]
+        args += [
+            "--asset-generation-id",
+            _safe_cli_token(str(body["asset_generation_id"]), "asset_generation_id"),
+        ]
     if body.get("asset_prompt_json"):
         prompt_path = _safe_in_root(Path(str(body["asset_prompt_json"])))
         args += ["--asset-prompt-json", str(prompt_path)]
@@ -2662,7 +2702,7 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         recipes = body["recipes"]
         if isinstance(recipes, str):
             recipes = [recipes]
-        args += ["--recipes", *[_safe_stem(str(r)) for r in recipes]]
+        args += ["--recipes", *[_safe_cli_token(str(r), "recipe") for r in recipes]]
     if body.get("max_hooks"):
         max_hooks = int(body["max_hooks"])
         if max_hooks < 1 or max_hooks > 50:

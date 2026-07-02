@@ -3681,6 +3681,69 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue(second["deduped"])
             self.assertEqual(calls["count"], 1)
 
+    def test_render_pack_defaults_to_async_job_and_dedupes(self):
+        import reel_gui
+
+        previous_jobs = dict(reel_gui.ASSET_JOBS)
+        previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
+        calls = {"count": 0}
+
+        def fake_run(args, *, timeout_seconds):
+            calls["count"] += 1
+            return reel_gui.subprocess.CompletedProcess(args, 0, stdout="render ok")
+
+        try:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
+                body = {
+                    "stem": "clip_001",
+                    "recipes": ["v01_original"],
+                    "max_hooks": 1,
+                    "target_ratios": ["9:16"],
+                }
+                first = reel_gui.campaign_render_pack_api("clip_999", dict(body))
+                second = reel_gui.campaign_render_pack_api("clip_999", dict(body))
+                for _ in range(20):
+                    status = reel_gui.asset_job_status_api(first["job_id"])
+                    if status["status"] == "done":
+                        break
+                    time.sleep(0.05)
+        finally:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_JOBS.update(previous_jobs)
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            reel_gui.ASSET_IDEMPOTENCY.update(previous_idempotency)
+
+        self.assertEqual(first["kind"], "render_pack")
+        self.assertEqual(first["job_id"], second["job_id"])
+        self.assertTrue(second["deduped"])
+        self.assertEqual(calls["count"], 1)
+        self.assertEqual(status["status"], "done")
+        self.assertEqual(status["result"]["log"], "render ok")
+
+    def test_render_pack_sync_fallback_keeps_blocking_contract(self):
+        import reel_gui
+
+        def fake_run(args, *, timeout_seconds):
+            return reel_gui.subprocess.CompletedProcess(
+                args, 0, stdout="sync render ok"
+            )
+
+        with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
+            result = reel_gui.campaign_render_pack_api(
+                "clip_999",
+                {
+                    "stem": "clip_001",
+                    "recipes": ["v01_original"],
+                    "max_hooks": 1,
+                    "target_ratios": ["9:16"],
+                },
+                sync=1,
+            )
+
+        self.assertEqual(result, {"ok": True, "log": "sync render ok"})
+
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
         import reel_gui
 

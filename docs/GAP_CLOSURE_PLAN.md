@@ -302,7 +302,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 ## Status log
 
 - [x] 0.1 reel_factory download verify — shared download_result now uses timeouted streaming, content-type/min-size checks, atomic rename, and no partial files; focused truncated/timeout tests passed.
-- [ ] 0.2 render-pack async + idempotency; async-by-default for paid/long handlers
+- [x] 0.2 render-pack async + idempotency — render-pack now enqueues by default with deterministic idempotency, keeps sync behind sync=1, and the client polls/disables through the existing job helper; focused async/sync tests and JS syntax check passed.
 - [ ] 0.3 ranked audio reaches mux by default (+ track_id recorded for attribution)
 - [ ] 0.4 spend edge cases: image-on-video-fail ledgers; budget preflight fail-closed on ledger error
 - [ ] 1.1 cross-campaign stuck-job discovery (`--campaign` optional, `--stuck-hours`, health view)
