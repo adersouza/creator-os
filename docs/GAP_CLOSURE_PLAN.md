@@ -6,17 +6,21 @@
 > every `[x]` item in `docs/REEL_ENGINE_IMPROVEMENT_PLAN.md`, `docs/PIPELINE_HARDENING_PLAN.md`, and
 > `docs/RELIABILITY_SECURITY_PLAN.md` against the actual code on `main`. 49/61 items were fully
 > verified. 12 were PARTIAL — the core claim is real but one edge of a multi-part item was skipped.
-> This doc is the complete list of those remaining edges. Work through the items below in the listed
-> dependency order, **one PR each** (do not batch into a mega-branch this time — item-level revert
-> granularity matters), until the entire Status log at the bottom is checked `[x]` and merged.
+> This doc is the complete list of those remaining edges. Do ALL 12 items on **one branch**
+> (`codex/gap-closure-fast`) as **one PR** — speed over item-level granularity. Implement in the
+> listed dependency order, one commit per item (so the history is still bisectable), but do NOT
+> stop for per-item PRs, per-item CI waits, or per-item review.
 >
-> For each item:
-> 1. Create the named branch off latest `main`.
-> 2. Implement exactly the Do section. Read the cited file:line first — line numbers are from
->    2026-07-02 `main` (a4b9b342) and may have drifted.
-> 3. Add/extend the named tests. Run the focused suite and the package's existing tests.
-> 4. Open a PR, wait for CI green, merge, tick the item's box in the Status log (commit that
->    update), then immediately start the next item.
+> Process:
+> 1. Create `codex/gap-closure-fast` off latest `main`.
+> 2. Implement every item's Do section in dependency order, one commit each. Read the cited
+>    file:line first — line numbers are from 2026-07-02 `main` (a4b9b342) and may have drifted.
+> 3. Write the named tests as you go, but you may defer running the full suites until the end.
+> 4. When ALL items are implemented: run the full test suite for every touched package plus the
+>    focused tests named per item, fix everything, tick all Status-log boxes with a one-line
+>    summary each, then open ONE PR and get CI green.
+> 5. Final review happens once, after merge, as a separate adversarial verification pass (not
+>    yours) — so never fake a checkbox; every claim will be re-checked against the code.
 >
 > Standing constraints (NEVER violate):
 > - Never run paid generation, live scheduling, or publishing: no `--enable-paid-generation`,
@@ -280,7 +284,7 @@ account configured with `min_gap_hours > 4` can be double-booked at the window e
 
 ---
 
-## Dependency order
+## Dependency order (commit order on the single branch)
 
 ```
 0.1 → 0.2 → 0.3 → 0.4        (spend path, sequential — same files)
@@ -290,6 +294,10 @@ account configured with `min_gap_hours > 4` can be double-booked at the window e
 1.5                           (after 1.3 if migration helpers move; else independent)
 2.1, 2.2, 2.3                 (independent, any time)
 ```
+
+The per-item **Branch:** lines above are legacy from the one-PR-per-item format — ignore them;
+everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes instead
+(e.g. `reel-download-verify: ...`).
 
 ## Status log
 
