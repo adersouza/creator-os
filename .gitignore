@@ -14,6 +14,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+secrets.toml
+*.secrets.toml
 
 # Python
 .venv
@@ -35,6 +37,7 @@ models/
 02_processed/
 identity_references/
 python_packages/reel_factory/identity_references/
+embedding_cache/
 python_packages/reel_factory/caption_banks/caption_source_inventory_*.json
 python_packages/reel_factory/caption_banks/caption_source_inventory_*.csv
 python_packages/reel_factory/caption_banks/caption_source_inventory_*_report.md

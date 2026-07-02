@@ -238,7 +238,7 @@ default; valid live path unchanged.
 **Constraint reminder:** this changes the CODE that runs when the human triggers a live export — you still never
 trigger one.
 
-### 3.3 Make the reel_factory ThreadsDashboard queue endpoint idempotent + guarded  ·  HIGH · M · [ ]
+### 3.3 Make the reel_factory ThreadsDashboard queue endpoint idempotent + guarded  ·  HIGH · M · [x]
 **Branch:** `codex/reelgui-queue-idempotent`
 **Why:** `reel_gui.py:741` sets `post_id = sha256(f"{dest}:{time.time()}")` (time-seeded) and `:761` appends to
 `queue.jsonl` on every call — re-queuing the same output makes a fresh id + duplicate line, with no dedup on
@@ -338,7 +338,7 @@ to the DB — pick one, note which).
 
 ## TIER 5 — Throughput knobs (volume bottleneck)
 
-### 5.1 Per-account cap + spacing from config, not hardcoded literals  ·  MED · M · [ ]
+### 5.1 Per-account cap + spacing from config, not hardcoded literals  ·  MED · M · [x]
 **Branch:** `codex/per-account-cadence-config`
 **Why:** `distribution.py:604/608-609` hardcode ≥1/day and a 4h gap, ignoring DB
 `account_content_requirements.max_per_day`/`min_gap_hours` (`db.py:733-734`) and `account_health.py:832-873`'s
@@ -399,7 +399,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 2.2 daily-sum budget cap — Higgsfield preflight now sums today's `ai_cost_events` before applying the daily cap; focused tests passed.
 - [x] 3.1 export failure/stuck visibility — jobs can be filtered by status, failed export attempts write failure manifests/rows, and failed-job resolution is scoped by asset identity; focused tests passed.
 - [x] 3.2 no silent live→dry-run downgrade — live CLI export without credentials now fails loud and unknown schedule modes raise; focused tests passed.
-- [ ] 3.3 idempotent + guarded reel_gui queue
+- [x] 3.3 idempotent + guarded reel_gui queue — queue IDs are stable/upserted by fingerprint and configured campaign accounts now reuse the posting-ledger creator identity guard before writing handoff files; focused queue tests passed.
 - [x] 3.4 slot assignment cursor fix — assignment now scans open slots without consuming them on non-assignment conflicts; posting-ledger regression tests passed.
 - [x] 3.5 supabase upload retry + media upsert — Supabase REST calls now retry transient failures and media rows upsert by storage path; focused tests passed.
 - [x] 4.1 quarantine blocks re-entry — caption intake now treats bad-caption quarantine hashes/text as blocked existing keys; focused tests passed.
@@ -407,7 +407,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 4.3 ytdlp retry + duplicate-URL guard — URL imports retry transient failures and skip URLs already recorded by import sidecars; focused tests passed.
 - [x] 4.4 failed-gen dead-letter view — blocked/failed generation paths append `failed_generations.jsonl`, with a read-only `failed-generations` CLI mode; focused tests passed.
 - [x] 4.5 caption artifact git policy — dated inventory scratch is gitignored/untracked; quarantine and Stacey adaptation decision records remain tracked.
-- [ ] 5.1 per-account cap/spacing from config
+- [x] 5.1 per-account cap/spacing from config — distribution slot selection now reads active `account_content_requirements`, and posting-ledger account configs can expand same-day slots from max/day + min-gap while preserving current defaults; focused cadence tests passed.
 - [ ] 5.2 per-account timezone
 - [ ] 5.3 best-time-to-post (design first)
 

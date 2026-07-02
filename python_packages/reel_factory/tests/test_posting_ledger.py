@@ -49,6 +49,33 @@ class PostingLedgerTests(unittest.TestCase):
             self.assertEqual(second["created"], 0)
             self.assertEqual(second["existing"], 105)
 
+    def test_posting_plan_uses_account_cap_and_spacing_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+
+            result = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[
+                    {"handle": "stacey_a", "max_per_day": 5, "min_gap_hours": 2}
+                ],
+                start_date="2026-06-03",
+                days=1,
+            )
+
+            self.assertEqual(result["created"], 5)
+            self.assertEqual(result["slot_count"], 5)
+            self.assertEqual(
+                [slot["slot_type"] for slot in result["slots"]],
+                ["main", "trial_1", "trial_2", "trial_3", "trial_4"],
+            )
+            self.assertEqual(
+                [slot["planned_slot_time"] for slot in result["slots"]],
+                ["10:00", "12:00", "14:00", "16:00", "18:00"],
+            )
+
     def test_assignment_blocks_same_content_even_when_filename_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

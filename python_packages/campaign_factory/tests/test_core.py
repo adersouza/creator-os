@@ -8897,6 +8897,67 @@ def test_plan_distribution_hydrates_min_gap_from_existing_plan(
         cf.close()
 
 
+def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account = cf.upsert_account(
+            "stacey_main",
+            platform="instagram",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, allowed_days, active, created_at, updated_at)
+            VALUES ('req_stacey_reel', ?, 'Stacey', 'reel', 'daily', 2, 2,
+                    '[]', 1, '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """,
+            (account["id"],),
+        )
+        slots = [
+            datetime(2026, 1, 2, 10, tzinfo=UTC),
+            datetime(2026, 1, 2, 11, tzinfo=UTC),
+            datetime(2026, 1, 2, 12, tzinfo=UTC),
+        ]
+        day_counts: dict[tuple[str, str], int] = {}
+        slot_times: dict[str, list[datetime]] = {}
+        caption_counts: dict[tuple[str, str], int] = {}
+        source_counts: dict[tuple[str, str], int] = {}
+        warnings: list[dict[str, Any]] = []
+
+        first, index = cf.services.distribution.next_valid_distribution_slot(
+            slots,
+            0,
+            "ig_1",
+            {"id": "asset_1", "caption_hash": "caption_1", "source_asset_id": "src_1"},
+            day_counts,
+            slot_times,
+            caption_counts,
+            source_counts,
+            warnings,
+        )
+        second, _ = cf.services.distribution.next_valid_distribution_slot(
+            slots,
+            index,
+            "ig_1",
+            {"id": "asset_2", "caption_hash": "caption_2", "source_asset_id": "src_2"},
+            day_counts,
+            slot_times,
+            caption_counts,
+            source_counts,
+            warnings,
+        )
+
+        assert first == slots[0]
+        assert second == slots[2]
+    finally:
+        cf.close()
+
+
 def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(
     tmp_path: Path, monkeypatch
 ):

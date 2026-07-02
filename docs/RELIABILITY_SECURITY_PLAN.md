@@ -162,7 +162,7 @@ bounded (assert the value passed to the transport). No live API calls.
 > subprocess, captions rasterized to PNG so no ffmpeg `drawtext` injection), no secret leakage (keys only in
 > Authorization headers, stripped from lineage). These items close the remaining real gaps.
 
-### 2.1 Authenticate the ContentForge Next.js API (unauthenticated file-delete routes)  ·  HIGH · M · [ ]
+### 2.1 Authenticate the ContentForge Next.js API (unauthenticated file-delete routes)  ·  HIGH · M · [x]
 **Branch:** `codex/contentforge-api-auth`
 **Why:** `apps/contentforge` has no `middleware.ts` and no session/token check anywhere — every route is open to
 any local process, and to any website the operator visits (CSRF simple-POST / DNS-rebinding). Reachable
@@ -174,7 +174,7 @@ minimum validate `Origin`/`Host` against localhost to defeat DNS-rebinding. Docu
 **Tests:** a request without the token/allowed-origin is rejected; a valid local request passes. (Next.js route or
 middleware unit test.)
 
-### 2.2 Stop leaking biometric face embeddings + add an erasure path  ·  HIGH(privacy) · M · [ ]
+### 2.2 Stop leaking biometric face embeddings + add an erasure path  ·  HIGH(privacy) · M · [x]
 **Branch:** `codex/identity-privacy`
 **Why:** GDPR special-category biometric data is mishandled:
 - `identity_verification.py:437` `print(json.dumps(result...))` where `result` includes raw ArcFace `embeddings` →
@@ -191,7 +191,7 @@ middleware unit test.)
 **Tests:** default CLI output contains no `embeddings` array; delete removes the set; chmod asserted; out-of-dir
 `--output` rejected. Do NOT commit or print any real vector in a test fixture.
 
-### 2.3 Fence + scrub `analysis_context` before it enters the prompt LLM (second-order injection)  ·  MED · S · [ ]
+### 2.3 Fence + scrub `analysis_context` before it enters the prompt LLM (second-order injection)  ·  MED · S · [x]
 **Branch:** `codex/scrub-analysis-context`
 **Why:** vision-analysis JSON is raw `json.dumps`'d into the prompt-builder LLM instruction at
 `generate_prompts.py:1699-1701`; the existing `_safe_fragment` scrubber is applied only in
@@ -201,7 +201,7 @@ approval gate — worst case is skewed prompts / wasted paid gen, not auto-publi
 **Do:** apply `_safe_fragment` (or equivalent fence) to `analysis_context` before it joins `merged_direction`.
 **Tests:** an `analysis_context` containing an injected instruction string is neutralized/fenced in the built prompt.
 
-### 2.4 Security hardening batch (SSRF + gitignore + gitleaks + path guard)  ·  MED-LOW · S · [ ]
+### 2.4 Security hardening batch (SSRF + gitignore + gitleaks + path guard)  ·  MED-LOW · S · [x]
 **Branch:** `codex/security-hardening-batch`
 **Why (small, independent, batch into one PR):**
 - **SSRF:** `reel_url_import._validate_url` (`:14-19`) allows any http/https host — `http://169.254.169.254/…`
@@ -447,10 +447,10 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 0.3 contract validation silent no-op — fast branch
 - [x] 1.1 harden higgsfield runner (timeout/status/download/job-id) — fast branch
 - [x] 1.2 shared LLM resilience helper — fast branch
-- [ ] 2.1 contentforge API auth
-- [ ] 2.2 biometric privacy (stdout/erasure/chmod/gitignore)
-- [ ] 2.3 scrub analysis_context
-- [ ] 2.4 security hardening batch (SSRF/gitleaks/gitignore/path)
+- [x] 2.1 contentforge API auth — ContentForge `/api/*` now requires `CREATOR_OS_API_TOKEN` bearer auth, with explicit loopback-only dev bypass via `ALLOW_INSECURE_LOCAL`; focused node auth tests passed.
+- [x] 2.2 biometric privacy (stdout/erasure/chmod/gitignore) — identity reference builds now redact embeddings in default CLI output, constrain writes to `identity_references/`, chmod reference dirs/files, support delete, and ignore embedding caches; focused identity tests passed.
+- [x] 2.3 scrub analysis_context — reference-analysis context is reduced through the existing safe-fragment scrubber before joining prompt instructions; focused injection regression passed.
+- [x] 2.4 security hardening batch (SSRF/gitleaks/gitignore/path) — reel URL imports reject private/link-local hosts and unsafe stems, root ignore covers secret TOML files, and gitleaks default rules are enabled; focused tests passed.
 - [ ] 3.1 async paid-gen jobs
 - [ ] 3.2 gen idempotency / no double-bill
 - [ ] 3.3 surface silent failures (both UIs)

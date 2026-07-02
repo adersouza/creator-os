@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -17,7 +19,25 @@ def _validate_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("reel URL must be an http(s) URL")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("reel URL must include a public http(s) host")
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise ValueError("reel URL host must resolve to a public http(s) host") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise ValueError("reel URL must resolve to a public http(s) host")
     return url
+
+
+def _validate_stem(stem: str) -> str:
+    clean = str(stem or "").strip()
+    if not clean or clean != Path(clean).name or any(sep in clean for sep in {"/", "\\"}):
+        raise ValueError("download_reel_url requires a safe stem")
+    return clean
 
 
 def _yt_dlp_cmd(url: str, output_template: Path) -> list[str]:
@@ -57,6 +77,7 @@ def download_reel_url(
     masquerade as valid source clips.
     """
     url = _validate_url(url)
+    stem = _validate_stem(stem)
     out_dir.mkdir(parents=True, exist_ok=True)
     existing = _existing_import_for_url(out_dir, url)
     if existing:

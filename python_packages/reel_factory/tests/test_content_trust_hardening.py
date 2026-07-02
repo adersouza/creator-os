@@ -20,7 +20,12 @@ from generate_assets import (
 )
 from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
-from identity_verification import build_reference_set, identity_health, verify_identity
+from identity_verification import (
+    build_reference_set,
+    delete_reference_set,
+    identity_health,
+    verify_identity,
+)
 from media_metadata import normalize_media_metadata
 from PIL import Image
 
@@ -167,6 +172,81 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
     assert all(item["status"] == "embedded" for item in built["sourceImages"])
     assert health["status"] == "ready"
     assert health["referenceEmbeddings"] == 2
+
+
+def test_identity_reference_build_rejects_output_outside_reference_root(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+
+    result = build_reference_set(
+        creator="Stacey",
+        input_dir=input_dir,
+        root=tmp_path,
+        output=tmp_path / "tracked.json",
+        provider=FakeIdentityProvider(),
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "output_must_be_under_identity_references"
+    assert not (tmp_path / "tracked.json").exists()
+
+
+def test_identity_reference_build_writes_private_file_and_delete_removes_it(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+
+    result = build_reference_set(
+        creator="Stacey",
+        input_dir=input_dir,
+        root=tmp_path,
+        provider=FakeIdentityProvider(),
+    )
+    target = Path(result["outputPath"])
+
+    assert result["status"] == "ready"
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert target.parent.stat().st_mode & 0o777 == 0o700
+    deleted = delete_reference_set(creator="Stacey", root=tmp_path)
+    assert deleted["deleted"] is True
+    assert not target.exists()
+
+
+def test_identity_reference_cli_redacts_embeddings_by_default(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    import identity_verification
+
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+    monkeypatch.setattr(
+        identity_verification,
+        "get_identity_provider",
+        lambda: FakeIdentityProvider(),
+    )
+
+    exit_code = identity_verification.main(
+        [
+            "identity-reference-build",
+            "--creator",
+            "Stacey",
+            "--input-dir",
+            str(input_dir),
+            "--root",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert '"referenceSetId"' in output
+    assert '"embeddings"' not in output
 
 
 def test_identity_reference_build_fails_closed_when_provider_missing(

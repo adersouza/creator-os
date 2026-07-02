@@ -1,3 +1,6 @@
+[extend]
+useDefault = true
+
 [[rules]]
 id = "juno-api-key"
 description = "Juno API key"

@@ -454,6 +454,7 @@ class DistributionRepository:
                     caption_day_counts,
                     source_week_counts,
                     warnings,
+                    surface,
                 )
                 if not slot:
                     unplanned.append(
@@ -632,6 +633,35 @@ class DistributionRepository:
             )
             account_slot_times.setdefault(account_id, []).append(planned_at)
 
+    def account_distribution_cadence(
+        self, account_id: str, content_surface: str | None = "reel"
+    ) -> tuple[int, int]:
+        surface = self._normalize_content_surface(content_surface)
+        if surface in {"regular_reel", "trial_reel"}:
+            surface = "reel"
+        row = self.conn.execute(
+            """
+            SELECT r.max_per_day, r.min_gap_hours
+            FROM account_content_requirements r
+            LEFT JOIN accounts a ON a.id = r.account_id
+            WHERE r.active = 1
+              AND r.content_surface = ?
+              AND (r.account_id = ? OR a.external_id = ? OR a.handle = ?)
+            ORDER BY CASE
+                WHEN r.account_id = ? THEN 0
+                WHEN a.external_id = ? THEN 1
+                ELSE 2
+            END
+            LIMIT 1
+            """,
+            (surface, account_id, account_id, account_id, account_id, account_id),
+        ).fetchone()
+        if not row:
+            return 1, 4
+        return max(1, int(row["max_per_day"] or 1)), max(
+            0, int(row["min_gap_hours"] or 0)
+        )
+
     def next_valid_distribution_slot(
         self,
         slots: list[datetime],
@@ -643,7 +673,11 @@ class DistributionRepository:
         caption_day_counts: dict[tuple[str, str], int],
         source_week_counts: dict[tuple[str, str], int],
         warnings: list[dict[str, Any]],
+        content_surface: str | None = "reel",
     ) -> tuple[datetime | None, int]:
+        max_per_day, min_gap_hours = self.account_distribution_cadence(
+            account_id, content_surface
+        )
         caption_hash = (
             asset.get("caption_hash")
             or asset.get("captionHash")
@@ -658,10 +692,10 @@ class DistributionRepository:
             slot = slots[index % len(slots)]
             day_key = slot.date().isoformat()
             week_key = f"{slot.isocalendar().year}-W{slot.isocalendar().week:02d}"
-            if account_day_counts.get((account_id, day_key), 0) >= 1:
+            if account_day_counts.get((account_id, day_key), 0) >= max_per_day:
                 continue
             if any(
-                abs((slot - planned_at).total_seconds()) < 4 * 3600
+                abs((slot - planned_at).total_seconds()) < min_gap_hours * 3600
                 for planned_at in account_slot_times.get(account_id, [])
             ):
                 continue

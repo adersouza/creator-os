@@ -120,6 +120,8 @@ from posting_ledger import (
     assign_approved_reels as ledger_assign_approved_reels,
     content_fingerprint as ledger_content_fingerprint,
     create_posting_plan,
+    _creator_identity_conflict as ledger_creator_identity_conflict,
+    _find_lineage_path as ledger_find_lineage_path,
     export_schedule_package as ledger_export_schedule_package,
     ledger_conflicts,
     review_queue as ledger_review_queue,
@@ -736,6 +738,9 @@ def queue_threadsdashboard_post(
     _safe_in_root(src)
     if not src.exists() or not src.is_file():
         raise HTTPException(404, "output not found")
+    identity_conflict = _threadsdashboard_queue_identity_conflict(root, account, src)
+    if identity_conflict:
+        raise HTTPException(409, {"reason": identity_conflict})
     out_dir = root / "04_exports" / "threadsdashboard"
     asset_dir = out_dir / "media"
     dest = _copy_unique(src, asset_dir, prefix=src.stem)
@@ -781,6 +786,51 @@ def queue_threadsdashboard_post(
         "path": str(item_path),
         "queue_path": str(queue_path),
     }
+
+
+def _threadsdashboard_queue_identity_conflict(
+    root: Path, account: str, output_path: Path
+) -> str | None:
+    conn = campaign_connect(root)
+    try:
+        row = conn.execute(
+            """
+            SELECT cr.name, cr.soul_id, cr.default_settings_json
+            FROM campaigns c
+            JOIN creators cr ON cr.creator_id = c.creator_id
+            WHERE lower(c.account) = lower(?) AND c.status = 'active'
+            ORDER BY c.updated_at DESC
+            LIMIT 1
+            """,
+            (account,),
+        ).fetchone()
+        if not row:
+            return None
+        settings = json.loads(row["default_settings_json"] or "{}")
+        accepted = [
+            str(item).strip()
+            for item in settings.get("accepted_soul_ids", [])
+            if str(item).strip()
+        ] or [row["soul_id"]]
+        lineage_path = ledger_find_lineage_path(output_path)
+        lineage = (
+            json.loads(lineage_path.read_text(encoding="utf-8"))
+            if lineage_path
+            else {}
+        )
+        return ledger_creator_identity_conflict(
+            conn,
+            item={"output_path": str(output_path)},
+            lineage=lineage,
+            slot={
+                "creator": row["name"],
+                "soul_name": row["name"],
+                "soul_id": row["soul_id"],
+                "accepted_soul_ids_json": json.dumps(accepted),
+            },
+        )
+    finally:
+        conn.close()
 
 
 def _next_clip_id() -> str:

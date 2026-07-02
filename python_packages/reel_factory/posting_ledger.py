@@ -49,7 +49,7 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
         soul_id TEXT,
         accepted_soul_ids_json TEXT NOT NULL DEFAULT '[]',
         date TEXT NOT NULL,
-        slot_type TEXT NOT NULL CHECK(slot_type IN ('main', 'trial_1', 'trial_2')),
+        slot_type TEXT NOT NULL,
         planned_slot_time TEXT NOT NULL,
         source_reference_id TEXT,
         source_reference_path TEXT,
@@ -159,6 +159,36 @@ def account_id_for(handle: str) -> str:
     return _slug(handle)
 
 
+def _account_slot_plan(
+    account: str | dict[str, Any], slot_times: dict[str, str]
+) -> list[tuple[str, str]]:
+    max_per_day = (
+        int(account.get("max_per_day") or account.get("maxPerDay") or len(SLOT_TYPES))
+        if isinstance(account, dict)
+        else len(SLOT_TYPES)
+    )
+    max_per_day = max(1, max_per_day)
+    if max_per_day <= len(SLOT_TYPES):
+        return [
+            (slot_type, slot_times[slot_type])
+            for slot_type in SLOT_TYPES[:max_per_day]
+        ]
+    gap_hours = (
+        int(account.get("min_gap_hours") or account.get("minGapHours") or 1)
+        if isinstance(account, dict)
+        else 1
+    )
+    gap_hours = max(1, gap_hours)
+    start_hour, start_minute = (int(part) for part in slot_times["main"].split(":", 1))
+    start_minutes = start_hour * 60 + start_minute
+    slots = []
+    for index in range(max_per_day):
+        slot_type = "main" if index == 0 else f"trial_{index}"
+        minutes = (start_minutes + index * gap_hours * 60) % (24 * 60)
+        slots.append((slot_type, f"{minutes // 60:02d}:{minutes % 60:02d}"))
+    return slots
+
+
 def create_posting_plan(
     root: Path,
     *,
@@ -217,9 +247,10 @@ def create_posting_plan(
         )
         if final_soul_id and final_soul_id not in final_accepted:
             final_accepted.insert(0, final_soul_id)
+        account_slots = _account_slot_plan(account, slot_times)
         for day_offset in range(days):
             slot_date = (start + timedelta(days=day_offset)).isoformat()
-            for slot_type in SLOT_TYPES:
+            for slot_type, planned_slot_time in account_slots:
                 slot_id = _slot_id(account_id, slot_date, slot_type)
                 row = {
                     "posting_slot_id": slot_id,
@@ -233,7 +264,7 @@ def create_posting_plan(
                     "accepted_soul_ids_json": json.dumps(final_accepted),
                     "date": slot_date,
                     "slot_type": slot_type,
-                    "planned_slot_time": slot_times[slot_type],
+                    "planned_slot_time": planned_slot_time,
                     "post_status": "planned",
                     "review_status": "pending",
                     "created_at": now,

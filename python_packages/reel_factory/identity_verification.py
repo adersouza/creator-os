@@ -117,6 +117,18 @@ def _reference_set_path(root: Path, creator: str) -> Path:
     return root / "identity_references" / f"{slug}.json"
 
 
+def _identity_reference_root(root: Path) -> Path:
+    return (root / "identity_references").resolve()
+
+
+def _output_allowed(root: Path, output_path: Path) -> bool:
+    try:
+        output_path.resolve().relative_to(_identity_reference_root(root))
+    except ValueError:
+        return False
+    return True
+
+
 def _identity_reference_failure_reason(error: str, creator: str) -> str:
     if error == "reference_set_missing":
         return f"no identity reference set for {creator} - run identity-reference-build"
@@ -257,6 +269,8 @@ def build_reference_set(
         "embeddings": [],
         "failureReason": "",
     }
+    if not _output_allowed(root_path, output_path):
+        return {**base, "failureReason": "output_must_be_under_identity_references"}
     if not input_path.exists() or not input_path.is_dir():
         return {**base, "failureReason": "input_dir_missing"}
     ok, reason = provider.available()
@@ -308,10 +322,25 @@ def build_reference_set(
         "failureReason": "",
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(output_path.parent, 0o700)
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    os.chmod(output_path, 0o600)
     return payload
+
+
+def delete_reference_set(*, creator: str, root: str | Path = ".") -> dict[str, Any]:
+    path = _reference_set_path(Path(root).resolve(), creator)
+    existed = path.exists()
+    if existed:
+        path.unlink()
+    return {
+        "schema": REFERENCE_SET_SCHEMA,
+        "creator": creator,
+        "referenceSetPath": str(path),
+        "deleted": existed,
+    }
 
 
 def identity_health(
@@ -439,6 +468,14 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--root", default=".")
     build.add_argument("--output")
     build.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    build.add_argument("--json-embeddings", action="store_true")
+
+    delete = sub.add_parser(
+        "identity-reference-delete",
+        help="delete a local identity reference embedding set",
+    )
+    delete.add_argument("--creator", required=True)
+    delete.add_argument("--root", default=".")
 
     health = sub.add_parser(
         "identity-health",
@@ -451,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     if raw_args and raw_args[0] not in {
         "verify",
         "identity-reference-build",
+        "identity-reference-delete",
         "identity-health",
         "-h",
         "--help",
@@ -465,6 +503,10 @@ def main(argv: list[str] | None = None) -> int:
             output=args.output,
             threshold=args.threshold,
         )
+        if not args.json_embeddings:
+            result = {key: value for key, value in result.items() if key != "embeddings"}
+    elif args.command == "identity-reference-delete":
+        result = delete_reference_set(creator=args.creator, root=args.root)
     elif args.command == "identity-health":
         result = identity_health(creator=args.creator, root=args.root)
     elif args.command == "verify":
