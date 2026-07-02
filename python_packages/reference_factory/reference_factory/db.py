@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
@@ -340,32 +341,49 @@ def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     ensure_data_dirs(db_path.parent)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript("\n".join(_schema_statements("TABLE")))
     _ensure_schema_columns(conn)
+    conn.executescript("\n".join(_schema_statements("INDEX")))
     return conn
 
 
+def _schema_statements(kind: str) -> list[str]:
+    return re.findall(
+        rf"CREATE (?:UNIQUE )?{kind} IF NOT EXISTS\b.*?;",
+        SCHEMA,
+        flags=re.S,
+    )
+
+
 def _ensure_schema_columns(conn: sqlite3.Connection) -> None:
-    _ensure_columns(
-        conn,
-        "public_posts",
-        {
-            "owner_follower_count": "INTEGER",
-            "public_rate_score": "REAL",
-        },
-    )
-    _ensure_columns(
-        conn,
-        "generated_video_prompts",
-        {
-            "outcome_sample_count": "INTEGER NOT NULL DEFAULT 0",
-            "outcome_reward_score": "REAL",
-            "outcome_confidence": "REAL",
-            "outcome_updated_at": "TEXT",
-            "outcome_json": "TEXT NOT NULL DEFAULT '{}'",
-        },
-    )
+    for table, columns in _declared_schema_columns().items():
+        _ensure_columns(conn, table, columns)
     conn.commit()
+
+
+def _declared_schema_columns() -> dict[str, dict[str, str]]:
+    tables: dict[str, dict[str, str]] = {}
+    for table, body in re.findall(
+        r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s+\((.*?)\);",
+        SCHEMA,
+        flags=re.S,
+    ):
+        columns: dict[str, str] = {}
+        for raw_line in body.splitlines():
+            line = raw_line.strip().rstrip(",")
+            if not line or line.upper().startswith(
+                ("UNIQUE(", "FOREIGN ", "PRIMARY ", "CHECK(", "CONSTRAINT ")
+            ):
+                continue
+            name, _, ddl = line.partition(" ")
+            if not re.match(r"^[A-Za-z_]\w*$", name):
+                continue
+            if "PRIMARY KEY" in ddl.upper():
+                continue
+            columns[name] = ddl
+        tables[table] = columns
+    return tables
 
 
 def _ensure_columns(

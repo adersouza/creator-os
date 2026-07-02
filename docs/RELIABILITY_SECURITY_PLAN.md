@@ -341,7 +341,7 @@ one helper with the other openers).
 **Tests:** connections use the helper (assert timeout/pragmas); a contended write retries rather than failing fast
 (can simulate with a held lock).
 
-### 5.2 Real schema migrations (columns added to shipped tables break old DBs)  ·  MED · M-L · [ ]
+### 5.2 Real schema migrations (columns added to shipped tables break old DBs)  ·  MED · M-L · [x]
 **Branch:** `codex/schema-migrations`
 **Why:** `PRAGMA user_version` is written once (`manifest.py:173`) but never read; `schema_migrations` gets one
 `INSERT OR IGNORE` and is never consulted. Everything is `CREATE TABLE IF NOT EXISTS` + hand-maintained
@@ -459,7 +459,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [ ] 4.1 enforce contracts at write boundaries
 - [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
 - [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.
-- [ ] 5.2 schema migrations
+- [x] 5.2 schema migrations — Reference Factory now creates tables, diffs declared schema columns across every declared table, adds missing non-PK columns, then creates indexes; legacy audio_catalog migration regression passed.
 - [x] 5.3 hot-path indexes — posting slots now index rendered paths and bare fingerprints, campaign outputs index metrics filenames with exact lookups preferred before legacy suffix fallback, and Campaign Factory lineage cost recording avoids per-event schema DDL; focused tests passed.
 - [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
 - [ ] 6.1 delete dead code

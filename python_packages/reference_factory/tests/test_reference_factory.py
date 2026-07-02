@@ -302,6 +302,39 @@ def create_accepted_proof_bundle(root: Path) -> Path:
     return bundle
 
 
+def test_reference_db_adds_missing_declared_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "reference.sqlite"
+    legacy = sqlite3.connect(db_path)
+    legacy.execute(
+        """
+        CREATE TABLE audio_catalog (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          trend_status TEXT NOT NULL DEFAULT 'unknown',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    conn = connect(db_path)
+    first_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(audio_catalog)")
+    }
+    conn.close()
+    second = connect(db_path)
+    second_columns = {
+        row["name"] for row in second.execute("PRAGMA table_info(audio_catalog)")
+    }
+    second.close()
+
+    assert "danceability" in first_columns
+    assert first_columns == second_columns
+
+
 def test_scan_indexes_account_structure_and_marks_other(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
