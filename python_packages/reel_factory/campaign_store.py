@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from asset_prompt_contract import parse_asset_prompt_response
+from feature_extract import FEATURE_KEYS
 from intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
@@ -1243,14 +1244,16 @@ def next_batch_plan(
     total_outcomes = int(
         conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0
     )
+    feature_placeholders = ",".join("?" for _ in FEATURE_KEYS)
     dna_rows = conn.execute(
-        """
+        f"""
         SELECT feature_key, feature_value, avg_winner_score, sample_size
         FROM winner_dna
-        WHERE feature_key IN ('scene','pose','motion','outfit')
+        WHERE feature_key IN ({feature_placeholders})
         ORDER BY avg_winner_score DESC, sample_size DESC
         LIMIT 8
-        """
+        """,
+        FEATURE_KEYS,
     ).fetchall()
     winner_dna_focus = [
         dict(row)

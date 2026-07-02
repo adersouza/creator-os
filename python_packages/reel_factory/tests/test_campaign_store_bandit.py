@@ -244,6 +244,47 @@ class CampaignStoreBanditTests(unittest.TestCase):
         self.assertEqual(arms["stable_recipe"]["post_count"], 1)
         self.assertEqual(arms["stable_recipe"]["mean_reward"], 0.4)
 
+    def test_next_batch_winner_dna_uses_shared_feature_keys(self):
+        root = self._root()
+        self._create_campaign(root)
+        conn = connect(root)
+        now = int(time.time())
+        conn.executemany(
+            """
+            INSERT INTO winner_dna (
+                dna_id, feature_key, feature_value, sample_size,
+                avg_winner_score, top_output_path, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("dna_audio", "audio_track_id", "track_1", 3, 9.0, "audio.mp4", now),
+                ("dna_camera", "camera", "mirror_selfie", 2, 8.0, "camera.mp4", now),
+                ("dna_body", "body_style", "glamour", 2, 7.0, "body.mp4", now),
+                (
+                    "dna_caption",
+                    "caption_style",
+                    "short_single_line",
+                    2,
+                    6.0,
+                    "caption.mp4",
+                    now,
+                ),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        plan = next_batch_plan(root, campaign="Bandit Test", count=1, seed=11)
+        focus_keys = {
+            row["feature_key"]
+            for row in plan["ideas"][0]["graphEvidence"]["winnerDnaFocus"]
+        }
+
+        self.assertIn("audio_track_id", focus_keys)
+        self.assertIn("camera", focus_keys)
+        self.assertIn("body_style", focus_keys)
+        self.assertIn("caption_style", focus_keys)
+
 
 if __name__ == "__main__":
     unittest.main()

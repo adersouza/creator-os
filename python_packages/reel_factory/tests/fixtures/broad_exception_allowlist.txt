@@ -9,7 +9,7 @@ anatomy_qc.py:assess_image_qc:186
 audio_mux.py:audio_stream_count:44
 audio_mux.py:_audio_meta:71
 audio_mux.py:mux_root:245
-campaign_store.py:get_asset_generation:828
+campaign_store.py:get_asset_generation:829
 caption_render.py:render_caption_png:329
 discoverability_safety.py:audit_caption_sources:103
 embedding_index.py:text_for_path:30
