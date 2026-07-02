@@ -10,7 +10,7 @@ function formatSize(bytes) {
   return (bytes / 1e3).toFixed(0) + " KB";
 }
 
-function VideoPreview({ file, index, runId }) {
+function VideoPreview({ file, index, runId, decisionRecord, onReview }) {
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef(null);
 
@@ -59,12 +59,12 @@ function VideoPreview({ file, index, runId }) {
           #{index + 1}
         </div>
       </div>
-      <FileInfo file={file} onDownload={downloadFile} />
+      <FileInfo file={file} onDownload={downloadFile} decisionRecord={decisionRecord} onReview={onReview} />
     </div>
   );
 }
 
-function ImagePreview({ file, index, runId }) {
+function ImagePreview({ file, index, runId, decisionRecord, onReview }) {
   const downloadFile = (e) => {
     e.stopPropagation();
     window.location.href = "/api/download?runId=" + encodeURIComponent(runId || "latest") + "&file=" + encodeURIComponent(file.name);
@@ -83,32 +83,69 @@ function ImagePreview({ file, index, runId }) {
           #{index + 1}
         </div>
       </div>
-      <FileInfo file={file} onDownload={downloadFile} />
+      <FileInfo file={file} onDownload={downloadFile} decisionRecord={decisionRecord} onReview={onReview} />
     </div>
   );
 }
 
-function FileInfo({ file, onDownload }) {
+function ReviewButtons({ current, onReview, compact = false }) {
   return (
-    <div className="p-2.5 flex items-center justify-between">
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] text-muted-dark font-mono truncate">
-          {file.name}
-        </div>
-        <div className="text-[9px] text-muted-darker mt-0.5">
-          {formatSize(file.size)}
-        </div>
-      </div>
+    <div className={"flex items-center gap-1 " + (compact ? "justify-end" : "mt-2")}>
       <button
-        onClick={onDownload}
-        className="ml-2 shrink-0 w-7 h-7 rounded-md bg-[#16161e] hover:bg-purple/20 border border-border
-          hover:border-purple-dim flex items-center justify-center transition-all cursor-pointer"
-        title="Download"
+        onClick={(event) => { event.stopPropagation(); onReview("approved"); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "approved" && !current?.chosen
+            ? "border-green-500/50 bg-green-500/15 text-green-300"
+            : "border-border bg-[#111118] text-muted hover:border-green-500/40")}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a855f7" strokeWidth="1.5">
-          <path d="M6 1v7M3 6l3 3 3-3M2 10h8" />
-        </svg>
+        Approve
       </button>
+      <button
+        onClick={(event) => { event.stopPropagation(); onReview("approved", { chosen: true }); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.chosen
+            ? "border-purple-dim bg-purple/20 text-purple"
+            : "border-border bg-[#111118] text-muted hover:border-purple-dim")}
+      >
+        Pick
+      </button>
+      <button
+        onClick={(event) => { event.stopPropagation(); onReview("rejected"); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "rejected"
+            ? "border-red-400/50 bg-red-500/15 text-red-300"
+            : "border-border bg-[#111118] text-muted hover:border-red-400/40")}
+      >
+        Reject
+      </button>
+    </div>
+  );
+}
+
+function FileInfo({ file, onDownload, decisionRecord, onReview }) {
+  return (
+    <div className="p-2.5">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] text-muted-dark font-mono truncate">
+            {file.name}
+          </div>
+          <div className="text-[9px] text-muted-darker mt-0.5">
+            {formatSize(file.size)}
+          </div>
+        </div>
+        <button
+          onClick={onDownload}
+          className="ml-2 shrink-0 w-7 h-7 rounded-md bg-[#16161e] hover:bg-purple/20 border border-border
+            hover:border-purple-dim flex items-center justify-center transition-all cursor-pointer"
+          title="Download"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a855f7" strokeWidth="1.5">
+            <path d="M6 1v7M3 6l3 3 3-3M2 10h8" />
+          </svg>
+        </button>
+      </div>
+      {onReview && <ReviewButtons current={decisionRecord} onReview={onReview} />}
     </div>
   );
 }
@@ -159,6 +196,9 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
   const isImage = mediaType === "image";
   const [files, setFiles] = useState([]);
   const [scores, setScores] = useState(null);
+  const [decisions, setDecisions] = useState({});
+  const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
+  const [reviewError, setReviewError] = useState("");
   const [downloading, setDownloading] = useState(false);
   const runId = forgeResult?.runId || "latest";
   const total = isImage ? (config.variants || 50) : config.edits * config.spins;
@@ -172,7 +212,7 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           const data = await res.json();
           setFiles(data.files || []);
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
@@ -189,12 +229,50 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           body: JSON.stringify({ runId: forgeResult.runId, threshold: 0.92, sourceFile }),
         });
         if (res.ok) setScores(await res.json());
-      } catch (e) {
+      } catch {
         // scoring is optional for the preview grid
       }
     }
     loadScores();
   }, [forgeResult, sourceFile]);
+
+  useEffect(() => {
+    async function loadDecisions() {
+      try {
+        const res = await fetch("/api/review-decisions?runId=" + encodeURIComponent(runId));
+        if (!res.ok) return;
+        const data = await res.json();
+        setDecisions(data.decisions || {});
+        setApprovedManifestUrl(data.approvedManifestUrl || "");
+      } catch {
+        // review decisions are loaded opportunistically
+      }
+    }
+    loadDecisions();
+  }, [runId]);
+
+  const submitReviewDecision = async (file, decision, options = {}) => {
+    const score = scores?.files?.find((item) => item.name === file.name) || {};
+    const res = await fetch("/api/review-decisions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId,
+        file: file.name,
+        decision,
+        chosen: options.chosen === true,
+        recommendedAction: score.recommendedAction,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setReviewError(data.error || "Review decision failed");
+      return;
+    }
+    setReviewError("");
+    setDecisions(data.state?.decisions || {});
+    setApprovedManifestUrl(data.approvedManifestUrl || "");
+  };
 
   const downloadAll = async () => {
     setDownloading(true);
@@ -297,9 +375,23 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           }`}>
             {displayFiles.map((file, i) =>
               file.type === "image" ? (
-                <ImagePreview key={file.name} file={file} index={i} runId={runId} />
+                <ImagePreview
+                  key={file.name}
+                  file={file}
+                  index={i}
+                  runId={runId}
+                  decisionRecord={decisions[file.name]}
+                  onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                />
               ) : (
-                <VideoPreview key={file.name} file={file} index={i} runId={runId} />
+                <VideoPreview
+                  key={file.name}
+                  file={file}
+                  index={i}
+                  runId={runId}
+                  decisionRecord={decisions[file.name]}
+                  onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                />
               )
             )}
           </div>
@@ -307,6 +399,7 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
       )}
 
       <SourceVariantPreview sourceFile={sourceFile} files={displayFiles} runId={runId} mediaType={mediaType} />
+      {reviewError && <div className="text-[12px] text-red-300">{reviewError}</div>}
 
       {scores?.files?.length > 0 && (
         <div className="bg-card rounded-card border border-border p-5">
@@ -327,7 +420,8 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
                   <th className="p-2">Difference</th>
                   <th className="p-2">Max variant sim</th>
                   <th className="p-2">Size</th>
-                  <th className="p-2">Action</th>
+                  <th className="p-2">Recommendation</th>
+                  <th className="p-2">Review</th>
                 </tr>
               </thead>
               <tbody>
@@ -339,11 +433,23 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
                     <td className="p-2 text-amber">{Math.round((file.maxCrossVariantSimilarity || 0) * 100)}%</td>
                     <td className="p-2 text-muted">{formatSize(file.size)}</td>
                     <td className="p-2 text-muted">{file.recommendedAction || "--"}</td>
+                    <td className="p-2">
+                      <ReviewButtons
+                        compact
+                        current={decisions[file.name]}
+                        onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {approvedManifestUrl && (
+            <a className="inline-block mt-3 text-[10px] text-purple font-mono" href={approvedManifestUrl}>
+              Approved manifest
+            </a>
+          )}
         </div>
       )}
 
