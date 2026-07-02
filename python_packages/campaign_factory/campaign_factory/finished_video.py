@@ -454,10 +454,9 @@ class FinishedVideoRepository:
             format_type = str(source_meta["formatType"])
         generated_lineage = (
             source_lineage
-            if source_lineage.get("schema")
-            == "campaign_factory.generated_asset_lineage.v1"
+            if source_lineage.get("schema") == "reel_factory.generated_asset_lineage.v1"
             else {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "pipelineTraceId": f"trace_finished_video_{digest[:16]}",
                 "source": {
                     "referenceId": None,

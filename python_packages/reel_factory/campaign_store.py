@@ -21,6 +21,8 @@ from intelligence_store import (
     validate_review,
 )
 
+from pipeline_contracts import validate_recommendation_next_batch
+
 DEFAULT_CREATORS = {
     "Stacey": {
         "soul_id": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
@@ -1210,6 +1212,7 @@ def next_batch_plan(
         "recipe_bandit": bandit_state
         | {"active": use_bandit, "fallback_recipes": best_recipes},
     }
+    validate_recommendation_next_batch(plan)
     if persist:
         from winner_dna import persist_recommendation_decision
 

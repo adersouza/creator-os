@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import validate_audio_intent
+
 AUDIO_INTENT_MODES = {
     "native_trending_audio",
     "original_voiceover",
@@ -44,14 +46,23 @@ def write_audio_intent(
             f"audio intent mode must be one of {sorted(AUDIO_INTENT_MODES)}"
         )
     payload = {
-        "schema": "reel_factory.audio_intent.v1",
+        "schema": "pipeline.audio_intent.v1",
         "mode": mode,
-        "status": "planned",
-        "platform": platform,
+        "required": mode != "silent_by_design",
+        "status": "recommended" if mode != "silent_by_design" else "not_required",
+        "platform": platform or "",
+        "recommendations": [],
+        "gates": {
+            "allow_draft_export": True,
+            "allow_preview_schedule": False,
+            "allow_live_schedule": False,
+            "allow_publish": False,
+        },
         "notes": notes,
         "audio_selection": audio_selection,
         "createdAt": int(time.time()),
     }
+    validate_audio_intent(payload)
     path = audio_intent_path(output_path)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path

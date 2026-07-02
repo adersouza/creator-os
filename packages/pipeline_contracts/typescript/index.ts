@@ -26,7 +26,7 @@ export const HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID =
 export const KLING_3_VIDEO_PROMPT_SCHEMA_ID =
 	"reference_factory.kling_3_video_prompt.v1" as const;
 export const GENERATED_ASSET_LINEAGE_SCHEMA_ID =
-	"campaign_factory.generated_asset_lineage.v1" as const;
+	"reel_factory.generated_asset_lineage.v1" as const;
 export const CREATIVE_PLAN_SCHEMA_ID =
 	"campaign_factory.creative_plan.v1" as const;
 export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =

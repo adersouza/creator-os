@@ -6,6 +6,8 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from pipeline_contracts import validate_recommendation_next_batch
+
 from .persistence import json_load
 
 RECOMMENDATION_ITEM_STATUSES = {
@@ -288,7 +290,7 @@ class RecommendationRepository:
                 commit=False,
             )
             self.conn.commit()
-        return {
+        plan = {
             "schema": "campaign_factory.recommendations.next_batch.v1",
             "campaign": campaign["slug"],
             "campaignGraphId": campaign_graph_id,
@@ -304,6 +306,8 @@ class RecommendationRepository:
             "warnings": warnings,
             "items": items,
         }
+        validate_recommendation_next_batch(plan)
+        return plan
 
     def account_ranked_candidates(
         self,

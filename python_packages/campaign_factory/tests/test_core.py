@@ -2105,7 +2105,7 @@ def test_import_folder_accepts_guarded_reel_review_package(
     lineage.write_text(
         json.dumps(
             {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "workflow": "reel_factory_review_batch",
                 "pipelineTraceId": "trace_review_1",
                 "captionPlacementDecision": {
@@ -2519,7 +2519,7 @@ def test_finished_video_intake_uses_reference_pipeline_metadata(
         assert source_prompt["sourcePreflight"]["warnings"] == []
         assert (
             source_prompt["generatedAssetLineage"]["schema"]
-            == "campaign_factory.generated_asset_lineage.v1"
+            == "reel_factory.generated_asset_lineage.v1"
         )
         assert (
             source_prompt["generatedAssetLineage"]["source"]["formatType"]
@@ -2538,7 +2538,7 @@ def test_finished_video_intake_accepts_higgsfield_source_lineage(
     lineage_path.write_text(
         json.dumps(
             {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {
                     "referenceId": "ref_001",
                     "patternCardId": "pattern_001",
@@ -3126,7 +3126,7 @@ def test_batch_summary_includes_linked_creative_plan(tmp_path: Path):
                     "creativePlanId": plan["id"],
                     "creativePlanName": plan["name"],
                     "generatedAssetLineage": {
-                        "schema": "campaign_factory.generated_asset_lineage.v1",
+                        "schema": "reel_factory.generated_asset_lineage.v1",
                         "source": {
                             "referenceId": "ref_1",
                             "patternCardId": "pattern_1",
@@ -5284,7 +5284,7 @@ def test_reel_ledger_promotion_dry_run_writes_nothing(tmp_path: Path):
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_ready"},
             },
             audio_track_id="audio_1",
@@ -5333,7 +5333,7 @@ def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distributi
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_ready"},
             },
             audio_track_id="audio_1",
@@ -5535,7 +5535,7 @@ def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(
             rendered_output_path=rendered_path,
             content_fingerprint="fp_caption_sidecar",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "render": {"renderJobKey": "job_1"},
             },
             audio_track_id=None,
@@ -5571,7 +5571,7 @@ def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(
         for path in (first, second, third):
             path.write_bytes(path.name.encode("utf-8"))
         lineage = {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "schema": "reel_factory.generated_asset_lineage.v1",
             "source": {"referenceId": "ref"},
         }
         _write_reel_posting_slot(
@@ -5665,7 +5665,7 @@ def test_reel_ledger_promotion_marks_posted_without_proof_unverified(tmp_path: P
             rendered_output_path=rendered_path,
             content_fingerprint="fp_posted",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_posted"},
             },
             audio_track_id="audio_1",
@@ -5700,7 +5700,7 @@ def test_reel_ledger_promotion_reports_account_day_quota_issue(tmp_path: Path):
     try:
         campaign = cf.upsert_campaign("may", "model")
         lineage = {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "schema": "reel_factory.generated_asset_lineage.v1",
             "source": {"referenceId": "ref"},
         }
         for idx in range(4):
@@ -8194,6 +8194,32 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                                 "mode": "native_platform_audio",
                                 "required": required,
                                 "status": status,
+                                "platform": "instagram",
+                                "recommendations": [],
+                                "gates": {
+                                    "allow_draft_export": True,
+                                    "allow_preview_schedule": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                    "allow_live_schedule": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                    "allow_publish": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                },
                                 **(
                                     {
                                         "operator_selection": {
@@ -9721,7 +9747,7 @@ def test_publishability_uses_review_package_generated_lineage_for_caption_placem
                 "status": "not_required",
             },
             "generatedAssetLineage": {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "captionPlacementPolicy": "focal-safe",
                 "captionPlacementDecision": {
                     "status": "passed",
@@ -17473,7 +17499,7 @@ def test_performance_summary_builds_hook_recipe_audio_leaderboards(tmp_path: Pat
                     "referencePattern": "caption_led_visual::direct_response::question_hook",
                     "strategy": {"primaryMetric": "views_reach"},
                     "generatedAssetLineage": {
-                        "schema": "campaign_factory.generated_asset_lineage.v1",
+                        "schema": "reel_factory.generated_asset_lineage.v1",
                         "source": {
                             "referenceId": "ref_1",
                             "patternCardId": "pattern_1",
