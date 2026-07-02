@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from campaign_store import ensure_campaign_schema
 from intelligence_store import ensure_intelligence_schema
 from metrics_store import ensure_metrics_schema
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 log = logging.getLogger("reel")
 

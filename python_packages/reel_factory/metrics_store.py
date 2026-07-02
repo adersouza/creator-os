@@ -14,7 +14,7 @@ from typing import Any
 from audio_intent import read_audio_intent
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 METRIC_COLUMNS = (
     "filename",

@@ -1,19 +1,29 @@
 import threading
 from pathlib import Path
 
-from sqlite_utils import connect_sqlite
+import sqlite_utils as sqlite_utils_shim
+from reel_factory import sqlite_utils as packaged_sqlite_utils
+from reel_factory.sqlite_utils import connect_sqlite
 
 
 def test_production_sqlite_connects_use_shared_helper() -> None:
     package_root = Path(__file__).resolve().parents[1]
     offenders: list[str] = []
-    for path in sorted(package_root.glob("*.py")):
+    for path in sorted(package_root.rglob("*.py")):
+        relative = path.relative_to(package_root)
+        if relative.parts[0] == "tests":
+            continue
         if path.name == "sqlite_utils.py":
             continue
         if "sqlite3.connect(" in path.read_text(encoding="utf-8"):
-            offenders.append(path.name)
+            offenders.append(str(relative))
 
     assert offenders == []
+
+
+def test_top_level_sqlite_utils_shim_reexports_packaged_helper() -> None:
+    assert sqlite_utils_shim.connect_sqlite is packaged_sqlite_utils.connect_sqlite
+    assert connect_sqlite is packaged_sqlite_utils.connect_sqlite
 
 
 def test_connect_sqlite_sets_busy_timeout_and_wal(tmp_path: Path) -> None:

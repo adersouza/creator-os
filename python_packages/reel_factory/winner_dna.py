@@ -21,7 +21,7 @@ from intelligence_store import (
     low_data_warning,
     winner_score,
 )
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 FEATURE_KEYS = (
     "scene",

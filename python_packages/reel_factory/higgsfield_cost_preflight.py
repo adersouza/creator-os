@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from project_config import load_config
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 SCHEMA = "reel_factory.higgsfield_cost_preflight.v1"
 

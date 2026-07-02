@@ -24,7 +24,7 @@ from generate_prompts import (
 )
 from intelligence_store import ensure_intelligence_schema
 from pipeline_contracts.llm_resilience import decode_json_object
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 ANALYSIS_FIELDS = {
     "baseVisualFormula": {},
